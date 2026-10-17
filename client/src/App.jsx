@@ -3,7 +3,7 @@ import WalletBar, { usePlayer } from './WalletBar.jsx';
 import Boxing from './games/Boxing.jsx';
 import PrizeWheel from './games/PrizeWheel.jsx';
 import { ENTRY_FEE_FRG, PRIZE_FRG, GAMES } from './config.js';
-import { finderTxUrl } from './chain.js';
+import { finderTxUrl, findRecentEntries } from './chain.js';
 import { verifyEntry, claimPrize } from './api.js';
 
 // Screen flow: lobby → paying (wallet) → verifying (server) → playing →
@@ -15,6 +15,7 @@ export default function App() {
   const [screen, setScreen] = useState('lobby');
   const [session, setSession] = useState(null);
   const [pendingTx, setPendingTx] = useState(null);
+  const [payStuck, setPayStuck] = useState(false);
   const [result, setResult] = useState(null);
   const [payout, setPayout] = useState(null);
   const [error, setError] = useState('');
@@ -39,19 +40,34 @@ export default function App() {
     try {
       setScreen('paying');
       setBusyText('Approve the entry fee in your wallet…');
-      txhash = await payEntry();
+      // Telegram can freeze this page while the wallet app is in front;
+      // a signing promise can then never come back even though the
+      // wallet approved. Cap the wait — the chain-scan recovery below
+      // picks up any payment that actually landed.
+      txhash = await Promise.race([
+        payEntry(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('__pay_timeout__')), 90_000)
+        ),
+      ]);
       if (!txhash) throw new Error('Wallet did not return a tx hash.');
 
       setBusyText('Verifying your payment on-chain…');
       const { sessionToken } = await verifyEntry(txhash, address, gameId);
       setSession(sessionToken);
       setPendingTx(null);
+      setPayStuck(false);
       setResult(null);
       setPayout(null);
       setScreen('playing');
     } catch (e) {
       setScreen('lobby');
-      if (txhash) {
+      if (e.message === '__pay_timeout__') {
+        setPayStuck(true);
+        setError(
+          'The wallet approval did not come back — Telegram may have frozen the game while you were in the wallet. If you approved, your payment may already be on-chain: use "Check for my payment" below.'
+        );
+      } else if (txhash) {
         // The payment may have landed even though verification hiccuped.
         // Keep the txhash so the player can retry verification WITHOUT
         // paying again — the server only burns a tx once it verifies.
@@ -74,6 +90,7 @@ export default function App() {
       const { sessionToken } = await verifyEntry(pendingTx, address, game);
       setSession(sessionToken);
       setPendingTx(null);
+      setPayStuck(false);
       setResult(null);
       setPayout(null);
       setScreen('playing');
@@ -84,6 +101,40 @@ export default function App() {
       );
     }
   }, [pendingTx, address, game]);
+
+  // Recovery for a payment whose wallet round-trip froze: scan the
+  // chain for this player's recent entry transfers to the treasury and
+  // try to verify each (the server rejects already-used ones) until one
+  // opens a session for the chosen game.
+  const recoverByScan = useCallback(async () => {
+    setError('');
+    try {
+      setScreen('paying');
+      setBusyText('Checking the chain for your payment…');
+      const candidates = await findRecentEntries(address);
+      for (const hash of candidates) {
+        try {
+          const { sessionToken } = await verifyEntry(hash, address, game);
+          setSession(sessionToken);
+          setPendingTx(null);
+          setPayStuck(false);
+          setResult(null);
+          setPayout(null);
+          setScreen('playing');
+          return;
+        } catch {
+          // not usable (wrong game / already used) — try the next one
+        }
+      }
+      setScreen('lobby');
+      setError(
+        'No unused payment found on-chain. If you never approved in the wallet, nothing was charged and paying again is safe.'
+      );
+    } catch (e) {
+      setScreen('lobby');
+      setError('Chain check failed — try again in a moment.');
+    }
+  }, [address, game]);
 
   const onFinish = useCallback((r) => {
     setResult(r);
@@ -134,6 +185,16 @@ export default function App() {
           ⏳ Entry payment pending verification.
           <button className="btn btn-big" onClick={retryVerify}>
             Retry verification (don’t pay again)
+          </button>
+        </div>
+      )}
+
+      {payStuck && screen === 'lobby' && (
+        <div className="error">
+          ⏳ Wallet approval got stuck coming back. If you approved in
+          your wallet, your entry may already be on-chain.
+          <button className="btn btn-big" onClick={recoverByScan}>
+            Check for my payment (don’t pay again)
           </button>
         </div>
       )}
