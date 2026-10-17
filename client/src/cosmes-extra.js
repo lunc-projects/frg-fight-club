@@ -15,12 +15,33 @@ import { Secp256k1PubKey, getAccount, toBaseAccount } from 'cosmes/client';
 import { base64 } from 'cosmes/codec';
 import { CosmosCryptoSecp256k1PubKey } from 'cosmes/protobufs';
 import { WalletController, WalletError, WalletType } from './cosmes-vendor/index.js';
+import { KeplrController } from './cosmes-vendor/index.js';
 import WalletConnect from '@walletconnect/legacy-client';
 import { WalletConnectV2 } from './cosmes-vendor/walletconnect/WalletConnectV2.js';
 import { WalletConnectV1 } from './cosmes-vendor/walletconnect/WalletConnectV1.js';
 import { KeplrExtension } from './cosmes-vendor/wallets/keplr/KeplrExtension.js';
 import { KeplrWalletConnectV2 } from './cosmes-vendor/wallets/keplr/KeplrWalletConnectV2.js';
 import { StationWalletConnectV1 } from './cosmes-vendor/wallets/station/StationWalletConnectV1.js';
+
+/* ---------------- Keplr (HTTPS app-link variant) ---------------- */
+
+// Stock cosmes Keplr hands off on Android via an intent:// URL, which
+// Telegram's webview refuses to load (ERR_UNKNOWN_URL_SCHEME — the user
+// hit the same crash as the old keplrwallet:// flow). Galaxy Station
+// works in Telegram because its link is HTTPS. Keplr has a verified
+// HTTPS app-link domain too (deeplink.keplr.app), so swap the WC
+// client's link set for the Galaxy-style construction.
+export class KeplrHttpsController extends KeplrController {
+  constructor(wcProjectId) {
+    super(wcProjectId);
+    this.wc = new WalletConnectV2(wcProjectId, {
+      name: 'Keplr',
+      android:
+        'https://deeplink.keplr.app/wcV2#Intent;package=com.chainapsis.keplr;scheme=keplrwallet;end;',
+      ios: 'keplrwallet://wcV2',
+    });
+  }
+}
 
 /* ---------------- Galaxy Station ---------------- */
 

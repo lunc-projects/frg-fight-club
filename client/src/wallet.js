@@ -1,11 +1,14 @@
 import { useEffect, useReducer } from 'react';
 import {
   CosmostationController,
-  KeplrController,
   StationController,
   WalletType,
 } from './cosmes-vendor/index.js';
-import { GalaxyStationController, LuncDashController } from './cosmes-extra.js';
+import {
+  GalaxyStationController,
+  KeplrHttpsController,
+  LuncDashController,
+} from './cosmes-extra.js';
 import { WC_PROJECT_ID } from './config.js';
 
 // Wallet layer: cosmes — the same Terra-native wallet kit luncback.com
@@ -29,7 +32,7 @@ export const WALLET_DEFS = [
 ];
 
 export const CONTROLLERS = {
-  keplr: new KeplrController(WC_PROJECT_ID),
+  keplr: new KeplrHttpsController(WC_PROJECT_ID),
   station: new StationController(),
   galaxystation: new GalaxyStationController(WC_PROJECT_ID),
   luncdash: new LuncDashController(),
