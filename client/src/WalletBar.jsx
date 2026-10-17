@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useChain } from '@cosmos-kit/react';
+import { useChain, useChainWallet } from '@cosmos-kit/react';
 import { CHAIN_NAME } from './chainDef.js';
 import { FRG_CONTRACT, TREASURY_ADDRESS, ENTRY_FEE_FRG, toMicro } from './config.js';
 import { getFrgBalance } from './chain.js';
@@ -8,7 +8,7 @@ import { getFrgBalance } from './chain.js';
  * Player wallet access via Cosmos Kit.
  * Returns the connected address and a payEntry() that signs the FRG
  * entry-fee transfer with whatever wallet the player connected
- * (Keplr extension / Keplr mobile / Station) and returns the txhash.
+ * and returns the txhash.
  */
 export function usePlayer() {
   const chain = useChain(CHAIN_NAME);
@@ -29,9 +29,45 @@ export function usePlayer() {
   return { address, status: chain.status, payEntry };
 }
 
+// Our own wallet picker — the Cosmos Kit stock modal renders broken
+// (unstyled, giant icons) inside Telegram's webview, so the game draws
+// its own list with plain buttons and connects each wallet directly.
+const WALLET_OPTIONS = [
+  { id: 'keplr-extension', label: 'Keplr', hint: 'In the Keplr app browser, or desktop extension' },
+  { id: 'station-extension', label: 'Station', hint: 'In the Station app browser, or desktop extension' },
+  { id: 'keplr-mobile', label: 'Keplr Mobile 📱', hint: 'Opens the Keplr app to approve' },
+  { id: 'galaxy-station', label: 'Galaxy Station 📱', hint: 'Opens the Galaxy Station app to approve' },
+  { id: 'luncdash', label: 'LuncDash 📱', hint: 'Opens the LuncDash app to approve' },
+];
+
+function WalletOption({ opt, onDone }) {
+  const w = useChainWallet(CHAIN_NAME, opt.id);
+  const connecting = w.status === 'Connecting';
+  const notExist = w.isWalletNotExist || w.status === 'NotExist';
+  return (
+    <button
+      className="btn btn-wallet-option"
+      disabled={connecting}
+      onClick={async () => {
+        try {
+          await w.connect();
+          onDone?.();
+        } catch {
+          // rejected or app didn't answer — stay on the picker
+        }
+      }}
+    >
+      <span className="wo-label">{opt.label}</span>
+      <span className="wo-hint">
+        {connecting ? 'Connecting — check your wallet app…' : notExist ? 'Not found in this browser — use the app option or open the game inside the wallet app' : opt.hint}
+      </span>
+    </button>
+  );
+}
+
 export default function WalletBar({ balance, setBalance }) {
-  const { status, address, connect, disconnect, username } = useChain(CHAIN_NAME);
-  const [busy, setBusy] = useState(false);
+  const { address, disconnect, username } = useChain(CHAIN_NAME);
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -51,28 +87,27 @@ export default function WalletBar({ balance, setBalance }) {
     return (
       <div className="walletbar">
         <div className="walletbar-label">Connect a wallet to play</div>
-        <div className="wallet-buttons">
-          <button
-            className="btn btn-wallet"
-            disabled={busy || status === 'Connecting'}
-            onClick={async () => {
-              setBusy(true);
-              try {
-                await connect();
-              } catch {
-                // user closed the modal or rejected — stay in lobby
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            🔗 {status === 'Connecting' ? 'Connecting…' : 'Connect Wallet'}
-          </button>
-        </div>
+        {!open ? (
+          <div className="wallet-buttons">
+            <button className="btn btn-wallet" onClick={() => setOpen(true)}>
+              🔗 Connect Wallet
+            </button>
+          </div>
+        ) : (
+          <div className="wallet-options">
+            {WALLET_OPTIONS.map((o) => (
+              <WalletOption key={o.id} opt={o} onDone={() => setOpen(false)} />
+            ))}
+            <button className="btn btn-ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </button>
+          </div>
+        )}
         <div className="walletbar-hint">
-          Keplr or Station — pick your wallet in the list. Inside the Keplr
-          app browser it connects directly; from Telegram, choose Keplr
-          Mobile.
+          From Telegram or a normal browser, tap your wallet's app option —
+          it opens the app to approve, then brings you back. Inside the
+          Keplr or Station app browser, the plain Keplr / Station options
+          connect directly.
         </div>
       </div>
     );

@@ -6,6 +6,8 @@ import { wallets as keplrWallets } from '@cosmos-kit/keplr';
 import { wallets as stationWallets } from '@cosmos-kit/station';
 import { GasPrice } from '@cosmjs/stargate';
 import { terraClassicChain, terraClassicAssets } from './chainDef.js';
+import { extraWallets } from './wallets.js';
+import { WC_PROJECT_ID } from './config.js';
 import App from './App.jsx';
 import './styles.css';
 
@@ -25,8 +27,23 @@ createRoot(document.getElementById('root')).render(
     <ChainProvider
       chains={[terraClassicChain]}
       assetLists={[terraClassicAssets]}
-      wallets={[...keplrWallets, ...stationWallets]}
+      wallets={[...keplrWallets, ...stationWallets, ...extraWallets]}
       signerOptions={{ signingStargate: gasPrice, signingCosmwasm: gasPrice }}
+      {...(WC_PROJECT_ID
+        ? {
+            walletConnectOptions: {
+              signClient: {
+                projectId: WC_PROJECT_ID,
+                metadata: {
+                  name: 'FRG Fight Club',
+                  description: 'Play. Win. Get paid in FRG.',
+                  url: 'https://frg-fight-club.vercel.app',
+                  icons: [],
+                },
+              },
+            },
+          }
+        : {})}
     >
       <App />
     </ChainProvider>

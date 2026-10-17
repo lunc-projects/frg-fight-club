@@ -27,6 +27,11 @@ export const TREASURY_ADDRESS = 'terra1mymhewn5pp2aqy8ld6828md24sfecn05zdztg7';
 // so leave it empty. In production set VITE_API_URL to your server's URL.
 export const API_BASE = import.meta.env.VITE_API_URL || '';
 
+// WalletConnect (Reown) project ID — a public identifier, safe to ship.
+// Required for the app-based wallets (Keplr Mobile, Galaxy Station,
+// LuncDash) to pair from Telegram / mobile browsers.
+export const WC_PROJECT_ID = '';
+
 // Game registry — the lobby renders one card per entry. To add a game:
 // build its component under src/games/, then add a line here.
 export const GAMES = [
