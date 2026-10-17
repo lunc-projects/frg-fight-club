@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useChain, useChainWallet } from '@cosmos-kit/react';
 import { CHAIN_NAME } from './chainDef.js';
 import { FRG_CONTRACT, TREASURY_ADDRESS, ENTRY_FEE_FRG, toMicro } from './config.js';
@@ -42,46 +42,92 @@ const WALLET_OPTIONS = [
 
 function WalletOption({ opt, onDone }) {
   const w = useChainWallet(CHAIN_NAME, opt.id);
-  const connecting = w.status === 'Connecting';
+  const wRef = useRef(w);
+  wRef.current = w;
   const notExist = w.isWalletNotExist || w.status === 'NotExist';
+  const [phase, setPhase] = useState('idle'); // idle | starting | waiting | error
+  const [uri, setUri] = useState(null);
+  const [errMsg, setErrMsg] = useState('');
   const [copied, setCopied] = useState(false);
-  // WalletConnect pairing URI, present while a mobile-wallet connect is
-  // pending. Apps with official deep links (Keplr) open automatically;
-  // Galaxy Station / LuncDash are not in WalletConnect's registry, so
-  // their users paste this link into the app's WalletConnect screen.
-  const pairingUri = w.qrUrl?.data || null;
+  const pollRef = useRef(null);
+
+  const stopPoll = () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = null;
+  };
+  useEffect(() => stopPoll, []);
+
+  const startConnect = () => {
+    setPhase('starting');
+    setErrMsg('');
+    setUri(null);
+    setCopied(false);
+    const startedAt = Date.now();
+    stopPoll();
+    pollRef.current = setInterval(() => {
+      const data = wRef.current?.qrUrl?.data;
+      if (data) {
+        setUri(data);
+        setPhase('waiting');
+        stopPoll();
+      } else if (Date.now() - startedAt > 25000) {
+        stopPoll();
+        setPhase('error');
+        setErrMsg(
+          'No pairing link came back — the WalletConnect relay may be unreachable from this browser. Try again, or open the game in Chrome / inside your wallet app’s browser instead.'
+        );
+      }
+    }, 400);
+    wRef.current
+      .connect()
+      .then(() => {
+        stopPoll();
+        setPhase('idle');
+        onDone?.();
+      })
+      .catch((e) => {
+        stopPoll();
+        if (!wRef.current?.qrUrl?.data) {
+          setPhase('error');
+          setErrMsg(e?.message ? String(e.message).slice(0, 160) : 'Connection failed.');
+        }
+      });
+  };
+
+  const busy = phase === 'starting' || phase === 'waiting';
   return (
     <div className="wallet-option-wrap">
-      <button
-        className="btn btn-wallet-option"
-        disabled={connecting}
-        onClick={async () => {
-          try {
-            await w.connect();
-            onDone?.();
-          } catch {
-            // rejected or app didn't answer — stay on the picker
-          }
-        }}
-      >
+      <button className="btn btn-wallet-option" disabled={busy} onClick={startConnect}>
         <span className="wo-label">{opt.label}</span>
         <span className="wo-hint">
-          {connecting ? 'Connecting — check your wallet app…' : notExist ? 'Not found in this browser — use the app option or open the game inside the wallet app' : opt.hint}
+          {phase === 'starting'
+            ? 'Contacting WalletConnect…'
+            : phase === 'waiting'
+              ? 'Pairing link ready — paste it in the app, then approve'
+              : phase === 'error'
+                ? 'Tap to try again'
+                : notExist
+                  ? 'Not found in this browser — use the app option or open the game inside the wallet app'
+                  : opt.hint}
         </span>
       </button>
-      {connecting && pairingUri && (
-        <button
-          className="btn btn-ghost wo-copy"
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(pairingUri);
-              setCopied(true);
-            } catch {}
-          }}
-        >
-          {copied ? '✓ Copied — paste it in your wallet app' : '📋 Copy pairing link — paste it in your wallet app’s WalletConnect screen'}
-        </button>
+      {uri && (
+        <>
+          <button
+            className="btn btn-ghost wo-copy"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(uri);
+                setCopied(true);
+              } catch {}
+            }}
+          >
+            {copied ? '✓ Copied — now paste it in your wallet app' : '📋 Copy pairing link — paste it in your wallet app’s WalletConnect screen'}
+          </button>
+          <input className="wo-uri" readOnly value={uri} onFocus={(e) => e.target.select()} />
+        </>
       )}
+      {phase === 'error' && errMsg && <div className="wo-error">{errMsg}</div>}
     </div>
   );
 }
