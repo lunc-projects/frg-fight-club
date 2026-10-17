@@ -1,16 +1,14 @@
 import { useCallback, useState } from 'react';
-import { useWallet, WalletStatus } from '@terra-money/wallet-kit';
 import WalletBar, { usePlayer } from './WalletBar.jsx';
 import Boxing from './games/Boxing.jsx';
 import { ENTRY_FEE_FRG, PRIZE_FRG, GAMES } from './config.js';
-import { buildEntryFeeMsg, extractTxHash, finderTxUrl } from './chain.js';
+import { finderTxUrl } from './chain.js';
 import { verifyEntry, claimPrize } from './api.js';
 
 // Screen flow: lobby → paying (wallet) → verifying (server) → playing →
 // won (claim) / lost → lobby
 export default function App() {
-  const { status } = useWallet();
-  const { connectedWallet, address } = usePlayer();
+  const { address, payEntry } = usePlayer();
   const [balance, setBalance] = useState(null);
   const [screen, setScreen] = useState('lobby');
   const [session, setSession] = useState(null);
@@ -20,7 +18,7 @@ export default function App() {
   const [error, setError] = useState('');
   const [busyText, setBusyText] = useState('');
 
-  const connected = status === WalletStatus.WALLET_CONNECTED && !!address;
+  const connected = !!address;
 
   const enterBoxing = useCallback(async () => {
     setError('');
@@ -38,10 +36,7 @@ export default function App() {
     try {
       setScreen('paying');
       setBusyText('Approve the entry fee in your wallet…');
-      const postResult = await connectedWallet.post({
-        msgs: [buildEntryFeeMsg(address, ENTRY_FEE_FRG)],
-      });
-      txhash = extractTxHash(postResult);
+      txhash = await payEntry();
       if (!txhash) throw new Error('Wallet did not return a tx hash.');
 
       setBusyText('Verifying your payment on-chain…');
@@ -65,7 +60,7 @@ export default function App() {
         setError(e.message || 'Entry failed.');
       }
     }
-  }, [connected, balance, connectedWallet, address]);
+  }, [connected, balance, payEntry, address]);
 
   const retryVerify = useCallback(async () => {
     if (!pendingTx) return;

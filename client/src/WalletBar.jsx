@@ -1,21 +1,36 @@
 import { useEffect, useState } from 'react';
-import { useWallet, useConnectedWallet, WalletStatus } from '@terra-money/wallet-kit';
-import { CHAIN_ID } from './config.js';
+import { useChain } from '@cosmos-kit/react';
+import { CHAIN_NAME } from './chainDef.js';
+import { FRG_CONTRACT, TREASURY_ADDRESS, ENTRY_FEE_FRG, toMicro } from './config.js';
 import { getFrgBalance } from './chain.js';
 
+/**
+ * Player wallet access via Cosmos Kit.
+ * Returns the connected address and a payEntry() that signs the FRG
+ * entry-fee transfer with whatever wallet the player connected
+ * (Keplr extension / Keplr mobile / Station) and returns the txhash.
+ */
 export function usePlayer() {
-  const connectedWallet = useConnectedWallet();
-  const address =
-    connectedWallet?.addresses?.[CHAIN_ID] ||
-    (connectedWallet?.addresses
-      ? Object.values(connectedWallet.addresses)[0]
-      : undefined);
-  return { connectedWallet, address };
+  const chain = useChain(CHAIN_NAME);
+  const address = chain.address || undefined;
+
+  const payEntry = async () => {
+    if (!address) throw new Error('Connect your wallet first.');
+    const client = await chain.getSigningCosmWasmClient();
+    const res = await client.execute(
+      address,
+      FRG_CONTRACT,
+      { transfer: { recipient: TREASURY_ADDRESS, amount: toMicro(ENTRY_FEE_FRG) } },
+      'auto'
+    );
+    return res.transactionHash;
+  };
+
+  return { address, status: chain.status, payEntry };
 }
 
 export default function WalletBar({ balance, setBalance }) {
-  const { status, availableWallets, connect, disconnect } = useWallet();
-  const { address } = usePlayer();
+  const { status, address, connect, disconnect, username } = useChain(CHAIN_NAME);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -32,39 +47,32 @@ export default function WalletBar({ balance, setBalance }) {
     };
   }, [address, setBalance]);
 
-  if (status === WalletStatus.INITIALIZING) {
-    return <div className="walletbar">Loading wallets…</div>;
-  }
-
-  if (status !== WalletStatus.WALLET_CONNECTED || !address) {
+  if (!address) {
     return (
       <div className="walletbar">
         <div className="walletbar-label">Connect a wallet to play</div>
         <div className="wallet-buttons">
-          {availableWallets.map((w) => (
-            <button
-              key={w.id}
-              className="btn btn-wallet"
-              disabled={busy}
-              onClick={async () => {
-                setBusy(true);
-                try {
-                  await connect(w.id);
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              {w.icon && <img src={w.icon} alt="" width="18" height="18" />}
-              {w.name}
-              {w.isInstalled === false ? ' (install)' : ''}
-            </button>
-          ))}
+          <button
+            className="btn btn-wallet"
+            disabled={busy || status === 'Connecting'}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await connect();
+              } catch {
+                // user closed the modal or rejected — stay in lobby
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            🔗 {status === 'Connecting' ? 'Connecting…' : 'Connect Wallet'}
+          </button>
         </div>
         <div className="walletbar-hint">
-          On mobile, open this page inside your wallet app's browser
-          (Station, Keplr or LuncDash) — Telegram's built-in browser can't
-          connect a wallet. On desktop, use the Station extension.
+          Keplr or Station — pick your wallet in the list. Inside the Keplr
+          app browser it connects directly; from Telegram, choose Keplr
+          Mobile.
         </div>
       </div>
     );
@@ -75,11 +83,12 @@ export default function WalletBar({ balance, setBalance }) {
       <div>
         <div className="addr">
           {address.slice(0, 10)}…{address.slice(-6)}
+          {username ? ` · ${username}` : ''}
         </div>
         <div className="bal">
-          {balance === null ? '—' : balance.toLocaleString(undefined, {
-            maximumFractionDigits: 2,
-          })}{' '}
+          {balance === null
+            ? '—'
+            : balance.toLocaleString(undefined, { maximumFractionDigits: 2 })}{' '}
           FRG
         </div>
       </div>

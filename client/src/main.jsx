@@ -1,29 +1,18 @@
 import './polyfills.js';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { WalletProvider } from '@terra-money/wallet-kit';
+import { ChainProvider } from '@cosmos-kit/react';
+import { wallets as keplrWallets } from '@cosmos-kit/keplr';
+import { wallets as stationWallets } from '@cosmos-kit/station';
+import { GasPrice } from '@cosmjs/stargate';
+import { terraClassicChain, terraClassicAssets } from './chainDef.js';
 import App from './App.jsx';
 import './styles.css';
 
-// Networks the wallet modal offers. Terra Classic (columbus-5) is the game
-// chain; phoenix-1 (Terra 2.0) is included so Station doesn't complain when
-// a user has it selected — the game itself only uses columbus-5.
-const defaultNetworks = {
-  'columbus-5': {
-    chainID: 'columbus-5',
-    lcd: 'https://terra-classic-lcd.publicnode.com',
-    gasAdjustment: 1.75,
-    gasPrices: { uluna: 28.325 },
-    prefix: 'terra',
-  },
-  'phoenix-1': {
-    chainID: 'phoenix-1',
-    lcd: 'https://phoenix-lcd.terra.dev',
-    gasAdjustment: 1.75,
-    gasPrices: { uluna: 0.15 },
-    prefix: 'terra',
-  },
-};
+// Wallet connect is Cosmos Kit: Keplr (extension + mobile), Station.
+// This replaces @terra-money/wallet-kit, which only ever talked to the
+// Station extension and left Keplr users with a dead connect button.
+const gasPrice = () => ({ gasPrice: GasPrice.fromString('28.325uluna') });
 
 // Telegram Mini App: tell Telegram we're ready and use the full height.
 if (window.Telegram?.WebApp) {
@@ -33,8 +22,13 @@ if (window.Telegram?.WebApp) {
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <WalletProvider defaultNetworks={defaultNetworks}>
+    <ChainProvider
+      chains={[terraClassicChain]}
+      assetLists={[terraClassicAssets]}
+      wallets={[...keplrWallets, ...stationWallets]}
+      signerOptions={{ signingStargate: gasPrice, signingCosmwasm: gasPrice }}
+    >
       <App />
-    </WalletProvider>
+    </ChainProvider>
   </React.StrictMode>
 );
