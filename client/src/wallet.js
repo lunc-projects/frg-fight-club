@@ -1,0 +1,85 @@
+import { useEffect, useReducer } from 'react';
+import {
+  CosmostationController,
+  KeplrController,
+  StationController,
+  WalletType,
+} from './cosmes-vendor/index.js';
+import { GalaxyStationController, LuncDashController } from './cosmes-extra.js';
+import { WC_PROJECT_ID } from './config.js';
+
+// Wallet layer: cosmes — the same Terra-native wallet kit luncback.com
+// runs. One controller per wallet; each knows how to reach its app
+// (extension injection in wallet browsers, WalletConnect v2 with app
+// links for Keplr/Galaxy/Cosmostation, the legacy Terra bridge for
+// Station and LUNC Dash).
+
+export const CHAIN_INFO = {
+  chainId: 'columbus-5',
+  rpc: 'https://terra-classic-rpc.publicnode.com',
+  gasPrice: { amount: '28.325', denom: 'uluna' },
+};
+
+export const WALLET_DEFS = [
+  { id: 'keplr', label: 'Keplr', hint: 'Keplr app browser, extension, or Keplr Mobile app' },
+  { id: 'station', label: 'Terra Station', hint: 'Station app browser, extension, or Station mobile app' },
+  { id: 'galaxystation', label: 'Galaxy Station 📱', hint: 'Galaxy Station app or extension' },
+  { id: 'luncdash', label: 'LUNC Dash 📱', hint: 'LUNC Dash app (bridge connect)' },
+  { id: 'cosmostation', label: 'Cosmostation', hint: 'Cosmostation app or extension' },
+];
+
+export const CONTROLLERS = {
+  keplr: new KeplrController(WC_PROJECT_ID),
+  station: new StationController(),
+  galaxystation: new GalaxyStationController(WC_PROJECT_ID),
+  luncdash: new LuncDashController(),
+  cosmostation: new CosmostationController(WC_PROJECT_ID),
+};
+
+// Minimal shared store for the connected wallet (replaces the old
+// Cosmos Kit context). Shape: { walletId, wallet } | null.
+let current = null;
+const listeners = new Set();
+
+export function setCurrentWallet(v) {
+  current = v;
+  listeners.forEach((f) => f());
+}
+
+export function useConnectedWallet() {
+  const [, force] = useReducer((x) => x + 1, 0);
+  useEffect(() => {
+    listeners.add(force);
+    return () => listeners.delete(force);
+  }, []);
+  return current;
+}
+
+export async function connectWallet(walletId) {
+  const controller = CONTROLLERS[walletId];
+  if (!controller) throw new Error(`Unknown wallet: ${walletId}`);
+  let type = WalletType.WALLETCONNECT;
+  try {
+    if (await controller.isInstalled(WalletType.EXTENSION)) {
+      type = WalletType.EXTENSION;
+    }
+  } catch {
+    // fall through to WalletConnect
+  }
+  const res = await controller.connect(type, [CHAIN_INFO]);
+  const wallet = res.get(CHAIN_INFO.chainId);
+  if (!wallet) throw new Error('That wallet did not return a Terra Classic account.');
+  const entry = { walletId, wallet };
+  setCurrentWallet(entry);
+  return entry;
+}
+
+export function disconnectWallet() {
+  if (!current) return;
+  try {
+    CONTROLLERS[current.walletId].disconnect([CHAIN_INFO.chainId]);
+  } catch {
+    // best effort — local state clears regardless
+  }
+  setCurrentWallet(null);
+}

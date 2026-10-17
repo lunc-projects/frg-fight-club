@@ -1,140 +1,56 @@
-import { useEffect, useRef, useState } from 'react';
-import { useChain, useChainWallet } from '@cosmos-kit/react';
-import { CHAIN_NAME } from './chainDef.js';
+import { useEffect, useState } from 'react';
+import { MsgExecuteContract } from 'cosmes/client';
 import { FRG_CONTRACT, TREASURY_ADDRESS, ENTRY_FEE_FRG, toMicro } from './config.js';
 import { getFrgBalance } from './chain.js';
+import {
+  WALLET_DEFS,
+  connectWallet,
+  disconnectWallet,
+  useConnectedWallet,
+} from './wallet.js';
+import { setLuncDashUriHandler } from './cosmes-extra.js';
 
 /**
- * Player wallet access via Cosmos Kit.
+ * Player wallet access (cosmes).
  * Returns the connected address and a payEntry() that signs the FRG
- * entry-fee transfer with whatever wallet the player connected
- * and returns the txhash.
+ * entry-fee transfer with the connected wallet and returns the txhash.
  */
 export function usePlayer() {
-  const chain = useChain(CHAIN_NAME);
-  const address = chain.address || undefined;
+  const current = useConnectedWallet();
+  const address = current?.wallet.address;
 
   const payEntry = async () => {
-    if (!address) throw new Error('Connect your wallet first.');
-    const client = await chain.getSigningCosmWasmClient();
-    const res = await client.execute(
-      address,
-      FRG_CONTRACT,
-      { transfer: { recipient: TREASURY_ADDRESS, amount: toMicro(ENTRY_FEE_FRG) } },
-      'auto'
-    );
-    return res.transactionHash;
+    if (!current) throw new Error('Connect your wallet first.');
+    const wallet = current.wallet;
+    const tx = {
+      msgs: [
+        new MsgExecuteContract({
+          sender: wallet.address,
+          contract: FRG_CONTRACT,
+          msg: {
+            transfer: { recipient: TREASURY_ADDRESS, amount: toMicro(ENTRY_FEE_FRG) },
+          },
+          funds: [],
+        }),
+      ],
+    };
+    const fee = await wallet.estimateFee(tx);
+    return wallet.broadcastTx(tx, fee);
   };
 
-  return { address, status: chain.status, payEntry };
-}
-
-// Our own wallet picker — the Cosmos Kit stock modal renders broken
-// (unstyled, giant icons) inside Telegram's webview, so the game draws
-// its own list with plain buttons and connects each wallet directly.
-const WALLET_OPTIONS = [
-  { id: 'keplr-extension', label: 'Keplr', hint: 'In the Keplr app browser, or desktop extension' },
-  { id: 'station-extension', label: 'Station', hint: 'In the Station app browser, or desktop extension' },
-  { id: 'keplr-mobile', label: 'Keplr Mobile 📱', hint: 'Opens the Keplr app to approve' },
-  { id: 'galaxy-station', label: 'Galaxy Station 📱', hint: 'Opens the Galaxy Station app to approve' },
-  { id: 'luncdash', label: 'LuncDash 📱', hint: 'Opens the LuncDash app to approve' },
-];
-
-function WalletOption({ opt, onDone }) {
-  const w = useChainWallet(CHAIN_NAME, opt.id);
-  const wRef = useRef(w);
-  wRef.current = w;
-  const notExist = w.isWalletNotExist || w.status === 'NotExist';
-  const [phase, setPhase] = useState('idle'); // idle | starting | waiting | error
-  const [uri, setUri] = useState(null);
-  const [errMsg, setErrMsg] = useState('');
-  const [copied, setCopied] = useState(false);
-  const pollRef = useRef(null);
-
-  const stopPoll = () => {
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = null;
-  };
-  useEffect(() => stopPoll, []);
-
-  const startConnect = () => {
-    setPhase('starting');
-    setErrMsg('');
-    setUri(null);
-    setCopied(false);
-    const startedAt = Date.now();
-    stopPoll();
-    pollRef.current = setInterval(() => {
-      const data = wRef.current?.qrUrl?.data;
-      if (data) {
-        setUri(data);
-        setPhase('waiting');
-        stopPoll();
-      } else if (Date.now() - startedAt > 25000) {
-        stopPoll();
-        setPhase('error');
-        setErrMsg(
-          'No pairing link came back — the WalletConnect relay may be unreachable from this browser. Try again, or open the game in Chrome / inside your wallet app’s browser instead.'
-        );
-      }
-    }, 400);
-    wRef.current
-      .connect()
-      .then(() => {
-        stopPoll();
-        setPhase('idle');
-        onDone?.();
-      })
-      .catch((e) => {
-        stopPoll();
-        if (!wRef.current?.qrUrl?.data) {
-          setPhase('error');
-          setErrMsg(e?.message ? String(e.message).slice(0, 160) : 'Connection failed.');
-        }
-      });
-  };
-
-  const busy = phase === 'starting' || phase === 'waiting';
-  return (
-    <div className="wallet-option-wrap">
-      <button className="btn btn-wallet-option" disabled={busy} onClick={startConnect}>
-        <span className="wo-label">{opt.label}</span>
-        <span className="wo-hint">
-          {phase === 'starting'
-            ? 'Contacting WalletConnect…'
-            : phase === 'waiting'
-              ? 'Pairing link ready — paste it in the app, then approve'
-              : phase === 'error'
-                ? 'Tap to try again'
-                : notExist
-                  ? 'Not found in this browser — use the app option or open the game inside the wallet app'
-                  : opt.hint}
-        </span>
-      </button>
-      {uri && (
-        <>
-          <button
-            className="btn btn-ghost wo-copy"
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(uri);
-                setCopied(true);
-              } catch {}
-            }}
-          >
-            {copied ? '✓ Copied — now paste it in your wallet app' : '📋 Copy pairing link — paste it in your wallet app’s WalletConnect screen'}
-          </button>
-          <input className="wo-uri" readOnly value={uri} onFocus={(e) => e.target.select()} />
-        </>
-      )}
-      {phase === 'error' && errMsg && <div className="wo-error">{errMsg}</div>}
-    </div>
-  );
+  return { address, payEntry };
 }
 
 export default function WalletBar({ balance, setBalance }) {
-  const { address, disconnect, username } = useChain(CHAIN_NAME);
+  const current = useConnectedWallet();
+  const address = current?.wallet.address;
   const [open, setOpen] = useState(false);
+  const [busyId, setBusyId] = useState('');
+  const [err, setErr] = useState('');
+  const [luncUri, setLuncUri] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => setLuncDashUriHandler((uri) => setLuncUri(uri)), []);
 
   useEffect(() => {
     let live = true;
@@ -150,6 +66,20 @@ export default function WalletBar({ balance, setBalance }) {
     };
   }, [address, setBalance]);
 
+  const onConnect = async (id) => {
+    setBusyId(id);
+    setErr('');
+    setCopied(false);
+    try {
+      await connectWallet(id);
+      setOpen(false);
+    } catch (e) {
+      setErr(e?.message ? String(e.message).slice(0, 180) : 'Connection failed.');
+    } finally {
+      setBusyId('');
+    }
+  };
+
   if (!address) {
     return (
       <div className="walletbar">
@@ -162,19 +92,46 @@ export default function WalletBar({ balance, setBalance }) {
           </div>
         ) : (
           <div className="wallet-options">
-            {WALLET_OPTIONS.map((o) => (
-              <WalletOption key={o.id} opt={o} onDone={() => setOpen(false)} />
+            {WALLET_DEFS.map((def) => (
+              <div className="wallet-option-wrap" key={def.id}>
+                <button
+                  className="btn btn-wallet-option"
+                  disabled={!!busyId}
+                  onClick={() => onConnect(def.id)}
+                >
+                  <span className="wo-label">{def.label}</span>
+                  <span className="wo-hint">
+                    {busyId === def.id ? 'Connecting — check your wallet app…' : def.hint}
+                  </span>
+                </button>
+                {def.id === 'luncdash' && luncUri && (
+                  <>
+                    <button
+                      className="btn btn-ghost wo-copy"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(luncUri);
+                          setCopied(true);
+                        } catch {}
+                      }}
+                    >
+                      {copied ? '✓ Copied — now paste it in the LUNC Dash app' : '📋 Copy pairing link — paste it in the LUNC Dash app'}
+                    </button>
+                    <input className="wo-uri" readOnly value={luncUri} onFocus={(e) => e.target.select()} />
+                  </>
+                )}
+              </div>
             ))}
+            {err && <div className="wo-error">{err}</div>}
             <button className="btn btn-ghost" onClick={() => setOpen(false)}>
               Cancel
             </button>
           </div>
         )}
         <div className="walletbar-hint">
-          Inside the Keplr or Station app browser, the plain Keplr / Station
-          options connect directly. From Telegram or a normal browser, tap a
-          📱 app option, then tap the pairing-link button that appears and
-          paste the link into that wallet app's WalletConnect screen.
+          Inside a wallet app's browser, pick that wallet — it connects
+          directly. From Telegram or a normal browser, pick your wallet and
+          approve in its app when it opens.
         </div>
       </div>
     );
@@ -185,7 +142,7 @@ export default function WalletBar({ balance, setBalance }) {
       <div>
         <div className="addr">
           {address.slice(0, 10)}…{address.slice(-6)}
-          {username ? ` · ${username}` : ''}
+          {current.wallet.label ? ` · ${current.wallet.label}` : ''}
         </div>
         <div className="bal">
           {balance === null
@@ -194,7 +151,7 @@ export default function WalletBar({ balance, setBalance }) {
           FRG
         </div>
       </div>
-      <button className="btn btn-ghost" onClick={() => disconnect()}>
+      <button className="btn btn-ghost" onClick={() => disconnectWallet()}>
         Disconnect
       </button>
     </div>
