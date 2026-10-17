@@ -585,7 +585,7 @@ export default function Boxing({ onFinish }) {
         <div className="hp-col">
           <div className="hp-label">YOU{S.pDown ? ` · down ×${S.pDown}` : ''}</div>
           <div className="hpbar">
-            <div className="hpfill player" style={{ width: `${clamp(S.pHp, 0, 100)}%` }} />
+            <div className="hpfill pfill" style={{ width: `${clamp(S.pHp, 0, 100)}%` }} />
           </div>
         </div>
         <div className="hp-col right">
@@ -595,7 +595,7 @@ export default function Boxing({ onFinish }) {
           </div>
           <div className="hpbar">
             <div
-              className="hpfill enemy"
+              className="hpfill efill"
               style={{ width: `${clamp((S.eHp / S.eMax) * 100, 0, 100)}%` }}
             />
           </div>
