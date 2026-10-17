@@ -61,6 +61,18 @@ export class QRCodeModal {
             }
         }
         if (isMobile()) {
+            // FRG patch (Galaxy Station in Telegram): a location.href
+            // navigation REPLACES the game page, killing the WalletConnect
+            // session before the app can approve it (the app then opens
+            // empty, "not connected"). Telegram's openLink hands the app
+            // link to the system WITHOUT leaving the game page, so the
+            // session stays alive for the approval.
+            const tg = typeof window !== "undefined" ? window.Telegram?.WebApp : null;
+            if (this.details.name === "Galaxy Station" && tg?.openLink && isAndroid()) {
+                const base = this.details.android.split("#")[0];
+                tg.openLink(`${base}?${encodeURIComponent(uri)}`);
+                return;
+            }
             // On mobile, redirect to mobile app
             window.location.href = this.details.isStation
                 ? schemeUri
