@@ -24,11 +24,13 @@ export const OPPONENTS = [
     name: 'GLASS-JAW GUS',
     cls: 'ROOKIE',
     desc: 'All heart, no chin. Slow, obvious wind-ups.',
-    hp: 130,
-    tell: [500, 640],
-    hook: [13, 17],
-    guard: 0.28,
-    pace: [760, 1200],
+    hp: 160,
+    tell: [430, 560],
+    hook: [16, 21],
+    guard: 0.34,
+    pace: [640, 1020],
+    feint: 0.18,
+    combo: 0.22,
     scale: 0.94,
   },
   {
@@ -36,11 +38,13 @@ export const OPPONENTS = [
     name: 'THE CHAMP',
     cls: 'CHAMPION',
     desc: 'The final boss. Blink and you are on the canvas.',
-    hp: 205,
-    tell: [280, 390],
-    hook: [22, 29],
-    guard: 0.44,
-    pace: [450, 800],
+    hp: 260,
+    tell: [240, 340],
+    hook: [26, 34],
+    guard: 0.5,
+    pace: [380, 680],
+    feint: 0.32,
+    combo: 0.38,
     scale: 1.1,
   },
 ];
@@ -93,6 +97,7 @@ function freshState(opp) {
     tired: false,
     stunImmune: 0,
     stunHits: 0,
+    feint: false,
     msg: 'Touch gloves!',
     damageDealt: 0,
     taken: 0,
@@ -282,6 +287,18 @@ export default function Boxing({ onFinish }) {
       return;
     }
     if (S.enemy === 'tell') {
+      if (S.feint) {
+        // You bit on the fake — eat the counter.
+        S.feint = false;
+        S.enemy = 'recover';
+        S.eTimer = rnd(600, 900);
+        hurtPlayer(
+          rnd(S.opp.hook[0], S.opp.hook[1]) + 4,
+          'FAKE-OUT! He counters your jab!'
+        );
+        render();
+        return;
+      }
       if (S.stunImmune > 0) {
         // You caught the flash — star's yours — but he's fighting
         // wary now: no stun, and his punch is still coming.
@@ -364,6 +381,17 @@ export default function Boxing({ onFinish }) {
       render();
       return;
     }
+    if (S.enemy === 'tell' && S.feint) {
+      S.feint = false;
+      S.enemy = 'recover';
+      S.eTimer = rnd(600, 900);
+      hurtPlayer(
+        rnd(S.opp.hook[0], S.opp.hook[1]) + 4,
+        'FAKE-OUT! He counters your star punch!'
+      );
+      render();
+      return;
+    }
     S.stars -= 1;
     S.points += 150;
     flashGlove();
@@ -418,16 +446,16 @@ export default function Boxing({ onFinish }) {
         }
         if (st.phase === 'pdown' && st.mash >= 9) {
           st.phase = 'fight';
-          st.pHp = 35;
+          st.pHp = 25;
           st.hearts = Math.max(st.hearts, 4);
           st.tired = false;
           st.enemy = 'idle';
           st.eTimer = 1500;
-          st.msg = '⬆️ You beat the count! Back in it with 35 HP.';
+          st.msg = '⬆️ You beat the count! Back in it with 25 HP.';
           haptic('heavy');
         } else if (st.phase === 'edown' && st.count >= st.getUpAt) {
           st.phase = 'fight';
-          st.eHp = Math.round(st.eMax * 0.35);
+          st.eHp = Math.round(st.eMax * 0.3);
           st.enemy = 'idle';
           st.stunImmune = 2600;
           st.eTimer = 1500;
@@ -451,12 +479,20 @@ export default function Boxing({ onFinish }) {
       if (st.stunImmune > 0) st.stunImmune -= 50;
 
       if (st.enemy === 'idle' && st.eTimer <= 0) {
-        if (Math.random() < 0.22) {
+        if (Math.random() < 0.13) {
           st.enemy = 'taunt';
           st.eTimer = rnd(800, 1200);
           st.msg = `😜 ${st.opp.name} is showing off…`;
+        } else if (Math.random() < st.opp.feint) {
+          // FAKE wind-up: looks exactly like a tell, but jabbing it
+          // eats a counter and it converts to a fast attack.
+          st.enemy = 'tell';
+          st.feint = true;
+          st.eTimer = rnd(170, 250);
+          st.msg = "⚠️ He's winding up — jab NOW for a ⭐, or dodge!";
         } else {
           st.enemy = 'tell';
+          st.feint = false;
           st.eTimer = rnd(st.opp.tell[0], st.opp.tell[1]) - (st.round - 1) * 40;
           st.msg = "⚠️ He's winding up — jab NOW for a ⭐, or dodge!";
         }
@@ -465,13 +501,24 @@ export default function Boxing({ onFinish }) {
         st.eTimer = rnd(st.opp.pace[0], st.opp.pace[1]);
       } else if (st.enemy === 'tell' && st.eTimer <= 0) {
         st.enemy = 'attack';
-        st.eTimer = 300;
+        if (st.feint) {
+          st.feint = false;
+          st.eTimer = 170;
+          st.msg = '😱 It was a FAKE — here it comes, fast!';
+        } else {
+          st.eTimer = 210;
+        }
       } else if (st.enemy === 'attack' && st.eTimer <= 0) {
         if (st.dodging > 0) {
           st.hearts = clamp(st.hearts + 1, 0, 20);
           st.tired = false;
           st.points += 20;
-          if (st.stunImmune > 0) {
+          if (Math.random() < st.opp.combo) {
+            // No rest for the slick: he chains a second hook.
+            st.enemy = 'attack';
+            st.eTimer = 210;
+            st.msg = "💨 You dodged — but he comes RIGHT back with another!";
+          } else if (st.stunImmune > 0) {
             // Clean dodge still pays a heart + points, but a wary
             // opponent doesn't hand you a free stun window.
             st.enemy = 'recover';
@@ -491,6 +538,11 @@ export default function Boxing({ onFinish }) {
           st.enemy = 'recover';
           st.eTimer = rnd(500, 800);
           if (st.pHp <= 0) playerDown();
+          else if (Math.random() < st.opp.combo / 2) {
+            st.enemy = 'attack';
+            st.eTimer = 210;
+            st.msg = '🛡️ Blocked — but he shrugs it off and swings AGAIN!';
+          }
         } else {
           hurtPlayer(
             rnd(st.opp.hook[0], st.opp.hook[1]) + (st.round - 1) * 2,
@@ -573,6 +625,9 @@ export default function Boxing({ onFinish }) {
         <div className="rules">
           <p>✨ <b>Watch for the flash.</b> Your opponent glows right before he
             swings. Jab him in that instant: ⭐ <b>star</b> earned, and he's dizzy.</p>
+          <p>😱 <b>Beware the fake.</b> Some flashes are feints — jab one and
+            you'll eat a counter. A real flash lasts; a fake is gone in a blink.
+            And dodge one hook, he may throw another right behind it.</p>
           <p>🌟 <b>Star Punch</b> spends a star on a huge uppercut. Get hit and
             you lose ALL your stars.</p>
           <p>↔️ <b>Dodge</b> his hooks to win back ❤️ hearts and leave him open.
