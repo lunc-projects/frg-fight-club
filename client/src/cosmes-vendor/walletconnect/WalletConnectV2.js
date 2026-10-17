@@ -177,21 +177,41 @@ export class WalletConnectV2 {
             throw new Error("Session not found for " + chainId);
         }
         const { topic } = JSON.parse(session);
-        if (isMobile() &&
-            // GET_ACCOUNTS does not require the user to authorise
-            method !== Method.GET_ACCOUNTS) {
-            window.location.href = isAndroid()
-                ? this.mobileAppDetails.android
-                : this.mobileAppDetails.ios;
-        }
-        return this.signClient.request({
+        const reqArgs = {
             topic,
             chainId: this.toCosmosNamespace(chainId),
             request: {
                 method,
                 params,
             },
-        });
+        };
+        if (isMobile() &&
+            // GET_ACCOUNTS does not require the user to authorise
+            method !== Method.GET_ACCOUNTS) {
+            // FRG patch: stock cosmes navigates the page to the wallet app
+            // here (window.location.href), which kills the game page in
+            // Telegram before the request can complete — the wallet then
+            // opens empty. Instead: send the request first, then bring
+            // the app forward via Telegram's openLink (page stays alive).
+            const tg = typeof window !== "undefined" ? window.Telegram?.WebApp : null;
+            const raw = isAndroid()
+                ? this.mobileAppDetails.android
+                : this.mobileAppDetails.ios;
+            const appLink = raw && raw.startsWith("http")
+                ? raw.split("#")[0]
+                : this.mobileAppDetails.name === "Keplr"
+                    ? "https://deeplink.keplr.app/wcV2"
+                    : null;
+            const pending = this.signClient.request(reqArgs);
+            if (tg?.openLink && appLink) {
+                tg.openLink(appLink);
+            }
+            else if (!tg) {
+                window.location.href = raw;
+            }
+            return pending;
+        }
+        return this.signClient.request(reqArgs);
     }
     toCosmosNamespace(chainId) {
         return "cosmos:" + chainId;
