@@ -1,0 +1,304 @@
+// ---------------------------------------------------------------------------
+// FRG Fight Club — game server
+//
+// Trust model: the browser is NEVER trusted.
+//  - Entry: the player pays the FRG entry fee in their own wallet. This
+//    server re-checks that exact tx on-chain (right contract, right sender,
+//    right treasury, right amount, tx succeeded) before issuing a session.
+//  - Prizes: paid only against a real, unused, unexpired session whose match
+//    result passes basic plausibility checks. Paid from the treasury wallet
+//    whose seed lives ONLY in this server's .env.
+//  - Each entry tx can be used exactly once (replay protection, persisted).
+// ---------------------------------------------------------------------------
+
+import 'dotenv/config';
+import express from 'express';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  LCDClient,
+  MnemonicKey,
+  MsgExecuteContract,
+} from '@terra-money/terra.js';
+
+const {
+  PORT = 8787,
+  LCD_URL = 'https://terra-classic-lcd.publicnode.com',
+  CHAIN_ID = 'columbus-5',
+  FRG_CONTRACT,
+  ENTRY_FEE_FRG = '10',
+  PRIZE_FRG = '18',
+  TREASURY_ADDRESS,
+  TREASURY_MNEMONIC,
+  BOT_TOKEN = '',
+} = process.env;
+
+if (!FRG_CONTRACT || !TREASURY_ADDRESS || !TREASURY_MNEMONIC) {
+  console.error(
+    'Missing FRG_CONTRACT, TREASURY_ADDRESS or TREASURY_MNEMONIC — copy .env.example to .env and fill it in.'
+  );
+  process.exit(1);
+}
+
+const DECIMALS = 6;
+const ENTRY_MICRO = BigInt(Math.round(Number(ENTRY_FEE_FRG) * 10 ** DECIMALS));
+const PRIZE_MICRO = String(Math.round(Number(PRIZE_FRG) * 10 ** DECIMALS));
+const SESSION_TTL_MS = 20 * 60 * 1000;
+
+// --- tiny persistent store for spent entry txs ------------------------------
+const dir = path.dirname(fileURLToPath(import.meta.url));
+const dataDir = path.join(dir, 'data');
+fs.mkdirSync(dataDir, { recursive: true });
+const usedFile = path.join(dataDir, 'used_entry_txs.json');
+let usedTxs = new Set();
+try {
+  usedTxs = new Set(JSON.parse(fs.readFileSync(usedFile, 'utf8')));
+} catch {
+  /* first run */
+}
+function markTxUsed(hash) {
+  usedTxs.add(hash);
+  fs.writeFileSync(usedFile, JSON.stringify([...usedTxs]));
+}
+
+// --- sessions (in memory; fine for a community game) -----------------------
+const sessions = new Map(); // token -> { player, expiresAt, claimed }
+
+// --- LCD helpers -------------------------------------------------------------
+async function lcdJson(pathname) {
+  const res = await fetch(`${LCD_URL}${pathname}`);
+  if (!res.ok) throw new Error(`LCD ${res.status} on ${pathname}`);
+  return res.json();
+}
+
+async function getFrgBalanceMicro(address) {
+  const q = Buffer.from(JSON.stringify({ balance: { address } })).toString(
+    'base64'
+  );
+  const data = await lcdJson(
+    `/cosmwasm/wasm/v1/contract/${FRG_CONTRACT}/smart/${q}`
+  );
+  return BigInt(data.data.balance);
+}
+
+/**
+ * Verify an entry-fee tx on-chain. Returns true only if:
+ *  - the tx succeeded (code 0)
+ *  - it contains a wasm execute on the FRG contract
+ *  - the execute is a transfer TO the treasury of >= the entry fee
+ *  - the sender is the player claiming the session
+ */
+async function verifyEntryTx(txhash, playerAddress) {
+  let data;
+  try {
+    data = await lcdJson(`/cosmos/tx/v1beta1/txs/${txhash}`);
+  } catch {
+    return false; // tx not indexed yet (or bogus hash) — treat as unverified
+  }
+  const resp = data.tx_response;
+  if (!resp || resp.code !== 0) return false;
+  const messages = resp.tx?.body?.messages || [];
+  for (const m of messages) {
+    if (!m['@type']?.includes('MsgExecuteContract')) continue;
+    if (m.contract !== FRG_CONTRACT) continue;
+    if (m.sender !== playerAddress) continue;
+    let exec;
+    try {
+      exec = typeof m.msg === 'string' ? JSON.parse(m.msg) : m.msg;
+    } catch {
+      continue;
+    }
+    const t = exec?.transfer;
+    if (
+      t &&
+      t.recipient === TREASURY_ADDRESS &&
+      BigInt(t.amount) >= ENTRY_MICRO
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// --- Telegram Mini App initData verification -------------------------------
+function verifyTelegramInitData(initData) {
+  if (!BOT_TOKEN) return true; // not configured — skip (see README)
+  if (!initData) return false;
+  const params = new URLSearchParams(initData);
+  const hash = params.get('hash');
+  if (!hash) return false;
+  params.delete('hash');
+  const checkString = [...params.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${v}`)
+    .join('\n');
+  const secret = crypto
+    .createHmac('sha256', 'WebAppData')
+    .update(BOT_TOKEN)
+    .digest();
+  const computed = crypto
+    .createHmac('sha256', secret)
+    .update(checkString)
+    .digest('hex');
+  const authDate = Number(params.get('auth_date') || 0);
+  const fresh = Date.now() / 1000 - authDate < 24 * 3600;
+  return (
+    computed === hash &&
+    fresh &&
+    crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(hash))
+  );
+}
+
+// --- payout ------------------------------------------------------------------
+const lcd = new LCDClient({
+  URL: LCD_URL,
+  chainID: CHAIN_ID,
+  gasPrices: { uluna: '28.325' },
+  gasAdjustment: 1.75,
+});
+const treasuryWallet = lcd.wallet(
+  new MnemonicKey({ mnemonic: TREASURY_MNEMONIC })
+);
+if (treasuryWallet.key.accAddress !== TREASURY_ADDRESS) {
+  console.error(
+    'TREASURY_MNEMONIC does not belong to TREASURY_ADDRESS — fix .env before players pay in.'
+  );
+  process.exit(1);
+}
+
+let payoutLock = Promise.resolve();
+function payPrize(playerAddress) {
+  // serialize payouts so two claims can't race the treasury sequence number
+  payoutLock = payoutLock.then(async () => {
+    const bal = await getFrgBalanceMicro(TREASURY_ADDRESS);
+    if (bal < BigInt(PRIZE_MICRO)) {
+      throw new Error('Treasury is out of FRG — top it up.');
+    }
+    const msg = new MsgExecuteContract(TREASURY_ADDRESS, FRG_CONTRACT, {
+      transfer: { recipient: playerAddress, amount: PRIZE_MICRO },
+    });
+    const tx = await treasuryWallet.createAndSignTx({ msgs: [msg] });
+    const result = await lcd.tx.broadcast(tx);
+    if (result.code) {
+      throw new Error(`Payout failed on-chain (code ${result.code})`);
+    }
+    return result.txhash;
+  });
+  return payoutLock;
+}
+
+// --- HTTP API ------------------------------------------------------------------
+const app = express();
+app.use(express.json());
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
+// naive per-IP throttle for the money endpoints
+const hits = new Map();
+function throttle(req, res, next) {
+  const now = Date.now();
+  const list = (hits.get(req.ip) || []).filter((t) => now - t < 60_000);
+  if (list.length >= 30) {
+    return res.status(429).json({ error: 'Too many requests — slow down.' });
+  }
+  list.push(now);
+  hits.set(req.ip, list);
+  next();
+}
+
+app.get('/api/health', (req, res) => res.json({ ok: true }));
+
+app.get('/api/config', (req, res) =>
+  res.json({
+    chainId: CHAIN_ID,
+    frgContract: FRG_CONTRACT,
+    entryFeeFrg: Number(ENTRY_FEE_FRG),
+    prizeFrg: Number(PRIZE_FRG),
+    treasuryAddress: TREASURY_ADDRESS,
+  })
+);
+
+app.post('/api/verify-entry', throttle, async (req, res) => {
+  try {
+    const { txhash, playerAddress, initData } = req.body || {};
+    if (!txhash || !playerAddress) {
+      return res.status(400).json({ error: 'txhash and playerAddress required.' });
+    }
+    if (!verifyTelegramInitData(initData || '')) {
+      return res.status(401).json({ error: 'Telegram session check failed.' });
+    }
+    if (usedTxs.has(txhash)) {
+      return res.status(409).json({ error: 'That payment was already used for a match.' });
+    }
+    const ok = await verifyEntryTx(txhash, playerAddress);
+    if (!ok) {
+      return res.status(402).json({
+        error:
+          'Payment not verified on-chain yet — if you just paid, wait ~10 seconds and retry with the same tx.',
+      });
+    }
+    markTxUsed(txhash);
+    const sessionToken = crypto.randomBytes(24).toString('hex');
+    sessions.set(sessionToken, {
+      player: playerAddress,
+      expiresAt: Date.now() + SESSION_TTL_MS,
+      claimed: false,
+    });
+    res.json({ sessionToken });
+  } catch (e) {
+    console.error('verify-entry:', e);
+    res.status(500).json({ error: 'Server error during verification.' });
+  }
+});
+
+app.post('/api/claim', throttle, async (req, res) => {
+  try {
+    const { sessionToken, result } = req.body || {};
+    const session = sessions.get(sessionToken);
+    if (!session) return res.status(404).json({ error: 'Session not found.' });
+    if (session.claimed) return res.status(409).json({ error: 'Prize already claimed for this match.' });
+    if (Date.now() > session.expiresAt) {
+      sessions.delete(sessionToken);
+      return res.status(410).json({ error: 'Session expired.' });
+    }
+    // Plausibility checks — a real match takes time and has bounded damage.
+    // These stop instant-claim bots; they are not bulletproof anti-cheat
+    // (see README "Honest limits").
+    const durationMs = Number(result?.durationMs || 0);
+    const damageDealt = Number(result?.damageDealt || 0);
+    if (result?.outcome !== 'win') {
+      return res.status(400).json({ error: 'Only a win can claim a prize.' });
+    }
+    if (durationMs < 12_000) {
+      return res.status(400).json({ error: 'Match too short to be a real win.' });
+    }
+    if (!(damageDealt >= 40 && damageDealt <= 500)) {
+      return res.status(400).json({ error: 'Match result looks implausible.' });
+    }
+    session.claimed = true; // lock before paying, so a double-click can't double-pay
+    try {
+      var payoutTxhash = await payPrize(session.player);
+    } catch (payErr) {
+      session.claimed = false; // payout failed — let the player retry the claim
+      throw payErr;
+    }
+    sessions.delete(sessionToken);
+    res.json({ payoutTxhash });
+  } catch (e) {
+    console.error('claim:', e);
+    res.status(500).json({ error: e.message || 'Payout failed — contact the game admin with your session time.' });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`FRG Fight Club server on :${PORT}`);
+  console.log(`  chain ${CHAIN_ID} · entry ${ENTRY_FEE_FRG} FRG · prize ${PRIZE_FRG} FRG`);
+  console.log(`  treasury ${TREASURY_ADDRESS}`);
+});
