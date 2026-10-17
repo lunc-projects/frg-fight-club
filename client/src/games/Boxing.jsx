@@ -24,11 +24,11 @@ export const OPPONENTS = [
     name: 'GLASS-JAW GUS',
     cls: 'ROOKIE',
     desc: 'All heart, no chin. Slow, obvious wind-ups.',
-    hp: 80,
-    tell: [700, 880],
-    hook: [8, 11],
-    guard: 0.15,
-    pace: [900, 1500],
+    hp: 100,
+    tell: [580, 730],
+    hook: [10, 14],
+    guard: 0.22,
+    pace: [820, 1320],
     scale: 0.94,
   },
   {
@@ -36,11 +36,11 @@ export const OPPONENTS = [
     name: 'THE CHAMP',
     cls: 'CHAMPION',
     desc: 'The final boss. Blink and you are on the canvas.',
-    hp: 130,
-    tell: [440, 560],
-    hook: [14, 19],
-    guard: 0.28,
-    pace: [600, 1050],
+    hp: 180,
+    tell: [330, 450],
+    hook: [18, 24],
+    guard: 0.38,
+    pace: [500, 880],
     scale: 1.1,
   },
 ];
@@ -283,7 +283,7 @@ export default function Boxing({ onFinish }) {
       }
       S.points += 50;
       S.enemy = 'stunned';
-      S.eTimer = rnd(1900, 2400);
+      S.eTimer = rnd(1200, 1600);
       hurtEnemy(rnd(4, 7));
       haptic('medium');
       render();
@@ -296,7 +296,7 @@ export default function Boxing({ onFinish }) {
     }
     if (S.enemy === 'stunned') {
       S.points += 10;
-      hurtEnemy(rnd(5, 8), "Hammering him while he's dizzy! 👊");
+      hurtEnemy(rnd(4, 6), "Hammering him while he's dizzy! 👊");
       haptic('light');
       render();
       return;
@@ -339,7 +339,7 @@ export default function Boxing({ onFinish }) {
     S.stars -= 1;
     S.points += 150;
     flashGlove();
-    hurtEnemy(rnd(20, 27), '🌟 STAR UPPERCUT! +150 pts!');
+    hurtEnemy(rnd(16, 22), '🌟 STAR UPPERCUT! +150 pts!');
     if (S.enemy !== 'down' && S.phase === 'fight') {
       S.enemy = 'stunned';
       S.eTimer = rnd(1200, 1700);
@@ -441,7 +441,7 @@ export default function Boxing({ onFinish }) {
           st.tired = false;
           st.points += 20;
           st.enemy = 'stunned';
-          st.eTimer = rnd(1500, 2000);
+          st.eTimer = rnd(1000, 1400);
           st.msg = "💨 Clean dodge! +1 ❤️ +20 pts — and he's wide open!";
           haptic('medium');
         } else if (st.blocking) {
