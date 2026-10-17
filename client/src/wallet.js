@@ -1,11 +1,9 @@
 import { useEffect, useReducer } from 'react';
-import {
-  StationController,
-  WalletType,
-} from './cosmes-vendor/index.js';
+import { WalletType } from './cosmes-vendor/index.js';
 import {
   GalaxyStationController,
   KeplrHttpsController,
+  LuncDashController,
 } from './cosmes-extra.js';
 import { WC_PROJECT_ID } from './config.js';
 
@@ -23,13 +21,13 @@ export const CHAIN_INFO = {
 
 export const WALLET_DEFS = [
   { id: 'galaxystation', label: 'Galaxy Station 📱', hint: '⭐ auto-connects inside Telegram — tap and approve in the app' },
-  { id: 'station', label: 'Terra Station', hint: 'Station app — tap and approve in the app' },
+  { id: 'luncdash', label: 'LUNC Dash 📱', hint: 'LUNC Dash app — opens via Telegram, or paste the pairing link' },
   { id: 'keplr', label: 'Keplr', hint: 'Keplr app browser, extension, or paste the pairing link in the Keplr app' },
 ];
 
 export const CONTROLLERS = {
   galaxystation: new GalaxyStationController(WC_PROJECT_ID),
-  station: new StationController(),
+  luncdash: new LuncDashController(),
   keplr: new KeplrHttpsController(WC_PROJECT_ID),
 };
 

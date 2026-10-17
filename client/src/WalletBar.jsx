@@ -8,6 +8,7 @@ import {
   disconnectWallet,
   useConnectedWallet,
 } from './wallet.js';
+import { setLuncDashUriHandler } from './cosmes-extra.js';
 
 /**
  * Player wallet access (cosmes).
@@ -48,6 +49,24 @@ export default function WalletBar({ balance, setBalance }) {
   const [err, setErr] = useState('');
   const [keplrUri, setKeplrUri] = useState(null);
   const [copiedK, setCopiedK] = useState(false);
+  const [luncUri, setLuncUri] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(
+    () =>
+      setLuncDashUriHandler((uri) => {
+        setLuncUri(uri);
+        // Same route that fixed Galaxy: hand the app link to Telegram's
+        // openLink so the game page (and the bridge session) stays alive.
+        const tg = window.Telegram?.WebApp;
+        if (tg?.openLink) {
+          tg.openLink(
+            `luncdash://wallet_connect?${encodeURIComponent(`payload=${encodeURIComponent(uri)}`)}`
+          );
+        }
+      }),
+    []
+  );
 
   useEffect(() => {
     // cosmes' WC modal hands Keplr pairing URIs here (see QRCodeModal patch)
@@ -74,8 +93,10 @@ export default function WalletBar({ balance, setBalance }) {
   const onConnect = async (id) => {
     setBusyId(id);
     setErr('');
+    setCopied(false);
     setCopiedK(false);
     if (id === 'keplr') setKeplrUri(null);
+    if (id === 'luncdash') setLuncUri(null);
     try {
       await connectWallet(id);
       setOpen(false);
@@ -110,6 +131,22 @@ export default function WalletBar({ balance, setBalance }) {
                     {busyId === def.id ? 'Connecting — check your wallet app…' : def.hint}
                   </span>
                 </button>
+                {def.id === 'luncdash' && luncUri && (
+                  <>
+                    <button
+                      className="btn btn-ghost wo-copy"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(luncUri);
+                          setCopied(true);
+                        } catch {}
+                      }}
+                    >
+                      {copied ? '✓ Copied' : '📋 Copy pairing link (backup)'}
+                    </button>
+                    <input className="wo-uri" readOnly value={luncUri} onFocus={(e) => e.target.select()} />
+                  </>
+                )}
                 {def.id === 'keplr' && keplrUri && (
                   <>
                     <button
