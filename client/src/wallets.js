@@ -23,6 +23,20 @@ const base = {
   supportedChains: ['terraclassic'],
 };
 
+export const keplrMobileInfo = {
+  ...base,
+  name: 'keplr-mobile',
+  prettyName: 'Keplr Mobile',
+  walletconnect: {
+    name: 'Keplr',
+    encoding: 'base64',
+    requiredNamespaces: {
+      methods: ['cosmos_signDirect', 'cosmos_signAmino', 'cosmos_getAccounts'],
+      events: [],
+    },
+  },
+};
+
 export const galaxyStationInfo = {
   ...base,
   name: 'galaxy-station',
@@ -52,6 +66,7 @@ export const luncDashInfo = {
 };
 
 export const extraWallets = [
+  new GenericWCWallet(keplrMobileInfo),
   new GenericWCWallet(galaxyStationInfo),
   new GenericWCWallet(luncDashInfo),
 ];

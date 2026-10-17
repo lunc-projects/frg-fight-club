@@ -35,7 +35,7 @@ export function usePlayer() {
 const WALLET_OPTIONS = [
   { id: 'keplr-extension', label: 'Keplr', hint: 'In the Keplr app browser, or desktop extension' },
   { id: 'station-extension', label: 'Station', hint: 'In the Station app browser, or desktop extension' },
-  { id: 'keplr-mobile', label: 'Keplr Mobile 📱', hint: 'Opens the Keplr app to approve' },
+  { id: 'keplr-mobile', label: 'Keplr Mobile 📱', hint: 'Pair via the Keplr app (pairing link)' },
   { id: 'galaxy-station', label: 'Galaxy Station 📱', hint: 'Opens the Galaxy Station app to approve' },
   { id: 'luncdash', label: 'LuncDash 📱', hint: 'Opens the LuncDash app to approve' },
 ];
@@ -79,7 +79,7 @@ function WalletOption({ opt, onDone }) {
             } catch {}
           }}
         >
-          {copied ? '✓ Copied — paste it in your wallet app' : '📋 Copy pairing link (for Galaxy / LuncDash: paste in the app’s WalletConnect screen)'}
+          {copied ? '✓ Copied — paste it in your wallet app' : '📋 Copy pairing link — paste it in your wallet app’s WalletConnect screen'}
         </button>
       )}
     </div>
@@ -125,10 +125,10 @@ export default function WalletBar({ balance, setBalance }) {
           </div>
         )}
         <div className="walletbar-hint">
-          From Telegram or a normal browser, tap your wallet's app option —
-          it opens the app to approve, then brings you back. Inside the
-          Keplr or Station app browser, the plain Keplr / Station options
-          connect directly.
+          Inside the Keplr or Station app browser, the plain Keplr / Station
+          options connect directly. From Telegram or a normal browser, tap a
+          📱 app option, then tap the pairing-link button that appears and
+          paste the link into that wallet app's WalletConnect screen.
         </div>
       </div>
     );

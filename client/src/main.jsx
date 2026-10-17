@@ -2,7 +2,7 @@ import './polyfills.js';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { ChainProvider } from '@cosmos-kit/react';
-import { wallets as keplrWallets } from '@cosmos-kit/keplr';
+import { wallets as keplrPackageWallets } from '@cosmos-kit/keplr';
 import { wallets as stationWallets } from '@cosmos-kit/station';
 import { GasPrice } from '@cosmjs/stargate';
 import { terraClassicChain, terraClassicAssets } from './chainDef.js';
@@ -14,6 +14,14 @@ import './styles.css';
 // Wallet connect is Cosmos Kit: Keplr (extension + mobile), Station.
 // This replaces @terra-money/wallet-kit, which only ever talked to the
 // Station extension and left Keplr users with a dead connect button.
+// The keplr package bundles its official Keplr Mobile wallet, whose
+// auto deep-link (keplrwallet://) crashes Telegram's webview with
+// ERR_UNKNOWN_URL_SCHEME. Drop it — wallets.js provides a generic
+// WalletConnect wallet under the same name that pairs via link instead.
+const keplrWallets = keplrPackageWallets.filter(
+  (w) => w.walletInfo.name !== 'keplr-mobile'
+);
+
 const gasPrice = () => ({ gasPrice: GasPrice.fromString('28.325uluna') });
 
 // Telegram Mini App: tell Telegram we're ready and use the full height.
