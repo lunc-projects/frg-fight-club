@@ -62,8 +62,9 @@ export default function WalletBar({ balance, setBalance }) {
           ))}
         </div>
         <div className="walletbar-hint">
-          Station, Keplr and LuncDash all work — on mobile Telegram they
-          connect through WalletConnect.
+          On mobile, open this page inside your wallet app's browser
+          (Station, Keplr or LuncDash) — Telegram's built-in browser can't
+          connect a wallet. On desktop, use the Station extension.
         </div>
       </div>
     );

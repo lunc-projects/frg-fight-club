@@ -126,7 +126,11 @@ async function verifyEntryTx(txhash, playerAddress) {
 // --- Telegram Mini App initData verification -------------------------------
 function verifyTelegramInitData(initData) {
   if (!BOT_TOKEN) return true; // not configured — skip (see README)
-  if (!initData) return false;
+  // No initData means the game was opened outside Telegram (e.g. in the
+  // Station/Keplr app browser, where wallet connect actually works on
+  // mobile). Allow it: the on-chain entry-payment check is the real gate.
+  // When initData IS present it must validate.
+  if (!initData) return true;
   const params = new URLSearchParams(initData);
   const hash = params.get('hash');
   if (!hash) return false;
