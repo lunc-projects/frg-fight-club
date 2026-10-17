@@ -1,8 +1,5 @@
 import { useEffect, useReducer } from 'react';
-import {
-  CosmostationController,
-  WalletType,
-} from './cosmes-vendor/index.js';
+import { WalletType } from './cosmes-vendor/index.js';
 import {
   GalaxyStationController,
   KeplrHttpsController,
@@ -24,13 +21,11 @@ export const CHAIN_INFO = {
 export const WALLET_DEFS = [
   { id: 'galaxystation', label: 'Galaxy Station 📱', hint: '⭐ auto-connects inside Telegram — tap and approve in the app' },
   { id: 'keplr', label: 'Keplr', hint: 'Keplr app browser, extension, or paste the pairing link in the Keplr app' },
-  { id: 'cosmostation', label: 'Cosmostation', hint: 'Cosmostation extension' },
 ];
 
 export const CONTROLLERS = {
   galaxystation: new GalaxyStationController(WC_PROJECT_ID),
   keplr: new KeplrHttpsController(WC_PROJECT_ID),
-  cosmostation: new CosmostationController(WC_PROJECT_ID),
 };
 
 // Minimal shared store for the connected wallet (replaces the old
