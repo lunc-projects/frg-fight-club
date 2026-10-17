@@ -33,6 +33,14 @@ export class QRCodeModal {
             "padding: 1rem",
             "border-radius: 0.5rem",
         ].join(";");
+        // FRG patch: for Keplr, hand the pairing URI to the game's own
+        // picker UI (copy/paste into the app) instead of redirecting —
+        // Keplr's app link lands on a download page inside Telegram's
+        // webview and its intent/scheme links crash that webview.
+        if (typeof window !== "undefined" && window.__frgInterceptUri && this.details.name === "Keplr") {
+            window.__frgInterceptUri(uri);
+            return;
+        }
         const schemeUri = this.details.isStation
             ? `https://terrastation.page.link/?link=https://terra.money?${encodeURIComponent(`action=wallet_connect&payload=${encodeURIComponent(uri)}`)}&apn=money.terra.station&ibi=money.terra.station&isi=1548434735`
             : uri;

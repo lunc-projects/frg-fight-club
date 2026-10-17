@@ -49,8 +49,17 @@ export default function WalletBar({ balance, setBalance }) {
   const [err, setErr] = useState('');
   const [luncUri, setLuncUri] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [keplrUri, setKeplrUri] = useState(null);
+  const [copiedK, setCopiedK] = useState(false);
 
   useEffect(() => setLuncDashUriHandler((uri) => setLuncUri(uri)), []);
+  useEffect(() => {
+    // cosmes' WC modal hands Keplr pairing URIs here (see QRCodeModal patch)
+    window.__frgInterceptUri = (uri) => setKeplrUri(uri);
+    return () => {
+      delete window.__frgInterceptUri;
+    };
+  }, []);
 
   useEffect(() => {
     let live = true;
@@ -70,6 +79,8 @@ export default function WalletBar({ balance, setBalance }) {
     setBusyId(id);
     setErr('');
     setCopied(false);
+    setCopiedK(false);
+    if (id === 'keplr') setKeplrUri(null);
     try {
       await connectWallet(id);
       setOpen(false);
@@ -104,6 +115,22 @@ export default function WalletBar({ balance, setBalance }) {
                     {busyId === def.id ? 'Connecting — check your wallet app…' : def.hint}
                   </span>
                 </button>
+                {def.id === 'keplr' && keplrUri && (
+                  <>
+                    <button
+                      className="btn btn-ghost wo-copy"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(keplrUri);
+                          setCopiedK(true);
+                        } catch {}
+                      }}
+                    >
+                      {copiedK ? '✓ Copied — now paste it in the Keplr app' : '📋 Copy pairing link — paste it in the Keplr app’s WalletConnect screen'}
+                    </button>
+                    <input className="wo-uri" readOnly value={keplrUri} onFocus={(e) => e.target.select()} />
+                  </>
+                )}
                 {def.id === 'luncdash' && luncUri && (
                   <>
                     {!window.Telegram?.WebApp && (

@@ -37,7 +37,7 @@ export class KeplrHttpsController extends KeplrController {
     this.wc = new WalletConnectV2(wcProjectId, {
       name: 'Keplr',
       android:
-        'https://deeplink.keplr.app/wcV2#Intent;package=com.chainapsis.keplr;scheme=keplrwallet;end;',
+        'intent://wcV2#Intent;package=com.chainapsis.keplr;scheme=keplrwallet;end;',
       ios: 'keplrwallet://wcV2',
     });
   }
