@@ -3,6 +3,7 @@ import WalletBar, { usePlayer } from './WalletBar.jsx';
 import Boxing from './games/Boxing.jsx';
 import PrizeWheel from './games/PrizeWheel.jsx';
 import RocketCrash from './games/RocketCrash.jsx';
+import BalloonDarts from './games/BalloonDarts.jsx';
 import { ENTRY_FEE_FRG, PRIZE_FRG, GAMES } from './config.js';
 import { finderTxUrl, findRecentEntries } from './chain.js';
 import { verifyEntry, claimPrize } from './api.js';
@@ -211,7 +212,9 @@ export default function App() {
       ? (result?.prize ?? 0)
       : game === 'crash'
         ? Math.floor(ENTRY_FEE_FRG * (result?.multiplier ?? 0))
-        : PRIZE_FRG;
+        : game === 'darts'
+          ? (result?.amount ?? 0)
+          : PRIZE_FRG;
 
   const claim = useCallback(async () => {
     setError('');
@@ -309,6 +312,24 @@ export default function App() {
       {screen === 'playing' && game === 'boxing' && <Boxing onFinish={onFinish} />}
       {screen === 'playing' && game === 'wheel' && <PrizeWheel onFinish={onFinish} />}
       {screen === 'playing' && game === 'crash' && <RocketCrash onFinish={onFinish} />}
+      {screen === 'playing' && game === 'darts' && <BalloonDarts onFinish={onFinish} />}
+
+      {screen === 'won' && game === 'darts' && (
+        <main className="center">
+          <div className="result-emoji">🎈</div>
+          <h2>Pot banked!</h2>
+          <p>
+            You walked away with <b>{result?.amount} FRG</b>. Claim it to
+            your wallet.
+          </p>
+          <button className="btn btn-big" onClick={claim}>
+            Claim {winAmount} FRG
+          </button>
+          <button className="btn btn-ghost" onClick={toLobby}>
+            Back to lobby
+          </button>
+        </main>
+      )}
 
       {screen === 'won' && game === 'crash' && (
         <main className="center">
@@ -397,6 +418,26 @@ export default function App() {
           <div className="result-emoji">💥</div>
           <h2>The rocket blew at {result?.multiplier?.toFixed(2)}×.</h2>
           <p>Rode it too long this time — every entry is a fresh launch.</p>
+          <button className="btn btn-big" onClick={toLobby}>
+            Back to lobby
+          </button>
+        </main>
+      )}
+
+      {screen === 'lost' && game === 'darts' && (
+        <main className="center">
+          <div className="result-emoji">💥</div>
+          {result?.burst ? (
+            <>
+              <h2>BURST! The 💥 balloon ate your pot.</h2>
+              <p>Greed is a balloon animal — it pops. Every entry is a fresh wall.</p>
+            </>
+          ) : (
+            <>
+              <h2>Out of darts — pot came up empty.</h2>
+              <p>Three balloons, no prizes inside. Every entry is a fresh wall.</p>
+            </>
+          )}
           <button className="btn btn-big" onClick={toLobby}>
             Back to lobby
           </button>

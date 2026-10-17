@@ -50,7 +50,7 @@ const PRIZE_MICRO = String(Math.round(Number(PRIZE_FRG) * 10 ** DECIMALS));
 // 12 segments: BUST ×5, 5 ×3, 10 ×2, 15, 20. EV payout 5.83 FRG on a
 // 10 FRG entry, so the treasury keeps ~4.17 FRG per spin on average.
 const WHEEL_PRIZES = [0, 5, 10, 15, 20];
-const GAMES = ['boxing', 'wheel', 'crash'];
+const GAMES = ['boxing', 'wheel', 'crash', 'darts'];
 const SESSION_TTL_MS = 20 * 60 * 1000;
 
 // --- tiny persistent store for spent entry txs ------------------------------
@@ -316,6 +316,28 @@ app.post('/api/claim', throttle, async (req, res) => {
         amountFrg = 0;
       } else {
         return res.status(400).json({ error: 'Crash result outcome invalid.' });
+      }
+    } else if (session.game === 'darts') {
+      // Balloon Darts: the pot is the sum of popped prize balloons
+      // (max 27 = 12+9+6). Banked/survived pots pay as reported after
+      // range and timing checks; a burst pays nothing.
+      const amount = Number(result?.amount);
+      const dartsUsed = Number(result?.dartsUsed);
+      if (result?.outcome === 'win') {
+        if (!(Number.isInteger(amount) && amount >= 1 && amount <= 27)) {
+          return res.status(400).json({ error: 'Darts pot out of range.' });
+        }
+        if (!(dartsUsed >= 1 && dartsUsed <= 3)) {
+          return res.status(400).json({ error: 'Darts count implausible.' });
+        }
+        if (durationMs < dartsUsed * 500 || durationMs > 10 * 60 * 1000) {
+          return res.status(400).json({ error: 'Darts result timing looks implausible.' });
+        }
+        amountFrg = amount;
+      } else if (result?.outcome === 'bust') {
+        amountFrg = 0;
+      } else {
+        return res.status(400).json({ error: 'Darts result outcome invalid.' });
       }
     } else {
       // boxing (default)

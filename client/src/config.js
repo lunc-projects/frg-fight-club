@@ -62,6 +62,15 @@ export const GAMES = [
     playLabel: 'Pay 10 FRG & Launch',
     live: true,
   },
+  {
+    id: 'darts',
+    name: 'Balloon Darts',
+    emoji: '🎈',
+    tagline: 'Pop balloons, build a pot — dodge the two 💥.',
+    terms: 'Entry 10 FRG · Max pot 27 FRG',
+    playLabel: 'Pay 10 FRG & Throw',
+    live: true,
+  },
 ];
 
 export function toMicro(frg) {
