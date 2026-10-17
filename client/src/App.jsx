@@ -4,6 +4,7 @@ import Boxing from './games/Boxing.jsx';
 import PrizeWheel from './games/PrizeWheel.jsx';
 import RocketCrash from './games/RocketCrash.jsx';
 import BalloonDarts from './games/BalloonDarts.jsx';
+import DragRacing from './games/DragRacing.jsx';
 import { ENTRY_FEE_FRG, PRIZE_FRG, GAMES } from './config.js';
 import { finderTxUrl, findRecentEntries } from './chain.js';
 import { verifyEntry, claimPrize } from './api.js';
@@ -313,6 +314,25 @@ export default function App() {
       {screen === 'playing' && game === 'wheel' && <PrizeWheel onFinish={onFinish} />}
       {screen === 'playing' && game === 'crash' && <RocketCrash onFinish={onFinish} />}
       {screen === 'playing' && game === 'darts' && <BalloonDarts onFinish={onFinish} />}
+      {screen === 'playing' && game === 'racing' && <DragRacing onFinish={onFinish} />}
+
+      {screen === 'won' && game === 'racing' && (
+        <main className="center">
+          <div className="result-emoji">🏁</div>
+          <h2>You outran him!</h2>
+          <p>
+            Your ET <b>{(result?.etMs / 1000).toFixed(2)}s</b> vs rival{' '}
+            {(result?.rivalEtMs / 1000).toFixed(2)}s · ⚡ Perfect shifts:{' '}
+            {result?.perfectShifts}/4
+          </p>
+          <button className="btn btn-big" onClick={claim}>
+            Claim {PRIZE_FRG} FRG
+          </button>
+          <button className="btn btn-ghost" onClick={toLobby}>
+            Back to lobby
+          </button>
+        </main>
+      )}
 
       {screen === 'won' && game === 'darts' && (
         <main className="center">
@@ -436,6 +456,30 @@ export default function App() {
             <>
               <h2>Out of darts — pot came up empty.</h2>
               <p>Three balloons, no prizes inside. Every entry is a fresh wall.</p>
+            </>
+          )}
+          <button className="btn btn-big" onClick={toLobby}>
+            Back to lobby
+          </button>
+        </main>
+      )}
+
+      {screen === 'lost' && game === 'racing' && (
+        <main className="center">
+          <div className="result-emoji">{result?.outcome === 'foul' ? '🚨' : '🏎️'}</div>
+          {result?.outcome === 'foul' ? (
+            <>
+              <h2>RED LIGHT! You jumped the tree.</h2>
+              <p>Foul start — no time recorded. Every entry is a fresh race.</p>
+            </>
+          ) : (
+            <>
+              <h2>Outrun this time.</h2>
+              <p>
+                Your ET <b>{(result?.etMs / 1000).toFixed(2)}s</b> vs rival{' '}
+                {(result?.rivalEtMs / 1000).toFixed(2)}s · ⚡ Perfect shifts:{' '}
+                {result?.perfectShifts}/4. Every entry is a fresh race.
+              </p>
             </>
           )}
           <button className="btn btn-big" onClick={toLobby}>

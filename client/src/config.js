@@ -71,6 +71,15 @@ export const GAMES = [
     playLabel: 'Pay 10 FRG & Throw',
     live: true,
   },
+  {
+    id: 'racing',
+    name: 'FRG Drag Racing',
+    emoji: '🏎️',
+    tagline: 'Beat the tree, nail the shifts, outrun the rival.',
+    terms: 'Entry 10 FRG · Win 18 FRG',
+    playLabel: 'Pay 10 FRG & Race',
+    live: true,
+  },
 ];
 
 export function toMicro(frg) {

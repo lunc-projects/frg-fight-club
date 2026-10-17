@@ -50,7 +50,7 @@ const PRIZE_MICRO = String(Math.round(Number(PRIZE_FRG) * 10 ** DECIMALS));
 // 12 segments: BUST ×5, 5 ×3, 10 ×2, 15, 20. EV payout 5.83 FRG on a
 // 10 FRG entry, so the treasury keeps ~4.17 FRG per spin on average.
 const WHEEL_PRIZES = [0, 5, 10, 15, 20];
-const GAMES = ['boxing', 'wheel', 'crash', 'darts'];
+const GAMES = ['boxing', 'wheel', 'crash', 'darts', 'racing'];
 const SESSION_TTL_MS = 20 * 60 * 1000;
 
 // --- tiny persistent store for spent entry txs ------------------------------
@@ -338,6 +338,31 @@ app.post('/api/claim', throttle, async (req, res) => {
         amountFrg = 0;
       } else {
         return res.status(400).json({ error: 'Darts result outcome invalid.' });
+      }
+    } else if (session.game === 'racing') {
+      // Drag Racing: a win must show an ET inside the plausible band
+      // that actually beats a rival ET inside the rival draw band
+      // (9.60-11.00s), with total session time at least the ET.
+      const et = Number(result?.etMs);
+      const rival = Number(result?.rivalEtMs);
+      if (result?.outcome === 'win') {
+        if (!(et >= 8_500 && et <= 25_000)) {
+          return res.status(400).json({ error: 'Race ET implausible.' });
+        }
+        if (!(rival >= 9_500 && rival <= 11_100)) {
+          return res.status(400).json({ error: 'Rival ET out of range.' });
+        }
+        if (!(et < rival)) {
+          return res.status(400).json({ error: 'Win requires beating the rival.' });
+        }
+        if (durationMs < et || durationMs > 10 * 60 * 1000) {
+          return res.status(400).json({ error: 'Race timing looks implausible.' });
+        }
+        amountFrg = Number(PRIZE_FRG);
+      } else if (result?.outcome === 'lose' || result?.outcome === 'foul') {
+        amountFrg = 0;
+      } else {
+        return res.status(400).json({ error: 'Race result outcome invalid.' });
       }
     } else {
       // boxing (default)
