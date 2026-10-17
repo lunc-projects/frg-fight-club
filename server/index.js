@@ -50,7 +50,7 @@ const PRIZE_MICRO = String(Math.round(Number(PRIZE_FRG) * 10 ** DECIMALS));
 // 12 segments: BUST ×5, 5 ×3, 10 ×2, 15, 20. EV payout 5.83 FRG on a
 // 10 FRG entry, so the treasury keeps ~4.17 FRG per spin on average.
 const WHEEL_PRIZES = [0, 5, 10, 15, 20];
-const GAMES = ['boxing', 'wheel'];
+const GAMES = ['boxing', 'wheel', 'crash'];
 const SESSION_TTL_MS = 20 * 60 * 1000;
 
 // --- tiny persistent store for spent entry txs ------------------------------
