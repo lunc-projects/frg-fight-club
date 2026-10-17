@@ -34,11 +34,16 @@ export class QRCodeModal {
             "border-radius: 0.5rem",
         ].join(";");
         // FRG patch: for Keplr, hand the pairing URI to the game's own
-        // picker UI (copy/paste into the app) instead of redirecting —
-        // Keplr's app link lands on a download page inside Telegram's
-        // webview and its intent/scheme links crash that webview.
+        // picker UI (copy/paste backup) AND, inside Telegram, open Keplr
+        // via its HTTPS app link through Telegram's openLink — the route
+        // that keeps the game page (and the WC session) alive, proven
+        // with Galaxy Station.
         if (typeof window !== "undefined" && window.__frgInterceptUri && this.details.name === "Keplr") {
             window.__frgInterceptUri(uri);
+            const tgK = window.Telegram?.WebApp;
+            if (tgK?.openLink) {
+                tgK.openLink(`https://deeplink.keplr.app/wcV2?${encodeURIComponent(uri)}`);
+            }
             return;
         }
         const schemeUri = this.details.isStation
@@ -68,10 +73,18 @@ export class QRCodeModal {
             // link to the system WITHOUT leaving the game page, so the
             // session stays alive for the approval.
             const tg = typeof window !== "undefined" ? window.Telegram?.WebApp : null;
-            if (this.details.name === "Galaxy Station" && tg?.openLink && isAndroid()) {
-                const base = this.details.android.split("#")[0];
-                tg.openLink(`${base}?${encodeURIComponent(uri)}`);
-                return;
+            if (tg?.openLink && isAndroid()) {
+                // Station's handoff is already an HTTPS Firebase link —
+                // same openLink route as Galaxy.
+                if (this.details.isStation) {
+                    tg.openLink(schemeUri);
+                    return;
+                }
+                if (this.details.name === "Galaxy Station") {
+                    const base = this.details.android.split("#")[0];
+                    tg.openLink(`${base}?${encodeURIComponent(uri)}`);
+                    return;
+                }
             }
             // On mobile, redirect to mobile app
             window.location.href = this.details.isStation
