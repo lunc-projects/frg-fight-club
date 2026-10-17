@@ -24,13 +24,13 @@ export const OPPONENTS = [
     name: 'GLASS-JAW GUS',
     cls: 'ROOKIE',
     desc: 'All heart, no chin. Slow, obvious wind-ups.',
-    hp: 150,
-    tell: [450, 585],
-    hook: [15, 20],
-    guard: 0.32,
-    pace: [670, 1065],
-    feint: 0.14,
-    combo: 0.17,
+    hp: 135,
+    tell: [485, 625],
+    hook: [13, 18],
+    guard: 0.28,
+    pace: [720, 1140],
+    feint: 0.10,
+    combo: 0.12,
     scale: 0.94,
   },
   {
@@ -38,13 +38,13 @@ export const OPPONENTS = [
     name: 'THE CHAMP',
     cls: 'CHAMPION',
     desc: 'The final boss. Blink and you are on the canvas.',
-    hp: 245,
-    tell: [250, 355],
-    hook: [25, 32],
-    guard: 0.48,
-    pace: [400, 710],
-    feint: 0.24,
-    combo: 0.28,
+    hp: 215,
+    tell: [275, 385],
+    hook: [22, 28],
+    guard: 0.42,
+    pace: [440, 770],
+    feint: 0.17,
+    combo: 0.20,
     scale: 1.1,
   },
 ];
@@ -76,7 +76,7 @@ function freshState(opp) {
     pHp: MAX_HP,
     eHp: opp.hp,
     eMax: opp.hp,
-    hearts: 9,
+    hearts: 10,
     stars: 0,
     points: 0,
     pDown: 0,
@@ -302,7 +302,7 @@ export default function Boxing({ onFinish }) {
       if (S.stunImmune > 0) {
         // You caught the flash — star's yours — but he's fighting
         // wary now: no stun, and his punch is still coming.
-        if (S.stars < 3) S.stars += 1;
+        if (S.stars < 5) S.stars += 1;
         S.points += 50;
         S.msg = "⭐ STAR EARNED — but he's wary, no stun! Dodge what's coming!";
         S.eTimer = 130;
@@ -311,7 +311,7 @@ export default function Boxing({ onFinish }) {
         render();
         return;
       }
-      if (S.stars < 3) {
+      if (S.stars < 5) {
         S.stars += 1;
         S.msg = "⭐ STAR EARNED! +50 pts. He's dizzy — pound him!";
       } else {
@@ -320,7 +320,7 @@ export default function Boxing({ onFinish }) {
       S.points += 50;
       S.enemy = 'stunned';
       S.stunHits = 0;
-      S.eTimer = rnd(900, 1200);
+      S.eTimer = rnd(1050, 1350);
       hurtEnemy(rnd(3, 5));
       haptic('medium');
       render();
@@ -339,7 +339,7 @@ export default function Boxing({ onFinish }) {
         // Four free ones is all you get — he fights his way out of it.
         S.enemy = 'recover';
         S.eTimer = rnd(500, 800);
-        S.stunImmune = 2600;
+        S.stunImmune = 2100;
         S.msg = "He shakes it off early — and he's wary now!";
       }
       haptic('light');
@@ -399,7 +399,7 @@ export default function Boxing({ onFinish }) {
     if (S.enemy !== 'down' && S.phase === 'fight' && S.stunImmune <= 0) {
       S.enemy = 'stunned';
       S.stunHits = 0;
-      S.eTimer = rnd(1000, 1400);
+      S.eTimer = rnd(1150, 1550);
     }
     haptic('heavy');
     render();
@@ -446,18 +446,18 @@ export default function Boxing({ onFinish }) {
         }
         if (st.phase === 'pdown' && st.mash >= 9) {
           st.phase = 'fight';
-          st.pHp = 28;
+          st.pHp = 32;
           st.hearts = Math.max(st.hearts, 4);
           st.tired = false;
           st.enemy = 'idle';
           st.eTimer = 1500;
-          st.msg = '⬆️ You beat the count! Back in it with 28 HP.';
+          st.msg = '⬆️ You beat the count! Back in it with 32 HP.';
           haptic('heavy');
         } else if (st.phase === 'edown' && st.count >= st.getUpAt) {
           st.phase = 'fight';
           st.eHp = Math.round(st.eMax * 0.32);
           st.enemy = 'idle';
-          st.stunImmune = 2600;
+          st.stunImmune = 2100;
           st.eTimer = 1500;
           st.msg = `He's up at ${st.count}! Wobbly — finish him this round.`;
         }
@@ -513,6 +513,12 @@ export default function Boxing({ onFinish }) {
           st.hearts = clamp(st.hearts + 1, 0, 20);
           st.tired = false;
           st.points += 20;
+          // A clean dodge earns a star too — bank up to 5 now.
+          let starNote = '';
+          if (st.stars < 5) {
+            st.stars += 1;
+            starNote = ' +⭐ STAR!';
+          }
           if (Math.random() < st.opp.combo) {
             // No rest for the slick: he chains a second hook.
             st.enemy = 'attack';
@@ -527,9 +533,10 @@ export default function Boxing({ onFinish }) {
           } else {
             st.enemy = 'stunned';
             st.stunHits = 0;
-            st.eTimer = rnd(800, 1100);
+            st.eTimer = rnd(950, 1250);
             st.msg = "💨 Clean dodge! +1 ❤️ +20 pts — and he's wide open!";
           }
+          if (starNote) st.msg += starNote;
           haptic('medium');
         } else if (st.blocking) {
           st.pHp -= rnd(2, 4);
@@ -555,7 +562,7 @@ export default function Boxing({ onFinish }) {
         }
       } else if (st.enemy === 'stunned' && st.eTimer <= 0) {
         st.enemy = 'idle';
-        st.stunImmune = 2600;
+        st.stunImmune = 2100;
         st.eTimer = rnd(st.opp.pace[0], st.opp.pace[1]);
         st.msg = 'He shakes it off — and he\'s wary now.';
       } else if (st.enemy === 'recover' && st.eTimer <= 0) {
@@ -630,7 +637,8 @@ export default function Boxing({ onFinish }) {
             And dodge one hook, he may throw another right behind it.</p>
           <p>🌟 <b>Star Punch</b> spends a star on a huge uppercut. Get hit and
             you lose ALL your stars.</p>
-          <p>↔️ <b>Dodge</b> his hooks to win back ❤️ hearts and leave him open.
+          <p>↔️ <b>Dodge</b> his hooks to win back ❤️ hearts, earn a ⭐ (bank up to 5),
+            and leave him open.
             Getting hit or punching his guard costs hearts — at 0 you're gassed.</p>
           <p>💥 3 knockdowns in a round = TKO. If YOU go down, mash JAB to beat
             the 10-count. 3 rounds, then the judges decide.</p>
