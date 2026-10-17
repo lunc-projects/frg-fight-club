@@ -8,7 +8,6 @@ import {
   disconnectWallet,
   useConnectedWallet,
 } from './wallet.js';
-import { setLuncDashUriHandler } from './cosmes-extra.js';
 
 /**
  * Player wallet access (cosmes).
@@ -47,12 +46,9 @@ export default function WalletBar({ balance, setBalance }) {
   const [open, setOpen] = useState(false);
   const [busyId, setBusyId] = useState('');
   const [err, setErr] = useState('');
-  const [luncUri, setLuncUri] = useState(null);
-  const [copied, setCopied] = useState(false);
   const [keplrUri, setKeplrUri] = useState(null);
   const [copiedK, setCopiedK] = useState(false);
 
-  useEffect(() => setLuncDashUriHandler((uri) => setLuncUri(uri)), []);
   useEffect(() => {
     // cosmes' WC modal hands Keplr pairing URIs here (see QRCodeModal patch)
     window.__frgInterceptUri = (uri) => setKeplrUri(uri);
@@ -78,7 +74,6 @@ export default function WalletBar({ balance, setBalance }) {
   const onConnect = async (id) => {
     setBusyId(id);
     setErr('');
-    setCopied(false);
     setCopiedK(false);
     if (id === 'keplr') setKeplrUri(null);
     try {
@@ -129,35 +124,6 @@ export default function WalletBar({ balance, setBalance }) {
                       {copiedK ? '✓ Copied — now paste it in the Keplr app' : '📋 Copy pairing link — paste it in the Keplr app’s WalletConnect screen'}
                     </button>
                     <input className="wo-uri" readOnly value={keplrUri} onFocus={(e) => e.target.select()} />
-                  </>
-                )}
-                {def.id === 'luncdash' && luncUri && (
-                  <>
-                    {!window.Telegram?.WebApp && (
-                      <a
-                        className="btn btn-wallet wo-copy"
-                        href={`luncdash://wallet_connect?${encodeURIComponent(`payload=${encodeURIComponent(luncUri)}`)}`}
-                      >
-                        🚀 Open LUNC Dash app
-                      </a>
-                    )}
-                    <button
-                      className="btn btn-ghost wo-copy"
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(luncUri);
-                          setCopied(true);
-                        } catch {}
-                      }}
-                    >
-                      {copied ? '✓ Copied — now paste it in the LUNC Dash app' : '📋 Copy pairing link — paste it in the LUNC Dash app'}
-                    </button>
-                    <input className="wo-uri" readOnly value={luncUri} onFocus={(e) => e.target.select()} />
-                    {!!window.Telegram?.WebApp && (
-                      <div className="wo-hint" style={{ padding: '0 4px' }}>
-                        Telegram blocks app links for LUNC Dash (its app has no web-safe link) — paste the pairing link in the app here, or open the game in Chrome where the app opens by itself.
-                      </div>
-                    )}
                   </>
                 )}
               </div>
