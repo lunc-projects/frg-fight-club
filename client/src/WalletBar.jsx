@@ -106,23 +106,14 @@ export default function WalletBar({ balance, setBalance }) {
                 </button>
                 {def.id === 'luncdash' && luncUri && (
                   <>
-                    <button
-                      className="btn btn-wallet wo-copy"
-                      onClick={() => {
-                        const href = `luncdash://wallet_connect?${encodeURIComponent(`payload=${encodeURIComponent(luncUri)}`)}`;
-                        // Telegram's webview kills raw app-scheme page
-                        // loads (ERR_UNKNOWN_URL_SCHEME). Its own openLink
-                        // API is the one route that may hand the scheme
-                        // to the OS instead — try it first, else new tab.
-                        if (window.Telegram?.WebApp?.openLink) {
-                          window.Telegram.WebApp.openLink(href);
-                        } else {
-                          window.open(href, '_blank');
-                        }
-                      }}
-                    >
-                      🚀 Open LUNC Dash app
-                    </button>
+                    {!window.Telegram?.WebApp && (
+                      <a
+                        className="btn btn-wallet wo-copy"
+                        href={`luncdash://wallet_connect?${encodeURIComponent(`payload=${encodeURIComponent(luncUri)}`)}`}
+                      >
+                        🚀 Open LUNC Dash app
+                      </a>
+                    )}
                     <button
                       className="btn btn-ghost wo-copy"
                       onClick={async () => {
@@ -135,6 +126,11 @@ export default function WalletBar({ balance, setBalance }) {
                       {copied ? '✓ Copied — now paste it in the LUNC Dash app' : '📋 Copy pairing link — paste it in the LUNC Dash app'}
                     </button>
                     <input className="wo-uri" readOnly value={luncUri} onFocus={(e) => e.target.select()} />
+                    {!!window.Telegram?.WebApp && (
+                      <div className="wo-hint" style={{ padding: '0 4px' }}>
+                        Telegram blocks app links for LUNC Dash (its app has no web-safe link) — paste the pairing link in the app here, or open the game in Chrome where the app opens by itself.
+                      </div>
+                    )}
                   </>
                 )}
               </div>
