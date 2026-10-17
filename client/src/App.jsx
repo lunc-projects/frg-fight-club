@@ -62,7 +62,7 @@ export default function App() {
       txhash = await Promise.race([
         payEntry(),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('__pay_timeout__')), 90_000)
+          setTimeout(() => reject(new Error('__pay_timeout__')), 45_000)
         ),
       ]);
       if (!txhash) throw new Error('Wallet did not return a tx hash.');
@@ -80,7 +80,7 @@ export default function App() {
       if (e.message === '__pay_timeout__') {
         setPayStuck(true);
         setError(
-          'The wallet approval did not come back — Telegram may have frozen the game while you were in the wallet. If you approved, your payment may already be on-chain: use "Check for my payment" below.'
+          'The signed approval did not make it back from the wallet in time. Checking the chain automatically — if your payment landed we pick it up here; if nothing landed, nothing was charged and paying again is safe.'
         );
       } else if (txhash) {
         // The payment may have landed even though verification hiccuped.
