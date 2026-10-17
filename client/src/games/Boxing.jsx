@@ -641,7 +641,7 @@ export default function Boxing({ onFinish }) {
             you'll eat a counter. A real flash lasts; a fake is gone in a blink.
             And dodge one hook, he may throw another right behind it.</p>
           <p>🌟 <b>Star Punch</b> spends a star on a huge uppercut. Get hit and
-            you lose ALL your stars.</p>
+            you lose a star — dodge cleanly or land a 3-hit stun combo to earn more (bank up to 5).</p>
           <p>↔️ <b>Dodge</b> his hooks to win back ❤️ hearts, earn a ⭐ (bank up to 5),
             and leave him open.
             Getting hit or punching his guard costs hearts — at 0 you're gassed.</p>
