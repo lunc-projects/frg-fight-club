@@ -106,12 +106,23 @@ export default function WalletBar({ balance, setBalance }) {
                 </button>
                 {def.id === 'luncdash' && luncUri && (
                   <>
-                    <a
+                    <button
                       className="btn btn-wallet wo-copy"
-                      href={`luncdash://wallet_connect?${encodeURIComponent(`payload=${encodeURIComponent(luncUri)}`)}`}
+                      onClick={() => {
+                        const href = `luncdash://wallet_connect?${encodeURIComponent(`payload=${encodeURIComponent(luncUri)}`)}`;
+                        // Telegram's webview kills raw app-scheme page
+                        // loads (ERR_UNKNOWN_URL_SCHEME). Its own openLink
+                        // API is the one route that may hand the scheme
+                        // to the OS instead — try it first, else new tab.
+                        if (window.Telegram?.WebApp?.openLink) {
+                          window.Telegram.WebApp.openLink(href);
+                        } else {
+                          window.open(href, '_blank');
+                        }
+                      }}
                     >
                       🚀 Open LUNC Dash app
-                    </a>
+                    </button>
                     <button
                       className="btn btn-ghost wo-copy"
                       onClick={async () => {
