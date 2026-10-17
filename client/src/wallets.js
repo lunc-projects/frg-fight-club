@@ -16,6 +16,23 @@ class GenericWCWallet extends WCWallet {
   }
 }
 
+// Keplr's WalletConnect listing forces a native app scheme
+// (keplrwallet://) that crashes Telegram's webview. This client keeps
+// the listing (needed for the client to resolve app links at all) but
+// suppresses the native URL, so the handoff always uses Keplr's HTTPS
+// universal link instead.
+class HttpsOnlyWCClient extends WCClient {
+  get nativeUrl() {
+    return undefined;
+  }
+}
+
+class KeplrMobileWallet extends WCWallet {
+  constructor(walletInfo) {
+    super(walletInfo, ChainWC, HttpsOnlyWCClient);
+  }
+}
+
 const base = {
   mode: 'wallet-connect',
   mobileDisabled: false,
@@ -29,6 +46,7 @@ export const keplrMobileInfo = {
   prettyName: 'Keplr Mobile',
   walletconnect: {
     name: 'Keplr',
+    projectId: '6adb6082c909901b9e7189af3a4a0223102cd6f8d5c39e39f3d49acb92b578bb',
     encoding: 'base64',
     // Auto-open via Keplr's HTTPS universal link. Deliberately NO native
     // scheme here: keplrwallet:// crashes Telegram's webview
@@ -70,7 +88,7 @@ export const luncDashInfo = {
 };
 
 export const extraWallets = [
-  new GenericWCWallet(keplrMobileInfo),
+  new KeplrMobileWallet(keplrMobileInfo),
   new GenericWCWallet(galaxyStationInfo),
   new GenericWCWallet(luncDashInfo),
 ];
