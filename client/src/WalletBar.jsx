@@ -35,7 +35,7 @@ export function usePlayer() {
 const WALLET_OPTIONS = [
   { id: 'keplr-extension', label: 'Keplr', hint: 'In the Keplr app browser, or desktop extension' },
   { id: 'station-extension', label: 'Station', hint: 'In the Station app browser, or desktop extension' },
-  { id: 'keplr-mobile', label: 'Keplr Mobile 📱', hint: 'Pair via the Keplr app (pairing link)' },
+  { id: 'keplr-mobile', label: 'Keplr Mobile 📱', hint: 'Opens the Keplr app to approve' },
   { id: 'galaxy-station', label: 'Galaxy Station 📱', hint: 'Opens the Galaxy Station app to approve' },
   { id: 'luncdash', label: 'LuncDash 📱', hint: 'Opens the LuncDash app to approve' },
 ];

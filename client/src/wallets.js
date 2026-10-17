@@ -30,6 +30,10 @@ export const keplrMobileInfo = {
   walletconnect: {
     name: 'Keplr',
     encoding: 'base64',
+    // Auto-open via Keplr's HTTPS universal link. Deliberately NO native
+    // scheme here: keplrwallet:// crashes Telegram's webview
+    // (ERR_UNKNOWN_URL_SCHEME); the https deeplink hands off cleanly.
+    mobile: { universal: 'https://deeplink.keplr.app/' },
     requiredNamespaces: {
       methods: ['cosmos_signDirect', 'cosmos_signAmino', 'cosmos_getAccounts'],
       events: [],
