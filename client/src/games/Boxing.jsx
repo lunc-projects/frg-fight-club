@@ -24,11 +24,11 @@ export const OPPONENTS = [
     name: 'GLASS-JAW GUS',
     cls: 'ROOKIE',
     desc: 'All heart, no chin. Slow, obvious wind-ups.',
-    hp: 100,
-    tell: [580, 730],
-    hook: [10, 14],
-    guard: 0.22,
-    pace: [820, 1320],
+    hp: 130,
+    tell: [500, 640],
+    hook: [13, 17],
+    guard: 0.28,
+    pace: [760, 1200],
     scale: 0.94,
   },
   {
@@ -36,11 +36,11 @@ export const OPPONENTS = [
     name: 'THE CHAMP',
     cls: 'CHAMPION',
     desc: 'The final boss. Blink and you are on the canvas.',
-    hp: 180,
-    tell: [330, 450],
-    hook: [18, 24],
-    guard: 0.38,
-    pace: [500, 880],
+    hp: 205,
+    tell: [280, 390],
+    hook: [22, 29],
+    guard: 0.44,
+    pace: [450, 800],
     scale: 1.1,
   },
 ];
@@ -217,7 +217,7 @@ export default function Boxing({ onFinish }) {
     setTimeout(() => {
       S.round += 1;
       S.timeLeft = ROUND_SECONDS;
-      S.pHp = clamp(S.pHp + 20, 1, MAX_HP);
+      S.pHp = clamp(S.pHp + 10, 1, MAX_HP);
       S.eHp = clamp(S.eHp + 20, 1, S.eMax);
       S.hearts = Math.max(S.hearts, 8);
       S.tired = S.hearts <= 0;
@@ -283,8 +283,8 @@ export default function Boxing({ onFinish }) {
       }
       S.points += 50;
       S.enemy = 'stunned';
-      S.eTimer = rnd(1200, 1600);
-      hurtEnemy(rnd(4, 7));
+      S.eTimer = rnd(900, 1200);
+      hurtEnemy(rnd(3, 5));
       haptic('medium');
       render();
       return;
@@ -296,7 +296,7 @@ export default function Boxing({ onFinish }) {
     }
     if (S.enemy === 'stunned') {
       S.points += 10;
-      hurtEnemy(rnd(4, 6), "Hammering him while he's dizzy! 👊");
+      hurtEnemy(rnd(3, 4), "Hammering him while he's dizzy! 👊");
       haptic('light');
       render();
       return;
@@ -312,10 +312,10 @@ export default function Boxing({ onFinish }) {
     }
     if (S.enemy === 'taunt') {
       S.points += 20;
-      hurtEnemy(rnd(3, 6), 'Caught him showing off! +20 pts 👊');
+      hurtEnemy(rnd(3, 4), 'Caught him showing off! +20 pts 👊');
     } else {
       S.points += 10;
-      hurtEnemy(rnd(3, 6), 'Jab lands. +10 pts 👊');
+      hurtEnemy(rnd(3, 4), 'Jab lands. +10 pts 👊');
     }
     haptic('light');
     render();
@@ -339,10 +339,10 @@ export default function Boxing({ onFinish }) {
     S.stars -= 1;
     S.points += 150;
     flashGlove();
-    hurtEnemy(rnd(16, 22), '🌟 STAR UPPERCUT! +150 pts!');
+    hurtEnemy(rnd(13, 18), '🌟 STAR UPPERCUT! +150 pts!');
     if (S.enemy !== 'down' && S.phase === 'fight') {
       S.enemy = 'stunned';
-      S.eTimer = rnd(1200, 1700);
+      S.eTimer = rnd(1000, 1400);
     }
     haptic('heavy');
     render();
@@ -441,7 +441,7 @@ export default function Boxing({ onFinish }) {
           st.tired = false;
           st.points += 20;
           st.enemy = 'stunned';
-          st.eTimer = rnd(1000, 1400);
+          st.eTimer = rnd(800, 1100);
           st.msg = "💨 Clean dodge! +1 ❤️ +20 pts — and he's wide open!";
           haptic('medium');
         } else if (st.blocking) {
