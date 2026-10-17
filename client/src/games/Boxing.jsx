@@ -72,7 +72,7 @@ function freshState(opp) {
     pHp: MAX_HP,
     eHp: opp.hp,
     eMax: opp.hp,
-    hearts: 12,
+    hearts: 9,
     stars: 0,
     points: 0,
     pDown: 0,
@@ -91,6 +91,8 @@ function freshState(opp) {
     dodgeDir: 0,
     blocking: false,
     tired: false,
+    stunImmune: 0,
+    stunHits: 0,
     msg: 'Touch gloves!',
     damageDealt: 0,
     taken: 0,
@@ -267,6 +269,11 @@ export default function Boxing({ onFinish }) {
       S.mash += 1;
       return;
     }
+    // Punch recovery: mashing the button faster than a real arm throws
+    // does nothing. Timing beats tapping.
+    const nowMs = Date.now();
+    if (nowMs - (S.lastJab || 0) < 170) return;
+    S.lastJab = nowMs;
     if (S.phase !== 'fight' || S.dodging > 0) return;
     flashGlove();
     if (S.tired) {
@@ -275,6 +282,18 @@ export default function Boxing({ onFinish }) {
       return;
     }
     if (S.enemy === 'tell') {
+      if (S.stunImmune > 0) {
+        // You caught the flash — star's yours — but he's fighting
+        // wary now: no stun, and his punch is still coming.
+        if (S.stars < 3) S.stars += 1;
+        S.points += 50;
+        S.msg = "⭐ STAR EARNED — but he's wary, no stun! Dodge what's coming!";
+        S.eTimer = 130;
+        hurtEnemy(rnd(3, 5));
+        haptic('medium');
+        render();
+        return;
+      }
       if (S.stars < 3) {
         S.stars += 1;
         S.msg = "⭐ STAR EARNED! +50 pts. He's dizzy — pound him!";
@@ -283,6 +302,7 @@ export default function Boxing({ onFinish }) {
       }
       S.points += 50;
       S.enemy = 'stunned';
+      S.stunHits = 0;
       S.eTimer = rnd(900, 1200);
       hurtEnemy(rnd(3, 5));
       haptic('medium');
@@ -296,7 +316,15 @@ export default function Boxing({ onFinish }) {
     }
     if (S.enemy === 'stunned') {
       S.points += 10;
+      S.stunHits += 1;
       hurtEnemy(rnd(3, 4), "Hammering him while he's dizzy! 👊");
+      if (S.stunHits >= 4 && S.phase === 'fight') {
+        // Four free ones is all you get — he fights his way out of it.
+        S.enemy = 'recover';
+        S.eTimer = rnd(500, 800);
+        S.stunImmune = 2600;
+        S.msg = "He shakes it off early — and he's wary now!";
+      }
       haptic('light');
       render();
       return;
@@ -340,8 +368,9 @@ export default function Boxing({ onFinish }) {
     S.points += 150;
     flashGlove();
     hurtEnemy(rnd(13, 18), '🌟 STAR UPPERCUT! +150 pts!');
-    if (S.enemy !== 'down' && S.phase === 'fight') {
+    if (S.enemy !== 'down' && S.phase === 'fight' && S.stunImmune <= 0) {
       S.enemy = 'stunned';
+      S.stunHits = 0;
       S.eTimer = rnd(1000, 1400);
     }
     haptic('heavy');
@@ -400,6 +429,7 @@ export default function Boxing({ onFinish }) {
           st.phase = 'fight';
           st.eHp = Math.round(st.eMax * 0.35);
           st.enemy = 'idle';
+          st.stunImmune = 2600;
           st.eTimer = 1500;
           st.msg = `He's up at ${st.count}! Wobbly — finish him this round.`;
         }
@@ -418,6 +448,7 @@ export default function Boxing({ onFinish }) {
 
       st.timeLeft -= 0.05;
       st.eTimer -= 50;
+      if (st.stunImmune > 0) st.stunImmune -= 50;
 
       if (st.enemy === 'idle' && st.eTimer <= 0) {
         if (Math.random() < 0.22) {
@@ -440,9 +471,18 @@ export default function Boxing({ onFinish }) {
           st.hearts = clamp(st.hearts + 1, 0, 20);
           st.tired = false;
           st.points += 20;
-          st.enemy = 'stunned';
-          st.eTimer = rnd(800, 1100);
-          st.msg = "💨 Clean dodge! +1 ❤️ +20 pts — and he's wide open!";
+          if (st.stunImmune > 0) {
+            // Clean dodge still pays a heart + points, but a wary
+            // opponent doesn't hand you a free stun window.
+            st.enemy = 'recover';
+            st.eTimer = rnd(500, 800);
+            st.msg = "💨 Clean dodge! +1 ❤️ +20 pts — but he's wary, no free shots!";
+          } else {
+            st.enemy = 'stunned';
+            st.stunHits = 0;
+            st.eTimer = rnd(800, 1100);
+            st.msg = "💨 Clean dodge! +1 ❤️ +20 pts — and he's wide open!";
+          }
           haptic('medium');
         } else if (st.blocking) {
           st.pHp -= rnd(2, 4);
@@ -463,8 +503,9 @@ export default function Boxing({ onFinish }) {
         }
       } else if (st.enemy === 'stunned' && st.eTimer <= 0) {
         st.enemy = 'idle';
+        st.stunImmune = 2600;
         st.eTimer = rnd(st.opp.pace[0], st.opp.pace[1]);
-        st.msg = 'He shakes it off.';
+        st.msg = 'He shakes it off — and he\'s wary now.';
       } else if (st.enemy === 'recover' && st.eTimer <= 0) {
         st.enemy = 'idle';
         st.eTimer = rnd(st.opp.pace[0], st.opp.pace[1]);
