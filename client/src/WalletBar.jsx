@@ -106,6 +106,12 @@ export default function WalletBar({ balance, setBalance }) {
                 </button>
                 {def.id === 'luncdash' && luncUri && (
                   <>
+                    <a
+                      className="btn btn-wallet wo-copy"
+                      href={`luncdash://wallet_connect?${encodeURIComponent(`payload=${encodeURIComponent(luncUri)}`)}`}
+                    >
+                      🚀 Open LUNC Dash app
+                    </a>
                     <button
                       className="btn btn-ghost wo-copy"
                       onClick={async () => {
