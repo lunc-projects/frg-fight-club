@@ -30,7 +30,7 @@ export const API_BASE = import.meta.env.VITE_API_URL || '';
 // WalletConnect (Reown) project ID — a public identifier, safe to ship.
 // Required for the app-based wallets (Keplr Mobile, Galaxy Station,
 // LuncDash) to pair from Telegram / mobile browsers.
-export const WC_PROJECT_ID = '';
+export const WC_PROJECT_ID = '7e363f1ed5d676ecc4ae2d40c5b83fbf';
 
 // Game registry — the lobby renders one card per entry. To add a game:
 // build its component under src/games/, then add a line here.

@@ -44,24 +44,45 @@ function WalletOption({ opt, onDone }) {
   const w = useChainWallet(CHAIN_NAME, opt.id);
   const connecting = w.status === 'Connecting';
   const notExist = w.isWalletNotExist || w.status === 'NotExist';
+  const [copied, setCopied] = useState(false);
+  // WalletConnect pairing URI, present while a mobile-wallet connect is
+  // pending. Apps with official deep links (Keplr) open automatically;
+  // Galaxy Station / LuncDash are not in WalletConnect's registry, so
+  // their users paste this link into the app's WalletConnect screen.
+  const pairingUri = w.qrUrl?.data || null;
   return (
-    <button
-      className="btn btn-wallet-option"
-      disabled={connecting}
-      onClick={async () => {
-        try {
-          await w.connect();
-          onDone?.();
-        } catch {
-          // rejected or app didn't answer — stay on the picker
-        }
-      }}
-    >
-      <span className="wo-label">{opt.label}</span>
-      <span className="wo-hint">
-        {connecting ? 'Connecting — check your wallet app…' : notExist ? 'Not found in this browser — use the app option or open the game inside the wallet app' : opt.hint}
-      </span>
-    </button>
+    <div className="wallet-option-wrap">
+      <button
+        className="btn btn-wallet-option"
+        disabled={connecting}
+        onClick={async () => {
+          try {
+            await w.connect();
+            onDone?.();
+          } catch {
+            // rejected or app didn't answer — stay on the picker
+          }
+        }}
+      >
+        <span className="wo-label">{opt.label}</span>
+        <span className="wo-hint">
+          {connecting ? 'Connecting — check your wallet app…' : notExist ? 'Not found in this browser — use the app option or open the game inside the wallet app' : opt.hint}
+        </span>
+      </button>
+      {connecting && pairingUri && (
+        <button
+          className="btn btn-ghost wo-copy"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(pairingUri);
+              setCopied(true);
+            } catch {}
+          }}
+        >
+          {copied ? '✓ Copied — paste it in your wallet app' : '📋 Copy pairing link (for Galaxy / LuncDash: paste in the app’s WalletConnect screen)'}
+        </button>
+      )}
+    </div>
   );
 }
 
