@@ -24,13 +24,13 @@ export const OPPONENTS = [
     name: 'GLASS-JAW GUS',
     cls: 'ROOKIE',
     desc: 'All heart, no chin. Slow, obvious wind-ups.',
-    hp: 160,
-    tell: [430, 560],
-    hook: [16, 21],
-    guard: 0.34,
-    pace: [640, 1020],
-    feint: 0.18,
-    combo: 0.22,
+    hp: 150,
+    tell: [450, 585],
+    hook: [15, 20],
+    guard: 0.32,
+    pace: [670, 1065],
+    feint: 0.14,
+    combo: 0.17,
     scale: 0.94,
   },
   {
@@ -38,13 +38,13 @@ export const OPPONENTS = [
     name: 'THE CHAMP',
     cls: 'CHAMPION',
     desc: 'The final boss. Blink and you are on the canvas.',
-    hp: 260,
-    tell: [240, 340],
-    hook: [26, 34],
-    guard: 0.5,
-    pace: [380, 680],
-    feint: 0.32,
-    combo: 0.38,
+    hp: 245,
+    tell: [250, 355],
+    hook: [25, 32],
+    guard: 0.48,
+    pace: [400, 710],
+    feint: 0.24,
+    combo: 0.28,
     scale: 1.1,
   },
 ];
@@ -293,7 +293,7 @@ export default function Boxing({ onFinish }) {
         S.enemy = 'recover';
         S.eTimer = rnd(600, 900);
         hurtPlayer(
-          rnd(S.opp.hook[0], S.opp.hook[1]) + 4,
+          rnd(S.opp.hook[0], S.opp.hook[1]) + 3,
           'FAKE-OUT! He counters your jab!'
         );
         render();
@@ -386,7 +386,7 @@ export default function Boxing({ onFinish }) {
       S.enemy = 'recover';
       S.eTimer = rnd(600, 900);
       hurtPlayer(
-        rnd(S.opp.hook[0], S.opp.hook[1]) + 4,
+        rnd(S.opp.hook[0], S.opp.hook[1]) + 3,
         'FAKE-OUT! He counters your star punch!'
       );
       render();
@@ -446,16 +446,16 @@ export default function Boxing({ onFinish }) {
         }
         if (st.phase === 'pdown' && st.mash >= 9) {
           st.phase = 'fight';
-          st.pHp = 25;
+          st.pHp = 28;
           st.hearts = Math.max(st.hearts, 4);
           st.tired = false;
           st.enemy = 'idle';
           st.eTimer = 1500;
-          st.msg = '⬆️ You beat the count! Back in it with 25 HP.';
+          st.msg = '⬆️ You beat the count! Back in it with 28 HP.';
           haptic('heavy');
         } else if (st.phase === 'edown' && st.count >= st.getUpAt) {
           st.phase = 'fight';
-          st.eHp = Math.round(st.eMax * 0.3);
+          st.eHp = Math.round(st.eMax * 0.32);
           st.enemy = 'idle';
           st.stunImmune = 2600;
           st.eTimer = 1500;
@@ -479,7 +479,7 @@ export default function Boxing({ onFinish }) {
       if (st.stunImmune > 0) st.stunImmune -= 50;
 
       if (st.enemy === 'idle' && st.eTimer <= 0) {
-        if (Math.random() < 0.13) {
+        if (Math.random() < 0.15) {
           st.enemy = 'taunt';
           st.eTimer = rnd(800, 1200);
           st.msg = `😜 ${st.opp.name} is showing off…`;
@@ -503,10 +503,10 @@ export default function Boxing({ onFinish }) {
         st.enemy = 'attack';
         if (st.feint) {
           st.feint = false;
-          st.eTimer = 170;
+          st.eTimer = 180;
           st.msg = '😱 It was a FAKE — here it comes, fast!';
         } else {
-          st.eTimer = 210;
+          st.eTimer = 230;
         }
       } else if (st.enemy === 'attack' && st.eTimer <= 0) {
         if (st.dodging > 0) {
@@ -516,7 +516,7 @@ export default function Boxing({ onFinish }) {
           if (Math.random() < st.opp.combo) {
             // No rest for the slick: he chains a second hook.
             st.enemy = 'attack';
-            st.eTimer = 210;
+            st.eTimer = 230;
             st.msg = "💨 You dodged — but he comes RIGHT back with another!";
           } else if (st.stunImmune > 0) {
             // Clean dodge still pays a heart + points, but a wary
@@ -540,7 +540,7 @@ export default function Boxing({ onFinish }) {
           if (st.pHp <= 0) playerDown();
           else if (Math.random() < st.opp.combo / 2) {
             st.enemy = 'attack';
-            st.eTimer = 210;
+            st.eTimer = 230;
             st.msg = '🛡️ Blocked — but he shrugs it off and swings AGAIN!';
           }
         } else {
