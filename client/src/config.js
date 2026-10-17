@@ -57,8 +57,10 @@ export const GAMES = [
     id: 'crash',
     name: 'Rocket Crash',
     emoji: '🚀',
-    tagline: 'Coming soon.',
-    live: false,
+    tagline: 'Ride the multiplier — bail before it blows.',
+    terms: 'Entry 10 FRG · Max win 50 FRG',
+    playLabel: 'Pay 10 FRG & Launch',
+    live: true,
   },
 ];
 

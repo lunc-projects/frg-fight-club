@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import WalletBar, { usePlayer } from './WalletBar.jsx';
 import Boxing from './games/Boxing.jsx';
 import PrizeWheel from './games/PrizeWheel.jsx';
+import RocketCrash from './games/RocketCrash.jsx';
 import { ENTRY_FEE_FRG, PRIZE_FRG, GAMES } from './config.js';
 import { finderTxUrl, findRecentEntries } from './chain.js';
 import { verifyEntry, claimPrize } from './api.js';
@@ -205,7 +206,12 @@ export default function App() {
     }
   }, [game]);
 
-  const winAmount = game === 'wheel' ? (result?.prize ?? 0) : PRIZE_FRG;
+  const winAmount =
+    game === 'wheel'
+      ? (result?.prize ?? 0)
+      : game === 'crash'
+        ? Math.floor(ENTRY_FEE_FRG * (result?.multiplier ?? 0))
+        : PRIZE_FRG;
 
   const claim = useCallback(async () => {
     setError('');
@@ -302,6 +308,24 @@ export default function App() {
 
       {screen === 'playing' && game === 'boxing' && <Boxing onFinish={onFinish} />}
       {screen === 'playing' && game === 'wheel' && <PrizeWheel onFinish={onFinish} />}
+      {screen === 'playing' && game === 'crash' && <RocketCrash onFinish={onFinish} />}
+
+      {screen === 'won' && game === 'crash' && (
+        <main className="center">
+          <div className="result-emoji">🚀</div>
+          <h2>You bailed in time!</h2>
+          <p>
+            Cashed out at <b>{result?.multiplier?.toFixed(2)}×</b> — claim
+            your FRG.
+          </p>
+          <button className="btn btn-big" onClick={claim}>
+            Claim {winAmount} FRG
+          </button>
+          <button className="btn btn-ghost" onClick={toLobby}>
+            Back to lobby
+          </button>
+        </main>
+      )}
 
       {screen === 'won' && game === 'wheel' && (
         <main className="center">
@@ -319,7 +343,7 @@ export default function App() {
         </main>
       )}
 
-      {screen === 'won' && game !== 'wheel' && (
+      {screen === 'won' && game === 'boxing' && (
         <main className="center">
           <div className="result-emoji">🏆</div>
           <h2>You win!</h2>
@@ -368,7 +392,18 @@ export default function App() {
         </main>
       )}
 
-      {screen === 'lost' && game !== 'wheel' && (
+      {screen === 'lost' && game === 'crash' && (
+        <main className="center">
+          <div className="result-emoji">💥</div>
+          <h2>The rocket blew at {result?.multiplier?.toFixed(2)}×.</h2>
+          <p>Rode it too long this time — every entry is a fresh launch.</p>
+          <button className="btn btn-big" onClick={toLobby}>
+            Back to lobby
+          </button>
+        </main>
+      )}
+
+      {screen === 'lost' && game === 'boxing' && (
         <main className="center">
           <div className="result-emoji">🥴</div>
           <h2>The Champ keeps the belt.</h2>

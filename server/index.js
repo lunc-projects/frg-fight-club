@@ -296,6 +296,27 @@ app.post('/api/claim', throttle, async (req, res) => {
         return res.status(400).json({ error: 'Wheel result timing looks implausible.' });
       }
       amountFrg = prize;
+    } else if (session.game === 'crash') {
+      // Rocket Crash: payout = floor(entry * cashed multiplier). The
+      // client's crash curve gives P(reach t) = 0.65/t, so expected
+      // payout is ~6.5 FRG on the 10 FRG entry at any bail point.
+      const mult = Number(result?.multiplier);
+      if (result?.outcome === 'win') {
+        if (!(mult >= 1.1 && mult <= 5.0)) {
+          return res.status(400).json({ error: 'Crash multiplier out of range.' });
+        }
+        // The multiplier grows as e^(0.14 * t) — a claimed multiplier
+        // needs at least ~70% of its honest flight time behind it.
+        const minMs = Math.max(1_000, (Math.log(mult) / 0.14) * 1000 * 0.7);
+        if (durationMs < minMs || durationMs > 10 * 60 * 1000) {
+          return res.status(400).json({ error: 'Crash result timing looks implausible.' });
+        }
+        amountFrg = Math.floor(Number(ENTRY_FEE_FRG) * mult);
+      } else if (result?.outcome === 'crash') {
+        amountFrg = 0;
+      } else {
+        return res.status(400).json({ error: 'Crash result outcome invalid.' });
+      }
     } else {
       // boxing (default)
       const damageDealt = Number(result?.damageDealt || 0);
