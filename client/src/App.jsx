@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import WalletBar, { usePlayer } from './WalletBar.jsx';
 import Boxing from './games/Boxing.jsx';
 import PrizeWheel from './games/PrizeWheel.jsx';
@@ -6,8 +6,23 @@ import { ENTRY_FEE_FRG, PRIZE_FRG, GAMES } from './config.js';
 import { finderTxUrl, findRecentEntries } from './chain.js';
 import { verifyEntry, claimPrize } from './api.js';
 
-// Screen flow: lobby → paying (wallet) → verifying (server) → playing →
-// won (claim) / lost → lobby
+// Poll the server until the entry tx is visible on-chain and verified.
+// A fresh broadcast usually needs a few seconds (sometimes ~a minute)
+// before the LCD can see it — one shot is not enough, and the player
+// should never have to babysit a retry button for the normal case.
+async function verifyPolling(txhash, address, gameId, tries = 22, delayMs = 4000) {
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try {
+      return await verifyEntry(txhash, address, gameId);
+    } catch (e) {
+      lastErr = e;
+      if (/already|used|replay/i.test(e.message || '')) break;
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw lastErr || new Error('Verification timed out.');
+}
 export default function App() {
   const { address, payEntry } = usePlayer();
   const [balance, setBalance] = useState(null);
@@ -53,7 +68,7 @@ export default function App() {
       if (!txhash) throw new Error('Wallet did not return a tx hash.');
 
       setBusyText('Verifying your payment on-chain…');
-      const { sessionToken } = await verifyEntry(txhash, address, gameId);
+      const { sessionToken } = await verifyPolling(txhash, address, gameId);
       setSession(sessionToken);
       setPendingTx(null);
       setPayStuck(false);
@@ -87,7 +102,7 @@ export default function App() {
     try {
       setScreen('paying');
       setBusyText('Verifying your payment on-chain…');
-      const { sessionToken } = await verifyEntry(pendingTx, address, game);
+      const { sessionToken } = await verifyPolling(pendingTx, address, game);
       setSession(sessionToken);
       setPendingTx(null);
       setPayStuck(false);
@@ -135,6 +150,51 @@ export default function App() {
       setError('Chain check failed — try again in a moment.');
     }
   }, [address, game]);
+
+  // --- Automatic recovery: a pending entry should finish itself. ---
+  // Persist the pending state so even a full reopen of the game picks
+  // it back up, and auto-run verification / the chain scan when the
+  // lobby is showing with a wallet connected. The buttons stay as a
+  // manual fallback only.
+  useEffect(() => {
+    try {
+      if (pendingTx) {
+        localStorage.setItem('frg.pendingEntry', JSON.stringify({ txhash: pendingTx, game }));
+      } else if (payStuck) {
+        localStorage.setItem('frg.pendingEntry', JSON.stringify({ stuck: true, game }));
+      } else {
+        localStorage.removeItem('frg.pendingEntry');
+      }
+    } catch {}
+  }, [pendingTx, payStuck, game]);
+
+  const resumedRef = useRef(false);
+  useEffect(() => {
+    if (!address || resumedRef.current) return;
+    resumedRef.current = true;
+    try {
+      const saved = JSON.parse(localStorage.getItem('frg.pendingEntry') || 'null');
+      if (saved?.txhash) {
+        setGame(saved.game || 'boxing');
+        setPendingTx(saved.txhash);
+      } else if (saved?.stuck) {
+        setGame(saved.game || 'boxing');
+        setPayStuck(true);
+      }
+    } catch {}
+  }, [address]);
+
+  const autoTriedRef = useRef('');
+  useEffect(() => {
+    if (screen !== 'lobby' || !address) return;
+    if (pendingTx && autoTriedRef.current !== pendingTx) {
+      autoTriedRef.current = pendingTx;
+      retryVerify();
+    } else if (payStuck && autoTriedRef.current !== 'scan') {
+      autoTriedRef.current = 'scan';
+      recoverByScan();
+    }
+  }, [screen, address, pendingTx, payStuck, retryVerify, recoverByScan]);
 
   const onFinish = useCallback((r) => {
     setResult(r);
