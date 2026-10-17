@@ -46,6 +46,11 @@ if (!FRG_CONTRACT || !TREASURY_ADDRESS || !TREASURY_MNEMONIC) {
 const DECIMALS = 6;
 const ENTRY_MICRO = BigInt(Math.round(Number(ENTRY_FEE_FRG) * 10 ** DECIMALS));
 const PRIZE_MICRO = String(Math.round(Number(PRIZE_FRG) * 10 ** DECIMALS));
+// Prize Wheel (game 'wheel'): "extra safe" tuning chosen by the owner —
+// 12 segments: BUST ×5, 5 ×3, 10 ×2, 15, 20. EV payout 5.83 FRG on a
+// 10 FRG entry, so the treasury keeps ~4.17 FRG per spin on average.
+const WHEEL_PRIZES = [0, 5, 10, 15, 20];
+const GAMES = ['boxing', 'wheel'];
 const SESSION_TTL_MS = 20 * 60 * 1000;
 
 // --- tiny persistent store for spent entry txs ------------------------------
@@ -174,15 +179,15 @@ if (treasuryWallet.key.accAddress !== TREASURY_ADDRESS) {
 }
 
 let payoutLock = Promise.resolve();
-function payPrize(playerAddress) {
+function payPrize(playerAddress, amountMicro) {
   // serialize payouts so two claims can't race the treasury sequence number
   payoutLock = payoutLock.then(async () => {
     const bal = await getFrgBalanceMicro(TREASURY_ADDRESS);
-    if (bal < BigInt(PRIZE_MICRO)) {
+    if (bal < BigInt(amountMicro)) {
       throw new Error('Treasury is out of FRG — top it up.');
     }
     const msg = new MsgExecuteContract(TREASURY_ADDRESS, FRG_CONTRACT, {
-      transfer: { recipient: playerAddress, amount: PRIZE_MICRO },
+      transfer: { recipient: playerAddress, amount: amountMicro },
     });
     const tx = await treasuryWallet.createAndSignTx({ msgs: [msg] });
     const result = await lcd.tx.broadcast(tx);
@@ -232,10 +237,11 @@ app.get('/api/config', (req, res) =>
 
 app.post('/api/verify-entry', throttle, async (req, res) => {
   try {
-    const { txhash, playerAddress, initData } = req.body || {};
+    const { txhash, playerAddress, initData, game } = req.body || {};
     if (!txhash || !playerAddress) {
       return res.status(400).json({ error: 'txhash and playerAddress required.' });
     }
+    const gameId = GAMES.includes(game) ? game : 'boxing';
     if (!verifyTelegramInitData(initData || '')) {
       return res.status(401).json({ error: 'Telegram session check failed.' });
     }
@@ -253,6 +259,7 @@ app.post('/api/verify-entry', throttle, async (req, res) => {
     const sessionToken = crypto.randomBytes(24).toString('hex');
     sessions.set(sessionToken, {
       player: playerAddress,
+      game: gameId,
       expiresAt: Date.now() + SESSION_TTL_MS,
       claimed: false,
     });
@@ -273,29 +280,50 @@ app.post('/api/claim', throttle, async (req, res) => {
       sessions.delete(sessionToken);
       return res.status(410).json({ error: 'Session expired.' });
     }
-    // Plausibility checks — a real match takes time and has bounded damage.
+    // Per-game claim rules. The browser reports the result; the server
+    // checks it is plausible for the game this session was paid for.
     // These stop instant-claim bots; they are not bulletproof anti-cheat
     // (see README "Honest limits").
     const durationMs = Number(result?.durationMs || 0);
-    const damageDealt = Number(result?.damageDealt || 0);
-    if (result?.outcome !== 'win') {
-      return res.status(400).json({ error: 'Only a win can claim a prize.' });
+    let amountFrg = 0;
+
+    if (session.game === 'wheel') {
+      const prize = Number(result?.prize);
+      if (!WHEEL_PRIZES.includes(prize)) {
+        return res.status(400).json({ error: 'Wheel result is not a wheel prize.' });
+      }
+      if (durationMs < 4_000 || durationMs > 10 * 60 * 1000) {
+        return res.status(400).json({ error: 'Wheel result timing looks implausible.' });
+      }
+      amountFrg = prize;
+    } else {
+      // boxing (default)
+      const damageDealt = Number(result?.damageDealt || 0);
+      if (result?.outcome !== 'win') {
+        return res.status(400).json({ error: 'Only a win can claim a prize.' });
+      }
+      if (durationMs < 12_000) {
+        return res.status(400).json({ error: 'Match too short to be a real win.' });
+      }
+      if (!(damageDealt >= 40 && damageDealt <= 500)) {
+        return res.status(400).json({ error: 'Match result looks implausible.' });
+      }
+      amountFrg = Number(PRIZE_FRG);
     }
-    if (durationMs < 12_000) {
-      return res.status(400).json({ error: 'Match too short to be a real win.' });
-    }
-    if (!(damageDealt >= 40 && damageDealt <= 500)) {
-      return res.status(400).json({ error: 'Match result looks implausible.' });
-    }
+
     session.claimed = true; // lock before paying, so a double-click can't double-pay
-    try {
-      var payoutTxhash = await payPrize(session.player);
-    } catch (payErr) {
-      session.claimed = false; // payout failed — let the player retry the claim
-      throw payErr;
+    let payoutTxhash = null;
+    if (amountFrg > 0) {
+      const amountMicro = String(Math.round(amountFrg * 10 ** DECIMALS));
+      try {
+        payoutTxhash = await payPrize(session.player, amountMicro);
+      } catch (payErr) {
+        session.claimed = false; // payout failed — let the player retry the claim
+        throw payErr;
+      }
     }
     sessions.delete(sessionToken);
-    res.json({ payoutTxhash });
+    res.json({ payoutTxhash, amountFrg });
   } catch (e) {
     console.error('claim:', e);
     res.status(500).json({ error: e.message || 'Payout failed — contact the game admin with your session time.' });

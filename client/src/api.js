@@ -22,10 +22,11 @@ async function postJson(path, body) {
  * the server. It verifies the transfer on-chain and returns a one-time
  * session token that unlocks exactly one match.
  */
-export function verifyEntry(txhash, playerAddress) {
+export function verifyEntry(txhash, playerAddress, game) {
   return postJson('/api/verify-entry', {
     txhash,
     playerAddress,
+    game,
     initData: telegramInitData(),
   });
 }

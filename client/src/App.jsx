@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import WalletBar, { usePlayer } from './WalletBar.jsx';
 import Boxing from './games/Boxing.jsx';
+import PrizeWheel from './games/PrizeWheel.jsx';
 import { ENTRY_FEE_FRG, PRIZE_FRG, GAMES } from './config.js';
 import { finderTxUrl } from './chain.js';
 import { verifyEntry, claimPrize } from './api.js';
@@ -10,6 +11,7 @@ import { verifyEntry, claimPrize } from './api.js';
 export default function App() {
   const { address, payEntry } = usePlayer();
   const [balance, setBalance] = useState(null);
+  const [game, setGame] = useState('boxing');
   const [screen, setScreen] = useState('lobby');
   const [session, setSession] = useState(null);
   const [pendingTx, setPendingTx] = useState(null);
@@ -20,8 +22,9 @@ export default function App() {
 
   const connected = !!address;
 
-  const enterBoxing = useCallback(async () => {
+  const enterGame = useCallback(async (gameId) => {
     setError('');
+    setGame(gameId);
     if (!connected) {
       setError('Connect your wallet first.');
       return;
@@ -40,7 +43,7 @@ export default function App() {
       if (!txhash) throw new Error('Wallet did not return a tx hash.');
 
       setBusyText('Verifying your payment on-chain…');
-      const { sessionToken } = await verifyEntry(txhash, address);
+      const { sessionToken } = await verifyEntry(txhash, address, gameId);
       setSession(sessionToken);
       setPendingTx(null);
       setResult(null);
@@ -68,7 +71,7 @@ export default function App() {
     try {
       setScreen('paying');
       setBusyText('Verifying your payment on-chain…');
-      const { sessionToken } = await verifyEntry(pendingTx, address);
+      const { sessionToken } = await verifyEntry(pendingTx, address, game);
       setSession(sessionToken);
       setPendingTx(null);
       setResult(null);
@@ -80,12 +83,18 @@ export default function App() {
         'Still not verified — the chain may need a few more seconds. Wait a moment and retry; your payment is not lost.'
       );
     }
-  }, [pendingTx, address]);
+  }, [pendingTx, address, game]);
 
-  const onFinish = useCallback((matchResult) => {
-    setResult(matchResult);
-    setScreen(matchResult.outcome === 'win' ? 'won' : 'lost');
-  }, []);
+  const onFinish = useCallback((r) => {
+    setResult(r);
+    if (game === 'wheel') {
+      setScreen(r.prize > 0 ? 'won' : 'lost');
+    } else {
+      setScreen(r.outcome === 'win' ? 'won' : 'lost');
+    }
+  }, [game]);
+
+  const winAmount = game === 'wheel' ? (result?.prize ?? 0) : PRIZE_FRG;
 
   const claim = useCallback(async () => {
     setError('');
@@ -140,17 +149,13 @@ export default function App() {
                 <div className="card-tag">{g.tagline}</div>
                 {g.live ? (
                   <>
-                    <div className="card-terms">
-                      Entry {ENTRY_FEE_FRG} FRG · Win {PRIZE_FRG} FRG
-                    </div>
+                    <div className="card-terms">{g.terms}</div>
                     <button
                       className="btn btn-big"
                       disabled={!connected}
-                      onClick={enterBoxing}
+                      onClick={() => enterGame(g.id)}
                     >
-                      {connected
-                        ? `Pay ${ENTRY_FEE_FRG} FRG & Fight`
-                        : 'Connect wallet to play'}
+                      {connected ? g.playLabel : 'Connect wallet to play'}
                     </button>
                   </>
                 ) : (
@@ -174,9 +179,26 @@ export default function App() {
         </main>
       )}
 
-      {screen === 'playing' && <Boxing onFinish={onFinish} />}
+      {screen === 'playing' && game === 'boxing' && <Boxing onFinish={onFinish} />}
+      {screen === 'playing' && game === 'wheel' && <PrizeWheel onFinish={onFinish} />}
 
-      {screen === 'won' && (
+      {screen === 'won' && game === 'wheel' && (
+        <main className="center">
+          <div className="result-emoji">🎡</div>
+          <h2>The wheel paid out!</h2>
+          <p>
+            You landed <b>{result?.prize} FRG</b>. Claim it to your wallet.
+          </p>
+          <button className="btn btn-big" onClick={claim}>
+            Claim {winAmount} FRG
+          </button>
+          <button className="btn btn-ghost" onClick={toLobby}>
+            Back to lobby
+          </button>
+        </main>
+      )}
+
+      {screen === 'won' && game !== 'wheel' && (
         <main className="center">
           <div className="result-emoji">🏆</div>
           <h2>You win!</h2>
@@ -198,7 +220,7 @@ export default function App() {
           <div className="result-emoji">💸</div>
           <h2>Prize sent!</h2>
           <p>
-            {PRIZE_FRG} FRG is on its way to your wallet.
+            {winAmount} FRG is on its way to your wallet.
             {payout && (
               <>
                 {' '}
@@ -214,7 +236,18 @@ export default function App() {
         </main>
       )}
 
-      {screen === 'lost' && (
+      {screen === 'lost' && game === 'wheel' && (
+        <main className="center">
+          <div className="result-emoji">🎡</div>
+          <h2>BUST. The wheel takes this one.</h2>
+          <p>No prize this spin — every entry is a fresh spin.</p>
+          <button className="btn btn-big" onClick={toLobby}>
+            Back to lobby
+          </button>
+        </main>
+      )}
+
+      {screen === 'lost' && game !== 'wheel' && (
         <main className="center">
           <div className="result-emoji">🥴</div>
           <h2>The Champ keeps the belt.</h2>
