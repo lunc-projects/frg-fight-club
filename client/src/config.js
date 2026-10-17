@@ -21,7 +21,7 @@ export const PRIZE_FRG = 18; // FRG paid to the winner
 // Your game treasury wallet (the "bank"). Create it in Station / Keplr /
 // LuncDash, fund it with a little LUNC for gas + FRG for prizes, and put the
 // SAME address in the server .env. This is a public address — safe here.
-export const TREASURY_ADDRESS = 'terra1kur3cr4vask4lgs3tr4gww7lr0zvc944gjfcqc';
+export const TREASURY_ADDRESS = 'terra1mymhewn5pp2aqy8ld6828md24sfecn05zdztg7';
 
 // Backend base URL. In local dev the Vite proxy forwards /api to the server,
 // so leave it empty. In production set VITE_API_URL to your server's URL.
