@@ -24,13 +24,13 @@ export const OPPONENTS = [
     name: 'GLASS-JAW GUS',
     cls: 'ROOKIE',
     desc: 'All heart, no chin. Slow, obvious wind-ups.',
-    hp: 135,
-    tell: [485, 625],
-    hook: [13, 18],
-    guard: 0.28,
-    pace: [720, 1140],
-    feint: 0.10,
-    combo: 0.12,
+    hp: 120,
+    tell: [520, 665],
+    hook: [11, 15],
+    guard: 0.24,
+    pace: [780, 1200],
+    feint: 0.07,
+    combo: 0.09,
     scale: 0.94,
   },
   {
@@ -38,13 +38,13 @@ export const OPPONENTS = [
     name: 'THE CHAMP',
     cls: 'CHAMPION',
     desc: 'The final boss. Blink and you are on the canvas.',
-    hp: 215,
-    tell: [275, 385],
-    hook: [22, 28],
-    guard: 0.42,
-    pace: [440, 770],
-    feint: 0.17,
-    combo: 0.20,
+    hp: 185,
+    tell: [300, 420],
+    hook: [19, 24],
+    guard: 0.36,
+    pace: [480, 830],
+    feint: 0.12,
+    combo: 0.15,
     scale: 1.1,
   },
 ];
@@ -76,8 +76,8 @@ function freshState(opp) {
     pHp: MAX_HP,
     eHp: opp.hp,
     eMax: opp.hp,
-    hearts: 10,
-    stars: 0,
+    hearts: 11,
+    stars: 1,
     points: 0,
     pDown: 0,
     eDown: 0,
@@ -243,8 +243,8 @@ export default function Boxing({ onFinish }) {
     S.pHp -= dmg;
     S.taken += dmg;
     if (S.stars > 0) {
-      S.stars = 0;
-      S.msg = `💥 ${why} You lost your stars!`;
+      S.stars -= 1;
+      S.msg = `💥 ${why} You lost a star!`;
     } else {
       S.msg = `💥 ${why}`;
     }
@@ -334,12 +334,17 @@ export default function Boxing({ onFinish }) {
     if (S.enemy === 'stunned') {
       S.points += 10;
       S.stunHits += 1;
-      hurtEnemy(rnd(3, 4), "Hammering him while he's dizzy! 👊");
+      let stunLabel = "Hammering him while he's dizzy! 👊";
+      if (S.stunHits === 3 && S.stars < 5) {
+        S.stars += 1;
+        stunLabel += ' +⭐ STAR!';
+      }
+      hurtEnemy(rnd(3, 4), stunLabel);
       if (S.stunHits >= 4 && S.phase === 'fight') {
         // Four free ones is all you get — he fights his way out of it.
         S.enemy = 'recover';
         S.eTimer = rnd(500, 800);
-        S.stunImmune = 2100;
+        S.stunImmune = 1800;
         S.msg = "He shakes it off early — and he's wary now!";
       }
       haptic('light');
@@ -407,7 +412,7 @@ export default function Boxing({ onFinish }) {
 
   function dodge(dir) {
     if (S.phase !== 'fight') return;
-    S.dodging = 260;
+    S.dodging = 340;
     S.dodgeDir = dir;
     render();
   }
@@ -457,7 +462,7 @@ export default function Boxing({ onFinish }) {
           st.phase = 'fight';
           st.eHp = Math.round(st.eMax * 0.32);
           st.enemy = 'idle';
-          st.stunImmune = 2100;
+          st.stunImmune = 1800;
           st.eTimer = 1500;
           st.msg = `He's up at ${st.count}! Wobbly — finish him this round.`;
         }
@@ -562,7 +567,7 @@ export default function Boxing({ onFinish }) {
         }
       } else if (st.enemy === 'stunned' && st.eTimer <= 0) {
         st.enemy = 'idle';
-        st.stunImmune = 2100;
+        st.stunImmune = 1800;
         st.eTimer = rnd(st.opp.pace[0], st.opp.pace[1]);
         st.msg = 'He shakes it off — and he\'s wary now.';
       } else if (st.enemy === 'recover' && st.eTimer <= 0) {
