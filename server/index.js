@@ -33,6 +33,7 @@ const {
   TREASURY_ADDRESS,
   TREASURY_MNEMONIC,
   BOT_TOKEN = '',
+  WEBAPP_URL = '',
 } = process.env;
 
 if (!FRG_CONTRACT || !TREASURY_ADDRESS || !TREASURY_MNEMONIC) {
@@ -301,4 +302,53 @@ app.listen(PORT, () => {
   console.log(`FRG Fight Club server on :${PORT}`);
   console.log(`  chain ${CHAIN_ID} · entry ${ENTRY_FEE_FRG} FRG · prize ${PRIZE_FRG} FRG`);
   console.log(`  treasury ${TREASURY_ADDRESS}`);
+  startBot();
 });
+
+// --- Telegram bot (integrated): sets the menu button and answers /start ---
+async function tg(method, body) {
+  const r = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return r.json().catch(() => ({}));
+}
+
+async function startBot() {
+  if (!BOT_TOKEN || !WEBAPP_URL) {
+    console.log('  bot: skipped (BOT_TOKEN / WEBAPP_URL not set)');
+    return;
+  }
+  try {
+    await tg('setChatMenuButton', {
+      menu_button: { type: 'web_app', text: '🥊 Play FRG Fight Club', web_app: { url: WEBAPP_URL } },
+    });
+    await tg('setMyCommands', { commands: [{ command: 'start', description: 'Open FRG Fight Club' }] });
+    console.log('  bot: menu button set, polling /start');
+    let offset = 0;
+    for (;;) {
+      try {
+        const res = await tg('getUpdates', { offset, timeout: 25, allowed_updates: ['message'] });
+        for (const u of res.result || []) {
+          offset = u.update_id + 1;
+          const msg = u.message;
+          if (msg?.text?.startsWith('/start')) {
+            await tg('sendMessage', {
+              chat_id: msg.chat.id,
+              text: '🥊 *FRG FIGHT CLUB*\n\nPay 10 FRG to step in the ring. Beat the fighter, win *18 FRG*.\n\nTap Play below — good luck!',
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [[{ text: '🥊 Play FRG Fight Club', web_app: { url: WEBAPP_URL } }]],
+              },
+            });
+          }
+        }
+      } catch {
+        await new Promise((r) => setTimeout(r, 5000));
+      }
+    }
+  } catch (e) {
+    console.error('bot:', e.message);
+  }
+}
