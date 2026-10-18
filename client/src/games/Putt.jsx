@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 
 // ---------------------------------------------------------------------------
-// FRG Mini Putt — 3 holes, drag-back slingshot putting.
-// Scoring: a hole pays (7 - strokes) * 40 points (ace = 240); a hole
-// picked up after 7 strokes pays 0. The server re-derives the total
-// EXACTLY from the per-hole stroke counts. Tiers below convert the
-// total to leaderboard points.
+// FRG Mini Putt — 3 holes, drag-back slingshot putting, now in REAL 3D
+// (Three.js): a raised wooden-framed green with a real 3D ball that
+// rolls and banks off wooden rails, a flag marking the cup. Scoring is
+// the original verbatim: a hole pays (7 - strokes) * 40 (ace = 240);
+// a hole picked up after 7 strokes pays 0. The server re-derives the
+// total EXACTLY from the per-hole stroke counts.
 // ---------------------------------------------------------------------------
 
 export const PUTT_TIERS = [
@@ -63,16 +64,16 @@ const HOLES = [
 ];
 
 export default function Putt({ onFinish }) {
-  const canvasRef = useRef(null);
+  const mountRef = useRef(null);
+  const overlayRef = useRef(null);
   const G = useRef(null);
   const [hud, setHud] = useState({ hole: 1, strokes: 0, score: 0, msg: 'Drag back from the ball and release to putt!' });
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    const imgBg = new Image();
-    imgBg.src = '/art/putt-bg.webp';
     const startedAt = Date.now();
+    let disposed = false;
+    let raf = 0;
+    let cleanup3d = () => {};
 
     const S = {
       holeIdx: 0,
@@ -212,133 +213,271 @@ export default function Putt({ onFinish }) {
           S.popups.push({ x: cup.x, y: cup.y - 24, text: S.strokes === 1 ? `ACE! +${hs}` : `+${hs}`, life: 1.25, color: '#ffd94d', size: S.strokes === 1 ? 22 : 18 });
           for (let i = 0; i < 14; i++) {
             const a = Math.random() * Math.PI * 2;
-            const sp = 40 + Math.random() * 130;
-            S.particles.push({ x: cup.x, y: cup.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 60, r: 1.8 + Math.random() * 2.2, life: 0.7, color: ['#ffd94d', '#4ade80', '#ffffff'][i % 3] });
+            const spd = 40 + Math.random() * 130;
+            S.particles.push({ x: cup.x, y: cup.y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd - 60, r: 1.8 + Math.random() * 2.2, life: 0.7, color: ['#ffd94d', '#4ade80', '#ffffff'][i % 3] });
           }
           setTimeout(finishHole, 800);
         }
       }
     }
 
-    function draw() {
-      const h = hole();
-      // felt — real green texture, flat gradient until it loads
-      if (imgBg.complete && imgBg.naturalWidth) {
-        const sc = Math.max(W / imgBg.naturalWidth, H / imgBg.naturalHeight);
-        const bw = imgBg.naturalWidth * sc;
-        const bh = imgBg.naturalHeight * sc;
-        ctx.drawImage(imgBg, (W - bw) / 2, (H - bh) / 2, bw, bh);
-      } else {
-        const grad = ctx.createLinearGradient(0, 0, 0, H);
-        grad.addColorStop(0, '#15803d');
-        grad.addColorStop(1, '#166534');
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, W, H);
-      }
-      // fx aging (visual only, fixed-step)
+    function fxStep() {
       for (const pt of S.particles) { pt.x += pt.vx / 60; pt.y += pt.vy / 60; pt.vy += 300 / 60; pt.life -= 1 / 60; }
       S.particles = S.particles.filter((pt) => pt.life > 0);
       for (const pu of S.popups) { pu.y -= 30 / 60; pu.life -= 0.85 / 60; }
       S.popups = S.popups.filter((pu) => pu.life > 0);
-      ctx.strokeStyle = '#a16207';
-      ctx.lineWidth = 12;
-      ctx.strokeRect(0, 0, W, H);
-      // fairway sheen
-      ctx.fillStyle = 'rgba(255,255,255,0.05)';
-      ctx.fillRect(20, 20, W - 40, H - 40);
-      // walls
-      for (const wl of h.walls) {
-        ctx.fillStyle = '#92400e';
-        ctx.beginPath();
-        ctx.roundRect(wl.x, wl.y, wl.w, wl.h, 4);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.15)';
-        ctx.fillRect(wl.x, wl.y, wl.w, 3);
-      }
-      // cup + flag
-      ctx.beginPath();
-      ctx.arc(h.cup.x, h.cup.y, CUP_R, 0, 2 * Math.PI);
-      ctx.fillStyle = '#052e16';
-      ctx.fill();
-      ctx.strokeStyle = '#f8fafc';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(h.cup.x, h.cup.y);
-      ctx.lineTo(h.cup.x, h.cup.y - 30);
-      ctx.stroke();
-      ctx.fillStyle = '#ef4444';
-      ctx.beginPath();
-      ctx.moveTo(h.cup.x, h.cup.y - 30);
-      ctx.lineTo(h.cup.x + 13, h.cup.y - 25);
-      ctx.lineTo(h.cup.x, h.cup.y - 20);
-      ctx.fill();
-      // aim
-      const b = S.ball;
-      if (S.aiming && !moving()) {
-        const { dx, dy } = S.aiming;
-        const len = Math.hypot(dx, dy);
-        if (len > 6) {
-          const power = Math.min(1, len / 150);
-          ctx.strokeStyle = `rgba(250, 204, 21, ${0.35 + power * 0.6})`;
-          ctx.lineWidth = 3;
-          ctx.setLineDash([6, 6]);
-          ctx.beginPath();
-          ctx.moveTo(b.x, b.y);
-          ctx.lineTo(b.x - dx * (0.4 + power * 1.1), b.y - dy * (0.4 + power * 1.1));
-          ctx.stroke();
-          ctx.setLineDash([]);
-        }
-      }
-      // ball trail
-      S.trail.forEach((tp, i) => {
-        ctx.globalAlpha = (i / S.trail.length) * 0.33;
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.arc(tp.x, tp.y, 2 + (i / S.trail.length) * (BALL_R - 2), 0, 2 * Math.PI);
-        ctx.fill();
-      });
-      ctx.globalAlpha = 1;
-      // ball
-      const bg = ctx.createRadialGradient(b.x - 3, b.y - 3, 1, b.x, b.y, BALL_R);
-      bg.addColorStop(0, '#ffffff');
-      bg.addColorStop(1, '#cbd5e1');
-      ctx.beginPath();
-      ctx.arc(b.x, b.y, BALL_R, 0, 2 * Math.PI);
-      ctx.fillStyle = bg;
-      ctx.fill();
-      // sink confetti + score popup
-      for (const pt of S.particles) {
-        ctx.globalAlpha = Math.max(0, Math.min(1, pt.life * 1.8));
-        ctx.fillStyle = pt.color;
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.globalAlpha = 1;
-      for (const pu of S.popups) {
-        ctx.globalAlpha = Math.max(0, Math.min(1, pu.life));
-        ctx.font = `900 ${pu.size}px system-ui`;
-        ctx.textAlign = 'center';
-        ctx.strokeStyle = 'rgba(4,40,16,0.85)';
-        ctx.lineWidth = 4;
-        ctx.strokeText(pu.text, pu.x, pu.y);
-        ctx.fillStyle = pu.color;
-        ctx.fillText(pu.text, pu.x, pu.y);
-      }
-      ctx.globalAlpha = 1;
     }
 
-    let raf;
-    const loop = () => {
-      raf = requestAnimationFrame(loop);
-      step();
-      draw();
-    };
-    raf = requestAnimationFrame(loop);
+    (async () => {
+      const THREE = await import('three');
+      if (disposed) return;
+      const mount = mountRef.current;
+      const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+      renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+      renderer.setSize(W, H, false);
+      renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;';
+      mount.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x052e16);
+      scene.fog = new THREE.Fog(0x052e16, 1300, 3000);
+      const camera = new THREE.PerspectiveCamera(50, W / H, 1, 4000);
+      camera.position.set(200, 318, 664);
+      camera.lookAt(200, 262, 0);
+
+      scene.add(new THREE.HemisphereLight(0xeaffea, 0x14532d, 1.5));
+      const sun = new THREE.DirectionalLight(0xfff6d8, 2.1);
+      sun.position.set(150, 380, 540);
+      scene.add(sun);
+      const fill = new THREE.DirectionalLight(0x9fe8ff, 0.5);
+      fill.position.set(-260, 140, 300);
+      scene.add(fill);
+
+      const wy = (gy) => H - gy;
+
+      // the green: wooden frame slab + felt top (club art)
+      {
+        const frame = new THREE.Mesh(
+          new THREE.BoxGeometry(W + 26, H + 26, 18),
+          new THREE.MeshStandardMaterial({ color: 0x92400e, roughness: 0.6 })
+        );
+        frame.position.set(W / 2, H / 2, -11);
+        scene.add(frame);
+        const tex = new THREE.TextureLoader().load('/art/putt-bg.webp', (t) => {
+          t.colorSpace = THREE.SRGBColorSpace;
+        });
+        const felt = new THREE.Mesh(
+          new THREE.PlaneGeometry(W, H),
+          new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95, color: 0xb9d9b9 })
+        );
+        felt.position.set(W / 2, H / 2, -1.5);
+        scene.add(felt);
+      }
+      // wooden rails (rebuilt per hole)
+      const railMat = new THREE.MeshStandardMaterial({ color: 0x92400e, roughness: 0.55 });
+      let railMeshes = [];
+      function buildRails() {
+        for (const m of railMeshes) scene.remove(m);
+        railMeshes = hole().walls.map((wl) => {
+          const m = new THREE.Mesh(new THREE.BoxGeometry(wl.w, wl.h, 15), railMat);
+          m.position.set(wl.x + wl.w / 2, wy(wl.y + wl.h / 2), 6);
+          scene.add(m);
+          return m;
+        });
+      }
+      // cup + flag
+      const cupGroup = new THREE.Group();
+      {
+        const cupMesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(CUP_R, CUP_R, 3, 22),
+          new THREE.MeshStandardMaterial({ color: 0x052e16, roughness: 0.9 })
+        );
+        cupMesh.rotation.x = Math.PI / 2;
+        cupMesh.position.z = 1;
+        const rim = new THREE.Mesh(
+          new THREE.TorusGeometry(CUP_R + 0.6, 1.1, 8, 26),
+          new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4 })
+        );
+        rim.position.z = 2.4;
+        const pole = new THREE.Mesh(
+          new THREE.CylinderGeometry(1.5, 1.5, 36, 8),
+          new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4 })
+        );
+        pole.rotation.x = Math.PI / 2;
+        pole.position.z = 19;
+        const flagShape = new THREE.Shape();
+        flagShape.moveTo(0, 0);
+        flagShape.lineTo(15, -5.5);
+        flagShape.lineTo(0, -11);
+        flagShape.lineTo(0, 0);
+        const flag = new THREE.Mesh(
+          new THREE.ShapeGeometry(flagShape),
+          new THREE.MeshBasicMaterial({ color: 0xef4444, side: THREE.DoubleSide })
+        );
+        flag.position.set(0.8, 5.5, 36);
+        cupGroup.add(cupMesh, rim, pole, flag);
+        cupGroup.userData.flag = flag;
+        scene.add(cupGroup);
+      }
+      function placeCup() {
+        const c = hole().cup;
+        cupGroup.position.set(c.x, wy(c.y), 0);
+      }
+      // ball — a real rolling sphere (+ contact disc as a soft shadow)
+      const ball = new THREE.Mesh(
+        new THREE.SphereGeometry(BALL_R, 20, 14),
+        new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.28, metalness: 0.05 })
+      );
+      scene.add(ball);
+      const ballShadow = new THREE.Mesh(
+        new THREE.CircleGeometry(BALL_R + 1.5, 18),
+        new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28 })
+      );
+      scene.add(ballShadow);
+      // aim line
+      let aimLine;
+      {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+        aimLine = new THREE.Line(g, new THREE.LineDashedMaterial({ color: 0xfacc15, dashSize: 7, gapSize: 6, transparent: true, opacity: 0.9 }));
+        aimLine.frustumCulled = false;
+        aimLine.visible = false;
+        scene.add(aimLine);
+      }
+      // trail + confetti points
+      let trailPts;
+      let partPts;
+      {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(13 * 3), 3));
+        trailPts = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xffffff, size: 4.6, sizeAttenuation: false, transparent: true, opacity: 0.4 }));
+        trailPts.frustumCulled = false;
+        scene.add(trailPts);
+        const g2 = new THREE.BufferGeometry();
+        g2.setAttribute('position', new THREE.BufferAttribute(new Float32Array(60 * 3), 3));
+        g2.setAttribute('color', new THREE.BufferAttribute(new Float32Array(60 * 3), 3));
+        partPts = new THREE.Points(g2, new THREE.PointsMaterial({ size: 5, sizeAttenuation: false, vertexColors: true, transparent: true, opacity: 0.95 }));
+        partPts.frustumCulled = false;
+        scene.add(partPts);
+      }
+      const colorCache = {};
+      function rgb(hex) {
+        if (!colorCache[hex]) {
+          const n = parseInt(hex.slice(1), 16);
+          colorCache[hex] = [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+        }
+        return colorCache[hex];
+      }
+
+      let lastHole = -1;
+      function syncScene(now) {
+        if (S.holeIdx !== lastHole) {
+          lastHole = S.holeIdx;
+          buildRails();
+          placeCup();
+        }
+        cupGroup.userData.flag.rotation.y = Math.sin(now / 340) * 0.35;
+        const b = S.ball;
+        ball.position.set(b.x, wy(b.y), BALL_R + 1);
+        ball.rotation.y -= b.vx * 0.03;
+        ball.rotation.x += b.vy * 0.03;
+        ballShadow.position.set(b.x + 2, wy(b.y) - 2, 0.8);
+        // aim
+        if (S.aiming && !moving()) {
+          const { dx, dy } = S.aiming;
+          const len = Math.hypot(dx, dy);
+          if (len > 6) {
+            const power = Math.min(1, len / 150);
+            const ex = b.x - dx * (0.4 + power * 1.1);
+            const ey = b.y - dy * (0.4 + power * 1.1);
+            const arr = aimLine.geometry.getAttribute('position');
+            arr.setXYZ(0, b.x, wy(b.y), 5);
+            arr.setXYZ(1, ex, wy(ey), 5);
+            arr.needsUpdate = true;
+            aimLine.computeLineDistances();
+            aimLine.visible = true;
+          } else aimLine.visible = false;
+        } else aimLine.visible = false;
+        // trail
+        {
+          const arr = trailPts.geometry.getAttribute('position');
+          for (let i = 0; i < 13; i++) {
+            const tp = S.trail[i];
+            if (!tp) { arr.setXYZ(i, -100, -100, -100); continue; }
+            arr.setXYZ(i, tp.x, wy(tp.y), 3);
+          }
+          arr.needsUpdate = true;
+        }
+        // confetti
+        {
+          const posA = partPts.geometry.getAttribute('position');
+          const colA = partPts.geometry.getAttribute('color');
+          for (let i = 0; i < 60; i++) {
+            const pt = S.particles[i];
+            if (!pt) { posA.setXYZ(i, -200, -200, -200); continue; }
+            posA.setXYZ(i, pt.x, wy(pt.y), 14);
+            const c = rgb(pt.color);
+            colA.setXYZ(i, c[0], c[1], c[2]);
+          }
+          posA.needsUpdate = true;
+          colA.needsUpdate = true;
+        }
+      }
+
+      // ---------- overlay: score popups (game coordinates) ----------
+      const overlay = overlayRef.current;
+      const octx = overlay.getContext('2d');
+      function drawOverlay() {
+        octx.clearRect(0, 0, W, H);
+        for (const pu of S.popups) {
+          octx.globalAlpha = Math.max(0, Math.min(1, pu.life));
+          octx.font = `900 ${pu.size}px system-ui`;
+          octx.textAlign = 'center';
+          octx.strokeStyle = 'rgba(4,40,16,0.85)';
+          octx.lineWidth = 4;
+          octx.strokeText(pu.text, pu.x, pu.y);
+          octx.fillStyle = pu.color;
+          octx.fillText(pu.text, pu.x, pu.y);
+        }
+        octx.globalAlpha = 1;
+      }
+
+      const frame = () => {
+        raf = requestAnimationFrame(frame);
+        step();
+        fxStep();
+        syncScene(performance.now());
+        renderer.render(scene, camera);
+        drawOverlay();
+      };
+      raf = requestAnimationFrame(frame);
+
+      window.__frgPutt = {
+        state: () => ({
+          hole: S.holeIdx + 1,
+          strokes: S.strokes,
+          strokesPerHole: [...S.strokesPerHole],
+          score: S.score,
+          over: S.over,
+          moving: moving(),
+          ball: { x: Math.round(S.ball.x), y: Math.round(S.ball.y) },
+          cup: { x: hole().cup.x, y: hole().cup.y },
+        }),
+        shoot: (angleDeg, power) => S.shoot(angleDeg, power),
+      };
+
+      cleanup3d = () => {
+        cancelAnimationFrame(raf);
+        renderer.dispose();
+        if (renderer.domElement.parentNode) renderer.domElement.parentNode.removeChild(renderer.domElement);
+        delete window.__frgPutt;
+      };
+    })();
 
     // pointer aiming (slingshot: drag back, release fires opposite)
+    const mountEl = mountRef.current;
     const toLocal = (e) => {
-      const r = canvas.getBoundingClientRect();
+      const r = mountEl.getBoundingClientRect();
       return {
         x: ((e.clientX - r.left) / r.width) * W,
         y: ((e.clientY - r.top) / r.height) * H,
@@ -366,50 +505,45 @@ export default function Putt({ onFinish }) {
         S.shoot(angle, Math.min(1, len / 150));
       }
     };
-    canvas.addEventListener('pointerdown', down);
-    canvas.addEventListener('pointermove', move);
-    canvas.addEventListener('pointerup', up);
-    canvas.addEventListener('pointercancel', up);
-
-    window.__frgPutt = {
-      state: () => ({
-        hole: S.holeIdx + 1,
-        strokes: S.strokes,
-        strokesPerHole: [...S.strokesPerHole],
-        score: S.score,
-        over: S.over,
-        moving: moving(),
-        ball: { x: Math.round(S.ball.x), y: Math.round(S.ball.y) },
-        cup: { x: hole().cup.x, y: hole().cup.y },
-      }),
-      shoot: (angleDeg, power) => S.shoot(angleDeg, power),
-    };
+    if (mountEl) {
+      mountEl.addEventListener('pointerdown', down);
+      mountEl.addEventListener('pointermove', move);
+      mountEl.addEventListener('pointerup', up);
+      mountEl.addEventListener('pointercancel', up);
+    }
 
     return () => {
-      cancelAnimationFrame(raf);
-      canvas.removeEventListener('pointerdown', down);
-      canvas.removeEventListener('pointermove', move);
-      canvas.removeEventListener('pointerup', up);
-      canvas.removeEventListener('pointercancel', up);
-      delete window.__frgPutt;
+      disposed = true;
+      cleanup3d();
+      if (mountEl) {
+        mountEl.removeEventListener('pointerdown', down);
+        mountEl.removeEventListener('pointermove', move);
+        mountEl.removeEventListener('pointerup', up);
+        mountEl.removeEventListener('pointercancel', up);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <main style={{ maxWidth: 430, margin: '0 auto', padding: 12 }}>
-      <h2 className="game-title">🏌️ FRG MINI PUTT</h2>
+      <h2 className="game-title">🏌️ FRG MINI PUTT 3D</h2>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, margin: '6px 0' }}>
         <span>HOLE <b>{hud.hole}/3</b></span>
         <span>STROKES <b>{hud.strokes}</b></span>
         <span>SCORE <b>{hud.score}</b></span>
       </div>
-      <canvas
-        ref={canvasRef}
-        width={W}
-        height={H}
-        style={{ width: '100%', display: 'block', borderRadius: 12, touchAction: 'none' }}
-      />
+      <div
+        ref={mountRef}
+        style={{ position: 'relative', width: '100%', aspectRatio: '400 / 560', touchAction: 'none', borderRadius: 12, overflow: 'hidden' }}
+      >
+        <canvas
+          ref={overlayRef}
+          width={W}
+          height={H}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 2 }}
+        />
+      </div>
       <p style={{ textAlign: 'center', minHeight: 22 }}>{hud.msg}</p>
       <p className="fineprint">
         Drag back and release to putt — an ace pays 240. Tiers: 120→5 ·

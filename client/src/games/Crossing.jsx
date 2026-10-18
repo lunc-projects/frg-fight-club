@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 
 // ---------------------------------------------------------------------------
-// FRG Crossing — Frogger-style lane dodging (no frog: you're the runner).
-// Every crossing pays exactly 150, so the server re-derives the score
-// from the crossing count alone. Traffic speeds up after each crossing.
-// 3 lives.
+// FRG Crossing — Frogger-style lane dodging, now in REAL 3D (Three.js):
+// a street diorama with raised asphalt lanes, grass medians, low-poly
+// 3D cars and a little gold runner who hops between lanes. Every
+// crossing pays exactly 150, so the server re-derives the score from
+// the crossing count alone. The logic below is the original verbatim;
+// only the renderer changed.
 // ---------------------------------------------------------------------------
 
 export const CROSSING_TIERS = [
@@ -46,20 +48,15 @@ const LANES = [
 const CAR_COLORS = ['#ef4444', '#3b82f6', '#a855f7', '#f97316', '#eab308', '#ec4899'];
 
 export default function Crossing({ onFinish }) {
-  const canvasRef = useRef(null);
+  const mountRef = useRef(null);
+  const overlayRef = useRef(null);
   const [hud, setHud] = useState({ score: 0, crossings: 0, lives: 3, msg: 'Swipe, tap the arrows, or use arrow keys to cross!' });
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    const CAR_IMGS = ['car-red', 'car-blue', 'car-taxi'].map((f) => {
-      const im = new Image();
-      im.src = `/art/${f}.webp`;
-      return im;
-    });
-    const imgRunner = new Image();
-    imgRunner.src = '/art/crossing-runner.webp';
     const startedAt = Date.now();
+    let disposed = false;
+    let raf = 0;
+    let cleanup3d = () => {};
 
     const S = {
       player: { ...SPAWN },
@@ -76,6 +73,7 @@ export default function Crossing({ onFinish }) {
         items: l.cars.map(([x, w]) => ({ x, w })),
       })),
       msg: 'Swipe, tap the arrows, or use arrow keys to cross!',
+      hop: null, // {from, to, at} — presentation only
     };
 
     function syncHud() {
@@ -99,6 +97,7 @@ export default function Crossing({ onFinish }) {
 
     function resetPlayer() {
       S.player = { ...SPAWN };
+      S.hop = null;
       S.invulnUntil = performance.now() + 900;
     }
 
@@ -132,6 +131,7 @@ export default function Crossing({ onFinish }) {
       if (dir === 'left') p.col -= 1;
       if (dir === 'right') p.col += 1;
       if (p.col < 0 || p.col >= COLS || p.row < 0 || p.row >= ROWS) return;
+      S.hop = { from: { ...S.player }, to: { ...p }, at: performance.now() };
       S.player = p;
       if (p.row === GOAL_ROW) crossed();
     };
@@ -149,118 +149,7 @@ export default function Crossing({ onFinish }) {
       return false;
     }
 
-    function draw(now) {
-      // rows — shaded 2026 surfaces: gradient asphalt with a speckle
-      // texture, grass medians with a lit top edge, gold goal strip.
-      for (let r = 0; r < ROWS; r++) {
-        const rg = ctx.createLinearGradient(0, r * CELL, 0, r * CELL + CELL);
-        if (r === GOAL_ROW) {
-          rg.addColorStop(0, '#d9a62e');
-          rg.addColorStop(0.5, '#a16207');
-          rg.addColorStop(1, '#7c4a03');
-        } else if (r === SPAWN.row || MEDIAN_ROWS.has(r)) {
-          rg.addColorStop(0, '#1d7a3f');
-          rg.addColorStop(0.55, '#14532d');
-          rg.addColorStop(1, '#0b351c');
-        } else if (r % 2) {
-          rg.addColorStop(0, '#2a3648');
-          rg.addColorStop(0.55, '#1f2937');
-          rg.addColorStop(1, '#131a26');
-        } else {
-          rg.addColorStop(0, '#1b2536');
-          rg.addColorStop(0.55, '#111827');
-          rg.addColorStop(1, '#0a0f1a');
-        }
-        ctx.fillStyle = rg;
-        ctx.fillRect(0, r * CELL, W, CELL);
-        if (r !== GOAL_ROW && !MEDIAN_ROWS.has(r) && r !== SPAWN.row) {
-          ctx.fillStyle = 'rgba(255,255,255,0.05)';
-          for (let k = 0; k < 9; k++) {
-            const sx = ((r * 131 + k * 47) % 97) / 97 * W;
-            const sy = r * CELL + ((r * 57 + k * 29) % 89) / 89 * (CELL - 4) + 2;
-            ctx.fillRect(sx, sy, 2, 1.4);
-          }
-        }
-        if (MEDIAN_ROWS.has(r) || r === SPAWN.row) {
-          ctx.fillStyle = 'rgba(255,255,255,0.13)';
-          ctx.fillRect(0, r * CELL, W, 2);
-        }
-        if (r !== GOAL_ROW && !MEDIAN_ROWS.has(r) && r !== SPAWN.row) {
-          ctx.strokeStyle = 'rgba(250, 204, 21, 0.35)';
-          ctx.setLineDash([14, 18]);
-          ctx.beginPath();
-          ctx.moveTo(0, r * CELL + CELL - 1);
-          ctx.lineTo(W, r * CELL + CELL - 1);
-          ctx.stroke();
-          ctx.setLineDash([]);
-        }
-      }
-      ctx.fillStyle = '#fef08a';
-      ctx.font = '700 17px system-ui';
-      ctx.textAlign = 'center';
-      ctx.fillText('🏁 G O A L 🏁', W / 2, 26);
-      // cars — real cartoon sprites (flipped for left-moving lanes),
-      // shape-drawn cars until the art loads
-      for (const lane of S.cars) {
-        lane.items.forEach((c, ci) => {
-          const y = lane.row * CELL + 6;
-          const dirSign = lane.speed > 0 ? 1 : -1;
-          const spr = CAR_IMGS[(lane.row + ci) % CAR_IMGS.length];
-          if (spr.complete && spr.naturalWidth) {
-            ctx.save();
-            if (dirSign < 0) {
-              ctx.translate(c.x + c.w / 2, 0);
-              ctx.scale(-1, 1);
-              ctx.translate(-(c.x + c.w / 2), 0);
-            }
-            ctx.drawImage(spr, c.x - 5, y - 5, c.w + 10, CELL - 1);
-            ctx.restore();
-            return;
-          }
-          ctx.fillStyle = lane.color;
-          ctx.beginPath();
-          ctx.roundRect(c.x, y, c.w, CELL - 12, 7);
-          ctx.fill();
-          ctx.fillStyle = 'rgba(191, 219, 254, 0.9)';
-          ctx.fillRect(c.x + (dirSign > 0 ? c.w - 24 : 8), y + 5, 15, CELL - 22);
-          ctx.fillStyle = '#111827';
-          ctx.beginPath();
-          ctx.arc(c.x + 12, y + CELL - 13, 4.5, 0, 2 * Math.PI);
-          ctx.arc(c.x + c.w - 12, y + CELL - 13, 4.5, 0, 2 * Math.PI);
-          ctx.fill();
-        });
-      }
-      // player
-      const px = S.player.col * CELL + CELL / 2;
-      const py = S.player.row * CELL + CELL / 2;
-      const blink = now < S.invulnUntil && Math.floor(now / 160) % 2 === 0;
-      if (imgRunner.complete && imgRunner.naturalWidth) {
-        ctx.save();
-        if (blink) ctx.globalAlpha = 0.35;
-        const rh = CELL + 15;
-        const rw = rh * (imgRunner.naturalWidth / imgRunner.naturalHeight);
-        ctx.drawImage(imgRunner, px - rw / 2, py - rh / 2 - 2, rw, rh);
-        ctx.restore();
-      } else {
-        ctx.beginPath();
-        ctx.arc(px, py, 13, 0, 2 * Math.PI);
-        ctx.fillStyle = blink ? 'rgba(247, 183, 51, 0.35)' : '#f7b733';
-        ctx.fill();
-        ctx.lineWidth = 2.5;
-        ctx.strokeStyle = '#111827';
-        ctx.stroke();
-        ctx.fillStyle = '#111827';
-        ctx.font = '900 11px system-ui';
-        ctx.fillText('FRG', px, py + 4);
-      }
-    }
-
-    let raf;
-    let last = performance.now();
-    const loop = (now) => {
-      raf = requestAnimationFrame(loop);
-      const dt = Math.min(50, now - last);
-      last = now;
+    function stepLogic(now, dt) {
       if (!S.over) {
         for (const lane of S.cars) {
           for (const c of lane.items) {
@@ -271,9 +160,194 @@ export default function Crossing({ onFinish }) {
         }
         if (collides(now)) hit();
       }
-      draw(now);
-    };
-    raf = requestAnimationFrame(loop);
+    }
+
+    (async () => {
+      const THREE = await import('three');
+      if (disposed) return;
+      const mount = mountRef.current;
+      const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+      renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+      renderer.setSize(W, H, false);
+      renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;';
+      mount.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0b1220);
+      scene.fog = new THREE.Fog(0x0b1220, 1300, 3000);
+      const camera = new THREE.PerspectiveCamera(50, W / H, 1, 4000);
+      camera.position.set(200, 316, 668);
+      camera.lookAt(200, 262, 0);
+
+      scene.add(new THREE.HemisphereLight(0xcfe4ff, 0x1c2a1c, 1.55));
+      const sun = new THREE.DirectionalLight(0xfff1cf, 2.0);
+      sun.position.set(160, 420, 520);
+      scene.add(sun);
+      const fill = new THREE.DirectionalLight(0x7fb2ff, 0.6);
+      fill.position.set(-260, 140, 300);
+      scene.add(fill);
+
+      const wy = (gy) => H - gy;
+      const rowY = (r) => wy(r * CELL + CELL / 2);
+
+      // street diorama: a base slab, raised asphalt lanes, grass
+      // medians and spawn curb, a gold goal strip
+      {
+        const base = new THREE.Mesh(
+          new THREE.BoxGeometry(W + 26, H + 26, 14),
+          new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.9 })
+        );
+        base.position.set(W / 2, H / 2, -9);
+        scene.add(base);
+        const asphalt = new THREE.MeshStandardMaterial({ color: 0x1c2536, roughness: 0.95 });
+        const asphaltAlt = new THREE.MeshStandardMaterial({ color: 0x232f47, roughness: 0.95 });
+        const grass = new THREE.MeshStandardMaterial({ color: 0x166534, roughness: 0.9 });
+        const gold = new THREE.MeshStandardMaterial({ color: 0xd9a62e, roughness: 0.4, metalness: 0.5, emissive: 0xd9a62e, emissiveIntensity: 0.18 });
+        const laneGeo = new THREE.BoxGeometry(W, CELL - 1.5, 7);
+        for (let r = 0; r < ROWS; r++) {
+          const mat = r === GOAL_ROW ? gold : (r === SPAWN.row || MEDIAN_ROWS.has(r)) ? grass : (r % 2 ? asphaltAlt : asphalt);
+          const m = new THREE.Mesh(laneGeo, mat);
+          m.position.set(W / 2, rowY(r), 0);
+          scene.add(m);
+        }
+        // dashed lane paint
+        const dashMat = new THREE.MeshBasicMaterial({ color: 0xfacc15, transparent: true, opacity: 0.4 });
+        const dashGeo = new THREE.BoxGeometry(15, 2, 1.2);
+        for (let r = 0; r < ROWS; r++) {
+          if (r === GOAL_ROW || MEDIAN_ROWS.has(r) || r === SPAWN.row) continue;
+          for (let x = 8; x < W; x += 34) {
+            const d = new THREE.Mesh(dashGeo, dashMat);
+            d.position.set(x, rowY(r) - CELL / 2 + 1, 4.2);
+            scene.add(d);
+          }
+        }
+      }
+      // low-poly 3D cars (top-down diorama scale), built at exact length
+      function makeCar(colorHex, len, dir) {
+        const g = new THREE.Group();
+        const paint = new THREE.MeshStandardMaterial({ color: new THREE.Color(colorHex), roughness: 0.32, metalness: 0.5, emissive: new THREE.Color(colorHex), emissiveIntensity: 0.12 });
+        const body = new THREE.Mesh(new THREE.BoxGeometry(len, 30, 15), paint);
+        body.position.z = 8;
+        const cabin = new THREE.Mesh(
+          new THREE.BoxGeometry(len * 0.52, 17, 9),
+          new THREE.MeshStandardMaterial({ color: 0x101828, roughness: 0.15, metalness: 0.3 })
+        );
+        cabin.position.set(-len * 0.03 * dir, 0, 17);
+        const wheelGeo = new THREE.CylinderGeometry(5.4, 5.4, 3.4, 10);
+        wheelGeo.rotateX(Math.PI / 2);
+        const wheelMat = new THREE.MeshStandardMaterial({ color: 0x0a0a12, roughness: 0.9 });
+        const parts = [body, cabin];
+        for (const sx of [-1, 1]) {
+          for (const sy of [-1, 1]) {
+            const w = new THREE.Mesh(wheelGeo, wheelMat);
+            w.position.set(sx * len * 0.33, sy * 16.4, 4);
+            parts.push(w);
+          }
+        }
+        const lightMat = new THREE.MeshBasicMaterial({ color: 0xfff3c4 });
+        const tailMat = new THREE.MeshBasicMaterial({ color: 0xff2a30 });
+        for (const sy of [-1, 1]) {
+          const h = new THREE.Mesh(new THREE.BoxGeometry(3, 6, 3), lightMat);
+          h.position.set(dir * len * 0.49, sy * 11, 9);
+          const t = new THREE.Mesh(new THREE.BoxGeometry(3, 6, 3), tailMat);
+          t.position.set(-dir * len * 0.49, sy * 11, 9);
+          parts.push(h, t);
+        }
+        g.add(...parts);
+        scene.add(g);
+        return g;
+      }
+      const carMeshes = [];
+      for (const lane of S.cars) {
+        for (const c of lane.items) {
+          carMeshes.push({ lane, c, mesh: makeCar(lane.color, c.w, lane.speed > 0 ? 1 : -1) });
+        }
+      }
+      // the runner — a little gold 3D figure
+      const runner = new THREE.Group();
+      {
+        const suit = new THREE.MeshStandardMaterial({ color: 0xf7b733, roughness: 0.4, metalness: 0.3, emissive: 0xf7b733, emissiveIntensity: 0.14 });
+        const body = new THREE.Mesh(new THREE.CapsuleGeometry(8.6, 10, 4, 10), suit);
+        body.rotation.x = Math.PI / 2;
+        body.position.z = 4;
+        const head = new THREE.Mesh(
+          new THREE.SphereGeometry(6.4, 12, 10),
+          new THREE.MeshStandardMaterial({ color: 0xffd9a8, roughness: 0.6 })
+        );
+        head.position.z = 17;
+        runner.add(body, head);
+        scene.add(runner);
+      }
+
+      function syncScene(now) {
+        for (const { lane, c, mesh } of carMeshes) {
+          mesh.position.set(c.x + c.w / 2, rowY(lane.row), 4);
+        }
+        // runner with a little hop between cells
+        let px = S.player.col * CELL + CELL / 2;
+        let py = rowY(S.player.row);
+        let pz = 10;
+        if (S.hop) {
+          const t = Math.min(1, (now - S.hop.at) / 140);
+          const fx = S.hop.from.col * CELL + CELL / 2;
+          const fy = rowY(S.hop.from.row);
+          px = fx + (px - fx) * t;
+          py = fy + (py - fy) * t;
+          pz = 10 + Math.sin(t * Math.PI) * 13;
+          if (t >= 1) S.hop = null;
+        }
+        const blink = now < S.invulnUntil && Math.floor(now / 160) % 2 === 0;
+        runner.visible = !blink;
+        runner.position.set(px, py, pz);
+      }
+
+      // ---------- overlay: goal banner ----------
+      const overlay = overlayRef.current;
+      const octx = overlay.getContext('2d');
+      function drawOverlay() {
+        octx.clearRect(0, 0, W, H);
+        octx.fillStyle = '#fef08a';
+        octx.font = '700 17px system-ui';
+        octx.textAlign = 'center';
+        octx.fillText('🏁 G O A L 🏁', W / 2, 26);
+      }
+
+      let last = performance.now();
+      const frame = (now) => {
+        raf = requestAnimationFrame(frame);
+        const dt = Math.min(50, now - last);
+        last = now;
+        stepLogic(now, dt);
+        syncScene(now);
+        renderer.render(scene, camera);
+        drawOverlay();
+      };
+      raf = requestAnimationFrame(frame);
+
+      window.__frgCrossing = {
+        state: () => ({
+          score: S.score,
+          crossings: S.crossings,
+          lives: S.lives,
+          over: S.over,
+          speedScale: Math.round(S.speedScale * 100) / 100,
+          player: { ...S.player },
+          lanes: S.cars.map((l) => ({
+            row: l.row,
+            speed: Math.round(l.speed * S.speedScale),
+            cars: l.items.map((c) => ({ x: Math.round(c.x), w: c.w })),
+          })),
+        }),
+        move: (dir) => S.move(dir),
+      };
+
+      cleanup3d = () => {
+        cancelAnimationFrame(raf);
+        renderer.dispose();
+        if (renderer.domElement.parentNode) renderer.domElement.parentNode.removeChild(renderer.domElement);
+        delete window.__frgCrossing;
+      };
+    })();
 
     const key = (e) => {
       const map = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', w: 'up', s: 'down', a: 'left', d: 'right' };
@@ -283,6 +357,7 @@ export default function Crossing({ onFinish }) {
       }
     };
     window.addEventListener('keydown', key);
+    const mountEl = mountRef.current;
     let touchStart = null;
     const ts = (e) => {
       touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
@@ -298,32 +373,19 @@ export default function Crossing({ onFinish }) {
       }
       S.move(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up');
     };
-    canvas.addEventListener('touchstart', ts, { passive: true });
-    canvas.addEventListener('touchend', te, { passive: true });
-
-    window.__frgCrossing = {
-      state: () => ({
-        score: S.score,
-        crossings: S.crossings,
-        lives: S.lives,
-        over: S.over,
-        speedScale: Math.round(S.speedScale * 100) / 100,
-        player: { ...S.player },
-        lanes: S.cars.map((l) => ({
-          row: l.row,
-          speed: Math.round(l.speed * S.speedScale),
-          cars: l.items.map((c) => ({ x: Math.round(c.x), w: c.w })),
-        })),
-      }),
-      move: (dir) => S.move(dir),
-    };
+    if (mountEl) {
+      mountEl.addEventListener('touchstart', ts, { passive: true });
+      mountEl.addEventListener('touchend', te, { passive: true });
+    }
 
     return () => {
-      cancelAnimationFrame(raf);
+      disposed = true;
+      cleanup3d();
       window.removeEventListener('keydown', key);
-      canvas.removeEventListener('touchstart', ts);
-      canvas.removeEventListener('touchend', te);
-      delete window.__frgCrossing;
+      if (mountEl) {
+        mountEl.removeEventListener('touchstart', ts);
+        mountEl.removeEventListener('touchend', te);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -343,18 +405,23 @@ export default function Crossing({ onFinish }) {
 
   return (
     <main style={{ maxWidth: 430, margin: '0 auto', padding: 12 }}>
-      <h2 className="game-title">🚦 FRG CROSSING</h2>
+      <h2 className="game-title">🚦 FRG CROSSING 3D</h2>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, margin: '6px 0' }}>
         <span>SCORE <b>{hud.score}</b></span>
         <span>CROSSED <b>{hud.crossings}</b></span>
         <span>{'❤️'.repeat(Math.max(0, hud.lives))}</span>
       </div>
-      <canvas
-        ref={canvasRef}
-        width={W}
-        height={H}
-        style={{ width: '100%', display: 'block', borderRadius: 12, touchAction: 'none' }}
-      />
+      <div
+        ref={mountRef}
+        style={{ position: 'relative', width: '100%', aspectRatio: '400 / 560', touchAction: 'none', borderRadius: 12, overflow: 'hidden' }}
+      >
+        <canvas
+          ref={overlayRef}
+          width={W}
+          height={H}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 2 }}
+        />
+      </div>
       <p style={{ textAlign: 'center', minHeight: 22 }}>{hud.msg}</p>
       <div style={{ display: 'flex', gap: 8, maxWidth: 260, margin: '0 auto' }}>
         {pad('left', '◀')}

@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 
 // ---------------------------------------------------------------------------
-// FRG Snake — the classic. Orbs pay 25, every 5th orb is golden and pays
-// 60. The server re-derives the score EXACTLY from the orb counts
-// (golden must equal floor(total/5)) — tiers below convert to points.
+// FRG Snake — the classic, now in REAL 3D (Three.js). Orbs pay 25, every
+// 5th orb is golden and pays 60. The game logic is the original
+// verbatim (the server re-derives the score EXACTLY from the orb
+// counts — golden must equal floor(total/5)); only the renderer
+// changed: the snake is a chain of real glossy 3D spheres with a gold
+// head, slithering over a jungle board, chasing glowing orb spheres.
 // ---------------------------------------------------------------------------
 
 export const SNAKE_TIERS = [
@@ -33,19 +36,15 @@ const DIRS = {
 };
 
 export default function Snake({ onFinish }) {
-  const canvasRef = useRef(null);
+  const mountRef = useRef(null);
+  const overlayRef = useRef(null);
   const [hud, setHud] = useState({ score: 0, len: 4, msg: 'Swipe, tap the arrows, or use arrow keys. First move starts!' });
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    const imgBg = new Image();
-    imgBg.src = '/art/snake-bg.webp';
-    const imgOrb = new Image();
-    imgOrb.src = '/art/orb-green.webp';
-    const imgOrbGold = new Image();
-    imgOrbGold.src = '/art/orb-gold.webp';
     const startedAt = Date.now();
+    let disposed = false;
+    let raf = 0;
+    let cleanup3d = () => {};
 
     const S = {
       snake: [
@@ -134,138 +133,9 @@ export default function Snake({ onFinish }) {
       }
     }
 
-    function draw() {
-      if (imgBg.complete && imgBg.naturalWidth) {
-        const sc = Math.max(W / imgBg.naturalWidth, H / imgBg.naturalHeight);
-        const bw = imgBg.naturalWidth * sc;
-        const bh = imgBg.naturalHeight * sc;
-        ctx.drawImage(imgBg, (W - bw) / 2, (H - bh) / 2, bw, bh);
-        ctx.fillStyle = 'rgba(2, 20, 10, 0.45)';
-        ctx.fillRect(0, 0, W, H);
-      } else {
-        ctx.fillStyle = '#052e16';
-        ctx.fillRect(0, 0, W, H);
-      }
-      ctx.strokeStyle = 'rgba(255,255,255,0.045)';
-      ctx.lineWidth = 1;
-      for (let x = 1; x < COLS; x++) {
-        ctx.beginPath();
-        ctx.moveTo(x * CELL, 0);
-        ctx.lineTo(x * CELL, H);
-        ctx.stroke();
-      }
-      for (let y = 1; y < ROWS; y++) {
-        ctx.beginPath();
-        ctx.moveTo(0, y * CELL);
-        ctx.lineTo(W, y * CELL);
-        ctx.stroke();
-      }
-      // orb — glowing sprite with a soft halo, plain circle until it loads
-      if (S.orb) {
-        const hx = S.orb.x * CELL + CELL / 2;
-        const hy = S.orb.y * CELL + CELL / 2;
-        const halo = ctx.createRadialGradient(hx, hy, 1, hx, hy, 17);
-        halo.addColorStop(0, S.orb.golden ? 'rgba(250, 204, 21, 0.40)' : 'rgba(74, 222, 128, 0.34)');
-        halo.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = halo;
-        ctx.beginPath();
-        ctx.arc(hx, hy, 17, 0, 2 * Math.PI);
-        ctx.fill();
-      }
-      if (S.orb) {
-        const ocx = S.orb.x * CELL + CELL / 2;
-        const ocy = S.orb.y * CELL + CELL / 2;
-        const oimg = S.orb.golden ? imgOrbGold : imgOrb;
-        if (oimg.complete && oimg.naturalWidth) {
-          const osz = S.orb.golden ? 21 : 18;
-          ctx.drawImage(oimg, ocx - osz / 2, ocy - osz / 2, osz, osz);
-        } else {
-          ctx.beginPath();
-          ctx.arc(ocx, ocy, S.orb.golden ? 8 : 6.5, 0, 2 * Math.PI);
-          ctx.fillStyle = S.orb.golden ? '#facc15' : '#4ade80';
-          ctx.fill();
-          ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-          ctx.stroke();
-        }
-      }
-      // snake — glossy 2026 body: soft shadow, radial-gradient segments
-      // that overlap into one shiny worm, glass gloss on every segment.
-      {
-        const pts = S.snake.map((sg) => ({ x: sg.x * CELL + CELL / 2, y: sg.y * CELL + CELL / 2 }));
-        ctx.fillStyle = 'rgba(0,0,0,0.35)';
-        for (const p of pts) {
-          ctx.beginPath();
-          ctx.arc(p.x, p.y + 2.5, CELL * 0.46, 0, 2 * Math.PI);
-          ctx.fill();
-        }
-        for (let i = pts.length - 1; i >= 1; i--) {
-          const p = pts[i];
-          const t = Math.min(1, i / 16);
-          const g = ctx.createRadialGradient(p.x - 4, p.y - 5, 1.5, p.x, p.y, CELL * 0.55);
-          g.addColorStop(0, `hsl(140 74% ${68 - t * 18}%)`);
-          g.addColorStop(0.55, `hsl(142 62% ${49 - t * 12}%)`);
-          g.addColorStop(1, `hsl(146 60% ${29 - t * 6}%)`);
-          ctx.fillStyle = g;
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, CELL * 0.465, 0, 2 * Math.PI);
-          ctx.fill();
-          ctx.fillStyle = 'rgba(255,255,255,0.20)';
-          ctx.beginPath();
-          ctx.ellipse(p.x - 3.5, p.y - 5, 4.6, 2.6, -0.5, 0, 2 * Math.PI);
-          ctx.fill();
-        }
-        const hp = pts[0];
-        if (hp) {
-          const g = ctx.createRadialGradient(hp.x - 4, hp.y - 5, 2, hp.x, hp.y, CELL * 0.6);
-          g.addColorStop(0, '#ffeda6');
-          g.addColorStop(0.5, '#f7b733');
-          g.addColorStop(1, '#c47f0a');
-          ctx.fillStyle = g;
-          ctx.beginPath();
-          ctx.arc(hp.x, hp.y, CELL * 0.52, 0, 2 * Math.PI);
-          ctx.fill();
-          ctx.fillStyle = 'rgba(255,255,255,0.35)';
-          ctx.beginPath();
-          ctx.ellipse(hp.x - 4, hp.y - 5.5, 5, 2.8, -0.5, 0, 2 * Math.PI);
-          ctx.fill();
-          for (const ex of [-3.6, 3.6]) {
-            ctx.fillStyle = '#111827';
-            ctx.beginPath();
-            ctx.arc(hp.x + ex, hp.y - 1.5, 1.9, 0, 2 * Math.PI);
-            ctx.fill();
-            ctx.fillStyle = '#ffffff';
-            ctx.beginPath();
-            ctx.arc(hp.x + ex + 0.6, hp.y - 2.1, 0.7, 0, 2 * Math.PI);
-            ctx.fill();
-          }
-        }
-      }
-      if (!S.started && !S.over) {
-        ctx.fillStyle = 'rgba(0,0,0,0.45)';
-        ctx.fillRect(0, 0, W, H);
-        ctx.fillStyle = '#f8fafc';
-        ctx.font = '700 22px system-ui';
-        ctx.textAlign = 'center';
-        ctx.fillText('TAP AN ARROW TO START', W / 2, H / 2);
-      }
-      if (S.over) {
-        ctx.fillStyle = 'rgba(0,0,0,0.5)';
-        ctx.fillRect(0, 0, W, H);
-        ctx.fillStyle = '#f8fafc';
-        ctx.font = '700 26px system-ui';
-        ctx.textAlign = 'center';
-        ctx.fillText('GAME OVER', W / 2, H / 2);
-      }
-    }
-
-    let raf;
-    let last = performance.now();
-    const loop = (now) => {
-      raf = requestAnimationFrame(loop);
-      const dt = now - last;
-      last = now;
+    function stepLogic(dtMs) {
       if (S.started && !S.over) {
-        S.acc += dt;
+        S.acc += dtMs;
         const speed = Math.min(14, 7 + (S.orbs + S.golden) * 0.18); // ticks per second
         const stepMs = 1000 / speed;
         while (S.acc >= stepMs && !S.over) {
@@ -273,11 +143,190 @@ export default function Snake({ onFinish }) {
           tick();
         }
       }
-      draw();
-    };
-    raf = requestAnimationFrame(loop);
+    }
 
-    // controls: keys + swipe
+    (async () => {
+      const THREE = await import('three');
+      if (disposed) return;
+      const mount = mountRef.current;
+      const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+      renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+      renderer.setSize(W, H, false);
+      renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;';
+      mount.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x04170c);
+      scene.fog = new THREE.Fog(0x04170c, 1200, 2800);
+      const camera = new THREE.PerspectiveCamera(50, W / H, 1, 4000);
+      camera.position.set(200, 332, 652);
+      camera.lookAt(200, 244, 0);
+
+      scene.add(new THREE.HemisphereLight(0xd8ffd8, 0x0a2e16, 1.5));
+      const sun = new THREE.DirectionalLight(0xfff3cf, 2.0);
+      sun.position.set(180, 420, 520);
+      scene.add(sun);
+      const fill = new THREE.DirectionalLight(0x7fff9e, 0.5);
+      fill.position.set(-240, 120, 300);
+      scene.add(fill);
+
+      const wy = (gy) => H - gy;
+      const cx = (cellX) => cellX * CELL + CELL / 2;
+      const cy = (cellY) => wy(cellY * CELL + CELL / 2);
+
+      // jungle board: textured top on a thick slab with a gold rim
+      {
+        const slab = new THREE.Mesh(
+          new THREE.BoxGeometry(W + 22, H + 22, 20),
+          new THREE.MeshStandardMaterial({ color: 0x8a6d1f, roughness: 0.5, metalness: 0.4 })
+        );
+        slab.position.set(W / 2, H / 2, -13);
+        scene.add(slab);
+        const tex = new THREE.TextureLoader().load('/art/snake-bg.webp', (t) => {
+          t.colorSpace = THREE.SRGBColorSpace;
+        });
+        const top = new THREE.Mesh(
+          new THREE.PlaneGeometry(W, H),
+          new THREE.MeshBasicMaterial({ map: tex, color: 0xd8d8d8 })
+        );
+        top.position.set(W / 2, H / 2, -2);
+        scene.add(top);
+      }
+      // snake body — instanced glossy spheres, color tapering to the tail
+      const MAXSEG = 300;
+      const bodyMesh = new THREE.InstancedMesh(
+        new THREE.SphereGeometry(CELL * 0.47, 16, 12),
+        new THREE.MeshStandardMaterial({ roughness: 0.24, metalness: 0.1 }),
+        MAXSEG
+      );
+      bodyMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      bodyMesh.frustumCulled = false;
+      scene.add(bodyMesh);
+      // head — gold sphere with eyes that face the travel direction
+      const headGroup = new THREE.Group();
+      {
+        const gold = new THREE.MeshStandardMaterial({ color: 0xffc93c, roughness: 0.22, metalness: 0.35, emissive: 0xffc93c, emissiveIntensity: 0.15 });
+        const head = new THREE.Mesh(new THREE.SphereGeometry(CELL * 0.52, 18, 14), gold);
+        headGroup.add(head);
+        const eyeW = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 });
+        const eyeB = new THREE.MeshBasicMaterial({ color: 0x111827 });
+        for (const sgn of [-1, 1]) {
+          const w = new THREE.Mesh(new THREE.SphereGeometry(3.4, 10, 8), eyeW);
+          w.position.set(sgn * 4.6, 3.4, 7.6);
+          const b = new THREE.Mesh(new THREE.SphereGeometry(1.9, 8, 6), eyeB);
+          b.position.set(sgn * 4.6, 3.4, 10.6);
+          headGroup.add(w, b);
+        }
+        scene.add(headGroup);
+      }
+      // orb — glowing sphere + light
+      const orbMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(8, 16, 12),
+        new THREE.MeshStandardMaterial({ color: 0x4ade80, emissive: 0x22cc55, emissiveIntensity: 1.1, roughness: 0.25 })
+      );
+      scene.add(orbMesh);
+      const orbLight = new THREE.PointLight(0x4ade80, 0.9, 130, 0);
+      scene.add(orbLight);
+
+      const tmpM = new THREE.Matrix4();
+      const tmpC = new THREE.Color();
+      const HEAD_COLOR = new THREE.Color(0x86efac);
+      const TAIL_COLOR = new THREE.Color(0x15803d);
+
+      function syncScene(now) {
+        const n = Math.min(MAXSEG - 1, S.snake.length - 1);
+        for (let i = 0; i < n; i++) {
+          const seg = S.snake[i + 1];
+          const f = S.snake.length <= 2 ? 0 : i / (S.snake.length - 2);
+          tmpC.copy(HEAD_COLOR).lerp(TAIL_COLOR, Math.pow(f, 0.8));
+          tmpM.makeTranslation(cx(seg.x), cy(seg.y), 10);
+          bodyMesh.setMatrixAt(i, tmpM);
+          bodyMesh.setColorAt(i, tmpC);
+        }
+        bodyMesh.count = n;
+        bodyMesh.instanceMatrix.needsUpdate = true;
+        if (bodyMesh.instanceColor) bodyMesh.instanceColor.needsUpdate = true;
+        // head
+        const hd = S.snake[0];
+        headGroup.position.set(cx(hd.x), cy(hd.y), 11);
+        headGroup.rotation.z = Math.atan2(-S.dir.y, S.dir.x);
+        // orb
+        if (S.orb) {
+          orbMesh.visible = true;
+          orbLight.visible = true;
+          const gold = S.orb.golden;
+          orbMesh.position.set(cx(S.orb.x), cy(S.orb.y), 10 + Math.sin(now / 300) * 1.6);
+          orbMesh.scale.setScalar(gold ? 1.25 : 1);
+          orbMesh.material.color.set(gold ? 0xfacc15 : 0x4ade80);
+          orbMesh.material.emissive.set(gold ? 0xcc9900 : 0x22cc55);
+          orbLight.color.set(gold ? 0xfacc15 : 0x4ade80);
+          orbLight.position.set(orbMesh.position.x, orbMesh.position.y, 36);
+        } else {
+          orbMesh.visible = false;
+          orbLight.visible = false;
+        }
+      }
+
+      // ---------- overlay: start / game-over panels ----------
+      const overlay = overlayRef.current;
+      const octx = overlay.getContext('2d');
+      function drawOverlay() {
+        octx.clearRect(0, 0, W, H);
+        if (!S.started && !S.over) {
+          octx.fillStyle = 'rgba(0,0,0,0.45)';
+          octx.fillRect(0, 0, W, H);
+          octx.fillStyle = '#f8fafc';
+          octx.font = '700 22px system-ui';
+          octx.textAlign = 'center';
+          octx.fillText('TAP AN ARROW TO START', W / 2, H / 2);
+        }
+        if (S.over) {
+          octx.fillStyle = 'rgba(0,0,0,0.5)';
+          octx.fillRect(0, 0, W, H);
+          octx.fillStyle = '#f8fafc';
+          octx.font = '700 26px system-ui';
+          octx.textAlign = 'center';
+          octx.fillText('GAME OVER', W / 2, H / 2);
+        }
+      }
+
+      let last = performance.now();
+      const frame = (now) => {
+        raf = requestAnimationFrame(frame);
+        const dtMs = now - last;
+        last = now;
+        stepLogic(dtMs);
+        syncScene(now);
+        renderer.render(scene, camera);
+        drawOverlay();
+      };
+      raf = requestAnimationFrame(frame);
+
+      window.__frgSnake = {
+        state: () => ({
+          score: S.score,
+          orbs: S.orbs + S.golden,
+          golden: S.golden,
+          len: S.snake.length,
+          started: S.started,
+          over: S.over,
+          head: { ...S.snake[0] },
+          orb: S.orb ? { x: S.orb.x, y: S.orb.y, golden: S.orb.golden } : null,
+          body: S.snake.map((s) => ({ ...s })),
+          dir: Object.keys(DIRS).find((k) => DIRS[k] === S.dir),
+        }),
+        turn: (name) => S.turn(name),
+      };
+
+      cleanup3d = () => {
+        cancelAnimationFrame(raf);
+        renderer.dispose();
+        if (renderer.domElement.parentNode) renderer.domElement.parentNode.removeChild(renderer.domElement);
+        delete window.__frgSnake;
+      };
+    })();
+
+    // controls: keys + swipe (on the stage)
     const key = (e) => {
       const map = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', w: 'up', s: 'down', a: 'left', d: 'right' };
       if (map[e.key]) {
@@ -286,6 +335,7 @@ export default function Snake({ onFinish }) {
       }
     };
     window.addEventListener('keydown', key);
+    const mountEl = mountRef.current;
     let touchStart = null;
     const ts = (e) => {
       touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
@@ -298,31 +348,19 @@ export default function Snake({ onFinish }) {
       if (Math.hypot(dx, dy) < 24) return;
       S.turn(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up');
     };
-    canvas.addEventListener('touchstart', ts, { passive: true });
-    canvas.addEventListener('touchend', te, { passive: true });
-
-    window.__frgSnake = {
-      state: () => ({
-        score: S.score,
-        orbs: S.orbs + S.golden,
-        golden: S.golden,
-        len: S.snake.length,
-        started: S.started,
-        over: S.over,
-        head: { ...S.snake[0] },
-        orb: S.orb ? { x: S.orb.x, y: S.orb.y, golden: S.orb.golden } : null,
-        body: S.snake.map((s) => ({ ...s })),
-        dir: Object.keys(DIRS).find((k) => DIRS[k] === S.dir),
-      }),
-      turn: (name) => S.turn(name),
-    };
+    if (mountEl) {
+      mountEl.addEventListener('touchstart', ts, { passive: true });
+      mountEl.addEventListener('touchend', te, { passive: true });
+    }
 
     return () => {
-      cancelAnimationFrame(raf);
+      disposed = true;
+      cleanup3d();
       window.removeEventListener('keydown', key);
-      canvas.removeEventListener('touchstart', ts);
-      canvas.removeEventListener('touchend', te);
-      delete window.__frgSnake;
+      if (mountEl) {
+        mountEl.removeEventListener('touchstart', ts);
+        mountEl.removeEventListener('touchend', te);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -342,17 +380,22 @@ export default function Snake({ onFinish }) {
 
   return (
     <main style={{ maxWidth: 430, margin: '0 auto', padding: 12 }}>
-      <h2 className="game-title">🐍 FRG SNAKE</h2>
+      <h2 className="game-title">🐍 FRG SNAKE 3D</h2>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, margin: '6px 0' }}>
         <span>SCORE <b>{hud.score}</b></span>
         <span>LENGTH <b>{hud.len}</b></span>
       </div>
-      <canvas
-        ref={canvasRef}
-        width={W}
-        height={H}
-        style={{ width: '100%', display: 'block', borderRadius: 12, touchAction: 'none' }}
-      />
+      <div
+        ref={mountRef}
+        style={{ position: 'relative', width: '100%', aspectRatio: '400 / 520', touchAction: 'none', borderRadius: 12, overflow: 'hidden' }}
+      >
+        <canvas
+          ref={overlayRef}
+          width={W}
+          height={H}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 2 }}
+        />
+      </div>
       <p style={{ textAlign: 'center', minHeight: 22 }}>{hud.msg}</p>
       <div style={{ display: 'flex', gap: 8, maxWidth: 260, margin: '0 auto' }}>
         {pad('left', '◀')}
