@@ -257,7 +257,11 @@ export default function App() {
           <div className="cards">
             {GAMES.map((g) => (
               <div key={g.id} className={`card ${g.live ? '' : 'soon'}`}>
-                <div className="card-emoji">{g.emoji}</div>
+                {g.cover ? (
+                  <img className="card-cover" src={g.cover} alt="" loading="lazy" />
+                ) : (
+                  <div className="card-emoji">{g.emoji}</div>
+                )}
                 <div className="card-name">{g.name}</div>
                 <div className="card-tag">{g.tagline}</div>
                 {g.live ? (

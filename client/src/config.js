@@ -15,6 +15,7 @@ export const API_BASE = import.meta.env.VITE_API_URL || '';
 export const GAMES = [
   {
     id: 'boxing',
+    cover: '/covers/boxing.webp',
     name: 'FRG Fight Club',
     emoji: '🥊',
     tagline: 'Arcade boxing — tells, stars, knockdowns.',
@@ -25,6 +26,7 @@ export const GAMES = [
   },
   {
     id: 'wheel',
+    cover: '/covers/wheel.webp',
     name: 'FRG Prize Wheel',
     emoji: '🎡',
     tagline: 'One spin. Top prize 20 PTS.',
@@ -34,6 +36,7 @@ export const GAMES = [
   },
   {
     id: 'crash',
+    cover: '/covers/crash.webp',
     name: 'Rocket Crash',
     emoji: '🚀',
     tagline: 'Ride the multiplier — bail before it blows.',
@@ -43,6 +46,7 @@ export const GAMES = [
   },
   {
     id: 'darts',
+    cover: '/covers/darts.webp',
     name: 'Balloon Darts',
     emoji: '🎈',
     tagline: 'Pop balloons, build a pot — dodge the two 💥.',
@@ -81,6 +85,7 @@ export const GAMES = [
   },
   {
     id: 'flight',
+    cover: '/covers/flight.webp',
     name: 'FRG Flight',
     emoji: '🚀',
     tagline: 'One tap to flap. Thread the gates.',
@@ -101,6 +106,7 @@ export const GAMES = [
   },
   {
     id: 'slice',
+    cover: '/covers/slice.webp',
     name: 'FRG Slice',
     emoji: '⚔️',
     tagline: 'Swipe the gems. Dodge the bombs.',
@@ -130,6 +136,7 @@ export const GAMES = [
   },
   {
     id: 'snake',
+    cover: '/covers/snake.webp',
     name: 'FRG Snake',
     emoji: '🐍',
     tagline: 'The classic. Eat, grow, don\'t box yourself in.',
