@@ -45,6 +45,9 @@ export default function Slice({ onFinish }) {
       lives: 3,
       over: false,
       slicedCount: 0,
+      particles: [],
+      popups: [],
+      lastSlice: null,
       items: [], // {id,x,y,vx,vy,rot,vr,type,r,sliced}
       halves: [], // {x,y,vx,vy,rot,vr,type,life}
       trail: [], // {x,y,at}
@@ -99,6 +102,14 @@ export default function Slice({ onFinish }) {
       S.score += PTS[it.type];
       S.slicedCount += 1;
       S.strokeSlices += 1;
+      S.lastSlice = { x: it.x, y: it.y };
+      S.popups.push({ x: it.x, y: it.y - 14, text: `+${PTS[it.type]}`, life: 1, color: '#ffffff', size: 16 });
+      const pc = it.type === 'gem' ? '#2ee66b' : it.type === 'jewel' ? '#ff5da2' : '#ffd94d';
+      for (let i = 0; i < 7; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const sp = 40 + Math.random() * 90;
+        S.particles.push({ x: it.x, y: it.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30, r: 1.8 + Math.random() * 1.8, life: 0.45, color: pc });
+      }
       for (const s of [-1, 1]) {
         S.halves.push({
           x: it.x, y: it.y,
@@ -131,6 +142,8 @@ export default function Slice({ onFinish }) {
         const bonus = 25 * (S.strokeSlices - 2);
         S.score += bonus;
         say(`⚔️ Combo ×${S.strokeSlices}! +${bonus}`);
+        const at = S.lastSlice || { x: W / 2, y: 150 };
+        S.popups.push({ x: at.x, y: at.y - 44, text: `COMBO +${bonus}`, life: 1.15, color: '#ffd94d', size: 20 });
       }
       S.strokeSlices = 0;
     }
@@ -187,6 +200,10 @@ export default function Slice({ onFinish }) {
         }
         S.trail = pts;
       }
+      for (const pt of S.particles) { pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.vy += 300 * dt; pt.life -= dt; }
+      S.particles = S.particles.filter((pt) => pt.life > 0);
+      for (const pu of S.popups) { pu.y -= 36 * dt; pu.life -= dt * 0.95; }
+      S.popups = S.popups.filter((pu) => pu.life > 0);
       for (const h of S.halves) {
         h.vy += GRAV * dt;
         h.x += h.vx * dt;
@@ -305,6 +322,25 @@ export default function Slice({ onFinish }) {
         ctx.lineWidth = 6;
         ctx.stroke();
       }
+      for (const pt of S.particles) {
+        ctx.globalAlpha = Math.max(0, Math.min(1, pt.life * 2.2));
+        ctx.fillStyle = pt.color;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      for (const pu of S.popups) {
+        ctx.globalAlpha = Math.max(0, Math.min(1, pu.life));
+        ctx.font = `900 ${pu.size}px system-ui`;
+        ctx.textAlign = 'center';
+        ctx.strokeStyle = 'rgba(10,10,26,0.85)';
+        ctx.lineWidth = 4;
+        ctx.strokeText(pu.text, pu.x, pu.y);
+        ctx.fillStyle = pu.color;
+        ctx.fillText(pu.text, pu.x, pu.y);
+      }
+      ctx.globalAlpha = 1;
       ctx.restore();
       if (S.over) {
         ctx.fillStyle = 'rgba(4,8,16,0.7)';
