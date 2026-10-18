@@ -173,7 +173,6 @@ export const GAMES = [
     skill: true,
     live: true,
   },
-,
   {
     id: 'highway',
     cover: '/covers/highway.webp',

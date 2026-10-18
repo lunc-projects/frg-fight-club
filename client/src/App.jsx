@@ -204,7 +204,7 @@ export default function App() {
 
   const GameComp = GAME_COMPONENTS[game];
   const view = screen === 'done' ? resultView(game, result) : null;
-  const gameMeta = GAMES.find((g) => g.id === game);
+  const gameMeta = GAMES.find((g) => g && g.id === game);
 
   return (
     <div className="app">
