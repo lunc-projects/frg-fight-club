@@ -133,6 +133,14 @@ export default function RocketCrash({ onFinish }) {
               fill="none"
               stroke={phase === 'crashed' ? '#ef4444' : '#4ade80'}
               strokeWidth="2.5"
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              style={{
+                filter:
+                  phase === 'crashed'
+                    ? 'drop-shadow(0 0 6px rgba(239,68,68,0.8))'
+                    : 'drop-shadow(0 0 6px rgba(74,222,128,0.8))',
+              }}
             />
           )}
         </svg>
@@ -141,7 +149,7 @@ export default function RocketCrash({ onFinish }) {
             className="crash-rocket"
             style={{ left: `${headX}%`, bottom: `${headY}%` }}
           >
-            🚀
+            <img className="crash-rocket-img" src="/art/flight-rocket.webp" alt="" draggable="false" />
           </div>
         ) : (
           <div
@@ -151,7 +159,7 @@ export default function RocketCrash({ onFinish }) {
             💥
           </div>
         )}
-        <div className="crash-mult">
+        <div className={`crash-mult ${phase === 'fly' ? 'flying' : ''} ${phase === 'cashed' ? 'cashed' : ''}`}>
           {phase === 'count' && '🚀 Launching…'}
           {phase === 'fly' && fmt(mult)}
           {phase === 'cashed' && `✅ Bailed at ${fmt(mult)}`}

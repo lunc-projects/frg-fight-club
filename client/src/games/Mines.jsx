@@ -117,7 +117,13 @@ export default function Mines({ onFinish }) {
               disabled={v !== undefined || phase !== 'dig'}
               aria-label={`Tile ${i + 1}`}
             >
-              {v === 'gem' ? '💎' : v === 'mine' ? '💣' : ''}
+              {v === 'gem' ? (
+                <img className="mtile-img" src="/art/slice-gem.webp" alt="gem" draggable="false" />
+              ) : v === 'mine' ? (
+                <img className="mtile-img" src="/art/slice-bomb.webp" alt="mine" draggable="false" />
+              ) : (
+                ''
+              )}
             </button>
           );
         })}
