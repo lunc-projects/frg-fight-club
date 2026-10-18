@@ -647,7 +647,12 @@ async function startBot() {
     await tg('setChatMenuButton', {
       menu_button: { type: 'web_app', text: '🥊 Play FRG Fight Club', web_app: { url: WEBAPP_URL } },
     });
-    await tg('setMyCommands', { commands: [{ command: 'start', description: 'Open FRG Fight Club' }] });
+    await tg('setMyCommands', {
+      commands: [
+        { command: 'start', description: 'Open FRG Fight Club' },
+        { command: 'leaderboard', description: 'Season 1 standings' },
+      ],
+    });
     console.log('  bot: menu button set, polling /start');
     let offset = 0;
     for (;;) {
@@ -662,7 +667,7 @@ async function startBot() {
             // button. If the video send fails for any reason, fall back
             // to the plain text welcome so /start never goes unanswered.
             const caption =
-              '🥊 *FRG FIGHT CLUB*\n\nFree to play — all 15 games, no wallet needed, nothing to buy. Climb the season leaderboard on the ten skill titles.\n\nTap Play below — good luck!';
+              '🥊 *FRG FIGHT CLUB*\n\nFree to play — all 15 games, no wallet needed, nothing to buy. Climb the season leaderboard on the ten skill titles.\n\nTap Play below — good luck!\n\nType /leaderboard anytime for the standings.';
             const markup = {
               inline_keyboard: [[{ text: '🥊 Play FRG Fight Club', web_app: { url: WEBAPP_URL } }]],
             };
@@ -688,6 +693,37 @@ async function startBot() {
                 reply_markup: markup,
               });
             }
+          } else if (msg?.text?.startsWith('/leaderboard')) {
+            // Standings on demand — works in the bot chat and in group
+            // topics (thread-aware, like /start). Points and names ONLY:
+            // prize talk stays in the owner's own channel posts, never
+            // in bot output (the conversion rule).
+            const thread = msg.message_thread_id
+              ? { message_thread_id: msg.message_thread_id }
+              : {};
+            const clean = (n) => String(n || 'Player').replace(/[*_`\[]/g, '').slice(0, 40);
+            const fmt = (rows, medals) =>
+              rows
+                .map((r, i) => `${medals ? ['🥇', '🥈', '🥉'][i] || `${i + 1}.` : `${i + 1}.`} ${clean(r.name)} — ${r.points} PTS`)
+                .join('\n');
+            const skill = board(true);
+            const glory = board(false).slice(0, 5);
+            const ends = seasonInfo().endsAt
+              ? new Date(seasonInfo().endsAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' })
+              : null;
+            let text = `🏆 *SEASON 1 — SKILL LEADERBOARD*${ends ? `\nSeason ends ${ends}` : ''}\n\n`;
+            text += skill.length ? fmt(skill, true) : 'No scores yet — be the first on the board! 🎮';
+            if (glory.length) text += `\n\n🎮 *ALL-GAMES BOARD*\n${fmt(glory, false)}`;
+            text += '\n\nEvery skill game adds to your total — tap Play and climb!';
+            await tg('sendMessage', {
+              chat_id: msg.chat.id,
+              ...thread,
+              text,
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [[{ text: '🥊 Play FRG Fight Club', web_app: { url: WEBAPP_URL } }]],
+              },
+            });
           }
         }
       } catch {
