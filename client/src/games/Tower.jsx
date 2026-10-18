@@ -30,6 +30,8 @@ export default function Tower({ onFinish }) {
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
+    const imgBg = new Image();
+    imgBg.src = '/art/tower-bg.webp';
     const start = Date.now();
     const S = {
       score: 0,
@@ -42,6 +44,8 @@ export default function Tower({ onFinish }) {
       msg: 'Tap to drop the block!',
       msgAt: Date.now(),
       perfects: 0,
+      particles: [],
+      popups: [],
     };
 
     function say(m) { S.msg = m; S.msgAt = Date.now(); }
@@ -84,12 +88,22 @@ export default function Tower({ onFinish }) {
       const placed = perfect ? { x: prev.x, w: prev.w } : { x: left, w: right - left };
       S.stack.push(placed);
       S.blocks += 1;
+      const totalH2 = S.stack.length * BLOCK_H;
+      const topY2 = totalH2 <= BASE_Y - 118 ? BASE_Y - totalH2 : 118;
       if (perfect) {
         S.perfects += 1;
         S.score += 150;
         say(`🎯 PERFECT! +150 (${S.perfects} in this tower)`);
+        S.popups.push({ x: placed.x + placed.w / 2, y: topY2 - 8, text: 'PERFECT! +150', life: 1.1, color: '#ffd94d', size: 19 });
+        for (let i = 0; i < 10; i++) {
+          S.particles.push({ x: placed.x + Math.random() * placed.w, y: topY2 + 4, vx: (Math.random() - 0.5) * 120, vy: -40 - Math.random() * 90, r: 1.8 + Math.random() * 2, life: 0.55, color: '#ffd94d' });
+        }
       } else {
         S.score += 100;
+        S.popups.push({ x: placed.x + placed.w / 2, y: topY2 - 8, text: '+100', life: 0.9, color: '#ffffff', size: 15 });
+        for (let i = 0; i < 4; i++) {
+          S.particles.push({ x: placed.x + Math.random() * placed.w, y: topY2 + BLOCK_H, vx: (Math.random() - 0.5) * 70, vy: -20 - Math.random() * 40, r: 1.6 + Math.random() * 1.6, life: 0.4, color: '#cfe3ff' });
+        }
       }
       if (placed.w < 14) { finish('Tower topped out — too thin to climb!'); return; }
       S.speed = Math.min(360, S.speed + 9);
@@ -114,6 +128,10 @@ export default function Tower({ onFinish }) {
         f.vy += 900 * dt;
       }
       S.falling = S.falling.filter((f) => f.y < H + 80);
+      for (const pt of S.particles) { pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.vy += 320 * dt; pt.life -= dt; }
+      S.particles = S.particles.filter((pt) => pt.life > 0);
+      for (const pu of S.popups) { pu.y -= 32 * dt; pu.life -= dt * 0.9; }
+      S.popups = S.popups.filter((pu) => pu.life > 0);
       draw();
     }
 
@@ -132,19 +150,27 @@ export default function Tower({ onFinish }) {
     }
 
     function draw() {
-      const grad = ctx.createLinearGradient(0, 0, 0, H);
-      grad.addColorStop(0, '#0a1122');
-      grad.addColorStop(1, '#101d38');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, W, H);
-      // city silhouette
-      ctx.fillStyle = '#0d1730';
-      ctx.fillRect(0, H - 34, W, 34);
-      ctx.fillStyle = 'rgba(255,210,90,0.5)';
-      for (let i = 0; i < 26; i++) {
-        const wx = (i * 61) % W;
-        const wy = H - 26 + ((i * 37) % 16);
-        ctx.fillRect(wx, wy, 3, 4);
+      if (imgBg.complete && imgBg.naturalWidth) {
+        const sc = Math.max(W / imgBg.naturalWidth, H / imgBg.naturalHeight);
+        const bw = imgBg.naturalWidth * sc;
+        const bh = imgBg.naturalHeight * sc;
+        ctx.drawImage(imgBg, (W - bw) / 2, (H - bh) / 2, bw, bh);
+        ctx.fillStyle = 'rgba(16,10,40,0.16)';
+        ctx.fillRect(0, 0, W, H);
+      } else {
+        const grad = ctx.createLinearGradient(0, 0, 0, H);
+        grad.addColorStop(0, '#0a1122');
+        grad.addColorStop(1, '#101d38');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = '#0d1730';
+        ctx.fillRect(0, H - 34, W, 34);
+        ctx.fillStyle = 'rgba(255,210,90,0.5)';
+        for (let i = 0; i < 26; i++) {
+          const wx = (i * 61) % W;
+          const wy = H - 26 + ((i * 37) % 16);
+          ctx.fillRect(wx, wy, 3, 4);
+        }
       }
       // The tower's top sits on the ground line while the tower is
       // short, then stays pinned at topY as it outgrows the screen.
@@ -185,6 +211,25 @@ export default function Tower({ onFinish }) {
         ctx.setLineDash([]);
         drawBlock(c.x, 76, c.w, S.stack.length);
       }
+      for (const pt of S.particles) {
+        ctx.globalAlpha = Math.max(0, Math.min(1, pt.life * 2));
+        ctx.fillStyle = pt.color;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      for (const pu of S.popups) {
+        ctx.globalAlpha = Math.max(0, Math.min(1, pu.life));
+        ctx.font = `900 ${pu.size}px system-ui`;
+        ctx.textAlign = 'center';
+        ctx.strokeStyle = 'rgba(20,8,40,0.85)';
+        ctx.lineWidth = 4;
+        ctx.strokeText(pu.text, pu.x, pu.y);
+        ctx.fillStyle = pu.color;
+        ctx.fillText(pu.text, pu.x, pu.y);
+      }
+      ctx.globalAlpha = 1;
       if (S.over) {
         ctx.fillStyle = 'rgba(4,8,16,0.66)';
         ctx.fillRect(0, 0, W, H);

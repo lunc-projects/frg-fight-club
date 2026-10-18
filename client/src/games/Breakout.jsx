@@ -34,10 +34,15 @@ export default function Breakout({ onFinish }) {
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
+    const imgBg = new Image();
+    imgBg.src = '/art/breakout-bg.webp';
     const start = Date.now();
     const S = {
       score: 0,
       ballsLeft: 3,
+      particles: [],
+      popups: [],
+      trail: [],
       over: false,
       paddleX: W / 2,
       ball: null, // {x,y,vx,vy,stuck}
@@ -125,6 +130,11 @@ export default function Breakout({ onFinish }) {
             if (b.x > br.x - 7 && b.x < br.x + br.w + 7 && b.y > br.y - 7 && b.y < br.y + br.h + 7) {
               br.alive = false;
               S.score += ROW_PTS[br.row];
+              for (let i = 0; i < 6; i++) {
+                const a = Math.random() * Math.PI * 2;
+                const sp = 30 + Math.random() * 110;
+                S.particles.push({ x: br.x + br.w / 2, y: br.y + br.h / 2, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: 1.6 + Math.random() * 2, life: 0.45, color: ROW_COLORS[br.row] });
+              }
               // bounce off the smaller penetration axis
               const penX = Math.min(Math.abs(b.x - (br.x - 7)), Math.abs(b.x - (br.x + br.w + 7)));
               const penY = Math.min(Math.abs(b.y - (br.y - 7)), Math.abs(b.y - (br.y + br.h + 7)));
@@ -140,10 +150,13 @@ export default function Breakout({ onFinish }) {
           if (S.bricks.every((x) => !x.alive)) {
             S.score += WALL_BONUS;
             S.wall += 1;
+            S.popups.push({ x: W / 2, y: 210, text: `WALL DOWN! +${WALL_BONUS}`, life: 1.2, color: '#ffd94d', size: 21 });
             say(`🧱 Wall down! +${WALL_BONUS} — faster wall #${S.wall}`);
             buildWall();
             serve();
           }
+          S.trail.push({ x: b.x, y: b.y });
+          if (S.trail.length > 11) S.trail.shift();
           // drain
           if (b.y > H + 14) {
             S.ballsLeft -= 1;
@@ -152,12 +165,26 @@ export default function Breakout({ onFinish }) {
           }
         }
       }
+      const dtFx = Math.min(0.033, dt);
+      for (const pt of S.particles) { pt.x += pt.vx * dtFx; pt.y += pt.vy * dtFx; pt.life -= dtFx; }
+      S.particles = S.particles.filter((pt) => pt.life > 0);
+      for (const pu of S.popups) { pu.y -= 30 * dtFx; pu.life -= dtFx * 0.85; }
+      S.popups = S.popups.filter((pu) => pu.life > 0);
       draw();
     }
 
     function draw() {
-      ctx.fillStyle = '#0d1526';
-      ctx.fillRect(0, 0, W, H);
+      if (imgBg.complete && imgBg.naturalWidth) {
+        const sc = Math.max(W / imgBg.naturalWidth, H / imgBg.naturalHeight);
+        const bw = imgBg.naturalWidth * sc;
+        const bh = imgBg.naturalHeight * sc;
+        ctx.drawImage(imgBg, (W - bw) / 2, (H - bh) / 2, bw, bh);
+        ctx.fillStyle = 'rgba(5,8,20,0.38)';
+        ctx.fillRect(0, 0, W, H);
+      } else {
+        ctx.fillStyle = '#0d1526';
+        ctx.fillRect(0, 0, W, H);
+      }
       // frame
       ctx.strokeStyle = '#2b3a55';
       ctx.lineWidth = 2;
@@ -182,18 +209,49 @@ export default function Breakout({ onFinish }) {
       ctx.font = 'bold 8px system-ui';
       ctx.textAlign = 'center';
       ctx.fillText('FRG', S.paddleX, PADDLE_Y + 9.5);
-      // ball
+      // ball trail + glowing ball
       const b = S.ball;
       if (b && !S.over) {
+        S.trail.forEach((tp, i) => {
+          ctx.globalAlpha = (i / S.trail.length) * 0.30;
+          ctx.fillStyle = '#9fd8ff';
+          ctx.beginPath();
+          ctx.arc(tp.x, tp.y, 3 + (i / S.trail.length) * 3.4, 0, Math.PI * 2);
+          ctx.fill();
+        });
+        ctx.globalAlpha = 1;
+        ctx.save();
+        ctx.shadowColor = 'rgba(160,220,255,0.9)';
+        ctx.shadowBlur = 14;
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();
         ctx.arc(b.x, b.y, 7, 0, Math.PI * 2);
         ctx.fill();
+        ctx.restore();
         ctx.fillStyle = 'rgba(255,255,255,0.35)';
         ctx.beginPath();
         ctx.arc(b.x - (b.vx || 0) * 0.03, b.y - (b.vy || 0) * 0.03, 4.5, 0, Math.PI * 2);
         ctx.fill();
       }
+      for (const pt of S.particles) {
+        ctx.globalAlpha = Math.max(0, Math.min(1, pt.life * 2.2));
+        ctx.fillStyle = pt.color;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      for (const pu of S.popups) {
+        ctx.globalAlpha = Math.max(0, Math.min(1, pu.life));
+        ctx.font = `900 ${pu.size}px system-ui`;
+        ctx.textAlign = 'center';
+        ctx.strokeStyle = 'rgba(4,8,20,0.85)';
+        ctx.lineWidth = 4;
+        ctx.strokeText(pu.text, pu.x, pu.y);
+        ctx.fillStyle = pu.color;
+        ctx.fillText(pu.text, pu.x, pu.y);
+      }
+      ctx.globalAlpha = 1;
       if (S.over) {
         ctx.fillStyle = 'rgba(4,8,16,0.72)';
         ctx.fillRect(0, 0, W, H);
