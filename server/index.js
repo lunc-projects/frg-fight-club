@@ -28,7 +28,7 @@ const {
   BOT_TOKEN = '',
   WEBAPP_URL = '',
   SEASON_NAME = 'Season 1',
-  SEASON_ENDS_AT = '', // ISO date, e.g. 2026-11-30T23:59:59Z (display only)
+  SEASON_ENDS_AT = '2026-11-01T23:59:59-05:00', // Season 1 close: Sun Nov 1, end of day ET (owner set a 14-day season on Oct 18). Env var still overrides. Display only — the close is judged from the score-event log.
   PRIZE_POOL_FRG = '', // announced pool, e.g. '1000' (display only)
 } = process.env;
 
