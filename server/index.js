@@ -32,9 +32,9 @@ const {
   PRIZE_POOL_FRG = '', // announced pool, e.g. '1000' (display only)
 } = process.env;
 
-const GAMES = ['boxing', 'wheel', 'crash', 'darts', 'racing', 'mines', 'pinball', 'breakout', 'flight', 'tower', 'slice'];
+const GAMES = ['boxing', 'wheel', 'crash', 'darts', 'racing', 'mines', 'pinball', 'breakout', 'flight', 'tower', 'slice', 'putt', 'snake', 'memory', 'crossing'];
 // Skill titles feed the prize leaderboard. The rest are glory-only.
-const SKILL_GAMES = ['boxing', 'racing', 'flight', 'tower', 'breakout', 'slice'];
+const SKILL_GAMES = ['boxing', 'racing', 'flight', 'tower', 'breakout', 'slice', 'putt', 'snake', 'memory', 'crossing'];
 const SESSION_TTL_MS = 20 * 60 * 1000;
 
 // Points tables — IDENTICAL numbers to the old FRG payouts, renamed.
@@ -388,6 +388,127 @@ function computePoints(game, result) {
     }
     return bad('Slice result outcome invalid.');
   }
+
+  if (game === 'putt') {
+    // Mini Putt: hole pays (7 - strokes) * 40, picked up at 7 = 0.
+    // Server re-derives the score EXACTLY from the stroke counts.
+    const PUTT_TIERS = [
+      { min: 680, amount: 45 },
+      { min: 560, amount: 32 },
+      { min: 440, amount: 22 },
+      { min: 320, amount: 15 },
+      { min: 220, amount: 10 },
+      { min: 120, amount: 5 },
+    ];
+    const sph = result?.strokesPerHole;
+    if (!Array.isArray(sph) || sph.length !== 3 || !sph.every((n) => Number.isInteger(n) && n >= 1 && n <= 7)) {
+      return bad('Putt stroke counts out of range.');
+    }
+    const score = sph.reduce((sum, n) => sum + (n >= 7 ? 0 : (7 - n) * 40), 0);
+    if (Number(result?.score) !== score) return bad('Putt score does not match the stroke counts.');
+    const tier = PUTT_TIERS.find((t) => score >= t.min);
+    const expected = tier ? tier.amount : 0;
+    const amount = Number(result?.amount);
+    if (durationMs < 5_000 || durationMs > 10 * 60 * 1000) return bad('Putt timing looks implausible.');
+    if (result?.outcome === 'win') {
+      if (expected === 0 || amount !== expected) return bad('Putt payout does not match the tier table.');
+      return { points: amount };
+    }
+    if (result?.outcome === 'lose') {
+      if (expected !== 0 || amount !== 0) return bad('Putt loss cannot carry a payout.');
+      return { points: 0 };
+    }
+    return bad('Putt result outcome invalid.');
+  }
+  if (game === 'snake') {
+    // Snake: orbs pay 25, every 5th is golden (60) — golden count is
+    // forced to floor(total/5) and the score is re-derived exactly.
+    const SNAKE_TIERS = [
+      { min: 1400, amount: 45 },
+      { min: 1050, amount: 32 },
+      { min: 750, amount: 22 },
+      { min: 500, amount: 15 },
+      { min: 300, amount: 10 },
+      { min: 150, amount: 5 },
+    ];
+    const total = Number(result?.orbs);
+    const golden = Number(result?.golden);
+    const score = Number(result?.score);
+    const amount = Number(result?.amount);
+    if (!(Number.isInteger(total) && total >= 0 && total <= 300)) return bad('Snake orb count out of range.');
+    if (golden !== Math.floor(total / 5)) return bad('Snake golden count inconsistent.');
+    if (score !== 25 * (total - golden) + 60 * golden) return bad('Snake score does not match the orb counts.');
+    const tier = SNAKE_TIERS.find((t) => score >= t.min);
+    const expected = tier ? tier.amount : 0;
+    if (durationMs < Math.max(1_500, total * 300) || durationMs > 15 * 60 * 1000) return bad('Snake timing looks implausible.');
+    if (result?.outcome === 'win') {
+      if (expected === 0 || amount !== expected) return bad('Snake payout does not match the tier table.');
+      return { points: amount };
+    }
+    if (result?.outcome === 'lose') {
+      if (expected !== 0 || amount !== 0) return bad('Snake loss cannot carry a payout.');
+      return { points: 0 };
+    }
+    return bad('Snake result outcome invalid.');
+  }
+  if (game === 'memory') {
+    // Memory: score = 100R + 25 * R(R+1)/2 for R completed rounds —
+    // re-derived exactly from the round count.
+    const MEMORY_TIERS = [
+      { min: 3000, amount: 45 },
+      { min: 2100, amount: 32 },
+      { min: 1400, amount: 22 },
+      { min: 875, amount: 15 },
+      { min: 450, amount: 10 },
+      { min: 150, amount: 5 },
+    ];
+    const rounds = Number(result?.rounds);
+    const score = Number(result?.score);
+    const amount = Number(result?.amount);
+    if (!(Number.isInteger(rounds) && rounds >= 0 && rounds <= 30)) return bad('Memory round count out of range.');
+    if (score !== 100 * rounds + 25 * ((rounds * (rounds + 1)) / 2)) return bad('Memory score does not match the round count.');
+    const tier = MEMORY_TIERS.find((t) => score >= t.min);
+    const expected = tier ? tier.amount : 0;
+    if (durationMs < Math.max(2_000, rounds * 1_500) || durationMs > 15 * 60 * 1000) return bad('Memory timing looks implausible.');
+    if (result?.outcome === 'win') {
+      if (expected === 0 || amount !== expected) return bad('Memory payout does not match the tier table.');
+      return { points: amount };
+    }
+    if (result?.outcome === 'lose') {
+      if (expected !== 0 || amount !== 0) return bad('Memory loss cannot carry a payout.');
+      return { points: 0 };
+    }
+    return bad('Memory result outcome invalid.');
+  }
+  if (game === 'crossing') {
+    // Crossing: every crossing pays exactly 150 — score is re-derived
+    // from the crossing count alone.
+    const CROSSING_TIERS = [
+      { min: 1200, amount: 45 },
+      { min: 900, amount: 32 },
+      { min: 600, amount: 22 },
+      { min: 450, amount: 15 },
+      { min: 300, amount: 10 },
+      { min: 150, amount: 5 },
+    ];
+    const crossings = Number(result?.crossings);
+    const score = Number(result?.score);
+    const amount = Number(result?.amount);
+    if (!(Number.isInteger(crossings) && crossings >= 0 && crossings <= 40)) return bad('Crossing count out of range.');
+    if (score !== crossings * 150) return bad('Crossing score does not match the crossing count.');
+    const tier = CROSSING_TIERS.find((t) => score >= t.min);
+    const expected = tier ? tier.amount : 0;
+    if (durationMs < Math.max(2_000, crossings * 3_000) || durationMs > 15 * 60 * 1000) return bad('Crossing timing looks implausible.');
+    if (result?.outcome === 'win') {
+      if (expected === 0 || amount !== expected) return bad('Crossing payout does not match the tier table.');
+      return { points: amount };
+    }
+    if (result?.outcome === 'lose') {
+      if (expected !== 0 || amount !== 0) return bad('Crossing loss cannot carry a payout.');
+      return { points: 0 };
+    }
+    return bad('Crossing result outcome invalid.');
+  }
   // boxing (default)
   const damageDealt = Number(result?.damageDealt || 0);
   if (result?.outcome === 'win') {
@@ -514,7 +635,7 @@ async function startBot() {
     // no crypto (see the conversion note at the top of this file).
     const d1 = await tg('setMyDescription', {
       description:
-        '🥊 FRG FIGHT CLUB — a free arcade in Telegram.\n\n11 games: boxing, drag racing, pinball, breakout, flight, tower, slice, and more. Every game is free to play — no wallet, no payments, nothing to buy. Climb the Season 1 leaderboard on the six skill titles!',
+        '🥊 FRG FIGHT CLUB — a free arcade in Telegram.\n\n11 games: boxing, drag racing, pinball, breakout, flight, tower, slice, and more. Every game is free to play — no wallet, no payments, nothing to buy. Climb the Season 1 leaderboard on the skill titles!',
     });
     const d2 = await tg('setMyShortDescription', {
       short_description: '🥊 Free arcade — 11 games, season leaderboard. No wallet needed.',

@@ -10,6 +10,10 @@ import Breakout from './games/Breakout.jsx';
 import Flight from './games/Flight.jsx';
 import Tower from './games/Tower.jsx';
 import Slice from './games/Slice.jsx';
+import Putt from './games/Putt.jsx';
+import Snake from './games/Snake.jsx';
+import Memory from './games/Memory.jsx';
+import Crossing from './games/Crossing.jsx';
 import { GAMES } from './config.js';
 import {
   startGame,
@@ -33,6 +37,10 @@ const GAME_COMPONENTS = {
   flight: Flight,
   tower: Tower,
   slice: Slice,
+  putt: Putt,
+  snake: Snake,
+  memory: Memory,
+  crossing: Crossing,
 };
 
 // Per-game result presentation. `won` here means "scored points".
@@ -76,6 +84,22 @@ function resultView(game, r) {
         ? { emoji, title: `${r.score?.toLocaleString()} points!`, lines: [`${extra}That score earns ${r.amount} PTS.`], won: true }
         : { emoji, title: `${r.score?.toLocaleString()} points — just short.`, lines: [`The first points tier starts at ${firstTier.toLocaleString()} points.`], won: false };
     }
+    case 'putt':
+      return r.amount > 0
+        ? { emoji: '🏌️', title: `Round complete — ${r.score} points!`, lines: [`Strokes by hole: ${r.strokesPerHole?.join(' · ')}. That earns ${r.amount} PTS.`], won: true }
+        : { emoji: '🏌️', title: `Round complete — ${r.score} points.`, lines: ['The first points tier starts at 120 — sink a couple more to get on the board.'], won: false };
+    case 'snake':
+      return r.amount > 0
+        ? { emoji: '🐍', title: `${r.score} points!`, lines: [`${r.orbs} orbs eaten (${r.golden} golden). That earns ${r.amount} PTS.`], won: true }
+        : { emoji: '🐍', title: `${r.score} points — snake down.`, lines: ['The first points tier starts at 150 — six orbs gets you there.'], won: false };
+    case 'memory':
+      return r.amount > 0
+        ? { emoji: '🧠', title: `${r.rounds} rounds deep!`, lines: [`${r.score} points — that earns ${r.amount} PTS.`], won: true }
+        : { emoji: '🧠', title: `${r.rounds} round${r.rounds === 1 ? '' : 's'} completed.`, lines: ['Finish 2 rounds to reach the first points tier.'], won: false };
+    case 'crossing':
+      return r.amount > 0
+        ? { emoji: '🚦', title: `${r.crossings} crossing${r.crossings === 1 ? '' : 's'}!`, lines: [`${r.score} points — that earns ${r.amount} PTS.`], won: true }
+        : { emoji: '🚦', title: 'Caught in traffic.', lines: ['One clean crossing gets you on the board at 150 points.'], won: false };
     default: // boxing
       return r.outcome === 'win'
         ? { emoji: '🏆', title: 'You win!', lines: [`⭐ Points: ${r.points ?? 0} · Damage dealt: ${r.damageDealt} · Rounds ${r.rounds}`], won: true }
@@ -192,7 +216,7 @@ export default function App() {
         <main>
           {season && (
             <div className="season-banner">
-              🏆 <b>{season.name}</b> is live — the six skill titles feed the
+              🏆 <b>{season.name}</b> is live — the skill titles feed the
               season leaderboard below. Every game is free.
               {season.endsAt
                 ? ` Season ends ${new Date(season.endsAt).toLocaleDateString()}.`
