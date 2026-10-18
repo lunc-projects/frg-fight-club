@@ -56,6 +56,7 @@ export const GAMES = [
   },
   {
     id: 'racing',
+    cover: '/covers/racing.webp',
     name: 'FRG Drag Racing',
     emoji: '🏎️',
     tagline: 'Beat the tree, nail the shifts, outrun the rival.',
@@ -66,6 +67,7 @@ export const GAMES = [
   },
   {
     id: 'mines',
+    cover: '/covers/mines.webp',
     name: 'FRG Mines',
     emoji: '💣',
     tagline: 'Every gem raises the prize — one mine takes it all.',
@@ -75,6 +77,7 @@ export const GAMES = [
   },
   {
     id: 'breakout',
+    cover: '/covers/breakout.webp',
     name: 'FRG Breakout',
     emoji: '🧱',
     tagline: 'Smash the wall, keep the ball alive.',
@@ -117,6 +120,7 @@ export const GAMES = [
   },
   {
     id: 'pinball',
+    cover: '/covers/pinball.webp',
     name: 'FRG Pinball',
     emoji: '👾',
     tagline: 'Three balls. Light F-R-G. Chase the high score.',
