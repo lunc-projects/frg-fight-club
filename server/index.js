@@ -508,6 +508,18 @@ async function startBot() {
     return;
   }
   try {
+    // The bot's public description/about are set from here (Bot API
+    // setMyDescription / setMyShortDescription) so the owner never has
+    // to fight BotFather menus. Free-arcade wording only — no prizes,
+    // no crypto (see the conversion note at the top of this file).
+    const d1 = await tg('setMyDescription', {
+      description:
+        '🥊 FRG FIGHT CLUB — a free arcade in Telegram.\n\n11 games: boxing, drag racing, pinball, breakout, flight, tower, slice, and more. Every game is free to play — no wallet, no payments, nothing to buy. Climb the Season 1 leaderboard on the six skill titles!',
+    });
+    const d2 = await tg('setMyShortDescription', {
+      short_description: '🥊 Free arcade — 11 games, season leaderboard. No wallet needed.',
+    });
+    console.log('  bot: description set:', d1.ok === true && d2.ok === true ? 'ok' : JSON.stringify({ d1, d2 }).slice(0, 200));
     await tg('setChatMenuButton', {
       menu_button: { type: 'web_app', text: '🥊 Play FRG Fight Club', web_app: { url: WEBAPP_URL } },
     });
