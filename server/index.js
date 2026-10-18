@@ -662,8 +662,6 @@ async function tg(method, body) {
   return r.json().catch(() => ({}));
 }
 
-const PROMO_VIDEO_URL =
-  process.env.PROMO_VIDEO_URL || 'https://frg-fight-club.vercel.app/promo.mp4';
 // Hero cover art that dresses the bot's posts (hosted on the client site).
 const COVER_PHOTO_URL =
   process.env.COVER_PHOTO_URL || 'https://frg-fight-club.vercel.app/covers/boxing.webp';
@@ -704,9 +702,9 @@ async function startBot() {
           offset = u.update_id + 1;
           const msg = u.message;
           if (msg?.text?.startsWith('/start')) {
-            // /start answers with the promo montage (hosted on the
-            // client site) + the welcome text as its caption + the Play
-            // button. If the video send fails for any reason, fall back
+            // /start answers with the club's gaming art (the boxing
+            // cover) + the welcome text as its caption + the Play
+            // button. If the photo send fails for any reason, fall back
             // to the plain text welcome so /start never goes unanswered.
             const caption =
               '🥊 *FRG FIGHT CLUB*\n\nFree to play — all 16 games, no wallet needed, nothing to buy. Climb the season leaderboard on the eleven skill titles.\n\nTap Play below — good luck!\n\nType /leaderboard anytime for the standings.';
@@ -716,34 +714,22 @@ async function startBot() {
             const thread = msg.message_thread_id
               ? { message_thread_id: msg.message_thread_id }
               : {};
-            const vid = await tg('sendVideo', {
+            const pic = await tg('sendPhoto', {
               chat_id: msg.chat.id,
               ...thread,
-              video: PROMO_VIDEO_URL,
+              photo: COVER_PHOTO_URL,
               caption,
               parse_mode: 'Markdown',
-              supports_streaming: true,
               reply_markup: markup,
             });
-            if (!vid?.ok) {
-              console.error('  bot: sendVideo failed, falling back to cover photo:', JSON.stringify(vid).slice(0, 200));
-              const pic = await tg('sendPhoto', {
+            if (!pic?.ok) {
+              await tg('sendMessage', {
                 chat_id: msg.chat.id,
                 ...thread,
-                photo: COVER_PHOTO_URL,
-                caption,
+                text: caption,
                 parse_mode: 'Markdown',
                 reply_markup: markup,
               });
-              if (!pic?.ok) {
-                await tg('sendMessage', {
-                  chat_id: msg.chat.id,
-                  ...thread,
-                  text: caption,
-                  parse_mode: 'Markdown',
-                  reply_markup: markup,
-                });
-              }
             }
           } else if (msg?.text?.startsWith('/leaderboard')) {
             // Standings on demand — works in the bot chat and in group
