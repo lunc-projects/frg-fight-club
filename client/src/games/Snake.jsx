@@ -160,7 +160,18 @@ export default function Snake({ onFinish }) {
         ctx.lineTo(W, y * CELL);
         ctx.stroke();
       }
-      // orb — glowing sprite, plain circle until it loads
+      // orb — glowing sprite with a soft halo, plain circle until it loads
+      if (S.orb) {
+        const hx = S.orb.x * CELL + CELL / 2;
+        const hy = S.orb.y * CELL + CELL / 2;
+        const halo = ctx.createRadialGradient(hx, hy, 1, hx, hy, 17);
+        halo.addColorStop(0, S.orb.golden ? 'rgba(250, 204, 21, 0.40)' : 'rgba(74, 222, 128, 0.34)');
+        halo.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(hx, hy, 17, 0, 2 * Math.PI);
+        ctx.fill();
+      }
       if (S.orb) {
         const ocx = S.orb.x * CELL + CELL / 2;
         const ocy = S.orb.y * CELL + CELL / 2;
@@ -177,21 +188,58 @@ export default function Snake({ onFinish }) {
           ctx.stroke();
         }
       }
-      // snake
-      S.snake.forEach((s, i) => {
-        const pad = i === 0 ? 1 : 2;
-        ctx.fillStyle = i === 0 ? '#f7b733' : `hsl(140 60% ${52 - Math.min(22, i * 0.7)}%)`;
-        ctx.beginPath();
-        ctx.roundRect(s.x * CELL + pad, s.y * CELL + pad, CELL - pad * 2, CELL - pad * 2, 5);
-        ctx.fill();
-        if (i === 0) {
-          ctx.fillStyle = '#111827';
+      // snake — glossy 2026 body: soft shadow, radial-gradient segments
+      // that overlap into one shiny worm, glass gloss on every segment.
+      {
+        const pts = S.snake.map((sg) => ({ x: sg.x * CELL + CELL / 2, y: sg.y * CELL + CELL / 2 }));
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        for (const p of pts) {
           ctx.beginPath();
-          ctx.arc(s.x * CELL + 7, s.y * CELL + 8, 1.8, 0, 2 * Math.PI);
-          ctx.arc(s.x * CELL + 13, s.y * CELL + 8, 1.8, 0, 2 * Math.PI);
+          ctx.arc(p.x, p.y + 2.5, CELL * 0.46, 0, 2 * Math.PI);
           ctx.fill();
         }
-      });
+        for (let i = pts.length - 1; i >= 1; i--) {
+          const p = pts[i];
+          const t = Math.min(1, i / 16);
+          const g = ctx.createRadialGradient(p.x - 4, p.y - 5, 1.5, p.x, p.y, CELL * 0.55);
+          g.addColorStop(0, `hsl(140 74% ${68 - t * 18}%)`);
+          g.addColorStop(0.55, `hsl(142 62% ${49 - t * 12}%)`);
+          g.addColorStop(1, `hsl(146 60% ${29 - t * 6}%)`);
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, CELL * 0.465, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.fillStyle = 'rgba(255,255,255,0.20)';
+          ctx.beginPath();
+          ctx.ellipse(p.x - 3.5, p.y - 5, 4.6, 2.6, -0.5, 0, 2 * Math.PI);
+          ctx.fill();
+        }
+        const hp = pts[0];
+        if (hp) {
+          const g = ctx.createRadialGradient(hp.x - 4, hp.y - 5, 2, hp.x, hp.y, CELL * 0.6);
+          g.addColorStop(0, '#ffeda6');
+          g.addColorStop(0.5, '#f7b733');
+          g.addColorStop(1, '#c47f0a');
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.arc(hp.x, hp.y, CELL * 0.52, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.fillStyle = 'rgba(255,255,255,0.35)';
+          ctx.beginPath();
+          ctx.ellipse(hp.x - 4, hp.y - 5.5, 5, 2.8, -0.5, 0, 2 * Math.PI);
+          ctx.fill();
+          for (const ex of [-3.6, 3.6]) {
+            ctx.fillStyle = '#111827';
+            ctx.beginPath();
+            ctx.arc(hp.x + ex, hp.y - 1.5, 1.9, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(hp.x + ex + 0.6, hp.y - 2.1, 0.7, 0, 2 * Math.PI);
+            ctx.fill();
+          }
+        }
+      }
       if (!S.started && !S.over) {
         ctx.fillStyle = 'rgba(0,0,0,0.45)';
         ctx.fillRect(0, 0, W, H);
