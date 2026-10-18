@@ -698,10 +698,20 @@ async function startBot() {
     // /start reply there (the photo + its button failed together, and
     // so did the text fallback carrying the same button). Groups get
     // a plain url button to the same site instead.
+    // Group chats get a link to the BOT, not the raw site: a plain
+    // site link opens without Telegram identity, so group players
+    // landed on the leaderboard as "Guest" (seen live 2026-10-18).
+    // The bot link routes them to the DM, where /start's web_app
+    // button carries their Telegram identity onto the board.
+    let botLink = WEBAPP_URL;
+    try {
+      const me = await tg('getMe', {});
+      if (me?.result?.username) botLink = 'https://t.me/' + me.result.username;
+    } catch { /* keep the site link as fallback */ }
     const playMarkup = (chat) =>
       chat?.type === 'private'
         ? { inline_keyboard: [[{ text: '🥊 Play FRG Fight Club', web_app: { url: WEBAPP_URL } }]] }
-        : { inline_keyboard: [[{ text: '🥊 Play FRG Fight Club', url: WEBAPP_URL }]] };
+        : { inline_keyboard: [[{ text: '🥊 Play FRG Fight Club', url: botLink }]] };
     console.log('  bot: menu button set, polling /start');
     let offset = 0;
     for (;;) {
