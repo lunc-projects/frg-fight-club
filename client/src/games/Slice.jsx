@@ -31,6 +31,14 @@ export default function Slice({ onFinish }) {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     const start = Date.now();
+    const imgBg = new Image();
+    imgBg.src = '/art/slice-bg.webp';
+    const SPRITES = {};
+    for (const [t, f] of [['gem', 'slice-gem'], ['coin', 'slice-coin'], ['jewel', 'slice-jewel'], ['bomb', 'slice-bomb']]) {
+      const im = new Image();
+      im.src = `/art/${f}.webp`;
+      SPRITES[t] = im;
+    }
     let nextId = 1;
     const S = {
       score: 0,
@@ -196,6 +204,15 @@ export default function Slice({ onFinish }) {
       ctx.translate(it.x, it.y);
       ctx.rotate(it.rot);
       if (half) ctx.globalAlpha = Math.max(0, Math.min(1, it.life * 1.6));
+      const spr = SPRITES[it.type];
+      if (spr && spr.complete && spr.naturalWidth) {
+        const dh = it.type === 'bomb' ? it.r * 3.2 : it.type === 'jewel' ? it.r * 3.0 : it.r * 2.6;
+        const dw = dh * (spr.naturalWidth / spr.naturalHeight);
+        const yOff = it.type === 'bomb' ? -dh * 0.11 : 0;
+        ctx.drawImage(spr, -dw / 2, -dh / 2 + yOff, dw, dh);
+        ctx.restore();
+        return;
+      }
       if (it.type === 'gem' || it.type === 'jewel') {
         const c = it.type === 'gem' ? '#ffc93c' : '#4de3ff';
         const cd = it.type === 'gem' ? '#c07f00' : '#1b7ea6';
@@ -260,11 +277,18 @@ export default function Slice({ onFinish }) {
     function draw() {
       ctx.save();
       if (S.shake > 0) ctx.translate((Math.random() - 0.5) * 8 * S.shake, (Math.random() - 0.5) * 8 * S.shake);
-      const grad = ctx.createLinearGradient(0, 0, 0, H);
-      grad.addColorStop(0, '#0a1122');
-      grad.addColorStop(1, '#12203d');
-      ctx.fillStyle = grad;
-      ctx.fillRect(-10, -10, W + 20, H + 20);
+      if (imgBg.complete && imgBg.naturalWidth) {
+        const sc = Math.max(W / imgBg.naturalWidth, H / imgBg.naturalHeight);
+        const bw = imgBg.naturalWidth * sc;
+        const bh = imgBg.naturalHeight * sc;
+        ctx.drawImage(imgBg, (W - bw) / 2, (H - bh) / 2, bw, bh);
+      } else {
+        const grad = ctx.createLinearGradient(0, 0, 0, H);
+        grad.addColorStop(0, '#0a1122');
+        grad.addColorStop(1, '#12203d');
+        ctx.fillStyle = grad;
+        ctx.fillRect(-10, -10, W + 20, H + 20);
+      }
       for (const it of S.items) if (!it.sliced) drawItem(it, false);
       for (const h of S.halves) drawItem(h, true);
       // blade trail
