@@ -99,6 +99,7 @@ export const GAMES = [
   },
   {
     id: 'tower',
+    cover: '/covers/tower.webp',
     name: 'FRG Tower',
     emoji: '🏗️',
     tagline: 'Drop the block. Mind the slice.',
@@ -130,6 +131,7 @@ export const GAMES = [
   },
   {
     id: 'putt',
+    cover: '/covers/putt.webp',
     name: 'FRG Mini Putt',
     emoji: '🏌️',
     tagline: 'Drag, aim, sink it. Bank shots welcome.',
@@ -151,6 +153,7 @@ export const GAMES = [
   },
   {
     id: 'memory',
+    cover: '/covers/memory.webp',
     name: 'FRG Memory',
     emoji: '🧠',
     tagline: 'Watch the pads. Repeat the sequence.',
@@ -161,6 +164,7 @@ export const GAMES = [
   },
   {
     id: 'crossing',
+    cover: '/covers/crossing.webp',
     name: 'FRG Crossing',
     emoji: '🚦',
     tagline: 'Dodge the traffic. Get across. Again, faster.',
