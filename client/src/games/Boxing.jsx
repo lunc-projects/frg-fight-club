@@ -103,6 +103,8 @@ function freshState(opp) {
     taken: 0,
     sway: 0,
     dmgNums: [],
+    callout: null,
+    burst: null,
     shake: false,
     punch: '',
     punchUntil: 0,
@@ -135,6 +137,30 @@ export default function Boxing({ onFinish }) {
     }, 320);
   }
 
+  function showCallout(text, ms = 1150) {
+    const id = ++dmgId.current;
+    S.callout = { id, text };
+    render();
+    setTimeout(() => {
+      if (S.callout && S.callout.id === id) {
+        S.callout = null;
+        render();
+      }
+    }, ms);
+  }
+
+  function hitBurst(big) {
+    const id = ++dmgId.current;
+    S.burst = { id, big };
+    render();
+    setTimeout(() => {
+      if (S.burst && S.burst.id === id) {
+        S.burst = null;
+        render();
+      }
+    }, 380);
+  }
+
   function dmgNum(txt, hurt) {
     const id = ++dmgId.current;
     S.dmgNums = [...S.dmgNums.slice(-5), { id, txt, hurt }];
@@ -152,6 +178,16 @@ export default function Boxing({ onFinish }) {
       S.points += how.includes('decision') ? 500 : 1000;
     }
     S.phase = 'done';
+    if (outcome === 'win') {
+      showCallout(
+        how.includes('decision')
+          ? '🏆 DECISION — YOU WIN!'
+          : how.includes('TKO')
+            ? '💥 TKO! YOU WIN!'
+            : '💥 K.O.! YOU WIN!',
+        1350
+      );
+    }
     render();
     const durationMs = startedAt.current ? Date.now() - startedAt.current : 0;
     setTimeout(
@@ -183,6 +219,7 @@ export default function Boxing({ onFinish }) {
     S.countTimer = 0;
     S.getUpAt = irnd(4, 7);
     S.msg = '💥 DOWN HE GOES! +300 pts. The ref is counting…';
+    showCallout('💥 KNOCKDOWN! +300');
     haptic('heavy');
     shake();
     render();
@@ -196,6 +233,7 @@ export default function Boxing({ onFinish }) {
     S.countTimer = 0;
     S.mash = 0;
     S.msg = "😖 You're down! Mash JAB to get up before 10!";
+    showCallout('😖 YOU\'RE DOWN!', 900);
     haptic('heavy');
     shake();
     render();
@@ -260,6 +298,8 @@ export default function Boxing({ onFinish }) {
     S.eHp -= dmg;
     S.damageDealt += dmg;
     dmgNum(`-${Math.round(dmg)}`, false);
+    if (dmg >= 13) hitBurst(true);
+    else if (label && label.includes('+50')) hitBurst(false);
     if (label) S.msg = label;
     if (S.eHp <= 0) enemyDown();
   }
@@ -731,6 +771,16 @@ export default function Boxing({ onFinish }) {
             {d.txt}
           </div>
         ))}
+        {S.burst && (
+          <div key={S.burst.id} className={`hitburst ${S.burst.big ? 'big' : ''}`}>
+            {S.burst.big ? '💥' : '✦'}
+          </div>
+        )}
+        {S.callout && (
+          <div key={S.callout.id} className="box-callout">
+            {S.callout.text}
+          </div>
+        )}
         <div
           className={`player ${S.dodging > 0 ? (S.dodgeDir < 0 ? 'dodgeL' : 'dodgeR') : ''} ${S.tired ? 'tired' : ''} ${S.phase === 'pdown' ? 'down' : ''}`}
         >

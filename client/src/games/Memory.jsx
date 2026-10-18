@@ -38,6 +38,7 @@ export default function Memory({ onFinish }) {
   const [strikes, setStrikes] = useState(0);
   const [score, setScore] = useState(0);
   const [msg, setMsg] = useState('Watch the pads, then repeat the sequence. It grows by one every round.');
+  const [cheer, setCheer] = useState(null);
   const M = useRef(null);
 
   useEffect(() => {
@@ -128,6 +129,8 @@ export default function Memory({ onFinish }) {
           S.done = completed;
           setScore(memoryScore(completed));
           setMsg(`✅ Round ${completed} complete! +${100 + 25 * completed} points`);
+          setCheer({ round: completed, pts: 100 + 25 * completed, key: Date.now() });
+          later(() => setCheer(null), 1050);
           later(nextRound, 1100);
         }
       } else {
@@ -176,12 +179,15 @@ export default function Memory({ onFinish }) {
         <span>SCORE <b>{score}</b></span>
         <span>{'✖'.repeat(strikes)}{'·'.repeat(Math.max(0, 3 - strikes))}</span>
       </div>
+      <div style={{ position: 'relative' }}>
       <div
         style={{
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
           gap: 12,
-          background: badFlash ? '#450a0a' : '#111827',
+          background: badFlash
+            ? '#450a0a'
+            : "linear-gradient(rgba(9,13,26,0.80), rgba(9,13,26,0.88)), url('/covers/memory.webp') center / cover",
           padding: 14,
           borderRadius: 16,
           transition: 'background 150ms',
@@ -198,14 +204,24 @@ export default function Memory({ onFinish }) {
               fontSize: 40,
               color: '#111827',
               background: lit === i ? p.color : p.dim,
-              boxShadow: lit === i ? `0 0 28px ${p.color}` : 'none',
-              transition: 'background 90ms, box-shadow 90ms',
+              boxShadow:
+                lit === i
+                  ? `0 0 36px ${p.color}, 0 0 12px ${p.color}, inset 0 0 22px rgba(255,255,255,0.45)`
+                  : 'inset 0 -7px 0 rgba(0,0,0,0.28), inset 0 3px 0 rgba(255,255,255,0.13)',
+              transform: lit === i ? 'scale(1.05)' : 'scale(1)',
+              transition: 'background 90ms, box-shadow 90ms, transform 90ms',
               cursor: phase === 'input' ? 'pointer' : 'default',
             }}
           >
             {p.icon}
           </button>
         ))}
+      </div>
+      {cheer && (
+        <div key={cheer.key} className="mem-callout">
+          🎉 ROUND {cheer.round} CLEAR! +{cheer.pts}
+        </div>
+      )}
       </div>
       <p style={{ textAlign: 'center', minHeight: 22 }}>{msg}</p>
       {phase === 'idle' && (
