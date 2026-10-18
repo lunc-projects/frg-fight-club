@@ -1,9 +1,50 @@
-// Calls to the game server (server/ folder). The server — never the
-// browser — verifies payments on-chain and pays prizes from the treasury.
+// Calls to the game server (server/ folder). Free-play edition: no
+// wallet, no payments — the server issues a one-time session per game
+// and records the validated result as leaderboard points.
 import { API_BASE } from './config.js';
 
 function telegramInitData() {
   return window.Telegram?.WebApp?.initData || '';
+}
+
+export function telegramUser() {
+  try {
+    return window.Telegram?.WebApp?.initDataUnsafe?.user || null;
+  } catch {
+    return null;
+  }
+}
+
+// Guest identity for plain-browser play (inside Telegram the validated
+// initData identity is used instead). Persisted on this device only.
+export function guestIdentity() {
+  let id = '';
+  let name = '';
+  try {
+    id = localStorage.getItem('frg.guestId') || '';
+    if (!id) {
+      id = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+      localStorage.setItem('frg.guestId', id);
+    }
+    name = localStorage.getItem('frg.guestName') || '';
+  } catch {
+    id = 'guest';
+  }
+  return { guestId: id, guestName: name };
+}
+
+export function setGuestName(name) {
+  try {
+    localStorage.setItem('frg.guestName', name);
+  } catch {
+    /* private mode */
+  }
+}
+
+function identityBody() {
+  const initData = telegramInitData();
+  if (initData) return { initData };
+  return guestIdentity();
 }
 
 async function postJson(path, body) {
@@ -17,25 +58,29 @@ async function postJson(path, body) {
   return data;
 }
 
-/**
- * After the player pays the entry fee in their wallet, hand the txhash to
- * the server. It verifies the transfer on-chain and returns a one-time
- * session token that unlocks exactly one match.
- */
-export function verifyEntry(txhash, playerAddress, game) {
-  return postJson('/api/verify-entry', {
-    txhash,
-    playerAddress,
-    game,
-    initData: telegramInitData(),
-  });
+async function getJson(path) {
+  const res = await fetch(`${API_BASE}${path}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Server error (${res.status})`);
+  return data;
 }
 
-/**
- * After a win, claim the prize. The server checks the session is real,
- * unused and plausible, then pays from the treasury.
- * Returns { payoutTxhash }.
- */
-export function claimPrize(sessionToken, matchResult) {
-  return postJson('/api/claim', { sessionToken, result: matchResult });
+/** Open a free session for one game. Returns { sessionToken, playerName, season }. */
+export function startGame(game) {
+  return postJson('/api/start', { game, ...identityBody() });
+}
+
+/** Record a finished game's result. Returns { points, skill, totals }. */
+export function submitResult(sessionToken, result) {
+  return postJson('/api/submit', { sessionToken, result });
+}
+
+/** Both leaderboards + season info. */
+export function getLeaderboard() {
+  return getJson('/api/leaderboard');
+}
+
+/** The current player's totals and ranks. */
+export function getMe() {
+  return postJson('/api/me', identityBody());
 }

@@ -1,14 +1,19 @@
 // ---------------------------------------------------------------------------
-// FRG Fight Club — game server
+// FRG Fight Club — game server (FREE-PLAY edition, converted 2026-10-18)
 //
-// Trust model: the browser is NEVER trusted.
-//  - Entry: the player pays the FRG entry fee in their own wallet. This
-//    server re-checks that exact tx on-chain (right contract, right sender,
-//    right treasury, right amount, tx succeeded) before issuing a session.
-//  - Prizes: paid only against a real, unused, unexpired session whose match
-//    result passes basic plausibility checks. Paid from the treasury wallet
-//    whose seed lives ONLY in this server's .env.
-//  - Each entry tx can be used exactly once (replay protection, persisted).
+// The club no longer takes entry fees or pays prizes. Every game is free
+// to play and awards POINTS. Points are leaderboard credit only: they are
+// never sold, never bought, and cannot be exchanged for anything inside
+// the app. The six skill titles (boxing, racing, flight, tower, breakout,
+// slice) feed the SEASON leaderboard; at season's end the host pays a
+// fixed, pre-announced FRG prize pool to the top finishers out of his own
+// wallet, manually, outside this app (a sponsored contest — the server
+// never touches funds, so it needs no wallet seed at all).
+//
+// Trust model: results are still client-reported, but every submission
+// passes the same per-game plausibility checks the paid version used
+// (exact tier re-derivation, timing bands, consistency rules). That is
+// proportionate now: the worst a cheater can steal is leaderboard glory.
 // ---------------------------------------------------------------------------
 
 import 'dotenv/config';
@@ -17,124 +22,114 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  LCDClient,
-  MnemonicKey,
-  MsgExecuteContract,
-} from '@terra-money/terra.js';
 
 const {
   PORT = 8787,
-  LCD_URL = 'https://terra-classic-lcd.publicnode.com',
-  CHAIN_ID = 'columbus-5',
-  FRG_CONTRACT,
-  ENTRY_FEE_FRG = '10',
-  PRIZE_FRG = '18',
-  TREASURY_ADDRESS,
-  TREASURY_MNEMONIC,
   BOT_TOKEN = '',
   WEBAPP_URL = '',
+  SEASON_NAME = 'Season 1',
+  SEASON_ENDS_AT = '', // ISO date, e.g. 2026-11-30T23:59:59Z (display only)
+  PRIZE_POOL_FRG = '', // announced pool, e.g. '1000' (display only)
 } = process.env;
 
-if (!FRG_CONTRACT || !TREASURY_ADDRESS || !TREASURY_MNEMONIC) {
-  console.error(
-    'Missing FRG_CONTRACT, TREASURY_ADDRESS or TREASURY_MNEMONIC — copy .env.example to .env and fill it in.'
-  );
-  process.exit(1);
-}
-
-const DECIMALS = 6;
-const ENTRY_MICRO = BigInt(Math.round(Number(ENTRY_FEE_FRG) * 10 ** DECIMALS));
-const PRIZE_MICRO = String(Math.round(Number(PRIZE_FRG) * 10 ** DECIMALS));
-// Prize Wheel (game 'wheel'): "extra safe" tuning chosen by the owner —
-// 12 segments: BUST ×5, 5 ×3, 10 ×2, 15, 20. EV payout 5.83 FRG on a
-// 10 FRG entry, so the treasury keeps ~4.17 FRG per spin on average.
-const WHEEL_PRIZES = [0, 5, 10, 15, 20];
 const GAMES = ['boxing', 'wheel', 'crash', 'darts', 'racing', 'mines', 'pinball', 'breakout', 'flight', 'tower', 'slice'];
+// Skill titles feed the prize leaderboard. The rest are glory-only.
+const SKILL_GAMES = ['boxing', 'racing', 'flight', 'tower', 'breakout', 'slice'];
 const SESSION_TTL_MS = 20 * 60 * 1000;
 
-// --- tiny persistent store for spent entry txs ------------------------------
+// Points tables — IDENTICAL numbers to the old FRG payouts, renamed.
+// The per-game validation below re-derives every one of them exactly.
+const BOXING_WIN_POINTS = 18;
+const RACING_WIN_POINTS = 18;
+const CRASH_POINTS_BASE = 10; // points = floor(10 * cashed multiplier)
+const WHEEL_PRIZES = [0, 5, 10, 15, 20];
+
+function seasonInfo() {
+  // NOTE: the FRG season prize is deliberately NOT exposed to the client.
+  // The app contains no crypto and no prize promises at all (Telegram's
+  // mini-app rules restrict non-TON crypto promotion and regulated
+  // services) — the host announces and pays the season pool entirely
+  // off-app, from his own channels and wallet.
+  return {
+    name: SEASON_NAME,
+    endsAt: SEASON_ENDS_AT || null,
+    skillGames: SKILL_GAMES,
+  };
+}
+
+// --- tiny persistent store for score events ---------------------------------
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(dir, 'data');
 fs.mkdirSync(dataDir, { recursive: true });
-const usedFile = path.join(dataDir, 'used_entry_txs.json');
-let usedTxs = new Set();
+const scoresFile = path.join(dataDir, 'scores.json');
+let scoreEvents = [];
 try {
-  usedTxs = new Set(JSON.parse(fs.readFileSync(usedFile, 'utf8')));
+  const parsed = JSON.parse(fs.readFileSync(scoresFile, 'utf8'));
+  if (Array.isArray(parsed)) scoreEvents = parsed;
 } catch {
   /* first run */
 }
-function markTxUsed(hash) {
-  usedTxs.add(hash);
-  fs.writeFileSync(usedFile, JSON.stringify([...usedTxs]));
-}
-
-// --- sessions (in memory; fine for a community game) -----------------------
-const sessions = new Map(); // token -> { player, expiresAt, claimed }
-
-// --- LCD helpers -------------------------------------------------------------
-async function lcdJson(pathname) {
-  const res = await fetch(`${LCD_URL}${pathname}`);
-  if (!res.ok) throw new Error(`LCD ${res.status} on ${pathname}`);
-  return res.json();
-}
-
-async function getFrgBalanceMicro(address) {
-  const q = Buffer.from(JSON.stringify({ balance: { address } })).toString(
-    'base64'
-  );
-  const data = await lcdJson(
-    `/cosmwasm/wasm/v1/contract/${FRG_CONTRACT}/smart/${q}`
-  );
-  return BigInt(data.data.balance);
-}
-
-/**
- * Verify an entry-fee tx on-chain. Returns true only if:
- *  - the tx succeeded (code 0)
- *  - it contains a wasm execute on the FRG contract
- *  - the execute is a transfer TO the treasury of >= the entry fee
- *  - the sender is the player claiming the session
- */
-async function verifyEntryTx(txhash, playerAddress) {
-  let data;
+function recordScore(ev) {
+  scoreEvents.push(ev);
   try {
-    data = await lcdJson(`/cosmos/tx/v1beta1/txs/${txhash}`);
-  } catch {
-    return false; // tx not indexed yet (or bogus hash) — treat as unverified
+    fs.writeFileSync(scoresFile, JSON.stringify(scoreEvents));
+  } catch (e) {
+    console.error('scores persist failed:', e.message);
   }
-  const resp = data.tx_response;
-  if (!resp || resp.code !== 0) return false;
-  const messages = resp.tx?.body?.messages || [];
-  for (const m of messages) {
-    if (!m['@type']?.includes('MsgExecuteContract')) continue;
-    if (m.contract !== FRG_CONTRACT) continue;
-    if (m.sender !== playerAddress) continue;
-    let exec;
-    try {
-      exec = typeof m.msg === 'string' ? JSON.parse(m.msg) : m.msg;
-    } catch {
-      continue;
-    }
-    const t = exec?.transfer;
-    if (
-      t &&
-      t.recipient === TREASURY_ADDRESS &&
-      BigInt(t.amount) >= ENTRY_MICRO
-    ) {
-      return true;
-    }
-  }
-  return false;
 }
 
-// --- Telegram Mini App initData verification -------------------------------
+function aggregate(skillOnly) {
+  const by = new Map();
+  for (const ev of scoreEvents) {
+    if (skillOnly && !ev.skill) continue;
+    const row = by.get(ev.k) || { name: ev.name, points: 0, games: 0 };
+    row.points += ev.pts;
+    row.games += 1;
+    row.name = ev.name; // latest display name wins
+    by.set(ev.k, row);
+  }
+  return [...by.values()].sort((a, b) => b.points - a.points);
+}
+function board(skillOnly, limit = 10) {
+  return aggregate(skillOnly).slice(0, limit);
+}
+function totalsFor(key) {
+  let skill = 0;
+  let glory = 0;
+  let games = 0;
+  for (const ev of scoreEvents) {
+    if (ev.k !== key) continue;
+    glory += ev.pts;
+    if (ev.skill) skill += ev.pts;
+    games += 1;
+  }
+  // rank = position of this key in each aggregate board (1-based)
+  const rankOf = (skillOnly) => {
+    const rows = aggregate(skillOnly);
+    // aggregate rows don't carry the key; recompute with keys
+    const by = new Map();
+    for (const ev of scoreEvents) {
+      if (skillOnly && !ev.skill) continue;
+      const row = by.get(ev.k) || { points: 0 };
+      row.points += ev.pts;
+      by.set(ev.k, row);
+    }
+    const sorted = [...by.entries()].sort((a, b) => b[1].points - a[1].points);
+    const idx = sorted.findIndex(([k]) => k === key);
+    return idx >= 0 ? idx + 1 : null;
+  };
+  return { skill, glory, games, skillRank: rankOf(true), gloryRank: rankOf(false) };
+}
+
+// --- sessions (in memory) -----------------------------------------------------
+const sessions = new Map(); // token -> { key, name, game, expiresAt, submitted }
+
+// --- Telegram Mini App initData verification ---------------------------------
 function verifyTelegramInitData(initData) {
-  if (!BOT_TOKEN) return true; // not configured — skip (see README)
-  // No initData means the game was opened outside Telegram (e.g. in the
-  // Station/Keplr app browser, where wallet connect actually works on
-  // mobile). Allow it: the on-chain entry-payment check is the real gate.
-  // When initData IS present it must validate.
+  if (!BOT_TOKEN) return true; // not configured — dev mode (see README)
+  // No initData means the game was opened outside Telegram (plain
+  // browser). Allowed in free play: identity then falls back to a guest
+  // handle. When initData IS present it must validate.
   if (!initData) return true;
   const params = new URLSearchParams(initData);
   const hash = params.get('hash');
@@ -161,42 +156,250 @@ function verifyTelegramInitData(initData) {
   );
 }
 
-// --- payout ------------------------------------------------------------------
-const lcd = new LCDClient({
-  URL: LCD_URL,
-  chainID: CHAIN_ID,
-  gasPrices: { uluna: '28.325' },
-  gasAdjustment: 1.75,
-});
-const treasuryWallet = lcd.wallet(
-  new MnemonicKey({ mnemonic: TREASURY_MNEMONIC })
-);
-if (treasuryWallet.key.accAddress !== TREASURY_ADDRESS) {
-  console.error(
-    'TREASURY_MNEMONIC does not belong to TREASURY_ADDRESS — fix .env before players pay in.'
-  );
-  process.exit(1);
+function parseTelegramUser(initData) {
+  try {
+    const params = new URLSearchParams(initData);
+    const u = JSON.parse(params.get('user') || 'null');
+    return u && u.id ? u : null;
+  } catch {
+    return null;
+  }
 }
 
-let payoutLock = Promise.resolve();
-function payPrize(playerAddress, amountMicro) {
-  // serialize payouts so two claims can't race the treasury sequence number
-  payoutLock = payoutLock.then(async () => {
-    const bal = await getFrgBalanceMicro(TREASURY_ADDRESS);
-    if (bal < BigInt(amountMicro)) {
-      throw new Error('Treasury is out of FRG — top it up.');
+// Who is playing? Telegram identity when inside Telegram (validated),
+// otherwise a guest identity the client persists on the device.
+function resolveIdentity(body) {
+  const initData = body?.initData || '';
+  if (initData) {
+    if (!verifyTelegramInitData(initData)) {
+      return { status: 401, error: 'Telegram session check failed.' };
     }
-    const msg = new MsgExecuteContract(TREASURY_ADDRESS, FRG_CONTRACT, {
-      transfer: { recipient: playerAddress, amount: amountMicro },
-    });
-    const tx = await treasuryWallet.createAndSignTx({ msgs: [msg] });
-    const result = await lcd.tx.broadcast(tx);
-    if (result.code) {
-      throw new Error(`Payout failed on-chain (code ${result.code})`);
+    const u = parseTelegramUser(initData);
+    if (!u) return { status: 401, error: 'Telegram user missing.' };
+    const name = u.first_name
+      ? u.username
+        ? `${u.first_name} (@${u.username})`
+        : u.first_name
+      : `Player ${u.id}`;
+    return { key: `tg:${u.id}`, name };
+  }
+  const guestId = String(body?.guestId || '')
+    .replace(/[^a-zA-Z0-9_-]/g, '')
+    .slice(0, 40);
+  const guestName = String(body?.guestName || '').trim().slice(0, 24);
+  if (guestId) return { key: `guest:${guestId}`, name: guestName || 'Guest' };
+  return { status: 400, error: 'No player identity — open from Telegram or set a player name.' };
+}
+
+// --- per-game result validation (carried over from the paid edition) --------
+// Returns { points } or { error }. The browser reports the result; the
+// server checks it is plausible for the game the session was started for.
+function computePoints(game, result) {
+  const durationMs = Number(result?.durationMs || 0);
+  const bad = (error) => ({ error });
+
+  if (game === 'wheel') {
+    const prize = Number(result?.prize);
+    if (!WHEEL_PRIZES.includes(prize)) return bad('Wheel result is not a wheel prize.');
+    if (durationMs < 4_000 || durationMs > 10 * 60 * 1000) return bad('Wheel result timing looks implausible.');
+    return { points: prize };
+  }
+  if (game === 'crash') {
+    const mult = Number(result?.multiplier);
+    if (result?.outcome === 'win') {
+      if (!(mult >= 1.1 && mult <= 5.0)) return bad('Crash multiplier out of range.');
+      const minMs = Math.max(1_000, (Math.log(mult) / 0.14) * 1000 * 0.7);
+      if (durationMs < minMs || durationMs > 10 * 60 * 1000) return bad('Crash result timing looks implausible.');
+      return { points: Math.floor(CRASH_POINTS_BASE * mult) };
     }
-    return result.txhash;
-  });
-  return payoutLock;
+    if (result?.outcome === 'crash') return { points: 0 };
+    return bad('Crash result outcome invalid.');
+  }
+  if (game === 'darts') {
+    const amount = Number(result?.amount);
+    const dartsUsed = Number(result?.dartsUsed);
+    if (result?.outcome === 'win') {
+      if (!(Number.isInteger(amount) && amount >= 1 && amount <= 27)) return bad('Darts pot out of range.');
+      if (!(dartsUsed >= 1 && dartsUsed <= 3)) return bad('Darts count implausible.');
+      if (durationMs < dartsUsed * 500 || durationMs > 10 * 60 * 1000) return bad('Darts result timing looks implausible.');
+      return { points: amount };
+    }
+    if (result?.outcome === 'bust') return { points: 0 };
+    return bad('Darts result outcome invalid.');
+  }
+  if (game === 'racing') {
+    const et = Number(result?.etMs);
+    const rival = Number(result?.rivalEtMs);
+    if (result?.outcome === 'win') {
+      if (!(et >= 8_500 && et <= 25_000)) return bad('Race ET implausible.');
+      if (!(rival >= 9_500 && rival <= 11_100)) return bad('Rival ET out of range.');
+      if (!(et < rival)) return bad('Win requires beating the rival.');
+      if (durationMs < et || durationMs > 10 * 60 * 1000) return bad('Race timing looks implausible.');
+      return { points: RACING_WIN_POINTS };
+    }
+    if (result?.outcome === 'lose' || result?.outcome === 'foul') return { points: 0 };
+    return bad('Race result outcome invalid.');
+  }
+  if (game === 'mines') {
+    const MINES_PAYOUTS = { 1: 8, 2: 10, 3: 12, 4: 16, 5: 22, 6: 30, 7: 43 };
+    const picks = Number(result?.picks);
+    const amount = Number(result?.amount);
+    if (result?.outcome === 'win') {
+      if (!(Number.isInteger(picks) && picks >= 1 && picks <= 7)) return bad('Mines pick count out of range.');
+      if (amount !== MINES_PAYOUTS[picks]) return bad('Mines payout does not match the table.');
+      if (durationMs < picks * 400 || durationMs > 10 * 60 * 1000) return bad('Mines result timing looks implausible.');
+      return { points: amount };
+    }
+    if (result?.outcome === 'bust') return { points: 0 };
+    return bad('Mines result outcome invalid.');
+  }
+  if (game === 'pinball') {
+    const PINBALL_TIERS = [
+      { min: 25000, amount: 45 },
+      { min: 16000, amount: 32 },
+      { min: 11000, amount: 22 },
+      { min: 7000, amount: 15 },
+      { min: 4000, amount: 10 },
+      { min: 1500, amount: 5 },
+    ];
+    const score = Number(result?.score);
+    const amount = Number(result?.amount);
+    const tier = PINBALL_TIERS.find((t) => score >= t.min);
+    const expected = tier ? tier.amount : 0;
+    if (!(Number.isInteger(score) && score >= 0 && score <= 150000)) return bad('Pinball score out of range.');
+    if (result?.outcome === 'win') {
+      if (expected === 0 || amount !== expected) return bad('Pinball payout does not match the tier table.');
+      if (Number(result?.ballsUsed) !== 3) return bad('Pinball game must use all 3 balls.');
+      if (durationMs < 12_000 || durationMs > 10 * 60 * 1000) return bad('Pinball result timing looks implausible.');
+      return { points: amount };
+    }
+    if (result?.outcome === 'lose') {
+      if (expected !== 0 || amount !== 0) return bad('Pinball loss cannot carry a payout.');
+      return { points: 0 };
+    }
+    return bad('Pinball result outcome invalid.');
+  }
+  if (game === 'breakout') {
+    const BREAKOUT_TIERS = [
+      { min: 5500, amount: 45 },
+      { min: 4000, amount: 32 },
+      { min: 2900, amount: 22 },
+      { min: 2000, amount: 15 },
+      { min: 1300, amount: 10 },
+      { min: 600, amount: 5 },
+    ];
+    const score = Number(result?.score);
+    const amount = Number(result?.amount);
+    const tier = BREAKOUT_TIERS.find((t) => score >= t.min);
+    const expected = tier ? tier.amount : 0;
+    if (!(Number.isInteger(score) && score >= 0 && score <= 100000)) return bad('Breakout score out of range.');
+    if (Number(result?.ballsUsed) !== 3) return bad('Breakout game must use all 3 balls.');
+    if (durationMs < 15_000 || durationMs > 10 * 60 * 1000) return bad('Breakout result timing looks implausible.');
+    if (result?.outcome === 'win') {
+      if (expected === 0 || amount !== expected) return bad('Breakout payout does not match the tier table.');
+      return { points: amount };
+    }
+    if (result?.outcome === 'lose') {
+      if (expected !== 0 || amount !== 0) return bad('Breakout loss cannot carry a payout.');
+      return { points: 0 };
+    }
+    return bad('Breakout result outcome invalid.');
+  }
+  if (game === 'flight') {
+    const FLIGHT_TIERS = [
+      { min: 3800, amount: 45 },
+      { min: 2700, amount: 32 },
+      { min: 2000, amount: 22 },
+      { min: 1400, amount: 15 },
+      { min: 900, amount: 10 },
+      { min: 500, amount: 5 },
+    ];
+    const score = Number(result?.score);
+    const amount = Number(result?.amount);
+    const tier = FLIGHT_TIERS.find((t) => score >= t.min);
+    const expected = tier ? tier.amount : 0;
+    if (!(Number.isInteger(score) && score >= 0 && score <= 150000)) return bad('Flight score out of range.');
+    const gates = Number(result?.gates);
+    if (!(Number.isInteger(gates) && gates >= 0 && gates <= 1000)) return bad('Flight gate count out of range.');
+    if (score % 25 !== 0 || score < gates * 100 || score > (gates + 1) * 125) return bad('Flight score inconsistent with gates.');
+    if (durationMs < Math.max(6_000, gates * 800) || durationMs > 10 * 60 * 1000) return bad('Flight result timing looks implausible.');
+    if (result?.outcome === 'win') {
+      if (expected === 0 || amount !== expected) return bad('Flight payout does not match the tier table.');
+      return { points: amount };
+    }
+    if (result?.outcome === 'lose') {
+      if (expected !== 0 || amount !== 0) return bad('Flight loss cannot carry a payout.');
+      return { points: 0 };
+    }
+    return bad('Flight result outcome invalid.');
+  }
+  if (game === 'tower') {
+    const TOWER_TIERS = [
+      { min: 4000, amount: 45 },
+      { min: 3000, amount: 32 },
+      { min: 2300, amount: 22 },
+      { min: 1700, amount: 15 },
+      { min: 1200, amount: 10 },
+      { min: 800, amount: 5 },
+    ];
+    const score = Number(result?.score);
+    const amount = Number(result?.amount);
+    const tier = TOWER_TIERS.find((t) => score >= t.min);
+    const expected = tier ? tier.amount : 0;
+    if (!(Number.isInteger(score) && score >= 0 && score <= 100000)) return bad('Tower score out of range.');
+    const blocks = Number(result?.blocks);
+    if (!(Number.isInteger(blocks) && blocks >= 0 && blocks <= 500)) return bad('Tower block count out of range.');
+    if (score < blocks * 100 || score > blocks * 150 || (score - blocks * 100) % 50 !== 0) return bad('Tower score inconsistent with blocks.');
+    if (durationMs < Math.max(5_000, blocks * 400) || durationMs > 10 * 60 * 1000) return bad('Tower result timing looks implausible.');
+    if (result?.outcome === 'win') {
+      if (expected === 0 || amount !== expected) return bad('Tower payout does not match the tier table.');
+      return { points: amount };
+    }
+    if (result?.outcome === 'lose') {
+      if (expected !== 0 || amount !== 0) return bad('Tower loss cannot carry a payout.');
+      return { points: 0 };
+    }
+    return bad('Tower result outcome invalid.');
+  }
+  if (game === 'slice') {
+    const SLICE_TIERS = [
+      { min: 5000, amount: 45 },
+      { min: 3500, amount: 32 },
+      { min: 2500, amount: 22 },
+      { min: 1700, amount: 15 },
+      { min: 1100, amount: 10 },
+      { min: 600, amount: 5 },
+    ];
+    const score = Number(result?.score);
+    const amount = Number(result?.amount);
+    const tier = SLICE_TIERS.find((t) => score >= t.min);
+    const expected = tier ? tier.amount : 0;
+    if (!(Number.isInteger(score) && score >= 0 && score <= 150000)) return bad('Slice score out of range.');
+    const sliced = Number(result?.sliced);
+    if (!(Number.isInteger(sliced) && sliced >= 0 && sliced <= 2000)) return bad('Slice count out of range.');
+    if (durationMs < 10_000 || durationMs > 10 * 60 * 1000) return bad('Slice result timing looks implausible.');
+    if (result?.outcome === 'win') {
+      if (expected === 0 || amount !== expected) return bad('Slice payout does not match the tier table.');
+      return { points: amount };
+    }
+    if (result?.outcome === 'lose') {
+      if (expected !== 0 || amount !== 0) return bad('Slice loss cannot carry a payout.');
+      return { points: 0 };
+    }
+    return bad('Slice result outcome invalid.');
+  }
+  // boxing (default)
+  const damageDealt = Number(result?.damageDealt || 0);
+  if (result?.outcome === 'win') {
+    if (durationMs < 12_000 || durationMs > 10 * 60 * 1000) return bad('Match timing looks implausible.');
+    if (!(damageDealt >= 40 && damageDealt <= 500)) return bad('Match result looks implausible.');
+    return { points: BOXING_WIN_POINTS };
+  }
+  if (result?.outcome === 'lose') {
+    if (durationMs > 10 * 60 * 1000) return bad('Match timing looks implausible.');
+    return { points: 0 };
+  }
+  return bad('Boxing result outcome invalid.');
 }
 
 // --- HTTP API ------------------------------------------------------------------
@@ -210,12 +413,12 @@ app.use((req, res, next) => {
   next();
 });
 
-// naive per-IP throttle for the money endpoints
+// naive per-IP throttle
 const hits = new Map();
 function throttle(req, res, next) {
   const now = Date.now();
   const list = (hits.get(req.ip) || []).filter((t) => now - t < 60_000);
-  if (list.length >= 30) {
+  if (list.length >= 60) {
     return res.status(429).json({ error: 'Too many requests — slow down.' });
   }
   list.push(now);
@@ -225,408 +428,67 @@ function throttle(req, res, next) {
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
-app.get('/api/config', (req, res) =>
-  res.json({
-    chainId: CHAIN_ID,
-    frgContract: FRG_CONTRACT,
-    entryFeeFrg: Number(ENTRY_FEE_FRG),
-    prizeFrg: Number(PRIZE_FRG),
-    treasuryAddress: TREASURY_ADDRESS,
-  })
+app.get('/api/config', (req, res) => res.json({ season: seasonInfo(), games: GAMES }));
+
+app.get('/api/leaderboard', (req, res) =>
+  res.json({ season: seasonInfo(), skill: board(true), glory: board(false) })
 );
 
-app.post('/api/verify-entry', throttle, async (req, res) => {
-  try {
-    const { txhash, playerAddress, initData, game } = req.body || {};
-    if (!txhash || !playerAddress) {
-      return res.status(400).json({ error: 'txhash and playerAddress required.' });
-    }
-    const gameId = GAMES.includes(game) ? game : 'boxing';
-    if (!verifyTelegramInitData(initData || '')) {
-      return res.status(401).json({ error: 'Telegram session check failed.' });
-    }
-    if (usedTxs.has(txhash)) {
-      return res.status(409).json({ error: 'That payment was already used for a match.' });
-    }
-    const ok = await verifyEntryTx(txhash, playerAddress);
-    if (!ok) {
-      return res.status(402).json({
-        error:
-          'Payment not verified on-chain yet — if you just paid, wait ~10 seconds and retry with the same tx.',
-      });
-    }
-    markTxUsed(txhash);
-    const sessionToken = crypto.randomBytes(24).toString('hex');
-    sessions.set(sessionToken, {
-      player: playerAddress,
-      game: gameId,
-      expiresAt: Date.now() + SESSION_TTL_MS,
-      claimed: false,
-    });
-    res.json({ sessionToken });
-  } catch (e) {
-    console.error('verify-entry:', e);
-    res.status(500).json({ error: 'Server error during verification.' });
-  }
+app.post('/api/me', (req, res) => {
+  const id = resolveIdentity(req.body || {});
+  if (id.error) return res.status(id.status).json({ error: id.error });
+  res.json({ name: id.name, ...totalsFor(id.key) });
 });
 
-app.post('/api/claim', throttle, async (req, res) => {
-  try {
-    const { sessionToken, result } = req.body || {};
-    const session = sessions.get(sessionToken);
-    if (!session) return res.status(404).json({ error: 'Session not found.' });
-    if (session.claimed) return res.status(409).json({ error: 'Prize already claimed for this match.' });
-    if (Date.now() > session.expiresAt) {
-      sessions.delete(sessionToken);
-      return res.status(410).json({ error: 'Session expired.' });
-    }
-    // Per-game claim rules. The browser reports the result; the server
-    // checks it is plausible for the game this session was paid for.
-    // These stop instant-claim bots; they are not bulletproof anti-cheat
-    // (see README "Honest limits").
-    const durationMs = Number(result?.durationMs || 0);
-    let amountFrg = 0;
+app.post('/api/start', throttle, (req, res) => {
+  const { game } = req.body || {};
+  if (!GAMES.includes(game)) return res.status(400).json({ error: 'Unknown game.' });
+  const id = resolveIdentity(req.body || {});
+  if (id.error) return res.status(id.status).json({ error: id.error });
+  const sessionToken = crypto.randomBytes(24).toString('hex');
+  sessions.set(sessionToken, {
+    key: id.key,
+    name: id.name,
+    game,
+    expiresAt: Date.now() + SESSION_TTL_MS,
+    submitted: false,
+  });
+  res.json({ sessionToken, playerName: id.name, season: seasonInfo() });
+});
 
-    if (session.game === 'wheel') {
-      const prize = Number(result?.prize);
-      if (!WHEEL_PRIZES.includes(prize)) {
-        return res.status(400).json({ error: 'Wheel result is not a wheel prize.' });
-      }
-      if (durationMs < 4_000 || durationMs > 10 * 60 * 1000) {
-        return res.status(400).json({ error: 'Wheel result timing looks implausible.' });
-      }
-      amountFrg = prize;
-    } else if (session.game === 'crash') {
-      // Rocket Crash: payout = floor(entry * cashed multiplier). The
-      // client's crash curve gives P(reach t) = 0.65/t, so expected
-      // payout is ~6.5 FRG on the 10 FRG entry at any bail point.
-      const mult = Number(result?.multiplier);
-      if (result?.outcome === 'win') {
-        if (!(mult >= 1.1 && mult <= 5.0)) {
-          return res.status(400).json({ error: 'Crash multiplier out of range.' });
-        }
-        // The multiplier grows as e^(0.14 * t) — a claimed multiplier
-        // needs at least ~70% of its honest flight time behind it.
-        const minMs = Math.max(1_000, (Math.log(mult) / 0.14) * 1000 * 0.7);
-        if (durationMs < minMs || durationMs > 10 * 60 * 1000) {
-          return res.status(400).json({ error: 'Crash result timing looks implausible.' });
-        }
-        amountFrg = Math.floor(Number(ENTRY_FEE_FRG) * mult);
-      } else if (result?.outcome === 'crash') {
-        amountFrg = 0;
-      } else {
-        return res.status(400).json({ error: 'Crash result outcome invalid.' });
-      }
-    } else if (session.game === 'darts') {
-      // Balloon Darts: the pot is the sum of popped prize balloons
-      // (max 27 = 12+9+6). Banked/survived pots pay as reported after
-      // range and timing checks; a burst pays nothing.
-      const amount = Number(result?.amount);
-      const dartsUsed = Number(result?.dartsUsed);
-      if (result?.outcome === 'win') {
-        if (!(Number.isInteger(amount) && amount >= 1 && amount <= 27)) {
-          return res.status(400).json({ error: 'Darts pot out of range.' });
-        }
-        if (!(dartsUsed >= 1 && dartsUsed <= 3)) {
-          return res.status(400).json({ error: 'Darts count implausible.' });
-        }
-        if (durationMs < dartsUsed * 500 || durationMs > 10 * 60 * 1000) {
-          return res.status(400).json({ error: 'Darts result timing looks implausible.' });
-        }
-        amountFrg = amount;
-      } else if (result?.outcome === 'bust') {
-        amountFrg = 0;
-      } else {
-        return res.status(400).json({ error: 'Darts result outcome invalid.' });
-      }
-    } else if (session.game === 'racing') {
-      // Drag Racing: a win must show an ET inside the plausible band
-      // that actually beats a rival ET inside the rival draw band
-      // (9.60-11.00s), with total session time at least the ET.
-      const et = Number(result?.etMs);
-      const rival = Number(result?.rivalEtMs);
-      if (result?.outcome === 'win') {
-        if (!(et >= 8_500 && et <= 25_000)) {
-          return res.status(400).json({ error: 'Race ET implausible.' });
-        }
-        if (!(rival >= 9_500 && rival <= 11_100)) {
-          return res.status(400).json({ error: 'Rival ET out of range.' });
-        }
-        if (!(et < rival)) {
-          return res.status(400).json({ error: 'Win requires beating the rival.' });
-        }
-        if (durationMs < et || durationMs > 10 * 60 * 1000) {
-          return res.status(400).json({ error: 'Race timing looks implausible.' });
-        }
-        amountFrg = Number(PRIZE_FRG);
-      } else if (result?.outcome === 'lose' || result?.outcome === 'foul') {
-        amountFrg = 0;
-      } else {
-        return res.status(400).json({ error: 'Race result outcome invalid.' });
-      }
-    } else if (session.game === 'mines') {
-      // Mines: the payout is a pure function of gems dug (fair
-      // combinatorial price x 0.65, floored) — the server re-derives
-      // the table and requires an EXACT match. Keep in sync with
-      // client/src/games/Mines.jsx (MINES_PAYOUTS).
-      const MINES_PAYOUTS = { 1: 8, 2: 10, 3: 12, 4: 16, 5: 22, 6: 30, 7: 43 };
-      const picks = Number(result?.picks);
-      const amount = Number(result?.amount);
-      if (result?.outcome === 'win') {
-        if (!(Number.isInteger(picks) && picks >= 1 && picks <= 7)) {
-          return res.status(400).json({ error: 'Mines pick count out of range.' });
-        }
-        if (amount !== MINES_PAYOUTS[picks]) {
-          return res.status(400).json({ error: 'Mines payout does not match the table.' });
-        }
-        if (durationMs < picks * 400 || durationMs > 10 * 60 * 1000) {
-          return res.status(400).json({ error: 'Mines result timing looks implausible.' });
-        }
-        amountFrg = amount;
-      } else if (result?.outcome === 'bust') {
-        amountFrg = 0;
-      } else {
-        return res.status(400).json({ error: 'Mines result outcome invalid.' });
-      }
-    } else if (session.game === 'pinball') {
-      // Pinball: score converts by tier table — the server re-derives
-      // the tier and requires an EXACT amount match. Keep in sync
-      // with client/src/games/Pinball.jsx (PINBALL_TIERS).
-      const PINBALL_TIERS = [
-        { min: 25000, amount: 45 },
-        { min: 16000, amount: 32 },
-        { min: 11000, amount: 22 },
-        { min: 7000, amount: 15 },
-        { min: 4000, amount: 10 },
-        { min: 1500, amount: 5 },
-      ];
-      const score = Number(result?.score);
-      const amount = Number(result?.amount);
-      const tier = PINBALL_TIERS.find((t) => score >= t.min);
-      const expected = tier ? tier.amount : 0;
-      if (!(Number.isInteger(score) && score >= 0 && score <= 150000)) {
-        return res.status(400).json({ error: 'Pinball score out of range.' });
-      }
-      if (result?.outcome === 'win') {
-        if (expected === 0 || amount !== expected) {
-          return res.status(400).json({ error: 'Pinball payout does not match the tier table.' });
-        }
-        if (Number(result?.ballsUsed) !== 3) {
-          return res.status(400).json({ error: 'Pinball game must use all 3 balls.' });
-        }
-        if (durationMs < 12_000 || durationMs > 10 * 60 * 1000) {
-          return res.status(400).json({ error: 'Pinball result timing looks implausible.' });
-        }
-        amountFrg = amount;
-      } else if (result?.outcome === 'lose') {
-        if (expected !== 0 || amount !== 0) {
-          return res.status(400).json({ error: 'Pinball loss cannot carry a payout.' });
-        }
-        amountFrg = 0;
-      } else {
-        return res.status(400).json({ error: 'Pinball result outcome invalid.' });
-      }
-    } else if (session.game === 'breakout') {
-      // Breakout: score converts by tier table — the server re-derives the
-      // tier and requires an EXACT amount match. Keep in sync with
-      // the client component's tier table.
-      const BREAKOUT_TIERS = [
-        { min: 5500, amount: 45 },
-        { min: 4000, amount: 32 },
-        { min: 2900, amount: 22 },
-        { min: 2000, amount: 15 },
-        { min: 1300, amount: 10 },
-        { min: 600, amount: 5 },
-      ];
-      const score = Number(result?.score);
-      const amount = Number(result?.amount);
-      const tier = BREAKOUT_TIERS.find((t) => score >= t.min);
-      const expected = tier ? tier.amount : 0;
-      if (!(Number.isInteger(score) && score >= 0 && score <= 30000)) {
-        return res.status(400).json({ error: 'Breakout score out of range.' });
-      }
-      if (Number(result?.ballsUsed) !== 3) {
-        return res.status(400).json({ error: 'Breakout game must use all 3 balls.' });
-      }
-      if (durationMs < 15_000 || durationMs > 10 * 60 * 1000) {
-        return res.status(400).json({ error: 'Breakout result timing looks implausible.' });
-      }
-      if (result?.outcome === 'win') {
-        if (expected === 0 || amount !== expected) {
-          return res.status(400).json({ error: 'Breakout payout does not match the tier table.' });
-        }
-        amountFrg = amount;
-      } else if (result?.outcome === 'lose') {
-        if (expected !== 0 || amount !== 0) {
-          return res.status(400).json({ error: 'Breakout loss cannot carry a payout.' });
-        }
-        amountFrg = 0;
-      } else {
-        return res.status(400).json({ error: 'Breakout result outcome invalid.' });
-      }
-    } else if (session.game === 'flight') {
-      // Flight: score converts by tier table — the server re-derives the
-      // tier and requires an EXACT amount match. Keep in sync with
-      // the client component's tier table.
-      const FLIGHT_TIERS = [
-        { min: 3800, amount: 45 },
-        { min: 2700, amount: 32 },
-        { min: 2000, amount: 22 },
-        { min: 1400, amount: 15 },
-        { min: 900, amount: 10 },
-        { min: 500, amount: 5 },
-      ];
-      const score = Number(result?.score);
-      const amount = Number(result?.amount);
-      const tier = FLIGHT_TIERS.find((t) => score >= t.min);
-      const expected = tier ? tier.amount : 0;
-      if (!(Number.isInteger(score) && score >= 0 && score <= 30000)) {
-        return res.status(400).json({ error: 'Flight score out of range.' });
-      }
-      const gates = Number(result?.gates);
-      if (!(Number.isInteger(gates) && gates >= 0 && gates <= 300)) {
-        return res.status(400).json({ error: 'Flight gate count out of range.' });
-      }
-      // score = 100/gate + at most one 25-pt coin per gap
-      if (score % 25 !== 0 || score < gates * 100 || score > (gates + 1) * 125) {
-        return res.status(400).json({ error: 'Flight score inconsistent with gates.' });
-      }
-      if (durationMs < Math.max(6_000, gates * 800) || durationMs > 10 * 60 * 1000) {
-        return res.status(400).json({ error: 'Flight result timing looks implausible.' });
-      }
-      if (result?.outcome === 'win') {
-        if (expected === 0 || amount !== expected) {
-          return res.status(400).json({ error: 'Flight payout does not match the tier table.' });
-        }
-        amountFrg = amount;
-      } else if (result?.outcome === 'lose') {
-        if (expected !== 0 || amount !== 0) {
-          return res.status(400).json({ error: 'Flight loss cannot carry a payout.' });
-        }
-        amountFrg = 0;
-      } else {
-        return res.status(400).json({ error: 'Flight result outcome invalid.' });
-      }
-    } else if (session.game === 'tower') {
-      // Tower: score converts by tier table — the server re-derives the
-      // tier and requires an EXACT amount match. Keep in sync with
-      // the client component's tier table.
-      const TOWER_TIERS = [
-        { min: 4000, amount: 45 },
-        { min: 3000, amount: 32 },
-        { min: 2300, amount: 22 },
-        { min: 1700, amount: 15 },
-        { min: 1200, amount: 10 },
-        { min: 800, amount: 5 },
-      ];
-      const score = Number(result?.score);
-      const amount = Number(result?.amount);
-      const tier = TOWER_TIERS.find((t) => score >= t.min);
-      const expected = tier ? tier.amount : 0;
-      if (!(Number.isInteger(score) && score >= 0 && score <= 30000)) {
-        return res.status(400).json({ error: 'Tower score out of range.' });
-      }
-      const blocks = Number(result?.blocks);
-      if (!(Number.isInteger(blocks) && blocks >= 0 && blocks <= 60)) {
-        return res.status(400).json({ error: 'Tower block count out of range.' });
-      }
-      // 100 per block, +50 extra on perfect drops only
-      if (score < blocks * 100 || score > blocks * 150 || (score - blocks * 100) % 50 !== 0) {
-        return res.status(400).json({ error: 'Tower score inconsistent with blocks.' });
-      }
-      if (durationMs < Math.max(5_000, blocks * 400) || durationMs > 10 * 60 * 1000) {
-        return res.status(400).json({ error: 'Tower result timing looks implausible.' });
-      }
-      if (result?.outcome === 'win') {
-        if (expected === 0 || amount !== expected) {
-          return res.status(400).json({ error: 'Tower payout does not match the tier table.' });
-        }
-        amountFrg = amount;
-      } else if (result?.outcome === 'lose') {
-        if (expected !== 0 || amount !== 0) {
-          return res.status(400).json({ error: 'Tower loss cannot carry a payout.' });
-        }
-        amountFrg = 0;
-      } else {
-        return res.status(400).json({ error: 'Tower result outcome invalid.' });
-      }
-    } else if (session.game === 'slice') {
-      // Slice: score converts by tier table — the server re-derives the
-      // tier and requires an EXACT amount match. Keep in sync with
-      // the client component's tier table.
-      const SLICE_TIERS = [
-        { min: 5000, amount: 45 },
-        { min: 3500, amount: 32 },
-        { min: 2500, amount: 22 },
-        { min: 1700, amount: 15 },
-        { min: 1100, amount: 10 },
-        { min: 600, amount: 5 },
-      ];
-      const score = Number(result?.score);
-      const amount = Number(result?.amount);
-      const tier = SLICE_TIERS.find((t) => score >= t.min);
-      const expected = tier ? tier.amount : 0;
-      if (!(Number.isInteger(score) && score >= 0 && score <= 30000)) {
-        return res.status(400).json({ error: 'Slice score out of range.' });
-      }
-      const sliced = Number(result?.sliced);
-      if (!(Number.isInteger(sliced) && sliced >= 0 && sliced <= 400)) {
-        return res.status(400).json({ error: 'Slice count out of range.' });
-      }
-      if (durationMs < 10_000 || durationMs > 10 * 60 * 1000) {
-        return res.status(400).json({ error: 'Slice result timing looks implausible.' });
-      }
-      if (result?.outcome === 'win') {
-        if (expected === 0 || amount !== expected) {
-          return res.status(400).json({ error: 'Slice payout does not match the tier table.' });
-        }
-        amountFrg = amount;
-      } else if (result?.outcome === 'lose') {
-        if (expected !== 0 || amount !== 0) {
-          return res.status(400).json({ error: 'Slice loss cannot carry a payout.' });
-        }
-        amountFrg = 0;
-      } else {
-        return res.status(400).json({ error: 'Slice result outcome invalid.' });
-      }
-    } else {
-      // boxing (default)
-      const damageDealt = Number(result?.damageDealt || 0);
-      if (result?.outcome !== 'win') {
-        return res.status(400).json({ error: 'Only a win can claim a prize.' });
-      }
-      if (durationMs < 12_000) {
-        return res.status(400).json({ error: 'Match too short to be a real win.' });
-      }
-      if (!(damageDealt >= 40 && damageDealt <= 500)) {
-        return res.status(400).json({ error: 'Match result looks implausible.' });
-      }
-      amountFrg = Number(PRIZE_FRG);
-    }
-
-    session.claimed = true; // lock before paying, so a double-click can't double-pay
-    let payoutTxhash = null;
-    if (amountFrg > 0) {
-      const amountMicro = String(Math.round(amountFrg * 10 ** DECIMALS));
-      try {
-        payoutTxhash = await payPrize(session.player, amountMicro);
-      } catch (payErr) {
-        session.claimed = false; // payout failed — let the player retry the claim
-        throw payErr;
-      }
-    }
+app.post('/api/submit', throttle, (req, res) => {
+  const { sessionToken, result } = req.body || {};
+  const session = sessions.get(sessionToken);
+  if (!session) return res.status(404).json({ error: 'Session not found.' });
+  if (session.submitted) return res.status(409).json({ error: 'Result already recorded for this game.' });
+  if (Date.now() > session.expiresAt) {
     sessions.delete(sessionToken);
-    res.json({ payoutTxhash, amountFrg });
-  } catch (e) {
-    console.error('claim:', e);
-    res.status(500).json({ error: e.message || 'Payout failed — contact the game admin with your session time.' });
+    return res.status(410).json({ error: 'Session expired — start a new game.' });
   }
+  const verdict = computePoints(session.game, result || {});
+  if (verdict.error) return res.status(400).json({ error: verdict.error });
+  session.submitted = true;
+  const skill = SKILL_GAMES.includes(session.game);
+  recordScore({
+    k: session.key,
+    name: session.name,
+    game: session.game,
+    pts: verdict.points,
+    skill,
+    ts: Date.now(),
+  });
+  sessions.delete(sessionToken);
+  res.json({
+    points: verdict.points,
+    skill,
+    totals: totalsFor(session.key),
+  });
 });
 
 app.listen(PORT, () => {
-  console.log(`FRG Fight Club server on :${PORT}`);
-  console.log(`  chain ${CHAIN_ID} · entry ${ENTRY_FEE_FRG} FRG · prize ${PRIZE_FRG} FRG`);
-  console.log(`  treasury ${TREASURY_ADDRESS}`);
+  console.log(`FRG Fight Club server (free play) on :${PORT}`);
+  console.log(`  season: ${SEASON_NAME} · skill games: ${SKILL_GAMES.join(', ')} · scores on file: ${scoreEvents.length}`);
+  if (!BOT_TOKEN) console.log('  WARNING: BOT_TOKEN not set — Telegram initData is NOT being verified.');
   startBot();
 });
 
@@ -661,7 +523,7 @@ async function startBot() {
           if (msg?.text?.startsWith('/start')) {
             await tg('sendMessage', {
               chat_id: msg.chat.id,
-              text: '🥊 *FRG FIGHT CLUB*\n\nPay 10 FRG to step in the ring. Beat the fighter, win *18 FRG*.\n\nTap Play below — good luck!',
+              text: '🥊 *FRG FIGHT CLUB*\n\nFree to play — all 11 games, no wallet needed, nothing to buy. Climb the season leaderboard on the six skill titles.\n\nTap Play below — good luck!',
               parse_mode: 'Markdown',
               reply_markup: {
                 inline_keyboard: [[{ text: '🥊 Play FRG Fight Club', web_app: { url: WEBAPP_URL } }]],

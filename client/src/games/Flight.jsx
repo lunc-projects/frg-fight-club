@@ -229,8 +229,8 @@ export default function Flight({ onFinish }) {
       if (el.next) {
         const amt = flightAmount(S.score);
         el.next.textContent = S.over
-          ? amt > 0 ? `PAYS ${amt} FRG` : 'NO PAYOUT'
-          : nxt ? `NEXT: ${nxt.amount} FRG @ ${nxt.min.toLocaleString()}` : 'MAX TIER!';
+          ? amt > 0 ? `PAYS ${amt} PTS` : 'NO PAYOUT'
+          : nxt ? `NEXT: ${nxt.amount} PTS @ ${nxt.min.toLocaleString()}` : 'MAX TIER!';
       }
       if (el.msg) el.msg.textContent = Date.now() - S.msgAt < 2400 ? S.msg : '';
     }
@@ -273,7 +273,7 @@ export default function Flight({ onFinish }) {
       <div className="pb-hud">
         <div>SCORE <b id="fl-score">0</b></div>
         <div>GATES <b id="fl-gates">0</b></div>
-        <div className="pb-next" id="fl-next">NEXT: 5 FRG @ 500</div>
+        <div className="pb-next" id="fl-next">NEXT: 5 PTS @ 500</div>
       </div>
       <canvas ref={canvasRef} width={W} height={H} className="pb-canvas" />
       <div className="pb-msg" id="fl-msg" />
@@ -281,7 +281,7 @@ export default function Flight({ onFinish }) {
         Tap anywhere (or press space) to flap. Every gate is +100, the coin
         in a gap is +25 — one touch of a pillar or the ground ends the run.
         Payouts: 500→5 · 900→10 · 1,400→15 · 2,000→22 · 2,700→32 ·
-        3,800→45 FRG.
+        3,800→45 PTS.
       </p>
     </div>
   );

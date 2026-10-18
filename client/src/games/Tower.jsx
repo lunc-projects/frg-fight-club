@@ -212,8 +212,8 @@ export default function Tower({ onFinish }) {
       if (el.next) {
         const amt = towerAmount(S.score);
         el.next.textContent = S.over
-          ? amt > 0 ? `PAYS ${amt} FRG` : 'NO PAYOUT'
-          : nxt ? `NEXT: ${nxt.amount} FRG @ ${nxt.min.toLocaleString()}` : 'MAX TIER!';
+          ? amt > 0 ? `PAYS ${amt} PTS` : 'NO PAYOUT'
+          : nxt ? `NEXT: ${nxt.amount} PTS @ ${nxt.min.toLocaleString()}` : 'MAX TIER!';
       }
       if (el.msg) el.msg.textContent = Date.now() - S.msgAt < 2400 ? S.msg : '';
     }
@@ -257,7 +257,7 @@ export default function Tower({ onFinish }) {
       <div className="pb-hud">
         <div>SCORE <b id="tw-score">0</b></div>
         <div>BLOCKS <b id="tw-blocks">0</b></div>
-        <div className="pb-next" id="tw-next">NEXT: 5 FRG @ 800</div>
+        <div className="pb-next" id="tw-next">NEXT: 5 PTS @ 800</div>
       </div>
       <canvas ref={canvasRef} width={W} height={H} className="pb-canvas" />
       <div className="pb-msg" id="tw-msg" />
@@ -265,7 +265,7 @@ export default function Tower({ onFinish }) {
         Tap (or press space) to drop the sliding block. Overhangs get
         sliced off — land within a hair of perfect for +150 and no slice.
         Payouts: 800→5 · 1,200→10 · 1,700→15 · 2,300→22 · 3,000→32 ·
-        4,000→45 FRG.
+        4,000→45 PTS.
       </p>
     </div>
   );

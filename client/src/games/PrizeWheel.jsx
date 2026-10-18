@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 // FRG Prize Wheel — "extra safe" tuning (owner's choice): the average
-// payout (5.83 FRG) stays well under the 10 FRG entry, so the treasury
+// payout (5.83 PTS) stays well under the 10 PTS entry, so the treasury
 // grows over time. Segment layout mirrors the server's WHEEL_PRIZES.
 export const WHEEL_SEGMENTS = [
   { label: '10', value: 10, color: '#7b2ff7', text: '#fff' },
@@ -67,7 +67,7 @@ export default function PrizeWheel({ onFinish }) {
             </text>
             {s.label !== 'BUST' && (
               <text x={tx} y={ty + 22} textAnchor="middle" fontSize="10" fontWeight="700" fill={s.text} opacity=".85" transform={`rotate(${mid} ${tx} ${ty + 22})`}>
-                FRG
+                PTS
               </text>
             )}
           </g>
@@ -167,13 +167,13 @@ export default function PrizeWheel({ onFinish }) {
       </div>
       <div className={`pw-result ${result ? (result.value > 0 ? 'win' : 'bust') : ''}`} aria-live="polite">
         {result === null && (spinning ? 'Spinning… good luck!' : 'Your spin is paid for — tap SPIN!')}
-        {result && result.value > 0 && (result.value >= 20 ? `🎉 TOP PRIZE — ${result.value} FRG!` : `🎉 You won ${result.value} FRG!`)}
+        {result && result.value > 0 && (result.value >= 20 ? `🎉 TOP PRIZE — ${result.value} PTS!` : `🎉 You won ${result.value} PTS!`)}
         {result && result.value === 0 && 'BUST — no prize this spin.'}
       </div>
       <button className="btn btn-big pw-spinbtn" disabled={spinning || result !== null} onClick={spin}>
         {spinning ? 'SPINNING…' : 'SPIN'}
       </button>
-      <p className="fineprint">Top prize 20 FRG · 5 BUST segments on the wheel — the wheel decides.</p>
+      <p className="fineprint">Top prize 20 PTS · 5 BUST segments on the wheel — the wheel decides.</p>
     </main>
   );
 }

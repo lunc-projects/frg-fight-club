@@ -3,9 +3,9 @@ import { useRef, useState } from 'react';
 // FRG Balloon Darts — 12 balloons, 3 darts. Eight balloons hide FRG
 // prizes (sum 40), two are empty, two hide a BURST that zeroes the pot.
 // After each dart the player may BANK the pot or throw again and risk
-// it all. Monte-Carlo (300k games): throw-every-dart EV ≈ 6.57 FRG on
-// the 10 FRG entry; even the best bank strategy only reaches ≈ 6.66 —
-// the treasury keeps ~3.4 FRG a game either way. Max pot 27 FRG.
+// it all. Monte-Carlo (300k games): throw-every-dart EV ≈ 6.57 PTS on
+// the 10 PTS entry; even the best bank strategy only reaches ≈ 6.66 —
+// the treasury keeps ~3.4 PTS a game either way. Max pot 27 PTS.
 export const DART_PRIZES = [12, 9, 6, 5, 3, 2, 2, 1];
 export const DART_MAX_POT = 27;
 const EMPTIES = 2;
@@ -71,7 +71,7 @@ export default function BalloonDarts({ onFinish }) {
 
     if (v === -1) {
       haptic('heavy');
-      setMsg(`💥 BURST BALLOON! Your pot of ${pot} FRG is gone!`);
+      setMsg(`💥 BURST BALLOON! Your pot of ${pot} PTS is gone!`);
       setPot(0);
       finish('bust', 0, true, 1400);
       return;
@@ -82,12 +82,12 @@ export default function BalloonDarts({ onFinish }) {
     if (pops.current >= DARTS) {
       setMsg(
         newPot > 0
-          ? `🎯 Out of darts — pot locked at ${newPot} FRG!`
+          ? `🎯 Out of darts — pot locked at ${newPot} PTS!`
           : '🎯 Out of darts — and the pot is empty. Ouch.'
       );
       finish(newPot > 0 ? 'win' : 'bust', newPot, false, 1100);
     } else if (v > 0) {
-      setMsg(`🎈 +${v} FRG in the pot! Bank it, or risk it on the next dart?`);
+      setMsg(`🎈 +${v} PTS in the pot! Bank it, or risk it on the next dart?`);
     } else {
       setMsg('🎈 Empty balloon… nothing inside. Darts left — keep going?');
     }
@@ -96,7 +96,7 @@ export default function BalloonDarts({ onFinish }) {
   function bank() {
     if (phase !== 'aim' || pot <= 0) return;
     haptic('medium');
-    setMsg(`🏦 Banked ${pot} FRG. Smart money walks away!`);
+    setMsg(`🏦 Banked ${pot} PTS. Smart money walks away!`);
     finish('win', pot, false, 700);
   }
 
@@ -115,7 +115,7 @@ export default function BalloonDarts({ onFinish }) {
           {'🎯'.repeat(Math.max(0, dartsLeft))}
           <span className="darts-used">{'🎯'.repeat(pops.current)}</span>
         </span>
-        <span className="darts-pot">POT: {pot} FRG</span>
+        <span className="darts-pot">POT: {pot} PTS</span>
       </div>
 
       <div className="balloon-grid">
@@ -152,12 +152,12 @@ export default function BalloonDarts({ onFinish }) {
 
       {phase === 'aim' && pot > 0 && pops.current < DARTS && (
         <button className="btn btn-big btn-bank" onClick={bank}>
-          🏦 BANK {pot} FRG
+          🏦 BANK {pot} PTS
         </button>
       )}
       <p className="darts-note">
-        Prizes in the wall: 12 · 9 · 6 · 5 · 3 · 2 · 2 · 1 FRG — plus two
-        empties and two 💥. Max pot 27 FRG.
+        Prizes in the wall: 12 · 9 · 6 · 5 · 3 · 2 · 2 · 1 PTS — plus two
+        empties and two 💥. Max pot 27 PTS.
       </p>
     </main>
   );

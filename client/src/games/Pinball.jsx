@@ -317,7 +317,7 @@ export default function Pinball({ onFinish }) {
           const amount = pinballAmount(S.score);
           S.msg =
             amount > 0
-              ? `🏁 Game over — ${S.score.toLocaleString()} pts pays ${amount} FRG!`
+              ? `🏁 Game over — ${S.score.toLocaleString()} pts pays ${amount} PTS!`
               : `🏁 Game over — ${S.score.toLocaleString()} pts. Needed 1,500 for the first payout.`;
           syncHud();
           setTimeout(() => {
@@ -530,7 +530,7 @@ export default function Pinball({ onFinish }) {
         <span className="pinball-next">
           {(() => {
             const next = [...PINBALL_TIERS].reverse().find((t) => hud.score < t.min);
-            return next ? `NEXT: ${next.amount} FRG @ ${next.min.toLocaleString()}` : 'MAX TIER!';
+            return next ? `NEXT: ${next.amount} PTS @ ${next.min.toLocaleString()}` : 'MAX TIER!';
           })()}
         </span>
       </div>
@@ -573,9 +573,9 @@ export default function Pinball({ onFinish }) {
         </div>
       )}
       <p className="pinball-note">
-        Bumpers 150 · rollovers 150 · light F-R-G for a 1,000 bonus. Payouts:
+        Bumpers 150 · rollovers 150 · light F-R-G for a 1,000 bonus. Points:
         1,500→5 · 4,000→10 · 7,000→15 · 11,000→22 · 16,000→32 · 25,000→45
-        FRG. Three balls — make them count.
+        PTS. Three balls — make them count.
       </p>
     </main>
   );

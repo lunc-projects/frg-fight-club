@@ -3,9 +3,9 @@ import { useRef, useState } from 'react';
 // FRG Mines — 16 tiles, 3 hidden mines, 13 gems. Every gem you dig
 // raises the cash-out; one mine takes it all. Payouts are the fair
 // combinatorial price scaled by 0.65, so the expected payout is
-// ~6.5 FRG on the 10 FRG entry at EVERY cash-out depth (verified by
-// Monte Carlo) — greed is free to try, the treasury keeps ~3.5 FRG
-// a dig either way. The board auto-banks at 7 gems (max 43 FRG).
+// ~6.5 PTS on the 10 PTS entry at EVERY cash-out depth (verified by
+// Monte Carlo) — greed is free to try, the treasury keeps ~3.5 PTS
+// a dig either way. The board auto-banks at 7 gems (max 43 PTS).
 // The server re-derives this exact table; keep the two in sync.
 export const MINES_PAYOUTS = { 1: 8, 2: 10, 3: 12, 4: 16, 5: 22, 6: 30, 7: 43 };
 export const MINES_MAX_PICKS = 7;
@@ -66,7 +66,7 @@ export default function Mines({ onFinish }) {
       const all = { ...revealed, [i]: 'mine' };
       mines.current.forEach((m) => (all[m] = 'mine'));
       setRevealed(all);
-      setMsg(`💣 BOOM! ${picks > 0 ? `Your ${pot} FRG pot is gone.` : 'A mine on the first dig — brutal.'}`);
+      setMsg(`💣 BOOM! ${picks > 0 ? `Your ${pot} PTS pot is gone.` : 'A mine on the first dig — brutal.'}`);
       finish('bust', 0, 1500);
       return;
     }
@@ -74,17 +74,17 @@ export default function Mines({ onFinish }) {
     const newPicks = picks + 1;
     setRevealed((r) => ({ ...r, [i]: 'gem' }));
     if (newPicks >= MINES_MAX_PICKS) {
-      setMsg(`💎 ${MINES_MAX_PICKS} gems! The board auto-banks ${MINES_PAYOUTS[newPicks]} FRG — max dig!`);
+      setMsg(`💎 ${MINES_MAX_PICKS} gems! The board auto-banks ${MINES_PAYOUTS[newPicks]} PTS — max dig!`);
       finish('win', MINES_PAYOUTS[newPicks], 1200);
     } else {
-      setMsg(`💎 Gem ${newPicks}! Cash out ${MINES_PAYOUTS[newPicks]} FRG, or dig for ${MINES_PAYOUTS[newPicks + 1]}?`);
+      setMsg(`💎 Gem ${newPicks}! Cash out ${MINES_PAYOUTS[newPicks]} PTS, or dig for ${MINES_PAYOUTS[newPicks + 1]}?`);
     }
   }
 
   function cashOut() {
     if (phase !== 'dig' || picks < 1) return;
     haptic('medium');
-    setMsg(`💰 Banked ${pot} FRG after ${picks} gem${picks > 1 ? 's' : ''}. Smart digging!`);
+    setMsg(`💰 Banked ${pot} PTS after ${picks} gem${picks > 1 ? 's' : ''}. Smart digging!`);
     finish('win', pot, 800);
   }
 
@@ -101,7 +101,7 @@ export default function Mines({ onFinish }) {
           💎 <b>{picks}</b>/{MINES_MAX_PICKS}
         </span>
         <span className="mines-pot">
-          {picks > 0 ? `CASH OUT: ${pot} FRG` : 'NO GEMS YET'}
+          {picks > 0 ? `CASH OUT: ${pot} PTS` : 'NO GEMS YET'}
         </span>
         <span>{phase === 'dig' ? `NEXT SAFE: ${safeChance}%` : '—'}</span>
       </div>
@@ -127,12 +127,12 @@ export default function Mines({ onFinish }) {
 
       {phase === 'dig' && picks >= 1 && (
         <button className="btn btn-big btn-bank" onClick={cashOut}>
-          💰 CASH OUT {pot} FRG
+          💰 CASH OUT {pot} PTS
         </button>
       )}
       <p className="mines-note">
         Payouts by gems dug: 1→8 · 2→10 · 3→12 · 4→16 · 5→22 · 6→30 ·
-        7→43 FRG. The board auto-banks at 7 gems.
+        7→43 PTS. The board auto-banks at 7 gems.
       </p>
     </main>
   );

@@ -309,8 +309,8 @@ export default function Slice({ onFinish }) {
       if (el.next) {
         const amt = sliceAmount(S.score);
         el.next.textContent = S.over
-          ? amt > 0 ? `PAYS ${amt} FRG` : 'NO PAYOUT'
-          : nxt ? `NEXT: ${nxt.amount} FRG @ ${nxt.min.toLocaleString()}` : 'MAX TIER!';
+          ? amt > 0 ? `PAYS ${amt} PTS` : 'NO PAYOUT'
+          : nxt ? `NEXT: ${nxt.amount} PTS @ ${nxt.min.toLocaleString()}` : 'MAX TIER!';
       }
       if (el.msg) el.msg.textContent = Date.now() - S.msgAt < 2400 ? S.msg : '';
     }
@@ -365,7 +365,7 @@ export default function Slice({ onFinish }) {
       <div className="pb-hud">
         <div>SCORE <b id="sl-score">0</b></div>
         <div><b id="sl-lives">❤️❤️❤️</b></div>
-        <div className="pb-next" id="sl-next">NEXT: 5 FRG @ 600</div>
+        <div className="pb-next" id="sl-next">NEXT: 5 PTS @ 600</div>
       </div>
       <canvas ref={canvasRef} width={W} height={H} className="pb-canvas" />
       <div className="pb-msg" id="sl-msg" />
@@ -373,7 +373,7 @@ export default function Slice({ onFinish }) {
         Swipe through gems (+50), coins (+25) and jewels (+100) — 3 or
         more in one swipe pays a combo bonus. Slicing a bomb or letting
         three good items fall costs your 3 lives. Payouts: 600→5 ·
-        1,100→10 · 1,700→15 · 2,500→22 · 3,500→32 · 5,000→45 FRG.
+        1,100→10 · 1,700→15 · 2,500→22 · 3,500→32 · 5,000→45 PTS.
       </p>
     </div>
   );

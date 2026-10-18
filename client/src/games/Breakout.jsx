@@ -221,8 +221,8 @@ export default function Breakout({ onFinish }) {
       if (el.next) {
         const amt = breakoutAmount(S.score);
         el.next.textContent = S.over
-          ? amt > 0 ? `PAYS ${amt} FRG` : 'NO PAYOUT'
-          : nxt ? `NEXT: ${nxt.amount} FRG @ ${nxt.min.toLocaleString()}` : 'MAX TIER!';
+          ? amt > 0 ? `PAYS ${amt} PTS` : 'NO PAYOUT'
+          : nxt ? `NEXT: ${nxt.amount} PTS @ ${nxt.min.toLocaleString()}` : 'MAX TIER!';
       }
       if (el.msg) el.msg.textContent = Date.now() - S.msgAt < 2600 ? S.msg : '';
     }
@@ -269,7 +269,7 @@ export default function Breakout({ onFinish }) {
       <div className="pb-hud">
         <div>SCORE <b id="bo-score">0</b></div>
         <div>BALL <b id="bo-balls">3/3</b></div>
-        <div className="pb-next" id="bo-next">NEXT: 5 FRG @ 600</div>
+        <div className="pb-next" id="bo-next">NEXT: 5 PTS @ 600</div>
       </div>
       <canvas ref={canvasRef} width={W} height={H} className="pb-canvas" />
       <div className="pb-msg" id="bo-msg" />
@@ -277,7 +277,7 @@ export default function Breakout({ onFinish }) {
         Drag on the board to steer the paddle. Rows pay 60/50/40/30/20/10 —
         clearing the whole wall pays +400 and the next wall is faster.
         Payouts: 600→5 · 1,300→10 · 2,000→15 · 2,900→22 · 4,000→32 ·
-        5,500→45 FRG. Three balls — make them count.
+        5,500→45 PTS. Three balls — make them count.
       </p>
     </div>
   );

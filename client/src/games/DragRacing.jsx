@@ -7,8 +7,8 @@ import { useEffect, useRef, useState } from 'react';
 // 55-78% is good, earlier bogs the car (1.4s momentum loss), riding
 // into the 100% limiter is worst. A great launch (<=220ms reaction)
 // earns a 1.18 boost. Rival runs 9.60-11.00s. Simulated win rates:
-// pro ~87%, average ~33% (EV ~6.0 FRG on the 10 FRG entry at the
-// 18 FRG prize), sloppy ~2% — the treasury grows on typical play.
+// pro ~87%, average ~33% (EV ~6.0 PTS on the 10 PTS entry at the
+// 18 PTS prize), sloppy ~2% — the treasury grows on typical play.
 const GEAR_TIME = [3.0, 2.6, 2.3, 2.1, 999]; // s for rpm 0->100, gears 1..5
 const GEAR_RATE = [0.048, 0.07, 0.092, 0.108, 0.118]; // track/sec at boost 1
 const ZONE = {
@@ -202,7 +202,7 @@ export default function DragRacing({ onFinish }) {
     <main className="race-wrap">
       <h2 className="race-title">🏎️ DRAG RACING</h2>
       <p className="race-sub">
-        Beat the tree. Shift in the green band (78–95%). Winner takes 18 FRG.
+        Beat the tree. Shift in the green band (78–95%). Winner takes 18 PTS.
       </p>
 
       <div className="tree">

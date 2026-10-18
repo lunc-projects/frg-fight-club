@@ -4,9 +4,9 @@ import { useEffect, useRef, useState } from 'react';
 //
 // Treasury-safe tuning (same rule as the wheel): the crash curve is
 // P(reach t) = 0.65 / t at every target, so the expected payout is
-// ~6.5 FRG on the 10 FRG entry no matter when the player bails — the
-// treasury keeps ~3.5 FRG per launch on average. Max cash-out is 5.00x
-// (50 FRG), which also keeps a single win inside the treasury float.
+// ~6.5 PTS on the 10 PTS entry no matter when the player bails — the
+// treasury keeps ~3.5 PTS per launch on average. Max cash-out is 5.00x
+// (50 PTS), which also keeps a single win inside the treasury float.
 // These constants mirror the server's claim checks in server/index.js.
 export const CRASH_GROWTH = 0.14; // multiplier = e^(0.14 * seconds)
 export const CRASH_MIN_CASH = 1.1;
@@ -122,7 +122,7 @@ export default function RocketCrash({ onFinish }) {
     <main className="crash-wrap">
       <h2 className="crash-title">🚀 ROCKET CRASH</h2>
       <p className="crash-sub">
-        Ride the multiplier — bail before it blows. Max win 50 FRG at 5.00×.
+        Ride the multiplier — bail before it blows. Max win 50 PTS at 5.00×.
       </p>
 
       <div className={`crash-stage ${phase === 'crashed' ? 'crash-boom' : ''}`}>
@@ -160,11 +160,11 @@ export default function RocketCrash({ onFinish }) {
         {phase === 'fly' && (
           <div className="crash-now">
             {mult >= CRASH_MIN_CASH
-              ? `Bail now for ${payout} FRG`
+              ? `Bail now for ${payout} PTS`
               : `Cash-out unlocks at ${CRASH_MIN_CASH.toFixed(2)}×`}
           </div>
         )}
-        {phase === 'cashed' && <div className="crash-now">{payout} FRG is yours — claim it next!</div>}
+        {phase === 'cashed' && <div className="crash-now">{payout} PTS banked!</div>}
       </div>
 
       <button
@@ -174,7 +174,7 @@ export default function RocketCrash({ onFinish }) {
       >
         {phase === 'fly'
           ? canCash
-            ? `💰 CASH OUT — ${payout} FRG`
+            ? `💰 CASH OUT — ${payout} PTS`
             : `🔒 CASH OUT (at ${CRASH_MIN_CASH.toFixed(2)}×)`
           : phase === 'count'
             ? '🚀 LAUNCHING…'
