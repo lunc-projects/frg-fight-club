@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createRenderer } from './gl.js';
 import Matter from 'matter-js';
 
 // FRG Pinball — a real physics table (matter-js) in a REAL 3D
@@ -369,7 +370,7 @@ export default function Pinball({ onFinish }) {
       const THREE = await import('three');
       const mount = mountRef.current;
       if (!mount) return;
-      const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+      const renderer = createRenderer(THREE);
       renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
       renderer.setSize(W, H, false);
       renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;';

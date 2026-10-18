@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createRenderer } from './gl.js';
 
 // FRG Highway — REAL 3D endless driver (Three.js/WebGL). Weave the
 // neon highway, skim past traffic for NEAR MISS bonuses, grab the gold
@@ -74,23 +75,7 @@ export default function Highway({ onFinish }) {
 
       // ---------- renderer / scene ----------
       const mount = mountRef.current;
-      // Some phones/WebViews refuse the fanciest context — degrade
-      // gracefully through plainer settings instead of a black screen.
-      let renderer = null;
-      let lastErr = null;
-      for (const opts of [
-        { antialias: true, powerPreference: 'high-performance' },
-        { antialias: false, powerPreference: 'default' },
-        { antialias: false, powerPreference: 'low-power' },
-      ]) {
-        try {
-          renderer = new THREE.WebGLRenderer(opts);
-          break;
-        } catch (e) {
-          lastErr = e;
-        }
-      }
-      if (!renderer) throw lastErr || new Error('WebGL unavailable on this device');
+      const renderer = createRenderer(THREE);
       renderer.domElement.addEventListener('webglcontextlost', (e) => {
         e.preventDefault();
         if (!disposed) setGlFailed(true);

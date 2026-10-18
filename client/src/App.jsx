@@ -15,7 +15,7 @@ import Snake from './games/Snake.jsx';
 import Memory from './games/Memory.jsx';
 import Crossing from './games/Crossing.jsx';
 import Highway from './games/Highway.jsx';
-import { GAMES } from './config.js';
+import { BUILD_TAG, GAMES } from './config.js';
 import {
   startGame,
   submitResult,
@@ -321,6 +321,7 @@ export default function App() {
             Points are leaderboard credit only: they are never sold, and
             they can't be bought, exchanged, or cashed out.
           </p>
+                  <p className="build-tag">build {BUILD_TAG}</p>
         </main>
       )}
 

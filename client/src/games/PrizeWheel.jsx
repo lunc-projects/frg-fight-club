@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createRenderer } from './gl.js';
 
 // FRG Prize Wheel — now a REAL 3D wheel (Three.js). "Extra safe"
 // tuning (owner's choice): the average
@@ -70,7 +71,7 @@ function WheelStage3D({ proxyRef, liveRef }) {
       const mount = mountRef.current;
       const W = 400;
       const H = 400;
-      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+      const renderer = createRenderer(THREE, { alpha: true });
       renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
       renderer.setSize(W, H, false);
       renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;';

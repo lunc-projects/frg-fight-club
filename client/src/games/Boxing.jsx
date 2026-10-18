@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createRenderer } from './gl.js';
 
 // ---------------------------------------------------------------------------
 // FRG Boxing — retro arcade-style fighting game (Punch-Out-inspired).
@@ -133,7 +134,7 @@ function RingStage3D({ stateRef }) {
       const mount = mountRef.current;
       const W = 430;
       const H = 340;
-      const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+      const renderer = createRenderer(THREE);
       renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
       renderer.setSize(W, H, false);
       renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;';

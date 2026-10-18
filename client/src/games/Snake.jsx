@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createRenderer } from './gl.js';
 
 // ---------------------------------------------------------------------------
 // FRG Snake — the classic, now in REAL 3D (Three.js). Orbs pay 25, every
@@ -149,7 +150,7 @@ export default function Snake({ onFinish }) {
       const THREE = await import('three');
       if (disposed) return;
       const mount = mountRef.current;
-      const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+      const renderer = createRenderer(THREE);
       renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
       renderer.setSize(W, H, false);
       renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;';

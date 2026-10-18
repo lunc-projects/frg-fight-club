@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { createRenderer } from './gl.js';
 
 // FRG Breakout — paddle & bricks, now in REAL 3D (Three.js). The ball
 // physics are the original game verbatim — same paddle bounce, brick
@@ -168,7 +169,7 @@ export default function Breakout({ onFinish }) {
       const THREE = await import('three');
       if (disposed) return;
       const mount = mountRef.current;
-      const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+      const renderer = createRenderer(THREE);
       renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
       renderer.setSize(W, H, false);
       renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;';

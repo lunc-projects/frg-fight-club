@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createRenderer } from './gl.js';
 
 // FRG Drag Racing — beat the tree, nail the shifts, outrun the rival.
 // Now with a REAL 3D drag strip (Three.js): two low-poly 3D cars under
@@ -46,7 +47,7 @@ function RaceStage3D({ stateRef }) {
       const mount = mountRef.current;
       const W = 400;
       const H = 300;
-      const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+      const renderer = createRenderer(THREE);
       renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
       renderer.setSize(W, H, false);
       renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;';
