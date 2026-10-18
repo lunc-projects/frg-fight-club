@@ -4,7 +4,7 @@
 // The club no longer takes entry fees or pays prizes. Every game is free
 // to play and awards POINTS. Points are leaderboard credit only: they are
 // never sold, never bought, and cannot be exchanged for anything inside
-// the app. The ten skill titles (boxing, racing, flight, tower, breakout,
+// the app. The eleven skill titles (boxing, racing, flight, tower, breakout,
 // slice) feed the SEASON leaderboard; at season's end the host pays a
 // fixed, pre-announced FRG prize pool to the top finishers out of his own
 // wallet, manually, outside this app (a sponsored contest — the server
@@ -32,9 +32,9 @@ const {
   PRIZE_POOL_FRG = '', // announced pool, e.g. '1000' (display only)
 } = process.env;
 
-const GAMES = ['boxing', 'wheel', 'crash', 'darts', 'racing', 'mines', 'pinball', 'breakout', 'flight', 'tower', 'slice', 'putt', 'snake', 'memory', 'crossing'];
+const GAMES = ['boxing', 'wheel', 'crash', 'darts', 'racing', 'mines', 'pinball', 'breakout', 'flight', 'tower', 'slice', 'putt', 'snake', 'memory', 'crossing', 'highway'];
 // Skill titles feed the prize leaderboard. The rest are glory-only.
-const SKILL_GAMES = ['boxing', 'racing', 'flight', 'tower', 'breakout', 'slice', 'putt', 'snake', 'memory', 'crossing'];
+const SKILL_GAMES = ['boxing', 'racing', 'flight', 'tower', 'breakout', 'slice', 'putt', 'snake', 'memory', 'crossing', 'highway'];
 const SESSION_TTL_MS = 20 * 60 * 1000;
 
 // Points tables — IDENTICAL numbers to the old FRG payouts, renamed.
@@ -389,6 +389,45 @@ function computePoints(game, result) {
     return bad('Slice result outcome invalid.');
   }
 
+  if (game === 'highway') {
+    // FRG Highway: score is fully determined by the run's components —
+    // floor(distance/10) + 25 per coin + 50 per near miss.
+    const HIGHWAY_TIERS = [
+      { min: 4500, amount: 45 },
+      { min: 3000, amount: 32 },
+      { min: 2000, amount: 22 },
+      { min: 1200, amount: 15 },
+      { min: 700, amount: 10 },
+      { min: 300, amount: 5 },
+    ];
+    const score = Number(result?.score);
+    const amount = Number(result?.amount);
+    const distance = Number(result?.distance);
+    const coins = Number(result?.coins);
+    const nearMisses = Number(result?.nearMisses);
+    if (!(Number.isInteger(distance) && distance >= 0 && distance <= 30000)) return bad('Highway distance out of range.');
+    if (!(Number.isInteger(coins) && coins >= 0 && coins <= 400)) return bad('Highway coin count out of range.');
+    if (!(Number.isInteger(nearMisses) && nearMisses >= 0 && nearMisses <= 300)) return bad('Highway near-miss count out of range.');
+    const expectedScore = Math.floor(distance / 10) + coins * 25 + nearMisses * 50;
+    if (score !== expectedScore) return bad('Highway score inconsistent with distance, coins and near misses.');
+    // Plausibility: top speed is 120 m/s of road; coins and traffic
+    // spawn at bounded densities, so both counts are capped by distance.
+    if (durationMs < 4_000 || durationMs > 10 * 60 * 1000) return bad('Highway result timing looks implausible.');
+    if (distance > (durationMs / 1000) * 130) return bad('Highway distance too large for the run time.');
+    if (coins > Math.floor(distance / 55) + 3) return bad('Highway coin count too high for the distance.');
+    if (nearMisses > Math.floor(distance / 45) + 3) return bad('Highway near-miss count too high for the distance.');
+    const tier = HIGHWAY_TIERS.find((t) => score >= t.min);
+    const expected = tier ? tier.amount : 0;
+    if (result?.outcome === 'win') {
+      if (expected === 0 || amount !== expected) return bad('Highway payout does not match the tier table.');
+      return { points: amount };
+    }
+    if (result?.outcome === 'lose') {
+      if (expected !== 0 || amount !== 0) return bad('Highway loss cannot carry a payout.');
+      return { points: 0 };
+    }
+    return bad('Highway result outcome invalid.');
+  }
   if (game === 'putt') {
     // Mini Putt: hole pays (7 - strokes) * 40, picked up at 7 = 0.
     // Server re-derives the score EXACTLY from the stroke counts.
@@ -638,10 +677,10 @@ async function startBot() {
     // no crypto (see the conversion note at the top of this file).
     const d1 = await tg('setMyDescription', {
       description:
-        '🥊 FRG FIGHT CLUB — a free arcade in Telegram.\n\n15 games: boxing, drag racing, pinball, mini putt, snake, memory, crossing, and more. Every game is free to play — no wallet, no payments, nothing to buy. Climb the Season 1 leaderboard on the skill titles!',
+        '🥊 FRG FIGHT CLUB — a free arcade in Telegram.\n\n16 games: boxing, drag racing, highway driving, pinball, mini putt, snake, memory, crossing, and more. Every game is free to play — no wallet, no payments, nothing to buy. Climb the Season 1 leaderboard on the skill titles!',
     });
     const d2 = await tg('setMyShortDescription', {
-      short_description: '🥊 Free arcade — 15 games, season leaderboard. No wallet needed.',
+      short_description: '🥊 Free arcade — 16 games, season leaderboard. No wallet needed.',
     });
     console.log('  bot: description set:', d1.ok === true && d2.ok === true ? 'ok' : JSON.stringify({ d1, d2 }).slice(0, 200));
     await tg('setChatMenuButton', {
@@ -667,7 +706,7 @@ async function startBot() {
             // button. If the video send fails for any reason, fall back
             // to the plain text welcome so /start never goes unanswered.
             const caption =
-              '🥊 *FRG FIGHT CLUB*\n\nFree to play — all 15 games, no wallet needed, nothing to buy. Climb the season leaderboard on the ten skill titles.\n\nTap Play below — good luck!\n\nType /leaderboard anytime for the standings.';
+              '🥊 *FRG FIGHT CLUB*\n\nFree to play — all 16 games, no wallet needed, nothing to buy. Climb the season leaderboard on the eleven skill titles.\n\nTap Play below — good luck!\n\nType /leaderboard anytime for the standings.';
             const markup = {
               inline_keyboard: [[{ text: '🥊 Play FRG Fight Club', web_app: { url: WEBAPP_URL } }]],
             };

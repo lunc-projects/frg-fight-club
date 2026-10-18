@@ -14,6 +14,7 @@ import Putt from './games/Putt.jsx';
 import Snake from './games/Snake.jsx';
 import Memory from './games/Memory.jsx';
 import Crossing from './games/Crossing.jsx';
+import Highway from './games/Highway.jsx';
 import { GAMES } from './config.js';
 import {
   startGame,
@@ -41,6 +42,7 @@ const GAME_COMPONENTS = {
   snake: Snake,
   memory: Memory,
   crossing: Crossing,
+  highway: Highway,
 };
 
 // Per-game result presentation. `won` here means "scored points".
@@ -75,11 +77,12 @@ function resultView(game, r) {
     case 'breakout':
     case 'flight':
     case 'tower':
-    case 'slice': {
-      const emoji = { pinball: '👾', breakout: '🧱', flight: '🚀', tower: '🏗️', slice: '⚔️' }[game];
-      const firstTier = { pinball: 1500, breakout: 600, flight: 500, tower: 800, slice: 600 }[game];
+    case 'slice':
+    case 'highway': {
+      const emoji = { pinball: '👾', breakout: '🧱', flight: '🚀', tower: '🏗️', slice: '⚔️', highway: '🏎️' }[game];
+      const firstTier = { pinball: 1500, breakout: 600, flight: 500, tower: 800, slice: 600, highway: 300 }[game];
       const extra =
-        game === 'flight' ? `${r.gates} gates flown. ` : game === 'tower' ? `${r.blocks} blocks stacked. ` : game === 'slice' ? `${r.sliced} items sliced. ` : '';
+        game === 'flight' ? `${r.gates} gates flown. ` : game === 'tower' ? `${r.blocks} blocks stacked. ` : game === 'slice' ? `${r.sliced} items sliced. ` : game === 'highway' ? `${r.distance}m driven · ${r.coins} coins · ${r.nearMisses} near misses. ` : '';
       return r.amount > 0
         ? { emoji, title: `${r.score?.toLocaleString()} points!`, lines: [`${extra}That score earns ${r.amount} PTS.`], won: true }
         : { emoji, title: `${r.score?.toLocaleString()} points — just short.`, lines: [`The first points tier starts at ${firstTier.toLocaleString()} points.`], won: false };

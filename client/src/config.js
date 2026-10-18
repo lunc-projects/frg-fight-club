@@ -173,4 +173,16 @@ export const GAMES = [
     skill: true,
     live: true,
   },
+,
+  {
+    id: 'highway',
+    cover: '/covers/highway.webp',
+    name: 'FRG Highway',
+    emoji: '🏎️',
+    tagline: 'Weave the neon highway. Near misses pay.',
+    terms: 'Free play · Max 45 PTS',
+    playLabel: '▶ Play — free',
+    skill: true,
+    live: true,
+  },
 ];
