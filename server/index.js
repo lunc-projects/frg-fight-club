@@ -664,6 +664,9 @@ async function tg(method, body) {
 
 const PROMO_VIDEO_URL =
   process.env.PROMO_VIDEO_URL || 'https://frg-fight-club.vercel.app/promo.mp4';
+// Hero cover art that dresses the bot's posts (hosted on the client site).
+const COVER_PHOTO_URL =
+  process.env.COVER_PHOTO_URL || 'https://frg-fight-club.vercel.app/covers/boxing.webp';
 
 async function startBot() {
   if (!BOT_TOKEN || !WEBAPP_URL) {
@@ -723,14 +726,24 @@ async function startBot() {
               reply_markup: markup,
             });
             if (!vid?.ok) {
-              console.error('  bot: sendVideo failed, falling back to text:', JSON.stringify(vid).slice(0, 200));
-              await tg('sendMessage', {
+              console.error('  bot: sendVideo failed, falling back to cover photo:', JSON.stringify(vid).slice(0, 200));
+              const pic = await tg('sendPhoto', {
                 chat_id: msg.chat.id,
                 ...thread,
-                text: caption,
+                photo: COVER_PHOTO_URL,
+                caption,
                 parse_mode: 'Markdown',
                 reply_markup: markup,
               });
+              if (!pic?.ok) {
+                await tg('sendMessage', {
+                  chat_id: msg.chat.id,
+                  ...thread,
+                  text: caption,
+                  parse_mode: 'Markdown',
+                  reply_markup: markup,
+                });
+              }
             }
           } else if (msg?.text?.startsWith('/leaderboard')) {
             // Standings on demand — works in the bot chat and in group
@@ -750,6 +763,16 @@ async function startBot() {
             const ends = seasonInfo().endsAt
               ? new Date(seasonInfo().endsAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' })
               : null;
+            // Dress the standings with the club's cover art first
+            // (best-effort — the text board below always sends).
+            const pic = await tg('sendPhoto', {
+              chat_id: msg.chat.id,
+              ...thread,
+              photo: COVER_PHOTO_URL,
+              caption: '🏆 *FRG FIGHT CLUB — Season 1 standings*',
+              parse_mode: 'Markdown',
+            });
+            if (!pic?.ok) console.error('  bot: leaderboard cover photo failed:', JSON.stringify(pic).slice(0, 160));
             let text = `🏆 *SEASON 1 — SKILL LEADERBOARD*${ends ? `\nSeason ends ${ends}` : ''}\n\n`;
             text += skill.length ? fmt(skill, true) : 'No scores yet — be the first on the board! 🎮';
             if (glory.length) text += `\n\n🎮 *ALL-GAMES BOARD*\n${fmt(glory, false)}`;
