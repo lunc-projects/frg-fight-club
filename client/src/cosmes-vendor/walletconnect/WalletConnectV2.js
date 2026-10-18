@@ -216,7 +216,9 @@ export class WalletConnectV2 {
                 ? raw.split("#")[0]
                 : this.mobileAppDetails.name === "Keplr"
                     ? "https://deeplink.keplr.app/wcV2"
-                    : null;
+                    : this.mobileAppDetails.name === "Galaxy Station"
+                        ? raw // iOS: the galaxystation:// scheme — the only route to the app
+                        : null;
             const pending = this.signClient.request(reqArgs);
             if (tg?.openLink && appLink) {
                 tg.openLink(appLink);

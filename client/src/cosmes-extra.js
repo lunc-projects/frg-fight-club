@@ -49,7 +49,11 @@ const GALAXY_LINKS = {
   name: 'Galaxy Station',
   android:
     'https://station.hexxagon.io/wcV2#Intent;package=io.hexxagon.station;scheme=galaxystation;end;',
-  ios: 'https://station.hexxagon.io/wcV2',
+  // iOS gets the app's native scheme, NOT the HTTPS link: inside
+  // Telegram's iOS webview the HTTPS link just loads Galaxy's web
+  // dashboard in place (empty web wallet, no way back — observed
+  // 2026-10-17). The scheme is the only route that can reach the app.
+  ios: 'galaxystation://wcV2',
 };
 
 export class GalaxyStationController extends WalletController {

@@ -1,4 +1,4 @@
-import { isAndroid, isMobile } from "../utils/os.js";
+import { isAndroid, isIOS, isMobile } from "../utils/os.js";
 import { qrcodegen } from "./qrcodegen.js";
 export class QRCodeModal {
     constructor(details) {
@@ -43,6 +43,27 @@ export class QRCodeModal {
             const tgK = window.Telegram?.WebApp;
             if (tgK?.openLink) {
                 tgK.openLink(`https://deeplink.keplr.app/wcV2?${encodeURIComponent(uri)}`);
+            }
+            return;
+        }
+        // FRG patch: Galaxy Station on iOS. The stock flow navigates the
+        // webview to Galaxy's HTTPS link, which on iPhone loads Galaxy's
+        // empty WEB dashboard inside the game window — no app, no way
+        // back (observed 2026-10-17). Instead hand the pairing URI to
+        // the game's picker, which shows a tappable
+        // galaxystation:// button (a real user tap is the strongest
+        // scheme-handoff vector in Apple's webview) plus a copyable
+        // link as fallback. Also try openLink with the scheme as a
+        // bonus — harmless if Telegram ignores it.
+        if (typeof window !== "undefined" && window.__frgGalaxyUri && this.details.name === "Galaxy Station" && isIOS()) {
+            window.__frgGalaxyUri(uri);
+            const tgG = window.Telegram?.WebApp;
+            const schemeLink = `galaxystation://wcV2?${encodeURIComponent(uri)}`;
+            if (tgG?.openLink) {
+                try {
+                    tgG.openLink(schemeLink);
+                }
+                catch { /* picker button remains the reliable route */ }
             }
             return;
         }

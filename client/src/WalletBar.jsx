@@ -49,12 +49,17 @@ export default function WalletBar({ balance, setBalance }) {
   const [err, setErr] = useState('');
   const [keplrUri, setKeplrUri] = useState(null);
   const [copiedK, setCopiedK] = useState(false);
+  const [galaxyUri, setGalaxyUri] = useState(null);
+  const [copiedG, setCopiedG] = useState(false);
 
   useEffect(() => {
     // cosmes' WC modal hands Keplr pairing URIs here (see QRCodeModal patch)
     window.__frgInterceptUri = (uri) => setKeplrUri(uri);
+    // ...and Galaxy-on-iOS pairing URIs here (scheme-button + copy UI)
+    window.__frgGalaxyUri = (uri) => setGalaxyUri(uri);
     return () => {
       delete window.__frgInterceptUri;
+      delete window.__frgGalaxyUri;
     };
   }, []);
 
@@ -77,6 +82,10 @@ export default function WalletBar({ balance, setBalance }) {
     setErr('');
     setCopiedK(false);
     if (id === 'keplr') setKeplrUri(null);
+    if (id === 'galaxystation') {
+      setGalaxyUri(null);
+      setCopiedG(false);
+    }
     try {
       await connectWallet(id);
       setOpen(false);
@@ -111,10 +120,33 @@ export default function WalletBar({ balance, setBalance }) {
                     {busyId === def.id
                       ? 'Connecting — check your wallet app…'
                       : def.id === 'galaxystation' && IS_IOS
-                        ? '⚠️ iPhone: may open an empty web dashboard — Keplr below is the reliable pick'
+                        ? 'iPhone: tap, then hit the 🚀 Open Galaxy Station app button that appears below'
                         : def.hint}
                   </span>
                 </button>
+                {def.id === 'galaxystation' && galaxyUri && (
+                  <>
+                    <a
+                      className="btn btn-wallet-option wo-open-app"
+                      href={`galaxystation://wcV2?${encodeURIComponent(galaxyUri)}`}
+                    >
+                      <span className="wo-label">🚀 Open Galaxy Station app</span>
+                      <span className="wo-hint">Tap to jump to the app and approve</span>
+                    </a>
+                    <button
+                      className="btn btn-ghost wo-copy"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(galaxyUri);
+                          setCopiedG(true);
+                        } catch {}
+                      }}
+                    >
+                      {copiedG ? '✓ Copied — paste it in Galaxy Station’s WalletConnect screen' : '📋 Or copy the pairing link and paste it in Galaxy Station'}
+                    </button>
+                    <input className="wo-uri" readOnly value={galaxyUri} onFocus={(e) => e.target.select()} />
+                  </>
+                )}
                 {def.id === 'keplr' && keplrUri && (
                   <>
                     <button
@@ -136,13 +168,14 @@ export default function WalletBar({ balance, setBalance }) {
             {err && <div className="wo-error">{err}</div>}
             {IS_IOS && (
               <div className="wo-ios-note">
-                🍎 <b>iPhone:</b> Galaxy may open an <b>empty web
-                dashboard</b> here instead of your app — don't sign in
-                there. Go back and pick <b>Keplr</b> instead: copy the
-                pairing link and paste it in the Keplr app's
-                WalletConnect screen. After approving in any wallet,
-                swipe back to Telegram — your session reconnects by
-                itself.
+                🍎 <b>iPhone:</b> tap Galaxy Station, then the{' '}
+                <b>🚀 Open Galaxy Station app</b> button that appears —
+                that's what carries you to the real app (the plain web
+                link only opens Galaxy's empty website). If the app
+                still doesn't open, Keplr below with its copy-paste
+                pairing link is the fallback that always works. After
+                approving in any wallet, swipe back to Telegram — your
+                session reconnects by itself.
               </div>
             )}
             <button className="btn btn-ghost" onClick={() => setOpen(false)}>
