@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Component, useCallback, useEffect, useRef, useState } from 'react';
 import Boxing from './games/Boxing.jsx';
 import PrizeWheel from './games/PrizeWheel.jsx';
 import RocketCrash from './games/RocketCrash.jsx';
@@ -130,6 +130,34 @@ function Board({ title, rows, highlight }) {
       )}
     </div>
   );
+}
+
+// A game that throws must never take the whole club down with it:
+// catch the error, show a way back to the lobby instead of a black screen.
+class GameBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { failed: false };
+  }
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(err) {
+    console.error('Game crashed:', err);
+  }
+  render() {
+    if (this.state.failed) {
+      return (
+        <div className="game-crash">
+          <p>😵 This game hit a snag and couldn't load.</p>
+          <button className="btn btn-big" onClick={this.props.onBack}>
+            ← Back to the lobby
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 export default function App() {
@@ -303,7 +331,11 @@ export default function App() {
         </main>
       )}
 
-      {screen === 'playing' && GameComp && <GameComp onFinish={onFinish} />}
+      {screen === 'playing' && GameComp && (
+        <GameBoundary key={game} onBack={toLobby}>
+          <GameComp onFinish={onFinish} />
+        </GameBoundary>
+      )}
 
       {screen === 'done' && view && (
         <main className="center">
