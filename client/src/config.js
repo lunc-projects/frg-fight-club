@@ -6,7 +6,7 @@
 
 // Backend base URL. In local dev the Vite proxy forwards /api to the server,
 // so leave it empty. In production set VITE_API_URL to your server's URL.
-export const BUILD_TAG = 'oct18-3';
+export const BUILD_TAG = 'oct18-4';
 
 export const API_BASE = import.meta.env.VITE_API_URL || '';
 

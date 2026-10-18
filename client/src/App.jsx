@@ -23,6 +23,7 @@ import {
   getMe,
   telegramUser,
   guestIdentity,
+  hasTelegramData,
   setGuestName,
 } from './api.js';
 
@@ -180,8 +181,11 @@ export default function App() {
       const [b, m] = await Promise.all([getLeaderboard(), getMe()]);
       setBoards(b);
       setMe(m);
-    } catch {
-      /* boards are decoration — the games work without them */
+    } catch (e) {
+      /* boards are decoration — the games work without them, but keep
+         the identity failure visible: a silent guest fallback here is
+         what masked the Telegram-check failures of 2026-10-18. */
+      setMe({ via: 'error', error: e.message || 'no answer' });
     }
   }, []);
 
@@ -275,6 +279,11 @@ export default function App() {
                 />
               </span>
             )}
+            <span className="id-check">
+              id-check: telegram data {hasTelegramData() ? 'present' : 'MISSING'} · server says{' '}
+              {me ? me.via : '…'}
+              {me?.via === 'error' ? ` (${me.error})` : ''}
+            </span>
             {me && me.games > 0 && (
               <span className="me-stats">
                 🏆 Skill: <b>{me.skill} PTS</b>

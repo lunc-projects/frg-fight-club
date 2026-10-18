@@ -7,6 +7,10 @@ function telegramInitData() {
   return window.Telegram?.WebApp?.initData || '';
 }
 
+export function hasTelegramData() {
+  return telegramInitData().length > 0;
+}
+
 export function telegramUser() {
   try {
     return window.Telegram?.WebApp?.initDataUnsafe?.user || null;

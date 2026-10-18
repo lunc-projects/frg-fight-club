@@ -597,7 +597,7 @@ app.get('/api/leaderboard', (req, res) =>
 app.post('/api/me', (req, res) => {
   const id = resolveIdentity(req.body || {});
   if (id.error) return res.status(id.status).json({ error: id.error });
-  res.json({ name: id.name, ...totalsFor(id.key) });
+  res.json({ name: id.name, via: id.key.startsWith('tg:') ? 'telegram' : 'guest', ...totalsFor(id.key) });
 });
 
 app.post('/api/start', throttle, (req, res) => {
