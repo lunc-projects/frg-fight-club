@@ -89,6 +89,15 @@ export const GAMES = [
     playLabel: 'Pay 10 FRG & Dig',
     live: true,
   },
+  {
+    id: 'pinball',
+    name: 'FRG Pinball',
+    emoji: '👾',
+    tagline: 'Three balls. Light F-R-G. Chase the high score.',
+    terms: 'Entry 10 FRG · Max win 45 FRG',
+    playLabel: 'Pay 10 FRG & Play',
+    live: true,
+  },
 ];
 
 export function toMicro(frg) {

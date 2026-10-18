@@ -50,7 +50,7 @@ const PRIZE_MICRO = String(Math.round(Number(PRIZE_FRG) * 10 ** DECIMALS));
 // 12 segments: BUST ×5, 5 ×3, 10 ×2, 15, 20. EV payout 5.83 FRG on a
 // 10 FRG entry, so the treasury keeps ~4.17 FRG per spin on average.
 const WHEEL_PRIZES = [0, 5, 10, 15, 20];
-const GAMES = ['boxing', 'wheel', 'crash', 'darts', 'racing', 'mines'];
+const GAMES = ['boxing', 'wheel', 'crash', 'darts', 'racing', 'mines', 'pinball'];
 const SESSION_TTL_MS = 20 * 60 * 1000;
 
 // --- tiny persistent store for spent entry txs ------------------------------
@@ -387,6 +387,44 @@ app.post('/api/claim', throttle, async (req, res) => {
         amountFrg = 0;
       } else {
         return res.status(400).json({ error: 'Mines result outcome invalid.' });
+      }
+    } else if (session.game === 'pinball') {
+      // Pinball: score converts by tier table — the server re-derives
+      // the tier and requires an EXACT amount match. Keep in sync
+      // with client/src/games/Pinball.jsx (PINBALL_TIERS).
+      const PINBALL_TIERS = [
+        { min: 25000, amount: 45 },
+        { min: 16000, amount: 32 },
+        { min: 11000, amount: 22 },
+        { min: 7000, amount: 15 },
+        { min: 4000, amount: 10 },
+        { min: 1500, amount: 5 },
+      ];
+      const score = Number(result?.score);
+      const amount = Number(result?.amount);
+      const tier = PINBALL_TIERS.find((t) => score >= t.min);
+      const expected = tier ? tier.amount : 0;
+      if (!(Number.isInteger(score) && score >= 0 && score <= 150000)) {
+        return res.status(400).json({ error: 'Pinball score out of range.' });
+      }
+      if (result?.outcome === 'win') {
+        if (expected === 0 || amount !== expected) {
+          return res.status(400).json({ error: 'Pinball payout does not match the tier table.' });
+        }
+        if (Number(result?.ballsUsed) !== 3) {
+          return res.status(400).json({ error: 'Pinball game must use all 3 balls.' });
+        }
+        if (durationMs < 12_000 || durationMs > 10 * 60 * 1000) {
+          return res.status(400).json({ error: 'Pinball result timing looks implausible.' });
+        }
+        amountFrg = amount;
+      } else if (result?.outcome === 'lose') {
+        if (expected !== 0 || amount !== 0) {
+          return res.status(400).json({ error: 'Pinball loss cannot carry a payout.' });
+        }
+        amountFrg = 0;
+      } else {
+        return res.status(400).json({ error: 'Pinball result outcome invalid.' });
       }
     } else {
       // boxing (default)

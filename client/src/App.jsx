@@ -6,6 +6,7 @@ import RocketCrash from './games/RocketCrash.jsx';
 import BalloonDarts from './games/BalloonDarts.jsx';
 import DragRacing from './games/DragRacing.jsx';
 import Mines from './games/Mines.jsx';
+import Pinball from './games/Pinball.jsx';
 import { ENTRY_FEE_FRG, PRIZE_FRG, GAMES } from './config.js';
 import { finderTxUrl, findRecentEntries } from './chain.js';
 import { verifyEntry, claimPrize } from './api.js';
@@ -218,7 +219,9 @@ export default function App() {
           ? (result?.amount ?? 0)
           : game === 'mines'
             ? (result?.amount ?? 0)
-            : PRIZE_FRG;
+            : game === 'pinball'
+              ? (result?.amount ?? 0)
+              : PRIZE_FRG;
 
   const claim = useCallback(async () => {
     setError('');
@@ -319,6 +322,24 @@ export default function App() {
       {screen === 'playing' && game === 'darts' && <BalloonDarts onFinish={onFinish} />}
       {screen === 'playing' && game === 'racing' && <DragRacing onFinish={onFinish} />}
       {screen === 'playing' && game === 'mines' && <Mines onFinish={onFinish} />}
+      {screen === 'playing' && game === 'pinball' && <Pinball onFinish={onFinish} />}
+
+      {screen === 'won' && game === 'pinball' && (
+        <main className="center">
+          <div className="result-emoji">👾</div>
+          <h2>{result?.score?.toLocaleString()} points!</h2>
+          <p>
+            That score pays <b>{result?.amount} FRG</b>. Claim it to your
+            wallet.
+          </p>
+          <button className="btn btn-big" onClick={claim}>
+            Claim {winAmount} FRG
+          </button>
+          <button className="btn btn-ghost" onClick={toLobby}>
+            Back to lobby
+          </button>
+        </main>
+      )}
 
       {screen === 'won' && game === 'mines' && (
         <main className="center">
@@ -516,6 +537,20 @@ export default function App() {
           <p>
             You had {result?.picks ?? 0} gem{result?.picks === 1 ? '' : 's'} dug
             when it blew. Every entry is a fresh board.
+          </p>
+          <button className="btn btn-big" onClick={toLobby}>
+            Back to lobby
+          </button>
+        </main>
+      )}
+
+      {screen === 'lost' && game === 'pinball' && (
+        <main className="center">
+          <div className="result-emoji">👾</div>
+          <h2>{result?.score?.toLocaleString()} points — just short.</h2>
+          <p>
+            The first payout tier starts at 1,500 points. Every entry is a
+            fresh table.
           </p>
           <button className="btn btn-big" onClick={toLobby}>
             Back to lobby
