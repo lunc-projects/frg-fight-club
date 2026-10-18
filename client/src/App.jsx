@@ -5,6 +5,7 @@ import PrizeWheel from './games/PrizeWheel.jsx';
 import RocketCrash from './games/RocketCrash.jsx';
 import BalloonDarts from './games/BalloonDarts.jsx';
 import DragRacing from './games/DragRacing.jsx';
+import Mines from './games/Mines.jsx';
 import { ENTRY_FEE_FRG, PRIZE_FRG, GAMES } from './config.js';
 import { finderTxUrl, findRecentEntries } from './chain.js';
 import { verifyEntry, claimPrize } from './api.js';
@@ -215,7 +216,9 @@ export default function App() {
         ? Math.floor(ENTRY_FEE_FRG * (result?.multiplier ?? 0))
         : game === 'darts'
           ? (result?.amount ?? 0)
-          : PRIZE_FRG;
+          : game === 'mines'
+            ? (result?.amount ?? 0)
+            : PRIZE_FRG;
 
   const claim = useCallback(async () => {
     setError('');
@@ -315,6 +318,24 @@ export default function App() {
       {screen === 'playing' && game === 'crash' && <RocketCrash onFinish={onFinish} />}
       {screen === 'playing' && game === 'darts' && <BalloonDarts onFinish={onFinish} />}
       {screen === 'playing' && game === 'racing' && <DragRacing onFinish={onFinish} />}
+      {screen === 'playing' && game === 'mines' && <Mines onFinish={onFinish} />}
+
+      {screen === 'won' && game === 'mines' && (
+        <main className="center">
+          <div className="result-emoji">💎</div>
+          <h2>You banked the gems!</h2>
+          <p>
+            Dug up <b>{result?.picks} gem{result?.picks > 1 ? 's' : ''}</b> and
+            walked away clean. Claim your FRG.
+          </p>
+          <button className="btn btn-big" onClick={claim}>
+            Claim {winAmount} FRG
+          </button>
+          <button className="btn btn-ghost" onClick={toLobby}>
+            Back to lobby
+          </button>
+        </main>
+      )}
 
       {screen === 'won' && game === 'racing' && (
         <main className="center">
@@ -482,6 +503,20 @@ export default function App() {
               </p>
             </>
           )}
+          <button className="btn btn-big" onClick={toLobby}>
+            Back to lobby
+          </button>
+        </main>
+      )}
+
+      {screen === 'lost' && game === 'mines' && (
+        <main className="center">
+          <div className="result-emoji">💣</div>
+          <h2>BOOM. The mine took it.</h2>
+          <p>
+            You had {result?.picks ?? 0} gem{result?.picks === 1 ? '' : 's'} dug
+            when it blew. Every entry is a fresh board.
+          </p>
           <button className="btn btn-big" onClick={toLobby}>
             Back to lobby
           </button>

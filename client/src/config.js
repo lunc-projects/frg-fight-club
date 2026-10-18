@@ -80,6 +80,15 @@ export const GAMES = [
     playLabel: 'Pay 10 FRG & Race',
     live: true,
   },
+  {
+    id: 'mines',
+    name: 'FRG Mines',
+    emoji: '💣',
+    tagline: 'Every gem raises the prize — one mine takes it all.',
+    terms: 'Entry 10 FRG · Max win 43 FRG',
+    playLabel: 'Pay 10 FRG & Dig',
+    live: true,
+  },
 ];
 
 export function toMicro(frg) {

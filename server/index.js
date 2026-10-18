@@ -50,7 +50,7 @@ const PRIZE_MICRO = String(Math.round(Number(PRIZE_FRG) * 10 ** DECIMALS));
 // 12 segments: BUST ×5, 5 ×3, 10 ×2, 15, 20. EV payout 5.83 FRG on a
 // 10 FRG entry, so the treasury keeps ~4.17 FRG per spin on average.
 const WHEEL_PRIZES = [0, 5, 10, 15, 20];
-const GAMES = ['boxing', 'wheel', 'crash', 'darts', 'racing'];
+const GAMES = ['boxing', 'wheel', 'crash', 'darts', 'racing', 'mines'];
 const SESSION_TTL_MS = 20 * 60 * 1000;
 
 // --- tiny persistent store for spent entry txs ------------------------------
@@ -363,6 +363,30 @@ app.post('/api/claim', throttle, async (req, res) => {
         amountFrg = 0;
       } else {
         return res.status(400).json({ error: 'Race result outcome invalid.' });
+      }
+    } else if (session.game === 'mines') {
+      // Mines: the payout is a pure function of gems dug (fair
+      // combinatorial price x 0.65, floored) — the server re-derives
+      // the table and requires an EXACT match. Keep in sync with
+      // client/src/games/Mines.jsx (MINES_PAYOUTS).
+      const MINES_PAYOUTS = { 1: 8, 2: 10, 3: 12, 4: 16, 5: 22, 6: 30, 7: 43 };
+      const picks = Number(result?.picks);
+      const amount = Number(result?.amount);
+      if (result?.outcome === 'win') {
+        if (!(Number.isInteger(picks) && picks >= 1 && picks <= 7)) {
+          return res.status(400).json({ error: 'Mines pick count out of range.' });
+        }
+        if (amount !== MINES_PAYOUTS[picks]) {
+          return res.status(400).json({ error: 'Mines payout does not match the table.' });
+        }
+        if (durationMs < picks * 400 || durationMs > 10 * 60 * 1000) {
+          return res.status(400).json({ error: 'Mines result timing looks implausible.' });
+        }
+        amountFrg = amount;
+      } else if (result?.outcome === 'bust') {
+        amountFrg = 0;
+      } else {
+        return res.status(400).json({ error: 'Mines result outcome invalid.' });
       }
     } else {
       // boxing (default)
