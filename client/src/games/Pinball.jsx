@@ -50,6 +50,7 @@ export default function Pinball({ onFinish }) {
       flipL: false,
       flipR: false,
       stuckSince: null,
+      returnSince: null,
       mountedAt: Date.now(),
     };
     G.current = S;
@@ -210,6 +211,7 @@ export default function Pinball({ onFinish }) {
       Body.setAngularVelocity(ball, 0);
       S.ballInLane = true;
       S.launched = false;
+      S.returnSince = null;
       S.charging = true;
       S.power = 0;
       S.msg = `Ball ${4 - S.ballsLeft} — charge and launch!`;
@@ -262,6 +264,33 @@ export default function Pinball({ onFinish }) {
       if (sp > 30) Body.setVelocity(ball, { x: (v.x / sp) * 30, y: (v.y / sp) * 30 });
 
       Engine.update(engine, 1000 / 60);
+
+      // Weak-launch fallback: the ball rolled back down the launch
+      // lane and settled on the lane floor. It is not in play there —
+      // it can never drain and the flippers can't reach it, and the
+      // launch button only exists while ballInLane is set, so without
+      // this hand-back the game soft-locks (observed live 2026-10-17:
+      // ball parked in the lane, "Ball nudged loose!" firing forever).
+      // Give it back to the plunger.
+      if (S.launched && !S.over && ball.position.x > 352 && ball.position.y > 400 && sp < 0.6) {
+        if (!S.returnSince) S.returnSince = now;
+        if (now - S.returnSince > 500) {
+          Body.setPosition(ball, { x: 375, y: 552 });
+          Body.setVelocity(ball, { x: 0, y: 0 });
+          Body.setAngularVelocity(ball, 0);
+          S.ballInLane = true;
+          S.launched = false;
+          S.charging = true;
+          S.power = 0;
+          S.powerDir = 1;
+          S.returnSince = null;
+          S.stuckSince = null;
+          S.msg = 'Weak launch — the ball rolled back. Fire again!';
+          syncHud();
+        }
+      } else {
+        S.returnSince = null;
+      }
 
       // Stuck-ball nudge (not in the launch lane)
       if (!S.ballInLane && !S.over) {
