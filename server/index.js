@@ -693,6 +693,15 @@ async function startBot() {
         { command: 'leaderboard', description: 'Season 1 standings' },
       ],
     });
+    // Telegram only allows web_app buttons in PRIVATE chats — in a
+    // group the whole message is rejected, which silently killed the
+    // /start reply there (the photo + its button failed together, and
+    // so did the text fallback carrying the same button). Groups get
+    // a plain url button to the same site instead.
+    const playMarkup = (chat) =>
+      chat?.type === 'private'
+        ? { inline_keyboard: [[{ text: '🥊 Play FRG Fight Club', web_app: { url: WEBAPP_URL } }]] }
+        : { inline_keyboard: [[{ text: '🥊 Play FRG Fight Club', url: WEBAPP_URL }]] };
     console.log('  bot: menu button set, polling /start');
     let offset = 0;
     for (;;) {
@@ -708,9 +717,7 @@ async function startBot() {
             // to the plain text welcome so /start never goes unanswered.
             const caption =
               '🥊 *FRG FIGHT CLUB*\n\nFree to play — all 16 games, no wallet needed, nothing to buy. Climb the season leaderboard on the eleven skill titles.\n\nTap Play below — good luck!\n\nType /leaderboard anytime for the standings.';
-            const markup = {
-              inline_keyboard: [[{ text: '🥊 Play FRG Fight Club', web_app: { url: WEBAPP_URL } }]],
-            };
+            const markup = playMarkup(msg.chat);
             const thread = msg.message_thread_id
               ? { message_thread_id: msg.message_thread_id }
               : {};
@@ -723,13 +730,15 @@ async function startBot() {
               reply_markup: markup,
             });
             if (!pic?.ok) {
-              await tg('sendMessage', {
+              console.error('  bot: /start photo failed:', JSON.stringify(pic).slice(0, 200));
+              const sm = await tg('sendMessage', {
                 chat_id: msg.chat.id,
                 ...thread,
                 text: caption,
                 parse_mode: 'Markdown',
                 reply_markup: markup,
               });
+              if (!sm?.ok) console.error('  bot: /start text fallback failed:', JSON.stringify(sm).slice(0, 200));
             }
           } else if (msg?.text?.startsWith('/leaderboard')) {
             // Standings on demand — works in the bot chat and in group
@@ -763,15 +772,14 @@ async function startBot() {
             text += skill.length ? fmt(skill, true) : 'No scores yet — be the first on the board! 🎮';
             if (glory.length) text += `\n\n🎮 *ALL-GAMES BOARD*\n${fmt(glory, false)}`;
             text += '\n\nEvery skill game adds to your total — tap Play and climb!';
-            await tg('sendMessage', {
+            const bm = await tg('sendMessage', {
               chat_id: msg.chat.id,
               ...thread,
               text,
               parse_mode: 'Markdown',
-              reply_markup: {
-                inline_keyboard: [[{ text: '🥊 Play FRG Fight Club', web_app: { url: WEBAPP_URL } }]],
-              },
+              reply_markup: playMarkup(msg.chat),
             });
+            if (!bm?.ok) console.error('  bot: /leaderboard board message failed:', JSON.stringify(bm).slice(0, 200));
           }
         }
       } catch {
