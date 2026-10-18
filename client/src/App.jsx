@@ -8,6 +8,10 @@ import BalloonDarts from './games/BalloonDarts.jsx';
 import DragRacing from './games/DragRacing.jsx';
 import Mines from './games/Mines.jsx';
 import Pinball from './games/Pinball.jsx';
+import Breakout from './games/Breakout.jsx';
+import Flight from './games/Flight.jsx';
+import Tower from './games/Tower.jsx';
+import Slice from './games/Slice.jsx';
 import { ENTRY_FEE_FRG, PRIZE_FRG, GAMES } from './config.js';
 import { finderTxUrl, findRecentEntries } from './chain.js';
 import { verifyEntry, claimPrize } from './api.js';
@@ -222,7 +226,9 @@ export default function App() {
             ? (result?.amount ?? 0)
             : game === 'pinball'
               ? (result?.amount ?? 0)
-              : PRIZE_FRG;
+              : ['breakout', 'flight', 'tower', 'slice'].includes(game)
+                ? (result?.amount ?? 0)
+                : PRIZE_FRG;
 
   const claim = useCallback(async () => {
     setError('');
@@ -331,6 +337,10 @@ export default function App() {
       {screen === 'playing' && game === 'racing' && <DragRacing onFinish={onFinish} />}
       {screen === 'playing' && game === 'mines' && <Mines onFinish={onFinish} />}
       {screen === 'playing' && game === 'pinball' && <Pinball onFinish={onFinish} />}
+      {screen === 'playing' && game === 'breakout' && <Breakout onFinish={onFinish} />}
+      {screen === 'playing' && game === 'flight' && <Flight onFinish={onFinish} />}
+      {screen === 'playing' && game === 'tower' && <Tower onFinish={onFinish} />}
+      {screen === 'playing' && game === 'slice' && <Slice onFinish={onFinish} />}
 
       {screen === 'won' && game === 'pinball' && (
         <main className="center">
@@ -339,6 +349,70 @@ export default function App() {
           <p>
             That score pays <b>{result?.amount} FRG</b>. Claim it to your
             wallet.
+          </p>
+          <button className="btn btn-big" onClick={claim}>
+            Claim {winAmount} FRG
+          </button>
+          <button className="btn btn-ghost" onClick={toLobby}>
+            Back to lobby
+          </button>
+        </main>
+      )}
+      {screen === 'won' && game === 'breakout' && (
+        <main className="center">
+          <div className="result-emoji">🧱</div>
+          <h2>{result?.score?.toLocaleString()} points!</h2>
+          <p>
+             That score pays <b>{result?.amount} FRG</b>. Claim it to
+            your wallet.
+          </p>
+          <button className="btn btn-big" onClick={claim}>
+            Claim {winAmount} FRG
+          </button>
+          <button className="btn btn-ghost" onClick={toLobby}>
+            Back to lobby
+          </button>
+        </main>
+      )}
+      {screen === 'won' && game === 'flight' && (
+        <main className="center">
+          <div className="result-emoji">🚀</div>
+          <h2>{result?.score?.toLocaleString()} points!</h2>
+          <p>
+            {result?.gates} gates flown. That score pays <b>{result?.amount} FRG</b>. Claim it to
+            your wallet.
+          </p>
+          <button className="btn btn-big" onClick={claim}>
+            Claim {winAmount} FRG
+          </button>
+          <button className="btn btn-ghost" onClick={toLobby}>
+            Back to lobby
+          </button>
+        </main>
+      )}
+      {screen === 'won' && game === 'tower' && (
+        <main className="center">
+          <div className="result-emoji">🏗️</div>
+          <h2>{result?.score?.toLocaleString()} points!</h2>
+          <p>
+            {result?.blocks} blocks stacked. That score pays <b>{result?.amount} FRG</b>. Claim it to
+            your wallet.
+          </p>
+          <button className="btn btn-big" onClick={claim}>
+            Claim {winAmount} FRG
+          </button>
+          <button className="btn btn-ghost" onClick={toLobby}>
+            Back to lobby
+          </button>
+        </main>
+      )}
+      {screen === 'won' && game === 'slice' && (
+        <main className="center">
+          <div className="result-emoji">⚔️</div>
+          <h2>{result?.score?.toLocaleString()} points!</h2>
+          <p>
+            {result?.sliced} items sliced. That score pays <b>{result?.amount} FRG</b>. Claim it to
+            your wallet.
           </p>
           <button className="btn btn-big" onClick={claim}>
             Claim {winAmount} FRG
@@ -559,6 +633,54 @@ export default function App() {
           <p>
             The first payout tier starts at 1,500 points. Every entry is a
             fresh table.
+          </p>
+          <button className="btn btn-big" onClick={toLobby}>
+            Back to lobby
+          </button>
+        </main>
+      )}
+      {screen === 'lost' && game === 'breakout' && (
+        <main className="center">
+          <div className="result-emoji">🧱</div>
+          <h2>{result?.score?.toLocaleString()} points — just short.</h2>
+          <p>
+            The first payout tier starts at 600 points. Every entry is a fresh wall.
+          </p>
+          <button className="btn btn-big" onClick={toLobby}>
+            Back to lobby
+          </button>
+        </main>
+      )}
+      {screen === 'lost' && game === 'flight' && (
+        <main className="center">
+          <div className="result-emoji">🚀</div>
+          <h2>{result?.score?.toLocaleString()} points — just short.</h2>
+          <p>
+            The first payout tier starts at 500 points. Every entry is a fresh flight.
+          </p>
+          <button className="btn btn-big" onClick={toLobby}>
+            Back to lobby
+          </button>
+        </main>
+      )}
+      {screen === 'lost' && game === 'tower' && (
+        <main className="center">
+          <div className="result-emoji">🏗️</div>
+          <h2>{result?.score?.toLocaleString()} points — just short.</h2>
+          <p>
+            The first payout tier starts at 800 points. Every entry is a fresh tower.
+          </p>
+          <button className="btn btn-big" onClick={toLobby}>
+            Back to lobby
+          </button>
+        </main>
+      )}
+      {screen === 'lost' && game === 'slice' && (
+        <main className="center">
+          <div className="result-emoji">⚔️</div>
+          <h2>{result?.score?.toLocaleString()} points — just short.</h2>
+          <p>
+            The first payout tier starts at 600 points. Every entry is a fresh round.
           </p>
           <button className="btn btn-big" onClick={toLobby}>
             Back to lobby

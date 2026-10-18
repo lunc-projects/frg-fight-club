@@ -50,7 +50,7 @@ const PRIZE_MICRO = String(Math.round(Number(PRIZE_FRG) * 10 ** DECIMALS));
 // 12 segments: BUST ×5, 5 ×3, 10 ×2, 15, 20. EV payout 5.83 FRG on a
 // 10 FRG entry, so the treasury keeps ~4.17 FRG per spin on average.
 const WHEEL_PRIZES = [0, 5, 10, 15, 20];
-const GAMES = ['boxing', 'wheel', 'crash', 'darts', 'racing', 'mines', 'pinball'];
+const GAMES = ['boxing', 'wheel', 'crash', 'darts', 'racing', 'mines', 'pinball', 'breakout', 'flight', 'tower', 'slice'];
 const SESSION_TTL_MS = 20 * 60 * 1000;
 
 // --- tiny persistent store for spent entry txs ------------------------------
@@ -425,6 +425,169 @@ app.post('/api/claim', throttle, async (req, res) => {
         amountFrg = 0;
       } else {
         return res.status(400).json({ error: 'Pinball result outcome invalid.' });
+      }
+    } else if (session.game === 'breakout') {
+      // Breakout: score converts by tier table — the server re-derives the
+      // tier and requires an EXACT amount match. Keep in sync with
+      // the client component's tier table.
+      const BREAKOUT_TIERS = [
+        { min: 5500, amount: 45 },
+        { min: 4000, amount: 32 },
+        { min: 2900, amount: 22 },
+        { min: 2000, amount: 15 },
+        { min: 1300, amount: 10 },
+        { min: 600, amount: 5 },
+      ];
+      const score = Number(result?.score);
+      const amount = Number(result?.amount);
+      const tier = BREAKOUT_TIERS.find((t) => score >= t.min);
+      const expected = tier ? tier.amount : 0;
+      if (!(Number.isInteger(score) && score >= 0 && score <= 30000)) {
+        return res.status(400).json({ error: 'Breakout score out of range.' });
+      }
+      if (Number(result?.ballsUsed) !== 3) {
+        return res.status(400).json({ error: 'Breakout game must use all 3 balls.' });
+      }
+      if (durationMs < 15_000 || durationMs > 10 * 60 * 1000) {
+        return res.status(400).json({ error: 'Breakout result timing looks implausible.' });
+      }
+      if (result?.outcome === 'win') {
+        if (expected === 0 || amount !== expected) {
+          return res.status(400).json({ error: 'Breakout payout does not match the tier table.' });
+        }
+        amountFrg = amount;
+      } else if (result?.outcome === 'lose') {
+        if (expected !== 0 || amount !== 0) {
+          return res.status(400).json({ error: 'Breakout loss cannot carry a payout.' });
+        }
+        amountFrg = 0;
+      } else {
+        return res.status(400).json({ error: 'Breakout result outcome invalid.' });
+      }
+    } else if (session.game === 'flight') {
+      // Flight: score converts by tier table — the server re-derives the
+      // tier and requires an EXACT amount match. Keep in sync with
+      // the client component's tier table.
+      const FLIGHT_TIERS = [
+        { min: 3800, amount: 45 },
+        { min: 2700, amount: 32 },
+        { min: 2000, amount: 22 },
+        { min: 1400, amount: 15 },
+        { min: 900, amount: 10 },
+        { min: 500, amount: 5 },
+      ];
+      const score = Number(result?.score);
+      const amount = Number(result?.amount);
+      const tier = FLIGHT_TIERS.find((t) => score >= t.min);
+      const expected = tier ? tier.amount : 0;
+      if (!(Number.isInteger(score) && score >= 0 && score <= 30000)) {
+        return res.status(400).json({ error: 'Flight score out of range.' });
+      }
+      const gates = Number(result?.gates);
+      if (!(Number.isInteger(gates) && gates >= 0 && gates <= 300)) {
+        return res.status(400).json({ error: 'Flight gate count out of range.' });
+      }
+      // score = 100/gate + at most one 25-pt coin per gap
+      if (score % 25 !== 0 || score < gates * 100 || score > (gates + 1) * 125) {
+        return res.status(400).json({ error: 'Flight score inconsistent with gates.' });
+      }
+      if (durationMs < Math.max(6_000, gates * 800) || durationMs > 10 * 60 * 1000) {
+        return res.status(400).json({ error: 'Flight result timing looks implausible.' });
+      }
+      if (result?.outcome === 'win') {
+        if (expected === 0 || amount !== expected) {
+          return res.status(400).json({ error: 'Flight payout does not match the tier table.' });
+        }
+        amountFrg = amount;
+      } else if (result?.outcome === 'lose') {
+        if (expected !== 0 || amount !== 0) {
+          return res.status(400).json({ error: 'Flight loss cannot carry a payout.' });
+        }
+        amountFrg = 0;
+      } else {
+        return res.status(400).json({ error: 'Flight result outcome invalid.' });
+      }
+    } else if (session.game === 'tower') {
+      // Tower: score converts by tier table — the server re-derives the
+      // tier and requires an EXACT amount match. Keep in sync with
+      // the client component's tier table.
+      const TOWER_TIERS = [
+        { min: 4000, amount: 45 },
+        { min: 3000, amount: 32 },
+        { min: 2300, amount: 22 },
+        { min: 1700, amount: 15 },
+        { min: 1200, amount: 10 },
+        { min: 800, amount: 5 },
+      ];
+      const score = Number(result?.score);
+      const amount = Number(result?.amount);
+      const tier = TOWER_TIERS.find((t) => score >= t.min);
+      const expected = tier ? tier.amount : 0;
+      if (!(Number.isInteger(score) && score >= 0 && score <= 30000)) {
+        return res.status(400).json({ error: 'Tower score out of range.' });
+      }
+      const blocks = Number(result?.blocks);
+      if (!(Number.isInteger(blocks) && blocks >= 0 && blocks <= 60)) {
+        return res.status(400).json({ error: 'Tower block count out of range.' });
+      }
+      // 100 per block, +50 extra on perfect drops only
+      if (score < blocks * 100 || score > blocks * 150 || (score - blocks * 100) % 50 !== 0) {
+        return res.status(400).json({ error: 'Tower score inconsistent with blocks.' });
+      }
+      if (durationMs < Math.max(5_000, blocks * 400) || durationMs > 10 * 60 * 1000) {
+        return res.status(400).json({ error: 'Tower result timing looks implausible.' });
+      }
+      if (result?.outcome === 'win') {
+        if (expected === 0 || amount !== expected) {
+          return res.status(400).json({ error: 'Tower payout does not match the tier table.' });
+        }
+        amountFrg = amount;
+      } else if (result?.outcome === 'lose') {
+        if (expected !== 0 || amount !== 0) {
+          return res.status(400).json({ error: 'Tower loss cannot carry a payout.' });
+        }
+        amountFrg = 0;
+      } else {
+        return res.status(400).json({ error: 'Tower result outcome invalid.' });
+      }
+    } else if (session.game === 'slice') {
+      // Slice: score converts by tier table — the server re-derives the
+      // tier and requires an EXACT amount match. Keep in sync with
+      // the client component's tier table.
+      const SLICE_TIERS = [
+        { min: 5000, amount: 45 },
+        { min: 3500, amount: 32 },
+        { min: 2500, amount: 22 },
+        { min: 1700, amount: 15 },
+        { min: 1100, amount: 10 },
+        { min: 600, amount: 5 },
+      ];
+      const score = Number(result?.score);
+      const amount = Number(result?.amount);
+      const tier = SLICE_TIERS.find((t) => score >= t.min);
+      const expected = tier ? tier.amount : 0;
+      if (!(Number.isInteger(score) && score >= 0 && score <= 30000)) {
+        return res.status(400).json({ error: 'Slice score out of range.' });
+      }
+      const sliced = Number(result?.sliced);
+      if (!(Number.isInteger(sliced) && sliced >= 0 && sliced <= 400)) {
+        return res.status(400).json({ error: 'Slice count out of range.' });
+      }
+      if (durationMs < 10_000 || durationMs > 10 * 60 * 1000) {
+        return res.status(400).json({ error: 'Slice result timing looks implausible.' });
+      }
+      if (result?.outcome === 'win') {
+        if (expected === 0 || amount !== expected) {
+          return res.status(400).json({ error: 'Slice payout does not match the tier table.' });
+        }
+        amountFrg = amount;
+      } else if (result?.outcome === 'lose') {
+        if (expected !== 0 || amount !== 0) {
+          return res.status(400).json({ error: 'Slice loss cannot carry a payout.' });
+        }
+        amountFrg = 0;
+      } else {
+        return res.status(400).json({ error: 'Slice result outcome invalid.' });
       }
     } else {
       // boxing (default)
