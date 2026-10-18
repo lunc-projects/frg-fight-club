@@ -666,8 +666,12 @@ async function startBot() {
             const markup = {
               inline_keyboard: [[{ text: '🥊 Play FRG Fight Club', web_app: { url: WEBAPP_URL } }]],
             };
+            const thread = msg.message_thread_id
+              ? { message_thread_id: msg.message_thread_id }
+              : {};
             const vid = await tg('sendVideo', {
               chat_id: msg.chat.id,
+              ...thread,
               video: PROMO_VIDEO_URL,
               caption,
               parse_mode: 'Markdown',
@@ -678,6 +682,7 @@ async function startBot() {
               console.error('  bot: sendVideo failed, falling back to text:', JSON.stringify(vid).slice(0, 200));
               await tg('sendMessage', {
                 chat_id: msg.chat.id,
+                ...thread,
                 text: caption,
                 parse_mode: 'Markdown',
                 reply_markup: markup,
