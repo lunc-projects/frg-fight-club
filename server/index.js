@@ -623,6 +623,9 @@ async function tg(method, body) {
   return r.json().catch(() => ({}));
 }
 
+const PROMO_VIDEO_URL =
+  process.env.PROMO_VIDEO_URL || 'https://frg-fight-club.vercel.app/promo.mp4';
+
 async function startBot() {
   if (!BOT_TOKEN || !WEBAPP_URL) {
     console.log('  bot: skipped (BOT_TOKEN / WEBAPP_URL not set)');
@@ -638,7 +641,7 @@ async function startBot() {
         '🥊 FRG FIGHT CLUB — a free arcade in Telegram.\n\n15 games: boxing, drag racing, pinball, mini putt, snake, memory, crossing, and more. Every game is free to play — no wallet, no payments, nothing to buy. Climb the Season 1 leaderboard on the skill titles!',
     });
     const d2 = await tg('setMyShortDescription', {
-      short_description: '🥊 Free arcade — 11 games, season leaderboard. No wallet needed.',
+      short_description: '🥊 Free arcade — 15 games, season leaderboard. No wallet needed.',
     });
     console.log('  bot: description set:', d1.ok === true && d2.ok === true ? 'ok' : JSON.stringify({ d1, d2 }).slice(0, 200));
     await tg('setChatMenuButton', {
@@ -654,14 +657,32 @@ async function startBot() {
           offset = u.update_id + 1;
           const msg = u.message;
           if (msg?.text?.startsWith('/start')) {
-            await tg('sendMessage', {
+            // /start answers with the promo montage (hosted on the
+            // client site) + the welcome text as its caption + the Play
+            // button. If the video send fails for any reason, fall back
+            // to the plain text welcome so /start never goes unanswered.
+            const caption =
+              '🥊 *FRG FIGHT CLUB*\n\nFree to play — all 15 games, no wallet needed, nothing to buy. Climb the season leaderboard on the ten skill titles.\n\nTap Play below — good luck!';
+            const markup = {
+              inline_keyboard: [[{ text: '🥊 Play FRG Fight Club', web_app: { url: WEBAPP_URL } }]],
+            };
+            const vid = await tg('sendVideo', {
               chat_id: msg.chat.id,
-              text: '🥊 *FRG FIGHT CLUB*\n\nFree to play — all 15 games, no wallet needed, nothing to buy. Climb the season leaderboard on the ten skill titles.\n\nTap Play below — good luck!',
+              video: PROMO_VIDEO_URL,
+              caption,
               parse_mode: 'Markdown',
-              reply_markup: {
-                inline_keyboard: [[{ text: '🥊 Play FRG Fight Club', web_app: { url: WEBAPP_URL } }]],
-              },
+              supports_streaming: true,
+              reply_markup: markup,
             });
+            if (!vid?.ok) {
+              console.error('  bot: sendVideo failed, falling back to text:', JSON.stringify(vid).slice(0, 200));
+              await tg('sendMessage', {
+                chat_id: msg.chat.id,
+                text: caption,
+                parse_mode: 'Markdown',
+                reply_markup: markup,
+              });
+            }
           }
         }
       } catch {
