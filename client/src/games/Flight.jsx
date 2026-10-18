@@ -51,6 +51,10 @@ export default function Flight({ onFinish }) {
       pillars: [], // {x, cy, coin: bool, coinTaken, passed}
       stars: Array.from({ length: 60 }, () => ({ x: Math.random() * W, y: Math.random() * H, s: Math.random() * 1.8 + 0.4 })),
       scroll: 0,
+      particles: [],
+      popups: [],
+      callout: null,
+      trailAcc: 0,
       msg: 'Tap anywhere to flap!',
       msgAt: Date.now(),
       flame: 0,
@@ -106,11 +110,20 @@ export default function Flight({ onFinish }) {
             S.gates += 1;
             S.score += 100;
             S.speed = Math.min(238, S.speed + 2);
-            if (S.gates % 5 === 0) say(`🚀 ${S.gates} gates!`);
+            S.popups.push({ x: RX + 18, y: S.y - 26, text: '+100', life: 1, color: '#ffffff' });
+            if (S.gates % 5 === 0) {
+              say(`🚀 ${S.gates} gates!`);
+              S.callout = { text: `${S.gates} GATES! 🚀`, at: Date.now() };
+            }
           }
           if (p.coin && !p.coinTaken && Math.abs(p.x + GATE_W / 2 - RX) < 22 && Math.abs(p.cy - S.y) < 22) {
             p.coinTaken = true;
             S.score += 25;
+            S.popups.push({ x: p.x + GATE_W / 2, y: p.cy - 18, text: '+25', life: 1, color: '#ffd94d' });
+            for (let i = 0; i < 8; i++) {
+              const a = (i / 8) * Math.PI * 2;
+              S.particles.push({ x: p.x + GATE_W / 2, y: p.cy, vx: Math.cos(a) * 95, vy: Math.sin(a) * 95, r: 2.2, life: 0.4, gold: true });
+            }
           }
           // collision: rocket box vs pillar rects (above/below the gap)
           if (RX + 15 > p.x && RX - 15 < p.x + GATE_W) {
@@ -123,7 +136,17 @@ export default function Flight({ onFinish }) {
           spawnPillar(lastX + SPACING);
         }
         if (S.y > H - 10) { S.y = H - 10; finish(); }
+        S.trailAcc += dt;
+        while (S.trailAcc > 0.016) {
+          S.trailAcc -= 0.016;
+          S.particles.push({ x: RX - 34, y: S.y + (Math.random() * 10 - 5), vx: -60 - Math.random() * 40, vy: (Math.random() - 0.5) * 20, r: 2 + Math.random() * 3, life: 0.55, gold: false });
+        }
       }
+      for (const pt of S.particles) { pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.life -= dt; }
+      S.particles = S.particles.filter((pt) => pt.life > 0);
+      for (const pu of S.popups) { pu.y -= 34 * dt; pu.life -= dt * 0.9; }
+      S.popups = S.popups.filter((pu) => pu.life > 0);
+      if (S.callout && Date.now() - S.callout.at > 950) S.callout = null;
       S.flame = Math.max(0, S.flame - dt * 5);
       draw();
     }
@@ -180,6 +203,14 @@ export default function Flight({ onFinish }) {
           }
         }
       }
+      for (const pt of S.particles) {
+        ctx.globalAlpha = Math.max(0, Math.min(1, pt.life * 2));
+        ctx.fillStyle = pt.gold ? '#ffd94d' : 'rgba(255,255,255,0.85)';
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
       // ground
       ctx.fillStyle = '#16233f';
       ctx.fillRect(0, H - 6, W, 6);
@@ -237,6 +268,34 @@ export default function Flight({ onFinish }) {
     }
 
     function afterRocket() {
+      for (const pu of S.popups) {
+        ctx.globalAlpha = Math.max(0, Math.min(1, pu.life));
+        ctx.fillStyle = pu.color;
+        ctx.font = '900 17px system-ui';
+        ctx.textAlign = 'center';
+        ctx.strokeStyle = 'rgba(6,20,40,0.8)';
+        ctx.lineWidth = 3;
+        ctx.strokeText(pu.text, pu.x, pu.y);
+        ctx.fillText(pu.text, pu.x, pu.y);
+      }
+      ctx.globalAlpha = 1;
+      if (S.callout) {
+        const age = Date.now() - S.callout.at;
+        const sc = age < 220 ? 0.6 + (age / 220) * 0.55 : 1.15;
+        ctx.save();
+        ctx.translate(W / 2, 150);
+        ctx.scale(sc, sc);
+        ctx.globalAlpha = age > 700 ? Math.max(0, 1 - (age - 700) / 250) : 1;
+        ctx.font = '900 30px system-ui';
+        ctx.textAlign = 'center';
+        ctx.strokeStyle = 'rgba(6,20,40,0.85)';
+        ctx.lineWidth = 6;
+        ctx.strokeText(S.callout.text, 0, 0);
+        ctx.fillStyle = '#ffd94d';
+        ctx.fillText(S.callout.text, 0, 0);
+        ctx.restore();
+        ctx.globalAlpha = 1;
+      }
       if (!S.started && !S.over) {
         ctx.fillStyle = 'rgba(255,255,255,0.85)';
         ctx.font = 'bold 19px system-ui';
