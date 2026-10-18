@@ -39,6 +39,12 @@ export default function Snake({ onFinish }) {
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
+    const imgBg = new Image();
+    imgBg.src = '/art/snake-bg.webp';
+    const imgOrb = new Image();
+    imgOrb.src = '/art/orb-green.webp';
+    const imgOrbGold = new Image();
+    imgOrbGold.src = '/art/orb-gold.webp';
     const startedAt = Date.now();
 
     const S = {
@@ -129,8 +135,17 @@ export default function Snake({ onFinish }) {
     }
 
     function draw() {
-      ctx.fillStyle = '#052e16';
-      ctx.fillRect(0, 0, W, H);
+      if (imgBg.complete && imgBg.naturalWidth) {
+        const sc = Math.max(W / imgBg.naturalWidth, H / imgBg.naturalHeight);
+        const bw = imgBg.naturalWidth * sc;
+        const bh = imgBg.naturalHeight * sc;
+        ctx.drawImage(imgBg, (W - bw) / 2, (H - bh) / 2, bw, bh);
+        ctx.fillStyle = 'rgba(2, 20, 10, 0.45)';
+        ctx.fillRect(0, 0, W, H);
+      } else {
+        ctx.fillStyle = '#052e16';
+        ctx.fillRect(0, 0, W, H);
+      }
       ctx.strokeStyle = 'rgba(255,255,255,0.045)';
       ctx.lineWidth = 1;
       for (let x = 1; x < COLS; x++) {
@@ -145,14 +160,22 @@ export default function Snake({ onFinish }) {
         ctx.lineTo(W, y * CELL);
         ctx.stroke();
       }
-      // orb
+      // orb — glowing sprite, plain circle until it loads
       if (S.orb) {
-        ctx.beginPath();
-        ctx.arc(S.orb.x * CELL + CELL / 2, S.orb.y * CELL + CELL / 2, S.orb.golden ? 8 : 6.5, 0, 2 * Math.PI);
-        ctx.fillStyle = S.orb.golden ? '#facc15' : '#4ade80';
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-        ctx.stroke();
+        const ocx = S.orb.x * CELL + CELL / 2;
+        const ocy = S.orb.y * CELL + CELL / 2;
+        const oimg = S.orb.golden ? imgOrbGold : imgOrb;
+        if (oimg.complete && oimg.naturalWidth) {
+          const osz = S.orb.golden ? 21 : 18;
+          ctx.drawImage(oimg, ocx - osz / 2, ocy - osz / 2, osz, osz);
+        } else {
+          ctx.beginPath();
+          ctx.arc(ocx, ocy, S.orb.golden ? 8 : 6.5, 0, 2 * Math.PI);
+          ctx.fillStyle = S.orb.golden ? '#facc15' : '#4ade80';
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+          ctx.stroke();
+        }
       }
       // snake
       S.snake.forEach((s, i) => {

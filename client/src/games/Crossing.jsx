@@ -52,6 +52,13 @@ export default function Crossing({ onFinish }) {
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
+    const CAR_IMGS = ['car-red', 'car-blue', 'car-taxi'].map((f) => {
+      const im = new Image();
+      im.src = `/art/${f}.webp`;
+      return im;
+    });
+    const imgRunner = new Image();
+    imgRunner.src = '/art/crossing-runner.webp';
     const startedAt = Date.now();
 
     const S = {
@@ -163,38 +170,60 @@ export default function Crossing({ onFinish }) {
       ctx.font = '700 17px system-ui';
       ctx.textAlign = 'center';
       ctx.fillText('🏁 G O A L 🏁', W / 2, 26);
-      // cars
+      // cars — real cartoon sprites (flipped for left-moving lanes),
+      // shape-drawn cars until the art loads
       for (const lane of S.cars) {
-        for (const c of lane.items) {
+        lane.items.forEach((c, ci) => {
           const y = lane.row * CELL + 6;
+          const dirSign = lane.speed > 0 ? 1 : -1;
+          const spr = CAR_IMGS[(lane.row + ci) % CAR_IMGS.length];
+          if (spr.complete && spr.naturalWidth) {
+            ctx.save();
+            if (dirSign < 0) {
+              ctx.translate(c.x + c.w / 2, 0);
+              ctx.scale(-1, 1);
+              ctx.translate(-(c.x + c.w / 2), 0);
+            }
+            ctx.drawImage(spr, c.x - 5, y - 5, c.w + 10, CELL - 1);
+            ctx.restore();
+            return;
+          }
           ctx.fillStyle = lane.color;
           ctx.beginPath();
           ctx.roundRect(c.x, y, c.w, CELL - 12, 7);
           ctx.fill();
           ctx.fillStyle = 'rgba(191, 219, 254, 0.9)';
-          const dirSign = lane.speed > 0 ? 1 : -1;
           ctx.fillRect(c.x + (dirSign > 0 ? c.w - 24 : 8), y + 5, 15, CELL - 22);
           ctx.fillStyle = '#111827';
           ctx.beginPath();
           ctx.arc(c.x + 12, y + CELL - 13, 4.5, 0, 2 * Math.PI);
           ctx.arc(c.x + c.w - 12, y + CELL - 13, 4.5, 0, 2 * Math.PI);
           ctx.fill();
-        }
+        });
       }
       // player
       const px = S.player.col * CELL + CELL / 2;
       const py = S.player.row * CELL + CELL / 2;
       const blink = now < S.invulnUntil && Math.floor(now / 160) % 2 === 0;
-      ctx.beginPath();
-      ctx.arc(px, py, 13, 0, 2 * Math.PI);
-      ctx.fillStyle = blink ? 'rgba(247, 183, 51, 0.35)' : '#f7b733';
-      ctx.fill();
-      ctx.lineWidth = 2.5;
-      ctx.strokeStyle = '#111827';
-      ctx.stroke();
-      ctx.fillStyle = '#111827';
-      ctx.font = '900 11px system-ui';
-      ctx.fillText('FRG', px, py + 4);
+      if (imgRunner.complete && imgRunner.naturalWidth) {
+        ctx.save();
+        if (blink) ctx.globalAlpha = 0.35;
+        const rh = CELL + 15;
+        const rw = rh * (imgRunner.naturalWidth / imgRunner.naturalHeight);
+        ctx.drawImage(imgRunner, px - rw / 2, py - rh / 2 - 2, rw, rh);
+        ctx.restore();
+      } else {
+        ctx.beginPath();
+        ctx.arc(px, py, 13, 0, 2 * Math.PI);
+        ctx.fillStyle = blink ? 'rgba(247, 183, 51, 0.35)' : '#f7b733';
+        ctx.fill();
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = '#111827';
+        ctx.stroke();
+        ctx.fillStyle = '#111827';
+        ctx.font = '900 11px system-ui';
+        ctx.fillText('FRG', px, py + 4);
+      }
     }
 
     let raf;
