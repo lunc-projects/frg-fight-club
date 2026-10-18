@@ -4,7 +4,7 @@
 // The club no longer takes entry fees or pays prizes. Every game is free
 // to play and awards POINTS. Points are leaderboard credit only: they are
 // never sold, never bought, and cannot be exchanged for anything inside
-// the app. The six skill titles (boxing, racing, flight, tower, breakout,
+// the app. The ten skill titles (boxing, racing, flight, tower, breakout,
 // slice) feed the SEASON leaderboard; at season's end the host pays a
 // fixed, pre-announced FRG prize pool to the top finishers out of his own
 // wallet, manually, outside this app (a sponsored contest — the server
@@ -635,7 +635,7 @@ async function startBot() {
     // no crypto (see the conversion note at the top of this file).
     const d1 = await tg('setMyDescription', {
       description:
-        '🥊 FRG FIGHT CLUB — a free arcade in Telegram.\n\n11 games: boxing, drag racing, pinball, breakout, flight, tower, slice, and more. Every game is free to play — no wallet, no payments, nothing to buy. Climb the Season 1 leaderboard on the skill titles!',
+        '🥊 FRG FIGHT CLUB — a free arcade in Telegram.\n\n15 games: boxing, drag racing, pinball, mini putt, snake, memory, crossing, and more. Every game is free to play — no wallet, no payments, nothing to buy. Climb the Season 1 leaderboard on the skill titles!',
     });
     const d2 = await tg('setMyShortDescription', {
       short_description: '🥊 Free arcade — 11 games, season leaderboard. No wallet needed.',
@@ -656,7 +656,7 @@ async function startBot() {
           if (msg?.text?.startsWith('/start')) {
             await tg('sendMessage', {
               chat_id: msg.chat.id,
-              text: '🥊 *FRG FIGHT CLUB*\n\nFree to play — all 11 games, no wallet needed, nothing to buy. Climb the season leaderboard on the six skill titles.\n\nTap Play below — good luck!',
+              text: '🥊 *FRG FIGHT CLUB*\n\nFree to play — all 15 games, no wallet needed, nothing to buy. Climb the season leaderboard on the ten skill titles.\n\nTap Play below — good luck!',
               parse_mode: 'Markdown',
               reply_markup: {
                 inline_keyboard: [[{ text: '🥊 Play FRG Fight Club', web_app: { url: WEBAPP_URL } }]],
