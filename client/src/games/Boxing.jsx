@@ -111,6 +111,335 @@ function freshState(opp) {
   };
 }
 
+// ---------------------------------------------------------------------
+// The 3D ring stage. Reads the live fight state every frame and poses
+// two low-poly 3D fighters: the opponent across the ring (his flash
+// tell is an emissive flare — the same readable cue as the sprite's
+// CSS flash) and the player's own gloves in first person. Owns no
+// game logic — every rule stays in the state machine below.
+// ---------------------------------------------------------------------
+function RingStage3D({ stateRef }) {
+  const mountRef = useRef(null);
+
+  useEffect(() => {
+    const S = stateRef;
+    let disposed = false;
+    let raf = 0;
+    let cleanup = () => {};
+
+    (async () => {
+      const THREE = await import('three');
+      if (disposed) return;
+      const mount = mountRef.current;
+      const W = 430;
+      const H = 340;
+      const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+      renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+      renderer.setSize(W, H, false);
+      renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;';
+      mount.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0a1224);
+      scene.fog = new THREE.Fog(0x0a1224, 800, 2200);
+      const camera = new THREE.PerspectiveCamera(55, W / H, 1, 4000);
+      camera.position.set(0, 116, 258);
+      camera.lookAt(0, 90, -30);
+
+      scene.add(new THREE.HemisphereLight(0xd8e6ff, 0x1a2438, 1.45));
+      const key = new THREE.DirectionalLight(0xfff0c8, 2.2);
+      key.position.set(90, 320, 260);
+      scene.add(key);
+      const rim = new THREE.DirectionalLight(0x7fb2ff, 0.7);
+      rim.position.set(-160, 180, -120);
+      scene.add(rim);
+      const ringLight = new THREE.PointLight(0xffe9b0, 900, 700);
+      ringLight.position.set(0, 260, 30);
+      scene.add(ringLight);
+
+      // crowd backdrop (the club's ring art)
+      {
+        const tex = new THREE.TextureLoader().load('/sprites/ring-bg.webp', (t) => {
+          t.colorSpace = THREE.SRGBColorSpace;
+        });
+        const bg = new THREE.Mesh(
+          new THREE.PlaneGeometry(980, 430),
+          new THREE.MeshBasicMaterial({ color: 0x0b1428, fog: false })
+        );
+        bg.position.set(0, 148, -265);
+        scene.add(bg);
+      }
+      // the ring: apron, mat, posts, ropes
+      {
+        const apron = new THREE.Mesh(
+          new THREE.BoxGeometry(470, 14, 370),
+          new THREE.MeshStandardMaterial({ color: 0x1d3a5f, roughness: 0.7 })
+        );
+        apron.position.set(0, -10, -20);
+        scene.add(apron);
+        const mat = new THREE.Mesh(
+          new THREE.BoxGeometry(430, 8, 330),
+          new THREE.MeshStandardMaterial({ color: 0x9db1d1, roughness: 0.92 })
+        );
+        mat.position.set(0, -2, -20);
+        scene.add(mat);
+        const postMat = new THREE.MeshStandardMaterial({ color: 0x8a93a6, roughness: 0.35, metalness: 0.7 });
+        const cornerCols = [0xd23b3b, 0xf1f5f9, 0x3b82f6, 0xf1f5f9];
+        const corners = [[-205, -175], [205, -175], [-205, 135], [205, 135]];
+        corners.forEach(([cx, cz], i) => {
+          const post = new THREE.Mesh(new THREE.CylinderGeometry(5.5, 5.5, 104, 10), postMat);
+          post.position.set(cx, 46, cz);
+          scene.add(post);
+          const pad = new THREE.Mesh(
+            new THREE.BoxGeometry(13, 44, 13),
+            new THREE.MeshStandardMaterial({ color: cornerCols[i], roughness: 0.55 })
+          );
+          pad.position.set(cx, 62, cz);
+          scene.add(pad);
+        });
+        const ropeCols = [0xd23b3b, 0xf1f5f9, 0x3b82f6];
+        for (let lvl = 0; lvl < 3; lvl++) {
+          const y = 34 + lvl * 25;
+          const rc = ropeCols[lvl];
+          const m = new THREE.MeshStandardMaterial({ color: rc, roughness: 0.5 });
+          const rope = new THREE.Mesh(new THREE.BoxGeometry(416, 3.6, 3.6), m);
+          rope.position.set(0, y, -175);
+          scene.add(rope);
+          for (const cx of [-205, 205]) {
+            const rope = new THREE.Mesh(new THREE.BoxGeometry(3.6, 3.6, 316), m);
+            rope.position.set(cx, y, -20);
+            scene.add(rope);
+          }
+        }
+      }
+
+      const SKIN = 0xd99e73;
+      const opp = S.opp || { id: 'gus', scale: 0.94 };
+      const isChamp = opp.id === 'champ';
+      const TRUNKS = isChamp ? 0xf7b733 : 0x3b82f6;
+      const GLOVE = isChamp ? 0xf7b733 : 0xd23b3b;
+
+      function makeFighter(trunks, glove, skin) {
+        const g = new THREE.Group();
+        const skinMat = new THREE.MeshStandardMaterial({ color: skin, roughness: 0.62 });
+        const trunkMat = new THREE.MeshStandardMaterial({ color: trunks, roughness: 0.5, emissive: trunks, emissiveIntensity: 0.06 });
+        const gloveMat = new THREE.MeshStandardMaterial({ color: glove, roughness: 0.32, emissive: glove, emissiveIntensity: 0.14 });
+        const shorts = new THREE.Mesh(new THREE.BoxGeometry(47, 27, 27), trunkMat);
+        shorts.position.y = 63;
+        g.add(shorts);
+        const belt = new THREE.Mesh(new THREE.BoxGeometry(48, 8, 28), new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4 }));
+        belt.position.y = 79;
+        g.add(belt);
+        for (const s of [-1, 1]) {
+          const leg = new THREE.Mesh(new THREE.CylinderGeometry(7.4, 6.4, 42, 10), skinMat);
+          leg.position.set(s * 13, 32, 0);
+          g.add(leg);
+          const boot = new THREE.Mesh(new THREE.BoxGeometry(13, 8, 22), new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.5 }));
+          boot.position.set(s * 13, 4, 3);
+          g.add(boot);
+        }
+        const torso = new THREE.Mesh(new THREE.BoxGeometry(45, 50, 25), skinMat);
+        torso.position.y = 103;
+        g.add(torso);
+        const headG = new THREE.Group();
+        headG.position.y = 141;
+        const head = new THREE.Mesh(new THREE.SphereGeometry(16.5, 18, 14), skinMat);
+        headG.add(head);
+        const hair = new THREE.Mesh(new THREE.SphereGeometry(16.9, 18, 12), new THREE.MeshStandardMaterial({ color: 0x2b2118, roughness: 0.85 }));
+        hair.scale.set(1, 0.62, 1);
+        hair.position.set(0, 6.5, -2.5);
+        headG.add(hair);
+        g.add(headG);
+        function makeArm(side) {
+          const arm = new THREE.Group();
+          arm.position.set(side * 28, 122, 0);
+          const upper = new THREE.Mesh(new THREE.BoxGeometry(11.5, 30, 11.5), skinMat);
+          upper.position.y = -13;
+          arm.add(upper);
+          const gloveM = new THREE.Mesh(new THREE.SphereGeometry(13.6, 14, 12), gloveMat);
+          gloveM.position.set(0, -27, 9);
+          arm.add(gloveM);
+          g.add(arm);
+          return { arm, gloveM };
+        }
+        const armL = makeArm(-1);
+        const armR = makeArm(1);
+        // dizzy stars that orbit a stunned fighter
+        const starG = new THREE.Group();
+        const starMat = new THREE.MeshBasicMaterial({ color: 0xffd94d });
+        for (let i = 0; i < 3; i++) {
+          const st = new THREE.Mesh(new THREE.OctahedronGeometry(4.4, 0), starMat);
+          st.userData.a = (i / 3) * Math.PI * 2;
+          starG.add(st);
+        }
+        starG.position.y = 160;
+        starG.visible = false;
+        g.add(starG);
+        scene.add(g);
+        return { g, headG, armL, armR, starG, mats: [skinMat, trunkMat, gloveMat] };
+      }
+
+      const enemy = makeFighter(TRUNKS, GLOVE, SKIN);
+      enemy.g.position.set(0, 2, -16);
+      enemy.g.scale.setScalar((opp.scale || 1) * 1.12);
+
+      // the player — first person: shoulders, back of head, own gloves
+      const player = new THREE.Group();
+      {
+        const suitMat = new THREE.MeshStandardMaterial({ color: 0x1f2c4d, roughness: 0.7 });
+        const shoulders = new THREE.Mesh(new THREE.BoxGeometry(96, 34, 30), suitMat);
+        shoulders.position.set(0, -4, 0);
+        player.add(shoulders);
+        const pHead = new THREE.Mesh(new THREE.SphereGeometry(15.5, 16, 12), new THREE.MeshStandardMaterial({ color: 0x2b2118, roughness: 0.85 }));
+        pHead.position.set(0, 24, 4);
+        player.add(pHead);
+        const mkGlove = (side) => {
+          const grp = new THREE.Group();
+          grp.position.set(side * 47, 20, -14);
+          const gm = new THREE.Mesh(new THREE.SphereGeometry(14.6, 14, 12), new THREE.MeshStandardMaterial({ color: 0xd23b3b, roughness: 0.3, emissive: 0xd23b3b, emissiveIntensity: 0.16 }));
+          grp.add(gm);
+          player.add(grp);
+          return grp;
+        };
+        player.userData.gloveL = mkGlove(-1);
+        player.userData.gloveR = mkGlove(1);
+        player.position.set(0, 2, 128);
+        scene.add(player);
+      }
+
+      let lastBurstId = 0;
+      let recoilAt = 0;
+      let punchKey = 0;
+      let punchAt = 0;
+
+      function pose(now) {
+        const t = now / 1000;
+        const E = enemy;
+        const state = S.enemy;
+        const inFight = S.phase === 'fight' || S.phase === 'edown' || S.phase === 'roundEnd';
+        // burst recoil: a landed hit snaps his head back briefly
+        if (S.burst && S.burst.id !== lastBurstId) {
+          lastBurstId = S.burst.id;
+          recoilAt = now;
+        }
+        const recoil = Math.max(0, 1 - (now - recoilAt) / 190);
+        // base stance
+        let bobY = Math.sin(t * 2.3) * 3.4;
+        let swayX = 0;
+        let lean = recoil * -0.22;
+        let armL = { x: -0.55, z: 0.25 };
+        let armR = { x: -0.55, z: -0.25 };
+        let headTilt = recoil * -0.3;
+        let lungeZ = 0;
+        let flash = 0;
+        E.starG.visible = false;
+        if (state === 'idle' || state === 'taunt') {
+          swayX = Math.sin(S.sway || 0) * 27;
+          if (state === 'taunt') {
+            bobY = Math.abs(Math.sin(t * 5.2)) * 7;
+            armL = { x: -2.15, z: 0.95 };
+            armR = { x: -2.15, z: -0.95 };
+          }
+        } else if (state === 'tell') {
+          flash = 0.65 + Math.sin(t * 26) * 0.35;
+          lean += -0.13;
+          armR = { x: 0.5, z: -0.5 };
+          armL = { x: -0.75, z: 0.3 };
+        } else if (state === 'attack') {
+          lungeZ = 52;
+          lean += 0.1;
+          armR = { x: -1.62, z: -0.1 };
+          armL = { x: -0.4, z: 0.35 };
+        } else if (state === 'stunned') {
+          E.starG.visible = true;
+          E.starG.children.forEach((st) => {
+            const a = st.userData.a + t * 3.4;
+            st.position.set(Math.cos(a) * 21, Math.sin(a) * 5, Math.sin(a) * 10 + 8);
+          });
+          headTilt = Math.sin(t * 7.5) * 0.14;
+          armL = { x: -0.12, z: 0.5 };
+          armR = { x: -0.12, z: -0.5 };
+          bobY = Math.sin(t * 7.5) * 1.6;
+        } else if (state === 'recover') {
+          lean += -0.05;
+          bobY = Math.sin(t * 1.7) * 2;
+        }
+        if (state === 'down' || S.phase === 'edown') {
+          E.g.rotation.x = -1.42;
+          E.g.position.y = 16;
+          E.g.position.z = -8;
+        } else {
+          E.g.rotation.x = lean;
+          E.g.position.y = 2 + bobY;
+          E.g.position.z = -16 + lungeZ;
+        }
+        E.g.position.x = swayX;
+        E.g.rotation.z = state === 'stunned' ? Math.sin(t * 7.5) * 0.05 : 0;
+        E.headG.rotation.x = headTilt;
+        E.headG.rotation.z = state === 'stunned' ? Math.sin(t * 6.3) * 0.12 : 0;
+        E.armL.arm.rotation.set(armL.x, 0, armL.z);
+        E.armR.arm.rotation.set(armR.x, 0, armR.z);
+        for (const m of E.mats) m.emissiveIntensity = (m === E.mats[2] ? 0.14 : 0.06) + flash * 0.9;
+
+        // ---- player ----
+        const P = player;
+        if (S.punch && S.punchUntil !== punchKey) {
+          punchKey = S.punchUntil;
+          punchAt = now;
+        }
+        const pk = Math.max(0, 1 - (now - punchAt) / 150);
+        const punchExt = pk > 0 && S.punch ? Math.sin(Math.min(1, 1 - pk) * Math.PI) : 0;
+        const dodgeShift = S.dodging > 0 ? S.dodgeDir * 44 : 0;
+        P.position.x += (dodgeShift - P.position.x) * 0.4;
+        const downed = S.phase === 'pdown';
+        P.position.y = downed ? -26 : 2;
+        P.rotation.x = downed ? 0.5 : 0;
+        const gL = P.userData.gloveL;
+        const gR = P.userData.gloveR;
+        const tiredDrop = S.tired ? -13 : 0;
+        const blockUp = S.blocking ? 13 : 0;
+        gL.position.set(-47 + (S.blocking ? 17 : 0), 20 + tiredDrop + blockUp, -14);
+        gR.position.set(47 - (S.blocking ? 17 : 0), 20 + tiredDrop + blockUp, -14);
+        if (punchExt > 0 && !downed) {
+          const act = S.punch === 'jabL' ? gL : gR;
+          act.position.z = -14 - punchExt * 62;
+          act.position.y = 20 + punchExt * 26;
+          act.position.x = (S.punch === 'jabL' ? -47 : 47) * (1 - punchExt * 0.62);
+          const sc = 1 + punchExt * 0.22;
+          act.scale.set(sc, sc, sc);
+        } else {
+          gL.scale.set(1, 1, 1);
+          gR.scale.set(1, 1, 1);
+        }
+        if (!inFight && S.phase !== 'pdown') {
+          // between rounds / select: calm guard
+        }
+      }
+
+      const frame = (now) => {
+        raf = requestAnimationFrame(frame);
+        pose(now);
+        renderer.render(scene, camera);
+      };
+      raf = requestAnimationFrame(frame);
+
+      cleanup = () => {
+        cancelAnimationFrame(raf);
+        renderer.dispose();
+        if (renderer.domElement.parentNode) renderer.domElement.parentNode.removeChild(renderer.domElement);
+      };
+    })();
+
+    return () => {
+      disposed = true;
+      cleanup();
+    };
+  }, [stateRef]);
+
+  return <div ref={mountRef} style={{ position: 'absolute', inset: 0, zIndex: 0 }} />;
+}
+
+
 export default function Boxing({ onFinish }) {
   const state = useRef(freshState(OPPONENTS[1]));
   const [, setUi] = useState(0);
@@ -655,7 +984,7 @@ export default function Boxing({ onFinish }) {
   if (S.phase === 'select') {
     return (
       <div className="game">
-        <h2>🥊 FRG Boxing</h2>
+        <h2>🥊 FRG Boxing 3D</h2>
         <p className="select-sub">Choose your opponent</p>
         <div className="opp-cards">
           {OPPONENTS.map((o) => (
@@ -751,19 +1080,9 @@ export default function Boxing({ onFinish }) {
         </div>
       </div>
 
-      <div className={`ring ${S.shake ? 'shake' : ''}`} style={{ backgroundImage: 'url(/sprites/ring-bg.webp)' }}>
-        <div className="ropes" />
-        <div
-          className={`enemy ${S.enemy === 'tell' ? 'flash' : ''} ${S.enemy === 'attack' ? 'lunge' : ''} ${S.enemy === 'stunned' ? 'stunned' : ''} ${S.enemy === 'down' ? 'down' : ''} ${S.enemy === 'idle' || S.enemy === 'taunt' ? 'bob' : ''}`}
-          style={{ left: `${swayPct}%` }}
-        >
-          <img
-            src={`/sprites/${S.opp.id}-${ENEMY_FRAME[S.enemy] || 'idle'}.webp`}
-            alt="Opponent boxer"
-            style={{ height: `${Math.round((S.enemy === 'down' ? 120 : 262) * (S.opp.scale || 1))}px` }}
-          />
-        </div>
-        {(S.phase === 'edown' || S.phase === 'pdown') && S.count > 0 && (
+      <div className={`ring ${S.shake ? 'shake' : ''}`}>
+        <RingStage3D stateRef={S} />
+{(S.phase === 'edown' || S.phase === 'pdown') && S.count > 0 && (
           <div className="countLbl">{S.count}</div>
         )}
         {S.dmgNums.map((d) => (
@@ -776,16 +1095,16 @@ export default function Boxing({ onFinish }) {
             {S.burst.big ? '💥' : '✦'}
           </div>
         )}
+        {S.burst && (
+          <div key={S.burst.id} className={`hitburst ${S.burst.big ? 'big' : ''}`}>
+            {S.burst.big ? '💥' : '✦'}
+          </div>
+        )}
         {S.callout && (
           <div key={S.callout.id} className="box-callout">
             {S.callout.text}
           </div>
         )}
-        <div
-          className={`player ${S.dodging > 0 ? (S.dodgeDir < 0 ? 'dodgeL' : 'dodgeR') : ''} ${S.tired ? 'tired' : ''} ${S.phase === 'pdown' ? 'down' : ''}`}
-        >
-          <img src={`/sprites/player-${playerFrame}.webp`} alt="Your boxer" />
-        </div>
       </div>
 
       <div className="msg">{S.msg}</div>

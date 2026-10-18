@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import Matter from 'matter-js';
 
-// FRG Pinball — a real physics table (matter-js): 3 balls, 3 pop
+// FRG Pinball — a real physics table (matter-js) in a REAL 3D
+// cabinet (Three.js): 3 balls, 3 pop
 // bumpers, slingshots, F-R-G standup targets (light all three for
 // the bonus), rollover lanes, and a charged plunger launch. Score
 // converts to FRG by tiers — the table is in PINBALL_TIERS below
@@ -25,6 +26,7 @@ const H = 580;
 export default function Pinball({ onFinish }) {
   const canvasRef = useRef(null);
   const wrapRef = useRef(null);
+  const mountRef = useRef(null);
   const [hud, setHud] = useState({ score: 0, ball: 1, msg: 'Charge the plunger — tap LAUNCH to fire!', power: 0, waiting: true });
   const G = useRef(null);
 
@@ -353,187 +355,304 @@ export default function Pinball({ onFinish }) {
       draw();
     };
 
-    // --- Canvas rendering -------------------------------------------------------
-    const imgBg = new Image();
-    imgBg.src = '/art/pinball-bg.webp';
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    canvas.width = W * dpr;
-    canvas.height = H * dpr;
+    // --- 3D rendering (Three.js) -----------------------------------------
+    // The matter-js physics above is untouched; this block only READS
+    // body positions and draws the table as a real 3D cabinet: raised
+    // rails, a dome arc, chrome ball, glowing bumpers. Letters, stars,
+    // popups and the callout stay on a 2D overlay in game coordinates.
+    const overlay = canvasRef.current;
+    const octx = overlay.getContext('2d');
+    let T3 = null;
+    let dispose3d = () => {};
+
+    (async () => {
+      const THREE = await import('three');
+      const mount = mountRef.current;
+      if (!mount) return;
+      const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+      renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+      renderer.setSize(W, H, false);
+      renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;';
+      mount.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0a1230);
+      scene.fog = new THREE.Fog(0x0a1230, 1400, 3000);
+      const camera = new THREE.PerspectiveCamera(50, W / H, 1, 4000);
+      camera.position.set(200, 330, 712);
+      camera.lookAt(200, 284, 0);
+
+      scene.add(new THREE.HemisphereLight(0xcfe2ff, 0x16224a, 1.5));
+      const sun = new THREE.DirectionalLight(0xfff3d6, 1.9);
+      sun.position.set(140, 380, 560);
+      scene.add(sun);
+      const fill = new THREE.DirectionalLight(0x7fb2ff, 0.55);
+      fill.position.set(-260, 120, 300);
+      scene.add(fill);
+
+      const wy = (gy) => H - gy;
+      const railMat = new THREE.MeshStandardMaterial({ color: 0x27406e, roughness: 0.5, metalness: 0.35 });
+      const railMat2 = new THREE.MeshStandardMaterial({ color: 0x2c4a7c, roughness: 0.5, metalness: 0.35 });
+      function rail(x, gy, w, h, angle, mat) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, 15), mat || railMat);
+        m.position.set(x, wy(gy), 6);
+        if (angle) m.rotation.z = -angle;
+        scene.add(m);
+        return m;
+      }
+      // cabinet slab + playfield art
+      {
+        const slab = new THREE.Mesh(
+          new THREE.BoxGeometry(W + 26, H + 26, 18),
+          new THREE.MeshStandardMaterial({ color: 0x1b2a4d, roughness: 0.6 })
+        );
+        slab.position.set(W / 2, H / 2, -11);
+        scene.add(slab);
+        const tex = new THREE.TextureLoader().load('/art/pinball-bg.webp', (t) => {
+          t.colorSpace = THREE.SRGBColorSpace;
+        });
+        const top = new THREE.Mesh(
+          new THREE.PlaneGeometry(W, H),
+          new THREE.MeshBasicMaterial({ map: tex, color: 0xaab4cc })
+        );
+        top.position.set(W / 2, H / 2, -1.5);
+        scene.add(top);
+        const laneShade = new THREE.Mesh(
+          new THREE.PlaneGeometry(32, H - 40),
+          new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.05 })
+        );
+        laneShade.position.set(378, H / 2, -1);
+        scene.add(laneShade);
+      }
+      rail(10, 390, 20, 420);
+      rail(394, 330, 14, 520);
+      rail(375, 576, 36, 12);
+      rail(356, 420, 12, 330);
+      rail(352, 208, 30, 8, -0.55);
+      rail(84, 516, 140, 12, 0.42, railMat2);
+      rail(282, 516, 140, 12, -0.42, railMat2);
+      // dome arc
+      {
+        const dome = new THREE.Mesh(
+          new THREE.TorusGeometry(188, 7.5, 10, 44, Math.PI),
+          new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.3, metalness: 0.4, emissive: 0x3b82f6, emissiveIntensity: 0.35 })
+        );
+        dome.position.set(196, wy(196), 6);
+        scene.add(dome);
+      }
+      // lane posts
+      for (const [px, py] of [[66, 472], [300, 472]]) {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(6, 6, 15, 12), railMat2);
+        post.rotation.x = Math.PI / 2;
+        post.position.set(px, wy(py), 6);
+        scene.add(post);
+      }
+      // slingshots
+      rail(108, 448, 66, 10, 0.85, railMat2);
+      rail(258, 448, 66, 10, -0.85, railMat2);
+      // rollover lane discs
+      for (const l of lanes) {
+        const disc = new THREE.Mesh(
+          new THREE.CircleGeometry(10, 20),
+          new THREE.MeshBasicMaterial({ color: 0xf7b733, transparent: true, opacity: 0.3 })
+        );
+        disc.position.set(l.position.x, wy(l.position.y), 1.5);
+        scene.add(disc);
+      }
+      // bumpers
+      const bumperMeshes = bumpers.map((bp) => {
+        const g = new THREE.Group();
+        const base = new THREE.Mesh(
+          new THREE.CylinderGeometry(17, 18.5, 13, 22),
+          new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.3, metalness: 0.4, emissive: 0xffd166, emissiveIntensity: 0.25 })
+        );
+        base.rotation.x = Math.PI / 2;
+        g.add(base);
+        const cap = new THREE.Mesh(
+          new THREE.SphereGeometry(12.5, 16, 10),
+          new THREE.MeshStandardMaterial({ color: 0xffd166, roughness: 0.2, metalness: 0.3, emissive: 0xffd166, emissiveIntensity: 0.4 })
+        );
+        cap.scale.z = 0.45;
+        cap.position.z = 7;
+        g.add(cap);
+        g.position.set(bp.position.x, wy(bp.position.y), 6);
+        scene.add(g);
+        return { g, base, cap, id: bp.id };
+      });
+      // F-R-G targets
+      const targetMeshes = targets.map((t) => {
+        const letter = t.label.split(':')[1];
+        const w = letter === 'G' ? 34 : 10;
+        const h = letter === 'G' ? 10 : 46;
+        const m = new THREE.Mesh(
+          new THREE.BoxGeometry(w, h, 14),
+          new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.45, metalness: 0.3 })
+        );
+        m.position.set(t.position.x, wy(t.position.y), 6);
+        m.rotation.z = -t.angle;
+        scene.add(m);
+        return { m, letter };
+      });
+      // flippers + pivots
+      const flipMeshes = [flipL, flipR].map((f) => {
+        const m = new THREE.Mesh(
+          new THREE.BoxGeometry(58, 15, 12),
+          new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.35, metalness: 0.2, emissive: 0xdc2626, emissiveIntensity: 0.15 })
+        );
+        scene.add(m);
+        const pivot = new THREE.Mesh(
+          new THREE.CylinderGeometry(5, 5, 14, 12),
+          new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.3 })
+        );
+        pivot.rotation.x = Math.PI / 2;
+        pivot.position.set(f.pivotX, wy(548), 7);
+        scene.add(pivot);
+        return { m, body: f.body };
+      });
+      // plunger
+      const plungerBase = new THREE.Mesh(new THREE.BoxGeometry(14, 22, 10), new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.5 }));
+      plungerBase.position.set(375, wy(563), 5);
+      scene.add(plungerBase);
+      const plungerFill = new THREE.Mesh(new THREE.BoxGeometry(14, 22, 11), new THREE.MeshBasicMaterial({ color: 0xf7b733 }));
+      plungerFill.position.set(375, wy(563), 5);
+      scene.add(plungerFill);
+      // chrome ball + glow + trail
+      const ballMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(9, 18, 12),
+        new THREE.MeshStandardMaterial({ color: 0xf2f6ff, roughness: 0.12, metalness: 0.9 })
+      );
+      scene.add(ballMesh);
+      const ballLight = new THREE.PointLight(0xaad7ff, 42, 130);
+      scene.add(ballLight);
+      let trailPts;
+      {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9 * 3), 3));
+        trailPts = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xcfe6ff, size: 5.5, sizeAttenuation: false, transparent: true, opacity: 0.35 }));
+        trailPts.frustumCulled = false;
+        scene.add(trailPts);
+      }
+      // bumper shockwave rings
+      const ringMeshes = [];
+      for (let i = 0; i < 4; i++) {
+        const r = new THREE.Mesh(
+          new THREE.RingGeometry(0.92, 1, 26),
+          new THREE.MeshBasicMaterial({ color: 0xffd76e, transparent: true, opacity: 0, side: THREE.DoubleSide })
+        );
+        r.visible = false;
+        scene.add(r);
+        ringMeshes.push(r);
+      }
+
+      T3 = {
+        sync() {
+          for (const bm of bumperMeshes) {
+            const flash = S.bumperFlash[bm.id] && Date.now() - S.bumperFlash[bm.id] < 130;
+            const sc = flash ? 20 / 17 : 1;
+            bm.g.scale.set(sc, sc, 1);
+            bm.base.material.emissiveIntensity = flash ? 0.95 : 0.25;
+            bm.cap.material.emissiveIntensity = flash ? 1.2 : 0.4;
+          }
+          for (const tm of targetMeshes) {
+            const lit = S.targets[tm.letter];
+            tm.m.material.color.set(lit ? 0xf7b733 : 0x475569);
+            tm.m.material.emissive = tm.m.material.emissive || new THREE.Color(0);
+            tm.m.material.emissive.set(lit ? 0xf7b733 : 0x000000);
+            tm.m.material.emissiveIntensity = lit ? 0.55 : 0;
+          }
+          for (const fm of flipMeshes) {
+            fm.m.position.set(fm.body.position.x, wy(fm.body.position.y), 7);
+            fm.m.rotation.z = -fm.body.angle;
+          }
+          plungerFill.visible = S.ballInLane;
+          plungerBase.visible = S.ballInLane;
+          if (S.ballInLane) {
+            const h = Math.max(0.5, (S.power / 100) * 22);
+            plungerFill.scale.y = h / 22;
+            plungerFill.position.y = wy(574) + h / 2;
+          }
+          ballMesh.position.set(ball.position.x, wy(ball.position.y), 9);
+          ballMesh.rotation.z = -ball.angle;
+          ballLight.position.set(ball.position.x, wy(ball.position.y), 26);
+          {
+            const arr = trailPts.geometry.getAttribute('position');
+            for (let i = 0; i < 9; i++) {
+              const tp = S.trail[i];
+              if (!tp) { arr.setXYZ(i, -100, -100, -100); continue; }
+              arr.setXYZ(i, tp.x, wy(tp.y), 5);
+            }
+            arr.needsUpdate = true;
+          }
+          S.rings.forEach((r, i) => {
+            const mesh = ringMeshes[i % ringMeshes.length];
+            const age = (Date.now() - r.at) / 230;
+            mesh.visible = true;
+            mesh.position.set(r.x, wy(r.y), 13);
+            const rad = 17 + age * 17;
+            mesh.scale.set(rad, rad, 1);
+            mesh.material.opacity = 0.75 * (1 - age);
+          });
+          for (let i = S.rings.length; i < ringMeshes.length; i++) ringMeshes[i].visible = false;
+        },
+        render() {
+          renderer.render(scene, camera);
+        },
+      };
+      dispose3d = () => {
+        renderer.dispose();
+        if (renderer.domElement.parentNode) renderer.domElement.parentNode.removeChild(renderer.domElement);
+        T3 = null;
+      };
+    })();
 
     function draw() {
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      // Playfield — neon underlay art, flat felt until it loads
-      if (imgBg.complete && imgBg.naturalWidth) {
-        const sc = Math.max(W / imgBg.naturalWidth, H / imgBg.naturalHeight);
-        const bw = imgBg.naturalWidth * sc;
-        const bh = imgBg.naturalHeight * sc;
-        ctx.drawImage(imgBg, (W - bw) / 2, (H - bh) / 2, bw, bh);
-        ctx.fillStyle = 'rgba(5,8,24,0.30)';
-        ctx.fillRect(0, 0, W, H);
-      } else {
-        const g = ctx.createLinearGradient(0, 0, 0, H);
-        g.addColorStop(0, '#12234d');
-        g.addColorStop(1, '#0a1230');
-        ctx.fillStyle = g;
-        ctx.fillRect(0, 0, W, H);
+      if (T3) {
+        T3.sync();
+        T3.render();
       }
-      // Launch lane shading
-      ctx.fillStyle = 'rgba(255,255,255,0.05)';
-      ctx.fillRect(362, 40, 32, H - 40);
-      // Dome
-      ctx.strokeStyle = '#3b82f6';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(196, 196, 186, Math.PI, 2 * Math.PI);
-      ctx.stroke();
-      // Walls/dividers
-      ctx.fillStyle = '#27406e';
-      ctx.fillRect(0, 180, 12, 400);
-      ctx.fillRect(350, 255, 12, 330);
-      // Funnels + slingshots
-      ctx.fillStyle = '#2c4a7c';
-      for (const [x, y, a, len] of [
-        [84, 516, 0.42, 140],
-        [282, 516, -0.42, 140],
-        [108, 448, 0.85, 66],
-        [258, 448, -0.85, 66],
-      ]) {
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(a);
-        ctx.fillRect(-len / 2, -5, len, 10);
-        ctx.restore();
-      }
-      // Rollover lanes
+      // overlay: lane stars + target letters + popups + callout
+      octx.clearRect(0, 0, W, H);
       for (const l of lanes) {
-        ctx.beginPath();
-        ctx.arc(l.position.x, l.position.y, 10, 0, 2 * Math.PI);
-        ctx.fillStyle = 'rgba(247,183,51,0.25)';
-        ctx.fill();
-        ctx.fillStyle = '#f7b733';
-        ctx.font = '11px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('★', l.position.x, l.position.y + 4);
+        octx.fillStyle = '#f7b733';
+        octx.font = '11px sans-serif';
+        octx.textAlign = 'center';
+        octx.fillText('★', l.position.x, l.position.y + 4);
       }
-      // Targets
       for (const t of targets) {
         const letter = t.label.split(':')[1];
         const lit = S.targets[letter];
-        ctx.save();
-        ctx.translate(t.position.x, t.position.y);
-        ctx.rotate(t.angle);
-        ctx.fillStyle = lit ? '#f7b733' : '#475569';
-        const wdt = letter === 'G' ? 34 : 10;
-        const hgt = letter === 'G' ? 10 : 46;
-        ctx.fillRect(-wdt / 2, -hgt / 2, wdt, hgt);
-        ctx.restore();
-        ctx.fillStyle = lit ? '#231a00' : '#94a3b8';
-        ctx.font = 'bold 10px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(letter, t.position.x, t.position.y + (letter === 'G' ? -8 : 3));
+        octx.fillStyle = lit ? '#231a00' : '#cbd5e1';
+        octx.font = 'bold 10px sans-serif';
+        octx.textAlign = 'center';
+        octx.fillText(letter, t.position.x, t.position.y + (letter === 'G' ? -8 : 3));
       }
-      // Bumpers
-      for (const bp of bumpers) {
-        const flash = S.bumperFlash[bp.id] && Date.now() - S.bumperFlash[bp.id] < 130;
-        const r = flash ? 20 : 17;
-        const bg = ctx.createRadialGradient(bp.position.x - 5, bp.position.y - 5, 2, bp.position.x, bp.position.y, r);
-        bg.addColorStop(0, flash ? '#fff7cc' : '#ffd166');
-        bg.addColorStop(1, flash ? '#f59e0b' : '#d97706');
-        ctx.beginPath();
-        ctx.arc(bp.position.x, bp.position.y, r, 0, 2 * Math.PI);
-        ctx.fillStyle = bg;
-        ctx.fill();
-        ctx.strokeStyle = '#92400e';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.fillStyle = '#451a03';
-        ctx.font = 'bold 10px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('150', bp.position.x, bp.position.y + 3);
-      }
-      // Bumper shockwave rings
-      for (const r of S.rings) {
-        const age = (Date.now() - r.at) / 230;
-        ctx.beginPath();
-        ctx.arc(r.x, r.y, 17 + age * 17, 0, 2 * Math.PI);
-        ctx.strokeStyle = `rgba(255, 215, 110, ${0.75 * (1 - age)})`;
-        ctx.lineWidth = 3;
-        ctx.stroke();
-      }
-      // Flippers
-      for (const f of [flipL, flipR]) {
-        ctx.save();
-        ctx.translate(f.body.position.x, f.body.position.y);
-        ctx.rotate(f.body.angle);
-        ctx.fillStyle = '#dc2626';
-        ctx.beginPath();
-        ctx.roundRect(-29, -7.5, 58, 15, 7);
-        ctx.fill();
-        ctx.restore();
-        ctx.beginPath();
-        ctx.arc(f.pivotX, 548, 5, 0, 2 * Math.PI);
-        ctx.fillStyle = '#f8fafc';
-        ctx.fill();
-      }
-      // Plunger
-      if (S.ballInLane) {
-        ctx.fillStyle = '#64748b';
-        ctx.fillRect(368, 552, 14, 22);
-        ctx.fillStyle = '#f7b733';
-        ctx.fillRect(368, 552 + (100 - S.power) * 0.2, 14, 22 - (100 - S.power) * 0.2);
-      }
-      // Ball trail + glowing ball
-      const p = ball.position;
-      S.trail.forEach((tp, i) => {
-        ctx.globalAlpha = (i / S.trail.length) * 0.28;
-        ctx.fillStyle = '#cfe6ff';
-        ctx.beginPath();
-        ctx.arc(tp.x, tp.y, 3 + (i / S.trail.length) * 5, 0, 2 * Math.PI);
-        ctx.fill();
-      });
-      ctx.globalAlpha = 1;
-      const bgr = ctx.createRadialGradient(p.x - 3, p.y - 3, 1, p.x, p.y, 9);
-      bgr.addColorStop(0, '#ffffff');
-      bgr.addColorStop(1, '#94a3b8');
-      ctx.save();
-      ctx.shadowColor = 'rgba(170,215,255,0.85)';
-      ctx.shadowBlur = 12;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 9, 0, 2 * Math.PI);
-      ctx.fillStyle = bgr;
-      ctx.fill();
-      ctx.restore();
-      // Score popups
       for (const pu of S.popups) {
-        ctx.globalAlpha = Math.max(0, Math.min(1, pu.life));
-        ctx.font = `900 ${pu.size}px system-ui`;
-        ctx.textAlign = 'center';
-        ctx.strokeStyle = 'rgba(4,6,20,0.85)';
-        ctx.lineWidth = 3.5;
-        ctx.strokeText(pu.text, pu.x, pu.y);
-        ctx.fillStyle = pu.color;
-        ctx.fillText(pu.text, pu.x, pu.y);
+        octx.globalAlpha = Math.max(0, Math.min(1, pu.life));
+        octx.font = `900 ${pu.size}px system-ui`;
+        octx.textAlign = 'center';
+        octx.strokeStyle = 'rgba(4,6,20,0.85)';
+        octx.lineWidth = 3.5;
+        octx.strokeText(pu.text, pu.x, pu.y);
+        octx.fillStyle = pu.color;
+        octx.fillText(pu.text, pu.x, pu.y);
       }
-      ctx.globalAlpha = 1;
-      // F-R-G complete callout
+      octx.globalAlpha = 1;
       if (S.callout) {
         const age = Date.now() - S.callout.at;
         const sc2 = age < 200 ? 0.6 + (age / 200) * 0.5 : 1.1;
-        ctx.save();
-        ctx.translate(W / 2, 300);
-        ctx.scale(sc2, sc2);
-        ctx.globalAlpha = age > 950 ? Math.max(0, 1 - (age - 950) / 300) : 1;
-        ctx.font = '900 24px system-ui';
-        ctx.textAlign = 'center';
-        ctx.strokeStyle = 'rgba(4,6,20,0.9)';
-        ctx.lineWidth = 6;
-        ctx.strokeText(S.callout.text, 0, 0);
-        ctx.fillStyle = '#ffd94d';
-        ctx.fillText(S.callout.text, 0, 0);
-        ctx.restore();
-        ctx.globalAlpha = 1;
+        octx.save();
+        octx.translate(W / 2, 300);
+        octx.scale(sc2, sc2);
+        octx.globalAlpha = age > 950 ? Math.max(0, 1 - (age - 950) / 300) : 1;
+        octx.font = '900 24px system-ui';
+        octx.textAlign = 'center';
+        octx.strokeStyle = 'rgba(4,6,20,0.9)';
+        octx.lineWidth = 6;
+        octx.strokeText(S.callout.text, 0, 0);
+        octx.fillStyle = '#ffd94d';
+        octx.fillText(S.callout.text, 0, 0);
+        octx.restore();
+        octx.globalAlpha = 1;
       }
     }
 
@@ -556,6 +675,7 @@ export default function Pinball({ onFinish }) {
 
     return () => {
       cancelAnimationFrame(raf);
+      dispose3d();
       Events.off(engine);
       Composite.clear(world, false);
       Engine.clear(engine);
@@ -599,7 +719,7 @@ export default function Pinball({ onFinish }) {
 
   return (
     <main className="pinball-wrap">
-      <h2 className="pinball-title">👾 FRG PINBALL</h2>
+      <h2 className="pinball-title">👾 FRG PINBALL 3D</h2>
       <div className="pinball-hud">
         <span>
           SCORE <b>{hud.score.toLocaleString()}</b>
@@ -616,7 +736,8 @@ export default function Pinball({ onFinish }) {
       </div>
 
       <div className="pinball-cab" ref={wrapRef}>
-        <canvas ref={canvasRef} style={{ width: '100%', display: 'block', borderRadius: 12 }} />
+        <div ref={mountRef} className="pinball-3d-mount" />
+        <canvas ref={canvasRef} width={W} height={H} className="pinball-overlay" />
       </div>
 
       <p className="pinball-msg">{hud.msg}</p>
