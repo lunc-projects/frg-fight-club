@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-// FRG Prize Wheel — "extra safe" tuning (owner's choice): the average
+// FRG Prize Wheel — now a REAL 3D wheel (Three.js). "Extra safe"
+// tuning (owner's choice): the average
 // payout (5.83 PTS) stays well under the 10 PTS entry, so the treasury
 // grows over time. Segment layout mirrors the server's WHEEL_PRIZES.
 export const WHEEL_SEGMENTS = [
@@ -47,6 +48,215 @@ function tickSound() {
   } catch { /* audio is a bonus */ }
 }
 
+// ---------------------------------------------------------------------
+// The 3D wheel. The spin itself is still driven by the original CSS-
+// transition machinery on an invisible proxy element (same easing,
+// same transitionend finish, same tick sampler). This stage reads the
+// proxy's computed rotation every frame and turns a REAL 3D wheel —
+// textured face, gold rim, hub, legs, and 24 rim bulbs that chase
+// with the same phase as the old SVG bulbs. Presentation only.
+// ---------------------------------------------------------------------
+function WheelStage3D({ proxyRef, liveRef }) {
+  const mountRef = useRef(null);
+
+  useEffect(() => {
+    let disposed = false;
+    let raf = 0;
+    let cleanup = () => {};
+
+    (async () => {
+      const THREE = await import('three');
+      if (disposed) return;
+      const mount = mountRef.current;
+      const W = 400;
+      const H = 400;
+      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+      renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+      renderer.setSize(W, H, false);
+      renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;';
+      mount.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(47, 1, 1, 3000);
+      camera.position.set(200, 208, 505);
+      camera.lookAt(200, 200, 0);
+
+      scene.add(new THREE.HemisphereLight(0xfff2d8, 0x241433, 1.6));
+      const key = new THREE.DirectionalLight(0xfff6dd, 2.2);
+      key.position.set(120, 300, 420);
+      scene.add(key);
+      const rim = new THREE.DirectionalLight(0xc4b5fd, 0.7);
+      rim.position.set(-240, 80, 240);
+      scene.add(rim);
+
+      // ---- wheel face texture: the SVG layout, drawn on a canvas ----
+      function faceTexture() {
+        const cv = document.createElement('canvas');
+        cv.width = 1024;
+        cv.height = 1024;
+        const c = cv.getContext('2d');
+        const C = 512;
+        const K = 1024 / 400; // SVG units -> texture px
+        const pol = (r, deg) => {
+          const a = ((deg - 90) * Math.PI) / 180;
+          return [C + r * K * Math.cos(a), C + r * K * Math.sin(a)];
+        };
+        WHEEL_SEGMENTS.forEach((seg, i) => {
+          const a0 = i * STEP;
+          const a1 = a0 + STEP;
+          c.beginPath();
+          c.moveTo(C, C);
+          c.arc(C, C, R * K, ((a0 - 90) * Math.PI) / 180, ((a1 - 90) * Math.PI) / 180);
+          c.closePath();
+          c.fillStyle = seg.color;
+          c.fill();
+          c.strokeStyle = '#f7b733';
+          c.lineWidth = 4;
+          c.stroke();
+          const mid = a0 + STEP / 2;
+          const [tx, ty] = pol(R * 0.72, mid);
+          c.save();
+          c.translate(tx, ty);
+          c.rotate((mid * Math.PI) / 180);
+          c.textAlign = 'center';
+          c.textBaseline = 'middle';
+          c.fillStyle = seg.text;
+          c.font = `900 ${seg.label.length > 2 ? 52 : 72}px system-ui`;
+          c.fillText(seg.label, 0, 0);
+          if (seg.label !== 'BUST') {
+            c.font = '700 28px system-ui';
+            c.globalAlpha = 0.85;
+            c.fillText('PTS', 0, 58);
+            c.globalAlpha = 1;
+          }
+          c.restore();
+        });
+        const tex = new THREE.CanvasTexture(cv);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = 4;
+        return tex;
+      }
+
+      const wheel = new THREE.Group();
+      wheel.position.set(200, 204, 0);
+      scene.add(wheel);
+      {
+        const faceTex = faceTexture();
+        const sideMat = new THREE.MeshStandardMaterial({ color: 0xc78f0a, roughness: 0.35, metalness: 0.6 });
+        const faceMat = new THREE.MeshStandardMaterial({ map: faceTex, roughness: 0.5 });
+        const backMat = new THREE.MeshStandardMaterial({ color: 0x241433, roughness: 0.7 });
+        const geo = new THREE.CylinderGeometry(168, 168, 20, 48);
+        geo.rotateX(Math.PI / 2);
+        const disc = new THREE.Mesh(geo, [sideMat, faceMat, backMat]);
+        wheel.add(disc);
+        const rimT = new THREE.Mesh(
+          new THREE.TorusGeometry(172, 9, 12, 56),
+          new THREE.MeshStandardMaterial({ color: 0xf7b733, roughness: 0.28, metalness: 0.65, emissive: 0xf7b733, emissiveIntensity: 0.18 })
+        );
+        rimT.position.z = 2;
+        wheel.add(rimT);
+      }
+      // rim bulbs (own materials — they chase in pairs)
+      const bulbMats = [];
+      const bulbMeshes = [];
+      for (let i = 0; i < 24; i++) {
+        const a = (i / 24) * Math.PI * 2;
+        const m = new THREE.MeshStandardMaterial({ color: 0xffe9a3, roughness: 0.3, emissive: 0xffe9a3, emissiveIntensity: 1 });
+        const b = new THREE.Mesh(new THREE.SphereGeometry(7, 10, 8), m);
+        b.position.set(200 + Math.cos(a) * 186, 204 + Math.sin(a) * 186, 8);
+        scene.add(b);
+        bulbMats.push(m);
+        bulbMeshes.push(b);
+      }
+      // static hub (does not spin, like the SVG overlay)
+      {
+        const hubCv = document.createElement('canvas');
+        hubCv.width = 256;
+        hubCv.height = 256;
+        const hc = hubCv.getContext('2d');
+        hc.beginPath();
+        hc.arc(128, 128, 126, 0, Math.PI * 2);
+        hc.fillStyle = '#e8a90c';
+        hc.fill();
+        hc.strokeStyle = '#f7b733';
+        hc.lineWidth = 10;
+        hc.stroke();
+        hc.fillStyle = '#3a2200';
+        hc.textAlign = 'center';
+        hc.font = '900 62px system-ui';
+        hc.fillText('FRG', 128, 124);
+        hc.fillStyle = '#5b3a00';
+        hc.font = '700 30px system-ui';
+        hc.fillText('PRIZE WHEEL', 128, 168);
+        const hubTex = new THREE.CanvasTexture(hubCv);
+        hubTex.colorSpace = THREE.SRGBColorSpace;
+        const hubGeo = new THREE.CylinderGeometry(47, 47, 30, 28);
+        hubGeo.rotateX(Math.PI / 2);
+        const hub = new THREE.Mesh(hubGeo, [
+          new THREE.MeshStandardMaterial({ color: 0xc78f0a, roughness: 0.35, metalness: 0.6 }),
+          new THREE.MeshStandardMaterial({ map: hubTex, roughness: 0.45 }),
+          new THREE.MeshStandardMaterial({ color: 0x241433, roughness: 0.7 }),
+        ]);
+        hub.position.set(200, 204, 8);
+        hub.rotation.z = Math.PI / 2;
+        scene.add(hub);
+      }
+      // stand: two legs + feet
+      {
+        const legMat = new THREE.MeshStandardMaterial({ color: 0x3b2a63, roughness: 0.5, metalness: 0.4 });
+        for (const s of [-1, 1]) {
+          const leg = new THREE.Mesh(new THREE.BoxGeometry(16, 150, 14), legMat);
+          leg.position.set(200 + s * 62, 66, -16);
+          leg.rotation.z = s * -0.32;
+          scene.add(leg);
+          const foot = new THREE.Mesh(new THREE.BoxGeometry(74, 12, 26), legMat);
+          foot.position.set(200 + s * 86, 4, -16);
+          scene.add(foot);
+        }
+      }
+
+      function currentAngle() {
+        const el = proxyRef.current;
+        if (!el) return 0;
+        try {
+          const m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
+          return (Math.atan2(m.b, m.a) * 180) / Math.PI;
+        } catch {
+          return 0;
+        }
+      }
+
+      const frame = () => {
+        raf = requestAnimationFrame(frame);
+        const deg = currentAngle();
+        wheel.rotation.z = (-deg * Math.PI) / 180;
+        const phase = liveRef.current?.bulbPhase || 0;
+        for (let i = 0; i < 24; i++) {
+          const on = (i + phase) % 2 === 0;
+          bulbMats[i].emissiveIntensity = on ? 1.5 : 0.12;
+          bulbMats[i].color.set(on ? 0xffe9a3 : 0x8a6d1f);
+        }
+        renderer.render(scene, camera);
+      };
+      raf = requestAnimationFrame(frame);
+
+      cleanup = () => {
+        cancelAnimationFrame(raf);
+        renderer.dispose();
+        if (renderer.domElement.parentNode) renderer.domElement.parentNode.removeChild(renderer.domElement);
+      };
+    })();
+
+    return () => {
+      disposed = true;
+      cleanup();
+    };
+  }, [proxyRef, liveRef]);
+
+  return <div ref={mountRef} style={{ position: 'absolute', inset: 0 }} />;
+}
+
+
 export default function PrizeWheel({ onFinish }) {
   const spinRef = useRef(null);
   const pointerRef = useRef(null);
@@ -54,43 +264,13 @@ export default function PrizeWheel({ onFinish }) {
   const [spinning, setSpinning] = useState(false);
   const [result, setResult] = useState(null); // { value } after stop
   const [bulbPhase, setBulbPhase] = useState(0);
+  const liveRef = useRef({ bulbPhase: 0 });
+  liveRef.current = { bulbPhase };
 
   useEffect(() => {
     const id = setInterval(() => setBulbPhase((p) => p + 1), 450);
     return () => clearInterval(id);
   }, []);
-
-  const segments = useMemo(
-    () =>
-      WHEEL_SEGMENTS.map((s, i) => {
-        const a0 = i * STEP, a1 = a0 + STEP;
-        const [x0, y0] = polar(R, a0), [x1, y1] = polar(R, a1);
-        const mid = a0 + STEP / 2, [tx, ty] = polar(R * 0.72, mid);
-        return (
-          <g key={i}>
-            <path d={`M ${CX} ${CY} L ${x0} ${y0} A ${R} ${R} 0 0 1 ${x1} ${y1} Z`} fill={s.color} stroke="#f7b733" strokeWidth="1.5" />
-            <text x={tx} y={ty} textAnchor="middle" dominantBaseline="middle" fontSize={s.label.length > 2 ? 19 : 26} fontWeight="900" fill={s.text} transform={`rotate(${mid} ${tx} ${ty})`}>
-              {s.label}
-            </text>
-            {s.label !== 'BUST' && (
-              <text x={tx} y={ty + 22} textAnchor="middle" fontSize="10" fontWeight="700" fill={s.text} opacity=".85" transform={`rotate(${mid} ${tx} ${ty + 22})`}>
-                PTS
-              </text>
-            )}
-          </g>
-        );
-      }),
-    []
-  );
-
-  const bulbs = useMemo(
-    () =>
-      Array.from({ length: 24 }, (_, i) => {
-        const [bx, by] = polar(183, i * 15);
-        return <circle key={i} cx={bx} cy={by} r="6" fill={(i + bulbPhase) % 2 ? '#8a6d1f' : '#ffe9a3'} />;
-      }),
-    [bulbPhase]
-  );
 
   function spin() {
     if (spinning) return;
@@ -158,20 +338,12 @@ export default function PrizeWheel({ onFinish }) {
 
   return (
     <main className="pw">
-      <h2 className="section">🎡 FRG Prize Wheel</h2>
+      <h2 className="section">🎡 FRG Prize Wheel 3D</h2>
       <div className="pw-wrap">
         <div className="pw-rays" />
         <div className="pw-pointer" ref={pointerRef} />
-        <svg className="pw-layer pw-spin" ref={spinRef} viewBox="0 0 400 400">
-          <g>{segments}</g>
-        </svg>
-        <svg className="pw-layer pw-static" viewBox="0 0 400 400">
-          <circle cx="200" cy="200" r="192" fill="none" stroke="#f7b733" strokeWidth="6" />
-          <g>{bulbs}</g>
-          <circle cx="200" cy="200" r="46" fill="#e8a90c" stroke="#f7b733" strokeWidth="4" />
-          <text x="200" y="194" textAnchor="middle" fontSize="21" fontWeight="900" fill="#3a2200">FRG</text>
-          <text x="200" y="216" textAnchor="middle" fontSize="11" fontWeight="700" fill="#5b3a00">PRIZE WHEEL</text>
-        </svg>
+        <div ref={spinRef} style={{ position: 'absolute', inset: 0, opacity: 0.001, pointerEvents: 'none' }} />
+        <WheelStage3D proxyRef={spinRef} liveRef={liveRef} />
         {result && result.value > 0 && (
           <div className="pw-confetti" key={result.value}>
             {CONFETTI.map((c, i) => (

@@ -30,6 +30,180 @@ const PADS = [
   { color: '#4ade80', dim: '#14532d', icon: '◆', name: 'green' },
 ];
 
+// ---------------------------------------------------------------------
+// The 3D memory console. The Simon logic (sequence, strikes, timers)
+// stays in the component's effect; this stage renders a chunky 3D
+// console with four big pads that light up and physically dip when
+// lit — during playback and on your presses alike. Taps raycast to
+// the same press() the buttons used. Presentation only.
+// ---------------------------------------------------------------------
+function MemoryStage3D({ liveRef, pressRef }) {
+  const mountRef = useRef(null);
+
+  useEffect(() => {
+    let disposed = false;
+    let raf = 0;
+    let cleanup = () => {};
+
+    (async () => {
+      const THREE = await import('three');
+      if (disposed) return;
+      const mount = mountRef.current;
+      const W = 400;
+      const H = 320;
+      const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+      renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+      renderer.setSize(W, H, false);
+      renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;';
+      mount.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x090d1a);
+      scene.fog = new THREE.Fog(0x090d1a, 1000, 2400);
+      const camera = new THREE.PerspectiveCamera(48, W / H, 1, 4000);
+      camera.position.set(200, 148, 388);
+      camera.lookAt(200, 168, 0);
+
+      scene.add(new THREE.HemisphereLight(0xd8e6ff, 0x141c30, 1.5));
+      const sun = new THREE.DirectionalLight(0xfff2cf, 1.9);
+      sun.position.set(130, 260, 480);
+      scene.add(sun);
+      const glow = new THREE.PointLight(0xffffff, 0, 420);
+      glow.position.z = 130;
+      scene.add(glow);
+
+      // the console slab with the club's memory art as an inlay
+      {
+        const slab = new THREE.Mesh(
+          new THREE.BoxGeometry(344, 308, 18),
+          new THREE.MeshStandardMaterial({ color: 0x131c33, roughness: 0.5, metalness: 0.3 })
+        );
+        slab.position.set(200, 160, -10);
+        scene.add(slab);
+        const tex = new THREE.TextureLoader().load('/covers/memory.webp', (t) => {
+          t.colorSpace = THREE.SRGBColorSpace;
+        });
+        const inlay = new THREE.Mesh(
+          new THREE.PlaneGeometry(330, 294),
+          new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.16 })
+        );
+        inlay.position.set(200, 160, -0.5);
+        scene.add(inlay);
+        const trim = new THREE.Mesh(
+          new THREE.BoxGeometry(352, 316, 6),
+          new THREE.MeshStandardMaterial({ color: 0x8a6d1f, roughness: 0.4, metalness: 0.55 })
+        );
+        trim.position.set(200, 160, -16);
+        scene.add(trim);
+      }
+
+      function glyphTexture(icon) {
+        const cv = document.createElement('canvas');
+        cv.width = 128;
+        cv.height = 128;
+        const c2 = cv.getContext('2d');
+        c2.font = '84px system-ui';
+        c2.textAlign = 'center';
+        c2.textBaseline = 'middle';
+        c2.fillStyle = 'rgba(10,14,26,0.88)';
+        c2.fillText(icon, 64, 70);
+        const tex = new THREE.CanvasTexture(cv);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        return tex;
+      }
+
+      const padPos = (i) => ({ x: 200 + (i % 2 ? 71 : -71), y: 160 + (i < 2 ? 71 : -71) });
+      const pads = [];
+      for (let i = 0; i < 4; i++) {
+        const P = PADS[i];
+        const { x, y } = padPos(i);
+        const g = new THREE.Group();
+        g.position.set(x, y, 6);
+        const mat = new THREE.MeshStandardMaterial({
+          color: new THREE.Color(P.dim),
+          roughness: 0.32,
+          emissive: new THREE.Color(P.color),
+          emissiveIntensity: 0.16,
+        });
+        const body = new THREE.Mesh(new THREE.BoxGeometry(122, 122, 20), mat);
+        body.userData.padIndex = i;
+        g.add(body);
+        const glyph = new THREE.Mesh(
+          new THREE.PlaneGeometry(74, 74),
+          new THREE.MeshBasicMaterial({ map: glyphTexture(P.icon), transparent: true })
+        );
+        glyph.position.z = 10.5;
+        g.add(glyph);
+        scene.add(g);
+        pads.push({ g, mat, idx: i, color: new THREE.Color(P.color) });
+      }
+      // strike flash plane
+      const flashPlane = new THREE.Mesh(
+        new THREE.PlaneGeometry(400, 320),
+        new THREE.MeshBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0 })
+      );
+      flashPlane.position.set(200, 160, 120);
+      scene.add(flashPlane);
+
+      const raycaster = new THREE.Raycaster();
+      const ndc = new THREE.Vector2();
+      function onTap(e) {
+        const rect = renderer.domElement.getBoundingClientRect();
+        ndc.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -(((e.clientY - rect.top) / rect.height) * 2 - 1));
+        raycaster.setFromCamera(ndc, camera);
+        const hits = raycaster.intersectObjects(pads.map((p) => p.g.children[0]), false);
+        if (hits.length) pressRef.current?.(hits[0].object.userData.padIndex);
+      }
+      renderer.domElement.addEventListener('pointerdown', onTap);
+
+      function sync(now) {
+        const L = liveRef.current || {};
+        for (const p of pads) {
+          const isLit = L.lit === p.idx;
+          const target = isLit ? 1.65 : 0.16;
+          p.mat.emissiveIntensity += (target - p.mat.emissiveIntensity) * 0.45;
+          const dip = isLit ? -3.5 : 0;
+          p.g.position.z += (6 + dip - p.g.position.z) * 0.5;
+          if (isLit) {
+            glow.position.set(p.g.position.x, p.g.position.y, 130);
+            glow.color.copy(p.color);
+            glow.intensity = 150;
+          }
+        }
+        if (L.lit === -1 || L.lit === undefined) glow.intensity = Math.max(0, glow.intensity - 22);
+        flashPlane.material.opacity += (((L.badFlash ? 0.3 : 0)) - flashPlane.material.opacity) * 0.5;
+      }
+
+      const frame = (now) => {
+        raf = requestAnimationFrame(frame);
+        sync(now);
+        renderer.render(scene, camera);
+      };
+      raf = requestAnimationFrame(frame);
+
+      cleanup = () => {
+        cancelAnimationFrame(raf);
+        renderer.domElement.removeEventListener('pointerdown', onTap);
+        renderer.dispose();
+        if (renderer.domElement.parentNode) renderer.domElement.parentNode.removeChild(renderer.domElement);
+      };
+    })();
+
+    return () => {
+      disposed = true;
+      cleanup();
+    };
+  }, [liveRef, pressRef]);
+
+  return (
+    <div
+      ref={mountRef}
+      style={{ position: 'relative', width: '100%', aspectRatio: '400 / 320', borderRadius: 16, overflow: 'hidden' }}
+    />
+  );
+}
+
+
 export default function Memory({ onFinish }) {
   const [lit, setLit] = useState(-1);
   const [badFlash, setBadFlash] = useState(false);
@@ -40,6 +214,10 @@ export default function Memory({ onFinish }) {
   const [msg, setMsg] = useState('Watch the pads, then repeat the sequence. It grows by one every round.');
   const [cheer, setCheer] = useState(null);
   const M = useRef(null);
+  const liveRef = useRef({ lit: -1, badFlash: false });
+  const pressRef = useRef(null);
+  liveRef.current = { lit, badFlash };
+  pressRef.current = (i) => M.current?.press(i);
 
   useEffect(() => {
     const S = {
@@ -173,52 +351,14 @@ export default function Memory({ onFinish }) {
 
   return (
     <main style={{ maxWidth: 430, margin: '0 auto', padding: 12 }}>
-      <h2 className="game-title">🧠 FRG MEMORY</h2>
+      <h2 className="game-title">🧠 FRG MEMORY 3D</h2>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, margin: '6px 0' }}>
         <span>ROUND <b>{round}</b></span>
         <span>SCORE <b>{score}</b></span>
         <span>{'✖'.repeat(strikes)}{'·'.repeat(Math.max(0, 3 - strikes))}</span>
       </div>
       <div style={{ position: 'relative' }}>
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: 12,
-          background: badFlash
-            ? '#450a0a'
-            : "linear-gradient(rgba(9,13,26,0.80), rgba(9,13,26,0.88)), url('/covers/memory.webp') center / cover",
-          padding: 14,
-          borderRadius: 16,
-          transition: 'background 150ms',
-        }}
-      >
-        {PADS.map((p, i) => (
-          <button
-            key={p.name}
-            onClick={() => M.current?.press(i)}
-            style={{
-              height: 128,
-              borderRadius: 14,
-              border: 'none',
-              fontSize: 40,
-              color: '#111827',
-              background: `linear-gradient(165deg, rgba(255,255,255,${
-                lit === i ? 0.38 : 0.20
-              }), rgba(255,255,255,0) 44%, rgba(0,0,0,0.22)), ${lit === i ? p.color : p.dim}`,
-              boxShadow:
-                lit === i
-                  ? `0 0 36px ${p.color}, 0 0 12px ${p.color}, inset 0 0 22px rgba(255,255,255,0.45), 0 8px 18px rgba(0,0,0,0.4)`
-                  : 'inset 0 -8px 0 rgba(0,0,0,0.30), inset 0 3px 0 rgba(255,255,255,0.16), 0 6px 14px rgba(0,0,0,0.35)',
-              transform: lit === i ? 'scale(1.05)' : 'scale(1)',
-              transition: 'background 90ms, box-shadow 90ms, transform 90ms',
-              cursor: phase === 'input' ? 'pointer' : 'default',
-            }}
-          >
-            {p.icon}
-          </button>
-        ))}
-      </div>
+      <MemoryStage3D liveRef={liveRef} pressRef={pressRef} />
       {cheer && (
         <div key={cheer.key} className="mem-callout">
           🎉 ROUND {cheer.round} CLEAR! +{cheer.pts}
