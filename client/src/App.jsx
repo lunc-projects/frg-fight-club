@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import WalletBar, { usePlayer } from './WalletBar.jsx';
+import { IS_IOS } from './wallet.js';
 import Boxing from './games/Boxing.jsx';
 import PrizeWheel from './games/PrizeWheel.jsx';
 import RocketCrash from './games/RocketCrash.jsx';
@@ -313,6 +314,13 @@ export default function App() {
         <main className="center">
           <div className="spinner" />
           <p>{busyText}</p>
+          {IS_IOS && screen === 'paying' && (
+            <p className="ios-note">
+              🍎 iPhone: after approving in your wallet, swipe up and
+              return to Telegram (or this tab) — your payment is saved
+              and the game resumes on its own.
+            </p>
+          )}
         </main>
       )}
 

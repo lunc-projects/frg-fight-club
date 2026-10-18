@@ -12,6 +12,16 @@ import { WC_PROJECT_ID } from './config.js';
 // links for Keplr/Galaxy/Cosmostation, the legacy Terra bridge for
 // Station and LUNC Dash).
 
+// iOS leaves wallet apps with no back arrow after an approval, so the
+// UI shows iPhone players the way home before they leave (their game
+// session and any in-flight payment persist and resume on return).
+export const IS_IOS =
+  /iphone|ipad|ipod/i.test(
+    typeof navigator !== 'undefined' ? navigator.userAgent || '' : ''
+  ) ||
+  (typeof window !== 'undefined' &&
+    window.Telegram?.WebApp?.platform === 'ios');
+
 export const CHAIN_INFO = {
   chainId: 'columbus-5',
   rpc: 'https://terra-classic-rpc.publicnode.com',

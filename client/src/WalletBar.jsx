@@ -4,6 +4,7 @@ import { FRG_CONTRACT, TREASURY_ADDRESS, ENTRY_FEE_FRG, toMicro } from './config
 import { getFrgBalance } from './chain.js';
 import {
   WALLET_DEFS,
+  IS_IOS,
   connectWallet,
   disconnectWallet,
   useConnectedWallet,
@@ -107,7 +108,11 @@ export default function WalletBar({ balance, setBalance }) {
                 >
                   <span className="wo-label">{def.label}</span>
                   <span className="wo-hint">
-                    {busyId === def.id ? 'Connecting — check your wallet app…' : def.hint}
+                    {busyId === def.id
+                      ? 'Connecting — check your wallet app…'
+                      : def.id === 'galaxystation' && IS_IOS
+                        ? '⚠️ iPhone: may open an empty web dashboard — Keplr below is the reliable pick'
+                        : def.hint}
                   </span>
                 </button>
                 {def.id === 'keplr' && keplrUri && (
@@ -129,6 +134,17 @@ export default function WalletBar({ balance, setBalance }) {
               </div>
             ))}
             {err && <div className="wo-error">{err}</div>}
+            {IS_IOS && (
+              <div className="wo-ios-note">
+                🍎 <b>iPhone:</b> Galaxy may open an <b>empty web
+                dashboard</b> here instead of your app — don't sign in
+                there. Go back and pick <b>Keplr</b> instead: copy the
+                pairing link and paste it in the Keplr app's
+                WalletConnect screen. After approving in any wallet,
+                swipe back to Telegram — your session reconnects by
+                itself.
+              </div>
+            )}
             <button className="btn btn-ghost" onClick={() => setOpen(false)}>
               Cancel
             </button>

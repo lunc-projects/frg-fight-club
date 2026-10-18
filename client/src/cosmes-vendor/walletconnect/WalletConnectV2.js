@@ -27,8 +27,23 @@ export class WalletConnectV2 {
     async connect(chainIds) {
         // Initialise the sign client and event listeners if they don't already exist
         if (!this.signClient) {
+            // FRG patch: ship full dapp metadata. Without it, wallets
+            // (especially on iOS) don't know where "back to the app" is,
+            // so after approving, players are stranded in the wallet
+            // with no return arrow. The redirect universal link is the
+            // standard WalletConnect "return to dapp" pointer.
             this.signClient = await SignClient.init({
                 projectId: this.projectId,
+                metadata: {
+                    name: 'FRG Fight Club',
+                    description: 'Arcade games for FRG — boxing, wheel, rocket, darts, racing, mines, pinball.',
+                    url: 'https://frg-fight-club.vercel.app',
+                    icons: ['https://frg-fight-club.vercel.app/favicon.ico'],
+                    redirect: {
+                        native: 'https://frg-fight-club.vercel.app',
+                        universal: 'https://frg-fight-club.vercel.app',
+                    },
+                },
             });
             // Disconnect if the session is disconnected or expired
             this.signClient.on("session_delete", ({ topic }) => this.disconnect(topic));
