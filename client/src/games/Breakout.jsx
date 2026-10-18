@@ -189,22 +189,69 @@ export default function Breakout({ onFinish }) {
       ctx.strokeStyle = '#2b3a55';
       ctx.lineWidth = 2;
       ctx.strokeRect(3, 3, W - 6, H - 6);
-      // bricks
+      // bricks — glossy 2026: soft shadow, vertical shade gradient,
+      // glass gloss and a beveled edge on every brick (one gradient
+      // per row, reused across the row).
+      const shade = (hex, f) => {
+        const n = parseInt(hex.slice(1), 16);
+        const r = Math.min(255, Math.max(0, Math.round(((n >> 16) & 255) * f)));
+        const g = Math.min(255, Math.max(0, Math.round(((n >> 8) & 255) * f)));
+        const b = Math.min(255, Math.max(0, Math.round((n & 255) * f)));
+        return `rgb(${r},${g},${b})`;
+      };
+      const rowGrad = {};
+      const rowGloss = {};
       for (const br of S.bricks) {
         if (!br.alive) continue;
-        ctx.fillStyle = ROW_COLORS[br.row];
+        if (!rowGrad[br.row]) {
+          const gr = ctx.createLinearGradient(0, br.y, 0, br.y + br.h);
+          gr.addColorStop(0, shade(ROW_COLORS[br.row], 1.38));
+          gr.addColorStop(0.45, ROW_COLORS[br.row]);
+          gr.addColorStop(1, shade(ROW_COLORS[br.row], 0.62));
+          rowGrad[br.row] = gr;
+          const gl = ctx.createLinearGradient(0, br.y, 0, br.y + br.h * 0.62);
+          gl.addColorStop(0, 'rgba(255,255,255,0.38)');
+          gl.addColorStop(1, 'rgba(255,255,255,0)');
+          rowGloss[br.row] = gl;
+        }
+        ctx.fillStyle = 'rgba(0,0,0,0.30)';
+        ctx.beginPath();
+        ctx.roundRect(br.x, br.y + 3, br.w, br.h, 3);
+        ctx.fill();
+        ctx.fillStyle = rowGrad[br.row];
         ctx.beginPath();
         ctx.roundRect(br.x, br.y, br.w, br.h, 3);
         ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.30)';
-        ctx.fillRect(br.x + 3, br.y + 2.5, br.w - 6, 3);
+        ctx.fillStyle = rowGloss[br.row];
+        ctx.beginPath();
+        ctx.roundRect(br.x + 1.5, br.y + 1.5, br.w - 3, br.h * 0.62, 2.5);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(br.x + 0.5, br.y + 0.5, br.w - 1, br.h - 1, 3);
+        ctx.stroke();
       }
-      // paddle
+      // paddle — same glossy treatment in gold
       const px = S.paddleX - PADDLE_W / 2;
-      ctx.fillStyle = '#f5c542';
-      ctx.beginPath();
-      ctx.roundRect(px, PADDLE_Y, PADDLE_W, 12, 6);
-      ctx.fill();
+      {
+        ctx.fillStyle = 'rgba(0,0,0,0.30)';
+        ctx.beginPath();
+        ctx.roundRect(px, PADDLE_Y + 3, PADDLE_W, 12, 6);
+        ctx.fill();
+        const pg = ctx.createLinearGradient(0, PADDLE_Y, 0, PADDLE_Y + 12);
+        pg.addColorStop(0, '#ffe9a3');
+        pg.addColorStop(0.45, '#f5c542');
+        pg.addColorStop(1, '#b8860b');
+        ctx.fillStyle = pg;
+        ctx.beginPath();
+        ctx.roundRect(px, PADDLE_Y, PADDLE_W, 12, 6);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.35)';
+        ctx.beginPath();
+        ctx.roundRect(px + 2, PADDLE_Y + 1.5, PADDLE_W - 4, 5, 2.5);
+        ctx.fill();
+      }
       ctx.fillStyle = '#0d1526';
       ctx.font = 'bold 8px system-ui';
       ctx.textAlign = 'center';

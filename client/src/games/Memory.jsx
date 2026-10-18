@@ -203,11 +203,13 @@ export default function Memory({ onFinish }) {
               border: 'none',
               fontSize: 40,
               color: '#111827',
-              background: lit === i ? p.color : p.dim,
+              background: `linear-gradient(165deg, rgba(255,255,255,${
+                lit === i ? 0.38 : 0.20
+              }), rgba(255,255,255,0) 44%, rgba(0,0,0,0.22)), ${lit === i ? p.color : p.dim}`,
               boxShadow:
                 lit === i
-                  ? `0 0 36px ${p.color}, 0 0 12px ${p.color}, inset 0 0 22px rgba(255,255,255,0.45)`
-                  : 'inset 0 -7px 0 rgba(0,0,0,0.28), inset 0 3px 0 rgba(255,255,255,0.13)',
+                  ? `0 0 36px ${p.color}, 0 0 12px ${p.color}, inset 0 0 22px rgba(255,255,255,0.45), 0 8px 18px rgba(0,0,0,0.4)`
+                  : 'inset 0 -8px 0 rgba(0,0,0,0.30), inset 0 3px 0 rgba(255,255,255,0.16), 0 6px 14px rgba(0,0,0,0.35)',
               transform: lit === i ? 'scale(1.05)' : 'scale(1)',
               transition: 'background 90ms, box-shadow 90ms, transform 90ms',
               cursor: phase === 'input' ? 'pointer' : 'default',

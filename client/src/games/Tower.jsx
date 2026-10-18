@@ -136,14 +136,38 @@ export default function Tower({ onFinish }) {
     }
 
     function drawBlock(x, y, w, i) {
+      // Glossy 2026 blocks: shade gradient, glass gloss, beveled edge,
+      // soft shadow under each block.
       const gold = i % 2 === 0;
-      ctx.fillStyle = gold ? '#d9a92f' : '#2c4470';
+      ctx.fillStyle = 'rgba(0,0,0,0.28)';
+      ctx.beginPath();
+      ctx.roundRect(x, y + 3, w, BLOCK_H - 2, 3);
+      ctx.fill();
+      const gr = ctx.createLinearGradient(0, y, 0, y + BLOCK_H);
+      if (gold) {
+        gr.addColorStop(0, '#f6d878');
+        gr.addColorStop(0.45, '#d9a92f');
+        gr.addColorStop(1, '#96690f');
+      } else {
+        gr.addColorStop(0, '#54719f');
+        gr.addColorStop(0.45, '#2c4470');
+        gr.addColorStop(1, '#182a4e');
+      }
+      ctx.fillStyle = gr;
       ctx.beginPath();
       ctx.roundRect(x, y, w, BLOCK_H - 2, 3);
       ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.20)';
-      ctx.fillRect(x + 3, y + 2.5, Math.max(0, w - 6), 3);
-      ctx.fillStyle = gold ? 'rgba(90,55,0,0.55)' : 'rgba(160,190,255,0.5)';
+      const gl = ctx.createLinearGradient(0, y, 0, y + BLOCK_H * 0.62);
+      gl.addColorStop(0, 'rgba(255,255,255,0.34)');
+      gl.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = gl;
+      ctx.fillRect(x + 1.5, y + 1.5, Math.max(0, w - 3), BLOCK_H * 0.5);
+      ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(x + 0.5, y + 0.5, w - 1, BLOCK_H - 3, 3);
+      ctx.stroke();
+      ctx.fillStyle = gold ? 'rgba(90,55,0,0.5)' : 'rgba(170,200,255,0.5)';
       for (const rx of [x + 7, x + w - 11]) {
         if (rx > x + 2 && rx < x + w - 4) ctx.fillRect(rx, y + BLOCK_H / 2 - 3, 4, 4);
       }
@@ -191,7 +215,10 @@ export default function Tower({ onFinish }) {
         ctx.save();
         ctx.translate(f.x + f.w / 2, topBlockTopY - BLOCK_H + f.y + BLOCK_H / 2);
         ctx.rotate(f.rot * Math.min(1, f.y / 120));
-        ctx.fillStyle = '#8a6d25';
+        const fg = ctx.createLinearGradient(0, -BLOCK_H / 2, 0, BLOCK_H / 2);
+        fg.addColorStop(0, '#c8a24a');
+        fg.addColorStop(1, '#7c5c14');
+        ctx.fillStyle = fg;
         ctx.fillRect(-f.w / 2, -BLOCK_H / 2, f.w, BLOCK_H - 2);
         ctx.restore();
       }

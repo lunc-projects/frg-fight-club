@@ -169,17 +169,31 @@ export default function Flight({ onFinish }) {
       for (const p of S.pillars) {
         const topH = p.cy - GAP / 2;
         const botY = p.cy + GAP / 2;
+        // Cylindrical shading: dark edges, a bright ridge off-center —
+        // the pillars read as polished metal columns, not flat bars.
         const pg = ctx.createLinearGradient(p.x, 0, p.x + GATE_W, 0);
-        pg.addColorStop(0, '#274069');
-        pg.addColorStop(0.45, '#41619b');
-        pg.addColorStop(1, '#1d2f52');
+        pg.addColorStop(0, '#16263f');
+        pg.addColorStop(0.28, '#4d6fa3');
+        pg.addColorStop(0.5, '#33507e');
+        pg.addColorStop(1, '#101f38');
         ctx.fillStyle = pg;
         ctx.fillRect(p.x, 0, GATE_W, topH);
         ctx.fillRect(p.x, botY, GATE_W, H - botY);
-        ctx.fillStyle = '#f5c542';
+        // caps — shaded gold with a gloss line and a shadow lip
+        const cg = ctx.createLinearGradient(0, 0, 0, 12);
+        cg.addColorStop(0, '#ffe9a3');
+        cg.addColorStop(0.5, '#f5c542');
+        cg.addColorStop(1, '#b8860b');
+        ctx.fillStyle = 'rgba(0,0,0,0.30)';
+        ctx.fillRect(p.x - 3, topH - 9, GATE_W + 6, 12);
+        ctx.fillRect(p.x - 3, botY + 3, GATE_W + 6, 12);
+        ctx.fillStyle = cg;
         ctx.fillRect(p.x - 3, topH - 12, GATE_W + 6, 12);
         ctx.fillRect(p.x - 3, botY, GATE_W + 6, 12);
-        ctx.fillStyle = 'rgba(255,255,255,0.13)';
+        ctx.fillStyle = 'rgba(255,255,255,0.4)';
+        ctx.fillRect(p.x - 3, topH - 12, GATE_W + 6, 2);
+        ctx.fillRect(p.x - 3, botY, GATE_W + 6, 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.16)';
         ctx.fillRect(p.x + 7, 0, 5, topH - 12);
         ctx.fillRect(p.x + 7, botY + 12, 5, H - botY - 12);
         if (p.coin && !p.coinTaken) {

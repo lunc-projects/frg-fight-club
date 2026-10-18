@@ -150,12 +150,41 @@ export default function Crossing({ onFinish }) {
     }
 
     function draw(now) {
-      // rows
+      // rows — shaded 2026 surfaces: gradient asphalt with a speckle
+      // texture, grass medians with a lit top edge, gold goal strip.
       for (let r = 0; r < ROWS; r++) {
-        if (r === GOAL_ROW) ctx.fillStyle = '#a16207';
-        else if (r === SPAWN.row || MEDIAN_ROWS.has(r)) ctx.fillStyle = '#14532d';
-        else ctx.fillStyle = r % 2 ? '#1f2937' : '#111827';
+        const rg = ctx.createLinearGradient(0, r * CELL, 0, r * CELL + CELL);
+        if (r === GOAL_ROW) {
+          rg.addColorStop(0, '#d9a62e');
+          rg.addColorStop(0.5, '#a16207');
+          rg.addColorStop(1, '#7c4a03');
+        } else if (r === SPAWN.row || MEDIAN_ROWS.has(r)) {
+          rg.addColorStop(0, '#1d7a3f');
+          rg.addColorStop(0.55, '#14532d');
+          rg.addColorStop(1, '#0b351c');
+        } else if (r % 2) {
+          rg.addColorStop(0, '#2a3648');
+          rg.addColorStop(0.55, '#1f2937');
+          rg.addColorStop(1, '#131a26');
+        } else {
+          rg.addColorStop(0, '#1b2536');
+          rg.addColorStop(0.55, '#111827');
+          rg.addColorStop(1, '#0a0f1a');
+        }
+        ctx.fillStyle = rg;
         ctx.fillRect(0, r * CELL, W, CELL);
+        if (r !== GOAL_ROW && !MEDIAN_ROWS.has(r) && r !== SPAWN.row) {
+          ctx.fillStyle = 'rgba(255,255,255,0.05)';
+          for (let k = 0; k < 9; k++) {
+            const sx = ((r * 131 + k * 47) % 97) / 97 * W;
+            const sy = r * CELL + ((r * 57 + k * 29) % 89) / 89 * (CELL - 4) + 2;
+            ctx.fillRect(sx, sy, 2, 1.4);
+          }
+        }
+        if (MEDIAN_ROWS.has(r) || r === SPAWN.row) {
+          ctx.fillStyle = 'rgba(255,255,255,0.13)';
+          ctx.fillRect(0, r * CELL, W, 2);
+        }
         if (r !== GOAL_ROW && !MEDIAN_ROWS.has(r) && r !== SPAWN.row) {
           ctx.strokeStyle = 'rgba(250, 204, 21, 0.35)';
           ctx.setLineDash([14, 18]);
