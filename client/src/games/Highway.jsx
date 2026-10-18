@@ -45,6 +45,8 @@ export default function Highway({ onFinish }) {
   const mountRef = useRef(null);
   const overlayRef = useRef(null);
   const [hud, setHud] = useState({ kmh: 0, score: 0, dist: 0, coins: 0 });
+  const [glFailed, setGlFailed] = useState(false);
+  const [stageTry, setStageTry] = useState(0);
   const [phase, setPhase] = useState('count');
   const S = useRef(null);
   if (!S.current) {
@@ -68,10 +70,31 @@ export default function Highway({ onFinish }) {
     (async () => {
       const THREE = await import('three');
       if (disposed) return;
+      try {
 
       // ---------- renderer / scene ----------
       const mount = mountRef.current;
-      const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+      // Some phones/WebViews refuse the fanciest context — degrade
+      // gracefully through plainer settings instead of a black screen.
+      let renderer = null;
+      let lastErr = null;
+      for (const opts of [
+        { antialias: true, powerPreference: 'high-performance' },
+        { antialias: false, powerPreference: 'default' },
+        { antialias: false, powerPreference: 'low-power' },
+      ]) {
+        try {
+          renderer = new THREE.WebGLRenderer(opts);
+          break;
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+      if (!renderer) throw lastErr || new Error('WebGL unavailable on this device');
+      renderer.domElement.addEventListener('webglcontextlost', (e) => {
+        e.preventDefault();
+        if (!disposed) setGlFailed(true);
+      });
       renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
       renderer.setSize(W, H, false);
       renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;';
@@ -740,6 +763,10 @@ export default function Highway({ onFinish }) {
         mount.removeChild(renderer.domElement);
         delete window.__frgHighway;
       };
+      } catch (err) {
+        console.error('Highway 3D failed to start:', err);
+        if (!disposed) setGlFailed(true);
+      }
     })();
 
     return () => {
@@ -747,10 +774,17 @@ export default function Highway({ onFinish }) {
       cleanup3d();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [stageTry]);
 
   const s = S.current;
   const setBtn = (v) => { s.btnSteer = v; };
+  const retryGl = () => {
+    S.current = null; // fresh run state on the next render
+    setHud({ kmh: 0, score: 0, dist: 0, coins: 0 });
+    setPhase('count');
+    setGlFailed(false);
+    setStageTry((t) => t + 1);
+  };
   const onPointer = (e) => {
     if (e.type === 'pointerdown' || e.type === 'pointermove') {
       if (e.buttons || e.type === 'pointerdown') {
@@ -782,6 +816,12 @@ export default function Highway({ onFinish }) {
           ref={overlayRef}
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 2 }}
         />
+        {glFailed && (
+          <div className="gl-fail">
+            <p>😵 The 3D graphics couldn't start on this device.</p>
+            <button className="btn btn-big" onClick={retryGl}>↻ Try again</button>
+          </div>
+        )}
       </div>
       <div className="flight-controls">
         <button className="btn flight-btn" onPointerDown={() => setBtn(-1)} onPointerUp={() => setBtn(0)} onPointerLeave={() => setBtn(0)}>◀ STEER</button>
