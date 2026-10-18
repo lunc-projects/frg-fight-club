@@ -223,7 +223,7 @@ export default function DragRacing({ onFinish }) {
             className="car rival-car"
             style={{ left: `${2 + S.rivalDist * 88}%` }}
           >
-            🏎️
+            <img className="car-img" src="/art/car-red.webp" alt="" draggable="false" />
           </div>
         </div>
         <div className="lane">
@@ -232,10 +232,19 @@ export default function DragRacing({ onFinish }) {
             className="car player-car"
             style={{ left: `${2 + S.dist * 88}%` }}
           >
-            🏎️
+            {S.launched && S.phase === 'racing' && <span className="car-flame">🔥</span>}
+            <img className="car-img" src="/art/car-taxi.webp" alt="" draggable="false" />
           </div>
         </div>
         <div className="finish-line" />
+        {S.lastShift.includes('PERFECT') && S.phase === 'racing' && (
+          <div key={S.perfects} className="shift-pop">⚡ PERFECT SHIFT!</div>
+        )}
+        {S.phase === 'done' && (
+          <div className="race-callout">
+            {S.outcome === 'win' ? '🏆 YOU WIN!' : S.outcome === 'foul' ? '🚨 RED LIGHT!' : '🏁 OUTRUN!'}
+          </div>
+        )}
       </div>
 
       <div className="tach">

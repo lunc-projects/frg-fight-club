@@ -70,6 +70,8 @@ export default function Putt({ onFinish }) {
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
+    const imgBg = new Image();
+    imgBg.src = '/art/putt-bg.webp';
     const startedAt = Date.now();
 
     const S = {
@@ -80,6 +82,9 @@ export default function Putt({ onFinish }) {
       ball: { x: 0, y: 0, vx: 0, vy: 0 },
       aiming: null, // {dx, dy} drag vector
       over: false,
+      trail: [],
+      particles: [],
+      popups: [],
       msg: 'Drag back from the ball and release to putt!',
     };
     G.current = S;
@@ -96,6 +101,7 @@ export default function Putt({ onFinish }) {
       S.ball.vx = 0;
       S.ball.vy = 0;
       S.strokes = 0;
+      S.trail = [];
     }
     placeBall();
     syncHud();
@@ -141,6 +147,8 @@ export default function Putt({ onFinish }) {
     function step() {
       const b = S.ball;
       if (moving()) {
+        S.trail.push({ x: b.x, y: b.y });
+        if (S.trail.length > 13) S.trail.shift();
         b.x += b.vx;
         b.y += b.vy;
         b.vx *= 0.988;
@@ -200,6 +208,13 @@ export default function Putt({ onFinish }) {
               ? '🎉 HOLE IN ONE!'
               : `⛳ Sunk in ${S.strokes}! +${puttHoleScore(S.strokes)} points`;
           syncHud();
+          const hs = puttHoleScore(S.strokes);
+          S.popups.push({ x: cup.x, y: cup.y - 24, text: S.strokes === 1 ? `ACE! +${hs}` : `+${hs}`, life: 1.25, color: '#ffd94d', size: S.strokes === 1 ? 22 : 18 });
+          for (let i = 0; i < 14; i++) {
+            const a = Math.random() * Math.PI * 2;
+            const sp = 40 + Math.random() * 130;
+            S.particles.push({ x: cup.x, y: cup.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 60, r: 1.8 + Math.random() * 2.2, life: 0.7, color: ['#ffd94d', '#4ade80', '#ffffff'][i % 3] });
+          }
           setTimeout(finishHole, 800);
         }
       }
@@ -207,12 +222,24 @@ export default function Putt({ onFinish }) {
 
     function draw() {
       const h = hole();
-      // felt
-      const grad = ctx.createLinearGradient(0, 0, 0, H);
-      grad.addColorStop(0, '#15803d');
-      grad.addColorStop(1, '#166534');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, W, H);
+      // felt — real green texture, flat gradient until it loads
+      if (imgBg.complete && imgBg.naturalWidth) {
+        const sc = Math.max(W / imgBg.naturalWidth, H / imgBg.naturalHeight);
+        const bw = imgBg.naturalWidth * sc;
+        const bh = imgBg.naturalHeight * sc;
+        ctx.drawImage(imgBg, (W - bw) / 2, (H - bh) / 2, bw, bh);
+      } else {
+        const grad = ctx.createLinearGradient(0, 0, 0, H);
+        grad.addColorStop(0, '#15803d');
+        grad.addColorStop(1, '#166534');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, W, H);
+      }
+      // fx aging (visual only, fixed-step)
+      for (const pt of S.particles) { pt.x += pt.vx / 60; pt.y += pt.vy / 60; pt.vy += 300 / 60; pt.life -= 1 / 60; }
+      S.particles = S.particles.filter((pt) => pt.life > 0);
+      for (const pu of S.popups) { pu.y -= 30 / 60; pu.life -= 0.85 / 60; }
+      S.popups = S.popups.filter((pu) => pu.life > 0);
       ctx.strokeStyle = '#a16207';
       ctx.lineWidth = 12;
       ctx.strokeRect(0, 0, W, H);
@@ -262,6 +289,15 @@ export default function Putt({ onFinish }) {
           ctx.setLineDash([]);
         }
       }
+      // ball trail
+      S.trail.forEach((tp, i) => {
+        ctx.globalAlpha = (i / S.trail.length) * 0.33;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(tp.x, tp.y, 2 + (i / S.trail.length) * (BALL_R - 2), 0, 2 * Math.PI);
+        ctx.fill();
+      });
+      ctx.globalAlpha = 1;
       // ball
       const bg = ctx.createRadialGradient(b.x - 3, b.y - 3, 1, b.x, b.y, BALL_R);
       bg.addColorStop(0, '#ffffff');
@@ -270,6 +306,26 @@ export default function Putt({ onFinish }) {
       ctx.arc(b.x, b.y, BALL_R, 0, 2 * Math.PI);
       ctx.fillStyle = bg;
       ctx.fill();
+      // sink confetti + score popup
+      for (const pt of S.particles) {
+        ctx.globalAlpha = Math.max(0, Math.min(1, pt.life * 1.8));
+        ctx.fillStyle = pt.color;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      for (const pu of S.popups) {
+        ctx.globalAlpha = Math.max(0, Math.min(1, pu.life));
+        ctx.font = `900 ${pu.size}px system-ui`;
+        ctx.textAlign = 'center';
+        ctx.strokeStyle = 'rgba(4,40,16,0.85)';
+        ctx.lineWidth = 4;
+        ctx.strokeText(pu.text, pu.x, pu.y);
+        ctx.fillStyle = pu.color;
+        ctx.fillText(pu.text, pu.x, pu.y);
+      }
+      ctx.globalAlpha = 1;
     }
 
     let raf;
