@@ -22,6 +22,16 @@ export const IS_IOS =
   (typeof window !== 'undefined' &&
     window.Telegram?.WebApp?.platform === 'ios');
 
+// iPhone INSIDE Telegram specifically: Galaxy Station cannot be
+// reached from there at all (web link opens its empty website; the
+// app-scheme link is swallowed even when tapped — both tested
+// 2026-10-17). In Safari the same links behave, so the picker only
+// changes inside Telegram.
+export const IN_TG_IOS =
+  IS_IOS &&
+  typeof window !== 'undefined' &&
+  window.Telegram?.WebApp?.platform === 'ios';
+
 export const CHAIN_INFO = {
   chainId: 'columbus-5',
   rpc: 'https://terra-classic-rpc.publicnode.com',

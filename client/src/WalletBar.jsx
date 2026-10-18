@@ -5,6 +5,7 @@ import { getFrgBalance } from './chain.js';
 import {
   WALLET_DEFS,
   IS_IOS,
+  IN_TG_IOS,
   connectWallet,
   disconnectWallet,
   useConnectedWallet,
@@ -97,6 +98,11 @@ export default function WalletBar({ balance, setBalance }) {
   };
 
   if (!address) {
+    // Inside Telegram on iPhone, Keplr is the route that works, so it
+    // goes first; everywhere else Galaxy keeps its proven top spot.
+    const defs = IN_TG_IOS
+      ? [...WALLET_DEFS].sort((a) => (a.id === 'keplr' ? -1 : 1))
+      : WALLET_DEFS;
     return (
       <div className="walletbar">
         <div className="walletbar-label">Connect a wallet to play</div>
@@ -108,7 +114,7 @@ export default function WalletBar({ balance, setBalance }) {
           </div>
         ) : (
           <div className="wallet-options">
-            {WALLET_DEFS.map((def) => (
+            {defs.map((def) => (
               <div className="wallet-option-wrap" key={def.id}>
                 <button
                   className="btn btn-wallet-option"
@@ -119,12 +125,38 @@ export default function WalletBar({ balance, setBalance }) {
                   <span className="wo-hint">
                     {busyId === def.id
                       ? 'Connecting — check your wallet app…'
-                      : def.id === 'galaxystation' && IS_IOS
-                        ? 'iPhone: tap, then hit the 🚀 Open Galaxy Station app button that appears below'
-                        : def.hint}
+                      : def.id === 'galaxystation' && IN_TG_IOS
+                        ? "⛔ Can't open from Telegram on iPhone — use Keplr, or open the game in Safari"
+                        : def.id === 'galaxystation' && IS_IOS
+                          ? 'iPhone: tap, then hit the 🚀 Open Galaxy Station app button that appears below'
+                          : def.hint}
                   </span>
                 </button>
-                {def.id === 'galaxystation' && galaxyUri && (
+                {def.id === 'galaxystation' && galaxyUri && IN_TG_IOS && (
+                  <>
+                    <div className="wo-ios-note">
+                      ⛔ Galaxy's app can't be opened from Telegram on
+                      iPhone (tested — the link is swallowed). If Galaxy
+                      Station lets you paste a WalletConnect link, it's
+                      below; otherwise use <b>Keplr</b> above, or open{' '}
+                      <b>frg-fight-club.vercel.app</b> in Safari, where
+                      Galaxy opens normally.
+                    </div>
+                    <button
+                      className="btn btn-ghost wo-copy"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(galaxyUri);
+                          setCopiedG(true);
+                        } catch {}
+                      }}
+                    >
+                      {copiedG ? '✓ Copied' : '📋 Copy the pairing link'}
+                    </button>
+                    <input className="wo-uri" readOnly value={galaxyUri} onFocus={(e) => e.target.select()} />
+                  </>
+                )}
+                {def.id === 'galaxystation' && galaxyUri && !IN_TG_IOS && (
                   <>
                     <a
                       className="btn btn-wallet-option wo-open-app"
@@ -166,7 +198,19 @@ export default function WalletBar({ balance, setBalance }) {
               </div>
             ))}
             {err && <div className="wo-error">{err}</div>}
-            {IS_IOS && (
+            {IS_IOS && IN_TG_IOS && (
+              <div className="wo-ios-note">
+                🍎 <b>iPhone in Telegram:</b> use <b>Keplr</b> — tap it,
+                copy the pairing link, and paste it in the Keplr app's
+                WalletConnect screen. Galaxy Station can't be opened
+                from here (Apple/Telegram block the handoff — tested),
+                but Galaxy works if you open{' '}
+                <b>frg-fight-club.vercel.app</b> in Safari instead.
+                After approving in the wallet, swipe back to Telegram —
+                your session reconnects by itself.
+              </div>
+            )}
+            {IS_IOS && !IN_TG_IOS && (
               <div className="wo-ios-note">
                 🍎 <b>iPhone:</b> tap Galaxy Station, then the{' '}
                 <b>🚀 Open Galaxy Station app</b> button that appears —
