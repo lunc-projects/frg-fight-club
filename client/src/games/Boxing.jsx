@@ -220,48 +220,126 @@ function RingStage3D({ stateRef }) {
       const TRUNKS = isChamp ? 0xf7b733 : 0x3b82f6;
       const GLOVE = isChamp ? 0xf7b733 : 0xd23b3b;
 
-      function makeFighter(trunks, glove, skin) {
+      function makeFighter(trunks, glove, skin, hairColor, beard) {
         const g = new THREE.Group();
-        const skinMat = new THREE.MeshStandardMaterial({ color: skin, roughness: 0.62 });
+        const skinMat = new THREE.MeshStandardMaterial({ color: skin, roughness: 0.58, emissive: 0x3d1c08, emissiveIntensity: 0 });
         const trunkMat = new THREE.MeshStandardMaterial({ color: trunks, roughness: 0.5, emissive: trunks, emissiveIntensity: 0.06 });
-        const gloveMat = new THREE.MeshStandardMaterial({ color: glove, roughness: 0.32, emissive: glove, emissiveIntensity: 0.14 });
-        const shorts = new THREE.Mesh(new THREE.BoxGeometry(47, 27, 27), trunkMat);
-        shorts.position.y = 63;
-        g.add(shorts);
-        const belt = new THREE.Mesh(new THREE.BoxGeometry(48, 8, 28), new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4 }));
-        belt.position.y = 79;
-        g.add(belt);
-        for (const s of [-1, 1]) {
-          const leg = new THREE.Mesh(new THREE.CylinderGeometry(7.4, 6.4, 42, 10), skinMat);
-          leg.position.set(s * 13, 32, 0);
-          g.add(leg);
-          const boot = new THREE.Mesh(new THREE.BoxGeometry(13, 8, 22), new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.5 }));
-          boot.position.set(s * 13, 4, 3);
+        const gloveMat = new THREE.MeshStandardMaterial({ color: glove, roughness: 0.3, emissive: glove, emissiveIntensity: 0.14 });
+        const hairMat = new THREE.MeshStandardMaterial({ color: hairColor, roughness: 0.85 });
+        const darkMat = new THREE.MeshStandardMaterial({ color: 0x1c1310, roughness: 0.6 });
+        const bootMat = new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.5 });
+
+        // ---- legs: thigh + shin + boot, slight athletic stance ----
+        for (const sd of [-1, 1]) {
+          const thigh = new THREE.Mesh(new THREE.CylinderGeometry(8.2, 6.8, 26, 10), skinMat);
+          thigh.position.set(sd * 12.5, 47, 0);
+          thigh.rotation.z = sd * 0.05;
+          g.add(thigh);
+          const shin = new THREE.Mesh(new THREE.CylinderGeometry(6.4, 5.4, 24, 10), skinMat);
+          shin.position.set(sd * 13.5, 23, 1);
+          g.add(shin);
+          const boot = new THREE.Mesh(new THREE.BoxGeometry(13.5, 8, 24), bootMat);
+          boot.position.set(sd * 13.5, 4, 4);
           g.add(boot);
         }
-        const torso = new THREE.Mesh(new THREE.BoxGeometry(45, 50, 25), skinMat);
-        torso.position.y = 103;
-        g.add(torso);
+        // ---- trunks + belt ----
+        const shorts = new THREE.Mesh(new THREE.CylinderGeometry(21.5, 23.5, 21, 14), trunkMat);
+        shorts.position.y = 66;
+        shorts.scale.z = 0.82;
+        g.add(shorts);
+        const belt = new THREE.Mesh(new THREE.CylinderGeometry(22.5, 22.5, 7, 14), new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4 }));
+        belt.position.y = 78;
+        belt.scale.z = 0.82;
+        g.add(belt);
+
+        // ---- torso (pivots at the waist so he can lean and twist) ----
+        const torsoG = new THREE.Group();
+        torsoG.position.y = 78;
+        g.add(torsoG);
+        const abdomen = new THREE.Mesh(new THREE.CylinderGeometry(17.5, 19.5, 15, 12), skinMat);
+        abdomen.position.y = 6;
+        abdomen.scale.z = 0.8;
+        torsoG.add(abdomen);
+        const chest = new THREE.Mesh(new THREE.CylinderGeometry(23, 18.5, 22, 14), skinMat);
+        chest.position.y = 23;
+        chest.scale.z = 0.76;
+        torsoG.add(chest);
+        const pec = new THREE.Mesh(new THREE.SphereGeometry(17, 14, 10), skinMat);
+        pec.scale.set(1.18, 0.62, 0.55);
+        pec.position.set(0, 26, 8);
+        torsoG.add(pec);
+        const neck = new THREE.Mesh(new THREE.CylinderGeometry(7.6, 9, 10, 10), skinMat);
+        neck.position.y = 38;
+        torsoG.add(neck);
+
+        // ---- head: skull, jaw, face ----
         const headG = new THREE.Group();
-        headG.position.y = 141;
-        const head = new THREE.Mesh(new THREE.SphereGeometry(16.5, 18, 14), skinMat);
-        headG.add(head);
-        const hair = new THREE.Mesh(new THREE.SphereGeometry(16.9, 18, 12), new THREE.MeshStandardMaterial({ color: 0x2b2118, roughness: 0.85 }));
-        hair.scale.set(1, 0.62, 1);
-        hair.position.set(0, 6.5, -2.5);
+        headG.position.y = 47;
+        torsoG.add(headG);
+        const skull = new THREE.Mesh(new THREE.SphereGeometry(15.5, 20, 16), skinMat);
+        skull.scale.set(0.94, 1.07, 0.97);
+        headG.add(skull);
+        const jaw = new THREE.Mesh(new THREE.SphereGeometry(11.5, 14, 10), skinMat);
+        jaw.scale.set(0.92, 0.72, 0.9);
+        jaw.position.set(0, -8.5, 2.5);
+        headG.add(jaw);
+        const nose = new THREE.Mesh(new THREE.ConeGeometry(3.1, 7.5, 8), skinMat);
+        nose.rotation.x = Math.PI / 2 - 0.25;
+        nose.position.set(0, -0.5, 15.5);
+        headG.add(nose);
+        const eyeGeo = new THREE.SphereGeometry(1.95, 8, 8);
+        for (const sd of [-1, 1]) {
+          const eye = new THREE.Mesh(eyeGeo, darkMat);
+          eye.position.set(sd * 5.6, 1.8, 13.6);
+          headG.add(eye);
+          const ear = new THREE.Mesh(new THREE.SphereGeometry(3.1, 8, 8), skinMat);
+          ear.position.set(sd * 14.6, -0.5, 0);
+          headG.add(ear);
+        }
+        const browGeo = new THREE.BoxGeometry(7.4, 1.9, 1.7);
+        const browL = new THREE.Mesh(browGeo, hairMat);
+        browL.position.set(-5.8, 5.6, 13.9);
+        browL.rotation.z = -0.14;
+        headG.add(browL);
+        const browR = new THREE.Mesh(browGeo, hairMat);
+        browR.position.set(5.8, 5.6, 13.9);
+        browR.rotation.z = 0.14;
+        headG.add(browR);
+        const mouth = new THREE.Mesh(new THREE.BoxGeometry(6.4, 1.5, 1.2), darkMat);
+        mouth.position.set(0, -8.2, 12.6);
+        headG.add(mouth);
+        const hair = new THREE.Mesh(new THREE.SphereGeometry(16.1, 18, 12), hairMat);
+        hair.scale.set(0.97, 0.72, 1);
+        hair.position.set(0, 5.4, -2.2);
         headG.add(hair);
-        g.add(headG);
+        if (beard) {
+          const bd = new THREE.Mesh(new THREE.BoxGeometry(15.5, 8.5, 5), hairMat);
+          bd.position.set(0, -11.5, 9.5);
+          headG.add(bd);
+        }
+
+        // ---- arms: shoulder pivot -> upper arm -> elbow -> forearm + glove ----
         function makeArm(side) {
           const arm = new THREE.Group();
-          arm.position.set(side * 28, 122, 0);
-          const upper = new THREE.Mesh(new THREE.BoxGeometry(11.5, 30, 11.5), skinMat);
-          upper.position.y = -13;
+          arm.position.set(side * 25.5, 31, 0);
+          torsoG.add(arm);
+          const upper = new THREE.Mesh(new THREE.CylinderGeometry(7.8, 6.6, 24, 10), skinMat);
+          upper.position.y = -11;
           arm.add(upper);
-          const gloveM = new THREE.Mesh(new THREE.SphereGeometry(13.6, 14, 12), gloveMat);
-          gloveM.position.set(0, -27, 9);
-          arm.add(gloveM);
-          g.add(arm);
-          return { arm, gloveM };
+          const elbow = new THREE.Group();
+          elbow.position.y = -23;
+          arm.add(elbow);
+          const fore = new THREE.Mesh(new THREE.CylinderGeometry(6.2, 5.3, 20, 10), skinMat);
+          fore.position.y = -9;
+          elbow.add(fore);
+          const gloveM = new THREE.Mesh(new THREE.SphereGeometry(10.8, 16, 13), gloveMat);
+          gloveM.scale.set(1, 1.08, 1.2);
+          gloveM.position.set(0, -22, 2);
+          elbow.add(gloveM);
+          const thumb = new THREE.Mesh(new THREE.SphereGeometry(3.8, 8, 8), gloveMat);
+          thumb.position.set(-side * 5.5, -16, 7);
+          elbow.add(thumb);
+          return { arm, elbow };
         }
         const armL = makeArm(-1);
         const armR = makeArm(1);
@@ -273,14 +351,21 @@ function RingStage3D({ stateRef }) {
           st.userData.a = (i / 3) * Math.PI * 2;
           starG.add(st);
         }
-        starG.position.y = 160;
+        starG.position.y = 152;
         starG.visible = false;
         g.add(starG);
         scene.add(g);
-        return { g, headG, armL, armR, starG, mats: [skinMat, trunkMat, gloveMat] };
+        return {
+          g, torsoG, headG, armL, armR, starG, mouth, browL, browR, chest,
+          flashMats: [
+            { m: skinMat, base: 0 },
+            { m: trunkMat, base: 0.06 },
+            { m: gloveMat, base: 0.14 },
+          ],
+        };
       }
 
-      const enemy = makeFighter(TRUNKS, GLOVE, SKIN);
+      const enemy = makeFighter(TRUNKS, GLOVE, SKIN, isChamp ? 0xe8c15a : 0x8a5a2b, isChamp);
       enemy.g.position.set(0, 2, -16);
       enemy.g.scale.setScalar((opp.scale || 1) * 1.12);
 
@@ -298,7 +383,13 @@ function RingStage3D({ stateRef }) {
           const grp = new THREE.Group();
           grp.position.set(side * 47, 20, -14);
           const gm = new THREE.Mesh(new THREE.SphereGeometry(14.6, 14, 12), new THREE.MeshStandardMaterial({ color: 0xd23b3b, roughness: 0.3, emissive: 0xd23b3b, emissiveIntensity: 0.16 }));
+          gm.scale.set(1, 1.1, 1.25);
           grp.add(gm);
+          const pFore = new THREE.Mesh(new THREE.CylinderGeometry(6.6, 8.2, 34, 10), new THREE.MeshStandardMaterial({ color: 0xd99e73, roughness: 0.6 }));
+          pFore.position.set(-side * 7, -13, 13);
+          pFore.rotation.x = 0.62;
+          pFore.rotation.z = side * 0.38;
+          grp.add(pFore);
           player.add(grp);
           return grp;
         };
@@ -324,13 +415,19 @@ function RingStage3D({ stateRef }) {
           recoilAt = now;
         }
         const recoil = Math.max(0, 1 - (now - recoilAt) / 190);
-        // base stance
+        // base stance — guard up, breathing, light on his feet
         let bobY = Math.sin(t * 2.3) * 3.4;
         let swayX = 0;
         let lean = recoil * -0.22;
-        let armL = { x: -0.55, z: 0.25 };
-        let armR = { x: -0.55, z: -0.25 };
+        let twist = Math.sin(t * 1.1) * 0.05;
+        let armL = { x: -0.85, z: 0.26 };
+        let armR = { x: -0.85, z: -0.26 };
+        let elbL = -2.15;
+        let elbR = -2.15;
         let headTilt = recoil * -0.3;
+        let headYaw = Math.sin(t * 0.7) * 0.09;
+        let browAngry = 0;
+        let mouthOpen = recoil * 0.9;
         let lungeZ = 0;
         let flash = 0;
         E.starG.visible = false;
@@ -338,19 +435,33 @@ function RingStage3D({ stateRef }) {
           swayX = Math.sin(S.sway || 0) * 27;
           if (state === 'taunt') {
             bobY = Math.abs(Math.sin(t * 5.2)) * 7;
-            armL = { x: -2.15, z: 0.95 };
-            armR = { x: -2.15, z: -0.95 };
+            armL = { x: -2.7, z: 0.55 };
+            armR = { x: -2.7, z: -0.55 };
+            elbL = -0.45;
+            elbR = -0.45;
+            mouthOpen = 1;
+            headYaw = Math.sin(t * 3.1) * 0.22;
           }
         } else if (state === 'tell') {
           flash = 0.65 + Math.sin(t * 26) * 0.35;
           lean += -0.13;
-          armR = { x: 0.5, z: -0.5 };
-          armL = { x: -0.75, z: 0.3 };
+          twist = 0.5;
+          armR = { x: 0.72, z: -0.6 };
+          elbR = -0.55;
+          armL = { x: -0.8, z: 0.3 };
+          elbL = -2.05;
+          browAngry = 1;
+          headYaw = 0.16;
         } else if (state === 'attack') {
           lungeZ = 52;
-          lean += 0.1;
-          armR = { x: -1.62, z: -0.1 };
-          armL = { x: -0.4, z: 0.35 };
+          lean += 0.12;
+          twist = -0.42;
+          armR = { x: -1.5, z: -0.08 };
+          elbR = -0.12;
+          armL = { x: -0.45, z: 0.35 };
+          elbL = -1.8;
+          browAngry = 0.7;
+          mouthOpen = 0.7;
         } else if (state === 'stunned') {
           E.starG.visible = true;
           E.starG.children.forEach((st) => {
@@ -358,9 +469,13 @@ function RingStage3D({ stateRef }) {
             st.position.set(Math.cos(a) * 21, Math.sin(a) * 5, Math.sin(a) * 10 + 8);
           });
           headTilt = Math.sin(t * 7.5) * 0.14;
-          armL = { x: -0.12, z: 0.5 };
-          armR = { x: -0.12, z: -0.5 };
+          headYaw = Math.sin(t * 5.9) * 0.18;
+          armL = { x: -0.15, z: 0.52 };
+          armR = { x: -0.15, z: -0.52 };
+          elbL = -0.35;
+          elbR = -0.35;
           bobY = Math.sin(t * 7.5) * 1.6;
+          mouthOpen = 0.45;
         } else if (state === 'recover') {
           lean += -0.05;
           bobY = Math.sin(t * 1.7) * 2;
@@ -376,11 +491,21 @@ function RingStage3D({ stateRef }) {
         }
         E.g.position.x = swayX;
         E.g.rotation.z = state === 'stunned' ? Math.sin(t * 7.5) * 0.05 : 0;
+        E.torsoG.rotation.x = lean * 0.7;
+        E.torsoG.rotation.y = twist;
+        E.torsoG.position.y = 78 + Math.sin(t * 2.3) * 0.8;
+        E.chest.scale.set(1, 1, 0.76 + Math.sin(t * 2.3) * 0.012);
         E.headG.rotation.x = headTilt;
+        E.headG.rotation.y = headYaw;
         E.headG.rotation.z = state === 'stunned' ? Math.sin(t * 6.3) * 0.12 : 0;
         E.armL.arm.rotation.set(armL.x, 0, armL.z);
         E.armR.arm.rotation.set(armR.x, 0, armR.z);
-        for (const m of E.mats) m.emissiveIntensity = (m === E.mats[2] ? 0.14 : 0.06) + flash * 0.9;
+        E.armL.elbow.rotation.x = elbL;
+        E.armR.elbow.rotation.x = elbR;
+        E.browL.rotation.z = -0.14 - browAngry * 0.3;
+        E.browR.rotation.z = 0.14 + browAngry * 0.3;
+        E.mouth.scale.y = 1 + mouthOpen * 2.2;
+        for (const f of E.flashMats) f.m.emissiveIntensity = f.base + flash * 0.9;
 
         // ---- player ----
         const P = player;
