@@ -34,6 +34,12 @@ export default function Flight({ onFinish }) {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     const start = Date.now();
+    const imgBg = new Image();
+    imgBg.src = '/art/flight-bg.webp';
+    const imgRocket = new Image();
+    imgRocket.src = '/art/flight-rocket.webp';
+    const imgCoin = new Image();
+    imgCoin.src = '/art/slice-coin.webp';
     const S = {
       score: 0,
       gates: 0,
@@ -44,6 +50,7 @@ export default function Flight({ onFinish }) {
       speed: 165,
       pillars: [], // {x, cy, coin: bool, coinTaken, passed}
       stars: Array.from({ length: 60 }, () => ({ x: Math.random() * W, y: Math.random() * H, s: Math.random() * 1.8 + 0.4 })),
+      scroll: 0,
       msg: 'Tap anywhere to flap!',
       msgAt: Date.now(),
       flame: 0,
@@ -90,6 +97,7 @@ export default function Flight({ onFinish }) {
         S.y += S.vy * dt;
         if (S.y < 14) { S.y = 14; S.vy = Math.max(0, S.vy); }
         const dx = S.speed * dt;
+        S.scroll += dx;
         for (const st of S.stars) { st.x -= dx * 0.25; if (st.x < 0) { st.x = W; st.y = Math.random() * H; } }
         for (const p of S.pillars) {
           p.x -= dx;
@@ -121,17 +129,28 @@ export default function Flight({ onFinish }) {
     }
 
     function draw() {
-      ctx.fillStyle = '#0a1122';
-      ctx.fillRect(0, 0, W, H);
-      for (const st of S.stars) {
-        ctx.fillStyle = 'rgba(255,255,255,0.55)';
-        ctx.fillRect(st.x, st.y, st.s, st.s);
+      if (imgBg.complete && imgBg.naturalWidth) {
+        const tw = imgBg.naturalWidth * (H / imgBg.naturalHeight);
+        let off = -((S.scroll * 0.35) % tw);
+        if (off > 0) off -= tw;
+        for (let x = off; x < W; x += tw) ctx.drawImage(imgBg, x, 0, tw, H);
+      } else {
+        ctx.fillStyle = '#0a1122';
+        ctx.fillRect(0, 0, W, H);
+        for (const st of S.stars) {
+          ctx.fillStyle = 'rgba(255,255,255,0.55)';
+          ctx.fillRect(st.x, st.y, st.s, st.s);
+        }
       }
       // pillars
       for (const p of S.pillars) {
         const topH = p.cy - GAP / 2;
         const botY = p.cy + GAP / 2;
-        ctx.fillStyle = '#22335a';
+        const pg = ctx.createLinearGradient(p.x, 0, p.x + GATE_W, 0);
+        pg.addColorStop(0, '#274069');
+        pg.addColorStop(0.45, '#41619b');
+        pg.addColorStop(1, '#1d2f52');
+        ctx.fillStyle = pg;
         ctx.fillRect(p.x, 0, GATE_W, topH);
         ctx.fillRect(p.x, botY, GATE_W, H - botY);
         ctx.fillStyle = '#f5c542';
@@ -141,14 +160,24 @@ export default function Flight({ onFinish }) {
         ctx.fillRect(p.x + 7, 0, 5, topH - 12);
         ctx.fillRect(p.x + 7, botY + 12, 5, H - botY - 12);
         if (p.coin && !p.coinTaken) {
-          ctx.fillStyle = '#ffd94d';
-          ctx.beginPath();
-          ctx.arc(p.x + GATE_W / 2, p.cy, 10, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.fillStyle = '#a86e00';
-          ctx.font = 'bold 10px system-ui';
-          ctx.textAlign = 'center';
-          ctx.fillText('F', p.x + GATE_W / 2, p.cy + 3.5);
+          const cxp = p.x + GATE_W / 2;
+          if (imgCoin.complete && imgCoin.naturalWidth) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(cxp, p.cy, 11, 0, Math.PI * 2);
+            ctx.clip();
+            ctx.drawImage(imgCoin, cxp - 12, p.cy - 12, 24, 24);
+            ctx.restore();
+          } else {
+            ctx.fillStyle = '#ffd94d';
+            ctx.beginPath();
+            ctx.arc(cxp, p.cy, 10, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#a86e00';
+            ctx.font = 'bold 10px system-ui';
+            ctx.textAlign = 'center';
+            ctx.fillText('F', cxp, p.cy + 3.5);
+          }
         }
       }
       // ground
@@ -159,15 +188,23 @@ export default function Flight({ onFinish }) {
       ctx.save();
       ctx.translate(RX, S.y);
       ctx.rotate(tilt);
+      const hasSprite = imgRocket.complete && imgRocket.naturalWidth;
       if (S.flame > 0 || (S.started && !S.over)) {
         const fl = 12 + Math.random() * 10 + S.flame * 10;
+        const tail = hasSprite ? -33 : -16;
         ctx.fillStyle = '#f0883e';
         ctx.beginPath();
-        ctx.moveTo(-16, -4);
-        ctx.lineTo(-16 - fl, 0);
-        ctx.lineTo(-16, 4);
+        ctx.moveTo(tail, -4);
+        ctx.lineTo(tail - fl, 0);
+        ctx.lineTo(tail, 4);
         ctx.closePath();
         ctx.fill();
+      }
+      if (hasSprite) {
+        ctx.drawImage(imgRocket, -35, -17, 70, 33);
+        ctx.restore();
+        afterRocket();
+        return;
       }
       ctx.fillStyle = '#f5c542';
       ctx.beginPath();
@@ -196,6 +233,10 @@ export default function Flight({ onFinish }) {
       ctx.arc(6, 0, 5, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
+      afterRocket();
+    }
+
+    function afterRocket() {
       if (!S.started && !S.over) {
         ctx.fillStyle = 'rgba(255,255,255,0.85)';
         ctx.font = 'bold 19px system-ui';
