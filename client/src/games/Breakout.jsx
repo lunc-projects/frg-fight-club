@@ -1,9 +1,11 @@
 import { useEffect, useRef } from 'react';
 
-// FRG Breakout — paddle & bricks. Drag (or move the mouse) to steer the
-// paddle, keep the ball alive, smash the wall. 3 balls; every brick is
-// points and clearing the wall pays a bonus and builds a faster one.
-// Score converts to FRG by tiers (the server re-derives them exactly).
+// FRG Breakout — paddle & bricks, now in REAL 3D (Three.js). The ball
+// physics are the original game verbatim — same paddle bounce, brick
+// scoring, wall bonus, speed-ups, tiers and result contract (the
+// server re-derives them exactly). Only the renderer changed: glossy
+// 3D bricks on a tilted neon court, a gold 3D paddle, and a glowing
+// sphere for the ball with a light trail.
 export const BREAKOUT_TIERS = [
   { min: 5500, amount: 45 },
   { min: 4000, amount: 32 },
@@ -28,15 +30,16 @@ const PADDLE_W = 78;
 const PADDLE_Y = H - 38;
 
 export default function Breakout({ onFinish }) {
-  const canvasRef = useRef(null);
+  const mountRef = useRef(null);
+  const overlayRef = useRef(null);
   const doneRef = useRef(false);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    const imgBg = new Image();
-    imgBg.src = '/art/breakout-bg.webp';
     const start = Date.now();
+    let disposed = false;
+    let raf = 0;
+    let cleanup3d = () => {};
+
     const S = {
       score: 0,
       ballsLeft: 3,
@@ -45,7 +48,7 @@ export default function Breakout({ onFinish }) {
       trail: [],
       over: false,
       paddleX: W / 2,
-      ball: null, // {x,y,vx,vy,stuck}
+      ball: null,
       bricks: [],
       wall: 1,
       msg: 'Drag to move — tap to launch!',
@@ -97,12 +100,7 @@ export default function Breakout({ onFinish }) {
       }, 900);
     }
 
-    let raf = 0;
-    let last = performance.now();
-    function step(now) {
-      raf = requestAnimationFrame(step);
-      const dt = Math.min(0.033, (now - last) / 1000);
-      last = now;
+    function stepLogic(dt) {
       const b = S.ball;
       if (b && !S.over) {
         if (b.stuck) {
@@ -111,11 +109,9 @@ export default function Breakout({ onFinish }) {
         } else {
           b.x += b.vx * dt;
           b.y += b.vy * dt;
-          // walls
           if (b.x < 9) { b.x = 9; b.vx = Math.abs(b.vx); }
           if (b.x > W - 9) { b.x = W - 9; b.vx = -Math.abs(b.vx); }
           if (b.y < 9) { b.y = 9; b.vy = Math.abs(b.vy); }
-          // paddle
           if (b.vy > 0 && b.y > PADDLE_Y - 9 && b.y < PADDLE_Y + 12 && Math.abs(b.x - S.paddleX) < PADDLE_W / 2 + 7) {
             const off = Math.max(-1, Math.min(1, (b.x - S.paddleX) / (PADDLE_W / 2)));
             const speed = Math.min(580, Math.hypot(b.vx, b.vy) * 1.01);
@@ -124,7 +120,6 @@ export default function Breakout({ onFinish }) {
             b.vy = -Math.cos(ang) * speed;
             b.y = PADDLE_Y - 10;
           }
-          // bricks
           for (const br of S.bricks) {
             if (!br.alive) continue;
             if (b.x > br.x - 7 && b.x < br.x + br.w + 7 && b.y > br.y - 7 && b.y < br.y + br.h + 7) {
@@ -135,7 +130,6 @@ export default function Breakout({ onFinish }) {
                 const sp = 30 + Math.random() * 110;
                 S.particles.push({ x: br.x + br.w / 2, y: br.y + br.h / 2, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: 1.6 + Math.random() * 2, life: 0.45, color: ROW_COLORS[br.row] });
               }
-              // bounce off the smaller penetration axis
               const penX = Math.min(Math.abs(b.x - (br.x - 7)), Math.abs(b.x - (br.x + br.w + 7)));
               const penY = Math.min(Math.abs(b.y - (br.y - 7)), Math.abs(b.y - (br.y + br.h + 7)));
               if (penX < penY) b.vx = -b.vx; else b.vy = -b.vy;
@@ -157,7 +151,6 @@ export default function Breakout({ onFinish }) {
           }
           S.trail.push({ x: b.x, y: b.y });
           if (S.trail.length > 11) S.trail.shift();
-          // drain
           if (b.y > H + 14) {
             S.ballsLeft -= 1;
             if (S.ballsLeft <= 0) { finish(); }
@@ -165,175 +158,262 @@ export default function Breakout({ onFinish }) {
           }
         }
       }
-      const dtFx = Math.min(0.033, dt);
-      for (const pt of S.particles) { pt.x += pt.vx * dtFx; pt.y += pt.vy * dtFx; pt.life -= dtFx; }
+      for (const pt of S.particles) { pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.life -= dt; }
       S.particles = S.particles.filter((pt) => pt.life > 0);
-      for (const pu of S.popups) { pu.y -= 30 * dtFx; pu.life -= dtFx * 0.85; }
+      for (const pu of S.popups) { pu.y -= 30 * dt; pu.life -= dt * 0.85; }
       S.popups = S.popups.filter((pu) => pu.life > 0);
-      draw();
     }
 
-    function draw() {
-      if (imgBg.complete && imgBg.naturalWidth) {
-        const sc = Math.max(W / imgBg.naturalWidth, H / imgBg.naturalHeight);
-        const bw = imgBg.naturalWidth * sc;
-        const bh = imgBg.naturalHeight * sc;
-        ctx.drawImage(imgBg, (W - bw) / 2, (H - bh) / 2, bw, bh);
-        ctx.fillStyle = 'rgba(5,8,20,0.38)';
-        ctx.fillRect(0, 0, W, H);
-      } else {
-        ctx.fillStyle = '#0d1526';
-        ctx.fillRect(0, 0, W, H);
-      }
-      // frame
-      ctx.strokeStyle = '#2b3a55';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(3, 3, W - 6, H - 6);
-      // bricks — glossy 2026: soft shadow, vertical shade gradient,
-      // glass gloss and a beveled edge on every brick (one gradient
-      // per row, reused across the row).
-      const shade = (hex, f) => {
-        const n = parseInt(hex.slice(1), 16);
-        const r = Math.min(255, Math.max(0, Math.round(((n >> 16) & 255) * f)));
-        const g = Math.min(255, Math.max(0, Math.round(((n >> 8) & 255) * f)));
-        const b = Math.min(255, Math.max(0, Math.round((n & 255) * f)));
-        return `rgb(${r},${g},${b})`;
-      };
-      const rowGrad = {};
-      const rowGloss = {};
-      for (const br of S.bricks) {
-        if (!br.alive) continue;
-        if (!rowGrad[br.row]) {
-          const gr = ctx.createLinearGradient(0, br.y, 0, br.y + br.h);
-          gr.addColorStop(0, shade(ROW_COLORS[br.row], 1.38));
-          gr.addColorStop(0.45, ROW_COLORS[br.row]);
-          gr.addColorStop(1, shade(ROW_COLORS[br.row], 0.62));
-          rowGrad[br.row] = gr;
-          const gl = ctx.createLinearGradient(0, br.y, 0, br.y + br.h * 0.62);
-          gl.addColorStop(0, 'rgba(255,255,255,0.38)');
-          gl.addColorStop(1, 'rgba(255,255,255,0)');
-          rowGloss[br.row] = gl;
-        }
-        ctx.fillStyle = 'rgba(0,0,0,0.30)';
-        ctx.beginPath();
-        ctx.roundRect(br.x, br.y + 3, br.w, br.h, 3);
-        ctx.fill();
-        ctx.fillStyle = rowGrad[br.row];
-        ctx.beginPath();
-        ctx.roundRect(br.x, br.y, br.w, br.h, 3);
-        ctx.fill();
-        ctx.fillStyle = rowGloss[br.row];
-        ctx.beginPath();
-        ctx.roundRect(br.x + 1.5, br.y + 1.5, br.w - 3, br.h * 0.62, 2.5);
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.roundRect(br.x + 0.5, br.y + 0.5, br.w - 1, br.h - 1, 3);
-        ctx.stroke();
-      }
-      // paddle — same glossy treatment in gold
-      const px = S.paddleX - PADDLE_W / 2;
+    (async () => {
+      const THREE = await import('three');
+      if (disposed) return;
+      const mount = mountRef.current;
+      const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+      renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+      renderer.setSize(W, H, false);
+      renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;';
+      mount.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0d1526);
+      scene.fog = new THREE.Fog(0x0d1526, 1100, 2600);
+      const camera = new THREE.PerspectiveCamera(50, W / H, 1, 4000);
+      camera.position.set(200, 336, 626);
+      camera.lookAt(200, 238, 0);
+
+      scene.add(new THREE.HemisphereLight(0xbdd7ff, 0x140f2e, 1.5));
+      const sun = new THREE.DirectionalLight(0xffffff, 2.0);
+      sun.position.set(160, 460, 520);
+      scene.add(sun);
+      const fill = new THREE.DirectionalLight(0x7fb2ff, 0.7);
+      fill.position.set(-260, 100, 260);
+      scene.add(fill);
+
+      const wy = (gy) => H - gy;
+
+      // backdrop: the club's neon void art on a far plane + a floor
       {
-        ctx.fillStyle = 'rgba(0,0,0,0.30)';
-        ctx.beginPath();
-        ctx.roundRect(px, PADDLE_Y + 3, PADDLE_W, 12, 6);
-        ctx.fill();
-        const pg = ctx.createLinearGradient(0, PADDLE_Y, 0, PADDLE_Y + 12);
-        pg.addColorStop(0, '#ffe9a3');
-        pg.addColorStop(0.45, '#f5c542');
-        pg.addColorStop(1, '#b8860b');
-        ctx.fillStyle = pg;
-        ctx.beginPath();
-        ctx.roundRect(px, PADDLE_Y, PADDLE_W, 12, 6);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.35)';
-        ctx.beginPath();
-        ctx.roundRect(px + 2, PADDLE_Y + 1.5, PADDLE_W - 4, 5, 2.5);
-        ctx.fill();
-      }
-      ctx.fillStyle = '#0d1526';
-      ctx.font = 'bold 8px system-ui';
-      ctx.textAlign = 'center';
-      ctx.fillText('FRG', S.paddleX, PADDLE_Y + 9.5);
-      // ball trail + glowing ball
-      const b = S.ball;
-      if (b && !S.over) {
-        S.trail.forEach((tp, i) => {
-          ctx.globalAlpha = (i / S.trail.length) * 0.30;
-          ctx.fillStyle = '#9fd8ff';
-          ctx.beginPath();
-          ctx.arc(tp.x, tp.y, 3 + (i / S.trail.length) * 3.4, 0, Math.PI * 2);
-          ctx.fill();
+        const tex = new THREE.TextureLoader().load('/art/breakout-bg.webp', (t) => {
+          t.colorSpace = THREE.SRGBColorSpace;
         });
-        ctx.globalAlpha = 1;
-        ctx.save();
-        ctx.shadowColor = 'rgba(160,220,255,0.9)';
-        ctx.shadowBlur = 14;
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.arc(b.x, b.y, 7, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-        ctx.fillStyle = 'rgba(255,255,255,0.35)';
-        ctx.beginPath();
-        ctx.arc(b.x - (b.vx || 0) * 0.03, b.y - (b.vy || 0) * 0.03, 4.5, 0, Math.PI * 2);
-        ctx.fill();
+        const bg = new THREE.Mesh(
+          new THREE.PlaneGeometry(980, 700),
+          new THREE.MeshBasicMaterial({ map: tex, fog: false })
+        );
+        bg.position.set(200, 260, -190);
+        scene.add(bg);
+        const floor = new THREE.Mesh(
+          new THREE.PlaneGeometry(1500, 900),
+          new THREE.MeshStandardMaterial({ color: 0x0a1020, roughness: 1 })
+        );
+        floor.rotation.x = -Math.PI / 2;
+        floor.position.set(200, -46, 160);
+        scene.add(floor);
       }
-      for (const pt of S.particles) {
-        ctx.globalAlpha = Math.max(0, Math.min(1, pt.life * 2.2));
-        ctx.fillStyle = pt.color;
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
-        ctx.fill();
+      // court rails (left/right/top) in translucent neon
+      {
+        const railMat = new THREE.MeshBasicMaterial({ color: 0x2de2e6, transparent: true, opacity: 0.34 });
+        const mkRail = (w2, h2, x, y) => {
+          const m = new THREE.Mesh(new THREE.BoxGeometry(w2, h2, 30), railMat);
+          m.position.set(x, y, 0);
+          scene.add(m);
+        };
+        mkRail(5, H, 3, H / 2);
+        mkRail(5, H, W - 3, H / 2);
+        mkRail(W, 5, W / 2, H - 3);
       }
-      ctx.globalAlpha = 1;
-      for (const pu of S.popups) {
-        ctx.globalAlpha = Math.max(0, Math.min(1, pu.life));
-        ctx.font = `900 ${pu.size}px system-ui`;
-        ctx.textAlign = 'center';
-        ctx.strokeStyle = 'rgba(4,8,20,0.85)';
-        ctx.lineWidth = 4;
-        ctx.strokeText(pu.text, pu.x, pu.y);
-        ctx.fillStyle = pu.color;
-        ctx.fillText(pu.text, pu.x, pu.y);
+      // bricks — pooled glossy 3D blocks, one per wall slot
+      const brickGeo = new THREE.BoxGeometry(42, 16, 26);
+      const brickMats = ROW_COLORS.map((hex) => {
+        const c = new THREE.Color(hex);
+        return new THREE.MeshStandardMaterial({ color: c, roughness: 0.32, metalness: 0.35, emissive: c, emissiveIntensity: 0.22 });
+      });
+      const brickMeshes = S.bricks.map((br) => {
+        const m = new THREE.Mesh(brickGeo, brickMats[br.row]);
+        m.position.set(br.x + br.w / 2, wy(br.y + br.h / 2), 0);
+        scene.add(m);
+        return m;
+      });
+      // gold paddle
+      const paddle = new THREE.Mesh(
+        new THREE.BoxGeometry(PADDLE_W, 13, 36),
+        new THREE.MeshStandardMaterial({ color: 0xf5c542, roughness: 0.28, metalness: 0.6, emissive: 0xf5c542, emissiveIntensity: 0.16 })
+      );
+      paddle.position.set(S.paddleX, wy(PADDLE_Y + 6), 0);
+      scene.add(paddle);
+      // ball — glowing sphere + light + trail points
+      const ball = new THREE.Mesh(
+        new THREE.SphereGeometry(8.4, 18, 14),
+        new THREE.MeshBasicMaterial({ color: 0xeaf7ff })
+      );
+      scene.add(ball);
+      const ballLight = new THREE.PointLight(0x9fd8ff, 1.0, 210, 0);
+      scene.add(ballLight);
+      let trailPts;
+      {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(11 * 3), 3));
+        const cols = new Float32Array(11 * 3);
+        for (let i = 0; i < 11; i++) {
+          const f = (i / 11) * 0.55;
+          cols[i * 3] = 0.62 * f; cols[i * 3 + 1] = 0.85 * f; cols[i * 3 + 2] = 1 * f;
+        }
+        g.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+        trailPts = new THREE.Points(g, new THREE.PointsMaterial({ size: 6.5, sizeAttenuation: false, vertexColors: true, transparent: true, opacity: 0.85 }));
+        trailPts.frustumCulled = false;
+        scene.add(trailPts);
       }
-      ctx.globalAlpha = 1;
-      if (S.over) {
-        ctx.fillStyle = 'rgba(4,8,16,0.72)';
-        ctx.fillRect(0, 0, W, H);
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 26px system-ui';
-        ctx.textAlign = 'center';
-        ctx.fillText('GAME OVER', W / 2, H / 2 - 8);
-        ctx.font = '15px system-ui';
-        ctx.fillStyle = '#f5c542';
-        ctx.fillText(`${S.score.toLocaleString()} points`, W / 2, H / 2 + 20);
+      // brick shatter particles
+      const PMAX = 160;
+      let partPts;
+      {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(PMAX * 3), 3));
+        g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(PMAX * 3), 3));
+        partPts = new THREE.Points(g, new THREE.PointsMaterial({ size: 4.6, sizeAttenuation: false, vertexColors: true, transparent: true, opacity: 0.95 }));
+        partPts.frustumCulled = false;
+        scene.add(partPts);
       }
-      dom();
-    }
+      const colorCache = {};
+      function rgb(hex) {
+        if (!colorCache[hex]) {
+          const n = parseInt(hex.slice(1), 16);
+          colorCache[hex] = [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+        }
+        return colorCache[hex];
+      }
 
-    const el = {
-      score: document.getElementById('bo-score'),
-      balls: document.getElementById('bo-balls'),
-      next: document.getElementById('bo-next'),
-      msg: document.getElementById('bo-msg'),
-    };
-    function dom() {
-      if (el.score) el.score.textContent = S.score.toLocaleString();
-      if (el.balls) el.balls.textContent = `${Math.max(0, S.ballsLeft)}/3`;
-      const nxt = BREAKOUT_TIERS.filter((t) => S.score < t.min).pop();
-      if (el.next) {
-        const amt = breakoutAmount(S.score);
-        el.next.textContent = S.over
-          ? amt > 0 ? `PAYS ${amt} PTS` : 'NO PAYOUT'
-          : nxt ? `NEXT: ${nxt.amount} PTS @ ${nxt.min.toLocaleString()}` : 'MAX TIER!';
+      function syncScene() {
+        // bricks follow the wall state — a wall rebuild re-seats the pool
+        if (brickMeshes.length !== S.bricks.length) {
+          for (const m of brickMeshes) scene.remove(m);
+          brickMeshes.length = 0;
+          for (const br of S.bricks) {
+            const m = new THREE.Mesh(brickGeo, brickMats[br.row]);
+            scene.add(m);
+            brickMeshes.push(m);
+          }
+        }
+        S.bricks.forEach((br, i) => {
+          const m = brickMeshes[i];
+          m.visible = br.alive;
+          m.position.set(br.x + br.w / 2, wy(br.y + br.h / 2), 0);
+        });
+        paddle.position.x = S.paddleX;
+        const b = S.ball;
+        if (b) {
+          ball.visible = true;
+          ball.position.set(b.x, wy(b.y), 6);
+          ballLight.position.set(b.x, wy(b.y), 46);
+        } else ball.visible = false;
+        {
+          const arr = trailPts.geometry.getAttribute('position');
+          for (let i = 0; i < 11; i++) {
+            const tp = S.trail[i];
+            if (!tp) { arr.setXYZ(i, -100, -100, -100); continue; }
+            arr.setXYZ(i, tp.x, wy(tp.y), 4);
+          }
+          arr.needsUpdate = true;
+        }
+        {
+          const posA = partPts.geometry.getAttribute('position');
+          const colA = partPts.geometry.getAttribute('color');
+          for (let i = 0; i < PMAX; i++) {
+            const pt = S.particles[i];
+            if (!pt) { posA.setXYZ(i, -200, -200, -200); continue; }
+            posA.setXYZ(i, pt.x, wy(pt.y), 16);
+            const c = rgb(pt.color);
+            colA.setXYZ(i, c[0], c[1], c[2]);
+          }
+          posA.needsUpdate = true;
+          colA.needsUpdate = true;
+        }
       }
-      if (el.msg) el.msg.textContent = Date.now() - S.msgAt < 2600 ? S.msg : '';
-    }
+
+      // ---------- overlay: popups + game over (game coordinates) ----------
+      const overlay = overlayRef.current;
+      const octx = overlay.getContext('2d');
+      function drawOverlay() {
+        octx.clearRect(0, 0, W, H);
+        for (const pu of S.popups) {
+          octx.globalAlpha = Math.max(0, Math.min(1, pu.life));
+          octx.font = `900 ${pu.size}px system-ui`;
+          octx.textAlign = 'center';
+          octx.strokeStyle = 'rgba(4,8,20,0.85)';
+          octx.lineWidth = 4;
+          octx.strokeText(pu.text, pu.x, pu.y);
+          octx.fillStyle = pu.color;
+          octx.fillText(pu.text, pu.x, pu.y);
+        }
+        octx.globalAlpha = 1;
+        if (S.over) {
+          octx.fillStyle = 'rgba(4,8,16,0.66)';
+          octx.fillRect(0, 0, W, H);
+          octx.fillStyle = '#fff';
+          octx.font = 'bold 26px system-ui';
+          octx.textAlign = 'center';
+          octx.fillText('GAME OVER', W / 2, H / 2 - 8);
+          octx.font = '15px system-ui';
+          octx.fillStyle = '#f5c542';
+          octx.fillText(`${S.score.toLocaleString()} points`, W / 2, H / 2 + 20);
+        }
+        dom();
+      }
+
+      const el = {
+        score: document.getElementById('bo-score'),
+        balls: document.getElementById('bo-balls'),
+        next: document.getElementById('bo-next'),
+        msg: document.getElementById('bo-msg'),
+      };
+      function dom() {
+        if (el.score) el.score.textContent = S.score.toLocaleString();
+        if (el.balls) el.balls.textContent = `${Math.max(0, S.ballsLeft)}/3`;
+        const nxt = BREAKOUT_TIERS.filter((t) => S.score < t.min).pop();
+        if (el.next) {
+          const amt = breakoutAmount(S.score);
+          el.next.textContent = S.over
+            ? amt > 0 ? `PAYS ${amt} PTS` : 'NO PAYOUT'
+            : nxt ? `NEXT: ${nxt.amount} PTS @ ${nxt.min.toLocaleString()}` : 'MAX TIER!';
+        }
+        if (el.msg) el.msg.textContent = Date.now() - S.msgAt < 2600 ? S.msg : '';
+      }
+
+      let last = performance.now();
+      const frame = (now) => {
+        raf = requestAnimationFrame(frame);
+        const dt = Math.min(0.033, (now - last) / 1000);
+        last = now;
+        stepLogic(dt);
+        syncScene();
+        renderer.render(scene, camera);
+        drawOverlay();
+      };
+      raf = requestAnimationFrame(frame);
+
+      window.__frgBreakout = {
+        state: () => ({
+          score: S.score,
+          ballsLeft: S.ballsLeft,
+          over: S.over,
+          ball: S.ball ? { x: Math.round(S.ball.x), y: Math.round(S.ball.y), stuck: S.ball.stuck } : null,
+          paddleX: Math.round(S.paddleX),
+        }),
+        setPaddle: (x) => { S.paddleX = Math.max(PADDLE_W / 2, Math.min(W - PADDLE_W / 2, x)); },
+        launch: () => launch(),
+      };
+
+      cleanup3d = () => {
+        cancelAnimationFrame(raf);
+        renderer.dispose();
+        if (renderer.domElement.parentNode) renderer.domElement.parentNode.removeChild(renderer.domElement);
+        delete window.__frgBreakout;
+      };
+    })();
 
     function onMove(e) {
-      const rect = canvas.getBoundingClientRect();
+      const rect = mountRef.current?.getBoundingClientRect();
+      if (!rect) return;
       const cx = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
       S.paddleX = Math.max(PADDLE_W / 2, Math.min(W - PADDLE_W / 2, (cx / rect.width) * W));
     }
@@ -341,42 +421,44 @@ export default function Breakout({ onFinish }) {
       onMove(e);
       launch();
     }
-    canvas.addEventListener('pointermove', onMove);
-    canvas.addEventListener('pointerdown', onDown);
-    canvas.addEventListener('touchmove', onMove, { passive: true });
+    const mountEl = mountRef.current;
+    if (mountEl) {
+      mountEl.addEventListener('pointermove', onMove);
+      mountEl.addEventListener('pointerdown', onDown);
+      mountEl.addEventListener('touchmove', onMove, { passive: true });
+    }
 
-    window.__frgBreakout = {
-      state: () => ({
-        score: S.score,
-        ballsLeft: S.ballsLeft,
-        over: S.over,
-        ball: S.ball ? { x: Math.round(S.ball.x), y: Math.round(S.ball.y), stuck: S.ball.stuck } : null,
-        paddleX: Math.round(S.paddleX),
-      }),
-      setPaddle: (x) => { S.paddleX = Math.max(PADDLE_W / 2, Math.min(W - PADDLE_W / 2, x)); },
-      launch: () => launch(),
-    };
-
-    raf = requestAnimationFrame(step);
     return () => {
-      cancelAnimationFrame(raf);
-      canvas.removeEventListener('pointermove', onMove);
-      canvas.removeEventListener('pointerdown', onDown);
-      canvas.removeEventListener('touchmove', onMove);
-      delete window.__frgBreakout;
+      disposed = true;
+      cleanup3d();
+      if (mountEl) {
+        mountEl.removeEventListener('pointermove', onMove);
+        mountEl.removeEventListener('pointerdown', onDown);
+        mountEl.removeEventListener('touchmove', onMove);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <div className="game-wrap pinball-wrap">
-      <h2 className="game-title">🧱 FRG BREAKOUT</h2>
+      <h2 className="game-title">🧱 FRG BREAKOUT 3D</h2>
       <div className="pb-hud">
         <div>SCORE <b id="bo-score">0</b></div>
         <div>BALL <b id="bo-balls">3/3</b></div>
         <div className="pb-next" id="bo-next">NEXT: 5 PTS @ 600</div>
       </div>
-      <canvas ref={canvasRef} width={W} height={H} className="pb-canvas" />
+      <div
+        ref={mountRef}
+        style={{ position: 'relative', width: '100%', maxWidth: W, aspectRatio: '400 / 520', margin: '0 auto', touchAction: 'none', borderRadius: 12, overflow: 'hidden' }}
+      >
+        <canvas
+          ref={overlayRef}
+          width={W}
+          height={H}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 2 }}
+        />
+      </div>
       <div className="pb-msg" id="bo-msg" />
       <p className="pinball-note">
         Drag on the board to steer the paddle. Rows pay 60/50/40/30/20/10 —

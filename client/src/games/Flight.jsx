@@ -1,9 +1,11 @@
 import { useEffect, useRef } from 'react';
 
-// FRG Flight — one-tap rocket flying. Tap / click / space to flap,
-// thread the rocket through the gate gaps, grab the coins sitting in
-// the gaps. One touch of a pillar (or the ground) ends the run. Score
-// converts to FRG by tiers (the server re-derives them exactly).
+// FRG Flight — one-tap rocket flying, now in REAL 3D (Three.js). The
+// run logic is the original game verbatim — same gravity, gaps, coins,
+// tiers and result contract (the server re-derives them exactly). Only
+// the renderer changed: the rocket is a real 3D model, the gates are
+// metal columns with gold caps standing in space, coins spin in 3D,
+// and the backdrop is the club's sky art on a scrolling plane.
 export const FLIGHT_TIERS = [
   { min: 3800, amount: 45 },
   { min: 2700, amount: 32 },
@@ -27,19 +29,16 @@ const GRAV = 1500;
 const FLAP_VY = -428;
 
 export default function Flight({ onFinish }) {
-  const canvasRef = useRef(null);
+  const mountRef = useRef(null);
+  const overlayRef = useRef(null);
   const doneRef = useRef(false);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
     const start = Date.now();
-    const imgBg = new Image();
-    imgBg.src = '/art/flight-bg.webp';
-    const imgRocket = new Image();
-    imgRocket.src = '/art/flight-rocket.webp';
-    const imgCoin = new Image();
-    imgCoin.src = '/art/slice-coin.webp';
+    let disposed = false;
+    let raf = 0;
+    let cleanup3d = () => {};
+
     const S = {
       score: 0,
       gates: 0,
@@ -76,26 +75,20 @@ export default function Flight({ onFinish }) {
 
     function finish() {
       S.over = true;
-      const amount = flightAmount(S.score);
       setTimeout(() => {
         if (doneRef.current) return;
         doneRef.current = true;
         onFinish({
-          outcome: amount > 0 ? 'win' : 'lose',
+          outcome: flightAmount(S.score) > 0 ? 'win' : 'lose',
           score: S.score,
-          amount,
+          amount: flightAmount(S.score),
           gates: S.gates,
           durationMs: Date.now() - start,
         });
       }, 900);
     }
 
-    let raf = 0;
-    let last = performance.now();
-    function step(now) {
-      raf = requestAnimationFrame(step);
-      const dt = Math.min(0.033, (now - last) / 1000);
-      last = now;
+    function stepLogic(now, dt) {
       if (!S.over && S.started) {
         S.vy = Math.min(760, S.vy + GRAV * dt);
         S.y += S.vy * dt;
@@ -125,7 +118,6 @@ export default function Flight({ onFinish }) {
               S.particles.push({ x: p.x + GATE_W / 2, y: p.cy, vx: Math.cos(a) * 95, vy: Math.sin(a) * 95, r: 2.2, life: 0.4, gold: true });
             }
           }
-          // collision: rocket box vs pillar rects (above/below the gap)
           if (RX + 15 > p.x && RX - 15 < p.x + GATE_W) {
             if (S.y - 11 < p.cy - GAP / 2 || S.y + 11 > p.cy + GAP / 2) { finish(); }
           }
@@ -148,206 +140,301 @@ export default function Flight({ onFinish }) {
       S.popups = S.popups.filter((pu) => pu.life > 0);
       if (S.callout && Date.now() - S.callout.at > 950) S.callout = null;
       S.flame = Math.max(0, S.flame - dt * 5);
-      draw();
     }
 
-    function draw() {
-      if (imgBg.complete && imgBg.naturalWidth) {
-        const tw = imgBg.naturalWidth * (H / imgBg.naturalHeight);
-        let off = -((S.scroll * 0.35) % tw);
-        if (off > 0) off -= tw;
-        for (let x = off; x < W; x += tw) ctx.drawImage(imgBg, x, 0, tw, H);
-      } else {
-        ctx.fillStyle = '#0a1122';
-        ctx.fillRect(0, 0, W, H);
-        for (const st of S.stars) {
-          ctx.fillStyle = 'rgba(255,255,255,0.55)';
-          ctx.fillRect(st.x, st.y, st.s, st.s);
-        }
+    (async () => {
+      const THREE = await import('three');
+      if (disposed) return;
+      const mount = mountRef.current;
+      const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+      renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+      renderer.setSize(W, H, false);
+      renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;';
+      mount.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0a1122);
+      scene.fog = new THREE.Fog(0x0a1122, 900, 2400);
+      const camera = new THREE.PerspectiveCamera(50, W / H, 1, 4000);
+      camera.position.set(168, 292, 668);
+      camera.lookAt(214, 252, 0);
+
+      scene.add(new THREE.HemisphereLight(0xbdd7ff, 0x1a1030, 1.55));
+      const sun = new THREE.DirectionalLight(0xfff1cf, 2.0);
+      sun.position.set(220, 480, 520);
+      scene.add(sun);
+      const fill = new THREE.DirectionalLight(0x7fb2ff, 0.7);
+      fill.position.set(-260, 140, 300);
+      scene.add(fill);
+
+      const wy = (gy) => H - gy;
+
+      // scrolling sky backdrop (the club's flight art on a far plane)
+      {
+        const tex = new THREE.TextureLoader().load('/art/flight-bg.webp', (t) => {
+          t.colorSpace = THREE.SRGBColorSpace;
+          t.wrapS = THREE.RepeatWrapping;
+          t.repeat.set(1.73, 1);
+        });
+        const bg = new THREE.Mesh(
+          new THREE.PlaneGeometry(1600, 620),
+          new THREE.MeshBasicMaterial({ map: tex, fog: false })
+        );
+        bg.position.set(200, 260, -300);
+        scene.add(bg);
+        scene.userData.bgTex = tex;
       }
-      // pillars
-      for (const p of S.pillars) {
-        const topH = p.cy - GAP / 2;
-        const botY = p.cy + GAP / 2;
-        // Cylindrical shading: dark edges, a bright ridge off-center —
-        // the pillars read as polished metal columns, not flat bars.
-        const pg = ctx.createLinearGradient(p.x, 0, p.x + GATE_W, 0);
-        pg.addColorStop(0, '#16263f');
-        pg.addColorStop(0.28, '#4d6fa3');
-        pg.addColorStop(0.5, '#33507e');
-        pg.addColorStop(1, '#101f38');
-        ctx.fillStyle = pg;
-        ctx.fillRect(p.x, 0, GATE_W, topH);
-        ctx.fillRect(p.x, botY, GATE_W, H - botY);
-        // caps — shaded gold with a gloss line and a shadow lip
-        const cg = ctx.createLinearGradient(0, 0, 0, 12);
-        cg.addColorStop(0, '#ffe9a3');
-        cg.addColorStop(0.5, '#f5c542');
-        cg.addColorStop(1, '#b8860b');
-        ctx.fillStyle = 'rgba(0,0,0,0.30)';
-        ctx.fillRect(p.x - 3, topH - 9, GATE_W + 6, 12);
-        ctx.fillRect(p.x - 3, botY + 3, GATE_W + 6, 12);
-        ctx.fillStyle = cg;
-        ctx.fillRect(p.x - 3, topH - 12, GATE_W + 6, 12);
-        ctx.fillRect(p.x - 3, botY, GATE_W + 6, 12);
-        ctx.fillStyle = 'rgba(255,255,255,0.4)';
-        ctx.fillRect(p.x - 3, topH - 12, GATE_W + 6, 2);
-        ctx.fillRect(p.x - 3, botY, GATE_W + 6, 2);
-        ctx.fillStyle = 'rgba(255,255,255,0.16)';
-        ctx.fillRect(p.x + 7, 0, 5, topH - 12);
-        ctx.fillRect(p.x + 7, botY + 12, 5, H - botY - 12);
-        if (p.coin && !p.coinTaken) {
-          const cxp = p.x + GATE_W / 2;
-          if (imgCoin.complete && imgCoin.naturalWidth) {
-            ctx.save();
-            ctx.beginPath();
-            ctx.arc(cxp, p.cy, 11, 0, Math.PI * 2);
-            ctx.clip();
-            ctx.drawImage(imgCoin, cxp - 12, p.cy - 12, 24, 24);
-            ctx.restore();
-          } else {
-            ctx.fillStyle = '#ffd94d';
-            ctx.beginPath();
-            ctx.arc(cxp, p.cy, 10, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = '#a86e00';
-            ctx.font = 'bold 10px system-ui';
-            ctx.textAlign = 'center';
-            ctx.fillText('F', cxp, p.cy + 3.5);
+      // stars
+      let starPts;
+      {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(60 * 3), 3));
+        starPts = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xdce9ff, size: 2.4, sizeAttenuation: false, transparent: true, opacity: 0.8 }));
+        scene.add(starPts);
+      }
+      // ground platform + glowing front edge
+      {
+        const ground = new THREE.Mesh(
+          new THREE.BoxGeometry(430, 8, 170),
+          new THREE.MeshStandardMaterial({ color: 0x1b2c4f, roughness: 0.85 })
+        );
+        ground.position.set(200, 2, 30);
+        scene.add(ground);
+        const edge = new THREE.Mesh(
+          new THREE.BoxGeometry(430, 2.5, 3),
+          new THREE.MeshBasicMaterial({ color: 0x38e0d4 })
+        );
+        edge.position.set(200, 6.5, 113);
+        scene.add(edge);
+      }
+      // gate columns + caps (pooled pairs)
+      const colMat = new THREE.MeshStandardMaterial({ color: 0x3d5c8f, roughness: 0.34, metalness: 0.72 });
+      const capMat = new THREE.MeshStandardMaterial({ color: 0xf5c542, roughness: 0.3, metalness: 0.6, emissive: 0x664d00, emissiveIntensity: 0.5 });
+      const colGeo = new THREE.BoxGeometry(GATE_W, 1, 118);
+      const capGeo = new THREE.BoxGeometry(GATE_W + 8, 13, 136);
+      const gatePool = [];
+      for (let i = 0; i < 5; i++) {
+        const top = new THREE.Mesh(colGeo, colMat);
+        const bot = new THREE.Mesh(colGeo, colMat);
+        const capT = new THREE.Mesh(capGeo, capMat);
+        const capB = new THREE.Mesh(capGeo, capMat);
+        scene.add(top, bot, capT, capB);
+        gatePool.push({ top, bot, capT, capB });
+      }
+      // coins (pooled, spinning)
+      const coinGeo = new THREE.CylinderGeometry(11.5, 11.5, 3.6, 22);
+      coinGeo.rotateX(Math.PI / 2);
+      const coinMat = new THREE.MeshStandardMaterial({ color: 0xffc93c, emissive: 0x8a5c00, emissiveIntensity: 0.8, roughness: 0.25, metalness: 0.9 });
+      const coinPool = [];
+      for (let i = 0; i < 5; i++) {
+        const m = new THREE.Mesh(coinGeo, coinMat);
+        m.visible = false;
+        scene.add(m);
+        coinPool.push(m);
+      }
+      // the rocket — a real little 3D ship
+      const rocket = new THREE.Group();
+      const rocketParts = (() => {
+        const paint = new THREE.MeshStandardMaterial({ color: 0xf7b733, roughness: 0.34, metalness: 0.5, emissive: 0xf7b733, emissiveIntensity: 0.13 });
+        const red = new THREE.MeshStandardMaterial({ color: 0xe5534b, roughness: 0.5, metalness: 0.2 });
+        const bodyGeo = new THREE.CylinderGeometry(10.5, 12.5, 40, 18);
+        bodyGeo.rotateZ(Math.PI / 2);
+        const body = new THREE.Mesh(bodyGeo, paint);
+        const noseGeo = new THREE.ConeGeometry(10.5, 16, 18);
+        noseGeo.rotateZ(-Math.PI / 2);
+        const nose = new THREE.Mesh(noseGeo, red);
+        nose.position.x = 28;
+        const finGeo = new THREE.BoxGeometry(13, 15, 2.6);
+        const finT = new THREE.Mesh(finGeo, red);
+        finT.position.set(-18, 11, 0);
+        finT.rotation.z = 0.5;
+        const finB = new THREE.Mesh(finGeo, red);
+        finB.position.set(-18, -11, 0);
+        finB.rotation.z = -0.5;
+        const win = new THREE.Mesh(
+          new THREE.SphereGeometry(5.4, 12, 10),
+          new THREE.MeshStandardMaterial({ color: 0xbfe3ff, roughness: 0.1, metalness: 0.3, emissive: 0x86c5ff, emissiveIntensity: 0.5 })
+        );
+        win.position.set(7, 6.5, 8.5);
+        const flameGeo = new THREE.ConeGeometry(6.4, 26, 12);
+        flameGeo.rotateZ(Math.PI / 2);
+        const flame = new THREE.Mesh(flameGeo, new THREE.MeshBasicMaterial({ color: 0xff8c3a, transparent: true, opacity: 0.92 }));
+        flame.position.x = -33;
+        const lamp = new THREE.PointLight(0xffa04a, 1.1, 260, 0);
+        lamp.position.set(-24, 0, 26);
+        rocket.add(body, nose, finT, finB, win, flame, lamp);
+        scene.add(rocket);
+        return { flame };
+      })();
+      // particles (one Points cloud, vertex colors)
+      const PMAX = 260;
+      let partPts;
+      {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(PMAX * 3), 3));
+        g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(PMAX * 3), 3));
+        partPts = new THREE.Points(g, new THREE.PointsMaterial({ size: 4.6, sizeAttenuation: false, vertexColors: true, transparent: true, opacity: 0.95 }));
+        partPts.frustumCulled = false;
+        scene.add(partPts);
+      }
+
+      function syncScene(now) {
+        // backdrop scroll
+        const tex = scene.userData.bgTex;
+        if (tex && tex.image) tex.offset.x = -((S.scroll * 0.35) % 924) / 924;
+        // stars
+        {
+          const arr = starPts.geometry.getAttribute('position');
+          S.stars.forEach((st, i) => arr.setXYZ(i, st.x, wy(st.y), -140));
+          arr.needsUpdate = true;
+        }
+        // gates
+        gatePool.forEach((gset, i) => {
+          const p = S.pillars[i];
+          if (!p) { gset.top.visible = gset.bot.visible = gset.capT.visible = gset.capB.visible = false; return; }
+          const topH = p.cy - GAP / 2;
+          const botY = p.cy + GAP / 2;
+          const cx = p.x + GATE_W / 2;
+          gset.top.visible = gset.bot.visible = gset.capT.visible = gset.capB.visible = true;
+          gset.top.scale.y = Math.max(1, topH);
+          gset.top.position.set(cx, wy(topH / 2), 0);
+          gset.bot.scale.y = Math.max(1, H - botY);
+          gset.bot.position.set(cx, wy(botY + (H - botY) / 2), 0);
+          gset.capT.position.set(cx, wy(topH) + 6, 0);
+          gset.capB.position.set(cx, wy(botY) - 6, 0);
+        });
+        // coins
+        coinPool.forEach((m, i) => {
+          const p = S.pillars[i];
+          if (!p || !p.coin || p.coinTaken) { m.visible = false; return; }
+          m.visible = true;
+          m.position.set(p.x + GATE_W / 2, wy(p.cy), 4);
+          m.rotation.y = now / 240 + i;
+        });
+        // rocket
+        rocket.position.set(RX, wy(S.y), 10);
+        rocket.rotation.z = -Math.max(-0.5, Math.min(0.9, S.vy / 700));
+        rocketParts.flame.visible = S.flame > 0 || (S.started && !S.over);
+        rocketParts.flame.scale.set(0.8 + Math.random() * 0.55 + S.flame * 0.5, 1, 1);
+        // particles
+        {
+          const posA = partPts.geometry.getAttribute('position');
+          const colA = partPts.geometry.getAttribute('color');
+          for (let i = 0; i < PMAX; i++) {
+            const pt = S.particles[i];
+            if (!pt) { posA.setXYZ(i, -100, -100, -100); continue; }
+            posA.setXYZ(i, pt.x, wy(pt.y), 12);
+            if (pt.gold) colA.setXYZ(i, 1, 0.85, 0.3);
+            else colA.setXYZ(i, 0.85, 0.92, 1);
           }
+          posA.needsUpdate = true;
+          colA.needsUpdate = true;
         }
       }
-      for (const pt of S.particles) {
-        ctx.globalAlpha = Math.max(0, Math.min(1, pt.life * 2));
-        ctx.fillStyle = pt.gold ? '#ffd94d' : 'rgba(255,255,255,0.85)';
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.globalAlpha = 1;
-      // ground
-      ctx.fillStyle = '#16233f';
-      ctx.fillRect(0, H - 6, W, 6);
-      // rocket
-      const tilt = Math.max(-0.5, Math.min(0.9, S.vy / 700));
-      ctx.save();
-      ctx.translate(RX, S.y);
-      ctx.rotate(tilt);
-      const hasSprite = imgRocket.complete && imgRocket.naturalWidth;
-      if (S.flame > 0 || (S.started && !S.over)) {
-        const fl = 12 + Math.random() * 10 + S.flame * 10;
-        const tail = hasSprite ? -33 : -16;
-        ctx.fillStyle = '#f0883e';
-        ctx.beginPath();
-        ctx.moveTo(tail, -4);
-        ctx.lineTo(tail - fl, 0);
-        ctx.lineTo(tail, 4);
-        ctx.closePath();
-        ctx.fill();
-      }
-      if (hasSprite) {
-        ctx.drawImage(imgRocket, -35, -17, 70, 33);
-        ctx.restore();
-        afterRocket();
-        return;
-      }
-      ctx.fillStyle = '#f5c542';
-      ctx.beginPath();
-      ctx.moveTo(20, 0);
-      ctx.quadraticCurveTo(10, -10, -6, -9);
-      ctx.lineTo(-16, -6);
-      ctx.lineTo(-16, 6);
-      ctx.lineTo(-6, 9);
-      ctx.quadraticCurveTo(10, 10, 20, 0);
-      ctx.fill();
-      ctx.fillStyle = '#e5534b';
-      ctx.beginPath();
-      ctx.moveTo(-8, -8);
-      ctx.lineTo(-18, -14);
-      ctx.lineTo(-15, -4);
-      ctx.closePath();
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(-8, 8);
-      ctx.lineTo(-18, 14);
-      ctx.lineTo(-15, 4);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = '#bfe3ff';
-      ctx.beginPath();
-      ctx.arc(6, 0, 5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-      afterRocket();
-    }
 
-    function afterRocket() {
-      for (const pu of S.popups) {
-        ctx.globalAlpha = Math.max(0, Math.min(1, pu.life));
-        ctx.fillStyle = pu.color;
-        ctx.font = '900 17px system-ui';
-        ctx.textAlign = 'center';
-        ctx.strokeStyle = 'rgba(6,20,40,0.8)';
-        ctx.lineWidth = 3;
-        ctx.strokeText(pu.text, pu.x, pu.y);
-        ctx.fillText(pu.text, pu.x, pu.y);
+      // ---------- overlay: text juice in the old 2D coordinates ----------
+      const overlay = overlayRef.current;
+      const octx = overlay.getContext('2d');
+      function drawOverlay() {
+        octx.clearRect(0, 0, W, H);
+        for (const pu of S.popups) {
+          octx.globalAlpha = Math.max(0, Math.min(1, pu.life));
+          octx.fillStyle = pu.color;
+          octx.font = '900 17px system-ui';
+          octx.textAlign = 'center';
+          octx.strokeStyle = 'rgba(6,20,40,0.8)';
+          octx.lineWidth = 3;
+          octx.strokeText(pu.text, pu.x, pu.y);
+          octx.fillText(pu.text, pu.x, pu.y);
+        }
+        octx.globalAlpha = 1;
+        if (S.callout) {
+          const age = Date.now() - S.callout.at;
+          const sc = age < 220 ? 0.6 + (age / 220) * 0.55 : 1.15;
+          octx.save();
+          octx.translate(W / 2, 150);
+          octx.scale(sc, sc);
+          octx.globalAlpha = age > 700 ? Math.max(0, 1 - (age - 700) / 250) : 1;
+          octx.font = '900 30px system-ui';
+          octx.textAlign = 'center';
+          octx.strokeStyle = 'rgba(6,20,40,0.85)';
+          octx.lineWidth = 6;
+          octx.strokeText(S.callout.text, 0, 0);
+          octx.fillStyle = '#ffd94d';
+          octx.fillText(S.callout.text, 0, 0);
+          octx.restore();
+          octx.globalAlpha = 1;
+        }
+        if (!S.started && !S.over) {
+          octx.fillStyle = 'rgba(255,255,255,0.9)';
+          octx.font = 'bold 19px system-ui';
+          octx.textAlign = 'center';
+          octx.fillText('TAP TO FLAP', W / 2, H / 2 - 90);
+        }
+        if (S.over) {
+          octx.fillStyle = 'rgba(4,8,16,0.66)';
+          octx.fillRect(0, 0, W, H);
+          octx.fillStyle = '#fff';
+          octx.font = 'bold 26px system-ui';
+          octx.textAlign = 'center';
+          octx.fillText('CRASHED', W / 2, H / 2 - 8);
+          octx.font = '15px system-ui';
+          octx.fillStyle = '#f5c542';
+          octx.fillText(`${S.gates} gates · ${S.score.toLocaleString()} points`, W / 2, H / 2 + 20);
+        }
+        dom();
       }
-      ctx.globalAlpha = 1;
-      if (S.callout) {
-        const age = Date.now() - S.callout.at;
-        const sc = age < 220 ? 0.6 + (age / 220) * 0.55 : 1.15;
-        ctx.save();
-        ctx.translate(W / 2, 150);
-        ctx.scale(sc, sc);
-        ctx.globalAlpha = age > 700 ? Math.max(0, 1 - (age - 700) / 250) : 1;
-        ctx.font = '900 30px system-ui';
-        ctx.textAlign = 'center';
-        ctx.strokeStyle = 'rgba(6,20,40,0.85)';
-        ctx.lineWidth = 6;
-        ctx.strokeText(S.callout.text, 0, 0);
-        ctx.fillStyle = '#ffd94d';
-        ctx.fillText(S.callout.text, 0, 0);
-        ctx.restore();
-        ctx.globalAlpha = 1;
-      }
-      if (!S.started && !S.over) {
-        ctx.fillStyle = 'rgba(255,255,255,0.85)';
-        ctx.font = 'bold 19px system-ui';
-        ctx.textAlign = 'center';
-        ctx.fillText('TAP TO FLAP', W / 2, H / 2 - 90);
-      }
-      if (S.over) {
-        ctx.fillStyle = 'rgba(4,8,16,0.72)';
-        ctx.fillRect(0, 0, W, H);
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 26px system-ui';
-        ctx.textAlign = 'center';
-        ctx.fillText('CRASHED', W / 2, H / 2 - 8);
-        ctx.font = '15px system-ui';
-        ctx.fillStyle = '#f5c542';
-        ctx.fillText(`${S.gates} gates · ${S.score.toLocaleString()} points`, W / 2, H / 2 + 20);
-      }
-      dom();
-    }
 
-    const el = {
-      score: document.getElementById('fl-score'),
-      gates: document.getElementById('fl-gates'),
-      next: document.getElementById('fl-next'),
-      msg: document.getElementById('fl-msg'),
-    };
-    function dom() {
-      if (el.score) el.score.textContent = S.score.toLocaleString();
-      if (el.gates) el.gates.textContent = String(S.gates);
-      const nxt = FLIGHT_TIERS.filter((t) => S.score < t.min).pop();
-      if (el.next) {
-        const amt = flightAmount(S.score);
-        el.next.textContent = S.over
-          ? amt > 0 ? `PAYS ${amt} PTS` : 'NO PAYOUT'
-          : nxt ? `NEXT: ${nxt.amount} PTS @ ${nxt.min.toLocaleString()}` : 'MAX TIER!';
+      const el = {
+        score: document.getElementById('fl-score'),
+        gates: document.getElementById('fl-gates'),
+        next: document.getElementById('fl-next'),
+        msg: document.getElementById('fl-msg'),
+      };
+      function dom() {
+        if (el.score) el.score.textContent = S.score.toLocaleString();
+        if (el.gates) el.gates.textContent = String(S.gates);
+        const nxt = FLIGHT_TIERS.filter((t) => S.score < t.min).pop();
+        if (el.next) {
+          const amt = flightAmount(S.score);
+          el.next.textContent = S.over
+            ? amt > 0 ? `PAYS ${amt} PTS` : 'NO PAYOUT'
+            : nxt ? `NEXT: ${nxt.amount} PTS @ ${nxt.min.toLocaleString()}` : 'MAX TIER!';
+        }
+        if (el.msg) el.msg.textContent = Date.now() - S.msgAt < 2400 ? S.msg : '';
       }
-      if (el.msg) el.msg.textContent = Date.now() - S.msgAt < 2400 ? S.msg : '';
-    }
+
+      let last = performance.now();
+      const frame = (now) => {
+        raf = requestAnimationFrame(frame);
+        const dt = Math.min(0.033, (now - last) / 1000);
+        last = now;
+        stepLogic(now, dt);
+        syncScene(now);
+        renderer.render(scene, camera);
+        drawOverlay();
+      };
+      raf = requestAnimationFrame(frame);
+
+      window.__frgFlight = {
+        state: () => {
+          const p = S.pillars.find((x) => x.x + GATE_W >= RX - 16);
+          return {
+            score: S.score, gates: S.gates, over: S.over, started: S.started,
+            y: Math.round(S.y), vy: Math.round(S.vy),
+            nextGap: p ? { x: Math.round(p.x), cy: Math.round(p.cy) } : null,
+          };
+        },
+        flap: () => flap(),
+      };
+
+      cleanup3d = () => {
+        cancelAnimationFrame(raf);
+        renderer.dispose();
+        if (renderer.domElement.parentNode) renderer.domElement.parentNode.removeChild(renderer.domElement);
+        delete window.__frgFlight;
+      };
+    })();
 
     function onDown(e) {
       e.preventDefault();
@@ -356,40 +443,38 @@ export default function Flight({ onFinish }) {
     function onKey(e) {
       if (e.code === 'Space' || e.code === 'ArrowUp') { e.preventDefault(); flap(); }
     }
-    canvas.addEventListener('pointerdown', onDown);
+    const mountEl = mountRef.current;
+    if (mountEl) mountEl.addEventListener('pointerdown', onDown);
     window.addEventListener('keydown', onKey);
 
-    window.__frgFlight = {
-      state: () => {
-        const p = S.pillars.find((x) => x.x + GATE_W >= RX - 16);
-        return {
-          score: S.score, gates: S.gates, over: S.over, started: S.started,
-          y: Math.round(S.y), vy: Math.round(S.vy),
-          nextGap: p ? { x: Math.round(p.x), cy: Math.round(p.cy) } : null,
-        };
-      },
-      flap: () => flap(),
-    };
-
-    raf = requestAnimationFrame(step);
     return () => {
-      cancelAnimationFrame(raf);
-      canvas.removeEventListener('pointerdown', onDown);
+      disposed = true;
+      cleanup3d();
+      if (mountEl) mountEl.removeEventListener('pointerdown', onDown);
       window.removeEventListener('keydown', onKey);
-      delete window.__frgFlight;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <div className="game-wrap pinball-wrap">
-      <h2 className="game-title">🚀 FRG FLIGHT</h2>
+      <h2 className="game-title">🚀 FRG FLIGHT 3D</h2>
       <div className="pb-hud">
         <div>SCORE <b id="fl-score">0</b></div>
         <div>GATES <b id="fl-gates">0</b></div>
         <div className="pb-next" id="fl-next">NEXT: 5 PTS @ 500</div>
       </div>
-      <canvas ref={canvasRef} width={W} height={H} className="pb-canvas" />
+      <div
+        ref={mountRef}
+        style={{ position: 'relative', width: '100%', maxWidth: W, aspectRatio: '400 / 520', margin: '0 auto', touchAction: 'none', borderRadius: 12, overflow: 'hidden' }}
+      >
+        <canvas
+          ref={overlayRef}
+          width={W}
+          height={H}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 2 }}
+        />
+      </div>
       <div className="pb-msg" id="fl-msg" />
       <p className="pinball-note">
         Tap anywhere (or press space) to flap. Every gate is +100, the coin
