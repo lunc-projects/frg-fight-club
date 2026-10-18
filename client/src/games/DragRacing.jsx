@@ -130,7 +130,7 @@ export default function DragRacing({ onFinish }) {
         }
       }
       render();
-    }, 50);
+    }, 33);
     return () => clearInterval(iv);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

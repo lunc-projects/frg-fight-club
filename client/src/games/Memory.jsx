@@ -229,10 +229,9 @@ export default function Memory({ onFinish }) {
           ▶ Start — watch round 1
         </button>
       )}
-      <p style={{ textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>
-        A finished round pays 100 + 25 per step in it. Three strikes ends
-        the run. Points tiers: 150→5 · 450→10 · 875→15 · 1,400→22 ·
-        2,100→32 · 3,000→45.
+      <p className="fineprint">
+        A finished round pays 100 + 25 per step. Three strikes ends the
+        run. Tiers: 150→5 · 450→10 · 875→15 · 1,400→22 · 2,100→32 · 3,000→45.
       </p>
     </main>
   );

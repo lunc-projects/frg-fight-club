@@ -312,10 +312,9 @@ export default function Snake({ onFinish }) {
         {pad('down', '▼')}
         {pad('right', '▶')}
       </div>
-      <p style={{ textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>
-        Orbs pay 25 · every 5th orb is golden and pays 60. The snake speeds
-        up as it eats. Points tiers: 150→5 · 300→10 · 500→15 · 750→22 ·
-        1,050→32 · 1,400→45.
+      <p className="fineprint">
+        Orbs 25 · every 5th is golden, 60. Tiers: 150→5 · 300→10 · 500→15 ·
+        750→22 · 1,050→32 · 1,400→45.
       </p>
     </main>
   );

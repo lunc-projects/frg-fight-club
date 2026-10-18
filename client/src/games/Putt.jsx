@@ -411,10 +411,9 @@ export default function Putt({ onFinish }) {
         style={{ width: '100%', display: 'block', borderRadius: 12, touchAction: 'none' }}
       />
       <p style={{ textAlign: 'center', minHeight: 22 }}>{hud.msg}</p>
-      <p style={{ textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>
-        Drag back from the ball and release to putt — bank shots off the
-        wood are fair game. Fewer strokes, more points: an ace pays 240.
-        Points tiers: 120→5 · 220→10 · 320→15 · 440→22 · 560→32 · 680→45.
+      <p className="fineprint">
+        Drag back and release to putt — an ace pays 240. Tiers: 120→5 ·
+        220→10 · 320→15 · 440→22 · 560→32 · 680→45.
       </p>
     </main>
   );

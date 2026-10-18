@@ -333,10 +333,9 @@ export default function Crossing({ onFinish }) {
         {pad('down', '▼')}
         {pad('right', '▶')}
       </div>
-      <p style={{ textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>
-        Every crossing pays 150 — and speeds the traffic up. Medians are
-        safe. Points tiers: 150→5 · 300→10 · 450→15 · 600→22 · 900→32 ·
-        1,200→45.
+      <p className="fineprint">
+        Every crossing pays 150 and speeds the traffic up. Tiers: 150→5 ·
+        300→10 · 450→15 · 600→22 · 900→32 · 1,200→45.
       </p>
     </main>
   );

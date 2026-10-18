@@ -258,8 +258,8 @@ export default function App() {
 
           <h2 className="section">Pick your game</h2>
           <div className="cards">
-            {GAMES.map((g) => (
-              <div key={g.id} className={`card ${g.live ? '' : 'soon'}`}>
+            {GAMES.map((g, i) => (
+              <div key={g.id} className={`card ${g.live ? '' : 'soon'}`} style={{ animationDelay: `${Math.min(i, 10) * 45}ms` }}>
                 {g.cover ? (
                   <img className="card-cover" src={g.cover} alt="" loading="lazy" />
                 ) : (
