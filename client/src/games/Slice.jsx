@@ -1,10 +1,13 @@
 import { useEffect, useRef } from 'react';
 
 // FRG Slice — gems arc up the screen; swipe through them to slice.
-// Gold gems +50, coins +25, the rare jewel +100; slicing 3+ in one
-// swipe pays a combo bonus. Slice a bomb or let three good items
-// fall past you and the run ends. Score converts to FRG by tiers
-// (the server re-derives them exactly).
+// Now in REAL 3D (Three.js): faceted 3D gems, gold coins, pink jewels
+// and spiky black bombs tumble through the dojo as real objects, and
+// a sliced item splits into two tumbling 3D halves. Gold gems +50,
+// coins +25, the rare jewel +100; slicing 3+ in one swipe pays a
+// combo bonus. Slice a bomb or let three good items fall past you
+// and the run ends. Score converts by tiers (the server re-derives
+// them exactly). All physics, spawning and scoring are the original.
 export const SLICE_TIERS = [
   { min: 5000, amount: 45 },
   { min: 3500, amount: 32 },
@@ -24,21 +27,15 @@ const GRAV = 1050;
 const PTS = { gem: 50, coin: 25, jewel: 100 };
 
 export default function Slice({ onFinish }) {
-  const canvasRef = useRef(null);
+  const mountRef = useRef(null);
+  const overlayRef = useRef(null);
   const doneRef = useRef(false);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
     const start = Date.now();
-    const imgBg = new Image();
-    imgBg.src = '/art/slice-bg.webp';
-    const SPRITES = {};
-    for (const [t, f] of [['gem', 'slice-gem'], ['coin', 'slice-coin'], ['jewel', 'slice-jewel'], ['bomb', 'slice-bomb']]) {
-      const im = new Image();
-      im.src = `/art/${f}.webp`;
-      SPRITES[t] = im;
-    }
+    let disposed = false;
+    let raf = 0;
+    let cleanup3d = () => {};
     let nextId = 1;
     const S = {
       score: 0,
@@ -96,6 +93,11 @@ export default function Slice({ onFinish }) {
       it.sliced = true;
       if (it.type === 'bomb') {
         S.halves.push({ x: it.x, y: it.y, vx: -40, vy: -60, rot: 0, vr: 2, type: 'boom', life: 0.45 });
+        for (let i = 0; i < 16; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const sp = 60 + Math.random() * 150;
+          S.particles.push({ x: it.x, y: it.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30, r: 2.4 + Math.random() * 2.4, life: 0.55, color: i % 2 ? '#ff7a2a' : '#ffb347' });
+        }
         loseLife('💣 Bomb sliced!');
         return;
       }
@@ -151,26 +153,22 @@ export default function Slice({ onFinish }) {
     function finish() {
       if (S.over) return;
       S.over = true;
-      const amount = sliceAmount(S.score);
       setTimeout(() => {
         if (doneRef.current) return;
         doneRef.current = true;
         onFinish({
-          outcome: amount > 0 ? 'win' : 'lose',
+          outcome: sliceAmount(S.score) > 0 ? 'win' : 'lose',
           score: S.score,
-          amount,
+          amount: sliceAmount(S.score),
           sliced: S.slicedCount,
           durationMs: Date.now() - start,
         });
       }, 1000);
     }
 
-    let raf = 0;
-    let last = performance.now();
-    function step(now) {
-      raf = requestAnimationFrame(step);
-      const dt = Math.min(0.033, (now - last) / 1000);
-      last = now;
+    function step(now, lastRef) {
+      const dt = Math.min(0.033, (now - lastRef.v) / 1000);
+      lastRef.v = now;
       const tNow = Date.now();
       if (!S.over) {
         if (tNow >= S.spawnAt) {
@@ -213,170 +211,314 @@ export default function Slice({ onFinish }) {
       }
       S.halves = S.halves.filter((h) => h.life > 0);
       S.shake = Math.max(0, S.shake - dt);
-      draw();
-    }
-
-    function drawItem(it, half) {
-      ctx.save();
-      ctx.translate(it.x, it.y);
-      ctx.rotate(it.rot);
-      if (half) ctx.globalAlpha = Math.max(0, Math.min(1, it.life * 1.6));
-      const spr = SPRITES[it.type];
-      if (spr && spr.complete && spr.naturalWidth) {
-        const dh = it.type === 'bomb' ? it.r * 3.2 : it.type === 'jewel' ? it.r * 3.0 : it.r * 2.6;
-        const dw = dh * (spr.naturalWidth / spr.naturalHeight);
-        const yOff = it.type === 'bomb' ? -dh * 0.11 : 0;
-        ctx.drawImage(spr, -dw / 2, -dh / 2 + yOff, dw, dh);
-        ctx.restore();
-        return;
-      }
-      if (it.type === 'gem' || it.type === 'jewel') {
-        const c = it.type === 'gem' ? '#ffc93c' : '#4de3ff';
-        const cd = it.type === 'gem' ? '#c07f00' : '#1b7ea6';
-        ctx.fillStyle = c;
-        ctx.beginPath();
-        ctx.moveTo(0, -it.r);
-        ctx.lineTo(it.r * 0.8, -it.r * 0.3);
-        ctx.lineTo(it.r * 0.6, it.r * 0.8);
-        ctx.lineTo(-it.r * 0.6, it.r * 0.8);
-        ctx.lineTo(-it.r * 0.8, -it.r * 0.3);
-        ctx.closePath();
-        ctx.fill();
-        ctx.strokeStyle = cd;
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(-it.r * 0.8, -it.r * 0.3);
-        ctx.lineTo(it.r * 0.8, -it.r * 0.3);
-        ctx.moveTo(0, -it.r);
-        ctx.lineTo(0, it.r * 0.8);
-        ctx.stroke();
-      } else if (it.type === 'coin') {
-        ctx.fillStyle = '#ffd94d';
-        ctx.beginPath();
-        ctx.arc(0, 0, it.r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#c07f00';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.fillStyle = '#a86e00';
-        ctx.font = `bold ${it.r}px system-ui`;
-        ctx.textAlign = 'center';
-        ctx.fillText('F', 0, it.r * 0.36);
-      } else if (it.type === 'bomb') {
-        ctx.fillStyle = '#1c2433';
-        ctx.beginPath();
-        ctx.arc(0, 0, it.r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.25)';
-        ctx.beginPath();
-        ctx.arc(-it.r * 0.35, -it.r * 0.35, it.r * 0.32, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#8a6d3b';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(2, -it.r);
-        ctx.quadraticCurveTo(8, -it.r - 8, 13, -it.r - 6);
-        ctx.stroke();
-        ctx.fillStyle = '#ffb347';
-        ctx.beginPath();
-        ctx.arc(14, -it.r - 6, 3 + Math.random() * 2, 0, Math.PI * 2);
-        ctx.fill();
-      } else if (it.type === 'boom') {
-        ctx.fillStyle = 'rgba(255,120,40,0.85)';
-        ctx.font = '26px system-ui';
-        ctx.textAlign = 'center';
-        ctx.fillText('💥', 0, 9);
-      }
-      ctx.restore();
-    }
-
-    function draw() {
-      ctx.save();
-      if (S.shake > 0) ctx.translate((Math.random() - 0.5) * 8 * S.shake, (Math.random() - 0.5) * 8 * S.shake);
-      if (imgBg.complete && imgBg.naturalWidth) {
-        const sc = Math.max(W / imgBg.naturalWidth, H / imgBg.naturalHeight);
-        const bw = imgBg.naturalWidth * sc;
-        const bh = imgBg.naturalHeight * sc;
-        ctx.drawImage(imgBg, (W - bw) / 2, (H - bh) / 2, bw, bh);
-      } else {
-        const grad = ctx.createLinearGradient(0, 0, 0, H);
-        grad.addColorStop(0, '#0a1122');
-        grad.addColorStop(1, '#12203d');
-        ctx.fillStyle = grad;
-        ctx.fillRect(-10, -10, W + 20, H + 20);
-      }
-      for (const it of S.items) if (!it.sliced) drawItem(it, false);
-      for (const h of S.halves) drawItem(h, true);
-      // blade trail
-      const pts = S.trail;
-      if (pts.length > 1) {
-        ctx.strokeStyle = 'rgba(160,230,255,0.85)';
-        ctx.lineWidth = 3;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.moveTo(pts[0].x, pts[0].y);
-        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-        ctx.stroke();
-        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-        ctx.lineWidth = 6;
-        ctx.stroke();
-      }
-      for (const pt of S.particles) {
-        ctx.globalAlpha = Math.max(0, Math.min(1, pt.life * 2.2));
-        ctx.fillStyle = pt.color;
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.globalAlpha = 1;
-      for (const pu of S.popups) {
-        ctx.globalAlpha = Math.max(0, Math.min(1, pu.life));
-        ctx.font = `900 ${pu.size}px system-ui`;
-        ctx.textAlign = 'center';
-        ctx.strokeStyle = 'rgba(10,10,26,0.85)';
-        ctx.lineWidth = 4;
-        ctx.strokeText(pu.text, pu.x, pu.y);
-        ctx.fillStyle = pu.color;
-        ctx.fillText(pu.text, pu.x, pu.y);
-      }
-      ctx.globalAlpha = 1;
-      ctx.restore();
-      if (S.over) {
-        ctx.fillStyle = 'rgba(4,8,16,0.7)';
-        ctx.fillRect(0, 0, W, H);
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 25px system-ui';
-        ctx.textAlign = 'center';
-        ctx.fillText('TIME UP ON LIVES', W / 2, H / 2 - 6);
-        ctx.font = '15px system-ui';
-        ctx.fillStyle = '#f5c542';
-        ctx.fillText(`${S.slicedCount} sliced · ${S.score.toLocaleString()} points`, W / 2, H / 2 + 20);
-      }
-      dom();
     }
 
     const el = {
-      score: document.getElementById('sl-score'),
-      lives: document.getElementById('sl-lives'),
-      next: document.getElementById('sl-next'),
-      msg: document.getElementById('sl-msg'),
+      score: () => document.getElementById('sl-score'),
+      lives: () => document.getElementById('sl-lives'),
+      next: () => document.getElementById('sl-next'),
+      msg: () => document.getElementById('sl-msg'),
     };
     function dom() {
-      if (el.score) el.score.textContent = S.score.toLocaleString();
-      if (el.lives) el.lives.textContent = '❤️'.repeat(Math.max(0, S.lives)) || '—';
+      const sc = el.score();
+      if (sc) sc.textContent = S.score.toLocaleString();
+      const lv = el.lives();
+      if (lv) lv.textContent = '❤️'.repeat(Math.max(0, S.lives)) || '—';
       const nxt = SLICE_TIERS.filter((t) => S.score < t.min).pop();
-      if (el.next) {
+      const nx = el.next();
+      if (nx) {
         const amt = sliceAmount(S.score);
-        el.next.textContent = S.over
+        nx.textContent = S.over
           ? amt > 0 ? `PAYS ${amt} PTS` : 'NO PAYOUT'
           : nxt ? `NEXT: ${nxt.amount} PTS @ ${nxt.min.toLocaleString()}` : 'MAX TIER!';
       }
-      if (el.msg) el.msg.textContent = Date.now() - S.msgAt < 2400 ? S.msg : '';
+      const ms = el.msg();
+      if (ms) ms.textContent = Date.now() - S.msgAt < 2400 ? S.msg : '';
     }
 
+    (async () => {
+      const THREE = await import('three');
+      if (disposed) return;
+      const mount = mountRef.current;
+      const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+      renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+      renderer.setSize(W, H, false);
+      renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;';
+      mount.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0a1122);
+      scene.fog = new THREE.Fog(0x0a1122, 1100, 2600);
+      const camera = new THREE.PerspectiveCamera(50, W / H, 1, 4000);
+      camera.position.set(200, 278, 645);
+      camera.lookAt(200, 256, 0);
+
+      scene.add(new THREE.HemisphereLight(0xd8ecff, 0x1a2436, 1.55));
+      const sun = new THREE.DirectionalLight(0xfff2cf, 2.1);
+      sun.position.set(160, 420, 520);
+      scene.add(sun);
+      const fill = new THREE.DirectionalLight(0x7fd0ff, 0.55);
+      fill.position.set(-240, 120, 260);
+      scene.add(fill);
+
+      const wy = (gy) => H - gy;
+      {
+        const tex = new THREE.TextureLoader().load('/art/slice-bg.webp', (t) => {
+          t.colorSpace = THREE.SRGBColorSpace;
+        });
+        const bg = new THREE.Mesh(
+          new THREE.PlaneGeometry(1020, 1330),
+          new THREE.MeshBasicMaterial({ map: tex, fog: false, color: 0x878da3 })
+        );
+        bg.position.set(200, 260, -215);
+        scene.add(bg);
+      }
+      // ---- item factories (real 3D objects) ----
+      function makeItemMesh(type) {
+        const g = new THREE.Group();
+        if (type === 'gem' || type === 'jewel') {
+          const isJewel = type === 'jewel';
+          const m = new THREE.Mesh(
+            new THREE.OctahedronGeometry(isJewel ? 20 : 22, 0),
+            new THREE.MeshStandardMaterial({
+              color: isJewel ? 0xff5da2 : 0x2ee66b,
+              roughness: 0.12, metalness: 0.1,
+              emissive: isJewel ? 0xff5da2 : 0x2ee66b, emissiveIntensity: 0.38,
+              flatShading: true,
+            })
+          );
+          m.scale.y = 1.3;
+          g.add(m);
+        } else if (type === 'coin') {
+          const geo = new THREE.CylinderGeometry(16, 16, 6, 22);
+          geo.rotateX(Math.PI / 2);
+          const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xffd94d, roughness: 0.22, metalness: 0.75, emissive: 0xffd94d, emissiveIntensity: 0.18 }));
+          g.add(m);
+        } else if (type === 'bomb') {
+          const m = new THREE.Mesh(
+            new THREE.SphereGeometry(18, 16, 12),
+            new THREE.MeshStandardMaterial({ color: 0x1c2433, roughness: 0.35, metalness: 0.4 })
+          );
+          g.add(m);
+          const fuse = new THREE.Mesh(
+            new THREE.CylinderGeometry(2.2, 2.2, 12, 6),
+            new THREE.MeshStandardMaterial({ color: 0x8a6d3b, roughness: 0.8 })
+          );
+          fuse.position.set(4, 19, 0);
+          fuse.rotation.z = -0.5;
+          g.add(fuse);
+          const spark = new THREE.Mesh(
+            new THREE.SphereGeometry(3.6, 8, 6),
+            new THREE.MeshBasicMaterial({ color: 0xffb347 })
+          );
+          spark.position.set(8.5, 25, 0);
+          spark.name = 'spark';
+          g.add(spark);
+        }
+        scene.add(g);
+        return g;
+      }
+      const itemMeshes = new Map(); // id -> group
+      const halfMeshes = []; // parallel to S.halves via index tagging
+      function getItemMesh(it) {
+        let m = itemMeshes.get(it.id);
+        if (!m) {
+          m = makeItemMesh(it.type);
+          itemMeshes.set(it.id, m);
+        }
+        return m;
+      }
+      function makeHalfMesh(type) {
+        const g = makeItemMesh(type === 'boom' ? 'bomb' : type);
+        g.scale.set(0.92, 0.5, 0.92);
+        return g;
+      }
+      // blade trail: glowing line + soft points
+      let bladeLine;
+      let bladePts;
+      {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(24 * 3), 3));
+        bladeLine = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xaee9ff, transparent: true, opacity: 0.9 }));
+        bladeLine.frustumCulled = false;
+        scene.add(bladeLine);
+        bladePts = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xdff6ff, size: 9, sizeAttenuation: false, transparent: true, opacity: 0.45 }));
+        bladePts.frustumCulled = false;
+        scene.add(bladePts);
+      }
+      // particles
+      let partPts;
+      {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(320 * 3), 3));
+        g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(320 * 3), 3));
+        partPts = new THREE.Points(g, new THREE.PointsMaterial({ size: 5.4, sizeAttenuation: false, vertexColors: true, transparent: true, opacity: 0.95 }));
+        partPts.frustumCulled = false;
+        scene.add(partPts);
+      }
+      const colorCache = {};
+      function rgb(hex) {
+        if (!colorCache[hex]) {
+          const n = parseInt(hex.slice(1), 16);
+          colorCache[hex] = [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+        }
+        return colorCache[hex];
+      }
+
+      function syncScene(now) {
+        // camera shake on life loss (the 2D version shook the canvas)
+        if (S.shake > 0) {
+          camera.position.x = 200 + (Math.random() - 0.5) * 9 * S.shake;
+          camera.position.y = 278 + (Math.random() - 0.5) * 9 * S.shake;
+        } else {
+          camera.position.x = 200;
+          camera.position.y = 278;
+        }
+        camera.lookAt(200, 256, 0);
+        const seen = new Set();
+        for (const it of S.items) {
+          if (it.sliced) continue;
+          seen.add(it.id);
+          const m = getItemMesh(it);
+          m.position.set(it.x, wy(it.y), 0);
+          m.rotation.z = it.rot;
+          m.rotation.x = it.rot * 0.7;
+          const spark = m.getObjectByName('spark');
+          if (spark) {
+            const f = 0.8 + Math.random() * 0.6;
+            spark.scale.set(f, f, f);
+          }
+        }
+        for (const [id, m] of itemMeshes) {
+          if (!seen.has(id)) {
+            scene.remove(m);
+            itemMeshes.delete(id);
+          }
+        }
+        // halves
+        while (halfMeshes.length < S.halves.length) halfMeshes.push(null);
+        S.halves.forEach((h, i) => {
+          if (h.type === 'boom') return;
+          if (halfMeshes[i] && halfMeshes[i].userData.halfType !== h.type) {
+            scene.remove(halfMeshes[i]);
+            halfMeshes[i] = null;
+          }
+          if (!halfMeshes[i]) {
+            halfMeshes[i] = makeHalfMesh(h.type);
+            halfMeshes[i].userData.halfType = h.type;
+          }
+          const m = halfMeshes[i];
+          m.position.set(h.x, wy(h.y), 0);
+          m.rotation.z = h.rot;
+          m.rotation.x = h.rot * 0.8;
+          m.traverse((o) => {
+            if (o.material && o.material.transparent !== true) {
+              o.material = o.material.clone();
+              o.material.transparent = true;
+            }
+            if (o.material) o.material.opacity = Math.max(0, Math.min(1, h.life * 1.6));
+          });
+        });
+        for (let i = S.halves.length; i < halfMeshes.length; i++) {
+          if (halfMeshes[i]) scene.remove(halfMeshes[i]);
+        }
+        halfMeshes.length = S.halves.length;
+        // blade
+        {
+          const arr = bladeLine.geometry.getAttribute('position');
+          const pts = S.trail.slice(-24);
+          for (let i = 0; i < 24; i++) {
+            const p = pts[i];
+            if (!p) { arr.setXYZ(i, -300, -300, -300); continue; }
+            arr.setXYZ(i, p.x, wy(p.y), 26);
+          }
+          bladeLine.geometry.setDrawRange(0, pts.length);
+          bladePts.geometry.setDrawRange(0, pts.length);
+          arr.needsUpdate = true;
+        }
+        // particles
+        {
+          const posA = partPts.geometry.getAttribute('position');
+          const colA = partPts.geometry.getAttribute('color');
+          for (let i = 0; i < 320; i++) {
+            const pt = S.particles[i];
+            if (!pt) { posA.setXYZ(i, -300, -300, -300); continue; }
+            posA.setXYZ(i, pt.x, wy(pt.y), 16);
+            const c = rgb(pt.color);
+            colA.setXYZ(i, c[0], c[1], c[2]);
+          }
+          posA.needsUpdate = true;
+          colA.needsUpdate = true;
+        }
+      }
+
+      // ---------- overlay: popups + game-over panel (game coords) ----
+      const overlay = overlayRef.current;
+      const octx = overlay.getContext('2d');
+      function drawOverlay() {
+        octx.clearRect(0, 0, W, H);
+        for (const pu of S.popups) {
+          octx.globalAlpha = Math.max(0, Math.min(1, pu.life));
+          octx.font = `900 ${pu.size}px system-ui`;
+          octx.textAlign = 'center';
+          octx.strokeStyle = 'rgba(10,10,26,0.85)';
+          octx.lineWidth = 4;
+          octx.strokeText(pu.text, pu.x, pu.y);
+          octx.fillStyle = pu.color;
+          octx.fillText(pu.text, pu.x, pu.y);
+        }
+        octx.globalAlpha = 1;
+        // bomb flash glyph at fresh boom halves
+        for (const h of S.halves) {
+          if (h.type !== 'boom') continue;
+          octx.font = '30px system-ui';
+          octx.textAlign = 'center';
+          octx.fillText('💥', h.x, h.y + 10);
+        }
+        if (S.over) {
+          octx.fillStyle = 'rgba(4,8,16,0.7)';
+          octx.fillRect(0, 0, W, H);
+          octx.fillStyle = '#fff';
+          octx.font = 'bold 25px system-ui';
+          octx.textAlign = 'center';
+          octx.fillText('TIME UP ON LIVES', W / 2, H / 2 - 6);
+          octx.font = '15px system-ui';
+          octx.fillStyle = '#f5c542';
+          octx.fillText(`${S.slicedCount} sliced · ${S.score.toLocaleString()} points`, W / 2, H / 2 + 20);
+        }
+      }
+
+      const lastRef = { v: performance.now() };
+      const frame = (now) => {
+        raf = requestAnimationFrame(frame);
+        step(now, lastRef);
+        syncScene(now);
+        renderer.render(scene, camera);
+        drawOverlay();
+        dom();
+      };
+      raf = requestAnimationFrame(frame);
+
+      window.__frgSlice = {
+        state: () => ({
+          score: S.score, lives: S.lives, over: S.over, sliced: S.slicedCount,
+          items: S.items.filter((i) => !i.sliced).map((i) => ({ id: i.id, x: Math.round(i.x), y: Math.round(i.y), vy: Math.round(i.vy), type: i.type })),
+        }),
+        swipe: (x1, y1, x2, y2) => { S.strokeSlices = 0; bladeSweep(x1, y1, x2, y2); endStroke(); },
+      };
+
+      cleanup3d = () => {
+        cancelAnimationFrame(raf);
+        renderer.dispose();
+        if (renderer.domElement.parentNode) renderer.domElement.parentNode.removeChild(renderer.domElement);
+        delete window.__frgSlice;
+      };
+    })();
+
+    // pointer input on the mount (same slingshot trail math as 2D)
+    const mountEl = mountRef.current;
     function toLocal(e) {
-      const rect = canvas.getBoundingClientRect();
+      const rect = mountEl.getBoundingClientRect();
       const cx = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
       const cy = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
       return { x: (cx / rect.width) * W, y: (cy / rect.height) * H };
@@ -396,44 +538,47 @@ export default function Slice({ onFinish }) {
       if (S.pointerDown) endStroke();
       S.pointerDown = false;
     }
-    canvas.addEventListener('pointerdown', onDown);
-    canvas.addEventListener('pointermove', onMove);
+    if (mountEl) {
+      mountEl.addEventListener('pointerdown', onDown);
+      mountEl.addEventListener('pointermove', onMove);
+    }
     window.addEventListener('pointerup', onUp);
 
-    window.__frgSlice = {
-      state: () => ({
-        score: S.score, lives: S.lives, over: S.over, sliced: S.slicedCount,
-        items: S.items.filter((i) => !i.sliced).map((i) => ({ id: i.id, x: Math.round(i.x), y: Math.round(i.y), vy: Math.round(i.vy), type: i.type })),
-      }),
-      swipe: (x1, y1, x2, y2) => { S.strokeSlices = 0; bladeSweep(x1, y1, x2, y2); endStroke(); },
-    };
-
-    raf = requestAnimationFrame(step);
     return () => {
-      cancelAnimationFrame(raf);
-      canvas.removeEventListener('pointerdown', onDown);
-      canvas.removeEventListener('pointermove', onMove);
+      disposed = true;
+      cleanup3d();
+      if (mountEl) {
+        mountEl.removeEventListener('pointerdown', onDown);
+        mountEl.removeEventListener('pointermove', onMove);
+      }
       window.removeEventListener('pointerup', onUp);
-      delete window.__frgSlice;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <div className="game-wrap pinball-wrap">
-      <h2 className="game-title">⚔️ FRG SLICE</h2>
+      <h2 className="game-title">⚔️ FRG SLICE 3D</h2>
       <div className="pb-hud">
         <div>SCORE <b id="sl-score">0</b></div>
         <div><b id="sl-lives">❤️❤️❤️</b></div>
         <div className="pb-next" id="sl-next">NEXT: 5 PTS @ 600</div>
       </div>
-      <canvas ref={canvasRef} width={W} height={H} className="pb-canvas" />
-      <div className="pb-msg" id="sl-msg" />
-      <p className="pinball-note">
-        Swipe through gems (+50), coins (+25) and jewels (+100) — 3 or
-        more in one swipe pays a combo bonus. Slicing a bomb or letting
-        three good items fall costs your 3 lives. Payouts: 600→5 ·
-        1,100→10 · 1,700→15 · 2,500→22 · 3,500→32 · 5,000→45 PTS.
+      <div
+        ref={mountRef}
+        style={{ position: 'relative', width: '100%', aspectRatio: '400 / 520', touchAction: 'none', borderRadius: 12, overflow: 'hidden' }}
+      >
+        <canvas
+          ref={overlayRef}
+          width={W}
+          height={H}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 2 }}
+        />
+      </div>
+      <p style={{ textAlign: 'center', minHeight: 22 }} id="sl-msg"></p>
+      <p className="fineprint">
+        Gems 50 · coins 25 · jewels 100 — combos pay +25 per extra slice.
+        Tiers: 600→5 · 1,100→10 · 1,700→15 · 2,500→22 · 3,500→32 · 5,000→45.
       </p>
     </div>
   );

@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 
 // FRG Drag Racing — beat the tree, nail the shifts, outrun the rival.
-//
-// Skill model (simulation-tuned, 5k races per profile): the tach
-// sweeps each of 5 gears; shifting at 78-95% is PERFECT (boost 1.30),
-// 55-78% is good, earlier bogs the car (1.4s momentum loss), riding
-// into the 100% limiter is worst. A great launch (<=220ms reaction)
-// earns a 1.18 boost. Rival runs 9.60-11.00s. Simulated win rates:
-// pro ~87%, average ~33% (EV ~6.0 PTS on the 10 PTS entry at the
-// 18 PTS prize), sloppy ~2% — the treasury grows on typical play.
+// Now with a REAL 3D drag strip (Three.js): two low-poly 3D cars under
+// the lights, a 3D christmas tree at the start line, a tracking camera
+// that follows the race. The skill model is unchanged (simulation-
+// tuned): the tach sweeps each of 5 gears; shifting at 78-95% is
+// PERFECT (boost 1.30), 55-78% is good, earlier bogs the car (1.4s
+// momentum loss), riding into the 100% limiter is worst. A great
+// launch (<=220ms reaction) earns a 1.18 boost. Rival runs 9.60-11.00s.
 const GEAR_TIME = [3.0, 2.6, 2.3, 2.1, 999]; // s for rpm 0->100, gears 1..5
 const GEAR_RATE = [0.048, 0.07, 0.092, 0.108, 0.118]; // track/sec at boost 1
 const ZONE = {
@@ -23,6 +22,224 @@ const RIVAL_SPREAD = 1400;
 function drawRivalEt() {
   const tri = (Math.random() + Math.random() + Math.random()) / 3;
   return Math.round(RIVAL_BASE + tri * RIVAL_SPREAD);
+}
+
+const TRACK_START = -430;
+const TRACK_LEN = 880;
+
+// ---------------------------------------------------------------------
+// The 3D stage. Reads the live race state object every frame; owns no
+// game logic.
+// ---------------------------------------------------------------------
+function RaceStage3D({ stateRef }) {
+  const mountRef = useRef(null);
+
+  useEffect(() => {
+    const S = stateRef;
+    let disposed = false;
+    let raf = 0;
+    let cleanup = () => {};
+
+    (async () => {
+      const THREE = await import('three');
+      if (disposed) return;
+      const mount = mountRef.current;
+      const W = 400;
+      const H = 300;
+      const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+      renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+      renderer.setSize(W, H, false);
+      renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;';
+      mount.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0a0f22);
+      scene.fog = new THREE.Fog(0x0a0f22, 700, 1900);
+      const camera = new THREE.PerspectiveCamera(55, W / H, 1, 4000);
+
+      scene.add(new THREE.HemisphereLight(0xbdd7ff, 0x141428, 1.5));
+      const sun = new THREE.DirectionalLight(0xfff1cf, 1.9);
+      sun.position.set(120, 320, 420);
+      scene.add(sun);
+      const fill = new THREE.DirectionalLight(0x7fb2ff, 0.6);
+      fill.position.set(-200, 140, 300);
+      scene.add(fill);
+
+      // backdrop: the club's night strip art (XY side-view world:
+      // x = down-track, y = up, z = toward the camera; lanes split on z)
+      {
+        const tex = new THREE.TextureLoader().load('/art/racing-bg.webp', (t) => {
+          t.colorSpace = THREE.SRGBColorSpace;
+        });
+        const bg = new THREE.Mesh(
+          new THREE.PlaneGeometry(1900, 640),
+          new THREE.MeshBasicMaterial({ map: tex, fog: false })
+        );
+        bg.position.set(0, 170, -215);
+        scene.add(bg);
+        scene.userData.bg = bg;
+      }
+      // asphalt + lane paint
+      {
+        const strip = new THREE.Mesh(
+          new THREE.BoxGeometry(1500, 12, 196),
+          new THREE.MeshStandardMaterial({ color: 0x1a2130, roughness: 0.95 })
+        );
+        strip.position.set(60, -8, 0);
+        scene.add(strip);
+        const dashMat = new THREE.MeshBasicMaterial({ color: 0xf8fafc });
+        for (let x = -560; x < 700; x += 46) {
+          const d = new THREE.Mesh(new THREE.BoxGeometry(24, 1.6, 3.4), dashMat);
+          d.position.set(x, -1, 0);
+          scene.add(d);
+        }
+        const lineMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
+        for (const z of [-64, 64]) {
+          const l = new THREE.Mesh(new THREE.BoxGeometry(1500, 1.6, 3.4), lineMat);
+          l.position.set(60, -1, z);
+          scene.add(l);
+        }
+        // finish gantry
+        const poleMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.5, metalness: 0.6 });
+        for (const z of [-70, 70]) {
+          const pole = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 150, 8), poleMat);
+          pole.position.set(TRACK_START + TRACK_LEN, 75, z);
+          scene.add(pole);
+        }
+        const banner = new THREE.Mesh(
+          new THREE.BoxGeometry(6, 26, 150),
+          new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4, emissive: 0xffffff, emissiveIntensity: 0.12 })
+        );
+        banner.position.set(TRACK_START + TRACK_LEN, 150, 0);
+        scene.add(banner);
+        // floodlight poles along the back
+        const lampMat = new THREE.MeshBasicMaterial({ color: 0xd6f4ff });
+        for (let i = 0; i < 6; i++) {
+          const pole = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.6, 170, 6), poleMat);
+          pole.position.set(-480 + i * 260, 85, -120);
+          scene.add(pole);
+          const lamp = new THREE.Mesh(new THREE.SphereGeometry(7, 10, 8), lampMat);
+          lamp.position.set(-480 + i * 260, 176, -120);
+          scene.add(lamp);
+        }
+      }
+      // christmas tree at the start line
+      const treeLights = [];
+      {
+        const poleMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.5, metalness: 0.5 });
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 120, 8), poleMat);
+        pole.position.set(TRACK_START - 52, 60, -88);
+        scene.add(pole);
+        const cols = [0xffb020, 0xffb020, 0xffb020, 0x22c55e];
+        for (let i = 0; i < 4; i++) {
+          const m = new THREE.Mesh(
+            new THREE.SphereGeometry(8.4, 12, 10),
+            new THREE.MeshBasicMaterial({ color: 0x1f2937 })
+          );
+          m.position.set(TRACK_START - 52, 108 - i * 27, -88);
+          scene.add(m);
+          treeLights.push({ mesh: m, onColor: cols[i] });
+        }
+      }
+      // side-profile low-poly cars
+      function makeSideCar(colorHex, isPlayer) {
+        const g = new THREE.Group();
+        const paint = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.3, metalness: 0.55, emissive: colorHex, emissiveIntensity: 0.13 });
+        const body = new THREE.Mesh(new THREE.BoxGeometry(118, 24, 44), paint);
+        body.position.set(0, 22, 0);
+        const nose = new THREE.Mesh(new THREE.BoxGeometry(30, 17, 40), paint);
+        nose.position.set(66, 17, 0);
+        const cabin = new THREE.Mesh(
+          new THREE.BoxGeometry(52, 19, 38),
+          new THREE.MeshStandardMaterial({ color: 0x101828, roughness: 0.12, metalness: 0.3 })
+        );
+        cabin.position.set(-8, 43, 0);
+        g.add(body, nose, cabin);
+        if (isPlayer) {
+          const spoiler = new THREE.Mesh(new THREE.BoxGeometry(14, 5, 46), paint);
+          spoiler.position.set(-60, 47, 0);
+          g.add(spoiler);
+        }
+        const wheelGeo = new THREE.CylinderGeometry(13.5, 13.5, 8, 14);
+        wheelGeo.rotateX(Math.PI / 2);
+        const wheelMat = new THREE.MeshStandardMaterial({ color: 0x0a0a12, roughness: 0.9 });
+        const wheels = [];
+        for (const wx of [-38, 40]) {
+          for (const wz of [-23, 23]) {
+            const w = new THREE.Mesh(wheelGeo, wheelMat);
+            w.position.set(wx, 13, wz);
+            g.add(w);
+            wheels.push(w);
+          }
+        }
+        const flameGeo = new THREE.ConeGeometry(7, 30, 10);
+        flameGeo.rotateZ(Math.PI / 2);
+        const flame = new THREE.Mesh(flameGeo, new THREE.MeshBasicMaterial({ color: 0xff8c3a, transparent: true, opacity: 0.92 }));
+        flame.position.set(-78, 18, 0);
+        flame.visible = false;
+        g.add(flame);
+        scene.add(g);
+        return { g, wheels, flame };
+      }
+      const player = makeSideCar(0xf7b733, true);
+      const rival = makeSideCar(0xd23b3b, false);
+      player.g.position.z = 32;
+      rival.g.position.z = -32;
+
+      function sync(now) {
+        const px = TRACK_START + S.dist * TRACK_LEN;
+        const rx = TRACK_START + S.rivalDist * TRACK_LEN;
+        player.g.position.x = px;
+        rival.g.position.x = rx;
+        const spin = S.launched && S.phase === 'racing' ? 0.55 : 0;
+        for (const w of player.wheels) w.rotation.z -= spin;
+        for (const w of rival.wheels) w.rotation.z -= S.phase === 'racing' ? 0.5 : 0;
+        player.flame.visible = !!(S.launched && S.phase === 'racing');
+        if (player.flame.visible) player.flame.scale.set(0.8 + Math.random() * 0.6, 1, 1);
+        // tree lights
+        const stageMs = Math.max(0, S.treeAt - Date.now());
+        const ambers = S.phase === 'stage' ? (stageMs > 800 ? 0 : stageMs > 450 ? 1 : stageMs > 100 ? 2 : 3) : 3;
+        treeLights.forEach((t, i) => {
+          let on = false;
+          let color = t.onColor;
+          if (i < 3) on = S.phase === 'stage' ? ambers > i : false;
+          else if (S.outcome === 'foul') { on = true; color = 0xef4444; }
+          else on = S.phase === 'racing' || S.phase === 'done';
+          t.mesh.material.color.set(on ? color : 0x1f2937);
+        });
+        // tracking camera, biased to the player
+        const focus = Math.max(-390, Math.min(430, px * 0.86));
+        camera.position.set(focus, 92, 335);
+        camera.lookAt(focus + 26, 38, 0);
+        if (scene.userData.bg) scene.userData.bg.position.x = focus * 0.92;
+      }
+
+      const frame = (now) => {
+        raf = requestAnimationFrame(frame);
+        sync(now);
+        renderer.render(scene, camera);
+      };
+      raf = requestAnimationFrame(frame);
+
+      cleanup = () => {
+        cancelAnimationFrame(raf);
+        renderer.dispose();
+        if (renderer.domElement.parentNode) renderer.domElement.parentNode.removeChild(renderer.domElement);
+      };
+    })();
+
+    return () => {
+      disposed = true;
+      cleanup();
+    };
+  }, [stateRef]);
+
+  return (
+    <div
+      ref={mountRef}
+      style={{ position: 'absolute', inset: 0, borderRadius: 12, overflow: 'hidden' }}
+    />
+  );
 }
 
 export default function DragRacing({ onFinish }) {
@@ -200,7 +417,7 @@ export default function DragRacing({ onFinish }) {
 
   return (
     <main className="race-wrap">
-      <h2 className="race-title">🏎️ DRAG RACING</h2>
+      <h2 className="race-title">🏎️ DRAG RACING 3D</h2>
       <p className="race-sub">
         Beat the tree. Shift in the green band (78–95%). Winner takes 18 PTS.
       </p>
@@ -216,27 +433,8 @@ export default function DragRacing({ onFinish }) {
         />
       </div>
 
-      <div className="track">
-        <div className="lane">
-          <span className="lane-tag">RIVAL</span>
-          <div
-            className="car rival-car"
-            style={{ left: `${2 + S.rivalDist * 88}%` }}
-          >
-            <img className="car-img" src="/art/car-red.webp" alt="" draggable="false" />
-          </div>
-        </div>
-        <div className="lane">
-          <span className="lane-tag">YOU</span>
-          <div
-            className="car player-car"
-            style={{ left: `${2 + S.dist * 88}%` }}
-          >
-            {S.launched && S.phase === 'racing' && <span className="car-flame">🔥</span>}
-            <img className="car-img" src="/art/car-taxi.webp" alt="" draggable="false" />
-          </div>
-        </div>
-        <div className="finish-line" />
+      <div className="track-3d">
+        <RaceStage3D stateRef={S} />
         {S.lastShift.includes('PERFECT') && S.phase === 'racing' && (
           <div key={S.perfects} className="shift-pop">⚡ PERFECT SHIFT!</div>
         )}
