@@ -18,6 +18,13 @@ export const WHEEL_SEGMENTS = [
   { label: 'BUST', value: 0, color: '#241433', text: '#8d7bb5' },
 ];
 const N = WHEEL_SEGMENTS.length;
+const CONFETTI = [
+  { e: '⭐', l: '6%', d: '0s', t: '1.7s', s: 21 }, { e: '🎉', l: '16%', d: '0.15s', t: '1.9s', s: 22 },
+  { e: '💰', l: '27%', d: '0.05s', t: '1.6s', s: 20 }, { e: '✨', l: '38%', d: '0.25s', t: '1.8s', s: 19 },
+  { e: '⭐', l: '49%', d: '0.1s', t: '1.65s', s: 23 }, { e: '🎉', l: '59%', d: '0.3s', t: '1.95s', s: 21 },
+  { e: '💰', l: '68%', d: '0.02s', t: '1.75s', s: 20 }, { e: '✨', l: '77%', d: '0.2s', t: '1.6s', s: 19 },
+  { e: '⭐', l: '86%', d: '0.12s', t: '1.85s', s: 22 }, { e: '🎉', l: '94%', d: '0.28s', t: '1.7s', s: 20 },
+];
 const STEP = 360 / N;
 const CX = 200, CY = 200, R = 168;
 const DURATION = 4800;
@@ -153,6 +160,7 @@ export default function PrizeWheel({ onFinish }) {
     <main className="pw">
       <h2 className="section">🎡 FRG Prize Wheel</h2>
       <div className="pw-wrap">
+        <div className="pw-rays" />
         <div className="pw-pointer" ref={pointerRef} />
         <svg className="pw-layer pw-spin" ref={spinRef} viewBox="0 0 400 400">
           <g>{segments}</g>
@@ -164,6 +172,15 @@ export default function PrizeWheel({ onFinish }) {
           <text x="200" y="194" textAnchor="middle" fontSize="21" fontWeight="900" fill="#3a2200">FRG</text>
           <text x="200" y="216" textAnchor="middle" fontSize="11" fontWeight="700" fill="#5b3a00">PRIZE WHEEL</text>
         </svg>
+        {result && result.value > 0 && (
+          <div className="pw-confetti" key={result.value}>
+            {CONFETTI.map((c, i) => (
+              <span key={i} style={{ left: c.l, animationDelay: c.d, animationDuration: c.t, fontSize: c.s }}>
+                {c.e}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
       <div className={`pw-result ${result ? (result.value > 0 ? 'win' : 'bust') : ''}`} aria-live="polite">
         {result === null && (spinning ? 'Spinning… good luck!' : 'Your spin is paid for — tap SPIN!')}

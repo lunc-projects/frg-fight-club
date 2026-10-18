@@ -46,6 +46,10 @@ export default function Pinball({ onFinish }) {
       charging: true,
       laneCooldown: {},
       bumperFlash: {},
+      popups: [],
+      rings: [],
+      trail: [],
+      callout: null,
       msg: 'Charge the plunger — tap LAUNCH to fire!',
       flipL: false,
       flipR: false,
@@ -157,8 +161,12 @@ export default function Pinball({ onFinish }) {
     S.syncHud = syncHud;
     syncHud();
 
-    function addScore(kind, label) {
+    function addScore(kind, label, pos) {
       S.score += PTS[kind];
+      if (pos) {
+        S.popups.push({ x: pos.x, y: pos.y - 14, text: `+${PTS[kind]}`, life: 1, color: kind === 'target' ? '#ffd94d' : '#ffffff', size: kind === 'target' ? 17 : 14 });
+        if (kind === 'bumper') S.rings.push({ x: pos.x, y: pos.y, at: Date.now() });
+      }
       if (kind === 'bumper') S.msg = `💥 Bumper +${PTS.bumper}!`;
       if (kind === 'sling') S.msg = `⚡ Slingshot +${PTS.sling}!`;
       if (kind === 'lane') S.msg = `⭐ Rollover +${PTS.lane}!`;
@@ -166,6 +174,8 @@ export default function Pinball({ onFinish }) {
         S.targets[label] = true;
         if (S.targets.F && S.targets.R && S.targets.G) {
           S.score += PTS.bonus;
+          S.callout = { text: '🎉 F-R-G COMPLETE! +1000', at: Date.now() };
+          if (pos) S.popups.push({ x: pos.x, y: pos.y - 34, text: `+${PTS.bonus}`, life: 1.2, color: '#ffd94d', size: 19 });
           S.targets = { F: false, R: false, G: false };
           S.msg = `🎉 F-R-G COMPLETE! Bonus +${PTS.bonus}!`;
           haptic('medium');
@@ -182,7 +192,7 @@ export default function Pinball({ onFinish }) {
         const other = pair.bodyA.label === 'ball' ? pair.bodyB : pair.bodyA;
         if (!labels.includes('ball')) continue;
         if (other.label === 'bumper') {
-          addScore('bumper');
+          addScore('bumper', null, other.position);
           S.bumperFlash[other.id] = Date.now();
           // Kick the ball away from the bumper center
           const d = Vector.sub(ball.position, other.position);
@@ -191,15 +201,15 @@ export default function Pinball({ onFinish }) {
           Body.setVelocity(ball, Vector.mult(n, sp));
           haptic('light');
         } else if (other.label === 'sling') {
-          addScore('sling');
+          addScore('sling', null, other.position);
         } else if (other.label.startsWith('target:')) {
-          addScore('target', other.label.split(':')[1]);
+          addScore('target', other.label.split(':')[1], other.position);
           haptic('light');
         } else if (other.label.startsWith('lane:')) {
           const now = Date.now();
           if (!S.laneCooldown[other.label] || now - S.laneCooldown[other.label] > 1200) {
             S.laneCooldown[other.label] = now;
-            addScore('lane');
+            addScore('lane', null, other.position);
           }
         }
       }
@@ -332,10 +342,20 @@ export default function Pinball({ onFinish }) {
         }
       }
 
+      S.trail.push({ x: ball.position.x, y: ball.position.y });
+      if (S.trail.length > 9) S.trail.shift();
+      const dtS = Math.min(0.033, dt / 1000);
+      for (const pu of S.popups) { pu.y -= 26 * dtS; pu.life -= dtS * 1.05; }
+      S.popups = S.popups.filter((pu) => pu.life > 0);
+      S.rings = S.rings.filter((r) => Date.now() - r.at < 230);
+      if (S.callout && Date.now() - S.callout.at > 1250) S.callout = null;
+
       draw();
     };
 
     // --- Canvas rendering -------------------------------------------------------
+    const imgBg = new Image();
+    imgBg.src = '/art/pinball-bg.webp';
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -344,12 +364,21 @@ export default function Pinball({ onFinish }) {
 
     function draw() {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      // Felt
-      const g = ctx.createLinearGradient(0, 0, 0, H);
-      g.addColorStop(0, '#12234d');
-      g.addColorStop(1, '#0a1230');
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, W, H);
+      // Playfield — neon underlay art, flat felt until it loads
+      if (imgBg.complete && imgBg.naturalWidth) {
+        const sc = Math.max(W / imgBg.naturalWidth, H / imgBg.naturalHeight);
+        const bw = imgBg.naturalWidth * sc;
+        const bh = imgBg.naturalHeight * sc;
+        ctx.drawImage(imgBg, (W - bw) / 2, (H - bh) / 2, bw, bh);
+        ctx.fillStyle = 'rgba(5,8,24,0.30)';
+        ctx.fillRect(0, 0, W, H);
+      } else {
+        const g = ctx.createLinearGradient(0, 0, 0, H);
+        g.addColorStop(0, '#12234d');
+        g.addColorStop(1, '#0a1230');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+      }
       // Launch lane shading
       ctx.fillStyle = 'rgba(255,255,255,0.05)';
       ctx.fillRect(362, 40, 32, H - 40);
@@ -424,6 +453,15 @@ export default function Pinball({ onFinish }) {
         ctx.textAlign = 'center';
         ctx.fillText('150', bp.position.x, bp.position.y + 3);
       }
+      // Bumper shockwave rings
+      for (const r of S.rings) {
+        const age = (Date.now() - r.at) / 230;
+        ctx.beginPath();
+        ctx.arc(r.x, r.y, 17 + age * 17, 0, 2 * Math.PI);
+        ctx.strokeStyle = `rgba(255, 215, 110, ${0.75 * (1 - age)})`;
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
       // Flippers
       for (const f of [flipL, flipR]) {
         ctx.save();
@@ -446,15 +484,57 @@ export default function Pinball({ onFinish }) {
         ctx.fillStyle = '#f7b733';
         ctx.fillRect(368, 552 + (100 - S.power) * 0.2, 14, 22 - (100 - S.power) * 0.2);
       }
-      // Ball
+      // Ball trail + glowing ball
       const p = ball.position;
+      S.trail.forEach((tp, i) => {
+        ctx.globalAlpha = (i / S.trail.length) * 0.28;
+        ctx.fillStyle = '#cfe6ff';
+        ctx.beginPath();
+        ctx.arc(tp.x, tp.y, 3 + (i / S.trail.length) * 5, 0, 2 * Math.PI);
+        ctx.fill();
+      });
+      ctx.globalAlpha = 1;
       const bgr = ctx.createRadialGradient(p.x - 3, p.y - 3, 1, p.x, p.y, 9);
       bgr.addColorStop(0, '#ffffff');
       bgr.addColorStop(1, '#94a3b8');
+      ctx.save();
+      ctx.shadowColor = 'rgba(170,215,255,0.85)';
+      ctx.shadowBlur = 12;
       ctx.beginPath();
       ctx.arc(p.x, p.y, 9, 0, 2 * Math.PI);
       ctx.fillStyle = bgr;
       ctx.fill();
+      ctx.restore();
+      // Score popups
+      for (const pu of S.popups) {
+        ctx.globalAlpha = Math.max(0, Math.min(1, pu.life));
+        ctx.font = `900 ${pu.size}px system-ui`;
+        ctx.textAlign = 'center';
+        ctx.strokeStyle = 'rgba(4,6,20,0.85)';
+        ctx.lineWidth = 3.5;
+        ctx.strokeText(pu.text, pu.x, pu.y);
+        ctx.fillStyle = pu.color;
+        ctx.fillText(pu.text, pu.x, pu.y);
+      }
+      ctx.globalAlpha = 1;
+      // F-R-G complete callout
+      if (S.callout) {
+        const age = Date.now() - S.callout.at;
+        const sc2 = age < 200 ? 0.6 + (age / 200) * 0.5 : 1.1;
+        ctx.save();
+        ctx.translate(W / 2, 300);
+        ctx.scale(sc2, sc2);
+        ctx.globalAlpha = age > 950 ? Math.max(0, 1 - (age - 950) / 300) : 1;
+        ctx.font = '900 24px system-ui';
+        ctx.textAlign = 'center';
+        ctx.strokeStyle = 'rgba(4,6,20,0.9)';
+        ctx.lineWidth = 6;
+        ctx.strokeText(S.callout.text, 0, 0);
+        ctx.fillStyle = '#ffd94d';
+        ctx.fillText(S.callout.text, 0, 0);
+        ctx.restore();
+        ctx.globalAlpha = 1;
+      }
     }
 
     raf = requestAnimationFrame(step);
