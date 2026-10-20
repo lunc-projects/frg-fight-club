@@ -13119,6 +13119,43 @@
       return new _CylinderGeometry(data.radiusTop, data.radiusBottom, data.height, data.radialSegments, data.heightSegments, data.openEnded, data.thetaStart, data.thetaLength);
     }
   };
+  var ConeGeometry = class _ConeGeometry extends CylinderGeometry {
+    /**
+     * Constructs a new cone geometry.
+     *
+     * @param {number} [radius=1] - Radius of the cone base.
+     * @param {number} [height=1] - Height of the cone.
+     * @param {number} [radialSegments=32] - Number of segmented faces around the circumference of the cone.
+     * @param {number} [heightSegments=1] - Number of rows of faces along the height of the cone.
+     * @param {boolean} [openEnded=false] - Whether the base of the cone is open or capped.
+     * @param {number} [thetaStart=0] - Start angle for first segment, in radians.
+     * @param {number} [thetaLength=Math.PI*2] - The central angle, often called theta, of the circular sector, in radians.
+     * The default value results in a complete cone.
+     */
+    constructor(radius = 1, height = 1, radialSegments = 32, heightSegments = 1, openEnded = false, thetaStart = 0, thetaLength = Math.PI * 2) {
+      super(0, radius, height, radialSegments, heightSegments, openEnded, thetaStart, thetaLength);
+      this.type = "ConeGeometry";
+      this.parameters = {
+        radius,
+        height,
+        radialSegments,
+        heightSegments,
+        openEnded,
+        thetaStart,
+        thetaLength
+      };
+    }
+    /**
+     * Factory method for creating an instance of this class from the given
+     * JSON object.
+     *
+     * @param {Object} data - A JSON object representing the serialized geometry.
+     * @return {ConeGeometry} A new instance.
+     */
+    static fromJSON(data) {
+      return new _ConeGeometry(data.radius, data.height, data.radialSegments, data.heightSegments, data.openEnded, data.thetaStart, data.thetaLength);
+    }
+  };
   var Curve = class {
     /**
      * Constructs a new curve.
@@ -30931,63 +30968,235 @@ void main() {
   var carBody = new Group();
   car.add(carBody);
   var wheels = [];
-  {
-    const paint = new MeshPhysicalMaterial({
-      color: 16233728,
-      roughness: 0.3,
-      metalness: 0.15,
-      clearcoat: 1,
-      clearcoatRoughness: 0.06,
-      envMapIntensity: 1.25
+  function hotrodProfileGeometry(width) {
+    const s = new Shape();
+    s.moveTo(-2.2, 0.3);
+    s.quadraticCurveTo(-2.28, 0.68, -1.95, 0.82);
+    s.quadraticCurveTo(-1.35, 1.05, -0.78, 1.3);
+    s.quadraticCurveTo(-0.2, 1.42, 0.38, 1.3);
+    s.quadraticCurveTo(0.72, 1.05, 0.85, 0.8);
+    s.quadraticCurveTo(1.5, 0.74, 2.1, 0.62);
+    s.quadraticCurveTo(2.38, 0.55, 2.36, 0.3);
+    s.lineTo(2.2, 0.14);
+    s.lineTo(-1.9, 0.12);
+    s.quadraticCurveTo(-2.18, 0.14, -2.2, 0.3);
+    const geo = new ExtrudeGeometry(s, {
+      depth: width,
+      bevelEnabled: true,
+      bevelThickness: 0.1,
+      bevelSize: 0.09,
+      bevelSegments: 3,
+      steps: 1,
+      curveSegments: 12
     });
-    const body = new Mesh(carProfileGeometry(1.62), paint);
-    body.position.y = 0.16;
-    carBody.add(body);
-    const glass = new Mesh(glassGeometry(1.36), glassMatShared);
-    glass.position.y = 0.16;
-    carBody.add(glass);
-    const dark = new MeshStandardMaterial({ color: 1120295, roughness: 0.4, metalness: 0.4 });
-    const spoiler = new Mesh(new BoxGeometry(1.85, 0.08, 0.46), dark);
-    spoiler.position.set(0, 1.06, 2.18);
-    spoiler.rotation.x = -0.1;
-    carBody.add(spoiler);
-    for (const s of [-0.72, 0.72]) {
-      const strut = new Mesh(new BoxGeometry(0.09, 0.3, 0.09), dark);
-      strut.position.set(s, 0.9, 2.14);
-      carBody.add(strut);
+    geo.translate(0, 0, -width / 2);
+    geo.rotateY(Math.PI / 2);
+    return geo;
+  }
+  function hotrodGlassGeometry(width) {
+    const s = new Shape();
+    s.moveTo(-1.28, 0.88);
+    s.quadraticCurveTo(-0.85, 1.24, -0.25, 1.36);
+    s.quadraticCurveTo(0.3, 1.32, 0.62, 1.02);
+    s.lineTo(0.5, 0.9);
+    s.lineTo(-1.05, 0.86);
+    s.closePath();
+    const geo = new ExtrudeGeometry(s, {
+      depth: width,
+      bevelEnabled: true,
+      bevelThickness: 0.05,
+      bevelSize: 0.05,
+      bevelSegments: 2,
+      steps: 1,
+      curveSegments: 10
+    });
+    geo.translate(0, 0.01, -width / 2);
+    geo.rotateY(Math.PI / 2);
+    return geo;
+  }
+  function flameTexture() {
+    const c = document.createElement("canvas");
+    c.width = 512;
+    c.height = 128;
+    const g = c.getContext("2d");
+    g.clearRect(0, 0, 512, 128);
+    const tongues = [[30, 120, 150, 30], [110, 128, 120, 58], [190, 118, 170, 22], [280, 128, 130, 52], [370, 120, 150, 34], [450, 128, 110, 60]];
+    for (const pass of [0, 1]) {
+      for (const [x, base, h, w] of tongues) {
+        const grad = g.createLinearGradient(0, base, 0, base - h);
+        if (pass === 0) {
+          grad.addColorStop(0, "rgba(249,115,22,0.95)");
+          grad.addColorStop(1, "rgba(239,68,68,0)");
+        } else {
+          grad.addColorStop(0, "rgba(253,224,71,0.95)");
+          grad.addColorStop(1, "rgba(249,115,22,0)");
+        }
+        const hh = pass === 0 ? h : h * 0.55, ww = pass === 0 ? w : w * 0.55;
+        g.fillStyle = grad;
+        g.beginPath();
+        g.moveTo(x - ww / 2, base);
+        g.quadraticCurveTo(x - ww / 2, base - hh * 0.6, x, base - hh);
+        g.quadraticCurveTo(x + ww / 2, base - hh * 0.6, x + ww / 2, base);
+        g.closePath();
+        g.fill();
+      }
     }
-    const headMat = new MeshStandardMaterial({ color: 14742270, emissive: 12248829, emissiveIntensity: 2.2 });
-    for (const s of [-0.55, 0.55]) {
-      const h = new Mesh(new BoxGeometry(0.42, 0.11, 0.06), headMat);
-      h.position.set(s, 0.52, -2.42);
-      h.rotation.x = 0.35;
-      carBody.add(h);
+    g.fillStyle = "rgba(251,191,36,0.9)";
+    for (const [x, y] of [[70, 40], [240, 26], [420, 44], [330, 18]]) {
+      g.beginPath();
+      g.arc(x, y, 4, 0, 7);
+      g.fill();
     }
-    const tail = new Mesh(
-      new BoxGeometry(1.6, 0.1, 0.06),
-      new MeshStandardMaterial({ color: 8330525, emissive: 15680580, emissiveIntensity: 1.6 })
-    );
-    tail.position.set(0, 0.72, 2.4);
-    carBody.add(tail);
-    const tireGeo = new CylinderGeometry(0.43, 0.43, 0.32, 22);
-    const tireMat = new MeshStandardMaterial({ color: 657930, roughness: 0.92 });
-    const rimGeo = new CylinderGeometry(0.27, 0.27, 0.34, 18);
-    const rimMat = new MeshStandardMaterial({ color: 14147048, roughness: 0.22, metalness: 0.95, envMapIntensity: 1.3 });
-    const spokeGeo = new BoxGeometry(0.36, 0.09, 0.4);
-    for (const [x, z] of [[-0.93, -1.42], [0.93, -1.42], [-0.93, 1.42], [0.93, 1.42]]) {
+    return new CanvasTexture(c);
+  }
+  function plateTexture() {
+    const c = document.createElement("canvas");
+    c.width = 512;
+    c.height = 144;
+    const g = c.getContext("2d");
+    g.fillStyle = "#0b1e3a";
+    g.fillRect(0, 0, 512, 144);
+    g.strokeStyle = "#f5c542";
+    g.lineWidth = 6;
+    g.strokeRect(8, 8, 496, 128);
+    g.fillStyle = "#f5c542";
+    g.beginPath();
+    g.arc(74, 72, 40, 0, 7);
+    g.fill();
+    g.fillStyle = "#0b1e3a";
+    g.beginPath();
+    g.arc(92, 60, 34, 0, 7);
+    g.fill();
+    g.fillStyle = "#f5c542";
+    g.font = "900 45px system-ui, sans-serif";
+    g.textBaseline = "middle";
+    g.fillText("LUNA CLASSIC", 132, 76);
+    return new CanvasTexture(c);
+  }
+  {
+    let makeWheel = function(r, wdt) {
       const w = new Group();
-      const tire = new Mesh(tireGeo, tireMat);
+      const tire = new Mesh(new CylinderGeometry(r, r, wdt, 24), tireMat);
       tire.rotation.z = Math.PI / 2;
       w.add(tire);
-      const rim = new Mesh(rimGeo, rimMat);
+      const rim = new Mesh(new CylinderGeometry(r * 0.62, r * 0.62, wdt + 0.02, 18), rimMat);
       rim.rotation.z = Math.PI / 2;
       w.add(rim);
+      const spokeGeo = new BoxGeometry(wdt + 0.03, r * 1.1, r * 0.2);
       for (let k = 0; k < 3; k++) {
         const sp = new Mesh(spokeGeo, rimMat);
         sp.rotation.x = k * Math.PI / 3;
         w.add(sp);
       }
-      w.position.set(x, 0.43, z);
+      w.userData.r = r;
+      return w;
+    };
+    const paint = new MeshPhysicalMaterial({
+      color: 1994713,
+      roughness: 0.28,
+      metalness: 0.15,
+      clearcoat: 1,
+      clearcoatRoughness: 0.05,
+      envMapIntensity: 1.3
+    });
+    const chrome = new MeshStandardMaterial({ color: 15265269, roughness: 0.14, metalness: 1, envMapIntensity: 1.5 });
+    const body = new Mesh(hotrodProfileGeometry(1.6), paint);
+    body.position.y = 0.3;
+    carBody.add(body);
+    const glass = new Mesh(hotrodGlassGeometry(1.34), glassMatShared);
+    glass.position.y = 0.3;
+    carBody.add(glass);
+    const engine = new Group();
+    const block = new Mesh(new BoxGeometry(0.72, 0.42, 0.95), chrome);
+    block.position.y = 0.21;
+    engine.add(block);
+    for (const s of [-0.42, 0.42]) {
+      const cover = new Mesh(new BoxGeometry(0.16, 0.2, 0.85), chrome);
+      cover.position.set(s, 0.34, 0);
+      cover.rotation.z = s > 0 ? -0.25 : 0.25;
+      engine.add(cover);
+    }
+    const blower = new Mesh(new BoxGeometry(0.44, 0.3, 0.62), chrome);
+    blower.position.y = 0.55;
+    engine.add(blower);
+    const scoop = new Mesh(new BoxGeometry(0.66, 0.2, 0.52), chrome);
+    scoop.position.y = 0.78;
+    engine.add(scoop);
+    for (const s of [-0.16, 0.16]) {
+      const intake = new Mesh(
+        new CylinderGeometry(0.1, 0.1, 0.06, 14),
+        new MeshStandardMaterial({ color: 657930, roughness: 0.6 })
+      );
+      intake.position.set(s, 0.9, -0.08);
+      engine.add(intake);
+    }
+    engine.position.set(0, 0.82, -1.02);
+    carBody.add(engine);
+    for (const s of [-1, 1]) {
+      const pipe = new Mesh(new CylinderGeometry(0.085, 0.085, 2.7, 12), chrome);
+      pipe.rotation.x = Math.PI / 2;
+      pipe.position.set(s * 0.97, 0.34, 0.35);
+      carBody.add(pipe);
+      const tip = new Mesh(
+        new ConeGeometry(0.11, 0.34, 10),
+        new MeshStandardMaterial({ color: 16347926, emissive: 15357964, emissiveIntensity: 1.6 })
+      );
+      tip.rotation.x = Math.PI / 2;
+      tip.position.set(s * 0.97, 0.34, 1.85);
+      carBody.add(tip);
+    }
+    const grille = new Mesh(
+      new BoxGeometry(1.25, 0.52, 0.08),
+      new MeshStandardMaterial({ color: 10135482, roughness: 0.3, metalness: 0.95, envMapIntensity: 1.2 })
+    );
+    grille.position.set(0, 0.48, -2.44);
+    carBody.add(grille);
+    for (const s of [-0.68, 0.68]) {
+      const h = new Mesh(
+        new SphereGeometry(0.13, 14, 10),
+        new MeshStandardMaterial({ color: 16710083, emissive: 16639626, emissiveIntensity: 1.8 })
+      );
+      h.position.set(s, 0.72, -2.38);
+      carBody.add(h);
+    }
+    const bumper = new Mesh(new BoxGeometry(1.95, 0.15, 0.1), chrome);
+    bumper.position.set(0, 0.34, 2.36);
+    carBody.add(bumper);
+    const plate = new Mesh(
+      new PlaneGeometry(1.55, 0.44),
+      new MeshStandardMaterial({ map: plateTexture(), roughness: 0.4, metalness: 0.2 })
+    );
+    plate.position.set(0, 0.72, 2.31);
+    carBody.add(plate);
+    for (const s of [-0.72, 0.72]) {
+      const tl = new Mesh(
+        new BoxGeometry(0.22, 0.1, 0.05),
+        new MeshStandardMaterial({ color: 8330525, emissive: 15680580, emissiveIntensity: 1.7 })
+      );
+      tl.position.set(s, 0.95, 2.3);
+      carBody.add(tl);
+    }
+    const flameTex = flameTexture();
+    for (const s of [-1, 1]) {
+      const decal = new Mesh(
+        new PlaneGeometry(3, 0.75),
+        new MeshStandardMaterial({ map: flameTex, transparent: true, roughness: 0.35, metalness: 0.1, polygonOffset: true, polygonOffsetFactor: -1 })
+      );
+      decal.rotation.y = s * Math.PI / 2;
+      decal.position.set(s * 0.905, 0.52, 0.3);
+      carBody.add(decal);
+    }
+    for (const s of [-1, 1]) {
+      const fender = new Mesh(new TorusGeometry(0.68, 0.17, 10, 18, Math.PI), paint);
+      fender.position.set(s * 1.02, 0.6, 1.32);
+      fender.rotation.y = Math.PI / 2;
+      carBody.add(fender);
+    }
+    const tireMat = new MeshStandardMaterial({ color: 657930, roughness: 0.92 });
+    const rimMat = new MeshStandardMaterial({ color: 14147048, roughness: 0.2, metalness: 0.95, envMapIntensity: 1.4 });
+    for (const [x, z, r, wdt] of [[-0.9, -1.5, 0.4, 0.3], [0.9, -1.5, 0.4, 0.3], [-1.02, 1.32, 0.58, 0.52], [1.02, 1.32, 0.58, 0.52]]) {
+      const w = makeWheel(r, wdt);
+      w.position.set(x, r, z);
       carBody.add(w);
       wheels.push(w);
     }
@@ -31317,13 +31526,18 @@ void main() {
       blobShadow.material.opacity = Math.max(0.16, 0.6 - hgt * 0.013);
     }
     const wheelSpin = mode === "descent" || mode === "lip" ? speed : Math.abs(vz);
-    for (const w of wheels) w.rotation.x += wheelSpin * dt * 2.2;
+    for (const w of wheels) w.rotation.x += wheelSpin * dt * 0.95 / (w.userData.r || 0.43);
     if (shake > 0) shake -= dt;
     const shX = shake > 0 ? (Math.random() - 0.5) * shake * 1.4 : 0;
     const shY = shake > 0 ? (Math.random() - 0.5) * shake : 0;
     const lift = mode === "flight" ? 4.6 : 3.6;
     camTarget.set(cx * 0.72 + shX, cy + lift + shY, cz + 9.5);
     camera.position.lerp(camTarget, Math.min(1, dt * 4.5));
+    if (mode === "descent" || mode === "lip" || mode === "ready") {
+      const zc = Math.max(SLOPE.zBot, Math.min(SLOPE.zTop, camera.position.z));
+      const deckY = rampY(zc);
+      if (camera.position.y < deckY + 1.8) camera.position.y = deckY + 1.8;
+    }
     camera.lookAt(cx * 0.9, cy + 0.7, cz - 9);
     camera.fov += ((mode === "flight" ? 70 : 62) - camera.fov) * Math.min(1, dt * 3);
     camera.updateProjectionMatrix();
