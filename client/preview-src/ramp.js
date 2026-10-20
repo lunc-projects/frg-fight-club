@@ -3,6 +3,7 @@
    hit boost pads), launch into the sky, steer the flight, land in the
    junkyard rings and smash everything you roll through. */
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -36,6 +37,12 @@ scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x3a4a2f, 1.15));
 const sun = new THREE.DirectionalLight(0xfff2d9, 1.5);
 sun.position.set(30, 60, 40);
 scene.add(sun);
+// studio-style environment reflections — this is what makes paint and glass read as "real"
+{
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environmentIntensity = 0.5;
+}
 
 /* ---------- ground & skyline ---------- */
 function groundTexture() {
@@ -187,14 +194,63 @@ for (const ring of RINGS) {
 
 /* ---------- junkyard props (smashable) ---------- */
 const props = [];
+/* Shaped car body: side profile extruded across the width with a bevel, so it
+   reads as a sculpted sports car instead of stacked boxes. Shape +X = front;
+   after rotateY(PI/2) the front points to world -Z (travel direction). */
+function carProfileGeometry(width, cabin = true) {
+  const s = new THREE.Shape();
+  s.moveTo(-2.25, 0.28);
+  s.quadraticCurveTo(-2.32, 0.62, -2.05, 0.74);   // rear deck
+  s.quadraticCurveTo(-1.2, 0.82, -0.55, 0.97);    // up to roof rear
+  s.quadraticCurveTo(0.1, 1.03, 0.6, 0.94);       // roof
+  s.quadraticCurveTo(1.15, 0.72, 1.5, 0.63);      // windshield to hood
+  s.quadraticCurveTo(2.05, 0.56, 2.32, 0.4);       // hood to nose
+  s.quadraticCurveTo(2.42, 0.3, 2.3, 0.18);       // chin
+  s.lineTo(1.85, 0.12);
+  s.lineTo(-1.85, 0.12);
+  s.quadraticCurveTo(-2.2, 0.14, -2.25, 0.28);
+  const geo = new THREE.ExtrudeGeometry(s, {
+    depth: width, bevelEnabled: true, bevelThickness: 0.1, bevelSize: 0.09,
+    bevelSegments: 3, steps: 1, curveSegments: 10,
+  });
+  geo.translate(0, 0, -width / 2);
+  geo.rotateY(Math.PI / 2);
+  return geo;
+}
+function glassGeometry(width) {
+  const s = new THREE.Shape();
+  s.moveTo(-1.5, 0.72);
+  s.quadraticCurveTo(-0.6, 0.99, 0.05, 1.0);
+  s.quadraticCurveTo(0.55, 0.95, 1.2, 0.66);
+  s.lineTo(1.05, 0.62);
+  s.lineTo(-1.3, 0.66);
+  s.closePath();
+  const geo = new THREE.ExtrudeGeometry(s, {
+    depth: width, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.05,
+    bevelSegments: 2, steps: 1, curveSegments: 8,
+  });
+  geo.translate(0, 0.015, -width / 2);
+  geo.rotateY(Math.PI / 2);
+  return geo;
+}
+const glassMatShared = new THREE.MeshPhysicalMaterial({
+  color: 0x0d1522, roughness: 0.06, metalness: 0.1, envMapIntensity: 1.6,
+});
 function wreckCar(color) {
   const g = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.55, 4.1),
-    new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.4 }));
-  body.position.y = 0.55; g.add(body);
-  const cab = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.5, 2.0),
-    new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.3, metalness: 0.3 }));
-  cab.position.set(0, 1.05, -0.2); cab.rotation.z = 0.06; g.add(cab);
+  const paint = new THREE.MeshStandardMaterial({ color, roughness: 0.42, metalness: 0.55, envMapIntensity: 0.8 });
+  const body = new THREE.Mesh(carProfileGeometry(1.55), paint);
+  body.position.y = 0.18; g.add(body);
+  const glass = new THREE.Mesh(glassGeometry(1.3), glassMatShared);
+  glass.position.y = 0.18; g.add(glass);
+  const wg = new THREE.CylinderGeometry(0.4, 0.4, 0.28, 12);
+  const wm = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.95 });
+  for (const [x, z] of [[-0.88, -1.4], [0.88, -1.4], [-0.88, 1.4], [0.88, 1.4]]) {
+    const w = new THREE.Mesh(wg, wm);
+    w.rotation.z = Math.PI / 2;
+    w.position.set(x, 0.4, z);
+    g.add(w);
+  }
   return g;
 }
 function crate() {
@@ -231,33 +287,65 @@ function barrel(color) {
 /* ---------- the player's car ---------- */
 const car = new THREE.Group(); scene.add(car);
 const carBody = new THREE.Group(); car.add(carBody);
-{
-  const yellow = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.3, metalness: 0.35 });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.35, metalness: 0.3 });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.5, 4.3), yellow);
-  body.position.y = 0.55; carBody.add(body);
-  const nose = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.34, 0.9), yellow);
-  nose.position.set(0, 0.44, -2.4); nose.rotation.x = 0.18; carBody.add(nose);
-  const cab = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.48, 2.0), dark);
-  cab.position.set(0, 1.0, 0.25); carBody.add(cab);
-  const spoiler = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.09, 0.5), dark);
-  spoiler.position.set(0, 1.02, 2.05); carBody.add(spoiler);
-  for (const s of [-0.8, 0.8]) {
-    const strut = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.34, 0.09), dark);
-    strut.position.set(s, 0.85, 2.05); carBody.add(strut);
-  }
-}
 const wheels = [];
 {
-  const wg = new THREE.CylinderGeometry(0.42, 0.42, 0.3, 16);
-  const wm = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.9 });
-  for (const [x, z] of [[-0.95, -1.45], [0.95, -1.45], [-0.95, 1.45], [0.95, 1.45]]) {
-    const w = new THREE.Mesh(wg, wm);
-    w.rotation.z = Math.PI / 2;
-    w.position.set(x, 0.42, z);
+  const paint = new THREE.MeshPhysicalMaterial({
+    color: 0xf7b500, roughness: 0.3, metalness: 0.15,
+    clearcoat: 1, clearcoatRoughness: 0.06, envMapIntensity: 1.25,
+  });
+  const body = new THREE.Mesh(carProfileGeometry(1.62), paint);
+  body.position.y = 0.16; carBody.add(body);
+  const glass = new THREE.Mesh(glassGeometry(1.36), glassMatShared);
+  glass.position.y = 0.16; carBody.add(glass);
+  const dark = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.4, metalness: 0.4 });
+  // spoiler + struts
+  const spoiler = new THREE.Mesh(new THREE.BoxGeometry(1.85, 0.08, 0.46), dark);
+  spoiler.position.set(0, 1.06, 2.18); spoiler.rotation.x = -0.1; carBody.add(spoiler);
+  for (const s of [-0.72, 0.72]) {
+    const strut = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.3, 0.09), dark);
+    strut.position.set(s, 0.9, 2.14); carBody.add(strut);
+  }
+  // lights
+  const headMat = new THREE.MeshStandardMaterial({ color: 0xe0f2fe, emissive: 0xbae6fd, emissiveIntensity: 2.2 });
+  for (const s of [-0.55, 0.55]) {
+    const h = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.11, 0.06), headMat);
+    h.position.set(s, 0.52, -2.42); h.rotation.x = 0.35; carBody.add(h);
+  }
+  const tail = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.1, 0.06),
+    new THREE.MeshStandardMaterial({ color: 0x7f1d1d, emissive: 0xef4444, emissiveIntensity: 1.6 }));
+  tail.position.set(0, 0.72, 2.4); carBody.add(tail);
+  // wheels: tire + chrome rim + spokes, spun as a group around X
+  const tireGeo = new THREE.CylinderGeometry(0.43, 0.43, 0.32, 22);
+  const tireMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.92 });
+  const rimGeo = new THREE.CylinderGeometry(0.27, 0.27, 0.34, 18);
+  const rimMat = new THREE.MeshStandardMaterial({ color: 0xd7dde8, roughness: 0.22, metalness: 0.95, envMapIntensity: 1.3 });
+  const spokeGeo = new THREE.BoxGeometry(0.36, 0.09, 0.4);
+  for (const [x, z] of [[-0.93, -1.42], [0.93, -1.42], [-0.93, 1.42], [0.93, 1.42]]) {
+    const w = new THREE.Group();
+    const tire = new THREE.Mesh(tireGeo, tireMat); tire.rotation.z = Math.PI / 2; w.add(tire);
+    const rim = new THREE.Mesh(rimGeo, rimMat); rim.rotation.z = Math.PI / 2; w.add(rim);
+    for (let k = 0; k < 3; k++) {
+      const sp = new THREE.Mesh(spokeGeo, rimMat);
+      sp.rotation.x = k * Math.PI / 3;
+      w.add(sp);
+    }
+    w.position.set(x, 0.43, z);
     carBody.add(w); wheels.push(w);
   }
 }
+/* soft blob shadow that tracks the car (cheap, no shadow maps) */
+const blobShadow = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(64, 64, 8, 64, 64, 62);
+  grad.addColorStop(0, 'rgba(0,0,0,0.5)'); grad.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 5.6),
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
+  m.rotation.x = -Math.PI / 2;
+  scene.add(m);
+  return m;
+})();
 
 /* ---------- game state ---------- */
 let mode = 'ready'; // ready(power meter) | descent | flight | rollout | done
@@ -486,6 +574,14 @@ function tick() {
   car.position.set(cx, cy + 0.05, cz);
   carBody.rotation.x = pitch; // +pitch = nose up; descent pitch is negative (nose down the slope)
   carBody.rotation.z = -steerIn * 0.05 - vx * 0.012;
+  // blob shadow tracks the surface under the car
+  {
+    const surfY = mode === 'descent' ? rampY(cz) : 0;
+    const hgt = Math.max(0, cy - surfY);
+    blobShadow.position.set(cx, surfY + 0.05, cz);
+    blobShadow.scale.setScalar(1 + hgt * 0.02);
+    blobShadow.material.opacity = Math.max(0.16, 0.6 - hgt * 0.013);
+  }
   const wheelSpin = (mode === 'descent' || mode === 'lip') ? speed : Math.abs(vz);
   for (const w of wheels) w.rotation.x += wheelSpin * dt * 2.2;
 
