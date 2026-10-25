@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Solitaire — sample game (preview)</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   :root { --cw: min(12.6vw, 96px); --ch: calc(var(--cw) * 1.4); --gap: calc(var(--cw) * .16); }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -114,6 +115,21 @@
   .fall { position:fixed; top:-40px; z-index:59; font-size:30px; animation:fall linear forwards; pointer-events:none; }
   @keyframes fall { to { transform:translateY(110vh) rotate(340deg); } }
   footer { text-align:center; font-size:12px; color:#9aa3d0; font-weight:600; padding:0 12px 18px; }
+  /* leaderboard */
+  #nameInput { width:min(300px, 82vw); padding:12px 16px; border-radius:999px; border:1px solid rgba(255,255,255,.35); background:rgba(10,6,28,.85); color:#fff; font-size:16px; text-align:center; outline:none; font-family:inherit; }
+  #submitStatus { min-height:18px; font-size:14px; color:#fff; margin:0; }
+  #boardScreen {
+    position:fixed; inset:0; z-index:70; display:none; flex-direction:column; align-items:center; justify-content:center;
+    gap:14px; background:rgba(7,10,34,.92); text-align:center; padding:20px;
+  }
+  #boardScreen .tag { font-size:13px; letter-spacing:.28em; font-weight:800; color:#ffd76a; }
+  #boardScreen h1 { margin:0; font-size:32px; letter-spacing:.08em; color:#fff; }
+  #boardList { width:min(430px, 92vw); max-height:46vh; overflow-y:auto; text-align:left; font-size:15px; color:#fff; }
+  #boardList .row { display:flex; justify-content:space-between; gap:10px; padding:7px 12px; border-bottom:1px solid rgba(255,255,255,.09); }
+  #boardList .row .rk { opacity:.65; width:34px; flex:0 0 auto; }
+  #boardList .row .nm { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #boardList .row .sc { font-weight:900; color:#ffd76a; }
+  .tabs { display:flex; gap:8px; }
 </style>
 </head>
 <body>
@@ -133,6 +149,7 @@
 </div>
 <div id="actionbar">
   <button id="undoBtn" class="chunky orange">UNDO</button>
+  <button id="boardBtn" class="chunky orange">🏆 BOARD</button>
   <button id="newBtn" class="chunky green">NEW GAME</button>
 </div>
 <footer>Klondike · draw 1 · drag cards or tap a card to auto-move it · double-tap sends it home · stars light up as you get cards home</footer>
@@ -141,7 +158,22 @@
 <div id="win">
   <h1>🎉 YOU WIN!</h1>
   <p id="winStats"></p>
+  <input id="nameInput" maxlength="20" placeholder="Your name for the board">
+  <button id="submitBtn" class="chunky green">🏆 SUBMIT SCORE</button>
+  <p id="submitStatus"></p>
+  <button id="winBoardBtn" class="chunky orange">🏆 LEADERBOARD</button>
   <button id="againBtn" class="chunky green">Play Again</button>
+</div>
+
+<div id="boardScreen">
+  <div class="tag">🏆 SOLITAIRE</div>
+  <h1>LEADERBOARD</h1>
+  <div class="tabs">
+    <button id="tabAll" class="chunky green">ALL-TIME</button>
+    <button id="tabWeek" class="chunky orange">THIS WEEK</button>
+  </div>
+  <div id="boardList"><p style="text-align:center; opacity:.8">Loading…</p></div>
+  <button id="boardClose" class="chunky orange">✕ CLOSE</button>
 </div>
 
 <script>
@@ -295,6 +327,8 @@ function checkWin(){
   const n = SUITS.reduce((a, s) => a + foundations[s].length, 0);
   if (n !== 52 || won) return;
   won = true; stopTimer();
+  $('submitBtn').disabled = false;
+  $('submitStatus').textContent = '';
   $('winStats').textContent = `Score ${score} · ${moves} moves · ${Math.floor(elapsed/60)}:${String(elapsed%60).padStart(2,'0')}`;
   $('win').style.display = 'flex';
   const glyphs = ['♠','♥','♦','♣','🌙'];
@@ -509,6 +543,69 @@ $('againBtn').addEventListener('click', newGame);
 addEventListener('resize', () => render());
 
 newGame();
+</script>
+<script>
+/* ================= leaderboard (SOLITAIRE) ================= */
+const TG_SOL = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+let solInitData = '';
+try { if (TG_SOL){ TG_SOL.ready(); TG_SOL.expand(); solInitData = TG_SOL.initData || ''; } } catch (e) {}
+const solNameInput = document.getElementById('nameInput');
+try {
+  const tgUser = TG_SOL && TG_SOL.initDataUnsafe ? TG_SOL.initDataUnsafe.user : null;
+  solNameInput.value = (tgUser && tgUser.first_name) || localStorage.getItem('solName') || '';
+} catch (e) {}
+let solBoardCache = null, solBoardTab = 'all';
+function solRenderBoard(){
+  const list = document.getElementById('boardList');
+  const rows = (solBoardCache && solBoardCache[solBoardTab]) || [];
+  document.getElementById('tabAll').className = solBoardTab === 'all' ? 'chunky green' : 'chunky orange';
+  document.getElementById('tabWeek').className = solBoardTab === 'week' ? 'chunky green' : 'chunky orange';
+  if (!rows.length){ list.innerHTML = '<p style="text-align:center; opacity:.8">No scores yet — be the first 🏆</p>'; return; }
+  list.innerHTML = rows.map((r, i) =>
+    `<div class="row"><span class="rk">${i+1}.</span><span class="nm"></span><span class="sc">${r.score}</span></div>`).join('');
+  [...list.querySelectorAll('.nm')].forEach((el, i) => el.textContent = rows[i].name);
+}
+async function solOpenBoard(){
+  document.getElementById('boardScreen').style.display = 'flex';
+  document.getElementById('boardList').innerHTML = '<p style="text-align:center; opacity:.8">Loading…</p>';
+  try {
+    const r = await fetch('/api/solitaire-board');
+    if (!r.ok) throw new Error(r.status);
+    solBoardCache = await r.json();
+  } catch (e) {
+    solBoardCache = null;
+    document.getElementById('boardList').innerHTML = '<p style="text-align:center; opacity:.8">Leaderboard unavailable right now.</p>';
+    return;
+  }
+  solRenderBoard();
+}
+document.getElementById('boardBtn').addEventListener('click', solOpenBoard);
+document.getElementById('winBoardBtn').addEventListener('click', solOpenBoard);
+document.getElementById('boardClose').addEventListener('click', () => document.getElementById('boardScreen').style.display = 'none');
+document.getElementById('tabAll').addEventListener('click', () => { solBoardTab = 'all'; solRenderBoard(); });
+document.getElementById('tabWeek').addEventListener('click', () => { solBoardTab = 'week'; solRenderBoard(); });
+document.getElementById('submitBtn').addEventListener('click', async () => {
+  if (!won) return;
+  let name = solNameInput.value.trim();
+  if (name.length < 2) { name = 'Guest'; solNameInput.value = name; }
+  try { localStorage.setItem('solName', name); } catch (e) {}
+  const btn = document.getElementById('submitBtn'), status = document.getElementById('submitStatus');
+  btn.disabled = true; status.textContent = 'Submitting…';
+  try {
+    const r = await fetch('/api/solitaire-score', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData: solInitData, name, score: Math.floor(score), seconds: Math.floor(elapsed) })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || r.status);
+    status.textContent = d.rank ? `🏆 You're #${d.rank} all-time!` : '🏆 Score submitted!';
+    solBoardTab = 'all';
+    setTimeout(solOpenBoard, 650);
+  } catch (e) {
+    status.textContent = 'Could not submit (' + e.message + ') — try again.';
+    btn.disabled = false;
+  }
+});
 </script>
 </body>
 </html>
