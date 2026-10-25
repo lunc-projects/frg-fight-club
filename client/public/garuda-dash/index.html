@@ -110,6 +110,14 @@
   }
   #pvCap { font-size:21px; font-weight:900; letter-spacing:.1em; color:#ffe9a8; text-shadow:0 2px 10px rgba(0,0,0,.85); }
   #pvHint { font-size:12.5px; opacity:.85; margin-top:3px; letter-spacing:.06em; }
+  /* intro card */
+  #introCard { display:none; position:fixed; inset:0; z-index:9; flex-direction:column; align-items:center; justify-content:center; gap:10px; background:rgba(5,8,20,.45); text-align:center; pointer-events:auto; }
+  #introCard .icK { font-size:13px; letter-spacing:.28em; opacity:.8; font-weight:700; }
+  #introCard .icT { font-size:42px; font-weight:900; letter-spacing:.08em; text-shadow:0 3px 0 rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.6); }
+  #introCard .icS { font-size:12px; letter-spacing:.2em; opacity:.7; }
+  #hudFeather { font-weight:900; font-size:15px; color:#ffe9a8; }
+  #muteBtn { background:rgba(255,255,255,.12); border:1.5px solid rgba(255,255,255,.35); color:#fff; border-radius:999px; width:34px; height:34px; font-size:17px; cursor:pointer; font-family:inherit; flex:0 0 auto; }
+  #shareStatus { min-height:18px; font-size:14px; margin:0; }
 </style>
 </head>
 <body>
@@ -117,7 +125,9 @@
   <div id="hudLives">🦅🦅🦅</div>
   <div id="hudLevel">LV 1 · GREEN HILLS</div>
   <div id="hudCoins">🪙 0</div>
+  <div id="hudFeather">🪶 0</div>
   <div id="hudScore">0</div>
+  <button id="muteBtn">🔊</button>
 </div>
 <div id="cvwrap"><canvas id="game"></canvas></div>
 
@@ -144,10 +154,17 @@
   </div>
 </div>
 
+<div id="introCard">
+  <div class="icK" id="icKicker">LEVEL 1</div>
+  <div class="icT" id="icTitle">GREEN HILLS</div>
+  <div class="icS">TAP TO SKIP</div>
+</div>
+
 <div class="screen" id="startScreen">
   <div class="small">10 LEVELS · NINJA EAGLE ACTION</div>
   <img class="emblem" src="emblem.webp" alt="Garuda ninja eagle emblem">
   <h1>GARUDA <span class="gold">DASH</span></h1>
+  <div class="small" id="skinLabel">HEADBAND: RED</div>
   <p>Ten worlds, one Ninja Eagle. Run, jump and <b>hold jump to GLIDE</b>. Stomp the stone guardians — or hit
      <b>📣 SCREECH</b> to stun them. Clear a level to unlock the next… and every world gets <b>hotter</b>. Reach the golden nest!</p>
   <div class="small">CHOOSE YOUR START LEVEL</div>
@@ -174,6 +191,8 @@
   <input id="nameInput" maxlength="16" placeholder="Your name — or just Guest">
   <button class="play" id="submitBtn">🏆 SUBMIT SCORE</button>
   <p id="submitStatus"></p>
+  <button class="play alt" id="shareBtn">📣 SHARE SCORE</button>
+  <p id="shareStatus"></p>
   <button class="play alt" id="overBoardBtn">🏆 LEADERBOARD</button>
   <button class="play" id="againBtn">↩ MENU</button>
 </div>
@@ -211,8 +230,11 @@ function fitSoon(){ clearTimeout(fitTimer); fitTimer = setTimeout(fit, 150); }
 addEventListener('resize', fitSoon);
 addEventListener('orientationchange', fitSoon);
 
+let muted = localStorage.getItem('garudaMute') === '1';
+
 let AC = null;
 function beep(f, t, dur, type, vol){
+  if (muted) return;
   try {
     AC = AC || new (window.AudioContext || window.webkitAudioContext)();
     const o = AC.createOscillator(), g = AC.createGain();
@@ -224,6 +246,7 @@ function beep(f, t, dur, type, vol){
   } catch (e) {}
 }
 function screechSound(){
+  if (muted) return;
   try {
     AC = AC || new (window.AudioContext || window.webkitAudioContext)();
     const o = AC.createOscillator(), g = AC.createGain();
@@ -237,6 +260,61 @@ function screechSound(){
   } catch (e) {}
 }
 const $ = id => document.getElementById(id);
+
+/* ================= music (WebAudio step sequencer, zero assets) ================= */
+const MOODS = {
+  day:   { bpm: 112, bass: [0, 0, 3, 0], scale: [261.63, 293.66, 329.63, 392.00, 440.00, 523.25], lead: [0, 2, 4, 5, 4, 2, 1, 3], perc: false },
+  night: { bpm: 96,  bass: [0, 0, 5, 3], scale: [220.00, 261.63, 293.66, 329.63, 392.00, 440.00], lead: [0, 1, 3, 2, 4, 3, 1, 0], perc: false },
+  fire:  { bpm: 124, bass: [0, 0, 1, 3], scale: [293.66, 349.23, 392.00, 440.00, 523.25, 587.33], lead: [0, 3, 5, 4, 2, 4, 5, 3], perc: true },
+};
+function moodFor(n){ if (n >= 9) return 'fire'; if (n === 3 || n >= 6) return 'night'; return 'day'; }
+const music = { timer: null, step: 0, next: 0, mood: 'day', master: null };
+function musicNote(freq, t, dur, type, vol){
+  try {
+    if (!AC || !music.master) return;
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+    o.connect(g); g.connect(music.master);
+    o.start(t); o.stop(t + dur);
+  } catch (e) {}
+}
+function musicTick(){
+  try {
+    if (!AC) return;
+    const M = MOODS[music.mood];
+    const stepDur = 60 / M.bpm / 2; /* eighth notes */
+    while (music.next < AC.currentTime + 0.25){
+      const s = music.step % 16, t = music.next;
+      if (s % 4 === 0) musicNote(M.scale[M.bass[(s / 4) | 0] % M.scale.length] / 2, t, stepDur * 1.8, 'triangle', .16);
+      if (s % 2 === 0) musicNote(M.scale[M.lead[(s / 2) % M.lead.length] % M.scale.length], t, stepDur * 0.9, 'sine', .07);
+      if (M.perc && s % 2 === 1) musicNote(1400, t, .03, 'square', .03);
+      music.next += stepDur;
+      music.step++;
+    }
+  } catch (e) {}
+}
+function startMusic(){
+  if (muted || music.timer) return;
+  try {
+    AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+    if (AC.state === 'suspended' && AC.resume) AC.resume().catch(() => {});
+    music.master = AC.createGain();
+    music.master.gain.value = .14;
+    music.master.connect(AC.destination);
+    music.next = AC.currentTime + 0.06;
+    music.step = 0;
+    music.timer = setInterval(musicTick, 100);
+  } catch (e) {}
+}
+function stopMusic(){
+  if (music.timer){ clearInterval(music.timer); music.timer = null; }
+  try { if (music.master) music.master.disconnect(); } catch (e) {}
+  music.master = null;
+}
+function setMood(n){ music.mood = moodFor(n); }
+function ensureMusic(){ if (!muted) startMusic(); }
 
 /* ================= level template ================= */
 /*LEVEL-START*/
@@ -413,7 +491,54 @@ function buildLevel(n){
     const cxm = s[0] + s[1] / 2;
     walkerDefs.push({ minX: Math.round(cxm - 70), maxX: Math.round(cxm + 70), y: GROUND_Y, speed: Math.round(46 * spd), kind: 'brute', hp: 2, w: 54, h: 46 });
   }
-  return { grounds, platforms: plats.map(p => [p.x, p.y, p.w]), walkerDefs, nestX: NEST_X };
+  /* golden feather — hovering just above the HIGHEST platform
+     (min y; tie → the one closer to the nest, i.e. larger x) */
+  let highPlat = null;
+  for (const p of plats){
+    if (!highPlat || p.y < highPlat.y || (p.y === highPlat.y && p.x > highPlat.x)) highPlat = p;
+  }
+  const feather = highPlat ? { x: highPlat.x + highPlat.w / 2, y: highPlat.y - 34, taken: false } : null;
+  /* extra-life egg — platform nearest 45% of WORLD_W with y in [300,420];
+     fallback: second ground segment top */
+  let eggPlat = null, eggD = 1e9;
+  for (const p of plats){
+    if (p.y >= 300 && p.y <= 420){
+      const d = Math.abs((p.x + p.w / 2) - WORLD_W * 0.45);
+      if (d < eggD){ eggD = d; eggPlat = p; }
+    }
+  }
+  const egg = eggPlat
+    ? { x: eggPlat.x + eggPlat.w / 2, y: eggPlat.y, taken: false }
+    : { x: grounds[1][0] + 120, y: GROUND_Y, taken: false };
+  /* moving platforms (L7–10 only) — over the two WIDEST pits.
+     L7–8 bob vertically, L9–10 slide horizontally. Extra solids only:
+     pit widths (and the ground route) are unchanged. */
+  const movers = [];
+  if (n >= 7){
+    const pits = [];
+    for (let i = 0; i < grounds.length - 1; i++){
+      const x0 = grounds[i][0] + grounds[i][1];
+      pits.push({ x0, w: grounds[i + 1][0] - x0 });
+    }
+    pits.sort((a, b) => b.w - a.w);
+    for (let k = 0; k < 2 && k < pits.length; k++){
+      const pit = pits[k], vertical = n <= 8;
+      const bx = pit.x0 + pit.w / 2 - 45, by = vertical ? GROUND_Y - 90 : GROUND_Y - 80;
+      movers.push({
+        x: bx, w: 90, y: by, baseX: bx, baseY: by,
+        axis: vertical ? 'v' : 'h', amp: vertical ? 26 : 40, period: vertical ? 2.6 : 3.2,
+        phase: k * 1.7, prevX: bx, prevY: by, dx: 0, dy: 0, isMover: true, ground: false,
+      });
+    }
+  }
+  /* boss (L10 only) — stationed on the final ground segment, before the nest */
+  let boss = null;
+  if (n === 10){
+    const fin = grounds[grounds.length - 1];
+    boss = { x: NEST_X - 300, minX: fin[0] + 60, maxX: NEST_X - 170, y: GROUND_Y, w: 120, h: 108,
+      hp: 5, stun: 0, dir: 1, speed: 34, chargeT: 0, chargeDir: 1, hop: 0, hopV: 0, dead: false, enraged: false };
+  }
+  return { grounds, platforms: plats.map(p => [p.x, p.y, p.w]), walkerDefs, nestX: NEST_X, feather, egg, movers, boss };
 }
 function buildCoinsFor(grounds, platforms){
   const coins = [];
@@ -441,9 +566,16 @@ function rebuildSolids(){
   SOLIDS = [
     ...L_GROUNDS.map(([x, w]) => ({ x, y: GROUND_Y, w, ground: true })),
     ...L_PLATFORMS.map(([x, y, w]) => ({ x, y, w, ground: false })),
+    ...L_MOVERS,
   ];
 }
 let coins = [], walkers = [];
+let L_MOVERS = [], feather = null, egg = null, boss = null;
+let bossDefeated = false, barrierX = 0;
+let runFeathers = 0, levelTime = 0, totalTimeBonus = 0, lastTimeBonus = 0, lastTierCross = null;
+let bestLevel = +(localStorage.getItem('garudaBestLevel') || 0);
+let standMover = null;
+const intro = { on: false, t: 0 };
 let cam = 0, checkpoint = 40, runTime = 0;
 let screechCd = 0, screechFx = null, invuln = 0;
 let particles = [], floaters = [], landT = 0, shakeT = 0;
@@ -476,7 +608,9 @@ function hud(){
   $('hudLives').textContent = '🦅'.repeat(Math.max(0, lives));
   $('hudLevel').textContent = 'LV ' + level + ' · ' + THEMES[level - 1].name;
   $('hudCoins').textContent = '🪙 ' + coinCount;
+  $('hudFeather').textContent = '🪶 ' + runFeathers;
   $('hudScore').textContent = score;
+  $('muteBtn').textContent = muted ? '🔇' : '🔊';
 }
 function toast(msg, ms){
   const el = $('toast'); el.textContent = msg; el.style.opacity = 1;
@@ -487,11 +621,47 @@ function saveProgress(){
   localStorage.setItem('garudaBest', Math.max(best, score));
   localStorage.setItem('garudaUnlocked', unlocked);
 }
-function startLevel(n, quiet){
+/* ================= skins (headband progression) ================= */
+function skinTier(b){ return b >= 10 ? 'FLAME' : b >= 6 ? 'GOLD' : b >= 3 ? 'SILVER' : 'RED'; }
+function skinColors(){
+  const t = skinTier(bestLevel);
+  if (t === 'SILVER') return { main: '#c7d3e0', dark: '#8fa0b5', med: '#eef3f8', flame: false };
+  if (t === 'GOLD') return { main: '#ffcf3d', dark: '#c9920a', med: '#fff3ae', flame: false };
+  if (t === 'FLAME') return { main: null, dark: '#c22a12', med: '#ff8a1e', flame: true };
+  return { main: '#e02318', dark: '#b8150e', med: '#ffd23e', flame: false };
+}
+/* ================= level intro card ================= */
+function accentFor(n){ return n === 3 ? '#39e6ff' : n === 7 ? '#b06cff' : (n >= 9 ? '#ff7a1a' : '#ffd76a'); }
+function showIntro(n){
+  $('icKicker').textContent = 'LEVEL ' + n;
+  $('icTitle').textContent = THEMES[n - 1].name;
+  $('icTitle').style.color = accentFor(n);
+  $('introCard').style.display = 'flex';
+  intro.on = true; intro.t = 1.4;
+}
+function hideIntro(){ $('introCard').style.display = 'none'; intro.on = false; }
+/* ================= moving platforms ================= */
+function stepMovers(){
+  for (const mv of L_MOVERS){
+    mv.prevX = mv.x; mv.prevY = mv.y;
+    if (mv.axis === 'v') mv.y = mv.baseY + Math.sin(runTime * Math.PI * 2 / mv.period + mv.phase) * mv.amp;
+    else mv.x = mv.baseX + Math.sin(runTime * Math.PI * 2 / mv.period + mv.phase) * mv.amp;
+    mv.dx = mv.x - mv.prevX; mv.dy = mv.y - mv.prevY;
+  }
+}
+function startLevel(n, quiet, withIntro){
   level = n;
   maxLevelReached = Math.max(maxLevelReached, n);
   const L = buildLevel(n);
   L_GROUNDS = L.grounds; L_PLATFORMS = L.platforms; L_NESTX = L.nestX;
+  L_MOVERS = L.movers || [];
+  feather = L.feather ? { ...L.feather } : null;
+  egg = L.egg ? { ...L.egg } : null;
+  boss = L.boss ? { ...L.boss } : null;
+  bossDefeated = false;
+  barrierX = L_NESTX - 90;
+  standMover = null;
+  levelTime = 0;
   rebuildSolids();
   coins = buildCoinsFor(L_GROUNDS, L_PLATFORMS);
   walkers = L.walkerDefs.map(d => ({ ...d, x: (d.minX + d.maxX) / 2, dir: 1, stun: 0, dead: false }));
@@ -499,18 +669,30 @@ function startLevel(n, quiet){
   cam = 0; checkpoint = 40; screechCd = 0; screechFx = null; invuln = 0;
   particles = []; floaters = []; landT = 0; shakeT = 0;
   ambientT = 0; flashT = 0; nextFlash = 3 + Math.random() * 4;
+  setMood(n);
   hud();
-  if (!quiet) toast('LEVEL ' + n + ' · ' + THEMES[n - 1].name, 1500);
+  if (withIntro) showIntro(n);
+  else if (!quiet) toast('LEVEL ' + n + ' · ' + THEMES[n - 1].name, 1500);
 }
 function resetRun(n){
   score = 0; coinCount = 0; lives = 3; elapsed = 0;
+  runFeathers = 0; totalTimeBonus = 0; lastTierCross = null;
   maxLevelReached = n;
-  startLevel(n);
+  startLevel(n, false, true);
 }
 function levelComplete(){
   running = false;
+  const par = 60 + (level - 1) * 5;
+  lastTimeBonus = Math.min(600, Math.max(0, Math.ceil(par - levelTime)) * 10);
+  score += lastTimeBonus;
+  totalTimeBonus += lastTimeBonus;
   confettiAt(L_NESTX + 26, GROUND_Y - 66);
+  addFloater(L_NESTX + 26, GROUND_Y - 90, '⏱ TIME BONUS +' + lastTimeBonus, '#bffbff', 16);
   beep(660, 0, 0.1, 'sine', 0.1); beep(880, 0.09, 0.12, 'sine', 0.1); beep(1320, 0.18, 0.16, 'sine', 0.09);
+  const prevTier = skinTier(bestLevel);
+  bestLevel = Math.max(bestLevel, level);
+  localStorage.setItem('garudaBestLevel', bestLevel);
+  lastTierCross = skinTier(bestLevel) !== prevTier ? skinTier(bestLevel) : null;
   if (level >= 10){
     score += 500;
     saveProgress();
@@ -524,6 +706,8 @@ function levelComplete(){
   $('lvlKicker').textContent = 'LEVEL ' + level + ' COMPLETE';
   $('lvlStats').innerHTML =
     `Score <b>${score}</b> · Coins <b>${coinCount}</b> · ❤️ +1 life → <b>${lives}</b>` +
+    `<br>⏱ TIME BONUS +${lastTimeBonus} (par ${par}s · your ${levelTime.toFixed(1)}s)` +
+    (lastTierCross ? `<br>🎉 NEW HEADBAND: ${lastTierCross}!` : '') +
     `<br>Next: <b>LV ${level + 1} · ${THEMES[level].name}</b> — it gets hotter.`;
   $('levelScreen').style.display = 'flex';
 }
@@ -535,8 +719,10 @@ function showOver(kind){
   $('overKicker').textContent = won ? 'CAMPAIGN COMPLETE' : kind === 'ended' ? 'RUN ENDED' : 'THE EAGLE FALLS';
   $('overTitle').innerHTML = won ? '👑 INFERNO CONQUERED!' : '💥 GAME OVER';
   $('overStats').innerHTML =
-    `Score <b>${score}</b> · Best <b>${best}</b> · Reached <b>LV ${maxLevelReached}</b> · Coins <b>${coinCount}</b> · Time <b>${elapsed.toFixed(1)}s</b>` +
-    (won ? '<br>Campaign bonus: +500. The Ninja Eagle rules every sky. 🥷🦅'
+    `Score <b>${score}</b> · Best <b>${best}</b> · Reached <b>LV ${maxLevelReached}</b> · Coins <b>${coinCount}</b> · 🪶 <b>${runFeathers}</b> · Time <b>${elapsed.toFixed(1)}s</b>` +
+    (won ? `<br>⏱ TIME BONUS total +${totalTimeBonus} · Campaign bonus: +500` +
+           (lastTierCross ? `<br>🎉 NEW HEADBAND: ${lastTierCross}!` : '') +
+           '<br>The Ninja Eagle rules every sky. 🥷🦅'
          : '<br>Watch the pits, glide the gaps, screech the guardians.');
   $('submitBtn').disabled = false;
   $('submitStatus').textContent = '';
@@ -583,7 +769,9 @@ function stepFx(dt){
 
 /* ================= update ================= */
 function update(dt){
-  elapsed += dt; runTime += dt;
+  elapsed += dt; runTime += dt; levelTime += dt;
+  stepMovers();
+  if (standMover && P.onGround){ P.x += standMover.dx; P.y += standMover.dy; }
   if (screechCd > 0) screechCd -= dt;
   if (invuln > 0) invuln -= dt;
   if (landT > 0) landT -= dt;
@@ -622,9 +810,11 @@ function update(dt){
       if (P.x + P.w > s.x + 2 && P.x < s.x + s.w - 2 && prevBottom <= s.y + (s.ground ? 40 : 8) && P.y + P.h >= s.y){
         P.y = s.y - P.h; P.vy = 0; P.onGround = true;
         if (s.ground) checkpoint = s.x + 14;
+        standMover = s.isMover ? s : null;
       }
     }
   }
+  if (!P.onGround) standMover = null;
   if (P.onGround && Math.abs(P.vx) > 20) P.runT += dt;
   if (P.onGround && airBefore && vyBefore > 240){
     landT = 0.12;
@@ -643,6 +833,22 @@ function update(dt){
       addFloater(c.x, c.y - 16, '+10', '#ffd76a', 13);
       beep(880, 0, 0.06, 'sine', 0.1); beep(1320, 0.05, 0.08, 'sine', 0.08);
     }
+  }
+  /* golden feather */
+  if (feather && !feather.taken && Math.abs(feather.x - pcx) < 30 && Math.abs(feather.y - pcy) < 32){
+    feather.taken = true; runFeathers++; score += 250; hud();
+    burst(feather.x, feather.y, 12, '#ffd76a', 150, 0.6, 2.6, 120);
+    addFloater(feather.x, feather.y - 18, '🪶 +250', '#ffd76a', 16);
+    beep(1046, 0, 0.08, 'sine', 0.1); beep(1568, 0.08, 0.12, 'sine', 0.09);
+  }
+  /* extra-life egg */
+  if (egg && !egg.taken && Math.abs(egg.x - pcx) < 30 && Math.abs(egg.y - 12 - pcy) < 32){
+    egg.taken = true;
+    if (lives < 5){ lives++; addFloater(egg.x, egg.y - 26, '+1 LIFE ❤️', '#ff8fb0', 17); }
+    else { score += 100; addFloater(egg.x, egg.y - 26, 'EGG BONUS +100', '#ffd76a', 15); }
+    hud();
+    burst(egg.x, egg.y - 12, 10, '#fff3ae', 130, 0.5, 2.4, 100);
+    beep(784, 0, 0.08, 'sine', 0.1); beep(1046, 0.08, 0.1, 'sine', 0.09);
   }
   for (const wk of walkers){
     if (wk.dead) continue;
@@ -678,6 +884,55 @@ function update(dt){
       }
     }
   }
+  /* boss — the Inferno Guardian (L10 only) */
+  if (boss && !boss.dead){
+    if (boss.stun > 0) boss.stun -= dt;
+    else {
+      if (boss.chargeT > 0) boss.chargeT -= dt;
+      if (boss.hop !== 0 || boss.hopV !== 0){
+        boss.hopV += GRAV * dt;
+        boss.hop += boss.hopV * dt;
+        boss.x += boss.chargeDir * (boss.enraged ? 182 : 140) * dt;
+        boss.x = Math.max(boss.minX - 40, Math.min(boss.maxX + 40, boss.x));
+        if (boss.hop >= 0){ boss.hop = 0; boss.hopV = 0; }
+      } else {
+        boss.x += boss.dir * boss.speed * (boss.enraged ? 1.3 : 1) * dt;
+        if (boss.x < boss.minX){ boss.x = boss.minX; boss.dir = 1; }
+        if (boss.x > boss.maxX){ boss.x = boss.maxX; boss.dir = -1; }
+      }
+      const pdx = P.x + P.w / 2 - (boss.x + boss.w / 2);
+      if (Math.abs(pdx) < 280 && boss.chargeT <= 0 && boss.hop === 0){
+        boss.chargeDir = pdx >= 0 ? 1 : -1;
+        boss.hopV = -300;
+        boss.chargeT = 2.2;
+      }
+    }
+    const bTop = boss.y - boss.hop - boss.h;
+    const bOverlap = P.x + P.w > boss.x && P.x < boss.x + boss.w && P.y + P.h > bTop && P.y < boss.y - boss.hop;
+    if (bOverlap){
+      const bStomp = P.vy > 60 && (P.y + P.h) - bTop < 20;
+      if (bStomp){
+        boss.hp--;
+        P.vy = -360;
+        shakeT = Math.max(shakeT, 0.6);
+        burst(boss.x + boss.w / 2, bTop, 14, '#9a8d7c', 180, 0.5, 2.8, 340);
+        if (boss.hp <= 0){
+          boss.dead = true; bossDefeated = true;
+          score += 500; hud();
+          confettiAt(boss.x + boss.w / 2, bTop);
+          burst(barrierX, GROUND_Y - 40, 12, '#8a8a92', 120, 0.8, 3, -40); /* barrier smoke puff */
+          addFloater(boss.x + boss.w / 2, bTop - 20, 'BOSS DOWN +500', '#ffd76a', 20);
+          beep(220, 0, 0.1, 'square', 0.12); beep(440, 0.1, 0.14, 'square', 0.11); beep(660, 0.2, 0.18, 'square', 0.1);
+        } else {
+          if (boss.hp <= 2) boss.enraged = true;
+          addFloater(boss.x + boss.w / 2, bTop - 16, 'HIT! ' + boss.hp + ' HP', '#ffe9a8', 16);
+          beep(140, 0, 0.12, 'square', 0.12);
+        }
+      } else if (invuln <= 0){
+        hurt(false); if (!running) return;
+      }
+    }
+  }
   if (screechFx){
     screechFx.t += dt;
     const r = (screechFx.t / 0.35) * 118;
@@ -691,9 +946,15 @@ function update(dt){
         addFloater(wk.x + wk.w / 2, wk.y - wk.h - 12, '+5', '#fff3c4', 12);
       }
     }
+    if (boss && !boss.dead && boss.stun <= 0){
+      const d = Math.hypot(boss.x + boss.w / 2 - screechFx.x, boss.y - boss.hop - boss.h / 2 - screechFx.y);
+      if (d < r + 40) boss.stun = 1.6;
+    }
     if (screechFx.t >= 0.35) screechFx = null;
   }
-  if (P.x + P.w > L_NESTX && P.onGround){ levelComplete(); return; }
+  /* flame barrier: a wall while the boss lives (no damage, just no passing) */
+  if (level === 10 && boss && !boss.dead && P.x + P.w > barrierX) P.x = barrierX - P.w;
+  if (P.x + P.w > L_NESTX && P.onGround && !(level === 10 && boss && !boss.dead)){ levelComplete(); return; }
   /* ambient weather + lightning */
   const T = THEMES[level - 1];
   ambientT -= dt;
@@ -1103,6 +1364,180 @@ function drawPlatform(x, y, w, i){
   }
 }
 
+function drawMover(mv){
+  const T = THEMES[level - 1];
+  const pg = ctx.createLinearGradient(0, mv.y, 0, mv.y + 13);
+  pg.addColorStop(0, T.platCols[0]); pg.addColorStop(1, T.platCols[1]);
+  ctx.fillStyle = pg;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(mv.x, mv.y, mv.w, 13, 6); else ctx.rect(mv.x, mv.y, mv.w, 13);
+  ctx.fill();
+  ctx.strokeStyle = '#ffd76a'; ctx.lineWidth = 2.4;
+  ctx.shadowColor = '#ffb700'; ctx.shadowBlur = 10;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.fillRect(mv.x + 4, mv.y + 1.5, mv.w - 8, 2.2);
+  ctx.fillStyle = 'rgba(255,215,106,0.95)';
+  ctx.font = '900 10px system-ui'; ctx.textAlign = 'center';
+  ctx.fillText(mv.axis === 'v' ? '↕' : '↔', mv.x + mv.w / 2, mv.y + 10.5);
+}
+function drawFeather(f){
+  const bob = Math.sin(runTime * 3 + f.x * 0.05) * 4;
+  const rot = Math.sin(runTime * 2 + f.x * 0.03) * 0.25;
+  ctx.save();
+  ctx.translate(f.x, f.y + bob);
+  ctx.rotate(rot);
+  ctx.shadowColor = '#ffb700'; ctx.shadowBlur = 14;
+  const fg = ctx.createLinearGradient(0, -14, 0, 14);
+  fg.addColorStop(0, '#fff3ae'); fg.addColorStop(0.5, '#ffd23e'); fg.addColorStop(1, '#f5a623');
+  ctx.fillStyle = fg;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 5, 13, 0.5, 0, 7);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = '#b97e10'; ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.moveTo(0, -13); ctx.lineTo(0, 15); ctx.stroke();
+  ctx.strokeStyle = 'rgba(185,126,16,0.6)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(4, -4); ctx.moveTo(0, -2); ctx.lineTo(-4, 2); ctx.stroke();
+  ctx.restore();
+}
+function drawEgg(e){
+  ctx.save();
+  ctx.translate(e.x, e.y);
+  ctx.strokeStyle = '#7a4a22'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+  for (let i = 0; i < 5; i++){
+    const a = (i / 5) * Math.PI * 2 + 0.5;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * 8, -4 + Math.sin(a) * 2);
+    ctx.lineTo(Math.cos(a) * 14, 1 + Math.sin(a) * 3);
+    ctx.stroke();
+  }
+  const eg = ctx.createRadialGradient(-3, -16, 2, 0, -12, 10);
+  eg.addColorStop(0, '#fff8e0'); eg.addColorStop(0.6, '#ffe9a8'); eg.addColorStop(1, '#f5c542');
+  ctx.fillStyle = eg;
+  ctx.shadowColor = '#ffb700'; ctx.shadowBlur = 8;
+  ctx.beginPath(); ctx.ellipse(0, -12, 7.5, 10, 0, 0, 7); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(150,90,30,0.8)';
+  ctx.beginPath(); ctx.arc(-2.5, -14, 1.2, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.arc(2.5, -9, 1, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.arc(-0.5, -6, 0.9, 0, 7); ctx.fill();
+  ctx.restore();
+}
+function drawBarrier(){
+  if (level !== 10 || !boss || boss.dead) return;
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,60,0,0.16)';
+  ctx.fillRect(barrierX - 3, GROUND_Y - 96, 10, 96);
+  ctx.shadowColor = '#ff7a1a'; ctx.shadowBlur = 16;
+  for (let i = 0; i < 4; i++){
+    const fx = barrierX - 2 + i * 3;
+    const fh = 44 + Math.sin(runTime * 11 + i * 1.9) * 14 + (i % 2) * 12;
+    const fg = ctx.createLinearGradient(0, GROUND_Y - fh, 0, GROUND_Y);
+    fg.addColorStop(0, '#ffe259'); fg.addColorStop(0.5, '#ff7a1a'); fg.addColorStop(1, '#e64a00');
+    ctx.fillStyle = fg;
+    ctx.beginPath();
+    ctx.moveTo(fx, GROUND_Y);
+    ctx.quadraticCurveTo(fx - 3, GROUND_Y - fh * 0.6, fx + 1.5, GROUND_Y - fh);
+    ctx.quadraticCurveTo(fx + 5, GROUND_Y - fh * 0.55, fx + 3, GROUND_Y);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+function drawBoss(b){
+  const top = b.y - b.hop - b.h, cx = b.x + b.w / 2;
+  const stunned = b.stun > 0;
+  ctx.fillStyle = 'rgba(10,5,3,0.5)';
+  ctx.beginPath(); ctx.ellipse(cx, b.y + 5, 58, 7, 0, 0, 7); ctx.fill();
+  ctx.save();
+  if (stunned) ctx.translate(Math.sin(runTime * 34) * 2, 0);
+  const bg = ctx.createLinearGradient(0, top, 0, b.y - b.hop);
+  bg.addColorStop(0, '#4a4038'); bg.addColorStop(1, '#1a120c');
+  ctx.fillStyle = bg;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(b.x + 2, top, b.w - 4, b.h, 14); else ctx.rect(b.x + 2, top, b.w - 4, b.h);
+  ctx.fill();
+  ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(10,6,4,0.9)';
+  ctx.stroke();
+  /* big gold crown */
+  ctx.fillStyle = '#ffb700';
+  ctx.shadowColor = '#ffb700'; ctx.shadowBlur = 10;
+  ctx.beginPath();
+  ctx.moveTo(b.x + 10, top);
+  ctx.lineTo(b.x + 22, top - 18); ctx.lineTo(b.x + 36, top - 4);
+  ctx.lineTo(b.x + 52, top - 22); ctx.lineTo(b.x + 68, top - 4);
+  ctx.lineTo(b.x + 84, top - 20); ctx.lineTo(b.x + b.w - 10, top);
+  ctx.closePath(); ctx.fill();
+  ctx.shadowBlur = 0;
+  /* eyes — glow harder when enraged */
+  ctx.fillStyle = stunned ? '#ffe066' : (b.enraged ? '#ffdd00' : '#ff3b30');
+  ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = b.enraged ? 16 : 9;
+  ctx.beginPath(); ctx.arc(cx - 22, top + 34, 7, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + 22, top + 34, 7, 0, 7); ctx.fill();
+  ctx.shadowBlur = 0;
+  /* brows */
+  ctx.strokeStyle = '#0d0906'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(cx - 34, top + 20); ctx.lineTo(cx - 10, top + 27);
+  ctx.moveTo(cx + 34, top + 20); ctx.lineTo(cx + 10, top + 27);
+  ctx.stroke();
+  /* mouth + fangs */
+  ctx.fillStyle = '#120c08';
+  ctx.fillRect(cx - 18, top + 66, 36, 10);
+  ctx.fillStyle = '#e8e2d4';
+  ctx.fillRect(cx - 14, top + 66, 6, 8);
+  ctx.fillRect(cx + 8, top + 66, 6, 8);
+  /* chest crystal core */
+  const pulse = 0.75 + 0.25 * Math.sin(runTime * 4 + b.x);
+  ctx.fillStyle = `rgba(255,60,60,${pulse})`;
+  ctx.shadowColor = '#ff3b30'; ctx.shadowBlur = 14;
+  ctx.beginPath();
+  ctx.moveTo(cx, top + 82); ctx.lineTo(cx + 11, top + 94); ctx.lineTo(cx, top + 106); ctx.lineTo(cx - 11, top + 94);
+  ctx.closePath(); ctx.fill();
+  ctx.shadowBlur = 0;
+  /* cracks deepen as HP falls (stage = 5 − hp) */
+  const stage = 5 - b.hp;
+  if (stage >= 1){
+    ctx.strokeStyle = 'rgba(255,230,180,0.9)'; ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(b.x + 18, top + 6); ctx.lineTo(b.x + 30, top + 26); ctx.lineTo(b.x + 22, top + 44);
+    if (stage >= 2){ ctx.moveTo(cx + 26, top + 10); ctx.lineTo(cx + 16, top + 30); }
+    if (stage >= 3){ ctx.moveTo(b.x + 88, top + 30); ctx.lineTo(b.x + 78, top + 52); ctx.lineTo(b.x + 86, top + 70); }
+    if (stage >= 4){ ctx.moveTo(cx - 30, top + 50); ctx.lineTo(cx - 18, top + 68); ctx.lineTo(cx - 26, top + 88); }
+    ctx.stroke();
+  }
+  ctx.restore();
+  /* HP flame pips */
+  for (let i = 0; i < 5; i++){
+    const px = cx - 40 + i * 20, py = top - 30;
+    if (i < b.hp){
+      ctx.fillStyle = '#ff7a1a';
+      ctx.shadowColor = '#ff7a1a'; ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.moveTo(px, py + 8);
+      ctx.quadraticCurveTo(px - 5, py - 2, px, py - 9);
+      ctx.quadraticCurveTo(px + 5, py - 2, px, py + 8);
+      ctx.closePath(); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ffe259';
+      ctx.beginPath(); ctx.arc(px, py + 2, 2.2, 0, 7); ctx.fill();
+    } else {
+      ctx.strokeStyle = 'rgba(200,200,210,0.5)'; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.arc(px, py, 5, 0, 7); ctx.stroke();
+    }
+  }
+  if (stunned){
+    ctx.fillStyle = '#ffe066';
+    ctx.font = '900 17px system-ui'; ctx.textAlign = 'center';
+    for (let i = 0; i < 3; i++){
+      const a = runTime * 4 + i * 2.1;
+      ctx.fillText('★', cx + Math.cos(a) * 44, top - 44 + Math.sin(a) * 4);
+    }
+  }
+}
+
 function draw(){
   const T = THEMES[level - 1];
   const viewW = W / SCALE;
@@ -1400,6 +1835,10 @@ function draw(){
   drawFlags(viewW);
   /* platforms */
   L_PLATFORMS.forEach(([x, y, w], i) => drawPlatform(x, y, w, i));
+  for (const mv of L_MOVERS) drawMover(mv);
+  if (feather && !feather.taken) drawFeather(feather);
+  if (egg && !egg.taken) drawEgg(egg);
+  if (boss && !boss.dead){ drawBarrier(); drawBoss(boss); }
   /* coins */
   for (const c of coins){
     if (c.taken) continue;
@@ -1714,14 +2153,31 @@ function drawEagle(){
   ctx.beginPath(); ctx.arc(4.1, -2.3, 0.75, 0, 7); ctx.fill();
   ctx.strokeStyle = '#14100c'; ctx.lineWidth = 1.9; ctx.lineCap = 'round';
   ctx.beginPath(); ctx.moveTo(-1.5, -5.2); ctx.lineTo(7.5, -3.9); ctx.stroke();
-  /* headband */
-  ctx.fillStyle = '#e02318';
+  /* headband — skin tier (red → silver → gold → flame) */
+  const SK = skinColors();
+  let bandFill = SK.main;
+  if (SK.flame){
+    const fl = ctx.createLinearGradient(-10.5, -13, 10.5, -6);
+    const wob = 0.5 + 0.18 * Math.sin(runTime * 9);
+    fl.addColorStop(0, '#ffdd55'); fl.addColorStop(wob, '#ff7a1a'); fl.addColorStop(1, '#ff3b30');
+    bandFill = fl;
+  }
+  ctx.fillStyle = bandFill;
   ctx.beginPath(); ctx.arc(0, 0, 10.5, Math.PI * 1.08, Math.PI * 1.92); ctx.lineTo(0, -13.5); ctx.closePath(); ctx.fill();
   ctx.fillRect(-10.5, -9.6, 21, 3.4);
-  ctx.fillStyle = '#b8150e';
+  ctx.fillStyle = SK.dark;
   ctx.fillRect(-10.5, -6.6, 21, 1.1);
+  if (SK.flame){
+    ctx.fillStyle = '#ffb700';
+    for (let i = 0; i < 3; i++){
+      const fx = -7 + i * 7, fh = 3.5 + Math.sin(runTime * 11 + i * 2.1) * 1.4;
+      ctx.beginPath();
+      ctx.moveTo(fx - 2, -12.5); ctx.lineTo(fx, -12.5 - fh); ctx.lineTo(fx + 2, -12.5);
+      ctx.closePath(); ctx.fill();
+    }
+  }
   const tailWave = Math.sin(runTime * 9) * 2.4 - (glide ? 3 : 0);
-  ctx.strokeStyle = '#e02318'; ctx.lineWidth = 3.1;
+  ctx.strokeStyle = SK.flame ? '#ff7a1a' : SK.main; ctx.lineWidth = 3.1;
   ctx.beginPath();
   ctx.moveTo(-9.5, -8);
   ctx.quadraticCurveTo(-16, -7 + tailWave * 0.4, -20.5, -3.4 + tailWave);
@@ -1731,11 +2187,11 @@ function drawEagle(){
   ctx.moveTo(-9.5, -6.4);
   ctx.quadraticCurveTo(-15, -4.6 + tailWave * 0.4, -18.6, -0.6 + tailWave * 0.85);
   ctx.stroke();
-  /* gold shuriken medallion */
+  /* shuriken medallion (color follows the tier) */
   ctx.save();
   ctx.translate(-1, -8.2);
   ctx.rotate(runTime * 2.4);
-  ctx.fillStyle = '#ffd23e';
+  ctx.fillStyle = SK.med;
   ctx.shadowColor = '#ffb700'; ctx.shadowBlur = 5;
   ctx.beginPath();
   for (let i = 0; i < 4; i++){
@@ -1787,6 +2243,15 @@ function nextPreview(){
 }
 function updatePreview(dt){
   runTime += dt;
+  stepMovers();
+  if (boss && !boss.dead){
+    if (boss.stun > 0) boss.stun -= dt;
+    else {
+      boss.x += boss.dir * boss.speed * dt;
+      if (boss.x < boss.minX){ boss.x = boss.minX; boss.dir = 1; }
+      if (boss.x > boss.maxX){ boss.x = boss.maxX; boss.dir = -1; }
+    }
+  }
   for (const wk of walkers){
     if (wk.dead) continue;
     if (wk.stun > 0) wk.stun -= dt;
@@ -1821,8 +2286,10 @@ function updatePreview(dt){
   }
   stepFx(dt);
 }
-addEventListener('keydown', () => { if (preview.on) nextPreview(); });
-cv.addEventListener('mousedown', () => { if (preview.on) nextPreview(); });
+addEventListener('keydown', () => { if (preview.on) nextPreview(); if (intro.on) hideIntro(); });
+$('introCard').addEventListener('click', () => hideIntro());
+cv.addEventListener('mousedown', () => { if (preview.on) nextPreview(); if (intro.on) hideIntro(); });
+addEventListener('pointerdown', () => ensureMusic(), { once: true });
 
 /* ================= input ================= */
 addEventListener('keydown', e => {
@@ -1857,6 +2324,7 @@ bindBtn('btnJ', () => { input.jumpHeld = true; jumpQueued = true; }, () => input
 bindBtn('btnS', () => tryScreech());
 cv.addEventListener('touchstart', e => {
   e.preventDefault();
+  if (intro.on){ hideIntro(); return; }
   if (preview.on){ nextPreview(); return; }
   const t = e.changedTouches[0], r = cv.getBoundingClientRect(), vw = r.width || IW;
   if (t.clientX - r.left < vw * 0.35) input.left = true;
@@ -1874,7 +2342,10 @@ let lastT = performance.now();
 function frame(now){
   const dt = Math.min(0.033, (now - lastT) / 1000);
   lastT = now;
-  if (preview.on){
+  if (intro.on){
+    intro.t -= dt;
+    if (intro.t <= 0) hideIntro();
+  } else if (preview.on){
     try { updatePreview(dt); }
     catch (err){ console.error(err); exitPreview(); }
   } else if (running){
@@ -1958,6 +2429,7 @@ $('submitBtn').onclick = async () => {
 
 /* ================= level picker + wiring ================= */
 function renderPicker(){
+  $('skinLabel').textContent = 'HEADBAND: ' + skinTier(bestLevel);
   const pk = $('levelPicker');
   pk.innerHTML = '';
   for (let n = 1; n <= 10; n++){
@@ -1974,11 +2446,30 @@ $('startBtn').onclick = () => {
   $('overScreen').style.display = 'none';
   resetRun(selLevel);
   running = true;
+  ensureMusic();
 };
 $('nextBtn').onclick = () => {
   $('levelScreen').style.display = 'none';
-  startLevel(level + 1);
+  startLevel(level + 1, false, true);
   running = true;
+  ensureMusic();
+};
+$('muteBtn').onclick = () => {
+  muted = !muted;
+  localStorage.setItem('garudaMute', muted ? '1' : '0');
+  if (muted) stopMusic(); else ensureMusic();
+  hud();
+};
+$('shareBtn').onclick = async () => {
+  const text = `I scored ${score} on Garuda Dash — reached Level ${maxLevelReached}! 🦅`;
+  try {
+    if (navigator.share){
+      await navigator.share({ title: 'Garuda Dash', text, url: location.href });
+    } else if (navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(text + ' ' + location.href);
+      $('shareStatus').textContent = 'Copied!';
+    }
+  } catch (e) { /* user cancelled the share sheet — stay silent */ }
 };
 $('levelEndBtn').onclick = () => {
   $('levelScreen').style.display = 'none';
