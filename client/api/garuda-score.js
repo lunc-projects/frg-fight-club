@@ -67,7 +67,7 @@ export default async function handler(req, res) {
   const score = Math.floor(+body.score);
   const seconds = Math.floor(+body.seconds);
   const levels = Math.floor(+body.levels);
-  if (!Number.isFinite(score) || score < 0 || score > 250000) {
+  if (!Number.isFinite(score) || score < 0 || score > 400000) {
     return res.status(400).json({ error: 'bad score' });
   }
   if (!Number.isFinite(seconds) || seconds < 20 || seconds > 7200) {
@@ -77,7 +77,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'bad levels' });
   }
   // Plausibility cap: even a perfect campaign cannot outscore this.
-  if (score > seconds * 60 + levels * 1500 + 1000) {
+  if (score > seconds * 60 + levels * 2600 + 4000) {
     return res.status(400).json({ error: 'score too high for run' });
   }
 
