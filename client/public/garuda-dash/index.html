@@ -7,13 +7,15 @@
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { margin:0; padding:0; overflow:hidden; background:#5fb2f5; height:100%; }
+  html, body { margin:0; padding:0; overflow:hidden; background:#0b1030; height:100%; }
   body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:#fff;
-         -webkit-user-select:none; user-select:none; touch-action:none; }
-  #game { position:fixed; inset:0; display:block; }
+         -webkit-user-select:none; user-select:none; touch-action:none;
+         display:flex; flex-direction:column; height:100dvh; }
+  #cvwrap { position:relative; flex:1; min-height:0; }
+  #game { position:absolute; inset:0; width:100%; height:100%; display:block; }
   #ui { position:fixed; inset:0; pointer-events:none; }
   #hud {
-    position:absolute; top:10px; left:10px; right:10px;
+    position:relative; flex:0 0 auto; margin:10px 10px 2px;
     background:linear-gradient(90deg, rgba(60,10,60,.88), rgba(10,40,80,.88)); border-radius:999px; padding:8px 16px;
     display:flex; align-items:center; justify-content:space-between; gap:10px;
     box-shadow:0 0 18px rgba(255,0,128,.25), 0 4px 18px rgba(0,0,0,.5);
@@ -28,9 +30,10 @@
     color:#ffd76a; text-shadow:0 0 18px rgba(255,183,0,.8), 0 2px 12px rgba(0,0,0,.7);
     opacity:0; transition:opacity .15s; pointer-events:none;
   }
-  #pad { position:fixed; left:0; right:0; bottom:0; z-index:5; display:flex; justify-content:space-between; padding:0 14px 16px; pointer-events:none; }
-  .padL, .padR { display:flex; gap:12px; pointer-events:auto; }
+  #pad { position:fixed; left:0; right:0; bottom:10px; z-index:5; display:flex; justify-content:space-between; padding:0 14px; pointer-events:none; }
+  .padL, .padR { display:flex; gap:12px; pointer-events:none; }
   .cbtn {
+    pointer-events:auto;
     width:62px; height:62px; border-radius:50%; border:2px solid rgba(57,230,255,.65);
     background:rgba(10,20,50,.55); color:#bffbff; font-size:24px; cursor:pointer;
     box-shadow:0 0 14px rgba(57,230,255,.35), inset 0 0 12px rgba(57,230,255,.15);
@@ -110,15 +113,15 @@
 </style>
 </head>
 <body>
-<canvas id="game"></canvas>
+<div id="hud">
+  <div id="hudLives">🦅🦅🦅</div>
+  <div id="hudLevel">LV 1 · GREEN HILLS</div>
+  <div id="hudCoins">🪙 0</div>
+  <div id="hudScore">0</div>
+</div>
+<div id="cvwrap"><canvas id="game"></canvas></div>
 
 <div id="ui">
-  <div id="hud">
-    <div id="hudLives">🦅🦅🦅</div>
-    <div id="hudLevel">LV 1 · GREEN HILLS</div>
-    <div id="hudCoins">🪙 0</div>
-    <div id="hudScore">0</div>
-  </div>
   <div id="toast"></div>
 </div>
 
@@ -191,15 +194,22 @@
 /* ================= setup ================= */
 const cv = document.getElementById('game'), ctx = cv.getContext('2d');
 const VH = 540;                       /* virtual world height */
-let W = 0, H = 0, DPR = 1, SCALE = 1;
+const IW = 800;                       /* internal canvas width — fixed */
+let W = IW, H = 600, SCALE = 1;
 function fit(){
-  DPR = Math.min(devicePixelRatio || 1, 2);
-  W = innerWidth; H = innerHeight;
-  cv.width = W * DPR; cv.height = H * DPR;
-  cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  const wrap = document.getElementById('cvwrap');
+  const r = wrap ? wrap.getBoundingClientRect() : null;
+  if (r && r.width > 0 && r.height > 0){
+    H = Math.max(600, Math.min(1100, Math.round(IW * r.height / r.width)));
+  }
+  W = IW;
+  cv.width = IW; cv.height = H;
   SCALE = H / VH;
 }
-addEventListener('resize', fit);
+let fitTimer = 0;
+function fitSoon(){ clearTimeout(fitTimer); fitTimer = setTimeout(fit, 150); }
+addEventListener('resize', fitSoon);
+addEventListener('orientationchange', fitSoon);
 
 let AC = null;
 function beep(f, t, dur, type, vol){
@@ -1096,6 +1106,8 @@ function drawPlatform(x, y, w, i){
 function draw(){
   const T = THEMES[level - 1];
   const viewW = W / SCALE;
+  /* full repaint every frame, in raw canvas pixels */
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height); ctx.restore();
   /* sky */
   const sky = ctx.createLinearGradient(0, 0, 0, H);
   sky.addColorStop(0, T.sky[0]); sky.addColorStop(0.62, T.sky[1]); sky.addColorStop(1, T.sky[2]);
@@ -1158,6 +1170,14 @@ function draw(){
     const cx = ((i * 431 + runTime * (6 + i * 2) * T.cloudSpeed - cam * (0.12 + 0.05 * (i % 3))) % span + span) % span - 170;
     const cy = 42 + (i * 53) % 110;
     drawCloud(cx, cy, 0.55 + 0.2 * cw, T.cloud, T.cloudShade);
+  }
+  /* tall screens (H >= 850): a second, lower cloud band so the extra sky isn't empty */
+  if (H >= 850){
+    for (let i = 0; i < 3; i++){
+      const span2 = viewW + 380;
+      const cx2 = ((i * 619 + runTime * (5 + i * 2) * T.cloudSpeed - cam * 0.18) % span2 + span2) % span2 - 190;
+      drawCloud(cx2, 292 + (i * 47) % 96, 0.5 + 0.14 * i, T.cloud, T.cloudShade);
+    }
   }
   /* far hills + decoration */
   ctx.fillStyle = T.far;
@@ -1838,9 +1858,9 @@ bindBtn('btnS', () => tryScreech());
 cv.addEventListener('touchstart', e => {
   e.preventDefault();
   if (preview.on){ nextPreview(); return; }
-  const t = e.changedTouches[0], vw = innerWidth;
-  if (t.clientX < vw * 0.35) input.left = true;
-  else if (t.clientX > vw * 0.65) input.right = true;
+  const t = e.changedTouches[0], r = cv.getBoundingClientRect(), vw = r.width || IW;
+  if (t.clientX - r.left < vw * 0.35) input.left = true;
+  else if (t.clientX - r.left > vw * 0.65) input.right = true;
   else { input.jumpHeld = true; jumpQueued = true; }
 }, { passive: false });
 cv.addEventListener('touchend', e => {
