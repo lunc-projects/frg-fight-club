@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Darts — sample game (preview)</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; padding:0; overflow:hidden; background:#050a18; height:100%; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:#fff;
+         -webkit-user-select:none; user-select:none; touch-action:none; }
+  #game { position:fixed; inset:0; display:block; }
+  #ui { position:fixed; inset:0; pointer-events:none; }
+  #hud {
+    position:absolute; top:10px; left:10px; right:10px;
+    background:linear-gradient(90deg, rgba(42,42,114,.9), rgba(75,62,209,.9)); border-radius:999px; padding:9px 16px;
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    box-shadow:0 4px 18px rgba(0,0,0,.45);
+  }
+  #dartsLeft { display:flex; align-items:center; font-weight:900; font-size:15px; }
+  #dartsLeft img.life { width:20px; height:20px; border-radius:50%; margin-right:3px; box-shadow:0 0 6px rgba(232,184,58,.5); }
+  #dartsLeft .lost { filter:grayscale(1); opacity:.28; box-shadow:none; }
+  #lastThrow { flex:1; text-align:center; font-weight:900; font-size:15px; color:#ffd76a; }
+  #scoreBox { font-weight:900; font-size:17px; font-variant-numeric:tabular-nums; min-width:56px; text-align:right; }
+  #bigScore {
+    position:absolute; top:12%; width:100%; text-align:center;
+    font-size:56px; font-weight:900; text-shadow:0 4px 24px rgba(0,0,0,.6); pointer-events:none;
+  }
+  #toast {
+    position:absolute; top:24%; width:100%; text-align:center; font-size:23px; font-weight:900;
+    color:#ffd76a; text-shadow:0 2px 12px rgba(0,0,0,.7); opacity:0; transition:opacity .18s; pointer-events:none;
+  }
+  #hint {
+    position:absolute; bottom:5%; width:100%; text-align:center; font-size:13.5px; opacity:.75; pointer-events:none;
+  }
+  .screen {
+    position:fixed; inset:0; z-index:10; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:14px; text-align:center; padding:22px; background:rgba(3,7,20,.55); pointer-events:auto;
+  }
+  .screen h1 { margin:0; font-size:42px; letter-spacing:.08em; font-weight:900;
+    background:linear-gradient(180deg,#7df4ff,#b06cff); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .screen p { margin:0; font-size:15.5px; line-height:1.45; max-width:430px; opacity:.92; }
+  .screen .small { font-size:12px; letter-spacing:.22em; opacity:.65; font-weight:700; }
+  button.play {
+    cursor:pointer; border:none; color:#fff; border-radius:14px; padding:14px 40px; margin-top:8px;
+    font-size:18px; font-weight:900; letter-spacing:.07em; font-family:inherit;
+    background:linear-gradient(180deg,#4ade3d,#22b41f); box-shadow:0 5px 0 #147a0c; text-shadow:0 1px 2px rgba(0,0,0,.3);
+  }
+  button.play:active { transform:translateY(3px); box-shadow:0 2px 0 #147a0c; }
+  #overScreen { display:none; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="ui">
+  <div id="hud">
+    <div id="dartsLeft"></div>
+    <div id="lastThrow"></div>
+    <div id="scoreBox">0</div>
+  </div>
+  <div id="bigScore">0</div>
+  <div id="toast"></div>
+  <div id="hint">Hold to aim — the crosshair sways. Let go to throw 🎯</div>
+</div>
+
+<div class="screen" id="startScreen">
+  <div class="small">SAMPLE GAME · PREVIEW ONLY</div>
+  <h1>🎯 DARTS</h1>
+  <p>Ten darts at the Luna board. <b>Hold</b> anywhere to bring up the crosshair — it sways, and the sway grows as you tire.
+     <b>Release</b> to throw. Rings score 5 / 10 / 15 / 20 / 25, and the golden bull is <b>50</b>. Max score 500.</p>
+  <button class="play" id="startBtn">PLAY</button>
+</div>
+
+<div class="screen" id="overScreen">
+  <div class="small">LAST DART THROWN</div>
+  <h1>🎯 GAME OVER</h1>
+  <p id="overStats"></p>
+  <button class="play" id="againBtn">PLAY AGAIN</button>
+</div>
+
+<script>
+'use strict';
+/* ================= setup ================= */
+const cv = document.getElementById('game'), ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+function fit(){
+  DPR = Math.min(devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W * DPR; cv.height = H * DPR;
+  cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  layout();
+}
+addEventListener('resize', fit);
+
+let AC = null;
+function beep(f, t, dur, type, vol){
+  try {
+    AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = type || 'sine'; o.frequency.value = f;
+    g.gain.setValueAtTime(vol || .12, AC.currentTime + t);
+    g.gain.exponentialRampToValueAtTime(.0001, AC.currentTime + t + dur);
+    o.connect(g); g.connect(AC.destination);
+    o.start(AC.currentTime + t); o.stop(AC.currentTime + t + dur);
+  } catch (e) {}
+}
+
+const $ = id => document.getElementById(id);
+const logoImg = new Image(); logoImg.src = 'lunc.png';   /* official LUNC token icon (self-hosted) */
+
+/* ================= board ================= */
+let board = { x:0, y:0, R:0 };
+function layout(){
+  board.x = W / 2;
+  board.y = H * 0.40;
+  board.R = Math.min(W, H) * 0.315;
+}
+/* ring table: [outer fraction of R, points] — checked from outside in via dist */
+const RINGS = [
+  [0.10, 50, '#ffd76a'],
+  [0.20, 25, '#e5324f'],
+  [0.36, 20, '#f4f6ff'],
+  [0.56, 15, '#6a63e8'],
+  [0.78, 10, '#f4f6ff'],
+  [1.00, 5,  '#2a2a72'],
+];
+function ringFor(dist){
+  for (const [frac, pts] of RINGS) if (dist <= board.R * frac) return pts;
+  return 0;
+}
+
+/* ================= state ================= */
+const DARTS = 10;
+let score = 0, best = +(localStorage.getItem('dartsBest') || 0);
+let dartsLeft = DARTS, bulls = 0;
+let running = false, phase = 'aim';     /* aim | fly | settle */
+let aiming = false, aimX = 0, aimY = 0, swayT = Math.random() * 10;
+let dart = { x:0, y:0, t:0, dur:0.22, sx:0, sy:0, tx:0, ty:0 };
+let landed = [];                        /* {x, y, pts} stuck in the board */
+let settleUntil = 0;
+
+function reset(full){
+  score = 0; dartsLeft = DARTS; bulls = 0; landed = [];
+  phase = 'aim'; aiming = false; hud();
+}
+function hud(){
+  $('dartsLeft').innerHTML = Array.from({length: DARTS}, (_, i) =>
+    `<img class="life ${i < dartsLeft ? '' : 'lost'}" src="lunc.png" alt="LUNC">`).join('');
+  $('scoreBox').textContent = score;
+  $('bigScore').textContent = score;
+}
+function toast(msg, ms){
+  const el = $('toast'); el.textContent = msg; el.style.opacity = 1;
+  clearTimeout(toast._t); toast._t = setTimeout(() => el.style.opacity = 0, ms || 1000);
+}
+function gameOver(){
+  running = false;
+  best = Math.max(best, score); localStorage.setItem('dartsBest', best);
+  $('overStats').innerHTML =
+    `Score <b>${score}</b> · Best <b>${best}</b> · Bulls <b>${bulls}</b><br>` +
+    (score >= 350 ? 'Pro thrower! 🎯🔥' : score >= 250 ? 'Sharp darts — the bull loves you.' : score >= 150 ? 'Solid arm. Watch the sway, throw on the settle.' : 'The sway got you — hold, breathe, release as it crosses the gold.');
+  $('overScreen').style.display = 'flex';
+  $('hint').style.display = 'none';
+}
+
+/* sway: the aim point wanders; amplitude grows with each dart thrown */
+function swayOffset(t){
+  const amp = 6 + (DARTS - dartsLeft) * 2.2;
+  return {
+    x: Math.sin(t * 1.7) * amp + Math.sin(t * 4.3) * amp * 0.35,
+    y: Math.cos(t * 2.3) * amp * 0.8 + Math.sin(t * 3.1) * amp * 0.3,
+  };
+}
+
+/* ================= throwing ================= */
+addEventListener('pointerdown', e => {
+  if (!running || phase !== 'aim') return;
+  aiming = true; aimX = e.clientX; aimY = e.clientY;
+});
+addEventListener('pointermove', e => { if (aiming) { aimX = e.clientX; aimY = e.clientY; } });
+addEventListener('pointerup', e => {
+  if (!aiming) return;
+  aiming = false;
+  if (!running || phase !== 'aim') return;
+  const s = swayOffset(swayT);
+  dart.tx = aimX + s.x + (Math.random() - 0.5) * 5;
+  dart.ty = aimY + s.y + (Math.random() - 0.5) * 5;
+  dart.sx = W / 2; dart.sy = H * 0.97; dart.t = 0;
+  phase = 'fly';
+  beep(300, 0, 0.05, 'triangle', 0.1);
+});
+
+function resolveDart(){
+  const dist = Math.hypot(dart.tx - board.x, dart.ty - board.y);
+  const pts = ringFor(dist);
+  dartsLeft--;
+  if (pts === 50) bulls++;
+  score += pts;
+  landed.push({ x: dart.tx, y: dart.ty, pts });
+  $('lastThrow').textContent = pts ? `+${pts}` : 'MISS';
+  toast(pts === 50 ? 'BULL! +50 🎯' : pts ? `+${pts}` : 'Off the board! 😖', 850);
+  beep(pts === 50 ? 880 : pts ? 520 : 150, 0, pts === 50 ? 0.16 : 0.09, 'sine', 0.12);
+  hud();
+  phase = 'settle';
+  settleUntil = performance.now() + 620;
+}
+
+/* ================= draw ================= */
+function draw(){
+  /* wall: Luna pub in space */
+  const wall = ctx.createLinearGradient(0, 0, 0, H);
+  wall.addColorStop(0, '#0a1030'); wall.addColorStop(1, '#131a45');
+  ctx.fillStyle = wall; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(255,255,255,.65)';
+  for (let i = 0; i < 34; i++) ctx.fillRect((i * 211.7) % W, (i * 97.3) % (H * 0.5), 2, 2);
+  /* the Luna moon = LUNC logo, top-left */
+  if (logoImg.complete && logoImg.naturalWidth){
+    const mr = Math.min(W, H) * 0.075;
+    ctx.save(); ctx.globalAlpha = 0.92;
+    ctx.beginPath(); ctx.arc(W * 0.10, H * 0.13, mr, 0, 7); ctx.clip();
+    ctx.drawImage(logoImg, W * 0.10 - mr, H * 0.13 - mr, mr * 2, mr * 2);
+    ctx.restore();
+  }
+  drawBoard();
+  /* landed darts */
+  for (const d of landed) drawDartAt(d.x, d.y, 0.55, d.pts === 50);
+  /* flying dart */
+  if (phase === 'fly'){
+    const e = 1 - Math.pow(1 - dart.t, 2);
+    const x = dart.sx + (dart.tx - dart.sx) * e;
+    const y = dart.sy + (dart.ty - dart.sy) * e;
+    drawDartAt(x, y, 1.6 - dart.t * 1.05, false);
+  }
+  /* crosshair while aiming */
+  if (aiming && phase === 'aim'){
+    const s = swayOffset(swayT);
+    const x = aimX + s.x, y = aimY + s.y;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,215,106,.95)'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(x, y, 16, 0, 7); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x - 24, y); ctx.lineTo(x - 7, y); ctx.moveTo(x + 7, y); ctx.lineTo(x + 24, y);
+    ctx.moveTo(x, y - 24); ctx.lineTo(x, y - 7); ctx.moveTo(x, y + 7); ctx.lineTo(x, y + 24);
+    ctx.stroke();
+    ctx.fillStyle = '#ffd76a';
+    ctx.beginPath(); ctx.arc(x, y, 3, 0, 7); ctx.fill();
+    ctx.restore();
+  }
+}
+function drawBoard(){
+  const { x, y, R } = board;
+  /* surround + shadow */
+  ctx.save();
+  ctx.fillStyle = '#070a22';
+  ctx.beginPath(); ctx.arc(x, y, R * 1.13, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#8a6d1f'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.arc(x, y, R * 1.13, 0, 7); ctx.stroke();
+  /* rings, outside in */
+  for (let i = RINGS.length - 1; i >= 0; i--){
+    ctx.fillStyle = RINGS[i][2];
+    ctx.beginPath(); ctx.arc(x, y, R * RINGS[i][0], 0, 7); ctx.fill();
+  }
+  /* ring separators */
+  ctx.strokeStyle = 'rgba(10,10,30,.45)'; ctx.lineWidth = 2;
+  for (const [frac] of RINGS){ ctx.beginPath(); ctx.arc(x, y, R * frac, 0, 7); ctx.stroke(); }
+  /* ring labels */
+  ctx.fillStyle = 'rgba(255,255,255,.92)';
+  ctx.font = `900 ${Math.max(11, R * 0.085)}px system-ui`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const labelAt = (frac, txt, dark) => {
+    ctx.fillStyle = dark ? '#232a5e' : 'rgba(255,255,255,.92)';
+    ctx.fillText(txt, x, y - R * frac);
+  };
+  labelAt(0.89, '5'); labelAt(0.67, '10'); labelAt(0.46, '15'); labelAt(0.28, '20', true); labelAt(0.15, '25');
+  ctx.fillStyle = '#7a5200';
+  ctx.font = `900 ${Math.max(10, R * 0.07)}px system-ui`;
+  ctx.fillText('50', x, y);
+  ctx.restore();
+}
+function drawDartAt(x, y, s, gold){
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
+  /* shaft */
+  ctx.strokeStyle = '#dfe4ff'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(10, 10); ctx.lineTo(0, 0); ctx.stroke();
+  /* flights: LUNC gold (or red accent) */
+  ctx.fillStyle = gold ? '#ffd76a' : '#e5324f';
+  ctx.beginPath();
+  ctx.moveTo(10, 10); ctx.lineTo(19, 5); ctx.lineTo(15, 13); ctx.lineTo(19, 19); ctx.closePath(); ctx.fill();
+  /* tip point */
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(0, 0, 2.6, 0, 7); ctx.fill();
+  ctx.restore();
+}
+
+/* ================= loop ================= */
+let lastTs = 0;
+function frame(ts){
+  const dt = Math.min(0.05, (ts - lastTs) / 1000 || 0); lastTs = ts;
+  if (aiming) swayT += dt;
+  if (running && phase === 'fly'){
+    dart.t = Math.min(1, dart.t + dt / dart.dur);
+    if (dart.t >= 1) resolveDart();
+  } else if (running && phase === 'settle' && ts >= settleUntil){
+    if (dartsLeft <= 0) gameOver();
+    else phase = 'aim';
+  }
+  draw();
+  requestAnimationFrame(frame);
+}
+
+/* ================= go ================= */
+$('startBtn').addEventListener('click', () => {
+  $('startScreen').style.display = 'none';
+  reset(true); running = true; hud();
+});
+$('againBtn').addEventListener('click', () => {
+  $('overScreen').style.display = 'none';
+  $('hint').style.display = '';
+  reset(true); running = true; hud();
+});
+fit(); reset(true); running = false; hud();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
