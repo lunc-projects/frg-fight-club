@@ -4,7 +4,10 @@
 // env var is set on the project; anything else is rejected.
 // Flow: read the stored baseline from Upstash, fetch the validator's live
 // bonded stake + delegator count from the Terra Classic LCD, DM the owner
-// the difference, then advance the baseline. The first ever run just seeds
+// the difference, then advance the baseline. If the owner has registered a
+// group with /updates (handled by the webhook bot), the same report is
+// posted there too; a failed group post only earns the owner a warning DM
+// and never blocks the baseline advance. The first ever run just seeds
 // the baseline and says so — there is no yesterday to compare against yet.
 // If the LCD is unreachable the baseline is left untouched and nothing is
 // sent, so a chain/node hiccup never corrupts the comparison.
@@ -16,6 +19,7 @@ const VALIDATOR_OPER = 'terravaloper13gwu230jrnvalsu3w2cfu5syt4w5rwuca6nhj7';
 const VALIDATOR_URL = `${LCD_BASE}/cosmos/staking/v1beta1/validators/${VALIDATOR_OPER}`;
 const DELEGATIONS_URL = `${VALIDATOR_URL}/delegations?pagination.count_total=true`;
 const BASELINE_KEY = 'kickback:baseline';
+const UPDATES_CHAT_KEY = 'kb:updates_chat';
 const SITE_URL = 'https://www.luncback.com';
 
 // ---------- formatting ----------
@@ -131,6 +135,17 @@ async function writeBaseline(state) {
   }));
 }
 
+// The group the owner registered with /updates (webhook bot), if any.
+async function readUpdatesChat() {
+  const raw = await upstashGet(UPDATES_CHAT_KEY);
+  if (!raw) return null;
+  try {
+    const u = JSON.parse(raw);
+    if (u && u.chat_id != null) return u;
+  } catch (e) { /* fall through: corrupt registration behaves like none */ }
+  return null;
+}
+
 // ---------- telegram ----------
 
 async function sendDm(text) {
@@ -146,6 +161,25 @@ async function sendDm(text) {
     return r.ok;
   } catch (e) {
     console.error('sendMessage failed', e && e.message);
+    return false;
+  }
+}
+
+// Post to the registered updates group. Unlike sendDm this reports its
+// outcome: the handler needs to know a group post failed so it can warn the
+// owner (the bot may have been removed from the group).
+async function sendToChat(chatId, text) {
+  const token = process.env.KICKBACK_BOT_TOKEN;
+  if (!token) return false;
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text }),
+    });
+    return r.ok;
+  } catch (e) {
+    console.error('group sendMessage failed', e && e.message);
     return false;
   }
 }
@@ -199,7 +233,24 @@ export default async function handler(req, res) {
     return;
   }
 
-  await sendDm(buildDiffText('last 24h', base, now));
+  const report = buildDiffText('last 24h', base, now);
+  await sendDm(report);
+  // Mirror the report to the registered updates group, if one exists. Any
+  // failure here — unreadable registration, bot removed from the group —
+  // must not fail the cron or block the baseline advance below; a failed
+  // post only earns the owner a warning DM.
+  let updatesChat = null;
+  try {
+    updatesChat = await readUpdatesChat();
+  } catch (e) {
+    console.error('updates group read failed', e && e.message);
+  }
+  if (updatesChat) {
+    const posted = await sendToChat(updatesChat.chat_id, report);
+    if (!posted) {
+      await sendDm('⚠️ Couldn\u2019t post the update to the registered group (the bot may have been removed).');
+    }
+  }
   try {
     await writeBaseline(now);
   } catch (e) {

@@ -1,8 +1,12 @@
 // LUNC Kickback bot — Telegram webhook handler (Vercel serverless function).
 // Telegram POSTs each update here; we answer /start in private chats with the
-// welcome message + Open App button. One owner-only admin command,
-// /delegations, replies (to the owner only) with the delegation difference
-// since the daily cron's stored baseline; everyone else is ignored.
+// welcome message + Open App button. Two owner-only admin commands:
+// /delegations, which replies (to the owner only) with the delegation
+// difference since the daily cron's stored baseline, and /updates, which
+// registers the group it is sent in to also receive the daily cron's report
+// (sent in a group to register it, "/updates off" to unregister, and in a
+// private chat it reports the current registration). Everyone else sending
+// an admin command is ignored.
 // Env (Vercel project settings): KICKBACK_BOT_TOKEN, KICKBACK_WEBHOOK_SECRET,
 // KICKBACK_OWNER_CHAT_ID, KICKBACK_UPSTASH_URL, KICKBACK_UPSTASH_TOKEN.
 const APP_URL = process.env.KICKBACK_APP_URL || 'https://frg-fight-club.vercel.app/kickback/';
@@ -12,6 +16,7 @@ const VALIDATOR_OPER = 'terravaloper13gwu230jrnvalsu3w2cfu5syt4w5rwuca6nhj7';
 const VALIDATOR_URL = `${LCD_BASE}/cosmos/staking/v1beta1/validators/${VALIDATOR_OPER}`;
 const DELEGATIONS_URL = `${VALIDATOR_URL}/delegations?pagination.count_total=true`;
 const BASELINE_KEY = 'kickback:baseline';
+const UPDATES_CHAT_KEY = 'kb:updates_chat';
 const SITE_URL = 'https://www.luncback.com';
 
 // ---------- formatting (same report format as the daily cron DM) ----------
@@ -113,6 +118,40 @@ async function readBaseline() {
   return null;
 }
 
+// ---------- updates-group registration (same Upstash store; this is the one
+// key the webhook writes — the daily cron reads it to mirror its report) ----------
+
+async function upstashSet(key, value) {
+  const r = await fetch(`${process.env.KICKBACK_UPSTASH_URL}/set/${encodeURIComponent(key)}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${process.env.KICKBACK_UPSTASH_TOKEN}` },
+    body: value,
+  });
+  if (!r.ok) throw new Error(`upstash set HTTP ${r.status}`);
+}
+
+async function upstashDel(key) {
+  const r = await fetch(`${process.env.KICKBACK_UPSTASH_URL}/del/${encodeURIComponent(key)}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${process.env.KICKBACK_UPSTASH_TOKEN}` },
+  });
+  if (!r.ok) throw new Error(`upstash del HTTP ${r.status}`);
+}
+
+async function readUpdatesChat() {
+  const r = await fetch(`${process.env.KICKBACK_UPSTASH_URL}/get/${encodeURIComponent(UPDATES_CHAT_KEY)}`, {
+    headers: { Authorization: `Bearer ${process.env.KICKBACK_UPSTASH_TOKEN}` },
+  });
+  if (!r.ok) throw new Error(`upstash get HTTP ${r.status}`);
+  const j = await r.json();
+  if (!j.result) return null;
+  try {
+    const u = JSON.parse(j.result);
+    if (u && u.chat_id != null) return u;
+  } catch (e) { /* fall through: corrupt registration behaves like none */ }
+  return null;
+}
+
 // ---------- telegram ----------
 
 async function sendText(token, chatId, text) {
@@ -152,6 +191,73 @@ async function handleDelegations(token, msg) {
   await sendText(token, msg.chat.id, buildDiffText(elapsedLabel(base.ts), base, now));
 }
 
+// Owner-only /updates: registers the group it is sent in as a second
+// destination for the daily cron's delegation report (the owner DM still
+// gets it too). Identity here is the SENDER (msg.from.id), not the chat:
+// /delegations can compare chat ids because it only makes sense in the
+// owner's private chat, but in a group the chat id is the group's. Anyone
+// who isn't the owner gets silence, exactly as if the command didn't exist.
+// Bare "/updates" in a group means "register this group" — a tapped command
+// on the user's phone may arrive with its arguments stripped, so the
+// primary action must not depend on one. "/updates off" unregisters from
+// anywhere; bare "/updates" in the owner's private chat reports the status.
+async function handleUpdates(token, msg) {
+  const owner = process.env.KICKBACK_OWNER_CHAT_ID;
+  if (!owner) return;
+  const senderId = msg.from && msg.from.id;
+  const isOwner = (senderId != null && String(senderId) === String(owner)) ||
+    (msg.chat.type === 'private' && String(msg.chat.id) === String(owner));
+  if (!isOwner) return;
+  if (!upstashConfigured()) {
+    await sendText(token, msg.chat.id, 'storage not configured yet');
+    return;
+  }
+  const arg = (msg.text.split(/\s+/)[1] || '').toLowerCase();
+  if (arg === 'off') {
+    try {
+      await upstashDel(UPDATES_CHAT_KEY);
+    } catch (e) {
+      await sendText(token, msg.chat.id, 'Could not remove the updates group right now — try again in a bit.');
+      return;
+    }
+    await sendText(token, msg.chat.id, 'Updates group removed — the daily delegation report now goes to the owner DM only.');
+    return;
+  }
+  if (msg.chat.type === 'group' || msg.chat.type === 'supergroup') {
+    const reg = {
+      chat_id: msg.chat.id,
+      title: msg.chat.title || null,
+      set_by: senderId != null ? senderId : msg.chat.id,
+      ts: Date.now(),
+    };
+    try {
+      await upstashSet(UPDATES_CHAT_KEY, JSON.stringify(reg));
+    } catch (e) {
+      await sendText(token, msg.chat.id, 'Could not save the updates group right now — try again in a bit.');
+      return;
+    }
+    await sendText(token, msg.chat.id,
+      '✅ Registered — the daily LUNC Kickback delegation update will post here as well as in the owner\u2019s DM. ' +
+      'Send /updates off to stop it.');
+    return;
+  }
+  if (msg.chat.type === 'private') {
+    let reg;
+    try {
+      reg = await readUpdatesChat();
+    } catch (e) {
+      await sendText(token, msg.chat.id, 'Could not read the updates group right now — try again in a bit.');
+      return;
+    }
+    if (!reg) {
+      await sendText(token, msg.chat.id, 'No group registered for daily updates. Send /updates in the group where you want the daily delegation update posted.');
+      return;
+    }
+    const where = reg.title ? `${reg.title} (chat id ${reg.chat_id})` : `chat id ${reg.chat_id}`;
+    await sendText(token, msg.chat.id, `Daily delegation updates also post to: ${where}. Send /updates off to remove the group.`);
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ ok: false }); return; }
   const secret = req.headers['x-telegram-bot-api-secret-token'];
@@ -187,6 +293,12 @@ export default async function handler(req, res) {
         await handleDelegations(token, msg);
       } catch (e) {
         console.error('delegations failed', e && e.message);
+      }
+    } else if (msg.text.startsWith('/updates')) {
+      try {
+        await handleUpdates(token, msg);
+      } catch (e) {
+        console.error('updates failed', e && e.message);
       }
     }
   }
