@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Block Puzzle — sample game (preview)</title>
+<title>Luna Blocks</title>
 <style>
   :root { --cs: min(8.8vw, 46px); }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -88,12 +88,27 @@
   }
   #over h1 { margin:0; font-size:40px; letter-spacing:.08em; color:#ffd76a; text-shadow:0 4px 26px rgba(255,180,0,.45); }
   #over p { margin:0; font-size:16px; }
+  /* leaderboard */
+  #nameInput { width:min(300px, 82vw); padding:12px 16px; border-radius:999px; border:1px solid rgba(190,198,255,.4); background:rgba(10,16,48,.9); color:#fff; font-size:16px; text-align:center; outline:none; font-family:inherit; }
+  #submitStatus { min-height:18px; font-size:14px; margin:0; }
+  #board {
+    position:fixed; inset:0; z-index:80; display:none; flex-direction:column; align-items:center; justify-content:center;
+    gap:14px; background:rgba(10,24,64,.94); text-align:center; padding:20px;
+  }
+  #board h1 { margin:0; font-size:34px; letter-spacing:.08em; color:#ffd76a; text-shadow:0 4px 26px rgba(255,180,0,.45); }
+  #board .small { font-size:12px; letter-spacing:.22em; opacity:.65; font-weight:700; }
+  #boardList { width:min(430px, 92vw); max-height:46vh; overflow-y:auto; text-align:left; font-size:15px; }
+  #boardList .row { display:flex; justify-content:space-between; gap:10px; padding:7px 12px; border-bottom:1px solid rgba(255,255,255,.09); }
+  #boardList .row .rk { opacity:.65; width:34px; flex:0 0 auto; }
+  #boardList .row .nm { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #boardList .row .sc { font-weight:900; color:#ffd76a; }
+  .tabs { display:flex; gap:8px; }
   footer { text-align:center; font-size:12px; color:#9aa3d0; font-weight:600; padding:0 12px 18px; max-width:560px; margin:0 auto; }
 </style>
 </head>
 <body>
 <header>
-  <div class="title">🧩 LUNA BLOCKS<small>SAMPLE GAME · PREVIEW ONLY</small></div>
+  <div class="title">🧩 LUNA BLOCKS<small>LUNA CLASSIC</small></div>
   <div class="stats">
     <span>Score <b id="stScore">0</b></span>
     <span>Best <b id="stBest">0</b></span>
@@ -104,6 +119,7 @@
   <div id="grid"></div>
   <div id="tray"></div>
   <button id="newBtn" class="chunky orange">NEW GAME</button>
+  <button id="boardBtn" class="chunky orange">🏆 LEADERBOARD</button>
 </div>
 <footer>Drag a piece onto the board. Fill a full row or column to clear it. <b>Clear 2+ lines in one move to unlock the free Luna piece</b> — it carries the LUNC logo and fills any single cell. Game ends when no piece fits.</footer>
 
@@ -113,7 +129,22 @@
 <div id="over">
   <h1>🧩 NO MORE MOVES</h1>
   <p id="overStats"></p>
+  <input id="nameInput" maxlength="20" placeholder="Your name — or just Guest">
+  <button id="submitBtn" class="chunky green">🏆 SUBMIT SCORE</button>
+  <p id="submitStatus"></p>
+  <button id="overBoardBtn" class="chunky orange">🏆 LEADERBOARD</button>
   <button id="againBtn" class="chunky green">Play Again</button>
+</div>
+
+<div id="board">
+  <div class="small">🧩 LUNA BLOCKS</div>
+  <h1>🏆 LEADERBOARD</h1>
+  <div class="tabs">
+    <button id="tabAll" class="chunky green">ALL-TIME</button>
+    <button id="tabWeek" class="chunky orange">THIS WEEK</button>
+  </div>
+  <div id="boardList"><p style="text-align:center; opacity:.8">Loading…</p></div>
+  <button id="boardClose" class="chunky orange">✕ CLOSE</button>
 </div>
 
 <script>
@@ -400,6 +431,72 @@ document.addEventListener('pointercancel', () => {
 $('newBtn').addEventListener('click', newGame);
 $('againBtn').addEventListener('click', newGame);
 newGame();
+</script>
+<script>
+/* ================= leaderboard (LUNA BLOCKS) ================= */
+const TG_BK = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+let bkInitData = '';
+try { if (TG_BK){ TG_BK.ready(); TG_BK.expand(); bkInitData = TG_BK.initData || ''; } } catch (e) {}
+const bkNameInput = document.getElementById('nameInput');
+try {
+  const tgUser = TG_BK && TG_BK.initDataUnsafe ? TG_BK.initDataUnsafe.user : null;
+  bkNameInput.value = (tgUser && tgUser.first_name) || localStorage.getItem('blocksName') || 'Guest';
+} catch (e) {}
+let bkStartTs = Date.now();
+document.getElementById('newBtn').addEventListener('click', () => { bkStartTs = Date.now(); });
+document.getElementById('againBtn').addEventListener('click', () => { bkStartTs = Date.now(); });
+let bkBoardCache = null, bkBoardTab = 'all';
+function bkRenderBoard(){
+  const list = document.getElementById('boardList');
+  const rows = (bkBoardCache && bkBoardCache[bkBoardTab]) || [];
+  document.getElementById('tabAll').className = bkBoardTab === 'all' ? 'chunky green' : 'chunky orange';
+  document.getElementById('tabWeek').className = bkBoardTab === 'week' ? 'chunky green' : 'chunky orange';
+  if (!rows.length){ list.innerHTML = '<p style="text-align:center; opacity:.8">No scores yet — be the first 🏆</p>'; return; }
+  list.innerHTML = rows.map((r, i) =>
+    `<div class="row"><span class="rk">${i+1}.</span><span class="nm"></span><span class="sc">${r.score}</span></div>`).join('');
+  [...list.querySelectorAll('.nm')].forEach((el, i) => el.textContent = rows[i].name);
+}
+async function bkOpenBoard(){
+  document.getElementById('board').style.display = 'flex';
+  document.getElementById('boardList').innerHTML = '<p style="text-align:center; opacity:.8">Loading…</p>';
+  try {
+    const r = await fetch('/api/blocks-board');
+    if (!r.ok) throw new Error(r.status);
+    bkBoardCache = await r.json();
+  } catch (e) {
+    bkBoardCache = null;
+    document.getElementById('boardList').innerHTML = '<p style="text-align:center; opacity:.8">Leaderboard unavailable right now.</p>';
+    return;
+  }
+  bkRenderBoard();
+}
+document.getElementById('boardBtn').addEventListener('click', bkOpenBoard);
+document.getElementById('overBoardBtn').addEventListener('click', bkOpenBoard);
+document.getElementById('boardClose').addEventListener('click', () => document.getElementById('board').style.display = 'none');
+document.getElementById('tabAll').addEventListener('click', () => { bkBoardTab = 'all'; bkRenderBoard(); });
+document.getElementById('tabWeek').addEventListener('click', () => { bkBoardTab = 'week'; bkRenderBoard(); });
+document.getElementById('submitBtn').addEventListener('click', async () => {
+  let name = bkNameInput.value.trim();
+  if (name.length < 2) { name = 'Guest'; bkNameInput.value = name; }
+  try { localStorage.setItem('blocksName', name); } catch (e) {}
+  const btn = document.getElementById('submitBtn'), status = document.getElementById('submitStatus');
+  const seconds = Math.min(14400, Math.max(20, Math.round((Date.now() - bkStartTs) / 1000)));
+  btn.disabled = true; status.textContent = 'Submitting…';
+  try {
+    const r = await fetch('/api/blocks-score', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData: bkInitData, name, score: Math.floor(score), seconds })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || r.status);
+    status.textContent = d.rank ? `🏆 You're #${d.rank} all-time!` : '🏆 Score submitted!';
+    bkBoardTab = 'all';
+    setTimeout(bkOpenBoard, 650);
+  } catch (e) {
+    status.textContent = 'Could not submit (' + e.message + ') — try again.';
+    btn.disabled = false;
+  }
+});
 </script>
 </body>
 </html>
