@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Penalty Kick — sample game (preview)</title>
+<title>Penalty Kick</title>
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin:0; padding:0; overflow:hidden; background:#050a18; height:100%; }
@@ -50,7 +50,19 @@
     background:linear-gradient(180deg,#4ade3d,#22b41f); box-shadow:0 5px 0 #147a0c; text-shadow:0 1px 2px rgba(0,0,0,.3);
   }
   button.play:active { transform:translateY(3px); box-shadow:0 2px 0 #147a0c; }
+  button.play.alt { background:linear-gradient(180deg,#8d99c9,#5a6699); box-shadow:0 5px 0 #39406b; font-size:15px; padding:12px 26px; }
+  button.play.alt:active { box-shadow:0 2px 0 #39406b; }
   #overScreen { display:none; }
+  /* leaderboard */
+  #nameInput { width:min(300px, 82vw); padding:12px 16px; border-radius:999px; border:1px solid rgba(255,255,255,.35); background:rgba(10,6,28,.85); color:#fff; font-size:16px; text-align:center; outline:none; font-family:inherit; pointer-events:auto; }
+  #submitStatus { min-height:18px; font-size:14px; margin:0; }
+  #boardScreen { display:none; background:rgba(3,7,20,.88); }
+  #boardList { width:min(430px, 92vw); max-height:46vh; overflow-y:auto; text-align:left; font-size:15px; }
+  #boardList .row { display:flex; justify-content:space-between; gap:10px; padding:7px 12px; border-bottom:1px solid rgba(255,255,255,.09); }
+  #boardList .row .rk { opacity:.65; width:34px; flex:0 0 auto; }
+  #boardList .row .nm { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #boardList .row .sc { font-weight:900; color:#ffd76a; }
+  .tabs { display:flex; gap:8px; }
 </style>
 </head>
 <body>
@@ -71,19 +83,35 @@
 </div>
 
 <div class="screen" id="startScreen">
-  <div class="small">SAMPLE GAME · PREVIEW ONLY</div>
+  <div class="small">LUNA CLASSIC</div>
   <h1>⚽ PENALTY KICK</h1>
   <p>Ten kicks from the spot, under the Luna moon. Drag back anywhere and release to shoot — where you aim is where the ball goes.
      Every goal is <b>10 points × your multiplier</b>. String goals together to raise it.
      The keeper reads you better every round, so mix up your corners. Top bins count double!</p>
   <button class="play" id="startBtn">PLAY</button>
+  <button class="play alt" id="boardBtn">🏆 LEADERBOARD</button>
 </div>
 
 <div class="screen" id="overScreen">
   <div class="small">FULL TIME</div>
   <h1>⚽ FULL TIME</h1>
   <p id="overStats"></p>
+  <input id="nameInput" maxlength="20" placeholder="Your name — or just Guest">
+  <button class="play" id="submitBtn">🏆 SUBMIT SCORE</button>
+  <p id="submitStatus"></p>
+  <button class="play alt" id="overBoardBtn">🏆 LEADERBOARD</button>
   <button class="play" id="againBtn">PLAY AGAIN</button>
+</div>
+
+<div class="screen" id="boardScreen">
+  <div class="small">⚽ PENALTY KICK</div>
+  <h1>LEADERBOARD</h1>
+  <div class="tabs">
+    <button id="tabAll" class="play">ALL-TIME</button>
+    <button id="tabWeek" class="play alt">THIS WEEK</button>
+  </div>
+  <div id="boardList"><p style="text-align:center; opacity:.8">Loading…</p></div>
+  <button id="boardClose" class="play alt">✕ CLOSE</button>
 </div>
 
 <script>
@@ -381,6 +409,72 @@ $('againBtn').addEventListener('click', () => {
 });
 fit(); reset(true); running = false; hud();
 requestAnimationFrame(frame);
+</script>
+<script>
+/* ================= leaderboard (PENALTY KICK) ================= */
+const TG_PN = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+let pnInitData = '';
+try { if (TG_PN){ TG_PN.ready(); TG_PN.expand(); pnInitData = TG_PN.initData || ''; } } catch (e) {}
+const pnNameInput = document.getElementById('nameInput');
+try {
+  const tgUser = TG_PN && TG_PN.initDataUnsafe ? TG_PN.initDataUnsafe.user : null;
+  pnNameInput.value = (tgUser && tgUser.first_name) || localStorage.getItem('penName') || 'Guest';
+} catch (e) {}
+let pnStartTs = Date.now();
+document.getElementById('startBtn').addEventListener('click', () => { pnStartTs = Date.now(); });
+document.getElementById('againBtn').addEventListener('click', () => { pnStartTs = Date.now(); });
+let pnBoardCache = null, pnBoardTab = 'all';
+function pnRenderBoard(){
+  const list = document.getElementById('boardList');
+  const rows = (pnBoardCache && pnBoardCache[pnBoardTab]) || [];
+  document.getElementById('tabAll').className = pnBoardTab === 'all' ? 'play' : 'play alt';
+  document.getElementById('tabWeek').className = pnBoardTab === 'week' ? 'play' : 'play alt';
+  if (!rows.length){ list.innerHTML = '<p style="text-align:center; opacity:.8">No scores yet — be the first 🏆</p>'; return; }
+  list.innerHTML = rows.map((r, i) =>
+    `<div class="row"><span class="rk">${i+1}.</span><span class="nm"></span><span class="sc">${r.score}</span></div>`).join('');
+  [...list.querySelectorAll('.nm')].forEach((el, i) => el.textContent = rows[i].name);
+}
+async function pnOpenBoard(){
+  document.getElementById('boardScreen').style.display = 'flex';
+  document.getElementById('boardList').innerHTML = '<p style="text-align:center; opacity:.8">Loading…</p>';
+  try {
+    const r = await fetch('/api/penalty-board');
+    if (!r.ok) throw new Error(r.status);
+    pnBoardCache = await r.json();
+  } catch (e) {
+    pnBoardCache = null;
+    document.getElementById('boardList').innerHTML = '<p style="text-align:center; opacity:.8">Leaderboard unavailable right now.</p>';
+    return;
+  }
+  pnRenderBoard();
+}
+document.getElementById('boardBtn').addEventListener('click', pnOpenBoard);
+document.getElementById('overBoardBtn').addEventListener('click', pnOpenBoard);
+document.getElementById('boardClose').addEventListener('click', () => document.getElementById('boardScreen').style.display = 'none');
+document.getElementById('tabAll').addEventListener('click', () => { pnBoardTab = 'all'; pnRenderBoard(); });
+document.getElementById('tabWeek').addEventListener('click', () => { pnBoardTab = 'week'; pnRenderBoard(); });
+document.getElementById('submitBtn').addEventListener('click', async () => {
+  let name = pnNameInput.value.trim();
+  if (name.length < 2) { name = 'Guest'; pnNameInput.value = name; }
+  try { localStorage.setItem('penName', name); } catch (e) {}
+  const btn = document.getElementById('submitBtn'), status = document.getElementById('submitStatus');
+  const seconds = Math.min(900, Math.max(10, Math.round((Date.now() - pnStartTs) / 1000)));
+  btn.disabled = true; status.textContent = 'Submitting…';
+  try {
+    const r = await fetch('/api/penalty-score', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData: pnInitData, name, score: Math.floor(score), seconds })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || r.status);
+    status.textContent = d.rank ? `🏆 You're #${d.rank} all-time!` : '🏆 Score submitted!';
+    pnBoardTab = 'all';
+    setTimeout(pnOpenBoard, 650);
+  } catch (e) {
+    status.textContent = 'Could not submit (' + e.message + ') — try again.';
+    btn.disabled = false;
+  }
+});
 </script>
 </body>
 </html>
