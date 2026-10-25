@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Penalty Kick — sample game (preview)</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; padding:0; overflow:hidden; background:#050a18; height:100%; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:#fff;
+         -webkit-user-select:none; user-select:none; touch-action:none; }
+  #game { position:fixed; inset:0; display:block; }
+  #ui { position:fixed; inset:0; pointer-events:none; }
+  #hud {
+    position:absolute; top:10px; left:10px; right:10px;
+    background:linear-gradient(90deg, rgba(42,42,114,.9), rgba(75,62,209,.9)); border-radius:999px; padding:9px 16px;
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    box-shadow:0 4px 18px rgba(0,0,0,.45);
+  }
+  #kicks { min-width:88px; display:flex; align-items:center; }
+  #kicks img.life { width:24px; height:24px; border-radius:50%; margin-right:4px; box-shadow:0 0 6px rgba(232,184,58,.5); }
+  #kicks .lost { filter:grayscale(1); opacity:.28; box-shadow:none; }
+  #multWrap { flex:1; display:flex; align-items:center; gap:8px; max-width:340px; }
+  #multBarOuter { flex:1; height:9px; border-radius:99px; background:rgba(255,255,255,.16); overflow:hidden; }
+  #multBar { height:100%; width:0%; border-radius:99px; background:linear-gradient(90deg,#6a63e8,#38e1ff); transition:width .25s; }
+  #multTxt { font-weight:900; font-size:16px; min-width:32px; }
+  #scoreBox { font-weight:900; font-size:17px; font-variant-numeric:tabular-nums; min-width:56px; text-align:right; }
+  #bigScore {
+    position:absolute; top:14%; width:100%; text-align:center;
+    font-size:60px; font-weight:900; text-shadow:0 4px 24px rgba(0,0,0,.6); pointer-events:none;
+  }
+  #toast {
+    position:absolute; top:27%; width:100%; text-align:center; font-size:22px; font-weight:900;
+    color:#ffd76a; text-shadow:0 2px 12px rgba(0,0,0,.7); opacity:0; transition:opacity .18s; pointer-events:none;
+  }
+  #hint {
+    position:absolute; bottom:5%; width:100%; text-align:center; font-size:13.5px; opacity:.75; pointer-events:none;
+  }
+  .screen {
+    position:fixed; inset:0; z-index:10; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:14px; text-align:center; padding:22px; background:rgba(3,7,20,.55); pointer-events:auto;
+  }
+  .screen h1 { margin:0; font-size:42px; letter-spacing:.08em; font-weight:900;
+    background:linear-gradient(180deg,#7df4ff,#b06cff); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .screen p { margin:0; font-size:15.5px; line-height:1.45; max-width:430px; opacity:.92; }
+  .screen .small { font-size:12px; letter-spacing:.22em; opacity:.65; font-weight:700; }
+  button.play {
+    cursor:pointer; border:none; color:#fff; border-radius:14px; padding:14px 40px; margin-top:8px;
+    font-size:18px; font-weight:900; letter-spacing:.07em; font-family:inherit;
+    background:linear-gradient(180deg,#4ade3d,#22b41f); box-shadow:0 5px 0 #147a0c; text-shadow:0 1px 2px rgba(0,0,0,.3);
+  }
+  button.play:active { transform:translateY(3px); box-shadow:0 2px 0 #147a0c; }
+  #overScreen { display:none; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="ui">
+  <div id="hud">
+    <div id="kicks"></div>
+    <div id="multWrap">
+      <div id="multBarOuter"><div id="multBar"></div></div>
+      <div id="multTxt">x1</div>
+    </div>
+    <div id="scoreBox">0</div>
+  </div>
+  <div id="bigScore">0</div>
+  <div id="toast"></div>
+  <div id="hint">Drag back and let go — aim for the corners ⚽</div>
+</div>
+
+<div class="screen" id="startScreen">
+  <div class="small">SAMPLE GAME · PREVIEW ONLY</div>
+  <h1>⚽ PENALTY KICK</h1>
+  <p>Ten kicks from the spot, under the Luna moon. Drag back anywhere and release to shoot — where you aim is where the ball goes.
+     Every goal is <b>10 points × your multiplier</b>. String goals together to raise it.
+     The keeper reads you better every round, so mix up your corners. Top bins count double!</p>
+  <button class="play" id="startBtn">PLAY</button>
+</div>
+
+<div class="screen" id="overScreen">
+  <div class="small">FULL TIME</div>
+  <h1>⚽ FULL TIME</h1>
+  <p id="overStats"></p>
+  <button class="play" id="againBtn">PLAY AGAIN</button>
+</div>
+
+<script>
+'use strict';
+/* ================= setup ================= */
+const cv = document.getElementById('game'), ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+function fit(){
+  DPR = Math.min(devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W * DPR; cv.height = H * DPR;
+  cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  layout();
+}
+addEventListener('resize', fit);
+
+let AC = null;
+function beep(f, t, dur, type, vol){
+  try {
+    AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = type || 'sine'; o.frequency.value = f;
+    g.gain.setValueAtTime(vol || .12, AC.currentTime + t);
+    g.gain.exponentialRampToValueAtTime(.0001, AC.currentTime + t + dur);
+    o.connect(g); g.connect(AC.destination);
+    o.start(AC.currentTime + t); o.stop(AC.currentTime + t + dur);
+  } catch (e) {}
+}
+
+const $ = id => document.getElementById(id);
+const logoImg = new Image(); logoImg.src = 'lunc.png';   /* official LUNC token icon (self-hosted) */
+
+/* ================= layout (recomputed on resize) ================= */
+let goal = { x:0, y:0, w:0, h:0 };        /* goal mouth rect (screen) */
+let spot = { x:0, y:0 };                 /* penalty spot */
+function layout(){
+  const gw = Math.min(W * 0.86, 560);
+  goal.w = gw; goal.h = gw * 0.42;
+  goal.x = (W - gw) / 2; goal.y = H * 0.20;
+  spot.x = W / 2; spot.y = H * 0.86;
+}
+
+/* ================= state ================= */
+const KICKS = 10;
+let score = 0, best = +(localStorage.getItem('penBest') || 0);
+let kicksLeft = KICKS, streak = 0, mult = 1, goals = 0;
+let running = false, phase = 'aim';      /* aim | fly | settle */
+let aim = null;                          /* drag state */
+let ball = { x:0, y:0, r:20, tx:0, ty:0, t:0, dur:0.45, sx:0, sy:0 };
+let keeper = { x:0, y:0, tx:0, ty:0, t:1, dur:0.38, sx:0, sy:0, dive:0 };
+let settleUntil = 0;
+
+function reset(full){
+  score = 0; kicksLeft = KICKS; streak = 0; mult = 1; goals = 0;
+  phase = 'aim'; placeBall(); placeKeeper(0); hud();
+}
+function placeBall(){ ball.x = spot.x; ball.y = spot.y; ball.t = 0; }
+function placeKeeper(now){
+  keeper.x = keeper.tx = W / 2; keeper.y = keeper.ty = goal.y + goal.h * 0.52;
+  keeper.sx = keeper.x; keeper.sy = keeper.y; keeper.t = 1; keeper.dive = 0;
+}
+function hud(){
+  $('kicks').innerHTML = Array.from({length: KICKS}, (_, i) =>
+    `<img class="life ${i < kicksLeft ? '' : 'lost'}" src="lunc.png" alt="LUNC">`).join('');
+  $('scoreBox').textContent = score;
+  $('bigScore').textContent = score;
+  $('multTxt').textContent = 'x' + mult;
+  $('multBar').style.width = ((streak % 3) / 3 * 100) + '%';
+}
+function toast(msg, ms){
+  const el = $('toast'); el.textContent = msg; el.style.opacity = 1;
+  clearTimeout(toast._t); toast._t = setTimeout(() => el.style.opacity = 0, ms || 1000);
+}
+function gameOver(){
+  running = false;
+  best = Math.max(best, score); localStorage.setItem('penBest', best);
+  $('overStats').innerHTML =
+    `Score <b>${score}</b> · Best <b>${best}</b> · Goals <b>${goals}/${KICKS}</b><br>` +
+    (goals >= 8 ? 'Ice cold from the spot! 🧊' : goals >= 5 ? 'Solid finishing — the corners are your friend.' : 'The keeper read you — drag wider into the corners next time.');
+  $('overScreen').style.display = 'flex';
+  $('hint').style.display = 'none';
+}
+
+/* ================= shooting ================= */
+addEventListener('pointerdown', e => {
+  if (!running || phase !== 'aim') return;
+  aim = { sx: e.clientX, sy: e.clientY, cx: e.clientX, cy: e.clientY };
+});
+addEventListener('pointermove', e => { if (aim) { aim.cx = e.clientX; aim.cy = e.clientY; } });
+addEventListener('pointerup', e => {
+  if (!aim) return;
+  const dx = aim.sx - aim.cx, dy = aim.sy - aim.cy;
+  aim = null;
+  if (!running || phase !== 'aim') return;
+  const len = Math.hypot(dx, dy);
+  if (len < 24) return;                       /* too small: cancel */
+  shoot(dx, dy, len);
+});
+
+function shoot(dx, dy, len){
+  /* drag direction maps to a target point around the goal mouth */
+  const nx = Math.max(-1.6, Math.min(1.6, dx / 130));
+  const ny = Math.max(-1.4, Math.min(1.2, dy / 130));
+  ball.tx = W / 2 + nx * goal.w * 0.62;
+  ball.ty = (goal.y + goal.h * 0.52) - ny * goal.h * 0.95;
+  ball.sx = ball.x; ball.sy = ball.y; ball.t = 0;
+  ball.dur = Math.max(0.3, 0.52 - Math.min(0.2, len / 2200));
+  /* keeper: picks a dive target; reads the shot with growing probability */
+  const round = KICKS - kicksLeft;                       /* 0..9 */
+  const readP = 0.18 + round * 0.045;                    /* 0.18 -> 0.58 */
+  let kx, ky;
+  if (Math.random() < readP){
+    kx = ball.tx + (Math.random() - 0.5) * goal.w * 0.1;
+    ky = ball.ty + (Math.random() - 0.5) * goal.h * 0.16;
+  } else {
+    const zones = [
+      [goal.x + goal.w * 0.14, goal.y + goal.h * 0.3], [goal.x + goal.w * 0.86, goal.y + goal.h * 0.3],
+      [goal.x + goal.w * 0.14, goal.y + goal.h * 0.8], [goal.x + goal.w * 0.86, goal.y + goal.h * 0.8],
+      [W / 2, goal.y + goal.h * 0.55],
+    ];
+    const z = zones[Math.floor(Math.random() * zones.length)];
+    kx = z[0]; ky = z[1];
+  }
+  keeper.tx = Math.max(goal.x + 20, Math.min(goal.x + goal.w - 20, kx));
+  keeper.ty = Math.max(goal.y + 14, Math.min(goal.y + goal.h - 6, ky));
+  keeper.sx = keeper.x; keeper.sy = keeper.y; keeper.t = 0;
+  keeper.dive = keeper.tx < W / 2 - 24 ? -1 : keeper.tx > W / 2 + 24 ? 1 : 0;
+  phase = 'fly';
+  beep(210, 0, 0.07, 'triangle', 0.14);
+}
+
+function resolveShot(){
+  const inX = ball.tx > goal.x + 6 && ball.tx < goal.x + goal.w - 6;
+  const inY = ball.ty > goal.y + 4 && ball.ty < goal.y + goal.h - 2;
+  const onTarget = inX && inY;
+  const keeperDist = Math.hypot(ball.tx - keeper.tx, (ball.ty - keeper.ty) * 1.6);
+  const saved = onTarget && keeperDist < goal.w * 0.17;
+  kicksLeft--;
+  if (!onTarget){
+    streak = 0; mult = 1;
+    toast(ball.tx <= goal.x + 6 || ball.tx >= goal.x + goal.w - 6 ? 'Off the post / wide! 😖' : 'Over the bar! 😖', 1100);
+    beep(140, 0, 0.16, 'sawtooth', 0.08);
+  } else if (saved){
+    streak = 0; mult = 1;
+    toast('SAVED by the keeper! 🧤', 1100);
+    beep(180, 0, 0.16, 'square', 0.09);
+  } else {
+    goals++; streak++;
+    mult = Math.min(5, 1 + Math.floor(streak / 3));
+    const topBin = ball.ty < goal.y + goal.h * 0.30;
+    const pts = 10 * mult * (topBin ? 2 : 1);
+    score += pts;
+    toast(topBin ? `TOP BINS! +${pts} 🎯` : `GOAL! +${pts} ⚽`, 1100);
+    beep(523, 0, 0.09, 'sine', 0.13); beep(784, 0.08, 0.12, 'sine', 0.13);
+  }
+  hud();
+  phase = 'settle';
+  settleUntil = performance.now() + 950;
+}
+
+/* ================= draw ================= */
+function draw(){
+  /* sky + stands */
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, '#0a1030'); sky.addColorStop(0.55, '#131a45'); sky.addColorStop(1, '#0a2a1a');
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+  /* the Luna moon = LUNC logo, big in the sky */
+  if (logoImg.complete && logoImg.naturalWidth){
+    const mr = Math.min(W, H) * 0.11;
+    ctx.save(); ctx.globalAlpha = 0.9;
+    ctx.beginPath(); ctx.arc(W * 0.84, H * 0.10, mr, 0, 7); ctx.clip();
+    ctx.drawImage(logoImg, W * 0.84 - mr, H * 0.10 - mr, mr * 2, mr * 2);
+    ctx.restore();
+  }
+  /* stars */
+  ctx.fillStyle = 'rgba(255,255,255,.7)';
+  for (let i = 0; i < 40; i++){
+    const sx = ((i * 197.3) % W), sy = ((i * 89.7) % (H * 0.3));
+    ctx.fillRect(sx, sy, 2, 2);
+  }
+  /* pitch */
+  ctx.fillStyle = '#0d3a22';
+  ctx.fillRect(0, goal.y + goal.h * 0.7, W, H);
+  ctx.fillStyle = '#0f4527';
+  for (let i = 0; i < 6; i++) if (i % 2 === 0) ctx.fillRect((W / 6) * i, goal.y + goal.h * 0.7, W / 6, H);
+  /* penalty box lines */
+  ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.lineWidth = 3;
+  ctx.strokeRect(goal.x - goal.w * 0.16, goal.y + goal.h * 0.55, goal.w * 1.32, H * 0.34);
+  /* goal frame */
+  ctx.fillStyle = 'rgba(160,190,255,.13)';
+  ctx.fillRect(goal.x, goal.y, goal.w, goal.h);
+  ctx.strokeStyle = '#f4f6ff'; ctx.lineWidth = 6;
+  ctx.strokeRect(goal.x, goal.y, goal.w, goal.h);
+  /* net lines */
+  ctx.strokeStyle = 'rgba(255,255,255,.16)'; ctx.lineWidth = 1;
+  for (let i = 1; i < 8; i++){
+    ctx.beginPath(); ctx.moveTo(goal.x + (goal.w / 8) * i, goal.y); ctx.lineTo(goal.x + (goal.w / 8) * i, goal.y + goal.h); ctx.stroke();
+  }
+  for (let i = 1; i < 4; i++){
+    ctx.beginPath(); ctx.moveTo(goal.x, goal.y + (goal.h / 4) * i); ctx.lineTo(goal.x + goal.w, goal.y + (goal.h / 4) * i); ctx.stroke();
+  }
+  drawKeeper();
+  drawBall();
+  if (aim && phase === 'aim') drawAim();
+}
+function drawKeeper(){
+  const { x, y } = keeper;
+  const s = goal.w / 560;                       /* scale */
+  ctx.save(); ctx.translate(x, y); ctx.rotate(keeper.dive * 0.5 * Math.min(1, keeper.t * 1.4));
+  /* legs */
+  ctx.strokeStyle = '#141a33'; ctx.lineWidth = 9 * s + 3;
+  ctx.beginPath(); ctx.moveTo(0, 8 * s); ctx.lineTo(-13 * s, 34 * s); ctx.moveTo(0, 8 * s); ctx.lineTo(13 * s, 34 * s); ctx.stroke();
+  /* body: keeper jersey (gold) */
+  ctx.fillStyle = '#ffb400';
+  ctx.beginPath(); ctx.ellipse(0, -8 * s, 17 * s, 20 * s, 0, 0, 7); ctx.fill();
+  /* arms out */
+  ctx.strokeStyle = '#ffb400'; ctx.lineWidth = 8 * s + 2;
+  ctx.beginPath(); ctx.moveTo(0, -14 * s); ctx.lineTo(-34 * s, -20 * s); ctx.moveTo(0, -14 * s); ctx.lineTo(34 * s, -20 * s); ctx.stroke();
+  /* gloves */
+  ctx.fillStyle = '#f4f6ff';
+  ctx.beginPath(); ctx.arc(-36 * s, -21 * s, 7 * s + 2, 0, 7); ctx.arc(36 * s, -21 * s, 7 * s + 2, 0, 7); ctx.fill();
+  /* head */
+  ctx.fillStyle = '#f2c894';
+  ctx.beginPath(); ctx.arc(0, -36 * s, 11 * s, 0, 7); ctx.fill();
+  ctx.fillStyle = '#232a5e';
+  ctx.beginPath(); ctx.arc(0, -40 * s, 11 * s, Math.PI, 0); ctx.fill();
+  ctx.restore();
+}
+function drawBall(){
+  const shrink = phase === 'fly' ? (1 - ball.t * 0.55) : 1;
+  const r = ball.r * shrink + 6;
+  ctx.save(); ctx.translate(ball.x, ball.y);
+  ctx.fillStyle = 'rgba(0,0,0,.35)';
+  ctx.beginPath(); ctx.ellipse(0, r * 0.95, r * 0.9, r * 0.28, 0, 0, 7); ctx.fill();
+  const g = ctx.createRadialGradient(-r * 0.3, -r * 0.35, r * 0.2, 0, 0, r);
+  g.addColorStop(0, '#ffffff'); g.addColorStop(1, '#c9cede');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fill();
+  ctx.fillStyle = '#232a5e';
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.34, 0, 7); ctx.fill();
+  ctx.fillStyle = '#ffd76a';
+  ctx.font = `900 ${Math.max(9, r * 0.5)}px system-ui`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('L', 0, 1);
+  ctx.restore();
+}
+function drawAim(){
+  const dx = aim.sx - aim.cx, dy = aim.sy - aim.cy;
+  const nx = Math.max(-1.6, Math.min(1.6, dx / 130));
+  const ny = Math.max(-1.4, Math.min(1.2, dy / 130));
+  const tx = W / 2 + nx * goal.w * 0.62;
+  const ty = (goal.y + goal.h * 0.52) - ny * goal.h * 0.95;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,215,106,.85)'; ctx.fillStyle = 'rgba(255,215,106,.9)';
+  ctx.setLineDash([6, 8]); ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(ball.x, ball.y); ctx.lineTo(tx, ty); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.beginPath(); ctx.arc(tx, ty, 13, 0, 7); ctx.stroke();
+  ctx.beginPath(); ctx.arc(tx, ty, 3.5, 0, 7); ctx.fill();
+  ctx.restore();
+}
+
+/* ================= loop ================= */
+let lastTs = 0;
+function frame(ts){
+  const dt = Math.min(0.05, (ts - lastTs) / 1000 || 0); lastTs = ts;
+  if (running && phase === 'fly'){
+    ball.t = Math.min(1, ball.t + dt / ball.dur);
+    const e = 1 - Math.pow(1 - ball.t, 1.6);
+    ball.x = ball.sx + (ball.tx - ball.sx) * e;
+    ball.y = ball.sy + (ball.ty - ball.sy) * e - Math.sin(ball.t * Math.PI) * 26;
+    keeper.t = Math.min(1, keeper.t + dt / keeper.dur);
+    const ke = 1 - Math.pow(1 - keeper.t, 2);
+    keeper.x = keeper.sx + (keeper.tx - keeper.sx) * ke;
+    keeper.y = keeper.sy + (keeper.ty - keeper.sy) * ke;
+    if (ball.t >= 1) resolveShot();
+  } else if (running && phase === 'settle' && ts >= settleUntil){
+    if (kicksLeft <= 0){ gameOver(); }
+    else { phase = 'aim'; placeBall(); placeKeeper(0); }
+  }
+  draw();
+  requestAnimationFrame(frame);
+}
+
+/* ================= go ================= */
+$('startBtn').addEventListener('click', () => {
+  $('startScreen').style.display = 'none';
+  reset(true); running = true; hud();
+});
+$('againBtn').addEventListener('click', () => {
+  $('overScreen').style.display = 'none';
+  $('hint').style.display = '';
+  reset(true); running = true; hud();
+});
+fit(); reset(true); running = false; hud();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
