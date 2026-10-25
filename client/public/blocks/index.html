@@ -48,7 +48,17 @@
     display:flex; align-items:center; justify-content:center;
     box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.35), inset 0 -6px 10px rgba(0,0,0,.22), 0 2px 5px rgba(2,4,18,.5);
   }
-  #tray { display:flex; gap:12px; justify-content:center; min-height:calc(var(--cs) * 2.1); }
+  #tray { display:flex; gap:12px; justify-content:center; min-height:calc(var(--cs) * 2.1); flex-wrap:wrap; }
+  .slot.luna-slot { width:calc(var(--cs) * 2.4); flex-direction:column; gap:4px; border-color:rgba(255,215,106,.5); }
+  .luna-cap { font-size:9.5px; font-weight:800; letter-spacing:.05em; color:#ffd76a; text-align:center; padding:0 4px; line-height:1.25; }
+  .piece.locked { filter:grayscale(.85); opacity:.5; pointer-events:none; }
+  .piece.luna-piece { filter:drop-shadow(0 0 9px rgba(255,183,0,.75)); }
+  .luna-tile img { width:88%; height:88%; border-radius:50%; display:block; }
+  #toast {
+    position:fixed; top:12%; left:0; right:0; z-index:70; text-align:center; pointer-events:none;
+    font-size:21px; font-weight:900; color:#ffd76a; text-shadow:0 2px 14px rgba(0,0,0,.8);
+    opacity:0; transition:opacity .2s;
+  }
   .slot {
     width:calc(var(--cs) * 3.1); height:calc(var(--cs) * 2.1);
     display:flex; align-items:center; justify-content:center;
@@ -95,7 +105,9 @@
   <div id="tray"></div>
   <button id="newBtn" class="chunky orange">NEW GAME</button>
 </div>
-<footer>Drag a piece onto the board. Fill a full row or column to clear it — clearing 2+ at once pays bonus. Game ends when no piece fits.</footer>
+<footer>Drag a piece onto the board. Fill a full row or column to clear it. <b>Clear 2+ lines in one move to unlock the free Luna piece</b> — it carries the LUNC logo and fills any single cell. Game ends when no piece fits.</footer>
+
+<div id="toast"></div>
 
 <div id="dragGhost"></div>
 <div id="over">
@@ -178,28 +190,35 @@ const PALETTE = [
   { g: 'linear-gradient(160deg,#7df4ff,#2196c9)', glyph: '💧' },
   { g: 'linear-gradient(160deg,#9dff70,#2fae4e)', glyph: '☾' },
   { g: 'linear-gradient(160deg,#e2b6ff,#8b46c7)', glyph: '🔮' },
+  { g: 'linear-gradient(160deg,#fff2b0,#e8a013)', glyph: '', luna: true },   /* index 7: the Luna piece */
 ];
 const $ = id => document.getElementById(id);
 let board = emptyBoard();
 let tray = [];            /* [{shape, color, used}] x3 */
 let score = 0, best = +(localStorage.getItem('blocksBest') || 0);
 let over = false;
+let lunaReady = false;    /* the free Luna piece: earned by clearing 2+ lines in one move */
 
 function deal(){
   tray = Array.from({ length: 3 }, () => ({
     shape: SHAPES[Math.floor(Math.random() * SHAPES.length)],
-    color: 1 + Math.floor(Math.random() * (PALETTE.length - 1)),
+    color: 1 + Math.floor(Math.random() * 6),   /* colors 1-6 only; 7 is reserved for the Luna piece */
     used: false,
   }));
 }
 function newGame(){
-  board = emptyBoard(); score = 0; over = false;
+  board = emptyBoard(); score = 0; over = false; lunaReady = false;
   deal(); render();
   $('over').style.display = 'none';
 }
 function tileHTML(color){
   const p = PALETTE[color];
+  if (p.luna) return `<div class="tile luna-tile" style="background:${p.g}"><img src="lunc.png" alt="LUNC"></div>`;
   return `<div class="tile" style="background:${p.g}">${p.glyph}</div>`;
+}
+function showToast(msg){
+  const el = $('toast'); el.textContent = msg; el.style.opacity = 1;
+  clearTimeout(showToast._t); showToast._t = setTimeout(() => el.style.opacity = 0, 1700);
 }
 function render(){
   const grid = $('grid');
@@ -213,7 +232,7 @@ function render(){
   const trayEl = $('tray');
   trayEl.innerHTML = '';
   const liveShapes = tray.filter(t => !t.used).map(t => t.shape);
-  const anyMoves = anyFit(board, liveShapes);
+  const anyMoves = anyFit(board, lunaReady ? [...liveShapes, SHAPES[0]] : liveShapes);
   tray.forEach((t, i) => {
     const slot = document.createElement('div');
     slot.className = 'slot';
@@ -239,6 +258,32 @@ function render(){
     slot.appendChild(p);
     trayEl.appendChild(slot);
   });
+  /* the Luna piece slot */
+  const lunaSlot = document.createElement('div');
+  lunaSlot.className = 'slot luna-slot';
+  const lp = document.createElement('div');
+  if (lunaReady){
+    lp.className = 'piece luna-piece';
+    lp.dataset.luna = '1';
+    lp.style.gridTemplateRows = 'repeat(1, auto)';
+    lp.style.gridTemplateColumns = 'repeat(1, auto)';
+    const cell = document.createElement('div');
+    cell.className = 'pcell'; cell.dataset.r = 0; cell.dataset.c = 0;
+    cell.innerHTML = tileHTML(7);
+    lp.appendChild(cell);
+  } else {
+    lp.className = 'piece locked';
+    const cell = document.createElement('div');
+    cell.className = 'pcell';
+    cell.innerHTML = tileHTML(7);
+    lp.appendChild(cell);
+  }
+  lunaSlot.appendChild(lp);
+  const cap = document.createElement('div');
+  cap.className = 'luna-cap';
+  cap.textContent = lunaReady ? '🌙 LUNA PIECE READY' : '🔒 CLEAR 2+ LINES IN ONE MOVE';
+  lunaSlot.appendChild(cap);
+  trayEl.appendChild(lunaSlot);
   $('stScore').textContent = score;
   $('stBest').textContent = Math.max(best, score);
 }
@@ -268,10 +313,31 @@ function paintHighlight(){
     if (el) el.classList.add(ok ? 'hl-ok' : 'hl-bad');
   }
 }
+function buildGhost(shape, color){
+  ghost.innerHTML = '';
+  const rows = Math.max(...shape.cells.map(([dr]) => dr)) + 1;
+  const cols = Math.max(...shape.cells.map(([, dc]) => dc)) + 1;
+  ghost.style.display = 'grid';
+  ghost.style.gridTemplateRows = `repeat(${rows}, auto)`;
+  ghost.style.gridTemplateColumns = `repeat(${cols}, auto)`;
+  const filled = new Set(shape.cells.map(([dr, dc]) => dr + ',' + dc));
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++){
+    const cell = document.createElement('div');
+    cell.className = 'pcell' + (filled.has(r + ',' + c) ? '' : ' empty');
+    if (filled.has(r + ',' + c)) cell.innerHTML = tileHTML(color);
+    ghost.appendChild(cell);
+  }
+}
 document.addEventListener('pointerdown', e => {
   if (over) return;
   const pieceEl = e.target.closest('.piece');
-  if (!pieceEl || pieceEl.classList.contains('used')) return;
+  if (!pieceEl || pieceEl.classList.contains('used') || pieceEl.classList.contains('locked')) return;
+  if (pieceEl.dataset.luna){
+    drag = { luna: true, idx: -1, shape: SHAPES[0], color: 7, anchor: null, grabR: 0, grabC: 0 };
+    buildGhost(drag.shape, drag.color);
+    moveGhost(e);
+    return;
+  }
   const idx = +pieceEl.dataset.idx;
   const cellEl = e.target.closest('.pcell');
   const t = tray[idx];
@@ -280,19 +346,7 @@ document.addEventListener('pointerdown', e => {
     grabR: cellEl && !cellEl.classList.contains('empty') ? +cellEl.dataset.r : 0,
     grabC: cellEl && !cellEl.classList.contains('empty') ? +cellEl.dataset.c : 0,
   };
-  ghost.innerHTML = '';
-  const rows = Math.max(...t.shape.cells.map(([dr]) => dr)) + 1;
-  const cols = Math.max(...t.shape.cells.map(([, dc]) => dc)) + 1;
-  ghost.style.display = 'grid';
-  ghost.style.gridTemplateRows = `repeat(${rows}, auto)`;
-  ghost.style.gridTemplateColumns = `repeat(${cols}, auto)`;
-  const filled = new Set(t.shape.cells.map(([dr, dc]) => dr + ',' + dc));
-  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++){
-    const cell = document.createElement('div');
-    cell.className = 'pcell' + (filled.has(r + ',' + c) ? '' : ' empty');
-    if (filled.has(r + ',' + c)) cell.innerHTML = tileHTML(t.color);
-    ghost.appendChild(cell);
-  }
+  buildGhost(t.shape, t.color);
   moveGhost(e);
 });
 function moveGhost(e){
@@ -307,6 +361,7 @@ document.addEventListener('pointermove', e => { if (drag) moveGhost(e); });
 document.addEventListener('pointerup', e => {
   if (!drag) return;
   const { idx, shape, color } = drag;
+  const isLuna = !!drag.luna;
   const anchor = anchorFor(e);
   ghost.style.display = 'none';
   document.querySelectorAll('.cell.hl-ok, .cell.hl-bad').forEach(el => el.classList.remove('hl-ok', 'hl-bad'));
@@ -317,13 +372,20 @@ document.addEventListener('pointerup', e => {
   const cleared = clearLines(board);
   board = cleared.board;
   score += linePoints(cleared.lines);
-  tray[idx].used = true;
-  if (tray.every(t => t.used)) deal();
+  if (isLuna) lunaReady = false;
+  else {
+    tray[idx].used = true;
+    if (tray.every(t => t.used)) deal();
+  }
+  if (cleared.lines >= 2 && !lunaReady){
+    lunaReady = true;
+    showToast('🌙 LUNA PIECE UNLOCKED!');
+  }
   best = Math.max(best, score);
   localStorage.setItem('blocksBest', best);
   render();
   const liveShapes = tray.filter(t => !t.used).map(t => t.shape);
-  if (!anyFit(board, liveShapes)){
+  if (!anyFit(board, lunaReady ? [...liveShapes, SHAPES[0]] : liveShapes)){
     over = true;
     $('overStats').textContent = `Score ${score} · Best ${best}` +
       (score >= 300 ? ' — constellation builder! 🌌' : score >= 150 ? ' — tidy sky. Lines in pairs pay double-ish, plan for them.' : ' — corners and long lines jam first; keep the middle open.');
