@@ -154,11 +154,15 @@ async function readUpdatesChat() {
 
 // ---------- telegram ----------
 
-async function sendText(token, chatId, text) {
+async function sendText(token, chatId, text, threadId) {
+  const body = { chat_id: chatId, text };
+  // Forum topics: without message_thread_id the message lands in the
+  // group's General feed instead of the topic it belongs in.
+  if (threadId != null) body.message_thread_id = threadId;
   await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text }),
+    body: JSON.stringify(body),
   });
 }
 
@@ -201,6 +205,9 @@ async function handleDelegations(token, msg) {
 // on the user's phone may arrive with its arguments stripped, so the
 // primary action must not depend on one. "/updates off" unregisters from
 // anywhere; bare "/updates" in the owner's private chat reports the status.
+// If /updates is sent from inside a forum topic, the topic's thread id is
+// stored with the group: the confirmation goes into that same topic and
+// the daily cron posts into the topic rather than the group's General feed.
 async function handleUpdates(token, msg) {
   const owner = process.env.KICKBACK_OWNER_CHAT_ID;
   if (!owner) return;
@@ -208,8 +215,10 @@ async function handleUpdates(token, msg) {
   const isOwner = (senderId != null && String(senderId) === String(owner)) ||
     (msg.chat.type === 'private' && String(msg.chat.id) === String(owner));
   if (!isOwner) return;
+  const threadId = msg.message_thread_id != null ? msg.message_thread_id : null;
+  const reply = (text) => sendText(token, msg.chat.id, text, threadId);
   if (!upstashConfigured()) {
-    await sendText(token, msg.chat.id, 'storage not configured yet');
+    await reply('storage not configured yet');
     return;
   }
   const arg = (msg.text.split(/\s+/)[1] || '').toLowerCase();
@@ -217,15 +226,16 @@ async function handleUpdates(token, msg) {
     try {
       await upstashDel(UPDATES_CHAT_KEY);
     } catch (e) {
-      await sendText(token, msg.chat.id, 'Could not remove the updates group right now — try again in a bit.');
+      await reply('Could not remove the updates group right now — try again in a bit.');
       return;
     }
-    await sendText(token, msg.chat.id, 'Updates group removed — the daily delegation report now goes to the owner DM only.');
+    await reply('Updates group removed — the daily delegation report now goes to the owner DM only.');
     return;
   }
   if (msg.chat.type === 'group' || msg.chat.type === 'supergroup') {
     const reg = {
       chat_id: msg.chat.id,
+      thread_id: threadId,
       title: msg.chat.title || null,
       set_by: senderId != null ? senderId : msg.chat.id,
       ts: Date.now(),
@@ -233,10 +243,10 @@ async function handleUpdates(token, msg) {
     try {
       await upstashSet(UPDATES_CHAT_KEY, JSON.stringify(reg));
     } catch (e) {
-      await sendText(token, msg.chat.id, 'Could not save the updates group right now — try again in a bit.');
+      await reply('Could not save the updates group right now — try again in a bit.');
       return;
     }
-    await sendText(token, msg.chat.id,
+    await reply(
       '✅ Registered — the daily LUNC Kickback delegation update will post here as well as in the owner\u2019s DM. ' +
       'Send /updates off to stop it.');
     return;
@@ -246,15 +256,16 @@ async function handleUpdates(token, msg) {
     try {
       reg = await readUpdatesChat();
     } catch (e) {
-      await sendText(token, msg.chat.id, 'Could not read the updates group right now — try again in a bit.');
+      await reply('Could not read the updates group right now — try again in a bit.');
       return;
     }
     if (!reg) {
-      await sendText(token, msg.chat.id, 'No group registered for daily updates. Send /updates in the group where you want the daily delegation update posted.');
+      await reply('No group registered for daily updates. Send /updates in the group where you want the daily delegation update posted.');
       return;
     }
-    const where = reg.title ? `${reg.title} (chat id ${reg.chat_id})` : `chat id ${reg.chat_id}`;
-    await sendText(token, msg.chat.id, `Daily delegation updates also post to: ${where}. Send /updates off to remove the group.`);
+    const topic = reg.thread_id != null ? `, topic ${reg.thread_id}` : '';
+    const where = reg.title ? `${reg.title} (chat id ${reg.chat_id}${topic})` : `chat id ${reg.chat_id}${topic}`;
+    await reply(`Daily delegation updates also post to: ${where}. Send /updates off to remove the group.`);
   }
 }
 

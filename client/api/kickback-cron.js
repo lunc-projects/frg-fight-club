@@ -167,15 +167,21 @@ async function sendDm(text) {
 
 // Post to the registered updates group. Unlike sendDm this reports its
 // outcome: the handler needs to know a group post failed so it can warn the
-// owner (the bot may have been removed from the group).
-async function sendToChat(chatId, text) {
+// owner (the bot may have been removed from the group). When the group was
+// registered from inside a forum topic, threadId carries that topic's id so
+// the post lands in the topic instead of the group's General feed; a post
+// to a closed or deleted topic fails like any other bad group post and is
+// covered by the same owner warning.
+async function sendToChat(chatId, text, threadId) {
   const token = process.env.KICKBACK_BOT_TOKEN;
   if (!token) return false;
+  const body = { chat_id: chatId, text };
+  if (threadId != null) body.message_thread_id = threadId;
   try {
     const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text }),
+      body: JSON.stringify(body),
     });
     return r.ok;
   } catch (e) {
@@ -246,7 +252,8 @@ export default async function handler(req, res) {
     console.error('updates group read failed', e && e.message);
   }
   if (updatesChat) {
-    const posted = await sendToChat(updatesChat.chat_id, report);
+    const posted = await sendToChat(updatesChat.chat_id, report,
+      updatesChat.thread_id != null ? updatesChat.thread_id : null);
     if (!posted) {
       await sendDm('⚠️ Couldn\u2019t post the update to the registered group (the bot may have been removed).');
     }
