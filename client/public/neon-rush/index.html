@@ -42,7 +42,7 @@
 <div class="overlay" id="startScreen">
   <div class="tag">SAMPLE MINI GAME</div>
   <h1>NEON RUSH</h1>
-  <p>Weave through traffic on the neon highway. Near misses build your combo — grab the gold rings, don’t kiss the bumpers.</p>
+  <p>Weave through traffic on the neon highway. Near misses build your combo — grab the LUNC and USTC coins, don’t kiss the bumpers.</p>
   <p style="font-size:12.5px; opacity:.75">◀ ▶ buttons, drag, or arrow keys to steer</p>
   <button class="btn" id="startBtn">▶ START ENGINE</button>
 </div>
@@ -232,15 +232,55 @@ for (let i=0;i<9;i++){
   c.userData.active = false; c.userData.passed = false; c.userData.speed = 0;
   scene.add(c); traffic.push(c);
 }
-/* coin rings pool */
+/* =============== token coins (LUNC + USTC, real logos) =============== */
+function makeCoinFace(baseInner, baseOuter, rim){
+  const cv = document.createElement('canvas'); cv.width = cv.height = 256;
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  function draw(img){
+    const g = cv.getContext('2d');
+    const rg = g.createRadialGradient(108, 108, 10, 128, 128, 128);
+    rg.addColorStop(0, baseInner); rg.addColorStop(1, baseOuter);
+    g.fillStyle = rg; g.beginPath(); g.arc(128, 128, 128, 0, Math.PI*2); g.fill();
+    g.strokeStyle = rim; g.lineWidth = 10;
+    g.beginPath(); g.arc(128, 128, 112, 0, Math.PI*2); g.stroke();
+    g.lineWidth = 3; g.globalAlpha = .55;
+    g.beginPath(); g.arc(128, 128, 95, 0, Math.PI*2); g.stroke();
+    g.globalAlpha = 1;
+    if (img) g.drawImage(img, 40, 40, 176, 176);
+    tex.needsUpdate = true;
+  }
+  draw(null);
+  return { tex, draw };
+}
+const faceLUNC = makeCoinFace('#22355e', '#0d1730', '#ffd76a');
+const faceUSTC = makeCoinFace('#e8f1fb', '#7d9cc4', '#ffffff');
+{
+  const tl = new THREE.TextureLoader();
+  tl.load('lunc.png', t => faceLUNC.draw(t.image));
+  tl.load('ustc.png', t => faceUSTC.draw(t.image));
+}
+function faceMat(face){
+  return new THREE.MeshStandardMaterial({ map:face.tex, roughness:.32, metalness:.5,
+    emissive:0xffffff, emissiveMap:face.tex, emissiveIntensity:.3 });
+}
+const coinSideGold = new THREE.MeshStandardMaterial({ color:0xd99a16, roughness:.3, metalness:.8, emissive:0x6b4200, emissiveIntensity:.35 });
+const coinSideSilver = new THREE.MeshStandardMaterial({ color:0xa9c2de, roughness:.3, metalness:.8, emissive:0x2c4a73, emissiveIntensity:.35 });
+const coinMatsLUNC = [coinSideGold, faceMat(faceLUNC), faceMat(faceLUNC)];
+const coinMatsUSTC = [coinSideSilver, faceMat(faceUSTC), faceMat(faceUSTC)];
+const rimMatLUNC = new THREE.MeshStandardMaterial({ color:0xffc93c, emissive:0xff9d00, emissiveIntensity:.7, roughness:.25, metalness:.7 });
+const rimMatUSTC = new THREE.MeshStandardMaterial({ color:0xcfe0f2, emissive:0x6f9fd8, emissiveIntensity:.7, roughness:.25, metalness:.7 });
 const coins = [];
 {
-  const coinGeo = new THREE.TorusGeometry(.62, .17, 10, 22);
-  const coinMat = new THREE.MeshStandardMaterial({ color:0xffc93c, emissive:0xff9d00, emissiveIntensity:.85, roughness:.25, metalness:.7 });
+  const coinGeo = new THREE.CylinderGeometry(.68, .68, .16, 28); coinGeo.rotateX(Math.PI/2);
+  const rimGeo = new THREE.TorusGeometry(.68, .07, 10, 30);
   for (let i=0;i<14;i++){
-    const c = new THREE.Mesh(coinGeo, coinMat);
-    c.visible = false; c.userData.active = false;
-    scene.add(c); coins.push(c);
+    const grp = new THREE.Group();
+    const disc = new THREE.Mesh(coinGeo, coinMatsLUNC);
+    const rim = new THREE.Mesh(rimGeo, rimMatLUNC);
+    grp.add(disc); grp.add(rim);
+    grp.visible = false;
+    grp.userData.active = false; grp.userData.disc = disc; grp.userData.rim = rim;
+    scene.add(grp); coins.push(grp);
   }
 }
 /* speed streaks */
@@ -302,6 +342,9 @@ function spawnCoins(){
   for (const c of coins){
     if (placed >= 4) break;
     if (c.userData.active) continue;
+    const ustc = Math.random() < .35;
+    c.userData.disc.material = ustc ? coinMatsUSTC : coinMatsLUNC;
+    c.userData.rim.material = ustc ? rimMatUSTC : rimMatLUNC;
     c.position.set(lane, 1.05, -180 - placed*5);
     c.userData.active = true; c.visible = true; placed++;
   }
