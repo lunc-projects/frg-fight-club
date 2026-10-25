@@ -66,7 +66,7 @@
   </div>
   <div id="bigScore">0</div>
   <div id="toast"></div>
-  <div id="hint">Drag back from the token and let go to shoot 🪙</div>
+  <div id="hint">Drag back and let go — he shoots the token 🪙</div>
 </div>
 
 <div class="screen" id="startScreen">
@@ -125,9 +125,32 @@ let aim = null;                  /* {sx,sy,cx,cy} while dragging */
 let netWiggle = 0;
 const logoImg = new Image(); logoImg.src = 'lunc.png';   /* official LUNC token icon (self-hosted, same verified file as Neon Rush) */
 
+/* the little shooter: flame-haired LUNC guy (drawn in-house, inspired by the user's own Saturday burn character) */
+const person = { throwT: 0, hopT: 0 };
+function personBase(){ return { x: W * .30, feetY: H - 10 }; }
+function shoulderPos(){
+  const b = personBase();
+  return { x: b.x + 15, y: b.feetY - 72 - (person.hopT > 0 ? Math.sin(person.hopT * Math.PI) * 9 : 0) };
+}
+function computeHand(){
+  const s = shoulderPos();
+  if (person.hopT > 0) return { x: s.x + 4, y: s.y - 32 };
+  if (person.throwT > 0){
+    const k = Math.sin(Math.min(1, (1 - person.throwT)) * Math.PI);
+    return { x: s.x + 26 + k * 10, y: s.y - 12 - k * 14 };
+  }
+  const v = aimVelocity();
+  if (v){
+    const m = Math.hypot(v.vx, v.vy) || 1;
+    return { x: s.x + (v.vx / m) * 31, y: s.y + (v.vy / m) * 31 };
+  }
+  return { x: s.x + 23, y: s.y + 15 };
+}
+
 const $ = id => document.getElementById(id);
 function placeBall(){
-  ball.x = W * .42; ball.y = H * .76;
+  const h = computeHand();
+  ball.x = h.x; ball.y = h.y;
   ball.vx = 0; ball.vy = 0; ball.state = 'ready'; ball.scored = false;
 }
 function moveHoop(first){
@@ -163,7 +186,10 @@ addEventListener('pointerdown', e => {
   if (!running || ball.state !== 'ready') return;
   aim = { sx: e.clientX, sy: e.clientY, cx: e.clientX, cy: e.clientY };
 });
-addEventListener('pointermove', e => { if (aim) { aim.cx = e.clientX; aim.cy = e.clientY; } });
+addEventListener('pointermove', e => {
+  if (aim) { aim.cx = e.clientX; aim.cy = e.clientY; }
+  if (aim && running && ball.state === 'ready') { const h = computeHand(); ball.x = h.x; ball.y = h.y; }
+});
 addEventListener('pointerup', e => {
   if (!aim) return;
   const dx = aim.sx - aim.cx, dy = aim.sy - aim.cy;
@@ -175,7 +201,9 @@ addEventListener('pointerup', e => {
   ball.vx = dx * P; ball.vy = dy * P;
   const sp = Math.hypot(ball.vx, ball.vy), MAX = 1750;
   if (sp > MAX) { ball.vx *= MAX / sp; ball.vy *= MAX / sp; }
+  const h = computeHand(); ball.x = h.x; ball.y = h.y;
   ball.state = 'flying'; ball.scored = false;
+  person.throwT = 1;
   beep(300, 0, .07, 'triangle', .05);
 });
 function aimVelocity(){
@@ -215,6 +243,7 @@ function step(dt){
       prevY - ball.r <= hoop.y && ball.y - ball.r > hoop.y - 4 &&
       Math.abs(ball.x - hoop.x) < RIM_HALF - 8){
     ball.scored = true;
+    person.hopT = 1;
     streak++;
     mult = Math.min(5, 1 + Math.floor(streak / 3));
     const pts = 10 * mult;
@@ -245,6 +274,73 @@ function step(dt){
 }
 
 /* ================= drawing ================= */
+function drawPerson(){
+  const b = personBase();
+  const hop = person.hopT > 0 ? Math.sin(person.hopT * Math.PI) * 9 : 0;
+  const bob = (ball.state === 'ready' && !aim) ? Math.sin(Date.now() / 320) * 1.4 : 0;
+  const feetY = b.feetY - hop, px = b.x;
+  const rr = (x, y, w, h, r) => { ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, y, w, h, r); else ctx.rect(x, y, w, h); };
+  ctx.save(); ctx.translate(0, bob);
+  /* fuel tank on his back + pilot flame */
+  const tg = ctx.createLinearGradient(px - 30, 0, px - 8, 0);
+  tg.addColorStop(0, '#8d94a8'); tg.addColorStop(.5, '#e8c33a'); tg.addColorStop(1, '#7c828f');
+  ctx.fillStyle = tg; rr(px - 31, feetY - 106, 21, 54, 8); ctx.fill();
+  ctx.fillStyle = '#3c414e'; rr(px - 27, feetY - 114, 13, 9, 3); ctx.fill();
+  ctx.fillStyle = '#ff8c2e';
+  const fl = 5 + Math.sin(Date.now() / 60) * 1.6;
+  ctx.beginPath(); ctx.moveTo(px - 24, feetY - 114); ctx.lineTo(px - 20.5, feetY - 114 - fl); ctx.lineTo(px - 17, feetY - 114); ctx.closePath(); ctx.fill();
+  /* legs + boots */
+  ctx.fillStyle = '#14151f';
+  rr(px - 14, feetY - 30, 11, 28, 4); ctx.fill();
+  rr(px + 3, feetY - 30, 11, 28, 4); ctx.fill();
+  ctx.fillStyle = '#0a0a11';
+  rr(px - 16, feetY - 7, 15, 7, 3); ctx.fill();
+  rr(px + 1, feetY - 7, 15, 7, 3); ctx.fill();
+  ctx.fillStyle = '#ffd23e'; ctx.fillRect(px - 16, feetY - 8.5, 15, 1.8); ctx.fillRect(px + 1, feetY - 8.5, 15, 1.8);
+  /* torso: black jacket, yellow zip + chest stripe */
+  ctx.fillStyle = '#17181f'; rr(px - 17, feetY - 78, 37, 52, 9); ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.fillStyle = '#ffd23e'; ctx.fillRect(px - 1.5, feetY - 78, 3.5, 40);
+  ctx.fillRect(px - 17, feetY - 34, 37, 5);
+  /* back arm (left, on his hip) */
+  ctx.strokeStyle = '#17181f'; ctx.lineWidth = 9; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(px - 12, feetY - 70); ctx.lineTo(px - 22, feetY - 46); ctx.stroke();
+  ctx.fillStyle = '#ffd83d'; ctx.beginPath(); ctx.arc(px - 22, feetY - 44, 5, 0, 7); ctx.fill();
+  /* head: black flame hair behind a yellow face */
+  const hx = px + 4, hy = feetY - 102;
+  ctx.fillStyle = '#0b0b10';
+  ctx.beginPath(); ctx.arc(hx, hy, 26, 0, 7); ctx.fill();
+  ctx.beginPath();  /* flame spikes */
+  ctx.moveTo(hx - 24, hy - 12);
+  ctx.quadraticCurveTo(hx - 27, hy - 34, hx - 13, hy - 27);
+  ctx.quadraticCurveTo(hx - 12, hy - 44, hx - 2, hy - 31);
+  ctx.quadraticCurveTo(hx + 3, hy - 49, hx + 10, hy - 32);
+  ctx.quadraticCurveTo(hx + 20, hy - 42, hx + 21, hy - 26);
+  ctx.quadraticCurveTo(hx + 27, hy - 30, hx + 25, hy - 12);
+  ctx.closePath(); ctx.fill();
+  const fg = ctx.createRadialGradient(hx - 5, hy - 6, 3, hx, hy, 22);
+  fg.addColorStop(0, '#ffe14d'); fg.addColorStop(1, '#f0ac14');
+  ctx.fillStyle = fg; ctx.beginPath(); ctx.arc(hx + 2, hy + 3, 19.5, 0, 7); ctx.fill();
+  /* face: determined eyes looking at the hoop + smirk */
+  ctx.strokeStyle = '#191203'; ctx.lineWidth = 2.6;
+  ctx.beginPath(); ctx.moveTo(hx + 5, hy - 3); ctx.lineTo(hx + 14, hy - 1); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(hx + 23, hy - 2); ctx.lineTo(hx + 17, hy); ctx.stroke();
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.ellipse(hx + 10, hy + 4, 4.4, 5.8, 0, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(hx + 20, hy + 4, 3.4, 5, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#14100a';
+  ctx.beginPath(); ctx.arc(hx + 11.8, hy + 4.5, 2.2, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.arc(hx + 21.4, hy + 4.5, 1.8, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#8a5b06'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(hx + 13, hy + 10, 6, .35, 2.2); ctx.stroke();
+  /* shooting arm: shoulder -> hand (hand carries the token) */
+  const s = shoulderPos(), h = computeHand();
+  ctx.strokeStyle = '#17181f'; ctx.lineWidth = 9.5;
+  ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(h.x, h.y); ctx.stroke();
+  ctx.fillStyle = '#ffd23e'; ctx.fillRect(s.x - 6, s.y - 5, 7, 10);  /* yellow cuff */
+  ctx.fillStyle = '#ffd83d'; ctx.beginPath(); ctx.arc(h.x, h.y, 5.5, 0, 7); ctx.fill();
+  ctx.restore();
+}
 function drawBall(x, y){
   /* the ball IS a Luna Classic token: gold rim, navy face, real LUNC logo, tumbling as it flies */
   ctx.save(); ctx.translate(x, y);
@@ -332,10 +428,16 @@ function draw(){
     ctx.globalAlpha = 1;
   }
   drawHoop();
+  drawPerson();
   drawBall(ball.x, ball.y);
 }
 function frame(ts){
   const dt = Math.min(.033, (ts - lastTs) / 1000 || 0); lastTs = ts;
+  person.throwT = Math.max(0, person.throwT - dt * 2.6);
+  person.hopT = Math.max(0, person.hopT - dt * 1.5);
+  if (running && ball.state === 'ready' && person.throwT === 0 && person.hopT === 0 && !aim){
+    const h = computeHand(); ball.x = h.x; ball.y = h.y;   /* token rests in his hand */
+  }
   if (running){
     step(dt);
     if (ball.state === 'flying' || true) { /* timer always runs during play */ }
