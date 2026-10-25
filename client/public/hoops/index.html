@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Hoops — sample game (preview)</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin:0; padding:0; overflow:hidden; background:#050a18; height:100%; }
@@ -50,7 +51,19 @@
     background:linear-gradient(180deg,#4ade3d,#22b41f); box-shadow:0 5px 0 #147a0c; text-shadow:0 1px 2px rgba(0,0,0,.3);
   }
   button.play:active { transform:translateY(3px); box-shadow:0 2px 0 #147a0c; }
+  button.play.alt { background:linear-gradient(180deg,#8d99c9,#5a6699); box-shadow:0 5px 0 #39406b; font-size:15px; padding:12px 26px; }
+  button.play.alt:active { box-shadow:0 2px 0 #39406b; }
   #overScreen { display:none; }
+  /* leaderboard */
+  #nameInput { width:min(300px, 82vw); padding:12px 16px; border-radius:999px; border:1px solid rgba(255,255,255,.35); background:rgba(10,6,28,.85); color:#fff; font-size:16px; text-align:center; outline:none; font-family:inherit; pointer-events:auto; }
+  #submitStatus { min-height:18px; font-size:14px; margin:0; }
+  #boardScreen { display:none; background:rgba(3,7,20,.88); }
+  #boardList { width:min(430px, 92vw); max-height:46vh; overflow-y:auto; text-align:left; font-size:15px; }
+  #boardList .row { display:flex; justify-content:space-between; gap:10px; padding:7px 12px; border-bottom:1px solid rgba(255,255,255,.09); }
+  #boardList .row .rk { opacity:.65; width:34px; flex:0 0 auto; }
+  #boardList .row .nm { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #boardList .row .sc { font-weight:900; color:#ffd76a; }
+  .tabs { display:flex; gap:8px; }
 </style>
 </head>
 <body>
@@ -77,13 +90,29 @@
      Every basket is <b>10 points × your multiplier</b>. String baskets together to raise the multiplier.
      Miss and the token is gone — you have <b>3 tokens</b> and <b>3 minutes</b>.</p>
   <button class="play" id="startBtn">PLAY</button>
+  <button class="play alt" id="boardBtn">🏆 LEADERBOARD</button>
 </div>
 
 <div class="screen" id="overScreen">
   <div class="small">TIME / BALLS UP</div>
   <h1>GAME OVER</h1>
   <p id="overStats"></p>
+  <input id="nameInput" maxlength="20" placeholder="Your name for the board">
+  <button class="play" id="submitBtn">🏆 SUBMIT SCORE</button>
+  <p id="submitStatus"></p>
+  <button class="play alt" id="overBoardBtn">🏆 LEADERBOARD</button>
   <button class="play" id="againBtn">PLAY AGAIN</button>
+</div>
+
+<div class="screen" id="boardScreen">
+  <div class="small">🏆 HOOPS</div>
+  <h1>LEADERBOARD</h1>
+  <div class="tabs">
+    <button id="tabAll" class="play">ALL-TIME</button>
+    <button id="tabWeek" class="play alt">THIS WEEK</button>
+  </div>
+  <div id="boardList"><p style="text-align:center; opacity:.8">Loading…</p></div>
+  <button id="boardClose" class="play alt">✕ CLOSE</button>
 </div>
 
 <script>
@@ -176,6 +205,8 @@ function toast(msg, ms){
 }
 function gameOver(){
   running = false;
+  $('submitBtn').disabled = false;
+  $('submitStatus').textContent = '';
   best = Math.max(best, score); localStorage.setItem('hoopsBest', best);
   $('overStats').innerHTML = `Score <b>${score}</b> · Best <b>${best}</b><br>${score >= 200 ? 'Sharp shooter! 🎯' : 'The hoop moves after every basket — short drags, soft touch.'}`;
   $('overScreen').style.display = 'flex';
@@ -456,6 +487,69 @@ $('againBtn').addEventListener('click', () => {
 });
 fit(); reset(true); running = false; hud();
 requestAnimationFrame(frame);
+</script>
+<script>
+/* ================= leaderboard (HOOPS) ================= */
+const TG_HP = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+let hpInitData = '';
+try { if (TG_HP){ TG_HP.ready(); TG_HP.expand(); hpInitData = TG_HP.initData || ''; } } catch (e) {}
+const hpNameInput = document.getElementById('nameInput');
+try {
+  const tgUser = TG_HP && TG_HP.initDataUnsafe ? TG_HP.initDataUnsafe.user : null;
+  hpNameInput.value = (tgUser && tgUser.first_name) || localStorage.getItem('hoopsName') || '';
+} catch (e) {}
+let hpBoardCache = null, hpBoardTab = 'all';
+function hpRenderBoard(){
+  const list = document.getElementById('boardList');
+  const rows = (hpBoardCache && hpBoardCache[hpBoardTab]) || [];
+  document.getElementById('tabAll').className = hpBoardTab === 'all' ? 'play' : 'play alt';
+  document.getElementById('tabWeek').className = hpBoardTab === 'week' ? 'play' : 'play alt';
+  if (!rows.length){ list.innerHTML = '<p style="text-align:center; opacity:.8">No scores yet — be the first 🏆</p>'; return; }
+  list.innerHTML = rows.map((r, i) =>
+    `<div class="row"><span class="rk">${i+1}.</span><span class="nm"></span><span class="sc">${r.score}</span></div>`).join('');
+  [...list.querySelectorAll('.nm')].forEach((el, i) => el.textContent = rows[i].name);
+}
+async function hpOpenBoard(){
+  document.getElementById('boardScreen').style.display = 'flex';
+  document.getElementById('boardList').innerHTML = '<p style="text-align:center; opacity:.8">Loading…</p>';
+  try {
+    const r = await fetch('/api/hoops-board');
+    if (!r.ok) throw new Error(r.status);
+    hpBoardCache = await r.json();
+  } catch (e) {
+    hpBoardCache = null;
+    document.getElementById('boardList').innerHTML = '<p style="text-align:center; opacity:.8">Leaderboard unavailable right now.</p>';
+    return;
+  }
+  hpRenderBoard();
+}
+document.getElementById('boardBtn').addEventListener('click', hpOpenBoard);
+document.getElementById('overBoardBtn').addEventListener('click', hpOpenBoard);
+document.getElementById('boardClose').addEventListener('click', () => document.getElementById('boardScreen').style.display = 'none');
+document.getElementById('tabAll').addEventListener('click', () => { hpBoardTab = 'all'; hpRenderBoard(); });
+document.getElementById('tabWeek').addEventListener('click', () => { hpBoardTab = 'week'; hpRenderBoard(); });
+document.getElementById('submitBtn').addEventListener('click', async () => {
+  let name = hpNameInput.value.trim();
+  if (name.length < 2) { name = 'Guest'; hpNameInput.value = name; }
+  try { localStorage.setItem('hoopsName', name); } catch (e) {}
+  const btn = document.getElementById('submitBtn'), status = document.getElementById('submitStatus');
+  const seconds = Math.max(3, Math.round(180 - timeLeft));
+  btn.disabled = true; status.textContent = 'Submitting…';
+  try {
+    const r = await fetch('/api/hoops-score', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData: hpInitData, name, score: Math.floor(score), seconds })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || r.status);
+    status.textContent = d.rank ? `🏆 You're #${d.rank} all-time!` : '🏆 Score submitted!';
+    hpBoardTab = 'all';
+    setTimeout(hpOpenBoard, 650);
+  } catch (e) {
+    status.textContent = 'Could not submit (' + e.message + ') — try again.';
+    btn.disabled = false;
+  }
+});
 </script>
 </body>
 </html>
