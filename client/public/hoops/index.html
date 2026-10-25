@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Hoops — sample game (preview)</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; padding:0; overflow:hidden; background:#050a18; height:100%; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:#fff;
+         -webkit-user-select:none; user-select:none; touch-action:none; }
+  #game { position:fixed; inset:0; display:block; }
+  #ui { position:fixed; inset:0; pointer-events:none; }
+  #hud {
+    position:absolute; top:10px; left:10px; right:10px;
+    background:rgba(30,41,66,.82); border-radius:999px; padding:9px 16px;
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    box-shadow:0 4px 18px rgba(0,0,0,.45);
+  }
+  #balls { font-size:19px; letter-spacing:2px; min-width:86px; }
+  #balls .lost { filter:grayscale(1); opacity:.28; }
+  #multWrap { flex:1; display:flex; align-items:center; gap:8px; max-width:340px; }
+  #multBarOuter { flex:1; height:9px; border-radius:99px; background:rgba(255,255,255,.16); overflow:hidden; }
+  #multBar { height:100%; width:0%; border-radius:99px; background:linear-gradient(90deg,#ffb03a,#ff7847); transition:width .25s; }
+  #multTxt { font-weight:900; font-size:16px; min-width:32px; }
+  #clock { font-weight:900; font-size:17px; font-variant-numeric:tabular-nums; min-width:48px; text-align:right; }
+  #bigScore {
+    position:absolute; top:16%; width:100%; text-align:center;
+    font-size:64px; font-weight:900; text-shadow:0 4px 24px rgba(0,0,0,.6); pointer-events:none;
+  }
+  #toast {
+    position:absolute; top:29%; width:100%; text-align:center; font-size:21px; font-weight:900;
+    color:#ffd76a; text-shadow:0 2px 12px rgba(0,0,0,.7); opacity:0; transition:opacity .18s; pointer-events:none;
+  }
+  #hint {
+    position:absolute; bottom:5.5%; width:100%; text-align:center; font-size:13.5px; opacity:.75; pointer-events:none;
+  }
+  .screen {
+    position:fixed; inset:0; z-index:10; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:14px; text-align:center; padding:22px; background:rgba(3,7,20,.55); pointer-events:auto;
+  }
+  .screen h1 { margin:0; font-size:44px; letter-spacing:.1em; font-weight:900;
+    background:linear-gradient(180deg,#ffd76a,#ff7847); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .screen p { margin:0; font-size:15.5px; line-height:1.45; max-width:430px; opacity:.92; }
+  .screen .small { font-size:12px; letter-spacing:.22em; opacity:.65; font-weight:700; }
+  button.play {
+    cursor:pointer; border:none; color:#fff; border-radius:14px; padding:14px 40px; margin-top:8px;
+    font-size:18px; font-weight:900; letter-spacing:.07em; font-family:inherit;
+    background:linear-gradient(180deg,#4ade3d,#22b41f); box-shadow:0 5px 0 #147a0c; text-shadow:0 1px 2px rgba(0,0,0,.3);
+  }
+  button.play:active { transform:translateY(3px); box-shadow:0 2px 0 #147a0c; }
+  #overScreen { display:none; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="ui">
+  <div id="hud">
+    <div id="balls"></div>
+    <div id="multWrap">
+      <div id="multBarOuter"><div id="multBar"></div></div>
+      <div id="multTxt">x1</div>
+    </div>
+    <div id="clock">3:00</div>
+  </div>
+  <div id="bigScore">0</div>
+  <div id="toast"></div>
+  <div id="hint">Drag back from the ball and let go to shoot 🏀</div>
+</div>
+
+<div class="screen" id="startScreen">
+  <div class="small">SAMPLE GAME · PREVIEW ONLY</div>
+  <h1>🏀 HOOPS</h1>
+  <p>Flick the ball into the hoop. Drag back anywhere and release to shoot — longer drag, harder shot.
+     Every basket is <b>10 points × your multiplier</b>. String baskets together to raise the multiplier.
+     Miss and the ball is gone — you have <b>3 balls</b> and <b>3 minutes</b>.</p>
+  <button class="play" id="startBtn">PLAY</button>
+</div>
+
+<div class="screen" id="overScreen">
+  <div class="small">TIME / BALLS UP</div>
+  <h1>GAME OVER</h1>
+  <p id="overStats"></p>
+  <button class="play" id="againBtn">PLAY AGAIN</button>
+</div>
+
+<script>
+'use strict';
+/* ================= setup ================= */
+const cv = document.getElementById('game'), ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+function fit(){
+  DPR = Math.min(devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W * DPR; cv.height = H * DPR;
+  cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  if (ball.state === 'ready') placeBall();
+}
+addEventListener('resize', fit);
+
+/* sound: tiny synth, guarded */
+let AC = null;
+function beep(f, t, dur, type, vol){
+  try {
+    AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = type || 'sine'; o.frequency.value = f;
+    g.gain.setValueAtTime(vol || .12, AC.currentTime + t);
+    g.gain.exponentialRampToValueAtTime(.0001, AC.currentTime + t + dur);
+    o.connect(g); g.connect(AC.destination);
+    o.start(AC.currentTime + t); o.stop(AC.currentTime + t + dur);
+  } catch (e) {}
+}
+
+/* ================= game state ================= */
+const GRAV = 1900;               /* px/s^2 */
+const RIM_HALF = 35, RIM_R = 5;  /* rim opening half-width, rim edge radius */
+const ball = { x:0, y:0, vx:0, vy:0, r:17, state:'ready', spin:0, scored:false };
+let hoop = { x:0, y:0 };
+let score = 0, best = +(localStorage.getItem('hoopsBest') || 0);
+let ballsLeft = 3, streak = 0, mult = 1, timeLeft = 180, running = false, lastTs = 0;
+let aim = null;                  /* {sx,sy,cx,cy} while dragging */
+let netWiggle = 0;
+
+const $ = id => document.getElementById(id);
+function placeBall(){
+  ball.x = W * .42; ball.y = H * .76;
+  ball.vx = 0; ball.vy = 0; ball.state = 'ready'; ball.scored = false;
+}
+function moveHoop(first){
+  hoop.x = W * (0.55 + Math.random() * 0.33);
+  hoop.y = H * (first ? 0.46 : 0.34 + Math.random() * 0.24);
+}
+function reset(full){
+  score = 0; ballsLeft = 3; streak = 0; mult = 1; timeLeft = 180;
+  moveHoop(true); placeBall(); hud();
+}
+function hud(){
+  $('balls').innerHTML = [0,1,2].map(i => `<span class="${i < ballsLeft ? '' : 'lost'}">🏀</span>`).join('');
+  $('bigScore').textContent = score;
+  $('multTxt').textContent = 'x' + mult;
+  $('multBar').style.width = ((streak % 3) / 3 * 100) + '%';
+  const t = Math.max(0, Math.ceil(timeLeft));
+  $('clock').textContent = Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
+}
+function toast(msg, ms){
+  const el = $('toast'); el.textContent = msg; el.style.opacity = 1;
+  clearTimeout(toast._t); toast._t = setTimeout(() => el.style.opacity = 0, ms || 900);
+}
+function gameOver(){
+  running = false;
+  best = Math.max(best, score); localStorage.setItem('hoopsBest', best);
+  $('overStats').innerHTML = `Score <b>${score}</b> · Best <b>${best}</b><br>${score >= 200 ? 'Sharp shooter! 🎯' : 'The hoop moves after every basket — short drags, soft touch.'}`;
+  $('overScreen').style.display = 'flex';
+  $('hint').style.display = 'none';
+}
+
+/* ================= shooting ================= */
+addEventListener('pointerdown', e => {
+  if (!running || ball.state !== 'ready') return;
+  aim = { sx: e.clientX, sy: e.clientY, cx: e.clientX, cy: e.clientY };
+});
+addEventListener('pointermove', e => { if (aim) { aim.cx = e.clientX; aim.cy = e.clientY; } });
+addEventListener('pointerup', e => {
+  if (!aim) return;
+  const dx = aim.sx - aim.cx, dy = aim.sy - aim.cy;
+  aim = null;
+  if (!running || ball.state !== 'ready') return;
+  const len = Math.hypot(dx, dy);
+  if (len < 24) return;                      /* too small: cancel */
+  const P = 5.4;                             /* power scale */
+  ball.vx = dx * P; ball.vy = dy * P;
+  const sp = Math.hypot(ball.vx, ball.vy), MAX = 1750;
+  if (sp > MAX) { ball.vx *= MAX / sp; ball.vy *= MAX / sp; }
+  ball.state = 'flying'; ball.scored = false;
+  beep(300, 0, .07, 'triangle', .05);
+});
+function aimVelocity(){
+  if (!aim) return null;
+  const dx = aim.sx - aim.cx, dy = aim.sy - aim.cy;
+  if (Math.hypot(dx, dy) < 24) return null;
+  let vx = dx * 5.4, vy = dy * 5.4;
+  const sp = Math.hypot(vx, vy), MAX = 1750;
+  if (sp > MAX) { vx *= MAX / sp; vy *= MAX / sp; }
+  return { vx, vy };
+}
+
+/* ================= physics ================= */
+function circleHit(px, py, pr){
+  const dx = ball.x - px, dy = ball.y - py, d = Math.hypot(dx, dy), min = ball.r + pr;
+  if (d >= min || d === 0) return;
+  const nx = dx / d, ny = dy / d;
+  ball.x = px + nx * min; ball.y = py + ny * min;
+  const vn = ball.vx * nx + ball.vy * ny;
+  if (vn < 0){
+    ball.vx -= 1.72 * vn * nx; ball.vy -= 1.72 * vn * ny;   /* bouncy rim */
+    ball.vx *= .88; ball.vy *= .88;
+    beep(190, 0, .05, 'square', .04);
+  }
+}
+function step(dt){
+  if (ball.state !== 'flying') return;
+  ball.vy += GRAV * dt;
+  ball.x += ball.vx * dt; ball.y += ball.vy * dt;
+  ball.spin += ball.vx * dt * .02;
+  const prevY = ball.y - ball.vy * dt;
+  /* rim edges */
+  circleHit(hoop.x - RIM_HALF, hoop.y, RIM_R);
+  circleHit(hoop.x + RIM_HALF, hoop.y, RIM_R);
+  /* score: crossing the rim plane downward, inside the opening */
+  if (!ball.scored && ball.vy > 0 &&
+      prevY - ball.r <= hoop.y && ball.y - ball.r > hoop.y - 4 &&
+      Math.abs(ball.x - hoop.x) < RIM_HALF - 8){
+    ball.scored = true;
+    streak++;
+    mult = Math.min(5, 1 + Math.floor(streak / 3));
+    const pts = 10 * mult;
+    score += pts;
+    netWiggle = 1;
+    toast(mult > 1 ? `SWISH! +${pts} 🔥 x${mult}` : `SWISH! +${pts}`);
+    beep(660, 0, .09, 'sine', .1); beep(990, .07, .12, 'sine', .08);
+    hud();
+  }
+  /* net drag when passing through */
+  if (ball.scored && Math.abs(ball.x - hoop.x) < RIM_HALF && ball.y > hoop.y && ball.y < hoop.y + 46){
+    ball.vx *= (1 - 2.4 * dt); ball.vy *= (1 - 1.1 * dt);
+  }
+  /* walls */
+  if (ball.x < ball.r) { ball.x = ball.r; ball.vx = Math.abs(ball.vx) * .6; }
+  if (ball.x > W - ball.r) { ball.x = W - ball.r; ball.vx = -Math.abs(ball.vx) * .6; }
+  /* floor */
+  if (ball.y > H - ball.r - 6){
+    if (!ball.scored){
+      ballsLeft--; streak = 0; mult = 1;
+      toast(ballsLeft > 0 ? 'Miss — ' + ballsLeft + (ballsLeft === 1 ? ' ball' : ' balls') + ' left' : 'Out of balls!');
+      beep(140, 0, .14, 'sawtooth', .06);
+    }
+    hud();
+    if (ballsLeft <= 0) { gameOver(); return; }
+    moveHoop(false); placeBall();
+  }
+}
+
+/* ================= drawing ================= */
+function drawBall(x, y){
+  ctx.save(); ctx.translate(x, y);
+  const g = ctx.createRadialGradient(-6, -7, 3, 0, 0, ball.r + 3);
+  g.addColorStop(0, '#ffb35c'); g.addColorStop(.6, '#f07f1e'); g.addColorStop(1, '#c85a08');
+  ctx.fillStyle = g;
+  ctx.shadowColor = 'rgba(240,127,30,.55)'; ctx.shadowBlur = 18;
+  ctx.beginPath(); ctx.arc(0, 0, ball.r, 0, 7); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(90,35,0,.75)'; ctx.lineWidth = 1.7;
+  ctx.beginPath(); ctx.arc(0, 0, ball.r - .8, 0, 7); ctx.stroke();
+  ctx.save(); ctx.rotate(ball.spin);
+  ctx.beginPath(); ctx.moveTo(-ball.r, 0); ctx.lineTo(ball.r, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, -ball.r); ctx.lineTo(0, ball.r); ctx.stroke();
+  ctx.beginPath(); ctx.arc(-ball.r * 1.35, 0, ball.r * .95, -.9, .9); ctx.stroke();
+  ctx.beginPath(); ctx.arc(ball.r * 1.35, 0, ball.r * .95, Math.PI - .9, Math.PI + .9); ctx.stroke();
+  ctx.restore(); ctx.restore();
+}
+function drawHoop(){
+  const { x, y } = hoop;
+  /* net */
+  netWiggle = Math.max(0, netWiggle - .03);
+  const sway = Math.sin(Date.now() / 90) * 2.2 * netWiggle;
+  ctx.strokeStyle = 'rgba(235,240,255,.9)'; ctx.lineWidth = 2;
+  const rows = 4, topW = RIM_HALF, botW = RIM_HALF * .55, nh = 46;
+  for (let i = 0; i <= 6; i++){
+    const fx = -topW + (2 * topW) * (i / 6);
+    ctx.beginPath(); ctx.moveTo(x + fx, y + 2);
+    ctx.lineTo(x + fx * (botW / topW) + sway, y + nh); ctx.stroke();
+  }
+  for (let rI = 1; rI <= rows; rI++){
+    const yy = y + 2 + (nh * rI) / (rows + .5), wdt = topW + (botW - topW) * (rI / (rows + .5));
+    ctx.beginPath(); ctx.moveTo(x - wdt + sway * (rI / rows), yy);
+    ctx.lineTo(x + wdt + sway * (rI / rows), yy); ctx.stroke();
+  }
+  /* rim */
+  ctx.strokeStyle = '#ff7847'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+  ctx.shadowColor = 'rgba(255,120,71,.6)'; ctx.shadowBlur = 10;
+  ctx.beginPath(); ctx.moveTo(x - RIM_HALF - 4, y); ctx.lineTo(x + RIM_HALF + 4, y); ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+function draw(){
+  /* arena */
+  const bg = ctx.createRadialGradient(W * .5, H * .42, 60, W * .5, H * .5, H * .85);
+  bg.addColorStop(0, '#16294d'); bg.addColorStop(.55, '#0a1730'); bg.addColorStop(1, '#04060f');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  /* floor line glow */
+  ctx.fillStyle = 'rgba(110,170,255,.1)'; ctx.fillRect(0, H - 8, W, 2);
+  /* aim trajectory */
+  const v = (ball.state === 'ready') ? aimVelocity() : null;
+  if (v){
+    let px = ball.x, py = ball.y, vx = v.vx, vy = v.vy;
+    ctx.fillStyle = 'rgba(255,255,255,.75)';
+    for (let i = 0; i < 16; i++){
+      const dt = .055;
+      vy += GRAV * dt; px += vx * dt; py += vy * dt;
+      if (py > H) break;
+      ctx.globalAlpha = 1 - i / 18;
+      ctx.beginPath(); ctx.arc(px, py, 3.4, 0, 7); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    /* ghost hand at the ball */
+    ctx.font = '30px serif'; ctx.textAlign = 'center';
+    ctx.fillText('🤚', ball.x - 34, ball.y + 26);
+  }
+  drawHoop();
+  drawBall(ball.x, ball.y);
+}
+function frame(ts){
+  const dt = Math.min(.033, (ts - lastTs) / 1000 || 0); lastTs = ts;
+  if (running){
+    step(dt);
+    if (ball.state === 'flying' || true) { /* timer always runs during play */ }
+    timeLeft -= dt;
+    if (timeLeft <= 0) { timeLeft = 0; hud(); gameOver(); }
+    else if (Math.ceil(timeLeft) !== frame._lt) { frame._lt = Math.ceil(timeLeft); hud(); }
+  }
+  draw();
+  requestAnimationFrame(frame);
+}
+
+/* ================= go ================= */
+$('startBtn').addEventListener('click', () => {
+  $('startScreen').style.display = 'none';
+  reset(true); running = true; hud();
+});
+$('againBtn').addEventListener('click', () => {
+  $('overScreen').style.display = 'none';
+  $('hint').style.display = '';
+  reset(true); running = true; hud();
+});
+fit(); reset(true); running = false; hud();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
