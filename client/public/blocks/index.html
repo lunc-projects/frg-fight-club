@@ -322,21 +322,22 @@ function render(){
 /* ================= drag & drop ================= */
 let drag = null;   /* {idx, grabR, grabC, shape, color} */
 const ghost = $('dragGhost');
-/* The dragged piece floats this many cells ABOVE the fingertip, so the
-   finger never covers the piece or its green target highlight. The anchor
-   (drop position) is computed from the same lifted point, so what you see
-   is exactly where it drops. */
-const LIFT = 1.8;
+/* Relative drag: the piece sits up on the board and follows the finger's
+   MOVEMENT — the finger itself never has to be on the piece or its target.
+   On grab, the piece starts this many cells above the touch point; after
+   that it moves 1:1 with the finger, snapped to board cells. */
+const START_LIFT = 4.2;
 
 function cellPx(){
   return $('grid').getBoundingClientRect().width / N;
 }
-function anchorFor(e){
+function startBase(e){
   const rect = $('grid').getBoundingClientRect();
   const px = cellPx();
-  const c = Math.round((e.clientX - rect.left) / px) - drag.grabC;
-  const r = Math.round((e.clientY - LIFT * px - rect.top) / px) - drag.grabR;
-  return { r, c };
+  drag.sx = e.clientX;
+  drag.sy = e.clientY;
+  drag.baseC = Math.round((e.clientX - rect.left) / px) - drag.grabC;
+  drag.baseR = Math.round((e.clientY - START_LIFT * px - rect.top) / px) - drag.grabR;
 }
 function paintHighlight(){
   document.querySelectorAll('.cell.hl-ok, .cell.hl-bad').forEach(el => el.classList.remove('hl-ok', 'hl-bad'));
@@ -370,6 +371,7 @@ document.addEventListener('pointerdown', e => {
   if (!pieceEl || pieceEl.classList.contains('used') || pieceEl.classList.contains('locked')) return;
   if (pieceEl.dataset.luna){
     drag = { luna: true, idx: -1, shape: SHAPES[0], color: 7, anchor: null, grabR: 0, grabC: 0 };
+    startBase(e);
     buildGhost(drag.shape, drag.color);
     moveGhost(e);
     return;
@@ -382,15 +384,19 @@ document.addEventListener('pointerdown', e => {
     grabR: cellEl && !cellEl.classList.contains('empty') ? +cellEl.dataset.r : 0,
     grabC: cellEl && !cellEl.classList.contains('empty') ? +cellEl.dataset.c : 0,
   };
+  startBase(e);
   buildGhost(t.shape, t.color);
   moveGhost(e);
 });
 function moveGhost(e){
   if (!drag) return;
   const px = cellPx();
-  ghost.style.left = (e.clientX - (drag.grabC + 0.5) * px) + 'px';
-  ghost.style.top = (e.clientY - (drag.grabR + 0.5) * px - px * LIFT) + 'px';
-  drag.anchor = anchorFor(e);
+  const rect = $('grid').getBoundingClientRect();
+  const r = drag.baseR + Math.round((e.clientY - drag.sy) / px);
+  const c = drag.baseC + Math.round((e.clientX - drag.sx) / px);
+  drag.anchor = { r, c };
+  ghost.style.left = (rect.left + c * px) + 'px';
+  ghost.style.top = (rect.top + r * px) + 'px';
   paintHighlight();
 }
 document.addEventListener('pointermove', e => { if (drag) moveGhost(e); });
@@ -398,7 +404,7 @@ document.addEventListener('pointerup', e => {
   if (!drag) return;
   const { idx, shape, color } = drag;
   const isLuna = !!drag.luna;
-  const anchor = anchorFor(e);
+  const anchor = drag.anchor || { r: drag.baseR, c: drag.baseC };
   ghost.style.display = 'none';
   document.querySelectorAll('.cell.hl-ok, .cell.hl-bad').forEach(el => el.classList.remove('hl-ok', 'hl-bad'));
   drag = null;
