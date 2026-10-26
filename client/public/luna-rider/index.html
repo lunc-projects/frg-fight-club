@@ -130,7 +130,7 @@
   <h1>LUNA <span class="gold">RIDER</span></h1>
   <p>Ride the gold moon-bike across the lunar wilds. <b>Right side = throttle</b>, <b>left side = brake</b> —
      and in the air they lean you: throttle tips you <b>back</b>, brake tips you <b>forward</b>.
-     Land flips for +150, grab the crescent coins, and whatever you do — don't land on your head. 🏁</p>
+     Land flips for +150, hold a wheelie or a stoppie for +25 a second, catch big air for +50, grab the crescent coins — and whatever you do, don't land on your head. 🏁</p>
   <div class="small">CHOOSE YOUR START STAGE</div>
   <div id="stagePicker"></div>
   <button class="play" id="startBtn">▶ RIDE</button>
@@ -248,6 +248,7 @@ function beep(freq, t0, dur, type, vol, slide){
 }
 function sndCoin(teal){ beep(teal ? 1560 : 1240, 0, 0.09, 'sine', 0.11); beep(teal ? 2090 : 1660, 0.06, 0.14, 'sine', 0.10); }
 function sndFlip(){ beep(660, 0, 0.09, 'triangle', 0.12); beep(880, 0.07, 0.09, 'triangle', 0.12); beep(1320, 0.14, 0.16, 'triangle', 0.12); }
+function sndTrick(){ beep(520, 0, 0.07, 'square', 0.09); beep(784, 0.06, 0.11, 'square', 0.09); }
 function sndClear(){ beep(784, 0, 0.12, 'triangle', 0.13); beep(988, 0.1, 0.12, 'triangle', 0.13); beep(1318, 0.2, 0.22, 'triangle', 0.13); }
 function sndCrash(){
   if (!AC || muted) return;
@@ -342,6 +343,7 @@ let stageIdx = 0, selStage = 0;
 let unlocked = Math.min(6, Math.max(1, +(localStorage.getItem('lunaRiderUnlocked') || 1)));
 let score = 0, coinsCollected = 0, elapsed = 0, stageTime = 0;
 let scoreAtStageStart = 0, flipsThisRun = 0;
+let wheelieSecsRun = 0, stoppieSecsRun = 0, bigAirsRun = 0;
 let wrecksLeft = 3, maxStageReached = 1;
 let camX = 0, camY = 0, shake = 0;
 let introT = 0, clearBonus = 0, endKind = '';
@@ -354,7 +356,8 @@ for (let i = 0; i < 130; i++) stars.push({ x: Math.random() * 1600, y: Math.rand
 
 /* ================= bike ================= */
 const GRAV = 1500, WR = 11, WB2 = 24, WOY = 8;      /* gravity, wheel radius, half wheelbase, wheel y-offset */
-const bike = { x:90, y:300, vx:0, vy:0, ang:0, av:0, grounded:false, airTime:0, airRot:0, flipsPending:0, flipDir:0 };
+const bike = { x:90, y:300, vx:0, vy:0, ang:0, av:0, grounded:false, airTime:0, airRot:0, flipsPending:0, flipDir:0,
+               wheelieT:0, wheeliePaid:0, stoppieT:0, stoppiePaid:0 };
 function wheelPos(which){ /* which: -1 rear, +1 front — local offsets rotated by ang */
   const c = Math.cos(bike.ang), s = Math.sin(bike.ang);
   const lx = which * WB2, ly = WOY;
@@ -369,6 +372,7 @@ function resetBikeAt(x){
   bike.x = x; bike.y = groundY(x) - 26;
   bike.vx = 0; bike.vy = 0; bike.ang = Math.atan(groundSlope(x)); bike.av = 0;
   bike.grounded = false; bike.airTime = 0; bike.airRot = 0; bike.flipsPending = 0;
+  bike.wheelieT = 0; bike.wheeliePaid = 0; bike.stoppieT = 0; bike.stoppiePaid = 0;
   camX = Math.max(0, x - 240); camY = clamp(bike.y - 330, -70, 150);
 }
 function buildStage(idx){
@@ -432,7 +436,7 @@ function stepBike(dt){
   const sub = 5, sd = dt / sub;
   for (let s = 0; s < sub; s++){
     bike.vy += GRAV * sd;
-    let torque = 0, anyContact = false;
+    let torque = 0, anyContact = false, contactRear = false, contactFront = false;
     for (const which of [-1, 1]){
       const wp = wheelPos(which);
       if (!groundExists(wp.x)) continue;
@@ -440,6 +444,7 @@ function stepBike(dt){
       const pen = (wp.y + WR) - gy;
       if (pen <= 0) continue;
       anyContact = true;
+      if (which === -1) contactRear = true; else contactFront = true;
       const slope = groundSlope(wp.x);
       const inv = 1 / Math.hypot(slope, 1);
       const nx = slope * inv, ny = -inv;              /* surface normal (up) */
@@ -463,10 +468,14 @@ function stepBike(dt){
         dust.push({ x: wp.x - 6, y: gy - 3, vx: -bike.vx * 0.25 - 22 - Math.random() * 26, vy: -34 - Math.random() * 42, life: 0.55, r: 3 + Math.random() * 4.5 });
       }
     }
-    /* in-air lean: throttle tips back (nose up = ang decreases), brake tips forward */
+    /* in-air lean: throttle tips back (nose up = ang decreases), brake tips forward.
+       Torque doubled 8400 -> 16800 (spin-up alpha 4.0 -> 8.0 rad/s^2): a held lean
+       used to rotate only ~25deg on the game's biggest jump; now ~51deg — real
+       pitch authority, while a throttle held through that same jump still lands
+       inside the |ang| > 1.85 crash window. */
     if (!anyContact){
-      if (input.throttle) torque += -8400;
-      if (input.brake) torque += 8400;
+      if (input.throttle) torque += -16800;
+      if (input.brake) torque += 16800;
       bike.av *= (1 - 0.05 * sd);   /* barely any air drag on rotation — flips need the spin to survive */
     } else {
       bike.av *= (1 - 4.4 * sd);
@@ -491,6 +500,15 @@ function stepBike(dt){
         sndFlip();
         bike.flipsPending = 0; bike.airRot = 0;
       }
+      /* BIG AIR: +50 once per jump for a safe landing after a long flight.
+         Threshold 0.35s: measured on this build's terrain the longest natural
+         flight is ~0.47s (a fast chasm launch) and ordinary hops run 0.1-0.3s,
+         so 0.35s only fires on genuinely big jumps. Stacks with a flip. */
+      if (bike.airTime >= 0.35){
+        score += 50; bigAirsRun++;
+        addFloater(bike.x, bike.y - 96, 'BIG AIR +50', '#ffd94d');
+        sndTrick();
+      }
     }
     if (!anyContact){
       bike.airTime += sd;
@@ -501,6 +519,35 @@ function stepBike(dt){
     } else {
       bike.airTime = 0;
       if (Math.abs(wrapAng(bike.ang)) < 1.2) bike.airRot = 0;
+    }
+    /* wheelie / stoppie: exactly one wheel in contact while moving pays +25
+       per full continuous second (floater each second). Both wheels down,
+       the other wheel alone, airborne, or standing still all reset the run;
+       a crash respawns the bike, which zeroes the trackers in resetBikeAt. */
+    const spd = Math.hypot(bike.vx, bike.vy);
+    if (contactRear && !contactFront && spd > 60){
+      bike.stoppieT = 0; bike.stoppiePaid = 0;
+      bike.wheelieT += sd;
+      const ws = Math.floor(bike.wheelieT);
+      if (ws > bike.wheeliePaid){
+        bike.wheeliePaid = ws; wheelieSecsRun++;
+        score += 25;
+        addFloater(bike.x, bike.y - 84, 'WHEELIE' + (ws > 1 ? ' ×' + ws : '') + ' +25', '#ffd94d');
+        sndTrick();
+      }
+    } else if (contactFront && !contactRear && spd > 60){
+      bike.wheelieT = 0; bike.wheeliePaid = 0;
+      bike.stoppieT += sd;
+      const ss = Math.floor(bike.stoppieT);
+      if (ss > bike.stoppiePaid){
+        bike.stoppiePaid = ss; stoppieSecsRun++;
+        score += 25;
+        addFloater(bike.x, bike.y - 84, 'STOPPIE' + (ss > 1 ? ' ×' + ss : '') + ' +25', '#7db4ff');
+        sndTrick();
+      }
+    } else {
+      bike.wheelieT = 0; bike.wheeliePaid = 0;
+      bike.stoppieT = 0; bike.stoppiePaid = 0;
     }
     bike.grounded = anyContact;
   }
@@ -555,6 +602,7 @@ function startStage(idx, fresh){
 }
 function startCampaign(fromStage){
   score = 0; coinsCollected = 0; elapsed = 0; flipsThisRun = 0;
+  wheelieSecsRun = 0; stoppieSecsRun = 0; bigAirsRun = 0;
   startStage(fromStage || 0, true);
 }
 function stageClear(){
@@ -591,6 +639,7 @@ function gameOver(won){
   $('overStats').innerHTML =
     'Reached stage ' + (stageIdx + 1) + ' · ' + STAGES[stageIdx].name + '<br>' +
     'Flips landed: ' + flipsThisRun + ' · Coins banked: ' + coinsCollected + '<br>' +
+    'Wheelie: ' + wheelieSecsRun + 's · Stoppie: ' + stoppieSecsRun + 's · Big air: ' + bigAirsRun + '<br>' +
     'Final score: <b>' + score + '</b>';
   $('submitStatus').textContent = '';
   $('submitBtn').disabled = false;
@@ -1047,6 +1096,8 @@ window.LR = {
   get chasms(){ return effChasms; },
   get lastCrash(){ return lastCrash; },
   get coins(){ return coins; },
+  get tricks(){ return { wheelieSecs: wheelieSecsRun, stoppieSecs: stoppieSecsRun, bigAirs: bigAirsRun }; },
+  get floaters(){ return floaters; },
   STAGES, groundY, groundSlope, groundExists, wrapAng,
   setInput(t, b){ input.throttle = !!t; input.brake = !!b; },
   startStage(n){ startCampaign(n); },
