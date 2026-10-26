@@ -95,6 +95,7 @@
   <h1>LUNA <span class="gold">BREAKOUT</span></h1>
   <p>Smash the moon-brick wall with the golden ball. <b>Drag</b> to move the paddle, <b>tap</b> to launch.
      Regular bricks are <b>+10</b>, glowing <b>gold LUNC bricks +50</b> — and the dark-rimmed ones take <b>two hits</b>.
+     One brick mid-wall pulses gold with a <b>LUNC</b> mark: smash it and the whole wall breaks in a <b>BONUS BREAKOUT</b>!
      Clear the wall to climb a level: the ball gets faster every time. Catch a falling <b>W</b> capsule for a wider paddle.
      You have <b>3 moons</b> — don't let the ball past you! 🌙</p>
   <button class="play" id="startBtn">▶ PLAY</button>
@@ -194,6 +195,12 @@ function sndGold(){ beep(1240, 0, 0.09, 'sine', 0.11); beep(1860, 0.06, 0.15, 's
 function sndCrack(){ beep(170, 0, 0.07, 'sawtooth', 0.09, 90); }
 function sndPower(){ beep(520, 0, 0.08, 'triangle', 0.12); beep(700, 0.07, 0.08, 'triangle', 0.12); beep(980, 0.14, 0.16, 'triangle', 0.12); }
 function sndClear(){ beep(784, 0, 0.12, 'triangle', 0.13); beep(988, 0.1, 0.12, 'triangle', 0.13); beep(1318, 0.2, 0.22, 'triangle', 0.13); }
+function sndBreakout(){ /* big fanfare for the Luna Classic block */
+  beep(523, 0, 0.12, 'triangle', 0.15); beep(659, 0.09, 0.12, 'triangle', 0.15);
+  beep(784, 0.18, 0.12, 'triangle', 0.15); beep(1046, 0.27, 0.2, 'triangle', 0.16);
+  beep(1318, 0.38, 0.32, 'triangle', 0.15); beep(1568, 0.38, 0.32, 'sine', 0.11);
+  beep(784, 0.52, 0.4, 'triangle', 0.10);
+}
 function sndLose(){ beep(420, 0, 0.16, 'sawtooth', 0.10, 210); beep(210, 0.14, 0.3, 'sawtooth', 0.10, 70); }
 
 /* ================= field & entities ================= */
@@ -209,6 +216,7 @@ let score = 0, lives = 3, level = 1, elapsed = 0, runActive = false;
 let bricks = [], bricksAlive = 0, bricksTotal = 0;
 let particles = [], floaters = [];
 let capsule = null;        /* falling power-up {x, y} — at most one */
+let cascade = null;        /* BONUS BREAKOUT in flight: { t, items: [{b, at}] } */
 let wideT = 0;             /* seconds of wide paddle remaining */
 let serveT = 0;            /* auto-launch countdown while serving */
 let toastTimer = null;
@@ -288,20 +296,32 @@ function buildLevel(lv){
   const grid = patternRows(lv);
   const rng = mulberry(9000 + lv * 131);
   bricks = [];
-  let goldCount = 0;
+  cascade = null;
   for (let r = 0; r < grid.length; r++){
     for (let c = 0; c < COLS; c++){
       const ch = grid[r][c];
       if (ch === '.') continue;
       let type = ch === 'T' ? 'tough' : 'normal';
-      if (type === 'normal' && rng() < 0.07){ type = 'gold'; goldCount++; }
+      if (type === 'normal' && rng() < 0.07) type = 'gold';
       bricks.push({
         x: BX0 + c * (BW + BGAP), y: BY0 + r * (BH + BGAP), w: BW, h: BH,
         row: r, type, hp: type === 'tough' ? 2 : 1, alive: true,
       });
     }
   }
-  if (!goldCount){ /* guarantee at least one gold LUNC brick per level */
+  /* exactly one Luna Classic block per level: the brick nearest the center of
+     the field becomes the special — always a single hit, whatever it was
+     (never a 2-hit tough brick) */
+  if (bricks.length){
+    const fcX = IW / 2, fcY = BY0 + (grid.length * (BH + BGAP) - BGAP) / 2;
+    let best = null, bestD = Infinity;
+    for (const b of bricks){
+      const d = Math.hypot(b.x + b.w / 2 - fcX, b.y + b.h / 2 - fcY);
+      if (d < bestD){ bestD = d; best = b; }
+    }
+    best.type = 'special'; best.hp = 1;
+  }
+  if (!bricks.some(b => b.type === 'gold')){ /* guarantee at least one gold LUNC brick per level */
     const normals = bricks.filter(b => b.type === 'normal');
     if (normals.length) normals[Math.floor(rng() * normals.length)].type = 'gold';
   }
@@ -386,6 +406,12 @@ function hitBrick(b){
   if (b.hp > 0){ sndCrack(); burst(ball.x, ball.y, '#8d99c9', 4); return; }
   b.alive = false; bricksAlive--;
   const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+  if (b.type === 'special'){
+    score += 50; sndGold(); addFloater(cx, cy, '+50', '#ffd76a'); burst(cx, cy, '#ffd76a', 18);
+    hud();
+    if (bricksAlive > 0) startBreakout(b); else advanceLevel();
+    return;
+  }
   if (b.type === 'gold'){
     score += 50; sndGold(); addFloater(cx, cy, '+50', '#ffd76a'); burst(cx, cy, '#ffd76a', 13);
   } else {
@@ -394,6 +420,29 @@ function hitBrick(b){
   if (!capsule && Math.random() < 0.12) capsule = { x: cx, y: cy, vy: 135 };
   hud();
   if (bricksAlive <= 0) advanceLevel();
+}
+
+/* ---- BONUS BREAKOUT: the Luna Classic block takes the whole wall with it.
+   Every remaining brick breaks in a ripple outward from the special block,
+   each paying its normal value (gold 50, everything else 10). ---- */
+function startBreakout(src){
+  sndBreakout();
+  toast('BONUS BREAKOUT!');
+  const sx = src.x + src.w / 2, sy = src.y + src.h / 2;
+  const rest = bricks.filter(b => b.alive);
+  const dist = b => Math.hypot(b.x + b.w / 2 - sx, b.y + b.h / 2 - sy);
+  rest.sort((a, b2) => dist(a) - dist(b2));
+  cascade = { t: 0, items: rest.map(b => ({ b, at: 0.05 + dist(b) / 900 })) };
+}
+function breakBrickCascade(b){
+  b.alive = false; bricksAlive--;
+  const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+  if (b.type === 'gold'){
+    score += 50; sndGold(); addFloater(cx, cy, '+50', '#ffd76a'); burst(cx, cy, '#ffd76a', 13);
+  } else {
+    score += 10; sndBrick(b.row); addFloater(cx, cy, '+10', '#d8fffb'); burst(cx, cy, ROW_COLORS[b.row % ROW_COLORS.length], 9);
+  }
+  hud();
 }
 
 function stepBall(dt){
@@ -461,6 +510,21 @@ function update(dt){
   particles = particles.filter(p => p.life > 0);
   for (const f of floaters){ f.y -= 34 * dt; f.life -= dt; }
   floaters = floaters.filter(f => f.life > 0);
+
+  /* BONUS BREAKOUT cascade: queued bricks break nearest-first as their
+     stagger time arrives; when the wall is gone, the level completes
+     through the normal flow */
+  if (cascade){
+    cascade.t += dt;
+    while (cascade.items.length && cascade.items[0].at <= cascade.t){
+      const it = cascade.items.shift();
+      if (it.b.alive) breakBrickCascade(it.b);
+    }
+    if (!cascade.items.length){
+      cascade = null;
+      if (bricksAlive <= 0 && (state === 'play' || state === 'serve')) advanceLevel();
+    }
+  }
 
   if (state !== 'serve' && state !== 'play') return;
   elapsed += dt;
@@ -535,7 +599,26 @@ function draw(){
   /* bricks */
   for (const b of bricks){
     if (!b.alive) continue;
-    if (b.type === 'gold'){
+    if (b.type === 'special'){ /* the Luna Classic block: pulsing gold, crescent + LUNC */
+      const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+      const pulse = 0.55 + 0.45 * Math.sin(drawT * 5);
+      ctx.save();
+      ctx.shadowColor = 'rgba(255,183,0,.95)';
+      ctx.shadowBlur = 13 + 11 * pulse;
+      const sg = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
+      sg.addColorStop(0, '#ffe98a'); sg.addColorStop(0.5, '#ffc928'); sg.addColorStop(1, '#f59e0b');
+      ctx.fillStyle = sg;
+      rr(b.x, b.y, b.w, b.h, 5); ctx.fill();
+      ctx.restore();
+      ctx.strokeStyle = '#fff3b0'; ctx.lineWidth = 1.8;
+      rr(b.x + 1, b.y + 1, b.w - 2, b.h - 2, 4); ctx.stroke();
+      ctx.fillStyle = '#8a5a00';
+      ctx.beginPath(); ctx.arc(cx - 17, cy, 5.6, 0, 6.29); ctx.fill();
+      ctx.fillStyle = '#ffc928';
+      ctx.beginPath(); ctx.arc(cx - 14.4, cy - 1.4, 4.5, 0, 6.29); ctx.fill();
+      ctx.fillStyle = '#7c4a00'; ctx.font = '900 10px system-ui, sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('LUNC', cx + 10, cy + 3.5);
+    } else if (b.type === 'gold'){
       ctx.fillStyle = '#ffd76a';
       rr(b.x, b.y, b.w, b.h, 5); ctx.fill();
       ctx.strokeStyle = '#b8860b'; ctx.lineWidth = 1.5; ctx.stroke();
@@ -783,6 +866,10 @@ window.LB = {
   get bricks(){ return bricks; },
   get capsule(){ return capsule; },
   get wideT(){ return wideT; },
+  get specials(){ return bricks.filter(b => b.type === 'special'); },
+  get cascade(){ return cascade; },
+  loadLevel(lv){ level = lv; buildLevel(lv); hud(); },
+  forceHitSpecial(){ const s = bricks.find(b => b.alive && b.type === 'special'); if (s && state === 'play') hitBrick(s); },
   startRun(){ $('startScreen').style.display = 'none'; startRun(); },
   launch(){ launchBall(); },
   setPaddleTarget(x){ paddle.target = x; },
