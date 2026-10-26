@@ -3,8 +3,8 @@
 // Vercel project is on the Hobby plan, which caps a deployment at 12
 // serverless functions, so newer games share this router instead of each
 // getting a score+board pair).
-//   POST /api/luna-games?game=penalty|darts|blocks  {name, score, seconds, initData?}
-//   GET  /api/luna-games?game=penalty|darts|blocks  -> {all, week}
+//   POST /api/luna-games?game=penalty|darts|blocks|rider  {name, score, seconds, initData?}
+//   GET  /api/luna-games?game=penalty|darts|blocks|rider  -> {all, week}
 // Stores each player's BEST score in Upstash Redis sorted sets (all-time +
 // current ISO week) plus a name map, per game prefix. Telegram WebApp
 // initData is verified against the LUNC Assistant Bot token when present
@@ -18,6 +18,7 @@ const GAMES = {
   penalty: { prefix: 'pen', maxScore: 800, minSec: 10, maxSec: 900, rateMul: 30, rateBase: 150 },
   darts: { prefix: 'darts', maxScore: 500, minSec: 10, maxSec: 900, rateMul: 30, rateBase: 150 },
   blocks: { prefix: 'blocks', maxScore: 12000, minSec: 20, maxSec: 14400, rateMul: 12, rateBase: 300 },
+  rider: { prefix: 'moto', maxScore: 24000, minSec: 10, maxSec: 1800, rateMul: 180, rateBase: 2500 },
 };
 
 function weekKey(d = new Date()) {
