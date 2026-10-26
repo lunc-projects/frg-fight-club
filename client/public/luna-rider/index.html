@@ -130,7 +130,8 @@
   <h1>LUNA <span class="gold">RIDER</span></h1>
   <p>Ride the gold moon-bike across the lunar wilds. <b>Right side = throttle</b>, <b>left side = brake</b> —
      and in the air they lean you: throttle tips you <b>back</b>, brake tips you <b>forward</b>.
-     Land flips for +150, hold a wheelie or a stoppie for +25 a second, catch big air for +50, grab the crescent coins — and whatever you do, don't land on your head. 🏁</p>
+     Land flips for +150, hold a wheelie or a stoppie for +25 a second, catch big air for +50, grab the crescent coins — and whatever you do, don't land on your head.
+     The three sender jumps — the biggest chasms on stages 4, 5 and 6 — give the longest air in the game: hit them flat-out and lean to flip — then counter-lean to stop the spin and level out for the landing. 🚀🏁</p>
   <div class="small">CHOOSE YOUR START STAGE</div>
   <div id="stagePicker"></div>
   <button class="play" id="startBtn">▶ RIDE</button>
@@ -314,14 +315,63 @@ function baseGround(x){
   y = lerp(y, rawGround(st, fx - 240), sOut);
   return clamp(y, 268, 492);
 }
+/* ============ SENDER (mega) jumps ============
+   Three designated chasms — the last chasm of stages 4, 5 and 6 — are built
+   as sender jumps: a taller smoothstep launch lip (80px over 220px, vs the
+   stock 15px over 80px), a gap widened by 50px, and a deep landing bowl on
+   the far side: the surface drops dip0 below the base field at the edge,
+   keeps falling gently (another `run` px over `runLen`, smoothstep so the
+   slope never exceeds ~0.47), holds, then blends back to the base field over
+   1000px. Measured (headless, real physics): no-lean flight over a sender is
+   0.50 / 0.53 / 0.60s on stages 4 / 5 / 6 vs 0.18-0.28s for a stock chasm —
+   BIG AIR (+50) on every crossing, and with the balance control (counter-lean
+   arrest + hands-off spin bleed, at the physics loop) a rider can pitch the
+   bike out and settle it back for the landing.
+   A full 360 on a sender was the design goal but is NOT reachable in this
+   physics: a managed 2pi (spin up at the +-9.5 rad/s clamp, then arrest)
+   needs ~1s of air, and the world cannot give it — base terrain is clamped
+   to y in [268, 492], the void kills at bike.y>760, so the deepest
+   survivable landing surface sits ~734 and the free-fall ceilings at these
+   three lips are 0.69 / 0.72 / 0.75s; the landing corner rule (bike centre
+   must not cross a surface >~20px below it) caps the bowl's near edge too.
+   The senders are the honest maximum: the biggest, longest jumps the
+   no-lean autopilot still clears untouched.
+   Keyed "stageIdx:chasmIdx"; siting is absolute (cxAbs) so the fairness
+   nudge in buildStage never moves a sender. */
+const MEGA = {
+  '3:1': { cxAbs:2660, lip:80, lipRun:220, widen:50, dip0:110, run:170, runLen:540, hold:240, blend:1000 },
+  '4:2': { cxAbs:2790, lip:80, lipRun:220, widen:50, dip0:110, run:170, runLen:540, hold:240, blend:1000 },
+  '5:2': { cxAbs:3020, lip:80, lipRun:220, widen:50, dip0:230, run:170, runLen:540, hold:240, blend:1000 },
+};
+function megaFor(si, i){ return MEGA[si + ':' + i] || null; }
 function groundY(x){
   let y = baseGround(x);
   /* launch lip: the ground rises ~15px over the last 80px before each chasm,
-     lofting the bike so a flat-out crossing doesn't drop into the far wall */
-  for (const [cx] of effChasms){
-    if (x > cx - 80 && x < cx){
-      const t = (x - (cx - 80)) / 80, s = t * t * (3 - 2 * t);
-      y -= 15 * s;
+     lofting the bike so a flat-out crossing doesn't drop into the far wall.
+     Sender chasms get their big smoothstep lip + landing bowl instead. */
+  for (let i = 0; i < effChasms.length; i++){
+    const [cx, cw] = effChasms[i];
+    const mg = megaFor(stageIdx, i);
+    if (mg){
+      if (x > cx - mg.lipRun && x < cx){
+        const t = (x - (cx - mg.lipRun)) / mg.lipRun, sm = t * t * (3 - 2 * t);
+        y -= mg.lip * sm;
+      }
+      const ex = cx + cw, d = x - ex;
+      if (d >= 0){
+        if (d < mg.runLen){
+          const t = d / mg.runLen, sm = t * t * (3 - 2 * t);
+          y += mg.dip0 + mg.run * sm;
+        } else if (d < mg.runLen + mg.hold){
+          y += mg.dip0 + mg.run;
+        } else if (d < mg.runLen + mg.hold + mg.blend){
+          const t = (d - mg.runLen - mg.hold) / mg.blend, sm = t * t * (3 - 2 * t);
+          y += (mg.dip0 + mg.run) * (1 - sm);
+        }
+      }
+    } else if (x > cx - 80 && x < cx){
+      const t = (x - (cx - 80)) / 80, sm = t * t * (3 - 2 * t);
+      y -= 15 * sm;
     }
   }
   return y;
@@ -383,7 +433,10 @@ function buildStage(idx){
      field): the approach must not climb steeply into the lip (a climb bleeds
      the speed the jump needs), and the far side must sit well BELOW the
      take-off lip so a falling bike meets ground, not a cliff corner */
-  effChasms = st.chasms.map(([cx, cw]) => {
+  effChasms = st.chasms.map(([cx, cw], ci) => {
+    /* sender jumps sit at their surveyed spot, widened — never nudged */
+    const mg = megaFor(idx, ci);
+    if (mg) return [mg.cxAbs, cw + mg.widen];
     let best = cx, bestBad = Infinity;
     for (let x = cx; x < Math.min(cx + 640, st.len - 520); x += 20){
       const climb = baseGround(x - 130) - baseGround(x - 10);      /* >0: approach rises into the lip */
@@ -468,15 +521,37 @@ function stepBike(dt){
         dust.push({ x: wp.x - 6, y: gy - 3, vx: -bike.vx * 0.25 - 22 - Math.random() * 26, vy: -34 - Math.random() * 42, life: 0.55, r: 3 + Math.random() * 4.5 });
       }
     }
-    /* in-air lean: throttle tips back (nose up = ang decreases), brake tips forward.
-       Torque doubled 8400 -> 16800 (spin-up alpha 4.0 -> 8.0 rad/s^2): a held lean
-       used to rotate only ~25deg on the game's biggest jump; now ~51deg — real
-       pitch authority, while a throttle held through that same jump still lands
-       inside the |ang| > 1.85 crash window. */
+    /* in-air lean + BALANCE control (Steve, 2026-10-26: "they should be able to
+       balance themselves in the game as they're doing the flip"):
+       - throttle tips back (nose up = ang decreases), brake tips forward;
+         base torque 21000 (alpha 10 rad/s^2) — the measured ceiling: at alpha
+         12 the throttle-glued rider starts head-planting on ordinary hops.
+       - COUNTER-LEAN ARREST: an input opposing the spin while |av| > 2 gets
+         2.6x torque (alpha ~26): spin up gently, then brake the spin
+         decisively and level the bike for landing. A flip is managed, not
+         fired-and-forgotten.
+       - HANDS OFF: with neither input held, spin bleeds at 2.4/s (the old
+         rate was 0.05) — release the controls and the rotation dies within a
+         fraction of a second, but the ANGLE stays where it is: no snap to
+         level, so an upside-down bike still lands on its head. Skill, not a
+         save.
+       - spin clamp stays at the shipped +-9.5: widening it over-rotates the
+         long-drop flip and it stops banking.
+       A full 360 from rest needs alpha*t^2/2 >= 2pi (~1.12s at alpha 10); the
+       world's drop budget caps survivable flights at ~0.75s (see the MEGA
+       note at groundY), so in normal play flips bank on long drops — where
+       the arrest lets a rider stop the spin right at 2pi and land level —
+       and the sender jumps are the biggest air in the game. */
     if (!anyContact){
-      if (input.throttle) torque += -16800;
-      if (input.brake) torque += 16800;
-      bike.av *= (1 - 0.05 * sd);   /* barely any air drag on rotation — flips need the spin to survive */
+      const lean = (input.brake ? 1 : 0) - (input.throttle ? 1 : 0);   /* +1 tips forward, -1 tips back */
+      if (lean !== 0){
+        let tq = lean * 21000;
+        if (Math.sign(tq) !== Math.sign(bike.av) && Math.abs(bike.av) > 2) tq *= 2.6;   /* counter-lean arrest */
+        torque += tq;
+        bike.av *= (1 - 0.05 * sd);   /* spin persists while a lean is held */
+      } else {
+        bike.av *= (1 - 2.4 * sd);    /* hands off: the spin bleeds away, the angle holds */
+      }
     } else {
       bike.av *= (1 - 4.4 * sd);
     }
