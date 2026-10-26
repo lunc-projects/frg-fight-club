@@ -30,13 +30,27 @@
     color:#ffd76a; text-shadow:0 0 18px rgba(255,183,0,.8), 0 2px 12px rgba(0,0,0,.7);
     opacity:0; transition:opacity .15s; pointer-events:none;
   }
-  #pad { position:fixed; left:0; right:0; bottom:10px; z-index:5; display:flex; justify-content:flex-end; padding:0 14px; pointer-events:none; }
+  /* control deck: a fixed band under the play field. It is an in-flow flex
+     child, so #cvwrap (flex:1) shrinks by the band height and fit() renders
+     the world — floor line included — that much higher on screen. The thumb
+     works in this strip and never covers the eagle. */
+  #controlBand {
+    position:relative; flex:0 0 auto; height:104px; z-index:5;
+    background:
+      repeating-linear-gradient(90deg, rgba(255,255,255,.028) 0 2px, transparent 2px 46px),
+      linear-gradient(180deg, #0a1233, #04081a 72%);
+    border-top:2px solid rgba(57,230,255,.35);
+    box-shadow:0 -8px 22px rgba(0,0,0,.5), inset 0 0 24px rgba(57,230,255,.05);
+  }
+  #pad { position:absolute; right:0; top:0; bottom:0; width:96px; display:flex; align-items:center; justify-content:center; pointer-events:none; }
   .padR { display:flex; gap:12px; pointer-events:none; }
-  /* virtual joystick — one floating stick in the left control zone; the base
-     appears where the thumb lands and the knob follows it */
-  #stickZone { position:fixed; left:0; bottom:0; width:52vw; max-width:480px; height:54dvh; max-height:440px; z-index:5; pointer-events:auto; touch-action:none; }
+  /* virtual joystick — one floating stick in the control band; the base
+     appears where the thumb lands and the knob follows it. The zone stops
+     96px short of the right edge: that corner belongs to the screech button
+     (keep in sync with STICK_CARVE in the script). */
+  #stickZone { position:absolute; left:0; top:0; bottom:0; right:96px; pointer-events:auto; touch-action:none; }
   #stickBase {
-    position:absolute; left:88px; top:calc(100% - 88px); width:112px; height:112px; margin:-56px 0 0 -56px;
+    position:absolute; left:calc(50% + 48px); top:50%; width:96px; height:96px; margin:-48px 0 0 -48px;
     border-radius:50%; border:2px solid rgba(57,230,255,.5); background:rgba(10,20,50,.32);
     box-shadow:0 0 16px rgba(57,230,255,.22), inset 0 0 18px rgba(57,230,255,.1);
     opacity:.4; pointer-events:none;
@@ -147,18 +161,19 @@
 </div>
 <div id="cvwrap"><canvas id="game"></canvas></div>
 
+<div id="controlBand">
+  <div id="stickZone">
+    <div id="stickBase"><div id="stickKnob"></div></div>
+  </div>
+  <div id="pad">
+    <div class="padR">
+      <button class="cbtn gold screech" id="btnS">📣</button>
+    </div>
+  </div>
+</div>
+
 <div id="ui">
   <div id="toast"></div>
-</div>
-
-<div id="stickZone">
-  <div id="stickBase"><div id="stickKnob"></div></div>
-</div>
-
-<div id="pad">
-  <div class="padR">
-    <button class="cbtn gold screech" id="btnS">📣</button>
-  </div>
 </div>
 
 <div id="pvUi">
@@ -2502,7 +2517,9 @@ addEventListener('keyup', e => {
    ONE stick replaces the old left/right/jump buttons (whose touchstart/
    touchend binding could leave a direction stuck true when a finger slid
    off, a second finger landed, or the touch was interrupted). The stick
-   floats in the left control zone: where the thumb lands becomes the base.
+   lives in the control band under the play field (the band reserves its
+   strip in the layout, so the floor renders above it and the thumb never
+   covers the eagle): where the thumb lands in the band becomes the base.
      push left/right past 14px  -> run
      push up past -20px         -> jump (queued once per push); held up = glide
      push down past +22px       -> fastFall dive (airborne only)
@@ -2512,6 +2529,9 @@ addEventListener('keyup', e => {
    so the eagle can never run on its own again. */
 const stickZone = $('stickZone'), stickBase = $('stickBase'), stickKnob = $('stickKnob');
 const STICK_R = 48;                /* knob travel radius, px */
+const STICK_CARVE = 96;            /* px at the band's right end reserved for
+                                      the screech button; the zone's CSS
+                                      right offset must match this value */
 let stickId = null;                /* active pointerId; null = no thumb down */
 let stickBx = 0, stickBy = 0;      /* base center, client coords */
 let stickUpOn = false;             /* up-zone latch: jump queues once per push */
@@ -2524,7 +2544,10 @@ function stickShow(on, kx, ky){
 }
 function stickHome(){
   const r = stickZone.getBoundingClientRect();
-  stickBx = r.left + 88; stickBy = r.top + r.height - 88;
+  /* idle home: horizontal center of the BAND (the zone ends STICK_CARVE px
+     short of the band's right edge, so band center = zone center + half the
+     carve) and vertical middle of the band */
+  stickBx = r.left + (r.width + STICK_CARVE) / 2; stickBy = r.top + r.height / 2;
   stickShow(false, 0, 0);
 }
 function stickClear(){
@@ -2549,9 +2572,11 @@ stickZone.addEventListener('pointerdown', e => {
   if (stickId !== null) return;                    /* one thumb only */
   stickId = e.pointerId;
   try { stickZone.setPointerCapture(stickId); } catch (err) {}
-  const r = stickZone.getBoundingClientRect(), R = 58;
-  stickBx = Math.min(Math.max(e.clientX, r.left + R), r.right - R);
-  stickBy = Math.min(Math.max(e.clientY, r.top + R), r.bottom - R);
+  const r = stickZone.getBoundingClientRect(), RX = 58;
+  const RY = Math.min(58, r.height / 2);   /* the band is short: never let the
+                                              vertical clamp range invert */
+  stickBx = Math.min(Math.max(e.clientX, r.left + RX), r.right - RX);
+  stickBy = Math.min(Math.max(e.clientY, r.top + RY), r.bottom - RY);
   stickUpOn = false;
   stickApply(e.clientX, e.clientY);
 });
