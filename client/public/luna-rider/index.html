@@ -131,7 +131,7 @@
   <p>Ride the gold moon-bike across the lunar wilds. <b>Right side = throttle</b>, <b>left side = brake</b> —
      and in the air they lean you: throttle tips you <b>back</b>, brake tips you <b>forward</b>.
      Land flips for +150, hold a wheelie or a stoppie for +25 a second, catch big air for +50, grab the crescent coins — and whatever you do, don't land on your head.
-     The three sender jumps — the biggest chasms on stages 4, 5 and 6 — give the longest air in the game: hit them flat-out and lean to flip — then counter-lean to stop the spin and level out for the landing. 🚀🏁</p>
+     The three sender jumps — the biggest chasms on stages 4, 5 and 6 — wear striped kicker lips: hit one flat-out and the lip pops you sky-high. That's your flip air — lean to spin the full 360, counter-lean to stop it, land it for +150. 🚀🏁</p>
   <div class="small">CHOOSE YOUR START STAGE</div>
   <div id="stagePicker"></div>
   <button class="play" id="startBtn">▶ RIDE</button>
@@ -322,26 +322,24 @@ function baseGround(x){
    the far side: the surface drops dip0 below the base field at the edge,
    keeps falling gently (another `run` px over `runLen`, smoothstep so the
    slope never exceeds ~0.47), holds, then blends back to the base field over
-   1000px. Measured (headless, real physics): no-lean flight over a sender is
-   0.50 / 0.53 / 0.60s on stages 4 / 5 / 6 vs 0.18-0.28s for a stock chasm —
-   BIG AIR (+50) on every crossing, and with the balance control (counter-lean
-   arrest + hands-off spin bleed, at the physics loop) a rider can pitch the
-   bike out and settle it back for the landing.
-   A full 360 on a sender was the design goal but is NOT reachable in this
-   physics: a managed 2pi (spin up at the +-9.5 rad/s clamp, then arrest)
-   needs ~1s of air, and the world cannot give it — base terrain is clamped
-   to y in [268, 492], the void kills at bike.y>760, so the deepest
-   survivable landing surface sits ~734 and the free-fall ceilings at these
-   three lips are 0.69 / 0.72 / 0.75s; the landing corner rule (bike centre
-   must not cross a surface >~20px below it) caps the bowl's near edge too.
-   The senders are the honest maximum: the biggest, longest jumps the
-   no-lean autopilot still clears untouched.
+   1000px. Terrain alone gives a no-lean sender flight of 0.50 / 0.53 / 0.60s
+   on stages 4 / 5 / 6 vs 0.18-0.28s for a stock chasm.
+   SENDER BOOST (Steve's pick, 2026-10-26): terrain alone can never give a
+   full 360 — a managed 2pi (spin up at the +-9.5 rad/s clamp, then arrest)
+   needs ~1.2s of air, and the world's height budget caps any survivable
+   terrain fall at ~0.75s (base terrain clamped to y in [268, 492], the void
+   kills at bike.y>760). So each sender lip is a KICKER: leaving the ground
+   off a sender lip applies a one-time upward impulse (`boost`, px/s, tuned
+   per sender at the physics loop) that stretches the flight to ~1.2-1.3s —
+   real flip air. The boost is the jump's character: it fires on EVERY
+   crossing, leaning or not, exactly once per crossing, and never anywhere
+   else. The lip face wears glow chevron stripes so players learn it.
    Keyed "stageIdx:chasmIdx"; siting is absolute (cxAbs) so the fairness
    nudge in buildStage never moves a sender. */
 const MEGA = {
-  '3:1': { cxAbs:2660, lip:80, lipRun:220, widen:50, dip0:110, run:170, runLen:540, hold:240, blend:1000 },
-  '4:2': { cxAbs:2790, lip:80, lipRun:220, widen:50, dip0:110, run:170, runLen:540, hold:240, blend:1000 },
-  '5:2': { cxAbs:3020, lip:80, lipRun:220, widen:50, dip0:230, run:170, runLen:540, hold:240, blend:1000 },
+  '3:1': { cxAbs:2660, lip:80, lipRun:220, widen:50, dip0:110, run:170, runLen:540, hold:240, blend:1000, boost:830 },
+  '4:2': { cxAbs:2790, lip:80, lipRun:220, widen:50, dip0:110, run:170, runLen:540, hold:240, blend:1000, boost:790 },
+  '5:2': { cxAbs:3020, lip:80, lipRun:220, widen:50, dip0:230, run:170, runLen:540, hold:240, blend:1000, boost:730 },
 };
 function megaFor(si, i){ return MEGA[si + ':' + i] || null; }
 function groundY(x){
@@ -407,7 +405,8 @@ for (let i = 0; i < 130; i++) stars.push({ x: Math.random() * 1600, y: Math.rand
 /* ================= bike ================= */
 const GRAV = 1500, WR = 11, WB2 = 24, WOY = 8;      /* gravity, wheel radius, half wheelbase, wheel y-offset */
 const bike = { x:90, y:300, vx:0, vy:0, ang:0, av:0, grounded:false, airTime:0, airRot:0, flipsPending:0, flipDir:0,
-               wheelieT:0, wheeliePaid:0, stoppieT:0, stoppiePaid:0 };
+               wheelieT:0, wheeliePaid:0, stoppieT:0, stoppiePaid:0,
+               boostArm:false, boostCx:-1, boostCw:0, boostMg:null, boostUsed:false, boosts:0 };
 function wheelPos(which){ /* which: -1 rear, +1 front — local offsets rotated by ang */
   const c = Math.cos(bike.ang), s = Math.sin(bike.ang);
   const lx = which * WB2, ly = WOY;
@@ -423,6 +422,7 @@ function resetBikeAt(x){
   bike.vx = 0; bike.vy = 0; bike.ang = Math.atan(groundSlope(x)); bike.av = 0;
   bike.grounded = false; bike.airTime = 0; bike.airRot = 0; bike.flipsPending = 0;
   bike.wheelieT = 0; bike.wheeliePaid = 0; bike.stoppieT = 0; bike.stoppiePaid = 0;
+  bike.boostArm = false; bike.boostCx = -1; bike.boostCw = 0; bike.boostMg = null; bike.boostUsed = false; bike.boosts = 0;
   camX = Math.max(0, x - 240); camY = clamp(bike.y - 330, -70, 150);
 }
 function buildStage(idx){
@@ -521,6 +521,32 @@ function stepBike(dt){
         dust.push({ x: wp.x - 6, y: gy - 3, vx: -bike.vx * 0.25 - 22 - Math.random() * 26, vy: -34 - Math.random() * 42, life: 0.55, r: 3 + Math.random() * 4.5 });
       }
     }
+    /* SENDER BOOST: riding a sender lip arms the kicker; the first airborne
+       substep off that lip (moving forward, front wheel near/past the edge)
+       fires ONE upward impulse — the pop that buys flip air. It fires on
+       every crossing, leaning or not: it's the jump's character. The latch
+       (boostUsed) holds for the whole corridor (lip + chasm + landing run)
+       and clears only once the bike is grounded outside it, so a crossing
+       can never double-fire; ordinary jumps never arm, so they never pop. */
+    if (anyContact){
+      bike.boostArm = false;
+      for (let i = 0; i < effChasms.length; i++){
+        const mg = megaFor(stageIdx, i);
+        if (!mg) continue;
+        const cx = effChasms[i][0], cw = effChasms[i][1];
+        if (bike.x + WB2 > cx - mg.lipRun && bike.x - WB2 < cx){
+          bike.boostArm = true; bike.boostCx = cx; bike.boostCw = cw; bike.boostMg = mg;
+        }
+        if (bike.boostCx === cx && (bike.x < cx - mg.lipRun - 40 || bike.x > cx + cw + 80))
+          bike.boostUsed = false;   /* grounded clear of the corridor: latch resets */
+      }
+    } else if (bike.grounded && bike.boostArm && !bike.boostUsed && bike.vx > 60
+               && bike.x + WB2 >= bike.boostCx - 80){
+      bike.vy -= bike.boostMg ? bike.boostMg.boost : 700;
+      bike.boostUsed = true; bike.boosts++;
+      addFloater(bike.x, bike.y - 70, '🚀 BOOST!', '#7dfce9');
+      sndTrick();
+    }
     /* in-air lean + BALANCE control (Steve, 2026-10-26: "they should be able to
        balance themselves in the game as they're doing the flip"):
        - throttle tips back (nose up = ang decreases), brake tips forward;
@@ -538,10 +564,10 @@ function stepBike(dt){
        - spin clamp stays at the shipped +-9.5: widening it over-rotates the
          long-drop flip and it stops banking.
        A full 360 from rest needs alpha*t^2/2 >= 2pi (~1.12s at alpha 10); the
-       world's drop budget caps survivable flights at ~0.75s (see the MEGA
-       note at groundY), so in normal play flips bank on long drops — where
-       the arrest lets a rider stop the spin right at 2pi and land level —
-       and the sender jumps are the biggest air in the game. */
+       world's drop budget caps survivable TERRAIN flights at ~0.75s (see the
+       MEGA note), so the sender boost (above) is what buys real flip air:
+       ~1.2-1.3s off the three striped kicker lips, where a rider spins up,
+       counter-leans to stop the spin right at 2pi, and lands it for +150. */
     if (!anyContact){
       const lean = (input.brake ? 1 : 0) - (input.throttle ? 1 : 0);   /* +1 tips forward, -1 tips back */
       if (lean !== 0){
@@ -915,6 +941,24 @@ function draw(){
   }
   if (pen){ ctx.lineTo(viewR, camY + VH + 220); ctx.closePath(); }
   ctx.fillStyle = st.ground; ctx.fill();
+  /* sender kicker stripes: glow chevrons marching up each sender lip face,
+     so players learn "that lip pops you" (see MEGA / SENDER BOOST) */
+  for (let i = 0; i < effChasms.length; i++){
+    const mg = megaFor(stageIdx, i);
+    if (!mg) continue;
+    const cx = effChasms[i][0];
+    if (cx < viewL || cx - mg.lipRun > viewR) continue;
+    ctx.lineWidth = 5;
+    let k = 0;
+    for (let sx = cx - mg.lipRun + 6; sx + 16 < cx; sx += 24, k++){
+      ctx.strokeStyle = k % 2 ? st.glow : 'rgba(10,14,34,.85)';
+      ctx.beginPath();
+      ctx.moveTo(sx, groundY(sx) + 11);
+      ctx.lineTo(sx + 8, groundY(sx + 8) + 3);
+      ctx.lineTo(sx + 16, groundY(sx + 16) + 11);
+      ctx.stroke();
+    }
+  }
   /* terrain surface line + chasm walls */
   ctx.strokeStyle = st.edge; ctx.lineWidth = 3.4; ctx.lineCap = 'round';
   ctx.beginPath();
