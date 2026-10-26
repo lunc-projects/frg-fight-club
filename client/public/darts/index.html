@@ -73,7 +73,7 @@
   </div>
   <div id="bigScore">0</div>
   <div id="toast"></div>
-  <div id="hint">Hold to aim — the crosshair sways. Let go to throw 🎯</div>
+  <div id="hint">Hold to aim — the board drifts, the crosshair sways. Let go to throw 🎯</div>
 </div>
 
 <div class="screen" id="startScreen">
@@ -81,7 +81,7 @@
   <div class="small">LUNA CLASSIC</div>
   <h1>🎯 DARTS</h1>
   <p>Ten darts at the Luna board. <b>Hold</b> anywhere to bring up the crosshair — it sways, and the sway grows as you tire.
-     <b>Release</b> to throw. Rings score 5 / 10 / 15 / 20 / 25, and the golden bull is <b>50</b>. Max score 500.</p>
+     The board itself <b>drifts</b> while you aim, so time your throw. <b>Release</b> to throw. Rings score 5 / 10 / 15 / 20 / 25, and the golden bull is <b>50</b>. Max score 500.</p>
   <button class="play" id="startBtn">PLAY</button>
   <button class="play alt" id="boardBtn">🏆 LEADERBOARD</button>
 </div>
@@ -140,11 +140,31 @@ const $ = id => document.getElementById(id);
 const logoImg = new Image(); logoImg.src = 'lunc.png';   /* official LUNC token icon (self-hosted) */
 
 /* ================= board ================= */
-let board = { x:0, y:0, R:0 };
+let board = { x:0, y:0, R:0, hx:0, hy:0, ampX:0, ampY:0, fx:0.8, fy:0.58 };
+let driftT = Math.random() * 30;   /* board-drift clock (s): never resets, never pauses */
 function layout(){
-  board.x = W / 2;
-  board.y = H * 0.40;
+  board.hx = W / 2;
+  board.hy = H * 0.40;
   board.R = Math.min(W, H) * 0.315;
+  /* Drift amplitude: a big slice of the field (±22% of the smaller dimension),
+     trimmed so the board's outer ring — plus a margin — never clips the canvas
+     edges or the HUD pill across the top. */
+  const want = Math.min(W, H) * 0.22;
+  const slackX = board.hx - board.R - 8;
+  const slackY = Math.min(board.hy - board.R - 64, H - board.hy - board.R - 8);
+  board.ampX = Math.max(0, Math.min(want, slackX));
+  board.ampY = Math.max(0, Math.min(want, slackY));
+  /* Two different slow frequencies (a wandering Lissajous, not a circle),
+     scaled so the board travels at roughly 40-70 px/s. */
+  board.fx = Math.min(1.05, Math.max(0.30, 50 / Math.max(board.ampX, 1)));
+  board.fy = board.fx * 0.73;
+  if (board.ampY * board.fy > 72) board.fy = 72 / Math.max(board.ampY, 1);
+  updateBoard();
+}
+/* The board's center wanders continuously — while aiming, mid-flight, always. */
+function updateBoard(){
+  board.x = board.hx + Math.sin(driftT * board.fx) * board.ampX;
+  board.y = board.hy + Math.sin(driftT * board.fy + 1.7) * board.ampY;
 }
 /* ring table: [outer fraction of R, points] — checked from outside in via dist */
 const RINGS = [
@@ -167,7 +187,7 @@ let dartsLeft = DARTS, bulls = 0;
 let running = false, phase = 'aim';     /* aim | fly | settle */
 let aiming = false, aimX = 0, aimY = 0, swayT = Math.random() * 10;
 let dart = { x:0, y:0, t:0, dur:0.22, sx:0, sy:0, tx:0, ty:0 };
-let landed = [];                        /* {x, y, pts} stuck in the board */
+let landed = [];                        /* {dx, dy, pts} board-relative: stuck darts ride the board */
 let settleUntil = 0;
 
 function reset(full){
@@ -189,7 +209,7 @@ function gameOver(){
   best = Math.max(best, score); localStorage.setItem('dartsBest', best);
   $('overStats').innerHTML =
     `Score <b>${score}</b> · Best <b>${best}</b> · Bulls <b>${bulls}</b><br>` +
-    (score >= 350 ? 'Pro thrower! 🎯🔥' : score >= 250 ? 'Sharp darts — the bull loves you.' : score >= 150 ? 'Solid arm. Watch the sway, throw on the settle.' : 'The sway got you — hold, breathe, release as it crosses the gold.');
+    (score >= 350 ? 'Pro thrower! 🎯🔥' : score >= 250 ? 'Sharp darts — the bull loves you.' : score >= 150 ? 'Solid arm. Watch the drift and the sway, throw on the settle.' : 'The drift got you — hold, breathe, release as the board crosses your aim.');
   $('overScreen').style.display = 'flex';
   $('hint').style.display = 'none';
 }
@@ -222,12 +242,15 @@ addEventListener('pointerup', e => {
 });
 
 function resolveDart(){
+  /* judged against the board's position at the moment of impact: board.x/board.y
+     have kept drifting through the whole flight */
   const dist = Math.hypot(dart.tx - board.x, dart.ty - board.y);
   const pts = ringFor(dist);
   dartsLeft--;
   if (pts === 50) bulls++;
   score += pts;
-  landed.push({ x: dart.tx, y: dart.ty, pts });
+  /* stored board-relative, so a stuck dart rides the board as it drifts */
+  landed.push({ dx: dart.tx - board.x, dy: dart.ty - board.y, pts });
   $('lastThrow').textContent = pts ? `+${pts}` : 'MISS';
   toast(pts === 50 ? 'BULL! +50 🎯' : pts ? `+${pts}` : 'Off the board! 😖', 850);
   beep(pts === 50 ? 880 : pts ? 520 : 150, 0, pts === 50 ? 0.16 : 0.09, 'sine', 0.12);
@@ -253,8 +276,8 @@ function draw(){
     ctx.restore();
   }
   drawBoard();
-  /* landed darts */
-  for (const d of landed) drawDartAt(d.x, d.y, 1.0, d.pts === 50);
+  /* landed darts: rendered from their board-relative offsets, so they travel with the board */
+  for (const d of landed) drawDartAt(board.x + d.dx, board.y + d.dy, 1.0, d.pts === 50);
   /* flying dart */
   if (phase === 'fly'){
     const e = 1 - Math.pow(1 - dart.t, 2);
@@ -331,6 +354,7 @@ function drawDartAt(x, y, s, gold){
 let lastTs = 0;
 function frame(ts){
   const dt = Math.min(0.05, (ts - lastTs) / 1000 || 0); lastTs = ts;
+  driftT += dt; updateBoard();          /* the board keeps drifting in every phase */
   if (aiming) swayT += dt;
   if (running && phase === 'fly'){
     dart.t = Math.min(1, dart.t + dt / dart.dur);
@@ -355,6 +379,25 @@ $('againBtn').addEventListener('click', () => {
 });
 fit(); reset(true); running = false; hud();
 requestAnimationFrame(frame);
+
+/* ================= debug/testing handle (same pattern as the other Luna games) ================= */
+window.DD = {
+  get board(){ return board; },
+  get landed(){ return landed; },
+  get score(){ return score; },
+  get dartsLeft(){ return dartsLeft; },
+  get phase(){ return phase; },
+  get running(){ return running; },
+  get driftT(){ return driftT; },
+  ringFor,
+  start(){ $('startScreen').style.display = 'none'; reset(true); running = true; hud(); },
+  throwAt(x, y){
+    if (!running || phase !== 'aim') return false;
+    dart.tx = x; dart.ty = y; dart.sx = W / 2; dart.sy = H * 0.97; dart.t = 0;
+    aiming = false; phase = 'fly';
+    return true;
+  },
+};
 </script>
 <script>
 /* ================= leaderboard (DARTS) ================= */
