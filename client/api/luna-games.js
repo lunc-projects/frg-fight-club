@@ -1,10 +1,11 @@
-// LUNA GAMES — shared leaderboard endpoint for Penalty Kick, Darts and
-// Luna Blocks (one serverless function for all three; the frg-fight-club
-// Vercel project is on the Hobby plan, which caps a deployment at 12
+// LUNA GAMES — shared leaderboard endpoint for Penalty Kick, Darts,
+// Luna Blocks, Luna Rider, Luna Pool, Zombie Defense and Luna Breakout
+// (one serverless function for all of them; the frg-fight-club Vercel
+// project is on the Hobby plan, which caps a deployment at 12
 // serverless functions, so newer games share this router instead of each
 // getting a score+board pair).
-//   POST /api/luna-games?game=penalty|darts|blocks|rider  {name, score, seconds, initData?}
-//   GET  /api/luna-games?game=penalty|darts|blocks|rider  -> {all, week}
+//   POST /api/luna-games?game=penalty|darts|blocks|rider|pool|zombie|breakout  {name, score, seconds, initData?}
+//   GET  /api/luna-games?game=penalty|darts|blocks|rider|pool|zombie|breakout  -> {all, week}
 // Stores each player's BEST score in Upstash Redis sorted sets (all-time +
 // current ISO week) plus a name map, per game prefix. Telegram WebApp
 // initData is verified against the LUNC Assistant Bot token when present
@@ -19,6 +20,9 @@ const GAMES = {
   darts: { prefix: 'darts', maxScore: 500, minSec: 10, maxSec: 900, rateMul: 30, rateBase: 150 },
   blocks: { prefix: 'blocks', maxScore: 12000, minSec: 20, maxSec: 14400, rateMul: 12, rateBase: 300 },
   rider: { prefix: 'moto', maxScore: 24000, minSec: 10, maxSec: 1800, rateMul: 180, rateBase: 2500 },
+  pool: { prefix: 'pool', maxScore: 1050, minSec: 20, maxSec: 1800, rateMul: 0, rateBase: 1050 },
+  zombie: { prefix: 'zom', maxScore: 12000, minSec: 5, maxSec: 1800, rateMul: 45, rateBase: 1500 },
+  breakout: { prefix: 'brk', maxScore: 40000, minSec: 10, maxSec: 3600, rateMul: 30, rateBase: 1000 },
 };
 
 function weekKey(d = new Date()) {
