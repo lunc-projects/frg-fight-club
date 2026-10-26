@@ -1,0 +1,1051 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Luna Rider — Moon-Bike Trials · 6 Stages</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; padding:0; overflow:hidden; background:#070b24; height:100%; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:#fff;
+         -webkit-user-select:none; user-select:none; touch-action:none;
+         display:flex; flex-direction:column; height:100dvh; }
+  #cvwrap { position:relative; flex:1; min-height:0; }
+  #game { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  #ui { position:fixed; inset:0; pointer-events:none; }
+  #hud {
+    position:relative; flex:0 0 auto; margin:10px 10px 2px;
+    background:linear-gradient(90deg, rgba(40,26,4,.88), rgba(6,44,54,.88)); border-radius:999px; padding:8px 16px;
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    box-shadow:0 0 18px rgba(255,183,0,.22), 0 4px 18px rgba(0,0,0,.5);
+    border:1.5px solid rgba(255,215,106,.4);
+  }
+  #hudLives { font-size:17px; letter-spacing:2px; min-width:76px; }
+  #hudLevel { font-weight:900; font-size:12.5px; letter-spacing:.08em; color:#ffe9a8; white-space:nowrap; }
+  #hudCoins { font-weight:900; font-size:15.5px; color:#ffd76a; white-space:nowrap; }
+  #hudScore { font-weight:900; font-size:17px; font-variant-numeric:tabular-nums; min-width:56px; text-align:right; }
+  #toast {
+    position:absolute; top:22%; width:100%; text-align:center; font-size:26px; font-weight:900; letter-spacing:.06em;
+    color:#ffd76a; text-shadow:0 0 18px rgba(255,183,0,.8), 0 2px 12px rgba(0,0,0,.7);
+    opacity:0; transition:opacity .15s; pointer-events:none;
+  }
+  #pad { position:fixed; left:0; right:0; bottom:12px; z-index:5; display:flex; justify-content:space-between; padding:0 14px; pointer-events:none; }
+  .cbtn {
+    pointer-events:auto;
+    width:74px; height:74px; border-radius:50%; border:2px solid rgba(64,224,208,.65);
+    background:rgba(8,26,34,.55); color:#d8fffb; font-size:30px; cursor:pointer;
+    box-shadow:0 0 14px rgba(64,224,208,.3), inset 0 0 12px rgba(64,224,208,.15);
+    display:flex; align-items:center; justify-content:center; font-family:inherit;
+    -webkit-user-select:none; user-select:none; touch-action:none;
+  }
+  .cbtn:active, .cbtn.on { background:rgba(64,224,208,.35); }
+  .cbtn.gold { border-color:rgba(255,183,0,.8); color:#ffe9a8; width:86px; height:86px; font-size:36px;
+    box-shadow:0 0 16px rgba(255,183,0,.45), inset 0 0 12px rgba(255,183,0,.18); }
+  .cbtn.gold:active, .cbtn.gold.on { background:rgba(255,183,0,.35); }
+  .cbtn .lbl { position:absolute; margin-top:56px; font-size:10px; font-weight:900; letter-spacing:.14em; }
+  .screen {
+    position:fixed; inset:0; z-index:10; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:13px; text-align:center; padding:22px; background:rgba(6,12,30,.55); pointer-events:auto;
+    overflow-y:auto;
+  }
+  .screen h1 { margin:0; font-size:40px; letter-spacing:.1em; font-weight:900; color:#fff;
+    text-shadow:0 0 8px #40e0d0, 0 0 26px #40e0d0, 0 0 44px #ffb700; }
+  .screen h1 .gold { color:#ffe9a8; text-shadow:0 0 8px #ffb700, 0 0 26px #ffb700; }
+  #startScreen h1 {
+    font-size:48px; letter-spacing:.05em; text-shadow:none;
+    background:linear-gradient(180deg,#fff3b0 5%,#ffe259 40%,#ffa751 95%);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    -webkit-text-stroke:2px rgba(80,40,5,.9);
+    filter:drop-shadow(0 3px 0 rgba(80,40,5,.85)) drop-shadow(0 8px 18px rgba(0,0,0,.35));
+  }
+  .screen p { margin:0; font-size:15px; line-height:1.5; max-width:460px; opacity:.94; }
+  .screen .small { font-size:12px; letter-spacing:.22em; opacity:.65; font-weight:700; }
+  button.play {
+    cursor:pointer; border:none; color:#fff; border-radius:14px; padding:14px 40px; margin-top:6px;
+    font-size:18px; font-weight:900; letter-spacing:.07em; font-family:inherit;
+    background:linear-gradient(180deg,#4ade3d,#22b41f); box-shadow:0 5px 0 #147a0c; text-shadow:0 1px 2px rgba(0,0,0,.3);
+  }
+  button.play:active { transform:translateY(3px); box-shadow:0 2px 0 #147a0c; }
+  button.play.alt { background:linear-gradient(180deg,#8d99c9,#5a6699); box-shadow:0 5px 0 #39406b; font-size:15px; padding:12px 26px; }
+  button.play.alt:active { box-shadow:0 2px 0 #39406b; }
+  button.play:disabled { opacity:.55; }
+  #overScreen { display:none; }
+  #stageScreen { display:none; }
+  #levelPicker, #stagePicker { display:flex; gap:7px; flex-wrap:wrap; justify-content:center; max-width:460px; }
+  .lvbtn {
+    min-width:42px; height:42px; border-radius:12px; border:2px solid rgba(255,255,255,.35); padding:0 8px;
+    background:rgba(10,20,50,.55); color:#fff; font-weight:900; font-size:16px; cursor:pointer; font-family:inherit;
+  }
+  .lvbtn.sel { border-color:#ffd76a; background:rgba(255,183,0,.35); box-shadow:0 0 14px rgba(255,183,0,.45); color:#ffe9a8; }
+  .lvbtn.lock { opacity:.45; cursor:default; }
+  #nameInput { width:min(300px, 82vw); padding:12px 16px; border-radius:999px; border:1px solid rgba(255,255,255,.35); background:rgba(10,6,28,.85); color:#fff; font-size:16px; text-align:center; outline:none; font-family:inherit; pointer-events:auto; }
+  #submitStatus { min-height:18px; font-size:14px; margin:0; }
+  #boardScreen { display:none; background:rgba(3,7,20,.88); }
+  #boardList { width:min(430px, 92vw); max-height:46vh; overflow-y:auto; text-align:left; font-size:15px; }
+  #boardList .row { display:flex; justify-content:space-between; gap:10px; padding:7px 12px; border-bottom:1px solid rgba(255,255,255,.09); }
+  #boardList .row .rk { opacity:.65; width:34px; flex:0 0 auto; }
+  #boardList .row .nm { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #boardList .row .sc { font-weight:900; color:#ffd76a; }
+  .tabs { display:flex; gap:8px; }
+  #introCard { display:none; position:fixed; inset:0; z-index:9; flex-direction:column; align-items:center; justify-content:center; gap:10px; background:rgba(5,8,20,.45); text-align:center; pointer-events:auto; }
+  #introCard .icK { font-size:13px; letter-spacing:.28em; opacity:.8; font-weight:700; }
+  #introCard .icT { font-size:42px; font-weight:900; letter-spacing:.08em; text-shadow:0 3px 0 rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.6); }
+  #introCard .icS { font-size:12px; letter-spacing:.2em; opacity:.7; }
+  #muteBtn, #rstBtn { background:rgba(255,255,255,.12); border:1.5px solid rgba(255,255,255,.35); color:#fff; border-radius:999px; width:34px; height:34px; font-size:16px; cursor:pointer; font-family:inherit; flex:0 0 auto; }
+  #shareStatus { min-height:18px; font-size:14px; margin:0; }
+  .bikeBadge { font-size:64px; filter:drop-shadow(0 6px 18px rgba(255,183,0,.35)); }
+</style>
+</head>
+<body>
+<div id="hud">
+  <div id="hudLives">🪖🪖🪖</div>
+  <div id="hudLevel">STAGE 1 · MOON PLAINS</div>
+  <div id="hudCoins">🌕 0</div>
+  <div id="hudScore">0</div>
+  <button id="rstBtn" title="Restart stage (R)">↩</button>
+  <button id="muteBtn">🔊</button>
+</div>
+<div id="cvwrap"><canvas id="game"></canvas></div>
+
+<div id="ui">
+  <div id="toast"></div>
+</div>
+
+<div id="pad">
+  <button class="cbtn" id="btnBrake">🛑</button>
+  <button class="cbtn gold" id="btnGas">🔥</button>
+</div>
+
+<div id="introCard">
+  <div class="icK" id="icKicker">STAGE 1</div>
+  <div class="icT" id="icTitle">MOON PLAINS</div>
+  <div class="icS">TAP TO SKIP</div>
+</div>
+
+<div class="screen" id="startScreen">
+  <div class="small">6 STAGES · MOON-BIKE TRIALS</div>
+  <div class="bikeBadge">🏍️🌕</div>
+  <h1>LUNA <span class="gold">RIDER</span></h1>
+  <p>Ride the gold moon-bike across the lunar wilds. <b>Right side = throttle</b>, <b>left side = brake</b> —
+     and in the air they lean you: throttle tips you <b>back</b>, brake tips you <b>forward</b>.
+     Land flips for +150, grab the crescent coins, and whatever you do — don't land on your head. 🏁</p>
+  <div class="small">CHOOSE YOUR START STAGE</div>
+  <div id="stagePicker"></div>
+  <button class="play" id="startBtn">▶ RIDE</button>
+  <button class="play alt" id="boardBtn">🏆 LEADERBOARD</button>
+</div>
+
+<div class="screen" id="stageScreen">
+  <div class="small" id="stgKicker">STAGE 1 COMPLETE</div>
+  <div class="bikeBadge">🏁</div>
+  <h1 id="stgTitle">🌟 STAGE CLEAR!</h1>
+  <p id="stgStats"></p>
+  <button class="play" id="nextBtn">▶ NEXT STAGE</button>
+  <button class="play alt" id="stageEndBtn">END RUN · SUBMIT SCORE</button>
+</div>
+
+<div class="screen" id="overScreen">
+  <div class="small" id="overKicker">OUT OF BIKES</div>
+  <div class="bikeBadge" id="overBadge">💥</div>
+  <h1 id="overTitle">WRECKED OUT</h1>
+  <p id="overStats"></p>
+  <input id="nameInput" maxlength="16" placeholder="Your name — or just Guest">
+  <button class="play" id="submitBtn">🏆 SUBMIT SCORE</button>
+  <p id="submitStatus"></p>
+  <button class="play alt" id="shareBtn">📣 SHARE SCORE</button>
+  <p id="shareStatus"></p>
+  <button class="play alt" id="overBoardBtn">🏆 LEADERBOARD</button>
+  <button class="play" id="againBtn">↩ MENU</button>
+</div>
+
+<div class="screen" id="boardScreen">
+  <div class="small">🏆 LUNA RIDER</div>
+  <h1>LEADERBOARD</h1>
+  <div class="tabs">
+    <button id="tabAll" class="play">ALL-TIME</button>
+    <button id="tabWeek" class="play alt">THIS WEEK</button>
+  </div>
+  <div id="boardList"><p style="text-align:center; opacity:.8">Loading…</p></div>
+  <button id="boardClose" class="play alt">✕ CLOSE</button>
+</div>
+
+<script>
+'use strict';
+/* ================= setup ================= */
+const $ = id => document.getElementById(id);
+const cv = $('game'), ctx = cv.getContext('2d');
+const VH = 540;                       /* virtual world height */
+const IW = 800;                       /* internal canvas width — fixed */
+let W = IW, H = 600, SCALE = 1;
+function fit(){
+  const wrap = $('cvwrap');
+  const r = wrap ? wrap.getBoundingClientRect() : null;
+  if (r && r.width > 0 && r.height > 0){
+    H = Math.max(600, Math.min(1100, Math.round(IW * r.height / r.width)));
+  }
+  W = IW;
+  cv.width = IW; cv.height = H;
+  SCALE = H / VH;
+}
+let fitTimer = 0;
+function fitSoon(){ clearTimeout(fitTimer); fitTimer = setTimeout(fit, 150); }
+addEventListener('resize', fitSoon);
+addEventListener('orientationchange', fitSoon);
+
+let muted = localStorage.getItem('lunaRiderMute') === '1';
+
+/* ================= helpers ================= */
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+function wrapAng(a){ while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; }
+function mulberry(seed){ /* deterministic rng */
+  let t = seed >>> 0;
+  return function(){
+    t += 0x6D2B79F5;
+    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+    r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/* ================= audio ================= */
+let AC = null, engOsc = null, engOsc2 = null, engGain = null, engFilter = null;
+function ensureAudio(){
+  if (AC || muted) { if (AC && AC.resume) AC.resume(); return; }
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    AC = new Ctx();
+    engOsc = AC.createOscillator(); engOsc.type = 'sawtooth'; engOsc.frequency.value = 55;
+    engOsc2 = AC.createOscillator(); engOsc2.type = 'square'; engOsc2.frequency.value = 28;
+    engFilter = AC.createBiquadFilter(); engFilter.type = 'lowpass'; engFilter.frequency.value = 420; engFilter.Q.value = 2;
+    engGain = AC.createGain(); engGain.gain.value = 0;
+    const g2 = AC.createGain(); g2.gain.value = 0.5;
+    engOsc.connect(engFilter); engOsc2.connect(g2); g2.connect(engFilter);
+    engFilter.connect(engGain); engGain.connect(AC.destination);
+    engOsc.start(); engOsc2.start();
+  } catch (e) { AC = null; }
+}
+function beep(freq, t0, dur, type, vol, slide){
+  if (!AC || muted) return;
+  try {
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = type || 'sine'; o.frequency.setValueAtTime(freq, AC.currentTime + t0);
+    if (slide) o.frequency.exponentialRampToValueAtTime(slide, AC.currentTime + t0 + dur);
+    g.gain.setValueAtTime(0, AC.currentTime + t0);
+    g.gain.linearRampToValueAtTime(vol || 0.12, AC.currentTime + t0 + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, AC.currentTime + t0 + dur);
+    o.connect(g); g.connect(AC.destination);
+    o.start(AC.currentTime + t0); o.stop(AC.currentTime + t0 + dur + 0.05);
+  } catch (e) {}
+}
+function sndCoin(teal){ beep(teal ? 1560 : 1240, 0, 0.09, 'sine', 0.11); beep(teal ? 2090 : 1660, 0.06, 0.14, 'sine', 0.10); }
+function sndFlip(){ beep(660, 0, 0.09, 'triangle', 0.12); beep(880, 0.07, 0.09, 'triangle', 0.12); beep(1320, 0.14, 0.16, 'triangle', 0.12); }
+function sndClear(){ beep(784, 0, 0.12, 'triangle', 0.13); beep(988, 0.1, 0.12, 'triangle', 0.13); beep(1318, 0.2, 0.22, 'triangle', 0.13); }
+function sndCrash(){
+  if (!AC || muted) return;
+  try {
+    const len = AC.sampleRate * 0.25, buf = AC.createBuffer(1, len, AC.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = AC.createBufferSource(); src.buffer = buf;
+    const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 500;
+    const g = AC.createGain(); g.gain.value = 0.22;
+    src.connect(f); f.connect(g); g.connect(AC.destination); src.start();
+  } catch (e) {}
+  beep(120, 0, 0.3, 'sawtooth', 0.1, 40);
+}
+function engineSound(speed, throttleOn, active){
+  if (!AC || muted || !engGain) return;
+  const t = AC.currentTime;
+  const rpm = 46 + Math.min(120, Math.abs(speed) * 0.24) + (throttleOn ? 26 : 0);
+  try {
+    engOsc.frequency.setTargetAtTime(rpm, t, 0.06);
+    engOsc2.frequency.setTargetAtTime(rpm * 0.5 + 2, t, 0.06);
+    engFilter.frequency.setTargetAtTime(320 + Math.abs(speed) * 0.9 + (throttleOn ? 260 : 0), t, 0.08);
+    engGain.gain.setTargetAtTime(active ? 0.055 : 0, t, 0.09);
+  } catch (e) {}
+}
+
+/* ================= stages & terrain ================= */
+/* Heightfield: y = base + Σ Aᵢ·sin(x·wᵢ + φᵢ), flat launch pad blended in at
+   the start and a flat run-out at the finish. Chasms are spans with no floor. */
+const BASE_Y = 428;
+const STAGES = [
+  { name:'MOON PLAINS', len:2600, par:38, amp:[30,12,5],  frq:[0.0016,0.0042,0.011], seed:1101, chasms:[],
+    sky:['#2a4a8f','#0d1531'], ground:'#79809f', edge:'#d7dcff', glow:'#7fb2ff', body:'earth' },
+  { name:'CRATER HILLS', len:2900, par:42, amp:[44,18,7],  frq:[0.0017,0.0046,0.012], seed:2202, chasms:[],
+    sky:['#3d2a6e','#120b2e'], ground:'#6f6a96', edge:'#cfc4ff', glow:'#b79aff', body:'moon' },
+  { name:'CANYON RUN', len:3100, par:46, amp:[52,22,8],  frq:[0.0018,0.0048,0.012], seed:3303, chasms:[[1180,92],[2140,112]],
+    sky:['#8f4a1e','#1c0f22'], ground:'#8a6a52', edge:'#ffd9a0', glow:'#ffb066', body:'moon' },
+  { name:'NEON RIDGE', len:3300, par:48, amp:[56,26,9],  frq:[0.0019,0.0052,0.013], seed:4404, chasms:[[1250,112],[2380,132]],
+    sky:['#0a1030','#03040f'], ground:'#2c3350', edge:'#3ef2d8', glow:'#ff4fd8', body:'earth' },
+  { name:'STORM DUNES', len:3500, par:52, amp:[58,30,11], frq:[0.0020,0.0058,0.014], seed:5505, chasms:[[1050,102],[1980,122],[2760,138]],
+    sky:['#274b52','#0a141f'], ground:'#5d7268', edge:'#baf2e2', glow:'#6ae2c8', body:'moon' },
+  { name:'LUNAR PEAK', len:3800, par:56, amp:[66,32,12], frq:[0.0021,0.0058,0.014], seed:6606, chasms:[[1120,122],[2150,138],[3020,152]],
+    sky:['#05060f','#01020a'], ground:'#565d78', edge:'#f2f5ff', glow:'#ffe9a8', body:'earth' },
+];
+STAGES.forEach(s => {
+  const rnd = mulberry(s.seed);
+  s.ph = [rnd() * 6.28, rnd() * 6.28, rnd() * 6.28];
+});
+function rawGround(st, x){
+  let y = BASE_Y;
+  for (let i = 0; i < 3; i++) y += st.amp[i] * Math.sin(x * st.frq[i] + st.ph[i]);
+  return y;
+}
+function baseGround(x){
+  const st = STAGES[stageIdx];
+  if (x < -80) x = -80;
+  let y = rawGround(st, x);
+  /* flat launch pad: blend heightfield in between x=140..460 */
+  const tIn = clamp((x - 140) / 320, 0, 1), sIn = tIn * tIn * (3 - 2 * tIn);
+  y = lerp(rawGround(st, 140), y, sIn);
+  /* flat run-out before the finish flag */
+  const fx = st.len - 60;
+  const tOut = clamp((x - (fx - 240)) / 240, 0, 1), sOut = tOut * tOut * (3 - 2 * tOut);
+  y = lerp(y, rawGround(st, fx - 240), sOut);
+  return clamp(y, 268, 492);
+}
+function groundY(x){
+  let y = baseGround(x);
+  /* launch lip: the ground rises ~15px over the last 80px before each chasm,
+     lofting the bike so a flat-out crossing doesn't drop into the far wall */
+  for (const [cx] of effChasms){
+    if (x > cx - 80 && x < cx){
+      const t = (x - (cx - 80)) / 80, s = t * t * (3 - 2 * t);
+      y -= 15 * s;
+    }
+  }
+  return y;
+}
+function groundSlope(x){
+  const d = 3;
+  return (groundY(x + d) - groundY(x - d)) / (2 * d);
+}
+let effChasms = [];   /* current stage's chasms, nudged at build time for fair landings */
+function inChasm(x){
+  for (const [cx, cw] of effChasms) if (x > cx && x < cx + cw) return true;
+  return false;
+}
+function groundExists(x){ return !inChasm(x); }
+
+/* ================= run state ================= */
+let state = 'menu';            /* menu | intro | play | clear | over */
+let stageIdx = 0, selStage = 0;
+let unlocked = Math.min(6, Math.max(1, +(localStorage.getItem('lunaRiderUnlocked') || 1)));
+let score = 0, coinsCollected = 0, elapsed = 0, stageTime = 0;
+let scoreAtStageStart = 0, flipsThisRun = 0;
+let wrecksLeft = 3, maxStageReached = 1;
+let camX = 0, camY = 0, shake = 0;
+let introT = 0, clearBonus = 0, endKind = '';
+const input = { throttle:false, brake:false };
+const keys = {};
+let coins = [], floaters = [], dust = [];
+let checkpoints = [], respawnX = 90;
+let stars = [];
+for (let i = 0; i < 130; i++) stars.push({ x: Math.random() * 1600, y: Math.random() * 300, r: Math.random() * 1.6 + 0.4, tw: Math.random() * 6.28 });
+
+/* ================= bike ================= */
+const GRAV = 1500, WR = 11, WB2 = 24, WOY = 8;      /* gravity, wheel radius, half wheelbase, wheel y-offset */
+const bike = { x:90, y:300, vx:0, vy:0, ang:0, av:0, grounded:false, airTime:0, airRot:0, flipsPending:0, flipDir:0 };
+function wheelPos(which){ /* which: -1 rear, +1 front — local offsets rotated by ang */
+  const c = Math.cos(bike.ang), s = Math.sin(bike.ang);
+  const lx = which * WB2, ly = WOY;
+  return { x: bike.x + lx * c - ly * s, y: bike.y + lx * s + ly * c };
+}
+function headPos(){
+  const c = Math.cos(bike.ang), s = Math.sin(bike.ang);
+  const lx = 3, ly = -31;
+  return { x: bike.x + lx * c - ly * s, y: bike.y + lx * s + ly * c };
+}
+function resetBikeAt(x){
+  bike.x = x; bike.y = groundY(x) - 26;
+  bike.vx = 0; bike.vy = 0; bike.ang = Math.atan(groundSlope(x)); bike.av = 0;
+  bike.grounded = false; bike.airTime = 0; bike.airRot = 0; bike.flipsPending = 0;
+  camX = Math.max(0, x - 240); camY = clamp(bike.y - 330, -70, 150);
+}
+function buildStage(idx){
+  const st = STAGES[idx];
+  coins = []; floaters = []; dust = [];
+  const rnd = mulberry(st.seed * 7 + 13);
+  /* nudge each chasm forward until the crossing is FAIR (measured on the base
+     field): the approach must not climb steeply into the lip (a climb bleeds
+     the speed the jump needs), and the far side must sit well BELOW the
+     take-off lip so a falling bike meets ground, not a cliff corner */
+  effChasms = st.chasms.map(([cx, cw]) => {
+    let best = cx, bestBad = Infinity;
+    for (let x = cx; x < Math.min(cx + 640, st.len - 520); x += 20){
+      const climb = baseGround(x - 130) - baseGround(x - 10);      /* >0: approach rises into the lip */
+      const drop = baseGround(x + cw + 30) - (baseGround(x - 10) - 15); /* >0: far side lower than the lip */
+      const bad = Math.max(0, climb - 16) + Math.max(0, 40 - drop) * 1.5;
+      if (bad < bestBad){ bestBad = bad; best = x; }
+      if (bad <= 0) break;
+    }
+    return [best, cw];
+  });
+  /* coin arcs: groups riding the terrain, plus arcs spanning the chasms */
+  let groupNo = 0;
+  for (let gx = 330; gx < st.len - 260; gx += 205 + rnd() * 60){
+    if (inChasm(gx)) continue;
+    const n = 4, tealApex = (groupNo % 4 === 2);
+    for (let i = 0; i < n; i++){
+      const cx = gx + (i - (n - 1) / 2) * 24;
+      if (inChasm(cx) || cx > st.len - 140) continue;
+      const arc = Math.sin(Math.PI * i / (n - 1)) * 20;
+      coins.push({ x: cx, y: groundY(cx) - 40 - arc, teal: tealApex && i === 1, got: false, ph: rnd() * 6.28 });
+    }
+    groupNo++;
+  }
+  for (const [cx, cw] of effChasms){
+    for (let i = 0; i < 4; i++){
+      const px = cx + (i + 0.5) * (cw / 4);
+      coins.push({ x: px, y: groundY(cx - 14) - 66 - Math.sin(Math.PI * i / 3) * 26, teal: i === 1 || i === 2, got: false, ph: rnd() * 6.28 });
+    }
+  }
+  coins.sort((a, b) => a.x - b.x);
+  checkpoints = [];
+  for (let cx = 450; cx < st.len - 120; cx += 450){ if (!inChasm(cx)) checkpoints.push(cx); }
+  respawnX = 90;
+  resetBikeAt(90);
+}
+function addFloater(x, y, txt, color){
+  floaters.push({ x, y, txt, color: color || '#ffd76a', life: 1.1 });
+}
+function toast(txt, ms){
+  const t = $('toast');
+  t.textContent = txt;
+  t.style.opacity = 1;
+  clearTimeout(t._h);
+  t._h = setTimeout(() => { t.style.opacity = 0; }, ms || 1200);
+}
+
+/* ================= physics ================= */
+const SUSP_K = 300, SUSP_D = 30, DRIVE = 1300, VMAX = 520, INERT = 2100;
+function stepBike(dt){
+  const sub = 5, sd = dt / sub;
+  for (let s = 0; s < sub; s++){
+    bike.vy += GRAV * sd;
+    let torque = 0, anyContact = false;
+    for (const which of [-1, 1]){
+      const wp = wheelPos(which);
+      if (!groundExists(wp.x)) continue;
+      const gy = groundY(wp.x);
+      const pen = (wp.y + WR) - gy;
+      if (pen <= 0) continue;
+      anyContact = true;
+      const slope = groundSlope(wp.x);
+      const inv = 1 / Math.hypot(slope, 1);
+      const nx = slope * inv, ny = -inv;              /* surface normal (up) */
+      const tx = inv, ty = slope * inv;              /* surface tangent (fwd) */
+      const rx = wp.x - bike.x, ry = wp.y - bike.y;
+      const vpx = bike.vx - bike.av * ry, vpy = bike.vy + bike.av * rx;
+      const vn = vpx * nx + vpy * ny;
+      let f = pen * SUSP_K - vn * SUSP_D;
+      if (f < 0) f = 0;
+      if (f > 45000) f = 45000;
+      bike.vx += nx * f * sd; bike.vy += ny * f * sd;
+      torque += 0.5 * (rx * (ny * f) - ry * (nx * f));   /* arcade pitch stability: springs push, but only half-turn the bike */
+      const vt = vpx * tx + vpy * ty;
+      let ft = 0;
+      if (which === -1 && input.throttle) ft += DRIVE * clamp(1 - Math.max(0, vt) / VMAX, 0, 1);
+      if (input.brake) ft += -vt * 3.4;                       /* brake drag */
+      ft += -vt * 0.22;                                       /* rolling drag */
+      bike.vx += tx * ft * sd; bike.vy += ty * ft * sd;
+      torque += (rx * (ty * ft) - ry * (tx * ft));
+      if (which === -1 && input.throttle && f > 200 && Math.random() < 0.5){
+        dust.push({ x: wp.x - 6, y: gy - 3, vx: -bike.vx * 0.25 - 22 - Math.random() * 26, vy: -34 - Math.random() * 42, life: 0.55, r: 3 + Math.random() * 4.5 });
+      }
+    }
+    /* in-air lean: throttle tips back (nose up = ang decreases), brake tips forward */
+    if (!anyContact){
+      if (input.throttle) torque += -8400;
+      if (input.brake) torque += 8400;
+      bike.av *= (1 - 0.05 * sd);   /* barely any air drag on rotation — flips need the spin to survive */
+    } else {
+      bike.av *= (1 - 4.4 * sd);
+    }
+    bike.av += (torque / INERT) * sd;
+    bike.av = clamp(bike.av, -9.5, 9.5);
+    bike.vx = clamp(bike.vx, -950, 950);
+    bike.vy = clamp(bike.vy, -1150, 1150);
+    bike.x += bike.vx * sd;
+    bike.y += bike.vy * sd;
+    bike.ang += bike.av * sd;
+    if (bike.x < 34){ bike.x = 34; bike.vx = Math.max(0, bike.vx); }
+    /* landing / flip bookkeeping */
+    if (anyContact && !bike.grounded){
+      const a = wrapAng(bike.ang);
+      if (Math.abs(a) > 1.85){ crash('flipped'); return; }
+      if (bike.flipsPending > 0){
+        const pts = 150 * bike.flipsPending;
+        score += pts; flipsThisRun += bike.flipsPending;
+        addFloater(bike.x, bike.y - 64, (bike.flipDir < 0 ? 'BACKFLIP' : 'FRONTFLIP') + (bike.flipsPending > 1 ? ' ×' + bike.flipsPending : '') + ' +' + pts, '#7dfce9');
+        toast((bike.flipDir < 0 ? '🔄 BACKFLIP' : '🔄 FRONTFLIP') + ' +' + pts);
+        sndFlip();
+        bike.flipsPending = 0; bike.airRot = 0;
+      }
+    }
+    if (!anyContact){
+      bike.airTime += sd;
+      const before = Math.floor(Math.abs(bike.airRot) / (2 * Math.PI));
+      bike.airRot += bike.av * sd;
+      const after = Math.floor(Math.abs(bike.airRot) / (2 * Math.PI));
+      if (after > before){ bike.flipsPending = after; bike.flipDir = Math.sign(bike.airRot) || 1; }
+    } else {
+      bike.airTime = 0;
+      if (Math.abs(wrapAng(bike.ang)) < 1.2) bike.airRot = 0;
+    }
+    bike.grounded = anyContact;
+  }
+  /* crash checks (per frame) */
+  const hp = headPos();
+  if (groundExists(hp.x) && hp.y - 2 > groundY(hp.x)) return crash('head');
+  /* chassis slam: the frame underside driven 30px+ into the ground — a hard
+     landing's spring squish stays well under this */
+  const ux = bike.x - Math.sin(bike.ang) * 10, uy = bike.y + Math.cos(bike.ang) * 10;
+  if (groundExists(ux) && uy - 30 > groundY(ux)) return crash('body');
+  if (bike.y > 760) return crash('chasm');
+  if (bike.x > STAGES[stageIdx].len) return stageClear();
+}
+let lastCrash = '';
+function crash(kind){
+  if (state !== 'play') return;
+  lastCrash = kind;
+  sndCrash();
+  shake = 13;
+  wrecksLeft--;
+  addFloater(bike.x, bike.y - 50, kind === 'chasm' ? '💥 INTO THE CHASM!' : '💥 WRECKED!', '#ff8d7a');
+  if (wrecksLeft <= 0){ gameOver(false); return; }
+  toast('💥 WRECKED — ' + wrecksLeft + (wrecksLeft === 1 ? ' bike left' : ' bikes left'));
+  resetBikeAt(respawnX);
+  hud();
+}
+
+/* ================= flow ================= */
+function hud(){
+  $('hudLives').textContent = '🪖'.repeat(Math.max(0, wrecksLeft));
+  $('hudLevel').textContent = 'STAGE ' + (stageIdx + 1) + ' · ' + STAGES[stageIdx].name;
+  $('hudCoins').textContent = '🌕 ' + coinsCollected;
+  $('hudScore').textContent = score;
+}
+function startStage(idx, fresh){
+  stageIdx = idx;
+  maxStageReached = Math.max(maxStageReached, idx + 1);
+  if (fresh){ scoreAtStageStart = score; }
+  wrecksLeft = 3;
+  stageTime = 0;
+  buildStage(idx);
+  state = 'intro';
+  introT = 1.5;
+  $('icKicker').textContent = 'STAGE ' + (idx + 1) + ' / 6';
+  $('icTitle').textContent = STAGES[idx].name;
+  $('introCard').style.display = 'flex';
+  $('stageScreen').style.display = 'none';
+  $('overScreen').style.display = 'none';
+  $('startScreen').style.display = 'none';
+  ensureAudio();
+  hud();
+}
+function startCampaign(fromStage){
+  score = 0; coinsCollected = 0; elapsed = 0; flipsThisRun = 0;
+  startStage(fromStage || 0, true);
+}
+function stageClear(){
+  if (state !== 'play') return;
+  state = 'clear';
+  const st = STAGES[stageIdx];
+  const timeBonus = clamp(Math.round((st.par - stageTime) * 10), 0, 600);
+  clearBonus = 250 + timeBonus;
+  score += clearBonus;
+  unlocked = Math.min(6, Math.max(unlocked, stageIdx + 2));
+  localStorage.setItem('lunaRiderUnlocked', unlocked);
+  localStorage.setItem('lunaRiderBest', Math.max(+(localStorage.getItem('lunaRiderBest') || 0), score));
+  sndClear();
+  engineSound(0, false, false);
+  const last = stageIdx >= STAGES.length - 1;
+  $('stgKicker').textContent = 'STAGE ' + (stageIdx + 1) + ' COMPLETE';
+  $('stgTitle').textContent = last ? '🏆 MOON CONQUERED!' : '🌟 STAGE CLEAR!';
+  $('stgStats').innerHTML =
+    'Stage time <b>' + stageTime.toFixed(1) + 's</b> (par ' + st.par + 's)<br>' +
+    'Clear +250 · Time bonus +' + timeBonus + '<br>' +
+    'Run score: <b>' + score + '</b> · Coins banked: ' + coinsCollected;
+  $('nextBtn').textContent = last ? '🏁 FINISH — SUBMIT SCORE' : '▶ NEXT STAGE';
+  $('stageScreen').style.display = 'flex';
+  hud();
+}
+function gameOver(won){
+  state = 'over';
+  endKind = won ? 'won' : 'out';
+  engineSound(0, false, false);
+  localStorage.setItem('lunaRiderBest', Math.max(+(localStorage.getItem('lunaRiderBest') || 0), score));
+  $('overKicker').textContent = won ? 'CAMPAIGN COMPLETE' : 'OUT OF BIKES';
+  $('overBadge').textContent = won ? '🏆' : '💥';
+  $('overTitle').textContent = won ? 'MOON CHAMPION!' : 'WRECKED OUT';
+  $('overStats').innerHTML =
+    'Reached stage ' + (stageIdx + 1) + ' · ' + STAGES[stageIdx].name + '<br>' +
+    'Flips landed: ' + flipsThisRun + ' · Coins banked: ' + coinsCollected + '<br>' +
+    'Final score: <b>' + score + '</b>';
+  $('submitStatus').textContent = '';
+  $('submitBtn').disabled = false;
+  prefillName();
+  $('overScreen').style.display = 'flex';
+  hud();
+}
+
+/* ================= per-frame update ================= */
+let wheelSpin = 0, runTime = 0;
+function update(dt){
+  stageTime += dt; elapsed += dt;
+  stepBike(dt);
+  if (state !== 'play') return;
+  wheelSpin += bike.vx * dt / WR;
+  /* checkpoints */
+  for (const cp of checkpoints){
+    if (bike.x > cp && respawnX < cp){
+      respawnX = cp;
+      addFloater(cp, groundY(cp) - 96, '⚑ CHECKPOINT', '#baf2e2');
+    }
+  }
+  /* coins */
+  for (const cn of coins){
+    if (cn.got) continue;
+    const dx = cn.x - bike.x;
+    if (dx < -40 || dx > 40) continue;
+    const dy = cn.y - bike.y;
+    if (dx * dx + dy * dy < 32 * 32){
+      cn.got = true;
+      coinsCollected++;
+      const pts = cn.teal ? 25 : 10;
+      score += pts;
+      addFloater(cn.x, cn.y - 18, '+' + pts, cn.teal ? '#4ef2d8' : '#ffd76a');
+      sndCoin(cn.teal);
+    }
+  }
+  /* camera */
+  const tx = clamp(bike.x - 250, 0, Math.max(0, STAGES[stageIdx].len + 320 - W / SCALE));
+  camX = lerp(camX, tx, 1 - Math.pow(0.0015, dt));
+  const ty = clamp(bike.y - 320, -80, 170);
+  camY = lerp(camY, ty, 1 - Math.pow(0.004, dt));
+  shake = Math.max(0, shake - 42 * dt);
+  /* fx */
+  for (const f of floaters){ f.y -= 34 * dt; f.life -= dt; }
+  floaters = floaters.filter(f => f.life > 0);
+  for (const d of dust){ d.x += d.vx * dt; d.y += d.vy * dt; d.vy -= 60 * dt; d.life -= dt; }
+  dust = dust.filter(d => d.life > 0);
+  engineSound(Math.hypot(bike.vx, bike.vy), input.throttle, true);
+  hud();
+}
+
+/* ================= drawing ================= */
+function drawBike(){
+  const rw = wheelPos(-1), fw = wheelPos(1);
+  ctx.save();
+  /* wheels */
+  for (const wp of [rw, fw]){
+    ctx.beginPath(); ctx.arc(wp.x, wp.y, WR, 0, 6.29);
+    ctx.fillStyle = '#151824'; ctx.fill();
+    ctx.lineWidth = 2.4; ctx.strokeStyle = '#9aa3c7'; ctx.stroke();
+    ctx.beginPath(); ctx.arc(wp.x, wp.y, 3.4, 0, 6.29); ctx.fillStyle = '#ffd76a'; ctx.fill();
+    ctx.strokeStyle = 'rgba(200,208,235,.75)'; ctx.lineWidth = 1.6;
+    for (let i = 0; i < 3; i++){
+      const a = wheelSpin + i * 2.094;
+      ctx.beginPath(); ctx.moveTo(wp.x, wp.y);
+      ctx.lineTo(wp.x + Math.cos(a) * (WR - 2), wp.y + Math.sin(a) * (WR - 2)); ctx.stroke();
+    }
+  }
+  ctx.translate(bike.x, bike.y); ctx.rotate(bike.ang);
+  /* frame */
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#c9920e'; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.moveTo(-WB2, WOY); ctx.lineTo(-4, -6); ctx.lineTo(WB2 - 4, -4); ctx.stroke();
+  ctx.strokeStyle = '#ffd76a'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(-4, -6); ctx.lineTo(12, -8); ctx.stroke();
+  /* tank + seat */
+  ctx.fillStyle = '#f5b81d';
+  ctx.beginPath(); ctx.ellipse(4, -10, 13, 6.5, -0.12, 0, 6.29); ctx.fill();
+  ctx.fillStyle = '#20242f';
+  ctx.beginPath(); ctx.ellipse(-11, -9, 9, 3.6, 0.1, 0, 6.29); ctx.fill();
+  /* rider: legs + torso */
+  ctx.strokeStyle = '#27324e'; ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.moveTo(-2, -12); ctx.lineTo(-9, 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-2, -12); ctx.lineTo(6, 1); ctx.stroke();
+  ctx.strokeStyle = '#e8ecf7'; ctx.lineWidth = 7.5;
+  ctx.beginPath(); ctx.moveTo(-2, -12); ctx.lineTo(3, -25); ctx.stroke();
+  /* arm to bars */
+  ctx.strokeStyle = '#e8ecf7'; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.moveTo(3, -24); ctx.lineTo(17, -13); ctx.stroke();
+  /* gold crescent helmet */
+  ctx.beginPath(); ctx.arc(5, -31, 8.6, 0, 6.29);
+  ctx.fillStyle = '#ffc81f'; ctx.fill();
+  ctx.lineWidth = 1.6; ctx.strokeStyle = '#a8730a'; ctx.stroke();
+  ctx.fillStyle = '#12303e';
+  ctx.beginPath(); ctx.ellipse(9.5, -31, 4.6, 3, 0, 0, 6.29); ctx.fill();  /* visor */
+  ctx.fillStyle = '#fff2b0';
+  ctx.beginPath(); ctx.arc(2.2, -35.5, 2.6, 0, 6.29); ctx.fill();        /* crescent moon dot */
+  ctx.fillStyle = '#ffc81f';
+  ctx.beginPath(); ctx.arc(3.6, -36.1, 2.2, 0, 6.29); ctx.fill();
+  ctx.restore();
+}
+function drawCoin(cn, t){
+  const sq = Math.abs(Math.cos(t * 3.2 + cn.ph));
+  ctx.save();
+  ctx.translate(cn.x, cn.y + Math.sin(t * 2.2 + cn.ph) * 2.5);
+  ctx.scale(0.25 + 0.75 * sq, 1);
+  ctx.beginPath(); ctx.arc(0, 0, 10, 0, 6.29);
+  ctx.fillStyle = cn.teal ? '#17c3ae' : '#ffc81f'; ctx.fill();
+  ctx.lineWidth = 2; ctx.strokeStyle = cn.teal ? '#0a6e62' : '#a8730a'; ctx.stroke();
+  ctx.beginPath(); ctx.arc(3, -1.5, 6.4, 0, 6.29);
+  ctx.fillStyle = cn.teal ? '#3fe8d2' : '#ffe066'; ctx.fill();
+  ctx.restore();
+}
+function drawFlag(x, passed, finish){
+  const gy = groundY(x);
+  ctx.strokeStyle = '#e8ecf7'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(x, gy); ctx.lineTo(x, gy - 74); ctx.stroke();
+  if (finish){
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++){
+      ctx.fillStyle = (r + c) % 2 ? '#0d0f16' : '#f5f7ff';
+      ctx.fillRect(x + 2 + c * 6.5, gy - 74 + r * 6.5, 6.5, 6.5);
+    }
+  } else {
+    ctx.fillStyle = passed ? '#39d353' : '#ffd76a';
+    ctx.beginPath(); ctx.moveTo(x + 2, gy - 74); ctx.lineTo(x + 24, gy - 66); ctx.lineTo(x + 2, gy - 58); ctx.closePath(); ctx.fill();
+  }
+}
+function draw(){
+  const st = STAGES[stageIdx];
+  const t = runTime;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, st.sky[0]); sky.addColorStop(1, st.sky[1]);
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+  /* stars (parallax) */
+  ctx.fillStyle = '#ffffff';
+  for (const s of stars){
+    const sx = ((s.x - camX * 0.12) % (W + 40) + W + 40) % (W + 40) - 20;
+    const sy = s.y * SCALE - camY * 0.12;
+    ctx.globalAlpha = 0.35 + 0.4 * Math.abs(Math.sin(t * 0.7 + s.tw));
+    ctx.beginPath(); ctx.arc(sx, sy, s.r * SCALE, 0, 6.29); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  /* celestial body */
+  const bx = W - 150 - camX * 0.03 % 60, by = 86 * SCALE;
+  if (st.body === 'earth'){
+    ctx.beginPath(); ctx.arc(bx, by, 30 * SCALE, 0, 6.29); ctx.fillStyle = '#2f7fe0'; ctx.fill();
+    ctx.fillStyle = '#3fce7a';
+    ctx.beginPath(); ctx.ellipse(bx - 9 * SCALE, by - 6 * SCALE, 11 * SCALE, 7 * SCALE, 0.6, 0, 6.29); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(bx + 10 * SCALE, by + 9 * SCALE, 8 * SCALE, 5 * SCALE, -0.4, 0, 6.29); ctx.fill();
+    ctx.beginPath(); ctx.arc(bx, by, 30 * SCALE, 0, 6.29); ctx.strokeStyle = 'rgba(160,210,255,.5)'; ctx.lineWidth = 2; ctx.stroke();
+  } else {
+    ctx.beginPath(); ctx.arc(bx, by, 34 * SCALE, 0, 6.29); ctx.fillStyle = '#e9edf7'; ctx.fill();
+    ctx.fillStyle = 'rgba(160,168,196,.5)';
+    for (const [cx2, cy2, r2] of [[-10, -6, 7], [12, 8, 5], [4, -14, 4], [-2, 14, 6]]){
+      ctx.beginPath(); ctx.arc(bx + cx2 * SCALE, by + cy2 * SCALE, r2 * SCALE, 0, 6.29); ctx.fill();
+    }
+  }
+  /* far ridge (parallax) */
+  ctx.beginPath();
+  ctx.moveTo(0, H);
+  for (let sx = 0; sx <= W; sx += 16){
+    const wx = sx / SCALE + camX * 0.45;
+    const ry = 398 + Math.sin(wx * 0.004 + stageIdx * 2) * 26 + Math.sin(wx * 0.011) * 10;
+    ctx.lineTo(sx, (ry - camY * 0.55) * SCALE);
+  }
+  ctx.lineTo(W, H); ctx.closePath();
+  ctx.fillStyle = 'rgba(16,20,44,.55)'; ctx.fill();
+
+  /* world */
+  const shX = shake ? (Math.random() - 0.5) * shake : 0;
+  const shY = shake ? (Math.random() - 0.5) * shake : 0;
+  ctx.save();
+  ctx.scale(SCALE, SCALE);
+  ctx.translate(-camX + shX, -camY + shY);
+  const viewL = camX - 60, viewR = camX + W / SCALE + 60;
+  /* terrain body */
+  ctx.beginPath();
+  let pen = false;
+  for (let x = viewL; x <= viewR; x += 8){
+    if (!groundExists(x)){
+      if (pen){ ctx.lineTo(x, camY + VH + 220); pen = false; }
+      continue;
+    }
+    const y = groundY(x);
+    if (!pen){ ctx.moveTo(x, y); ctx.lineTo(x, camY + VH + 220); ctx.lineTo(x, y); pen = true; }
+    else ctx.lineTo(x, y);
+  }
+  if (pen){ ctx.lineTo(viewR, camY + VH + 220); ctx.closePath(); }
+  ctx.fillStyle = st.ground; ctx.fill();
+  /* terrain surface line + chasm walls */
+  ctx.strokeStyle = st.edge; ctx.lineWidth = 3.4; ctx.lineCap = 'round';
+  ctx.beginPath();
+  pen = false;
+  for (let x = viewL; x <= viewR; x += 6){
+    if (!groundExists(x)){
+      if (pen){ ctx.lineTo(x - 3, groundY(x - 3) + 90); pen = false; }
+      continue;
+    }
+    const y = groundY(x);
+    if (!pen){ ctx.moveTo(x, y + 90); ctx.lineTo(x, y); pen = true; }
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  /* checkpoints + finish */
+  for (const cp of checkpoints) if (cp > viewL && cp < viewR) drawFlag(cp, respawnX >= cp, false);
+  if (st.len > viewL && st.len < viewR) drawFlag(st.len, false, true);
+  /* coins */
+  for (const cn of coins){
+    if (cn.got || cn.x < viewL || cn.x > viewR) continue;
+    drawCoin(cn, t);
+  }
+  /* dust */
+  for (const d of dust){
+    ctx.globalAlpha = Math.max(0, d.life * 1.4);
+    ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, 6.29); ctx.fillStyle = '#cfd4e8'; ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  drawBike();
+  /* floaters */
+  ctx.font = '900 17px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  for (const f of floaters){
+    ctx.globalAlpha = Math.min(1, f.life * 1.6);
+    ctx.fillStyle = f.color;
+    ctx.fillText(f.txt, f.x, f.y);
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+/* ================= leaderboard ================= */
+const API_URL = 'https://frg-fight-club.vercel.app/api/luna-games?game=rider';
+function prefillName(){
+  const inp = $('nameInput');
+  const tg = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe;
+  const tname = tg && tg.user && tg.user.first_name;
+  inp.value = (localStorage.getItem('lunaRiderName') || tname || 'Guest').slice(0, 16);
+}
+let boardData = null, boardTab = 'all', boardErr = false;
+async function loadBoard(){
+  $('boardList').innerHTML = '<p style="text-align:center; opacity:.8">Loading…</p>';
+  boardErr = false;
+  try {
+    const r = await fetch(API_URL);
+    if (!r.ok) throw new Error('board ' + r.status);
+    boardData = await r.json();
+  } catch (e) { boardData = null; boardErr = true; }
+  renderBoard();
+}
+function renderBoard(){
+  $('tabAll').className = 'play' + (boardTab === 'all' ? '' : ' alt');
+  $('tabWeek').className = 'play' + (boardTab === 'week' ? '' : ' alt');
+  if (boardErr || !boardData){
+    $('boardList').innerHTML = '<p style="text-align:center; opacity:.8">Board unavailable right now — ride on! 🏍️</p>';
+    return;
+  }
+  const rows = boardData[boardTab] || [];
+  if (!rows.length){
+    $('boardList').innerHTML = '<p style="text-align:center; opacity:.8">No scores yet — be the first! 🏆</p>';
+    return;
+  }
+  $('boardList').innerHTML = rows.map((r, i) =>
+    `<div class="row"><span class="rk">${i + 1}.</span><span class="nm"></span><span class="sc">${r.score}</span></div>`
+  ).join('');
+  [...$('boardList').querySelectorAll('.row .nm')].forEach((el, i) => { el.textContent = rows[i].name; });
+}
+function openBoard(){
+  $('boardScreen').style.display = 'flex';
+  boardTab = 'all';
+  loadBoard();
+}
+$('tabAll').onclick = () => { boardTab = 'all'; renderBoard(); };
+$('tabWeek').onclick = () => { boardTab = 'week'; renderBoard(); };
+$('boardClose').onclick = () => { $('boardScreen').style.display = 'none'; };
+$('boardBtn').onclick = openBoard;
+$('overBoardBtn').onclick = openBoard;
+$('submitBtn').onclick = async () => {
+  const btn = $('submitBtn');
+  btn.disabled = true;
+  const name = ($('nameInput').value.trim() || 'Guest').slice(0, 16);
+  localStorage.setItem('lunaRiderName', name);
+  $('submitStatus').textContent = 'Saving…';
+  const initData = (window.Telegram && window.Telegram.WebApp && window.Telegram.initData) || '';
+  try {
+    const r = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, name, score, seconds: Math.round(elapsed) }),
+    });
+    const d = await r.json();
+    if (d && d.ok){
+      $('submitStatus').textContent = d.rank ? `🏆 You're #${d.rank} all-time!` : 'Saved!';
+      boardData = null;
+    } else {
+      $('submitStatus').textContent = 'Could not save — try again.';
+      btn.disabled = false;
+    }
+  } catch (e) {
+    $('submitStatus').textContent = 'Could not save — try again.';
+    btn.disabled = false;
+  }
+};
+$('shareBtn').onclick = async () => {
+  const text = `I scored ${score} on Luna Rider — reached Stage ${maxStageReached}! 🏍️🌕`;
+  try {
+    if (navigator.share){
+      await navigator.share({ title: 'Luna Rider', text, url: location.href });
+    } else if (navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(text + ' ' + location.href);
+      $('shareStatus').textContent = 'Copied!';
+    }
+  } catch (e) { /* user cancelled the share sheet — stay silent */ }
+};
+
+/* ================= stage picker + wiring ================= */
+function renderPicker(){
+  const pk = $('stagePicker');
+  pk.innerHTML = '';
+  for (let n = 1; n <= 6; n++){
+    const b = document.createElement('button');
+    b.className = 'lvbtn' + (n - 1 === selStage ? ' sel' : '') + (n > unlocked ? ' lock' : '');
+    b.textContent = n > unlocked ? '🔒' : String(n);
+    b.disabled = n > unlocked;
+    b.onclick = () => { selStage = n - 1; renderPicker(); };
+    pk.appendChild(b);
+  }
+}
+$('startBtn').onclick = () => { ensureAudio(); startCampaign(selStage); };
+$('nextBtn').onclick = () => {
+  if (stageIdx >= STAGES.length - 1){ $('stageScreen').style.display = 'none'; gameOver(true); return; }
+  startStage(stageIdx + 1, true);
+};
+$('stageEndBtn').onclick = () => {
+  $('stageScreen').style.display = 'none';
+  gameOver(false);
+  $('overKicker').textContent = 'RUN ENDED';
+  $('overTitle').textContent = 'RUN COMPLETE';
+};
+$('againBtn').onclick = () => {
+  $('overScreen').style.display = 'none';
+  state = 'menu';
+  buildStage(selStage);
+  renderPicker();
+  $('startScreen').style.display = 'flex';
+};
+$('muteBtn').onclick = () => {
+  muted = !muted;
+  localStorage.setItem('lunaRiderMute', muted ? '1' : '0');
+  $('muteBtn').textContent = muted ? '🔇' : '🔊';
+  if (muted && engGain) { try { engGain.gain.value = 0; } catch (e) {} }
+  if (!muted) ensureAudio();
+};
+$('rstBtn').onclick = () => {
+  if (state === 'play' || state === 'intro' || state === 'clear'){
+    score = scoreAtStageStart;
+    $('stageScreen').style.display = 'none';
+    startStage(stageIdx, true);
+  }
+};
+$('introCard').addEventListener('pointerdown', () => {
+  if (state === 'intro'){ introT = 0; $('introCard').style.display = 'none'; state = 'play'; }
+});
+
+/* ================= input ================= */
+addEventListener('keydown', e => {
+  if (e.code === 'ArrowRight' || e.code === 'KeyD'){ input.throttle = true; keys.gas = true; e.preventDefault(); }
+  if (e.code === 'ArrowLeft' || e.code === 'KeyA'){ input.brake = true; keys.brake = true; e.preventDefault(); }
+  if (e.code === 'KeyR'){ $('rstBtn').onclick(); }
+  if (state === 'intro' && (e.code === 'Space' || e.code === 'Enter')){ introT = 0; $('introCard').style.display = 'none'; state = 'play'; }
+});
+addEventListener('keyup', e => {
+  if (e.code === 'ArrowRight' || e.code === 'KeyD'){ keys.gas = false; input.throttle = !!touchGas; }
+  if (e.code === 'ArrowLeft' || e.code === 'KeyA'){ keys.brake = false; input.brake = !!touchBrake; }
+});
+let touchGas = false, touchBrake = false;
+function bindHold(el, set){
+  const on = e => { e.preventDefault(); ensureAudio(); set(true); el.classList.add('on'); };
+  const off = e => { e.preventDefault(); set(false); el.classList.remove('on'); };
+  el.addEventListener('pointerdown', on);
+  el.addEventListener('pointerup', off);
+  el.addEventListener('pointercancel', off);
+  el.addEventListener('pointerleave', off);
+  el.addEventListener('contextmenu', e => e.preventDefault());
+}
+bindHold($('btnGas'), v => { touchGas = v; input.throttle = v || !!keys.gas; });
+bindHold($('btnBrake'), v => { touchBrake = v; input.brake = v || !!keys.brake; });
+/* screen halves on the canvas: right = throttle, left = brake */
+const halfPointers = new Map();
+function halfDown(e){
+  if (state !== 'play') return;
+  ensureAudio();
+  const r = cv.getBoundingClientRect();
+  const right = (e.clientX - r.left) > r.width / 2;
+  halfPointers.set(e.pointerId, right ? 'gas' : 'brake');
+  if (right){ touchGas = true; input.throttle = true; } else { touchBrake = true; input.brake = true; }
+}
+function halfUp(e){
+  const role = halfPointers.get(e.pointerId);
+  if (!role) return;
+  halfPointers.delete(e.pointerId);
+  let gas = !!keys.gas, brake = !!keys.brake;
+  for (const v of halfPointers.values()){ if (v === 'gas') gas = true; else brake = true; }
+  touchGas = gas; touchBrake = brake;
+  input.throttle = gas; input.brake = brake;
+}
+cv.addEventListener('pointerdown', halfDown);
+cv.addEventListener('pointerup', halfUp);
+cv.addEventListener('pointercancel', halfUp);
+
+/* ================= main loop ================= */
+let lastT = 0;
+function frame(t){
+  requestAnimationFrame(frame);
+  if (!lastT) lastT = t;
+  let dt = Math.min(0.033, (t - lastT) / 1000);
+  lastT = t;
+  if (dt <= 0) dt = 0.001;
+  runTime += dt;
+  if (state === 'intro'){
+    introT -= dt;
+    if (introT <= 0){ $('introCard').style.display = 'none'; state = 'play'; }
+  } else if (state === 'play'){
+    try { update(dt); }
+    catch (err){ console.error(err); }
+  } else {
+    engineSound(0, false, false);
+    for (const f of floaters){ f.y -= 34 * dt; f.life -= dt; }
+    floaters = floaters.filter(f => f.life > 0);
+  }
+  draw();
+}
+
+/* ================= test/autopilot API ================= */
+window.LR = {
+  get state(){ return state; },
+  get bike(){ return bike; },
+  get score(){ return score; },
+  get wrecksLeft(){ return wrecksLeft; },
+  get stageIdx(){ return stageIdx; },
+  get stageTime(){ return stageTime; },
+  get elapsed(){ return elapsed; },
+  get respawnX(){ return respawnX; },
+  get chasms(){ return effChasms; },
+  get lastCrash(){ return lastCrash; },
+  get coins(){ return coins; },
+  STAGES, groundY, groundSlope, groundExists, wrapAng,
+  setInput(t, b){ input.throttle = !!t; input.brake = !!b; },
+  startStage(n){ startCampaign(n); },
+  restartStage(){ score = scoreAtStageStart; startStage(stageIdx, true); state = 'play'; $('introCard').style.display = 'none'; },
+  debugSet(o){ Object.assign(bike, o); },
+};
+
+/* ================= boot ================= */
+buildStage(0);
+renderPicker();
+hud();
+$('muteBtn').textContent = muted ? '🔇' : '🔊';
+fit();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
