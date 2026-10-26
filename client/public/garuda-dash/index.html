@@ -30,8 +30,24 @@
     color:#ffd76a; text-shadow:0 0 18px rgba(255,183,0,.8), 0 2px 12px rgba(0,0,0,.7);
     opacity:0; transition:opacity .15s; pointer-events:none;
   }
-  #pad { position:fixed; left:0; right:0; bottom:10px; z-index:5; display:flex; justify-content:space-between; padding:0 14px; pointer-events:none; }
-  .padL, .padR { display:flex; gap:12px; pointer-events:none; }
+  #pad { position:fixed; left:0; right:0; bottom:10px; z-index:5; display:flex; justify-content:flex-end; padding:0 14px; pointer-events:none; }
+  .padR { display:flex; gap:12px; pointer-events:none; }
+  /* virtual joystick — one floating stick in the left control zone; the base
+     appears where the thumb lands and the knob follows it */
+  #stickZone { position:fixed; left:0; bottom:0; width:52vw; max-width:480px; height:54dvh; max-height:440px; z-index:5; pointer-events:auto; touch-action:none; }
+  #stickBase {
+    position:absolute; left:88px; top:calc(100% - 88px); width:112px; height:112px; margin:-56px 0 0 -56px;
+    border-radius:50%; border:2px solid rgba(57,230,255,.5); background:rgba(10,20,50,.32);
+    box-shadow:0 0 16px rgba(57,230,255,.22), inset 0 0 18px rgba(57,230,255,.1);
+    opacity:.4; pointer-events:none;
+  }
+  #stickBase.on { opacity:.95; background:rgba(10,20,50,.5); border-color:rgba(57,230,255,.85); }
+  #stickKnob {
+    position:absolute; left:50%; top:50%; width:52px; height:52px; margin:-26px 0 0 -26px; border-radius:50%;
+    border:2px solid rgba(255,215,106,.85);
+    background:radial-gradient(circle at 35% 30%, rgba(255,243,184,.95), rgba(255,183,0,.45) 58%, rgba(120,70,0,.5));
+    box-shadow:0 0 14px rgba(255,183,0,.4);
+  }
   .cbtn {
     pointer-events:auto;
     width:62px; height:62px; border-radius:50%; border:2px solid rgba(57,230,255,.65);
@@ -43,7 +59,7 @@
   .cbtn:active { background:rgba(57,230,255,.35); }
   .cbtn.gold { border-color:rgba(255,183,0,.75); color:#ffe9a8; box-shadow:0 0 14px rgba(255,183,0,.4), inset 0 0 12px rgba(255,183,0,.15); }
   .cbtn.gold:active { background:rgba(255,183,0,.35); }
-  .cbtn.jump { width:72px; height:72px; font-size:30px; }
+  .cbtn.screech { width:72px; height:72px; font-size:30px; }
   .screen {
     position:fixed; inset:0; z-index:10; display:flex; flex-direction:column; align-items:center; justify-content:center;
     gap:13px; text-align:center; padding:22px; background:rgba(8,18,38,.55); pointer-events:auto;
@@ -135,14 +151,13 @@
   <div id="toast"></div>
 </div>
 
+<div id="stickZone">
+  <div id="stickBase"><div id="stickKnob"></div></div>
+</div>
+
 <div id="pad">
-  <div class="padL">
-    <button class="cbtn" id="btnL">◀</button>
-    <button class="cbtn" id="btnR">▶</button>
-  </div>
   <div class="padR">
-    <button class="cbtn gold" id="btnS">📣</button>
-    <button class="cbtn jump" id="btnJ">⤒</button>
+    <button class="cbtn gold screech" id="btnS">📣</button>
   </div>
 </div>
 
@@ -165,7 +180,8 @@
   <img class="emblem" src="emblem.webp" alt="Garuda ninja eagle emblem">
   <h1>GARUDA <span class="gold">DASH</span></h1>
   <div class="small" id="skinLabel">HEADBAND: RED</div>
-  <p>Ten worlds, one Ninja Eagle. Run, jump and <b>hold jump to GLIDE</b>. Stomp the stone guardians — or hit
+  <p>Ten worlds, one Ninja Eagle. One <b>thumb stick</b> does it all: <b>push to run</b>, <b>flick up to jump</b>,
+     <b>hold up to GLIDE</b>, <b>push down mid-air to dive</b>. Stomp the stone guardians — or hit
      <b>📣 SCREECH</b> to stun them. Clear a level to unlock the next… and every world gets <b>hotter</b>. Reach the golden nest!</p>
   <div class="small">CHOOSE YOUR START LEVEL</div>
   <div id="levelPicker"></div>
@@ -726,6 +742,7 @@ function buildCoinsFor(grounds, platforms){
 
 /* ================= state ================= */
 const GRAV = 1500, JUMP_V = 580, MAXRUN = 268, GLIDE_FALL = 85;
+const FASTFALL_ACCEL = 2400, FASTFALL_V = 1150;   /* stick-down dive: extra downward accel + its terminal cap */
 let running = false;
 let score = 0, coinCount = 0, lives = 3, elapsed = 0;
 let level = 1, maxLevelReached = 1;
@@ -769,7 +786,7 @@ function addFloater(x, y, text, color, size){
   floaters.push({ x, y, text, color, size: size || 14, t: 0 });
   if (floaters.length > 24) floaters.shift();
 }
-const input = { left: false, right: false, jumpHeld: false };
+const input = { left: false, right: false, jumpHeld: false, fastFall: false };
 let jumpQueued = false;
 
 const P = { x: 40, y: 380, w: 34, h: 30, vx: 0, vy: 0, face: 1, onGround: false, coyote: 0, gliding: false, runT: 0 };
@@ -966,7 +983,9 @@ function update(dt){
   P.vy += GRAV * dt;
   P.gliding = false;
   if (!P.onGround && P.vy > 0 && input.jumpHeld){ P.vy = Math.min(P.vy, GLIDE_FALL); P.gliding = true; }
-  if (P.vy > 720) P.vy = 720;
+  if (!P.onGround && input.fastFall) P.vy += FASTFALL_ACCEL * dt;   /* stick held down: dive */
+  const termV = (!P.onGround && input.fastFall) ? FASTFALL_V : 720;
+  if (P.vy > termV) P.vy = termV;
   const prevBottom = P.y + P.h;
   P.x += P.vx * dt;
   P.y += P.vy * dt;
@@ -2479,33 +2498,83 @@ addEventListener('keyup', e => {
   if (e.code === 'ArrowRight' || e.code === 'KeyD') input.right = false;
   if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') input.jumpHeld = false;
 });
-function bindBtn(id, down, up){
-  const el = $(id);
-  const on = e => { e.preventDefault(); down(); };
-  const off = e => { e.preventDefault(); if (up) up(); };
-  el.addEventListener('touchstart', on, { passive: false });
-  el.addEventListener('touchend', off, { passive: false });
-  el.addEventListener('touchcancel', off, { passive: false });
-  el.addEventListener('mousedown', on);
-  el.addEventListener('mouseup', off);
-  el.addEventListener('mouseleave', off);
+/* ================= virtual joystick =================
+   ONE stick replaces the old left/right/jump buttons (whose touchstart/
+   touchend binding could leave a direction stuck true when a finger slid
+   off, a second finger landed, or the touch was interrupted). The stick
+   floats in the left control zone: where the thumb lands becomes the base.
+     push left/right past 14px  -> run
+     push up past -20px         -> jump (queued once per push); held up = glide
+     push down past +22px       -> fastFall dive (airborne only)
+   Pointer Events + setPointerCapture route every move/up for the active
+   thumb back to the zone, and EVERY exit path — pointerup, pointercancel,
+   lostpointercapture, window blur, tab hidden — clears all stick inputs,
+   so the eagle can never run on its own again. */
+const stickZone = $('stickZone'), stickBase = $('stickBase'), stickKnob = $('stickKnob');
+const STICK_R = 48;                /* knob travel radius, px */
+let stickId = null;                /* active pointerId; null = no thumb down */
+let stickBx = 0, stickBy = 0;      /* base center, client coords */
+let stickUpOn = false;             /* up-zone latch: jump queues once per push */
+function stickShow(on, kx, ky){
+  const r = stickZone.getBoundingClientRect();
+  stickBase.style.left = (stickBx - r.left) + 'px';
+  stickBase.style.top = (stickBy - r.top) + 'px';
+  stickBase.classList.toggle('on', !!on);
+  stickKnob.style.transform = 'translate(' + (kx || 0) + 'px,' + (ky || 0) + 'px)';
 }
-bindBtn('btnL', () => input.left = true, () => input.left = false);
-bindBtn('btnR', () => input.right = true, () => input.right = false);
-bindBtn('btnJ', () => { input.jumpHeld = true; jumpQueued = true; }, () => input.jumpHeld = false);
-bindBtn('btnS', () => tryScreech());
+function stickHome(){
+  const r = stickZone.getBoundingClientRect();
+  stickBx = r.left + 88; stickBy = r.top + r.height - 88;
+  stickShow(false, 0, 0);
+}
+function stickClear(){
+  stickId = null; stickUpOn = false;
+  input.left = input.right = input.jumpHeld = input.fastFall = false;
+  stickHome();
+}
+function stickApply(cx, cy){
+  const dx = cx - stickBx, dy = cy - stickBy;
+  const len = Math.hypot(dx, dy);
+  const kx = len > STICK_R ? dx * STICK_R / len : dx;
+  const ky = len > STICK_R ? dy * STICK_R / len : dy;
+  input.right = dx > 14;
+  input.left = dx < -14;
+  if (dy < -20){ if (!stickUpOn){ stickUpOn = true; jumpQueued = true; } input.jumpHeld = true; }
+  else if (dy > -10){ stickUpOn = false; input.jumpHeld = false; }
+  input.fastFall = dy > 22;
+  stickShow(true, kx, ky);
+}
+stickZone.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  if (stickId !== null) return;                    /* one thumb only */
+  stickId = e.pointerId;
+  try { stickZone.setPointerCapture(stickId); } catch (err) {}
+  const r = stickZone.getBoundingClientRect(), R = 58;
+  stickBx = Math.min(Math.max(e.clientX, r.left + R), r.right - R);
+  stickBy = Math.min(Math.max(e.clientY, r.top + R), r.bottom - R);
+  stickUpOn = false;
+  stickApply(e.clientX, e.clientY);
+});
+stickZone.addEventListener('pointermove', e => {
+  if (e.pointerId !== stickId) return;
+  e.preventDefault();
+  stickApply(e.clientX, e.clientY);
+});
+function stickEnd(e){ if (stickId === null || e.pointerId === stickId) stickClear(); }
+stickZone.addEventListener('pointerup', stickEnd);
+stickZone.addEventListener('pointercancel', stickEnd);
+stickZone.addEventListener('lostpointercapture', stickEnd);
+stickHome();
+/* screech: press-only, no held state — rebound on Pointer Events too */
+$('btnS').addEventListener('pointerdown', e => { e.preventDefault(); tryScreech(); });
+/* global anti-stick safety net: focus loss or a hidden tab kills all touch
+   input state, even if some pointer event never reached us */
+addEventListener('blur', stickClear);
+document.addEventListener('visibilitychange', () => { if (document.hidden) stickClear(); });
 cv.addEventListener('touchstart', e => {
   e.preventDefault();
   if (intro.on){ hideIntro(); return; }
   if (preview.on){ nextPreview(); return; }
-  const t = e.changedTouches[0], r = cv.getBoundingClientRect(), vw = r.width || IW;
-  if (t.clientX - r.left < vw * 0.35) input.left = true;
-  else if (t.clientX - r.left > vw * 0.65) input.right = true;
-  else { input.jumpHeld = true; jumpQueued = true; }
-}, { passive: false });
-cv.addEventListener('touchend', e => {
-  e.preventDefault();
-  if (e.touches.length === 0){ input.left = input.right = input.jumpHeld = false; }
 }, { passive: false });
 cv.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
 
