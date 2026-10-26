@@ -414,31 +414,7 @@ function hGapS(a, b){
   if (b.x + b.w < a.x) return a.x - (b.x + b.w);
   return 0;
 }
-function buildLevel(n){
-  const rnd = mulberry32(n * 7919 + 13);
-  /* grounds — widen the pits: 60px on L1 → 123px on L10 */
-  const grounds = GROUNDS.map(([x, w]) => [x, w]);
-  const targetPit = 60 + (n - 1) * 7;
-  for (let i = 0; i < grounds.length - 1; i++){
-    const curPit = grounds[i + 1][0] - (grounds[i][0] + grounds[i][1]);
-    const extra = targetPit - curPit;
-    if (extra <= 0) continue;
-    const trimA = Math.floor(extra / 2), trimB = extra - trimA;
-    grounds[i][1] -= trimA;
-    grounds[i + 1][0] += trimB; grounds[i + 1][1] -= trimB;
-  }
-  /* platforms — seeded jitter, thin out at higher levels, clamp reachable.
-     Reachability uses the real jump physics (GRAV 1500 / JUMP_V 580 /
-     MAXRUN 268): from a surface you can land on a higher one if the step-up
-     is <= 108px and the horizontal gap fits the running-jump range for that
-     step-up (with a safety margin); drops to lower surfaces always work. */
-  const keep = n <= 2 ? 14 : n <= 4 ? 13 : n <= 6 ? 12 : n <= 8 ? 11 : 10;
-  const removeIdx = [6, 11, 3, 13].slice(0, 14 - keep);
-  let plats = PLATFORMS.map(([x, y, w], oi) => ({
-      x: x + Math.round(rnd() * 28 - 14), y: y + Math.round(rnd() * 20 - 10), w, oi,
-    }))
-    .filter(p => !removeIdx.includes(p.oi));
-  const gSurfs = grounds.map(([x, w]) => ({ x, y: GROUND_Y, w }));
+function clampPlatforms(plats, gSurfs){
   const jumpReach = (A, B) => {
     const gap = hGapS(A, B), step = A.y - B.y;
     if (step <= 0) return gap <= 150;
@@ -458,6 +434,29 @@ function buildLevel(n){
     }
     accepted.push({ x: p.x, y: p.y, w: p.w });
   }
+}
+function buildLegacy(n){
+  const rnd = mulberry32(n * 7919 + 13);
+  /* grounds — widen the pits: 60px on L1 → 123px on L10 */
+  const grounds = GROUNDS.map(([x, w]) => [x, w]);
+  const targetPit = 60 + (n - 1) * 7;
+  for (let i = 0; i < grounds.length - 1; i++){
+    const curPit = grounds[i + 1][0] - (grounds[i][0] + grounds[i][1]);
+    const extra = targetPit - curPit;
+    if (extra <= 0) continue;
+    const trimA = Math.floor(extra / 2), trimB = extra - trimA;
+    grounds[i][1] -= trimA;
+    grounds[i + 1][0] += trimB; grounds[i + 1][1] -= trimB;
+  }
+  /* platforms — seeded jitter, thin out at higher levels, clamp reachable */
+  const keep = n <= 2 ? 14 : n <= 4 ? 13 : n <= 6 ? 12 : n <= 8 ? 11 : 10;
+  const removeIdx = [6, 11, 3, 13].slice(0, 14 - keep);
+  let plats = PLATFORMS.map(([x, y, w], oi) => ({
+      x: x + Math.round(rnd() * 28 - 14), y: y + Math.round(rnd() * 20 - 10), w, oi,
+    }))
+    .filter(p => !removeIdx.includes(p.oi));
+  const gSurfs = grounds.map(([x, w]) => ({ x, y: GROUND_Y, w }));
+  clampPlatforms(plats, gSurfs);
   plats.sort((a, b) => a.x - b.x);
   /* walkers — template patrols, speed scales with level */
   const spd = 1 + (n - 1) * 0.05;
@@ -538,18 +537,190 @@ function buildLevel(n){
     boss = { x: NEST_X - 300, minX: fin[0] + 60, maxX: NEST_X - 170, y: GROUND_Y, w: 120, h: 108,
       hp: 5, stun: 0, dir: 1, speed: 34, chargeT: 0, chargeDir: 1, hop: 0, hopV: 0, dead: false, enraged: false };
   }
+  return { grounds: grounds.map(([x, w]) => [x, GROUND_Y, w]), platforms: plats.map(p => [p.x, p.y, p.w]), walkerDefs, nestX: NEST_X, feather, egg, movers, boss };
+}
+
+/* ================= per-world layout archetypes (L2–L10) =================
+   grounds: [x, topY, w] — first + last segments always top at GROUND_Y
+   (spawn + nest). walkers: {seg, kind?, at?, speed?} patrol a ground
+   segment (y = its top), or {platX, speed?} ride the platform with that x.
+   movers: {pit, axis, off} — pit = index of the gap after that ground
+   segment; off = centre position across the pit (0..1). */
+const ARCHETYPES = {
+  /* 2 · SUNSET VALLEY — the glide level: four 260–290px pits that a plain
+     running jump (207px) cannot clear — jump, hold, glide. Sparse slabs. */
+  2: {
+    grounds: [[0,470,640],[910,470,560],[1750,470,600],[2640,470,560],[3460,470,1140]],
+    platforms: [[350,380,110],[1150,380,110],[1330,300,100],[2450,415,90],[2900,366,110],[3980,368,120]],
+    walkers: [{seg:0,speed:58},{seg:2,speed:66},{seg:3,speed:62},{seg:4,at:0.55,speed:70}],
+    movers: [],
+  },
+  /* 3 · NEON TEMPLE — staircases: two platform stair climbs with elevated
+     runs and descents, over a quiet flat floor. */
+  3: {
+    grounds: [[0,470,900],[1010,470,760],[1880,470,760],[2750,470,700],[3560,470,1040]],
+    platforms: [[300,380,110],[620,392,96],[730,324,96],[840,256,96],[950,196,96],
+      [1070,168,130],[1230,168,130],[1390,236,96],[1500,308,96],[1610,384,96],
+      [2200,368,110],[2400,290,110],[2980,392,96],[3090,324,96],[3200,256,96],
+      [3330,214,120],[3480,300,96],[3540,384,96]],
+    walkers: [{seg:0,at:0.22,speed:60},{seg:2,speed:66},{seg:3,at:0.25,speed:62},{seg:4,at:0.4,speed:70},{platX:1230,speed:40}],
+    movers: [],
+  },
+  /* 4 · DESERT DUNES — rolling ground: every segment at a different
+     height (steps <= 64px, inside the jump envelope), tikis ride the dunes. */
+  4: {
+    grounds: [[0,470,520],[640,430,480],[1240,478,520],[1880,414,460],[2460,470,540],[3120,438,480],[3720,470,880]],
+    platforms: [[240,368,110],[760,338,110],[1420,382,110],[1750,398,100],[1960,352,90],[2080,296,110],[2660,378,110],[3300,352,110],[3980,364,120]],
+    walkers: [{seg:0,speed:56},{seg:1,speed:60},{seg:2,speed:58},{seg:3,speed:64},{seg:4,speed:60},{seg:5,speed:62},{seg:6,at:0.3,speed:66}],
+    movers: [],
+  },
+  /* 5 · RAINFOREST — two routes: a continuous canopy highway at y=230
+     (three climb stairways up) above a normal ground route. */
+  5: {
+    grounds: [[0,470,680],[800,470,620],[1550,470,640],[2320,470,620],[3070,470,580],[3780,470,820]],
+    platforms: [[150,378,110],[330,392,100],[400,306,100],
+      [560,230,150],[750,230,150],[940,230,150],[1130,230,150],[1320,230,150],[1510,230,150],
+      [1700,230,150],[1890,230,150],[2080,230,150],[2160,384,100],[2230,300,100],[2270,230,150],
+      [2460,230,150],[2620,378,110],[2650,230,150],[2840,230,150],[3030,230,150],[3220,230,150],
+      [3360,384,100],[3410,230,150],[3430,300,100],[3600,230,150]],
+    walkers: [{seg:1,speed:62},{seg:2,speed:66},{seg:3,speed:64},{seg:4,speed:68},{platX:1510,speed:42},{platX:2650,speed:42}],
+    movers: [],
+  },
+  /* 6 · SNOW PEAKS — narrow ledges: 21 small (64–80px) platforms in zigzag
+     chains, plus the first brute (segment 3, as before). */
+  6: {
+    grounds: [[0,470,640],[770,470,600],[1500,470,620],[2250,470,600],[2980,470,580],[3690,470,910]],
+    platforms: [[150,392,72],[420,384,72],[540,300,72],[668,222,72],[800,300,72],[920,384,72],
+      [1150,368,80],[1620,378,72],[1748,296,72],[1876,214,72],[2010,296,72],[2138,378,72],
+      [2380,384,72],[2508,302,72],[2636,224,72],[2770,306,72],[2898,388,72],
+      [3820,378,78],[3958,294,78],[4096,216,78],[4230,300,78]],
+    walkers: [{seg:0,speed:66},{seg:1,speed:70},{seg:2,kind:'brute'},{seg:3,speed:72},{seg:5,at:0.3,speed:68},{platX:1876,speed:36}],
+    movers: [],
+  },
+  /* 7 · CRYSTAL CAVE — mover crossings: three 350–380px pits, far beyond
+     jump+glide range; the only way across is riding the bobbing crystal
+     in each pit. Sparse shelves. */
+  7: {
+    grounds: [[0,470,700],[1060,470,700],[2140,470,700],[3190,470,1410]],
+    platforms: [[300,372,100],[1300,360,100],[2050,404,90],[2400,362,100],[3560,368,110],[3980,378,110]],
+    walkers: [{seg:0,speed:60},{seg:1,speed:64},{seg:2,at:0.22,speed:62},{seg:2,kind:'brute'},{seg:3,at:0.35,speed:66}],
+    movers: [{pit:0,axis:'v',off:0.4167},{pit:1,axis:'v',off:0.3947},{pit:2,axis:'v',off:0.4286}],
+  },
+  /* 8 · STORM COAST — mover chains: two 300px+ pits each crossed by a pair
+     of opposed horizontal sliders, and the fastest walkers in the game. */
+  8: {
+    grounds: [[0,470,620],[740,470,560],[1600,470,620],[2550,470,560],[3230,470,1370]],
+    platforms: [[200,378,110],[900,368,110],[1800,368,110],[2750,368,110],[3560,366,110],[3740,288,110],[3980,372,120]],
+    walkers: [{seg:0,speed:78},{seg:1,speed:84},{seg:2,at:0.25,speed:88},{seg:2,kind:'brute',at:0.7},
+      {seg:3,at:0.3,speed:92},{seg:3,kind:'brute',at:0.65},{seg:4,at:0.3,speed:80}],
+    movers: [{pit:1,axis:'h',off:0.2333,phase:0},{pit:1,axis:'h',off:0.6833,phase:3.1416},
+             {pit:2,axis:'h',off:0.2273,phase:0},{pit:2,axis:'h',off:0.6818,phase:3.1416}],
+  },
+  /* 9 · VOLCANO — pit chains: nine 180–200px lava gaps between small safe
+     islands, a brute pair guarding the one wide segment. */
+  9: {
+    grounds: [[0,470,560],[740,470,150],[1090,470,140],[1420,470,160],[1770,470,140],[2090,470,150],[2430,470,420],[3040,470,140],[3370,470,150],[3710,470,890]],
+    platforms: [[240,378,100],[820,366,90],[1500,368,100],[2560,368,110],[3180,366,90],[3900,372,110],[4200,378,110]],
+    walkers: [{seg:0,speed:64},{seg:3,speed:70},{seg:6,kind:'brute',at:0.3},{seg:6,kind:'brute',at:0.72},{seg:7,speed:70},{seg:9,at:0.3,speed:66}],
+    movers: [{pit:1,axis:'h',off:0.5},{pit:5,axis:'h',off:0.5}],
+  },
+  /* 10 · INFERNO THRONE — the gauntlet: six defended segments (brutes on
+     3, 4, 5 as before, doubled tikis) funnelling into the boss arena,
+     whose final segment and boss are exactly as the template had them. */
+  10: {
+    grounds: [[0,470,520],[670,470,430],[1260,470,430],[1860,470,440],[2480,470,430],[3080,470,420],[3660,470,940]],
+    platforms: [[180,378,110],[760,368,110],[1350,368,110],[1950,360,110],[2570,368,110],[3160,360,110],[3800,364,120],[4020,278,130]],
+    walkers: [{seg:1,at:0.3,speed:70},{seg:1,at:0.7,speed:74},{seg:2,at:0.3,speed:72},{seg:2,kind:'brute'},
+      {seg:3,at:0.7,speed:76},{seg:3,kind:'brute'},{seg:4,at:0.3,speed:74},{seg:4,kind:'brute'},
+      {seg:5,at:0.5,speed:78},{seg:6,at:0.12,speed:66}],
+    movers: [{pit:3,axis:'h',off:0.5},{pit:4,axis:'h',off:0.5}],
+  },
+};
+
+function buildLevel(n){
+  const A = ARCHETYPES[n];
+  if (!A) return buildLegacy(n);
+  const grounds = A.grounds.map(([x, y, w]) => [x, y, w]);
+  const gSurfs = grounds.map(([x, y, w]) => ({ x, y, w }));
+  const plats = A.platforms.map(([x, y, w]) => ({ x, y, w }));
+  clampPlatforms(plats, gSurfs);
+  const spd = 1 + (n - 1) * 0.05;
+  const walkerDefs = [];
+  for (const ws of (A.walkers || [])){
+    if (ws.seg != null){
+      const [gx, gy, gw] = grounds[ws.seg];
+      const kind = ws.kind || 'tiki';
+      const bw = kind === 'brute' ? 54 : 32, bh = kind === 'brute' ? 46 : 24;
+      const inset = ws.inset != null ? ws.inset : (kind === 'brute' ? 70 : 80);
+      const cxm = gx + gw * (ws.at != null ? ws.at : 0.5);
+      const minX = Math.max(gx + 4, Math.round(cxm - inset));
+      const maxX = Math.min(gx + gw - bw - 4, Math.round(cxm + inset));
+      walkerDefs.push({ minX, maxX: Math.max(maxX, minX + 8), y: gy, speed: Math.round((ws.speed || (kind === 'brute' ? 46 : 64)) * spd), kind, hp: kind === 'brute' ? 2 : 1, w: bw, h: bh });
+    } else if (ws.platX != null){
+      const p = plats.find(q => q.x === ws.platX);
+      if (!p) continue;
+      walkerDefs.push({ minX: p.x + 4, maxX: Math.max(p.x + p.w - 36, p.x + 12), y: p.y, speed: Math.round((ws.speed || 40) * spd), kind: 'tiki', hp: 1, w: 32, h: 24 });
+    }
+  }
+  /* golden feather — same rule as the template: above the highest platform */
+  let highPlat = null;
+  for (const p of plats){
+    if (!highPlat || p.y < highPlat.y || (p.y === highPlat.y && p.x > highPlat.x)) highPlat = p;
+  }
+  const feather = highPlat ? { x: highPlat.x + highPlat.w / 2, y: highPlat.y - 34, taken: false } : null;
+  /* extra-life egg — same rule: band platform nearest 45% of the world */
+  let eggPlat = null, eggD = 1e9;
+  for (const p of plats){
+    if (p.y >= 300 && p.y <= 420){
+      const d = Math.abs((p.x + p.w / 2) - WORLD_W * 0.45);
+      if (d < eggD){ eggD = d; eggPlat = p; }
+    }
+  }
+  const egg = eggPlat
+    ? { x: eggPlat.x + eggPlat.w / 2, y: eggPlat.y, taken: false }
+    : { x: grounds[1][0] + 120, y: grounds[1][1], taken: false };
+  /* moving platforms — archetype-placed over named pits */
+  const movers = [];
+  for (const ms of (A.movers || [])){
+    const a = grounds[ms.pit], b = grounds[ms.pit + 1];
+    if (!a || !b) continue;
+    const x0 = a[0] + a[2], pitW = b[0] - x0;
+    const edgeY = Math.min(a[1], b[1]);
+    const bx = x0 + pitW * (ms.off != null ? ms.off : 0.5) - 45;
+    const by = edgeY - (ms.axis === 'v' ? 90 : 80);
+    movers.push({
+      x: bx, w: 90, y: by, baseX: bx, baseY: by,
+      axis: ms.axis, amp: ms.amp != null ? ms.amp : (ms.axis === 'v' ? 26 : 40),
+      period: ms.period || (ms.axis === 'v' ? 2.6 : 3.2),
+      phase: ms.phase || 0, prevX: bx, prevY: by, dx: 0, dy: 0, isMover: true, ground: false,
+    });
+  }
+  /* boss (L10 only) — on the final segment, before the nest (unchanged) */
+  let boss = null;
+  if (n === 10){
+    const fin = grounds[grounds.length - 1];
+    boss = { x: NEST_X - 300, minX: fin[0] + 60, maxX: NEST_X - 170, y: fin[1], w: 120, h: 108,
+      hp: 5, stun: 0, dir: 1, speed: 34, chargeT: 0, chargeDir: 1, hop: 0, hopV: 0, dead: false, enraged: false };
+  }
   return { grounds, platforms: plats.map(p => [p.x, p.y, p.w]), walkerDefs, nestX: NEST_X, feather, egg, movers, boss };
 }
+
 function buildCoinsFor(grounds, platforms){
   const coins = [];
   for (const [x, y, w] of platforms){
     for (let i = 0; i < 3; i++) coins.push({ x: x + w * (0.25 + 0.25 * i), y: y - 30, taken: false });
   }
+  /* one coin mid-pit, 54px above the higher edge — a glide/jump prize */
   for (let i = 0; i < grounds.length - 1; i++){
-    const end = grounds[i][0] + grounds[i][1];
-    coins.push({ x: end + (grounds[i + 1][0] - end) / 2, y: 416, taken: false });
+    const end = grounds[i][0] + grounds[i][2];
+    coins.push({ x: end + (grounds[i + 1][0] - end) / 2, y: Math.min(grounds[i][1], grounds[i + 1][1]) - 54, taken: false });
   }
-  for (const gx of [120, 162, 204, 1180, 1222, 2640, 2682, 2724]) coins.push({ x: gx, y: 428, taken: false });
+  /* coins along each wide ground segment, 42px above its own top —
+     running through them collects (the offset the template used) */
+  for (const [gx, gy, gw] of grounds){
+    const fr = gw >= 600 ? [0.22, 0.5, 0.78] : gw >= 260 ? [0.3, 0.65] : [];
+    for (const f of fr) coins.push({ x: gx + gw * f, y: gy - 42, taken: false });
+  }
   return coins;
 }
 
@@ -560,11 +731,11 @@ let score = 0, coinCount = 0, lives = 3, elapsed = 0;
 let level = 1, maxLevelReached = 1;
 let unlocked = Math.min(10, Math.max(1, +(localStorage.getItem('garudaUnlocked') || 1)));
 let selLevel = unlocked;
-let L_GROUNDS = GROUNDS, L_PLATFORMS = PLATFORMS, L_NESTX = NEST_X;
+let L_GROUNDS = GROUNDS.map(([x, w]) => [x, GROUND_Y, w]), L_PLATFORMS = PLATFORMS, L_NESTX = NEST_X;
 let SOLIDS = [];
 function rebuildSolids(){
   SOLIDS = [
-    ...L_GROUNDS.map(([x, w]) => ({ x, y: GROUND_Y, w, ground: true })),
+    ...L_GROUNDS.map(([x, gy, w]) => ({ x, y: gy, w, ground: true })),
     ...L_PLATFORMS.map(([x, y, w]) => ({ x, y, w, ground: false })),
     ...L_MOVERS,
   ];
@@ -1211,17 +1382,17 @@ function drawButterfly(x, y, i){
 }
 function drawFlags(viewW){
   const T = THEMES[level - 1];
-  for (const [x] of L_GROUNDS){
+  for (const [x, gy] of L_GROUNDS){
     const fx = x + 14;
     if (fx < cam - 40 || fx > cam + viewW + 40) continue;
     const lit = checkpoint >= fx - 1;
     ctx.strokeStyle = T.dark ? 'rgba(127,216,255,0.85)' : 'rgba(94,64,32,0.9)';
     ctx.lineWidth = 2.4;
-    ctx.beginPath(); ctx.moveTo(fx, GROUND_Y); ctx.lineTo(fx, GROUND_Y - 30); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(fx, gy); ctx.lineTo(fx, gy - 30); ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(fx, GROUND_Y - 30);
-    ctx.lineTo(fx + 17, GROUND_Y - 24.5);
-    ctx.lineTo(fx, GROUND_Y - 19);
+    ctx.moveTo(fx, gy - 30);
+    ctx.lineTo(fx + 17, gy - 24.5);
+    ctx.lineTo(fx, gy - 19);
     ctx.closePath();
     if (lit){ ctx.fillStyle = '#ffb700'; ctx.shadowColor = '#ffb700'; ctx.shadowBlur = 8; }
     else ctx.fillStyle = 'rgba(150,150,158,0.55)';
@@ -1229,7 +1400,7 @@ function drawFlags(viewW){
     ctx.shadowBlur = 0;
     ctx.fillStyle = 'rgba(0,0,0,0.18)';
     ctx.beginPath();
-    ctx.moveTo(fx + 17, GROUND_Y - 24.5); ctx.lineTo(fx + 11, GROUND_Y - 24.5); ctx.lineTo(fx + 17, GROUND_Y - 21.5);
+    ctx.moveTo(fx + 17, gy - 24.5); ctx.lineTo(fx + 11, gy - 24.5); ctx.lineTo(fx + 17, gy - 21.5);
     ctx.closePath(); ctx.fill();
   }
 }
@@ -1719,103 +1890,104 @@ function draw(){
   ctx.save();
   ctx.translate(-cam + shX, shY);
   /* grounds */
-  for (const [x, w] of L_GROUNDS){
-    const dg = ctx.createLinearGradient(0, GROUND_Y, 0, VH);
+  for (const [x, gy, w] of L_GROUNDS){
+    const dg = ctx.createLinearGradient(0, gy, 0, VH);
     dg.addColorStop(0.12, T.dirt[0]); dg.addColorStop(1, T.dirt[1]);
     ctx.fillStyle = dg;
-    ctx.fillRect(x, GROUND_Y, w, VH - GROUND_Y);
+    ctx.fillRect(x, gy, w, VH - gy);
     if (T.dark){
       ctx.fillStyle = 'rgba(255,255,255,0.05)';
-      for (let sx2 = x + 24; sx2 < x + w - 10; sx2 += 47) ctx.fillRect(sx2, GROUND_Y + 34 + (sx2 % 23), 5, 3);
+      for (let sx2 = x + 24; sx2 < x + w - 10; sx2 += 47) ctx.fillRect(sx2, gy + 34 + (sx2 % 23), 5, 3);
     } else {
       ctx.fillStyle = 'rgba(0,0,0,0.10)';
-      for (let sx2 = x + 26; sx2 < x + w - 10; sx2 += 53) ctx.fillRect(sx2, GROUND_Y + 36 + (sx2 % 19), 7, 4);
+      for (let sx2 = x + 26; sx2 < x + w - 10; sx2 += 53) ctx.fillRect(sx2, gy + 36 + (sx2 % 19), 7, 4);
       ctx.fillStyle = 'rgba(255,255,255,0.13)';
-      for (let sx2 = x + 52; sx2 < x + w - 10; sx2 += 71) ctx.fillRect(sx2, GROUND_Y + 52 + (sx2 % 13), 4, 3);
+      for (let sx2 = x + 52; sx2 < x + w - 10; sx2 += 71) ctx.fillRect(sx2, gy + 52 + (sx2 % 13), 4, 3);
     }
     if (T.capStyle === 'neon'){
       ctx.fillStyle = '#39e6ff';
       ctx.shadowColor = '#39e6ff'; ctx.shadowBlur = 10;
-      ctx.fillRect(x, GROUND_Y, w, 3.5);
+      ctx.fillRect(x, gy, w, 3.5);
       ctx.shadowBlur = 0;
       ctx.fillStyle = 'rgba(255,47,179,0.75)';
-      ctx.fillRect(x, GROUND_Y + 16, w, 2);
+      ctx.fillRect(x, gy + 16, w, 2);
       ctx.fillStyle = 'rgba(120,160,255,0.10)';
-      for (let sx2 = x + 23; sx2 < x + w; sx2 += 46) ctx.fillRect(sx2, GROUND_Y + 22, 2, VH - GROUND_Y - 26);
+      for (let sx2 = x + 23; sx2 < x + w; sx2 += 46) ctx.fillRect(sx2, gy + 22, 2, VH - gy - 26);
     } else if (T.capStyle === 'rock'){
-      const cg = ctx.createLinearGradient(0, GROUND_Y, 0, GROUND_Y + 14);
+      const cg = ctx.createLinearGradient(0, gy, 0, gy + 14);
       cg.addColorStop(0, T.cap[0]); cg.addColorStop(1, T.cap[1]);
       ctx.fillStyle = cg;
-      ctx.fillRect(x, GROUND_Y, w, 14);
+      ctx.fillRect(x, gy, w, 14);
       ctx.fillStyle = 'rgba(120,240,255,0.55)';
-      ctx.fillRect(x, GROUND_Y, w, 2);
+      ctx.fillRect(x, gy, w, 2);
     } else if (T.capStyle === 'basalt'){
-      const cg = ctx.createLinearGradient(0, GROUND_Y, 0, GROUND_Y + 14);
+      const cg = ctx.createLinearGradient(0, gy, 0, gy + 14);
       cg.addColorStop(0, T.cap[0]); cg.addColorStop(1, T.cap[1]);
       ctx.fillStyle = cg;
-      ctx.fillRect(x, GROUND_Y, w, 14);
+      ctx.fillRect(x, gy, w, 14);
       ctx.fillStyle = 'rgba(255,122,26,0.4)';
-      ctx.fillRect(x, GROUND_Y, w, 2);
+      ctx.fillRect(x, gy, w, 2);
       ctx.strokeStyle = `rgba(255,122,26,${0.6 + 0.3 * Math.sin(runTime * 3 + x)})`;
       ctx.lineWidth = 2; ctx.shadowColor = '#ff7a1a'; ctx.shadowBlur = 7;
       ctx.beginPath();
       for (let k = 0; k < 2; k++){
         const cx0 = x + 60 + k * 190 + (x % 53);
         if (cx0 > x + w - 30) continue;
-        ctx.moveTo(cx0, GROUND_Y + 15);
-        ctx.lineTo(cx0 + 12, GROUND_Y + 30);
-        ctx.lineTo(cx0 + 4, GROUND_Y + 44);
+        ctx.moveTo(cx0, gy + 15);
+        ctx.lineTo(cx0 + 12, gy + 30);
+        ctx.lineTo(cx0 + 4, gy + 44);
       }
       ctx.stroke();
       ctx.shadowBlur = 0;
     } else {
-      const cg = ctx.createLinearGradient(0, GROUND_Y, 0, GROUND_Y + 14);
+      const cg = ctx.createLinearGradient(0, gy, 0, gy + 14);
       cg.addColorStop(0, T.cap[0]); cg.addColorStop(1, T.cap[1]);
       ctx.fillStyle = cg;
-      ctx.fillRect(x, GROUND_Y, w, 14);
+      ctx.fillRect(x, gy, w, 14);
       ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 1.6;
-      ctx.beginPath(); ctx.moveTo(x, GROUND_Y + 14); ctx.lineTo(x + w, GROUND_Y + 14); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, gy + 14); ctx.lineTo(x + w, gy + 14); ctx.stroke();
       ctx.fillStyle = T.capStyle === 'sand' ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.35)';
-      ctx.fillRect(x, GROUND_Y, w, 2.4);
+      ctx.fillRect(x, gy, w, 2.4);
       if (T.capStyle === 'grass'){
         ctx.fillStyle = T.cap[1];
         for (let sx2 = x + 7; sx2 < x + w - 4; sx2 += 17){
           const bh = 4 + (sx2 % 3);
-          ctx.fillRect(sx2, GROUND_Y - bh + 1, 2, bh);
-          ctx.fillRect(sx2 + 5, GROUND_Y - bh, 2, bh - 1);
+          ctx.fillRect(sx2, gy - bh + 1, 2, bh);
+          ctx.fillRect(sx2 + 5, gy - bh, 2, bh - 1);
         }
         if (T.flowers){
           const cols = ['#ff8fb0', '#ffffff', '#ffd76a', '#ff6b6b'];
           for (let sx2 = x + 40; sx2 < x + w - 8; sx2 += 83){
             const fc = cols[Math.floor(sx2 / 83) % 4];
             ctx.fillStyle = fc;
-            ctx.beginPath(); ctx.arc(sx2, GROUND_Y + 6, 2.2, 0, 7); ctx.fill();
-            ctx.beginPath(); ctx.arc(sx2 + 23, GROUND_Y + 9, 1.8, 0, 7); ctx.fill();
+            ctx.beginPath(); ctx.arc(sx2, gy + 6, 2.2, 0, 7); ctx.fill();
+            ctx.beginPath(); ctx.arc(sx2 + 23, gy + 9, 1.8, 0, 7); ctx.fill();
           }
         }
       }
       if (T.capStyle === 'sand'){
         ctx.fillStyle = 'rgba(150,104,47,0.45)';
-        for (let sx2 = x + 15; sx2 < x + w - 6; sx2 += 31) ctx.fillRect(sx2, GROUND_Y + 4 + (sx2 % 7), 3, 2);
+        for (let sx2 = x + 15; sx2 < x + w - 6; sx2 += 31) ctx.fillRect(sx2, gy + 4 + (sx2 % 7), 3, 2);
       }
       if (T.capStyle === 'snow'){
         ctx.fillStyle = 'rgba(255,255,255,0.9)';
-        for (let sx2 = x + 18; sx2 < x + w - 6; sx2 += 43) ctx.fillRect(sx2, GROUND_Y + 5 + (sx2 % 6), 2, 2);
+        for (let sx2 = x + 18; sx2 < x + w - 6; sx2 += 43) ctx.fillRect(sx2, gy + 5 + (sx2 % 6), 2, 2);
       }
     }
   }
   /* pits */
   for (let i = 0; i < L_GROUNDS.length - 1; i++){
-    const px = L_GROUNDS[i][0] + L_GROUNDS[i][1];
+    const px = L_GROUNDS[i][0] + L_GROUNDS[i][2];
     const pw = L_GROUNDS[i + 1][0] - px;
+    const topY = Math.min(L_GROUNDS[i][1], L_GROUNDS[i + 1][1]);
     if (T.pit === 'lava'){
-      const lg = ctx.createLinearGradient(0, GROUND_Y + 8, 0, VH);
+      const lg = ctx.createLinearGradient(0, topY + 8, 0, VH);
       lg.addColorStop(0, '#ff8a1e'); lg.addColorStop(0.45, '#e64a00'); lg.addColorStop(1, '#7a1800');
       ctx.fillStyle = lg;
-      ctx.fillRect(px, GROUND_Y + 8, pw, VH - GROUND_Y - 8);
+      ctx.fillRect(px, topY + 8, pw, VH - topY - 8);
       ctx.fillStyle = 'rgba(255,190,80,0.9)';
       ctx.shadowColor = '#ff7a1a'; ctx.shadowBlur = 12;
-      ctx.fillRect(px, GROUND_Y + 8, pw, 4);
+      ctx.fillRect(px, topY + 8, pw, 4);
       ctx.shadowBlur = 0;
       ctx.fillStyle = 'rgba(255,210,110,0.85)';
       for (let b = 0; b < 2; b++){
@@ -1825,11 +1997,11 @@ function draw(){
         ctx.fill();
       }
     } else {
-      const fg = ctx.createLinearGradient(0, GROUND_Y + 6, 0, VH);
+      const fg = ctx.createLinearGradient(0, topY + 6, 0, VH);
       fg.addColorStop(0, `rgba(${T.fog},${T.pit === 'dark' ? '0.22' : '0.28'})`);
       fg.addColorStop(1, 'rgba(255,255,255,0)');
       ctx.fillStyle = fg;
-      ctx.fillRect(px, GROUND_Y + 6, pw, VH - GROUND_Y - 6);
+      ctx.fillRect(px, topY + 6, pw, VH - topY - 6);
     }
   }
   drawFlags(viewW);
