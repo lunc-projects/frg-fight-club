@@ -41,8 +41,8 @@ export default async function handler(req, res) {
   const wk = `sol:week:${weekKey()}`;
   try {
     const out = await upstashPipeline([
-      ['ZREVRANGE', 'sol:all', 0, 19, 'WITHSCORES'],
-      ['ZREVRANGE', wk, 0, 19, 'WITHSCORES'],
+      ['ZREVRANGE', 'sol:all', 0, 49, 'WITHSCORES'],
+      ['ZREVRANGE', wk, 0, 49, 'WITHSCORES'],
     ]);
     const all = pairs(out[0] && out[0].result);
     const week = pairs(out[1] && out[1].result);
@@ -53,7 +53,22 @@ export default async function handler(req, res) {
       const vals = (nOut[0] && nOut[0].result) || [];
       ids.forEach((id, i) => { names[id] = vals[i] || 'Player'; });
     }
-    const shape = (rows) => rows.map((p) => ({ name: names[p.id] || 'Player', score: p.score }));
+    // One row per display name: a player can hold both a name-based guest
+    // entry and a Telegram-verified entry. Rows arrive best-first, so the
+    // first (highest) row per name wins and later duplicates are hidden.
+    const shape = (rows) => {
+      const seen = new Set();
+      const out = [];
+      for (const p of rows) {
+        const name = names[p.id] || 'Player';
+        const key = name.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ name, score: p.score });
+        if (out.length >= 20) break;
+      }
+      return out;
+    };
     res.setHeader('Cache-Control', 's-maxage=15, stale-while-revalidate=30');
     return res.status(200).json({ all: shape(all), week: shape(week) });
   } catch (e) {
