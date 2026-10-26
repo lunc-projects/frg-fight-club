@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Zombie Defense — Hold the Moon Base</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; padding:0; overflow:hidden; background:#070b24; height:100%; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:#fff;
+         -webkit-user-select:none; user-select:none; touch-action:none;
+         display:flex; flex-direction:column; height:100dvh; }
+  #cvwrap { position:relative; flex:1; min-height:0; }
+  #game { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  #ui { position:fixed; inset:0; pointer-events:none; }
+  #hud {
+    position:relative; flex:0 0 auto; margin:10px 10px 2px;
+    background:linear-gradient(90deg, rgba(40,26,4,.88), rgba(6,44,54,.88)); border-radius:999px; padding:8px 16px;
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    box-shadow:0 0 18px rgba(255,183,0,.22), 0 4px 18px rgba(0,0,0,.5);
+    border:1.5px solid rgba(255,215,106,.4);
+  }
+  #hudBase { font-weight:900; font-size:15.5px; color:#ff9d9d; white-space:nowrap; min-width:86px; }
+  #hudMid { display:flex; align-items:center; gap:8px; }
+  #hudWave { font-weight:900; font-size:12.5px; letter-spacing:.08em; color:#ffe9a8; white-space:nowrap; }
+  #prevChip { font-size:9.5px; font-weight:900; letter-spacing:.18em; color:#0b2440; background:linear-gradient(180deg,#ffe259,#ffb700);
+    border-radius:999px; padding:3px 8px; box-shadow:0 0 10px rgba(255,183,0,.55); }
+  #hudCoins { font-weight:900; font-size:15.5px; color:#ffd76a; white-space:nowrap; }
+  #hudScore { font-weight:900; font-size:17px; font-variant-numeric:tabular-nums; min-width:56px; text-align:right; }
+  #toast {
+    position:absolute; top:22%; width:100%; text-align:center; font-size:26px; font-weight:900; letter-spacing:.06em;
+    color:#ffd76a; text-shadow:0 0 18px rgba(255,183,0,.8), 0 2px 12px rgba(0,0,0,.7);
+    opacity:0; transition:opacity .15s; pointer-events:none;
+  }
+  .screen {
+    position:fixed; inset:0; z-index:10; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:13px; text-align:center; padding:22px; background:rgba(6,12,30,.55); pointer-events:auto;
+    overflow-y:auto;
+  }
+  .screen h1 { margin:0; font-size:40px; letter-spacing:.1em; font-weight:900; color:#fff;
+    text-shadow:0 0 8px #40e0d0, 0 0 26px #40e0d0, 0 0 44px #ffb700; }
+  .screen h1 .gold { color:#ffe9a8; text-shadow:0 0 8px #ffb700, 0 0 26px #ffb700; }
+  #startScreen h1 {
+    font-size:46px; letter-spacing:.05em; text-shadow:none;
+    background:linear-gradient(180deg,#d8fffb 5%,#40e0d0 45%,#1f9e8f 95%);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    -webkit-text-stroke:2px rgba(4,40,36,.9);
+    filter:drop-shadow(0 3px 0 rgba(4,40,36,.85)) drop-shadow(0 8px 18px rgba(0,0,0,.35));
+  }
+  .screen p { margin:0; font-size:15px; line-height:1.5; max-width:460px; opacity:.94; }
+  .screen .small { font-size:12px; letter-spacing:.22em; opacity:.65; font-weight:700; }
+  button.play {
+    cursor:pointer; border:none; color:#fff; border-radius:14px; padding:14px 40px; margin-top:6px;
+    font-size:18px; font-weight:900; letter-spacing:.07em; font-family:inherit;
+    background:linear-gradient(180deg,#4ade3d,#22b41f); box-shadow:0 5px 0 #147a0c; text-shadow:0 1px 2px rgba(0,0,0,.3);
+  }
+  button.play:active { transform:translateY(3px); box-shadow:0 2px 0 #147a0c; }
+  button.play.alt { background:linear-gradient(180deg,#8d99c9,#5a6699); box-shadow:0 5px 0 #39406b; font-size:15px; padding:12px 26px; }
+  button.play.alt:active { box-shadow:0 2px 0 #39406b; }
+  button.play:disabled { opacity:.55; }
+  #overScreen, #shopScreen, #boardScreen { display:none; }
+  #nameInput { width:min(300px, 82vw); padding:12px 16px; border-radius:999px; border:1px solid rgba(255,255,255,.35); background:rgba(10,6,28,.85); color:#fff; font-size:16px; text-align:center; outline:none; font-family:inherit; pointer-events:auto; }
+  #submitStatus { min-height:18px; font-size:14px; margin:0; }
+  #boardList { width:min(430px, 92vw); max-height:46vh; overflow-y:auto; text-align:left; font-size:15px; }
+  #boardList .row { display:flex; justify-content:space-between; gap:10px; padding:7px 12px; border-bottom:1px solid rgba(255,255,255,.09); }
+  #boardList .row .rk { opacity:.65; width:34px; flex:0 0 auto; }
+  #boardList .row .nm { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #boardList .row .sc { font-weight:900; color:#ffd76a; }
+  .tabs { display:flex; gap:8px; }
+  #muteBtn { background:rgba(255,255,255,.12); border:1.5px solid rgba(255,255,255,.35); color:#fff; border-radius:999px; width:34px; height:34px; font-size:16px; cursor:pointer; font-family:inherit; flex:0 0 auto; }
+  #shareStatus { min-height:18px; font-size:14px; margin:0; }
+  .badge { font-size:64px; filter:drop-shadow(0 6px 18px rgba(64,224,208,.35)); }
+  .upgRow { display:flex; gap:9px; flex-wrap:wrap; justify-content:center; max-width:520px; }
+  button.upg {
+    cursor:pointer; border:2px solid rgba(64,224,208,.5); color:#fff; border-radius:16px; padding:12px 16px;
+    background:rgba(8,26,34,.75); font-family:inherit; min-width:150px;
+    box-shadow:0 0 12px rgba(64,224,208,.18);
+  }
+  button.upg:active { background:rgba(64,224,208,.3); }
+  button.upg:disabled { opacity:.45; cursor:default; }
+  button.upg .ut { font-size:16px; font-weight:900; letter-spacing:.04em; }
+  button.upg .ud { font-size:12px; opacity:.8; margin-top:3px; }
+  button.upg .uc { font-size:14px; font-weight:900; color:#ffd76a; margin-top:5px; }
+</style>
+</head>
+<body>
+<div id="hud">
+  <div id="hudBase">🏠 100</div>
+  <div id="hudMid"><div id="hudWave">WAVE 1</div><span id="prevChip">PREVIEW</span></div>
+  <div id="hudCoins">🪙 0</div>
+  <div id="hudScore">0</div>
+  <button id="muteBtn">🔊</button>
+</div>
+<div id="cvwrap"><canvas id="game"></canvas></div>
+
+<div id="ui">
+  <div id="toast"></div>
+</div>
+
+<div class="screen" id="startScreen">
+  <div class="small">LUNA CLASSIC · MOON BASE DEFENSE</div>
+  <div class="badge">🧟🌕</div>
+  <h1>ZOMBIE <span class="gold">DEFENSE</span></h1>
+  <p>The horde is shambling across the moon dust toward your outpost. <b>Tap a zombie to shoot it</b> —
+     don't let them chew through the base! Earn 🪙 for every kill and spend them between waves on
+     <b>damage, fire rate and repairs</b>. Brutes hit the field every 5th wave. How long can Luna hold?</p>
+  <button class="play" id="startBtn">▶ DEFEND</button>
+  <button class="play alt" id="boardBtn">🏆 LEADERBOARD</button>
+</div>
+
+<div class="screen" id="shopScreen">
+  <div class="small" id="shopKicker">WAVE 1 CLEARED</div>
+  <h1>🛠️ FIELD UPGRADES</h1>
+  <p id="shopCoins">🪙 0</p>
+  <div class="upgRow">
+    <button class="upg" id="upgDmg"><div class="ut">🔫 +DAMAGE</div><div class="ud" id="upgDmgD">Damage 1 → 2</div><div class="uc" id="upgDmgC">🪙 25</div></button>
+    <button class="upg" id="upgRate"><div class="ut">⚡ +FIRE RATE</div><div class="ud" id="upgRateD">Faster shots</div><div class="uc" id="upgRateC">🪙 25</div></button>
+    <button class="upg" id="upgRep"><div class="ut">🔧 REPAIR BASE</div><div class="ud" id="upgRepD">Base 100/100</div><div class="uc" id="upgRepC">🪙 20</div></button>
+  </div>
+  <button class="play" id="nextWaveBtn">▶ START WAVE 2</button>
+  <button class="play alt" id="shopEndBtn">END RUN · SUBMIT SCORE</button>
+</div>
+
+<div class="screen" id="overScreen">
+  <div class="small" id="overKicker">THE BASE HAS FALLEN</div>
+  <div class="badge" id="overBadge">🧟</div>
+  <h1 id="overTitle">OVERRUN!</h1>
+  <p id="overStats"></p>
+  <input id="nameInput" maxlength="16" placeholder="Your name — or just Guest">
+  <button class="play" id="submitBtn">🏆 SUBMIT SCORE</button>
+  <p id="submitStatus"></p>
+  <button class="play alt" id="shareBtn">📣 SHARE SCORE</button>
+  <p id="shareStatus"></p>
+  <button class="play alt" id="overBoardBtn">🏆 LEADERBOARD</button>
+  <button class="play" id="againBtn">▶ PLAY AGAIN</button>
+  <button class="play alt" id="menuBtn">↩ MENU</button>
+</div>
+
+<div class="screen" id="boardScreen">
+  <div class="small">🏆 ZOMBIE DEFENSE</div>
+  <h1>LEADERBOARD</h1>
+  <div class="tabs">
+    <button id="tabAll" class="play">ALL-TIME</button>
+    <button id="tabWeek" class="play alt">THIS WEEK</button>
+  </div>
+  <div id="boardList"><p style="text-align:center; opacity:.8">Loading…</p></div>
+  <button id="boardClose" class="play alt">✕ CLOSE</button>
+</div>
+
+<script>
+'use strict';
+/* ================= setup ================= */
+const $ = id => document.getElementById(id);
+const cv = $('game'), ctx = cv.getContext('2d');
+const VH = 540;                       /* virtual world height */
+const IW = 800;                       /* internal canvas width — fixed */
+let W = IW, H = 600, SCALE = 1, VW = IW;
+function fit(){
+  const wrap = $('cvwrap');
+  const r = wrap ? wrap.getBoundingClientRect() : null;
+  if (r && r.width > 0 && r.height > 0){
+    H = Math.max(600, Math.min(1100, Math.round(IW * r.height / r.width)));
+  }
+  W = IW;
+  cv.width = IW; cv.height = H;
+  SCALE = H / VH;
+  VW = IW / SCALE;
+}
+fit();
+addEventListener('resize', fit);
+
+/* ================= audio ================= */
+let AC = null;
+let muted = localStorage.getItem('zombieDefenseMute') === '1';
+function ensureAudio(){
+  if (AC || muted) { if (AC && AC.resume) AC.resume(); return; }
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    AC = new Ctx();
+  } catch (e) { AC = null; }
+}
+function tone(f0, f1, dur, type, vol, delay){
+  if (!AC || muted) return;
+  try {
+    const t = AC.currentTime + (delay || 0);
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = type || 'square';
+    o.frequency.setValueAtTime(f0, t);
+    if (f1 && f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(30, f1), t + dur);
+    g.gain.setValueAtTime(vol || .12, t);
+    g.gain.exponentialRampToValueAtTime(.001, t + dur);
+    o.connect(g); g.connect(AC.destination);
+    o.start(t); o.stop(t + dur + .02);
+  } catch (e) {}
+}
+const sfx = {
+  shot(){ tone(880, 220, .07, 'square', .08); },
+  hit(){ tone(210, 140, .05, 'triangle', .12); },
+  kill(){ tone(320, 55, .2, 'sawtooth', .12); tone(1320, 1320, .06, 'sine', .1, .05); },
+  base(){ tone(95, 60, .16, 'sine', .22); },
+  buy(){ tone(660, 660, .07, 'sine', .12); tone(990, 990, .09, 'sine', .12, .07); },
+  deny(){ tone(160, 120, .12, 'square', .1); },
+  clear(){ [523, 659, 784].forEach((f, i) => tone(f, f, .11, 'triangle', .12, i * .09)); },
+  over(){ tone(420, 70, .7, 'sawtooth', .14); },
+};
+
+/* ================= game state ================= */
+const LANES = [205, 330, 455];        /* feet-y of each lane */
+const BASE_X = 104;                   /* where zombies stop and chew */
+const BASE_MAX = 100;
+let state = 'menu';                   /* menu | play | shop | over */
+let score = 0, coins = 0, kills = 0, elapsed = 0, runActive = false;
+let wave = 0;
+let base = { hp: BASE_MAX };
+let dmgLvl = 0, rateLvl = 0, repairs = 0;
+let zombies = [], particles = [], floaters = [], tracers = [];
+let pending = [], spawnT = 0, cooldown = 0, shake = 0, baseFlash = 0;
+let waveKillsTotal = 0;
+
+const damage = () => 1 + dmgLvl;
+const fireCooldown = () => Math.max(.10, .28 - .035 * rateLvl);
+const costDmg = () => 25 + dmgLvl * 15;
+const costRate = () => 25 + rateLvl * 15;
+const costRep = () => 20 + repairs * 5;
+
+function toast(msg, ms){
+  const t = $('toast');
+  t.textContent = msg;
+  t.style.opacity = 1;
+  clearTimeout(toast._h);
+  toast._h = setTimeout(() => { t.style.opacity = 0; }, ms || 1400);
+}
+
+function resetRun(){
+  score = 0; coins = 0; kills = 0; elapsed = 0;
+  wave = 0; base = { hp: BASE_MAX };
+  dmgLvl = 0; rateLvl = 0; repairs = 0;
+  zombies = []; particles = []; floaters = []; tracers = [];
+  pending = []; cooldown = 0; shake = 0; baseFlash = 0;
+  runActive = true;
+}
+function startRun(){
+  ensureAudio();
+  resetRun();
+  $('startScreen').style.display = 'none';
+  $('overScreen').style.display = 'none';
+  $('shopScreen').style.display = 'none';
+  nextWave();
+}
+function waveComp(n){
+  /* build the spawn list for wave n: shambles, runners from w3, brutes every 5th */
+  const list = [];
+  const normals = 5 + n * 2;
+  for (let i = 0; i < normals; i++){
+    list.push(n >= 3 && Math.random() < .25 ? 'runner' : 'shambler');
+  }
+  if (n % 5 === 0){
+    const brutes = n / 5;
+    for (let b = 0; b < brutes; b++){
+      const pos = Math.min(list.length, Math.floor((b + 1) * list.length / (brutes + 1)) + b);
+      list.splice(pos, 0, 'brute');
+    }
+  }
+  return list;
+}
+function nextWave(){
+  wave++;
+  pending = waveComp(wave);
+  waveKillsTotal = pending.length;
+  spawnT = .6;
+  state = 'play';
+  $('shopScreen').style.display = 'none';
+  toast('🌕 WAVE ' + wave + (wave % 5 === 0 ? ' — BRUTE INBOUND!' : ''), 1500);
+  syncHud();
+}
+function spawnInterval(){ return Math.max(.5, 1.55 - wave * .06); }
+function spawnZombie(type){
+  const lane = Math.floor(Math.random() * 3);
+  const hpBase = 3 + Math.floor((wave - 1) / 2);
+  let z = {
+    type, lane, x: VW + 46, y: LANES[lane],
+    walk: Math.random() * 6.28, flash: 0, state: 'walk', dieT: 0, atkT: 0,
+  };
+  if (type === 'brute'){
+    z.maxHp = z.hp = 10 + wave * 2;
+    z.speed = (17 + wave * 1.2) * .55;
+    z.scale = 1.45; z.chew = 3; z.coins = 15; z.score = 50;
+  } else if (type === 'runner'){
+    z.maxHp = z.hp = Math.max(2, Math.round(hpBase * .6));
+    z.speed = (20 + wave * 1.5 + Math.random() * 6) * 1.7;
+    z.scale = .88; z.chew = 1; z.coins = 4; z.score = 10;
+  } else {
+    z.maxHp = z.hp = hpBase;
+    z.speed = 20 + wave * 1.5 + Math.random() * 6;
+    z.scale = 1; z.chew = 1; z.coins = 4; z.score = 10;
+  }
+  zombies.push(z);
+  return z;
+}
+function burst(x, y, color, n){
+  for (let i = 0; i < n; i++){
+    const a = Math.random() * 6.283, s = 40 + Math.random() * 130;
+    particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, life: .45 + Math.random() * .3, t: 0, color, size: 2 + Math.random() * 3 });
+  }
+}
+function floater(x, y, text, color){
+  floaters.push({ x, y, text, color: color || '#ffd76a', t: 0, life: .9 });
+}
+function killZombie(z){
+  z.state = 'die'; z.dieT = 0;
+  kills++;
+  score += z.score;
+  coins += z.coins;
+  burst(z.x, z.y - 34 * z.scale, z.type === 'brute' ? '#ffb35c' : '#b7e39a', z.type === 'brute' ? 22 : 12);
+  floater(z.x, z.y - 74 * z.scale, '+' + z.score, '#ffd76a');
+  floater(z.x + 6, z.y - 56 * z.scale, '🪙+' + z.coins, '#ffe9a8');
+  sfx.kill();
+  syncHud();
+}
+function shootAt(vx, vy){
+  if (state !== 'play' || cooldown > 0) return false;
+  /* topmost = latest spawned among hits */
+  let best = null;
+  for (let i = zombies.length - 1; i >= 0; i--){
+    const z = zombies[i];
+    if (z.state === 'die') continue;
+    const w = 30 * z.scale, top = z.y - 96 * z.scale, bot = z.y + 4;
+    if (vx >= z.x - w && vx <= z.x + w && vy >= top && vy <= bot){ best = z; break; }
+  }
+  if (!best) return false;
+  cooldown = fireCooldown();
+  tracers.push({ x1: 84, y1: 128, x2: best.x, y2: best.y - 52 * best.scale, t: 0, life: .07 });
+  sfx.shot();
+  best.hp -= damage();
+  best.flash = .12;
+  best.x += 3;                          /* little knockback */
+  burst(best.x, best.y - 52 * best.scale, '#eaffea', 4);
+  if (best.hp <= 0) killZombie(best);
+  else sfx.hit();
+  return true;
+}
+function buyUpgrade(kind){
+  if (state !== 'shop') return false;
+  let cost;
+  if (kind === 'dmg'){ cost = costDmg(); if (coins < cost){ sfx.deny(); return false; } coins -= cost; dmgLvl++; }
+  else if (kind === 'rate'){ cost = costRate(); if (fireCooldown() <= .101 || coins < cost){ sfx.deny(); return false; } coins -= cost; rateLvl++; }
+  else if (kind === 'repair'){ cost = costRep(); if (base.hp >= BASE_MAX || coins < cost){ sfx.deny(); return false; } coins -= cost; repairs++; base.hp = Math.min(BASE_MAX, base.hp + 30); }
+  else return false;
+  sfx.buy();
+  renderShop();
+  syncHud();
+  return true;
+}
+function waveCleared(){
+  score += 50;
+  state = 'shop';
+  sfx.clear();
+  $('shopKicker').textContent = 'WAVE ' + wave + ' CLEARED · +50';
+  $('nextWaveBtn').textContent = '▶ START WAVE ' + (wave + 1);
+  renderShop();
+  $('shopScreen').style.display = 'flex';
+  syncHud();
+}
+function gameOver(ended){
+  state = 'over';
+  runActive = false;
+  localStorage.setItem('zombieDefenseBest', Math.max(+(localStorage.getItem('zombieDefenseBest') || 0), score));
+  if (!ended){ sfx.over(); burst(60, 300, '#ff9d5c', 42); shake = .6; }
+  $('shopScreen').style.display = 'none';
+  $('overKicker').textContent = ended ? 'RUN ENDED' : 'THE BASE HAS FALLEN';
+  $('overTitle').textContent = ended ? 'RUN COMPLETE' : 'OVERRUN!';
+  $('overBadge').textContent = ended ? '🏁' : '🧟';
+  $('overStats').innerHTML =
+    'Score <b>' + score + '</b> · Reached <b>Wave ' + wave + '</b><br>' +
+    '🧟 ' + kills + ' zombies dropped · ⏱️ ' + Math.round(elapsed) + 's';
+  prefillName();
+  $('submitBtn').disabled = false;
+  $('submitStatus').textContent = '';
+  $('overScreen').style.display = 'flex';
+}
+function renderShop(){
+  $('shopCoins').textContent = '🪙 ' + coins + ' · Base ' + base.hp + '/' + BASE_MAX;
+  $('upgDmgD').textContent = 'Damage ' + damage() + ' → ' + (damage() + 1) + ' per shot';
+  $('upgDmgC').textContent = '🪙 ' + costDmg();
+  $('upgDmg').disabled = coins < costDmg();
+  $('upgRateD').textContent = fireCooldown() <= .101 ? 'Fire rate MAXED' : 'Shot every ' + fireCooldown().toFixed(2) + 's → ' + Math.max(.10, fireCooldown() - .035).toFixed(2) + 's';
+  $('upgRateC').textContent = '🪙 ' + costRate();
+  $('upgRate').disabled = coins < costRate() || fireCooldown() <= .101;
+  $('upgRepD').textContent = 'Base ' + base.hp + '/' + BASE_MAX + (base.hp >= BASE_MAX ? ' — full!' : ' · +30 HP');
+  $('upgRepC').textContent = '🪙 ' + costRep();
+  $('upgRep').disabled = coins < costRep() || base.hp >= BASE_MAX;
+}
+function syncHud(){
+  $('hudBase').textContent = '🏠 ' + Math.max(0, Math.ceil(base.hp));
+  $('hudWave').textContent = 'WAVE ' + Math.max(1, wave);
+  $('hudCoins').textContent = '🪙 ' + coins;
+  $('hudScore').textContent = score;
+}
+
+/* ================= update ================= */
+function step(dt){
+  if (cooldown > 0) cooldown -= dt;
+  if (shake > 0) shake -= dt;
+  if (baseFlash > 0) baseFlash -= dt;
+  for (const p of particles){ p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 260 * dt; }
+  particles = particles.filter(p => p.t < p.life);
+  for (const f of floaters){ f.t += dt; f.y -= 34 * dt; }
+  floaters = floaters.filter(f => f.t < f.life);
+  for (const t of tracers) t.t += dt;
+  tracers = tracers.filter(t => t.t < t.life);
+  if (state !== 'play'){
+    for (const z of zombies) if (z.state === 'die') z.dieT += dt;
+    zombies = zombies.filter(z => z.state !== 'die' || z.dieT < .5);
+    return;
+  }
+  if (runActive) elapsed += dt;
+  /* spawning */
+  if (pending.length){
+    spawnT -= dt;
+    if (spawnT <= 0){ spawnZombie(pending.shift()); spawnT = spawnInterval() * (0.7 + Math.random() * .6); }
+  }
+  /* per-lane movement: front zombie first (smallest x) */
+  for (let lane = 0; lane < 3; lane++){
+    const inLane = zombies.filter(z => z.lane === lane && z.state !== 'die').sort((a, b) => a.x - b.x);
+    let aheadX = null;
+    for (const z of inLane){
+      z.walk += dt * (4 + z.speed * .12);
+      let limit = BASE_X;
+      if (aheadX !== null) limit = Math.max(limit, aheadX + 46 * z.scale);
+      const nx = z.x - z.speed * dt;
+      if (nx <= limit){
+        z.x = limit;
+        if (limit === BASE_X){
+          z.state = 'chew';
+          z.atkT += dt;
+          if (z.atkT >= .8){
+            z.atkT = 0;
+            base.hp -= z.chew;
+            baseFlash = .25; shake = Math.max(shake, .18);
+            sfx.base();
+            burst(BASE_X - 8, z.y - 30, '#ff9d5c', 5);
+            syncHud();
+            if (base.hp <= 0){ base.hp = 0; gameOver(false); return; }
+          }
+        }
+      } else {
+        z.x = nx;
+        z.state = 'walk';
+      }
+      aheadX = z.x;
+    }
+  }
+  for (const z of zombies){
+    if (z.flash > 0) z.flash -= dt;
+    if (z.state === 'die') z.dieT += dt;
+  }
+  zombies = zombies.filter(z => z.state !== 'die' || z.dieT < .5);
+  if (!pending.length && !zombies.some(z => z.state !== 'die') && state === 'play'){
+    waveCleared();
+  }
+  syncHud();
+}
+
+/* ================= drawing ================= */
+function rr(x, y, w, h, r){
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+const STARS = Array.from({ length: 90 }, () => ({ x: Math.random(), y: Math.random() * .55, r: Math.random() * 1.4 + .4, tw: Math.random() * 6.28 }));
+const CRATERS = Array.from({ length: 26 }, () => ({ x: Math.random(), y: .68 + Math.random() * .3, r: 8 + Math.random() * 22 }));
+function drawBase(now){
+  const bx = 8, bw = 84;
+  /* platform */
+  ctx.fillStyle = '#22344f';
+  rr(bx - 2, 150, bw + 6, 352, 14); ctx.fill();
+  ctx.fillStyle = '#2d4a6b';
+  rr(bx - 2, 150, bw + 6, 26, 12); ctx.fill();
+  /* dome */
+  const dg = ctx.createRadialGradient(46, 205, 6, 46, 215, 52);
+  dg.addColorStop(0, 'rgba(190,255,248,.95)');
+  dg.addColorStop(.55, 'rgba(64,224,208,.5)');
+  dg.addColorStop(1, 'rgba(20,90,100,.75)');
+  ctx.fillStyle = dg;
+  ctx.beginPath(); ctx.arc(46, 218, 40, Math.PI, 0); ctx.fill();
+  ctx.fillStyle = '#31465e';
+  rr(6, 212, 80, 10, 5); ctx.fill();
+  /* door + window */
+  ctx.fillStyle = '#ffb700';
+  rr(34, 258, 24, 40, 9); ctx.fill();
+  ctx.fillStyle = '#0b2440';
+  rr(38, 262, 16, 20, 6); ctx.fill();
+  ctx.fillStyle = baseFlash > 0 ? '#ff6b5e' : '#40e0d0';
+  ctx.beginPath(); ctx.arc(46, 240, 4.5, 0, 6.283); ctx.fill();
+  /* antenna + beacon */
+  ctx.strokeStyle = '#9fb6c9'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(46, 178); ctx.lineTo(46, 152); ctx.stroke();
+  ctx.fillStyle = (Math.sin(now * 4) > 0 || baseFlash > 0) ? '#ff5e5e' : '#7a2e2e';
+  ctx.beginPath(); ctx.arc(46, 148, 5, 0, 6.283); ctx.fill();
+  /* crescent flag */
+  ctx.strokeStyle = '#ffd76a'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(70, 196); ctx.lineTo(70, 168); ctx.stroke();
+  ctx.fillStyle = '#ffd76a';
+  ctx.beginPath(); ctx.arc(77, 173, 6.5, 0, 6.283); ctx.fill();
+  ctx.fillStyle = '#22344f';
+  ctx.beginPath(); ctx.arc(80.5, 170.5, 5.4, 0, 6.283); ctx.fill();
+  /* turret */
+  ctx.fillStyle = '#3c5a78';
+  rr(66, 118, 26, 18, 6); ctx.fill();
+  ctx.fillStyle = '#ffd76a';
+  rr(84, 124, 14, 5, 2); ctx.fill();
+  /* base HP bar */
+  ctx.fillStyle = 'rgba(0,0,0,.5)';
+  rr(6, 512, 84, 12, 6); ctx.fill();
+  ctx.fillStyle = base.hp > 30 ? '#4ade3d' : '#ff5e5e';
+  if (base.hp > 0){ rr(8, 514, 80 * Math.max(0, base.hp) / BASE_MAX, 8, 4); ctx.fill(); }
+}
+function drawZombie(z, now){
+  const s = z.scale;
+  ctx.save();
+  ctx.translate(z.x, z.y);
+  if (z.state === 'die'){
+    const k = Math.min(1, z.dieT / .5);
+    ctx.globalAlpha = 1 - k;
+    ctx.rotate(-1.45 * k);
+    ctx.translate(0, 8 * k);
+  }
+  const sw = Math.sin(z.walk) * (z.state === 'chew' ? 1.5 : 5);
+  const skin = z.type === 'brute' ? '#7f9c66' : (z.type === 'runner' ? '#a8bd8f' : '#9db38a');
+  const coat = z.type === 'brute' ? '#4c3a3a' : (z.type === 'runner' ? '#54486b' : '#5d5346');
+  /* legs */
+  ctx.fillStyle = '#3a3f4a';
+  rr(-11 * s + sw * .4, -26 * s, 9 * s, 26 * s, 3); ctx.fill();
+  rr(3 * s - sw * .4, -26 * s, 9 * s, 26 * s, 3); ctx.fill();
+  /* coat / torso */
+  ctx.fillStyle = coat;
+  rr(-17 * s, -66 * s, 34 * s, 44 * s, 8 * s); ctx.fill();
+  ctx.beginPath();                       /* torn hem */
+  ctx.moveTo(-17 * s, -24 * s); ctx.lineTo(-8 * s, -30 * s); ctx.lineTo(-2 * s, -23 * s);
+  ctx.lineTo(6 * s, -30 * s); ctx.lineTo(12 * s, -24 * s); ctx.lineTo(17 * s, -28 * s);
+  ctx.lineTo(17 * s, -22 * s); ctx.lineTo(-17 * s, -22 * s); ctx.closePath(); ctx.fill();
+  /* arms reaching toward the base (-x) */
+  const reach = z.state === 'chew' ? Math.sin(now * 9 + z.lane) * 3 : Math.sin(z.walk * .8) * 3;
+  ctx.strokeStyle = skin; ctx.lineWidth = 7 * s; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-12 * s, -58 * s); ctx.lineTo((-26 - reach) * s, -50 * s); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-10 * s, -46 * s); ctx.lineTo((-24 - reach) * s, -38 * s); ctx.stroke();
+  /* head */
+  ctx.fillStyle = skin;
+  ctx.beginPath(); ctx.arc(0, -78 * s, 15.5 * s, 0, 6.283); ctx.fill();
+  ctx.fillRect(-13 * s, -72 * s, 12 * s, 8 * s);      /* jaw */
+  /* hair tufts */
+  ctx.strokeStyle = '#2e3324'; ctx.lineWidth = 2.4 * s;
+  ctx.beginPath();
+  ctx.moveTo(-6 * s, -92 * s); ctx.lineTo(-9 * s, -99 * s);
+  ctx.moveTo(1 * s, -93 * s); ctx.lineTo(2 * s, -101 * s);
+  ctx.moveTo(8 * s, -91 * s); ctx.lineTo(12 * s, -97 * s);
+  ctx.stroke();
+  /* eyes: sunken dark + red pupil, looking left */
+  ctx.fillStyle = '#20261c';
+  ctx.beginPath(); ctx.arc(-6 * s, -79 * s, 4.4 * s, 0, 6.283); ctx.fill();
+  ctx.beginPath(); ctx.arc(6 * s, -79 * s, 4.4 * s, 0, 6.283); ctx.fill();
+  ctx.fillStyle = '#ff4444';
+  ctx.beginPath(); ctx.arc(-7.4 * s, -79 * s, 1.9 * s, 0, 6.283); ctx.fill();
+  ctx.beginPath(); ctx.arc(4.6 * s, -79 * s, 1.9 * s, 0, 6.283); ctx.fill();
+  /* mouth */
+  ctx.strokeStyle = '#33402a'; ctx.lineWidth = 1.8 * s;
+  ctx.beginPath(); ctx.moveTo(-11 * s, -66.5 * s); ctx.lineTo(-3 * s, -66.5 * s); ctx.stroke();
+  if (z.flash > 0){
+    ctx.globalAlpha = Math.min(.85, z.flash * 6);
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(0, -52 * s, 34 * s, 0, 6.283); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+  /* hp bar */
+  if (z.hp < z.maxHp && z.state !== 'die'){
+    const w = 46 * s;
+    ctx.fillStyle = 'rgba(0,0,0,.55)';
+    ctx.fillRect(z.x - w / 2, z.y - 104 * s, w, 6);
+    ctx.fillStyle = '#4ade3d';
+    ctx.fillRect(z.x - w / 2, z.y - 104 * s, w * Math.max(0, z.hp) / z.maxHp, 6);
+  }
+}
+function draw(now){
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.scale(SCALE, SCALE);
+  if (shake > 0) ctx.translate((Math.random() - .5) * 7 * shake, (Math.random() - .5) * 5 * shake);
+  /* sky */
+  const sky = ctx.createLinearGradient(0, 0, 0, VH);
+  sky.addColorStop(0, '#05081c'); sky.addColorStop(.62, '#0b2440'); sky.addColorStop(1, '#123a4d');
+  ctx.fillStyle = sky;
+  ctx.fillRect(-12, -12, VW + 24, VH + 24);
+  for (const st of STARS){
+    ctx.globalAlpha = .45 + .4 * Math.sin(now * 1.6 + st.tw);
+    ctx.fillStyle = '#dfefff';
+    ctx.fillRect(st.x * VW, st.y * VH, st.r, st.r);
+  }
+  ctx.globalAlpha = 1;
+  /* big moon */
+  ctx.fillStyle = '#f4ecd2';
+  ctx.beginPath(); ctx.arc(VW - 88, 74, 34, 0, 6.283); ctx.fill();
+  ctx.fillStyle = 'rgba(190,180,150,.5)';
+  ctx.beginPath(); ctx.arc(VW - 98, 64, 7, 0, 6.283); ctx.fill();
+  ctx.beginPath(); ctx.arc(VW - 76, 86, 5, 0, 6.283); ctx.fill();
+  /* distant hills */
+  ctx.fillStyle = '#0e2c42';
+  ctx.beginPath();
+  ctx.moveTo(0, 168);
+  for (let x = 0; x <= VW; x += 40) ctx.lineTo(x, 168 - Math.abs(Math.sin(x * .013)) * 26);
+  ctx.lineTo(VW, 190); ctx.lineTo(0, 190); ctx.closePath(); ctx.fill();
+  /* ground */
+  const gr = ctx.createLinearGradient(0, 160, 0, VH);
+  gr.addColorStop(0, '#5c6672'); gr.addColorStop(.25, '#4a5462'); gr.addColorStop(1, '#333d4c');
+  ctx.fillStyle = gr;
+  ctx.fillRect(0, 162, VW, VH - 162);
+  for (const c of CRATERS){
+    ctx.fillStyle = 'rgba(0,0,0,.18)';
+    ctx.beginPath(); ctx.ellipse(c.x * VW, c.y * VH, c.r, c.r * .32, 0, 0, 6.283); ctx.fill();
+  }
+  /* lanes */
+  for (let i = 0; i < 3; i++){
+    const y = LANES[i];
+    ctx.fillStyle = i % 2 ? 'rgba(255,255,255,.045)' : 'rgba(0,0,0,.07)';
+    ctx.fillRect(92, y - 102, VW - 92, 108);
+    ctx.strokeStyle = 'rgba(64,224,208,.16)';
+    ctx.setLineDash([10, 12]); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(96, y + 5); ctx.lineTo(VW, y + 5); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  /* danger line at the base */
+  ctx.fillStyle = baseFlash > 0 ? 'rgba(255,80,60,.5)' : 'rgba(255,183,0,.28)';
+  ctx.fillRect(BASE_X - 3, 158, 3, 352);
+  drawBase(now);
+  /* zombies sorted by lane then x so front ones overlap correctly */
+  const sorted = [...zombies].sort((a, b) => (a.lane - b.lane) || (b.x - a.x));
+  for (const z of sorted) drawZombie(z, now);
+  /* tracers */
+  for (const t of tracers){
+    ctx.globalAlpha = 1 - t.t / t.life;
+    ctx.strokeStyle = '#ffe9a8'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(t.x1, t.y1); ctx.lineTo(t.x2, t.y2); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+  /* particles */
+  for (const p of particles){
+    ctx.globalAlpha = 1 - p.t / p.life;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+  }
+  ctx.globalAlpha = 1;
+  /* floaters */
+  ctx.textAlign = 'center';
+  for (const f of floaters){
+    ctx.globalAlpha = 1 - f.t / f.life;
+    ctx.font = '900 17px system-ui, sans-serif';
+    ctx.fillStyle = f.color;
+    ctx.fillText(f.text, f.x, f.y);
+  }
+  ctx.globalAlpha = 1;
+  if (state === 'menu'){
+    ctx.fillStyle = 'rgba(4,8,20,.35)';
+    ctx.fillRect(0, 0, VW, VH);
+  }
+}
+
+/* ================= input ================= */
+function toVirtual(e){
+  const r = cv.getBoundingClientRect();
+  const cx = (e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0));
+  const cy = (e.clientY !== undefined ? e.clientY : (e.touches && e.touches[0] ? e.touches[0].clientY : 0));
+  return { x: (cx - r.left) / r.width * VW, y: (cy - r.top) / r.height * VH };
+}
+cv.addEventListener('pointerdown', e => {
+  ensureAudio();
+  const p = toVirtual(e);
+  shootAt(p.x, p.y);
+});
+
+/* ================= leaderboard ================= */
+const API_URL = 'https://frg-fight-club.vercel.app/api/luna-games?game=zombie';
+function prefillName(){
+  const inp = $('nameInput');
+  const tg = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe;
+  const tname = tg && tg.user && tg.user.first_name;
+  inp.value = (localStorage.getItem('zombieDefenseName') || tname || 'Guest').slice(0, 16);
+}
+let boardData = null, boardTab = 'all', boardErr = false;
+async function loadBoard(){
+  $('boardList').innerHTML = '<p style="text-align:center; opacity:.8">Loading…</p>';
+  boardErr = false;
+  try {
+    const r = await fetch(API_URL);
+    if (!r.ok) throw new Error('board ' + r.status);
+    boardData = await r.json();
+  } catch (e) { boardData = null; boardErr = true; }
+  renderBoard();
+}
+function renderBoard(){
+  $('tabAll').className = 'play' + (boardTab === 'all' ? '' : ' alt');
+  $('tabWeek').className = 'play' + (boardTab === 'week' ? '' : ' alt');
+  if (boardErr || !boardData){
+    $('boardList').innerHTML = '<p style="text-align:center; opacity:.8">Board unavailable right now — hold the line! 🧟</p>';
+    return;
+  }
+  const rows = boardData[boardTab] || [];
+  if (!rows.length){
+    $('boardList').innerHTML = '<p style="text-align:center; opacity:.8">No scores yet — be the first! 🏆</p>';
+    return;
+  }
+  $('boardList').innerHTML = rows.map((r, i) =>
+    `<div class="row"><span class="rk">${i + 1}.</span><span class="nm"></span><span class="sc">${r.score}</span></div>`
+  ).join('');
+  [...$('boardList').querySelectorAll('.row .nm')].forEach((el, i) => { el.textContent = rows[i].name; });
+}
+function openBoard(){
+  $('boardScreen').style.display = 'flex';
+  boardTab = 'all';
+  loadBoard();
+}
+$('tabAll').onclick = () => { boardTab = 'all'; renderBoard(); };
+$('tabWeek').onclick = () => { boardTab = 'week'; renderBoard(); };
+$('boardClose').onclick = () => { $('boardScreen').style.display = 'none'; };
+$('boardBtn').onclick = openBoard;
+$('overBoardBtn').onclick = openBoard;
+$('submitBtn').onclick = async () => {
+  const btn = $('submitBtn');
+  btn.disabled = true;
+  const name = ($('nameInput').value.trim() || 'Guest').slice(0, 16);
+  localStorage.setItem('zombieDefenseName', name);
+  $('submitStatus').textContent = 'Saving…';
+  const initData = (window.Telegram && window.Telegram.WebApp && window.Telegram.initData) || '';
+  try {
+    const r = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, name, score, seconds: Math.round(elapsed) }),
+    });
+    const d = await r.json();
+    if (d && d.ok){
+      $('submitStatus').textContent = d.rank ? `🏆 You're #${d.rank} all-time!` : 'Saved!';
+      boardData = null;
+    } else {
+      $('submitStatus').textContent = 'Could not save — try again.';
+      btn.disabled = false;
+    }
+  } catch (e) {
+    $('submitStatus').textContent = 'Could not save — try again.';
+    btn.disabled = false;
+  }
+};
+$('shareBtn').onclick = async () => {
+  const text = `I scored ${score} on Zombie Defense — held the Luna base to Wave ${wave}! 🧟🌕`;
+  try {
+    if (navigator.share){
+      await navigator.share({ title: 'Zombie Defense', text, url: location.href });
+    } else if (navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(text + ' ' + location.href);
+      $('shareStatus').textContent = 'Copied!';
+    }
+  } catch (e) { /* user cancelled the share sheet — stay silent */ }
+};
+
+/* ================= wiring ================= */
+$('startBtn').onclick = () => { startRun(); };
+$('nextWaveBtn').onclick = () => { ensureAudio(); nextWave(); };
+$('shopEndBtn').onclick = () => { gameOver(true); };
+$('upgDmg').onclick = () => buyUpgrade('dmg');
+$('upgRate').onclick = () => buyUpgrade('rate');
+$('upgRep').onclick = () => buyUpgrade('repair');
+$('againBtn').onclick = () => { startRun(); };
+$('menuBtn').onclick = () => {
+  $('overScreen').style.display = 'none';
+  state = 'menu';
+  zombies = []; particles = []; floaters = [];
+  base = { hp: BASE_MAX }; wave = 0; score = 0; coins = 0;
+  syncHud();
+  $('startScreen').style.display = 'flex';
+};
+$('muteBtn').onclick = () => {
+  muted = !muted;
+  localStorage.setItem('zombieDefenseMute', muted ? '1' : '0');
+  $('muteBtn').textContent = muted ? '🔇' : '🔊';
+  if (!muted) ensureAudio();
+};
+$('muteBtn').textContent = muted ? '🔇' : '🔊';
+syncHud();
+
+/* ================= main loop ================= */
+let lastTs = 0;
+function frame(ts){
+  const now = ts / 1000;
+  let dt = lastTs ? Math.min(.05, now - lastTs) : 0;
+  lastTs = now;
+  if (dt > 0) step(dt);
+  draw(now);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* test/debug surface */
+window.ZD = {
+  start: startRun, step, shootAt, buyUpgrade, nextWave, gameOver,
+  get state(){ return state; },
+  get score(){ return score; },
+  get coins(){ return coins; },
+  get kills(){ return kills; },
+  get wave(){ return wave; },
+  get elapsed(){ return elapsed; },
+  get zombies(){ return zombies; },
+  get pending(){ return pending; },
+  get base(){ return base; },
+  get damage(){ return damage(); },
+  get cooldown(){ return cooldown; },
+  get fireCooldown(){ return fireCooldown(); },
+};
+</script>
+</body>
+</html>
