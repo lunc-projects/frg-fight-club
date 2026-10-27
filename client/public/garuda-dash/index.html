@@ -25,6 +25,8 @@
   #hudLevel { font-weight:900; font-size:12.5px; letter-spacing:.08em; color:#ffe9a8; white-space:nowrap; }
   #hudCoins { font-weight:900; font-size:15.5px; color:#ffd76a; }
   #hudScore { font-weight:900; font-size:17px; font-variant-numeric:tabular-nums; min-width:56px; text-align:right; }
+  #hudCombo { font-weight:900; font-size:15px; color:#ff9a3c; min-width:74px; text-align:right;
+    text-shadow:0 0 10px rgba(255,122,26,.65); }
   #toast {
     position:absolute; top:22%; width:100%; text-align:center; font-size:26px; font-weight:900; letter-spacing:.06em;
     color:#ffd76a; text-shadow:0 0 18px rgba(255,183,0,.8), 0 2px 12px rgba(0,0,0,.7);
@@ -172,6 +174,7 @@
   <div id="hudCoins">🪙 0</div>
   <div id="hudFeather">🪶 0</div>
   <div id="hudTime">⏱ 0.0</div>
+  <div id="hudCombo"></div>
   <div id="hudScore">0</div>
   <button id="muteBtn">🔊</button>
 </div>
@@ -594,7 +597,8 @@ function buildLegacy(n){
   }
   const hFeathers = placeHiddenFeathers(grounds.map(([x, w]) => [x, GROUND_Y, w]), plats.map(p => [p.x, p.y, p.w]), walkerDefs, movers, feather);
   const updrafts = placeUpdrafts(grounds.map(([x, w]) => [x, GROUND_Y, w]), plats.map(p => [p.x, p.y, p.w]), movers, hFeathers);
-  return { grounds: grounds.map(([x, w]) => [x, GROUND_Y, w]), platforms: plats.map(p => [p.x, p.y, p.w]), walkerDefs, nestX: NEST_X, feather, egg, movers, boss, hFeathers, updrafts };
+  const batDefs = placeBats(grounds.map(([x, w]) => [x, GROUND_Y, w]), plats.map(p => [p.x, p.y, p.w]), walkerDefs, movers, feather, hFeathers, updrafts, n);
+  return { grounds: grounds.map(([x, w]) => [x, GROUND_Y, w]), platforms: plats.map(p => [p.x, p.y, p.w]), walkerDefs, nestX: NEST_X, feather, egg, movers, boss, hFeathers, updrafts, batDefs };
 }
 
 /* ================= per-world layout archetypes (L2–L10) =================
@@ -761,7 +765,8 @@ function buildLevel(n){
   }
   const hFeathers = placeHiddenFeathers(grounds, plats.map(p => [p.x, p.y, p.w]), walkerDefs, movers, feather);
   const updrafts = placeUpdrafts(grounds, plats.map(p => [p.x, p.y, p.w]), movers, hFeathers);
-  return { grounds, platforms: plats.map(p => [p.x, p.y, p.w]), walkerDefs, nestX: NEST_X, feather, egg, movers, boss, hFeathers, updrafts };
+  const batDefs = placeBats(grounds, plats.map(p => [p.x, p.y, p.w]), walkerDefs, movers, feather, hFeathers, updrafts, n);
+  return { grounds, platforms: plats.map(p => [p.x, p.y, p.w]), walkerDefs, nestX: NEST_X, feather, egg, movers, boss, hFeathers, updrafts, batDefs };
 }
 
 function buildCoinsFor(grounds, platforms){
@@ -877,6 +882,74 @@ function placeUpdrafts(groundsA, platsA, movers, hFeathers){
   }).sort((a, b) => a.x - b.x);
 }
 
+/* ================= swooper bat placement =================
+   Hanging spots for the swooper bats, derived from the built geometry
+   in the same deterministic style as the feathers and updrafts. Two
+   candidate kinds: 'perch' — under a platform slab, hanging off its
+   underside; 'lane' — out in open air above a ground segment, off an
+   implied branch. A spot is only eligible when the bat's body clears
+   every slab, keeps its distance from checkpoints (segment starts),
+   the golden + hidden feathers, updraft pits, movers, and brutes
+   (240px — brutes are heavy test targets and a dive must never crash
+   their stage), and leaves real air beneath it. Picks are spread one
+   per band across the level so dives never chain-trigger: L1 gets a
+   single teaching bat, early levels 2, mid levels 3, late levels 4.
+   L10 keeps the boss arena (final segment) bat-free. */
+function placeBats(groundsA, platsA, walkerDefs, movers, feather, hFeathers, updrafts, n){
+  const want = n <= 1 ? 1 : n <= 3 ? 2 : n <= 6 ? 3 : 4;
+  const finX = (n === 10 && groundsA.length) ? groundsA[groundsA.length - 1][0] : Infinity;
+  function surfaceBelow(x, fromY){
+    let best = 648;
+    for (const g of groundsA) if (x >= g[0] && x <= g[0] + g[2] && g[1] > fromY) best = Math.min(best, g[1]);
+    for (const p of platsA) if (x >= p[0] && x <= p[0] + p[2] && p[1] > fromY) best = Math.min(best, p[1]);
+    return best;
+  }
+  function clear(ax, ay, selfPlat){
+    if (ax < 220 || ax > WORLD_W - 270) return false;               /* spawn + nest stay quiet */
+    if (ax >= finX - 10) return false;                             /* L10: boss arena */
+    for (const g of groundsA) if (Math.abs(ax - g[0]) < 70) return false;   /* checkpoints */
+    if (feather && Math.hypot(ax - feather.x, ay + 12 - feather.y) < 95) return false;
+    for (const f of (hFeathers || [])) if (Math.hypot(ax - f.x, ay + 12 - f.y) < 80) return false;
+    for (const u of (updrafts || [])) if (ax > u.pitX0 - 40 && ax < u.pitX1 + 40) return false;
+    for (const d of (walkerDefs || [])){
+      if (d.kind !== 'brute') continue;
+      const c = (d.minX + d.maxX) / 2 + (d.w || 32) / 2;
+      if (Math.abs(ax - c) < 240) return false;
+    }
+    for (const m of (movers || [])){
+      const mx0 = m.baseX - (m.axis === 'h' ? m.amp : 0) - 60, mx1 = m.baseX + m.w + (m.axis === 'h' ? m.amp : 0) + 60;
+      if (ax > mx0 && ax < mx1 && Math.abs(ay - m.baseY) < 130) return false;
+    }
+    for (const p of platsA){   /* the hanging body must not intersect another slab */
+      if (selfPlat && p === selfPlat) continue;
+      if (ax + 14 > p[0] && ax - 14 < p[0] + p[2] && ay + 24 > p[1] && ay + 2 < p[1] + 13) return false;
+    }
+    if (surfaceBelow(ax, ay + 24) - (ay + 24) < 70) return false;  /* air beneath to dive into */
+    return true;
+  }
+  const cands = [];
+  for (const p of platsA){
+    const ax = Math.round(p[0] + p[2] / 2), ay = p[1] + 13;      /* slab underside */
+    if (clear(ax, ay, p)) cands.push({ ax, ay, kind: 'perch' });
+  }
+  for (const g of groundsA){
+    for (const fr of [0.3, 0.55, 0.8]){
+      const ax = Math.round(g[0] + g[2] * fr), ay = g[1] - 168;
+      if (clear(ax, ay, null)) cands.push({ ax, ay, kind: 'lane' });
+    }
+  }
+  cands.sort((a, b) => a.ax - b.ax);
+  const lo = 220, hi = WORLD_W - 270, picks = [];
+  for (let b = 0; b < want; b++){
+    const c0 = lo + (hi - lo) * b / want, c1 = lo + (hi - lo) * (b + 1) / want, cc = (c0 + c1) / 2;
+    const inBand = cands.filter(c => c.ax >= c0 && c.ax < c1 && !picks.some(pk => Math.abs(pk.ax - c.ax) < 380));
+    if (!inBand.length) continue;
+    inBand.sort((a, q) => (a.kind === q.kind ? 0 : a.kind === 'perch' ? -1 : 1) || Math.abs(a.ax - cc) - Math.abs(q.ax - cc));
+    picks.push(inBand[0]);
+  }
+  return picks.sort((a, b) => a.ax - b.ax).map(c => ({ ax: c.ax, ay: c.ay, kind: c.kind }));
+}
+
 /* ================= state ================= */
 const GRAV = 1500, JUMP_V = 580, MAXRUN = 268, GLIDE_FALL = 85;
 const FASTFALL_ACCEL = 2400, FASTFALL_V = 1150;   /* stick-down dive: extra downward accel + its terminal cap */
@@ -895,6 +968,7 @@ function rebuildSolids(){
   ];
 }
 let coins = [], walkers = [];
+let bats = [];        /* this level's swooper bats (placeBats) */
 let L_MOVERS = [], feather = null, egg = null, boss = null;
 let hFeathers = [];   /* this level's 3 hidden feathers (taken mirrors the store) */
 let updrafts = [];    /* this level's wind columns over pits (placeUpdrafts) */
@@ -910,6 +984,7 @@ let particles = [], floaters = [], landT = 0, shakeT = 0;
 let ambientT = 0, flashT = 0, nextFlash = 4;
 let hitStopT = 0; const HITSTOP_MAX = 0.07;   /* hit-stop freeze on stomps: capped, re-trigger only refreshes */
 let coinChain = 0, coinChainT = 0, lastCoinFreq = 880;   /* coin pitch-ladder state */
+let stompChain = 0;   /* airborne stomp-kill chain: the combo meter (see comboPay) */
 const DIVE_BOUNCE = -470;                    /* dive-bomb stomp bounce (normal walker stomp: -330) */
 function spawnP(x, y, vx, vy, life, size, color, grav){
   if (particles.length > 170) particles.shift();
@@ -946,6 +1021,28 @@ function dustAt(x, y, impact){
 }
 /* brief freeze on a stomp — never stacks past HITSTOP_MAX */
 function doHitStop(d){ hitStopT = Math.min(HITSTOP_MAX, Math.max(hitStopT, d)); }
+/* ================= stomp combo meter =================
+   Consecutive stomp / dive-bomb KILLS without touching the ground (or
+   taking damage) build a chain. The kill extending the chain pays
+   base × tier, tier = min(chain so far + 1, 4): 1st kill ×1, 2nd ×2,
+   3rd ×3, 4th and beyond ×4. A lone stomp therefore pays exactly what
+   it always paid — the multiplier only exists inside a chain. The HUD
+   shows the tier the NEXT kill will pay while a chain is alive. */
+function comboTier(){ return Math.min(stompChain + 1, 4); }
+let _comboStr = null;
+function setComboHud(){
+  const s = stompChain > 0 ? 'COMBO ×' + comboTier() : '';
+  if (s === _comboStr) return;
+  _comboStr = s;
+  const el = $('hudCombo'); if (el) el.textContent = s;
+}
+function comboPay(base){
+  const tier = comboTier();
+  stompChain++;
+  setComboHud();
+  return { pts: base * tier, tier };
+}
+function comboSuffix(pay){ return pay.tier > 1 ? ' ×' + pay.tier : ''; }
 const input = { left: false, right: false, jumpHeld: false, fastFall: false };
 let jumpQueued = false;
 
@@ -958,6 +1055,7 @@ function hud(){
   $('hudCoins').textContent = '🪙 ' + coinCount;
   $('hudFeather').textContent = '🪶 ' + runFeathers;
   $('hudScore').textContent = score;
+  setComboHud();
   $('muteBtn').textContent = muted ? '🔇' : '🔊';
 }
 function toast(msg, ms){
@@ -1173,6 +1271,10 @@ function startLevel(n, quiet, withIntro){
   rebuildSolids();
   coins = buildCoinsFor(L_GROUNDS, L_PLATFORMS);
   walkers = L.walkerDefs.map(d => ({ ...d, x: (d.minX + d.maxX) / 2, dir: 1, stun: 0, dead: false }));
+  bats = (L.batDefs || []).map(d => ({ ...d, w: 28, h: 20,
+    x: d.ax - 14, y: d.ay + 22, state: 'hang', t: 0, stun: 0, dead: false,
+    vy: 0, dirF: 1, diveT: 0, diveDur: 0, fromCx: 0, fromCy: 0, toCx: 0, toCy: 0 }));
+  stompChain = 0;
   P.x = 40; P.y = 380; P.vx = 0; P.vy = 0; P.face = 1; P.onGround = false; P.gliding = false;
   cam = 0; checkpoint = 40; screechCd = 0; screechFx = null; invuln = 0;
   particles = []; floaters = []; landT = 0; shakeT = 0;
@@ -1251,6 +1353,7 @@ function showOver(kind){
   hud();
 }
 function hurt(fromPit){
+  stompChain = 0;   /* taking damage breaks the combo chain (hud() below refreshes) */
   lives--;
   hud();
   if (lives <= 0){ showOver('dead'); return; }
@@ -1359,6 +1462,7 @@ function update(dt){
   if (!P.onGround) standMover = null;
   if (P.onGround && Math.abs(P.vx) > 20) P.runT += dt;
   if (P.onGround && airBefore){
+    if (stompChain){ stompChain = 0; setComboHud(); }   /* combo chain ends on touchdown */
     if (vyBefore > 240) landT = 0.12;
     dustAt(P.x + P.w / 2, P.y + P.h, vyBefore);   /* dust scaled by impact speed */
   }
@@ -1447,16 +1551,105 @@ function update(dt){
         } else {
           wk.dead = true;
           P.vy = dive ? DIVE_BOUNCE : (wk.kind === 'brute' ? -360 : -330);
-          const pts = wk.kind === 'brute' ? 100 : 50;
+          const pay = comboPay(wk.kind === 'brute' ? 100 : 50);   /* combo meter: tier 1 = the classic value */
+          const pts = pay.pts;
           score += pts; hud();
           burst(wk.x + wk.w / 2, wk.y - wk.h, wk.kind === 'brute' ? 18 : 10, '#ff8fb0', wk.kind === 'brute' ? 190 : 160, 0.5, 2.6, 320);
           if (wk.shield) burst(wk.x + wk.w / 2, wk.y - wk.h + 8, 10, '#c8ccd4', 200, 0.5, 2.6, 330);   /* shield shards */
           shakeT = Math.max(shakeT, dive ? 0.6 : (wk.kind === 'brute' ? 0.55 : 0.35));
           doHitStop(0.06);
-          addFloater(wk.x + wk.w / 2, wk.y - wk.h - 12, dive ? ('+' + pts + ' DIVE') : ('+' + pts), wk.kind === 'brute' ? '#ffd76a' : '#ff8fb0', wk.kind === 'brute' ? 19 : 14);
+          addFloater(wk.x + wk.w / 2, wk.y - wk.h - 12, (dive ? ('+' + pts + ' DIVE') : ('+' + pts)) + comboSuffix(pay), wk.kind === 'brute' ? '#ffd76a' : '#ff8fb0', wk.kind === 'brute' ? 19 : 14);
           beep(220, 0, 0.08, 'square', 0.1);
         }
       } else if (invuln <= 0){
+        hurt(false); if (!running) return;
+      }
+    }
+  }
+  /* swooper bats — hang asleep until the player strays under them, wake
+     with a short telegraph, then dive a committed line at the position
+     captured when the dive starts (never homing). A screech drops them
+     out of the air; a stomp kills them, like any tiki. */
+  for (const b of bats){
+    if (b.dead) continue;
+    const bcx = b.x + b.w / 2, bcy = b.y - b.h / 2;
+    if (b.stun > 0){
+      b.stun -= dt;
+      if (b.state === 'drop'){
+        b.vy = Math.min(720, b.vy + GRAV * dt);
+        let ny = b.y + b.vy * dt, landed = false;
+        for (const s of SOLIDS){
+          if (b.x + b.w > s.x + 1 && b.x < s.x + s.w - 1 && b.y <= s.y + 1 && ny >= s.y){ ny = s.y; landed = true; break; }
+        }
+        if (!landed && ny > 648){ ny = 648; landed = true; }
+        b.y = ny;
+        if (landed){ b.state = 'down'; b.vy = 0; }
+      } else if (b.state === 'down' && b.stun <= 0){
+        b.state = 'climb';
+      }
+    } else if (b.state === 'hang'){
+      if (Math.abs(pcx - bcx) <= 170 && pcy >= bcy - 4){ b.state = 'wake'; b.t = 0.35; }
+    } else if (b.state === 'wake'){
+      b.t -= dt;
+      if (b.t <= 0){
+        b.fromCx = bcx; b.fromCy = bcy;
+        let dx = pcx - bcx, dy = pcy - bcy;
+        const dist = Math.hypot(dx, dy) || 1;
+        dx /= dist; dy /= dist;
+        b.toCx = pcx + dx * 80; b.toCy = pcy + dy * 80;
+        b.diveDur = Math.max(0.12, Math.hypot(b.toCx - bcx, b.toCy - bcy) / 400);
+        b.diveT = 0;
+        b.dirF = dx >= 0 ? 1 : -1;
+        b.state = 'dive';
+      }
+    } else if (b.state === 'dive'){
+      b.diveT += dt;
+      const s = Math.min(1, b.diveT / b.diveDur);
+      let ncx = b.fromCx + (b.toCx - b.fromCx) * s;
+      let ncy = b.fromCy + (b.toCy - b.fromCy) * s;
+      let floorHit = false;
+      if (ncy > bcy){
+        for (const sd of SOLIDS){
+          if (ncx + b.w / 2 > sd.x + 1 && ncx - b.w / 2 < sd.x + sd.w - 1 &&
+              bcy + b.h / 2 <= sd.y + 1 && ncy + b.h / 2 >= sd.y){ ncy = sd.y - b.h / 2; floorHit = true; break; }
+        }
+      }
+      ncx = Math.max(16, Math.min(WORLD_W - 16, ncx));
+      ncy = Math.max(12, Math.min(648, ncy));
+      b.x = ncx - b.w / 2; b.y = ncy + b.h / 2;
+      if (floorHit || s >= 1) b.state = 'climb';
+    } else if (b.state === 'climb'){
+      const hx = b.ax, hy = b.ay + 12;
+      const dx = hx - bcx, dy = hy - bcy, dist = Math.hypot(dx, dy);
+      const stepLen = 215 * dt;
+      if (dist <= stepLen){ b.x = hx - b.w / 2; b.y = hy + b.h / 2; b.state = 'hang'; }
+      else {
+        b.x += dx / dist * stepLen; b.y += dy / dist * stepLen;
+        b.dirF = dx >= 0 ? 1 : -1;
+      }
+    }
+    /* contact — the walkers' windows: a stomp (or dive-bomb) kills it.
+       An ACTIVE bat (hanging, waking, diving, climbing home) hurts on
+       any other contact — but a screeched bat falls unconscious and a
+       downed one is harmless to brush past: the screech is the defense,
+       it must never drop a hazard on the player's head. Downed bats
+       stay stompable (the branch above), which is their vulnerability. */
+    const bOverlap = P.x + P.w > b.x && P.x < b.x + b.w && P.y + P.h > b.y - b.h && P.y < b.y;
+    if (bOverlap){
+      const bTop = b.y - b.h;
+      const bStomp = P.vy > 60 && ((P.y + P.h) - bTop < 17 || (prevBottom - bTop) <= 6);
+      const bDive = bStomp && input.fastFall && P.vy > 720;
+      if (bStomp){
+        b.dead = true;
+        P.vy = bDive ? DIVE_BOUNCE : -330;
+        const pay = comboPay(50);
+        score += pay.pts; hud();
+        burst(b.x + b.w / 2, bTop, 10, '#b79aff', 170, 0.5, 2.6, 320);
+        shakeT = Math.max(shakeT, bDive ? 0.6 : 0.35);
+        doHitStop(0.06);
+        addFloater(b.x + b.w / 2, bTop - 12, (bDive ? ('+' + pay.pts + ' DIVE') : ('+' + pay.pts)) + comboSuffix(pay), '#c9a8ff', 14);
+        beep(220, 0, 0.08, 'square', 0.1);
+      } else if (invuln <= 0 && b.state !== 'drop' && b.state !== 'down'){
         hurt(false); if (!running) return;
       }
     }
@@ -1523,6 +1716,17 @@ function update(dt){
         score += 5; hud();
         burst(wk.x + wk.w / 2, wk.y - wk.h, 5, '#ffe9a8', 90, 0.35, 2, 120);
         addFloater(wk.x + wk.w / 2, wk.y - wk.h - 12, '+5', '#fff3c4', 12);
+      }
+    }
+    for (const b of bats){
+      if (b.dead || b.stun > 0) continue;
+      const d = Math.hypot(b.x + b.w / 2 - screechFx.x, b.y - b.h / 2 - screechFx.y);
+      if (d < r + 16){
+        b.stun = 2.5;
+        score += 5; hud();
+        burst(b.x + b.w / 2, b.y - b.h, 5, '#ffe9a8', 90, 0.35, 2, 120);
+        addFloater(b.x + b.w / 2, b.y - b.h - 12, '+5', '#fff3c4', 12);
+        if (b.state !== 'down' && b.state !== 'drop'){ b.state = 'drop'; b.vy = 0; }   /* stunned mid-air: it falls */
       }
     }
     if (boss && !boss.dead && boss.stun <= 0){
@@ -2515,6 +2719,7 @@ function draw(){
   }
   if (!preview.on) drawEagleShadow();
   for (const wk of walkers) drawWalker(wk);
+  for (const b of bats) drawBat(b);
   if (screechFx){
     const r = (screechFx.t / 0.35) * 118;
     ctx.save();
@@ -2730,6 +2935,122 @@ function drawBrute(wk){
     for (let i = 0; i < 3; i++){
       const a = runTime * 4 + i * 2.1;
       ctx.fillText('★', cx + Math.cos(a) * 26, baseY - 58 + Math.sin(a) * 4);
+    }
+  }
+}
+/* swooper bat — drawn, never emoji: hangs upside-down asleep off its
+   anchor (platform underside, or a little branch nub out in the open),
+   wings folded; awake it shows red eyes and fangs; in flight the wings
+   spread and flap; downed it lies stunned with circling stars. */
+function drawBat(b){
+  if (b.dead) return;
+  const cx = b.x + b.w / 2, cy = b.y - b.h / 2;
+  const stunned = b.stun > 0;
+  ctx.save();
+  if (b.state === 'hang' || b.state === 'wake'){
+    const shake = b.state === 'wake' ? Math.sin(runTime * 60) * 1.6 : 0;
+    ctx.translate(cx + shake, b.ay);
+    if (b.kind === 'lane'){   /* open-air anchor: a little branch to hang from */
+      ctx.strokeStyle = '#5a4632'; ctx.lineWidth = 3.4; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(-13, -4); ctx.quadraticCurveTo(0, 1.5, 13, -5); ctx.stroke();
+      ctx.fillStyle = '#4d7c3a';
+      ctx.beginPath(); ctx.ellipse(-9, -5, 4.6, 2.4, -0.5, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(10, -6, 4.2, 2.2, 0.4, 0, 7); ctx.fill();
+    }
+    /* grip feet on the anchor */
+    ctx.strokeStyle = '#241a33'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-5, 0); ctx.lineTo(-3, 5); ctx.moveTo(5, 0); ctx.lineTo(3, 5); ctx.stroke();
+    /* folded wings hugging the body */
+    const wg = ctx.createLinearGradient(0, 2, 0, 26);
+    wg.addColorStop(0, '#5b4390'); wg.addColorStop(1, '#2e2149');
+    ctx.fillStyle = wg;
+    ctx.beginPath(); ctx.ellipse(-9.5, 14, 5, 11, 0.28, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(9.5, 14, 5, 11, -0.28, 0, 7); ctx.fill();
+    /* body — head at the bottom, this sleeper hangs upside-down */
+    const bg2 = ctx.createLinearGradient(0, 2, 0, 27);
+    bg2.addColorStop(0, '#7760ad'); bg2.addColorStop(1, '#3a2a5c');
+    ctx.fillStyle = bg2;
+    ctx.beginPath(); ctx.ellipse(0, 13.5, 9.5, 11, 0, 0, 7); ctx.fill();
+    /* ears point down */
+    ctx.fillStyle = '#3a2a5c';
+    ctx.beginPath();
+    ctx.moveTo(-8.5, 17); ctx.lineTo(-10.5, 26.5); ctx.lineTo(-3.5, 21.5); ctx.closePath();
+    ctx.moveTo(8.5, 17); ctx.lineTo(10.5, 26.5); ctx.lineTo(3.5, 21.5); ctx.closePath();
+    ctx.fill();
+    if (b.state === 'wake' || stunned){
+      ctx.fillStyle = '#ff5252'; ctx.shadowColor = '#ff5252'; ctx.shadowBlur = 5;
+      ctx.beginPath(); ctx.arc(-3.6, 20.5, 1.9, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(3.6, 20.5, 1.9, 0, 7); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#f4f1ff';
+      ctx.fillRect(-3.6, 24.4, 1.9, 2.6); ctx.fillRect(1.7, 24.4, 1.9, 2.6);
+    } else {
+      /* asleep: closed-eye curves and a drifting sleep bubble */
+      ctx.strokeStyle = '#241a33'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(-3.8, 19.6, 2.1, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
+      ctx.beginPath(); ctx.arc(3.8, 19.6, 2.1, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
+      ctx.fillStyle = 'rgba(180,220,255,0.75)';
+      ctx.font = '900 8px system-ui'; ctx.textAlign = 'center';
+      ctx.fillText('z', 13 + Math.sin(runTime * 1.4 + b.ax) * 1.5, 8 - ((runTime * 5 + b.ax) % 9));
+    }
+    ctx.restore();
+    return;
+  }
+  /* flying (dive / climb / drop) or downed: upright, wings out */
+  const down = b.state === 'down';
+  ctx.translate(cx, cy + (down ? 3 : 0));
+  if (down){
+    ctx.fillStyle = THEMES[level - 1].dark ? 'rgba(0,0,0,0.4)' : 'rgba(25,20,45,0.25)';
+    ctx.beginPath(); ctx.ellipse(0, 9, 15, 3.2, 0, 0, 7); ctx.fill();
+  }
+  ctx.scale(b.dirF >= 0 ? 1 : -1, 1);
+  const flap = down ? 0.12 : Math.sin(runTime * 24 + b.ax * 0.7) * 0.55;
+  const wg = ctx.createLinearGradient(0, -8, 0, 12);
+  wg.addColorStop(0, '#6d55a3'); wg.addColorStop(1, '#33234f');
+  ctx.fillStyle = wg;
+  ctx.strokeStyle = 'rgba(24,16,44,0.85)'; ctx.lineWidth = 1.6; ctx.lineJoin = 'round';
+  for (const s of [-1, 1]){
+    const tipY = down ? 7 : -7 - flap * 9;
+    ctx.beginPath();
+    ctx.moveTo(2 * s, -3);
+    ctx.lineTo(21 * s, tipY);
+    ctx.lineTo(14 * s, tipY + 8 + flap * 3);
+    ctx.lineTo(9 * s, 2);
+    ctx.lineTo(4 * s, 5);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  /* body + head toward travel */
+  const bg2 = ctx.createLinearGradient(0, -8, 0, 9);
+  bg2.addColorStop(0, '#7760ad'); bg2.addColorStop(1, '#3a2a5c');
+  ctx.fillStyle = bg2;
+  ctx.beginPath(); ctx.ellipse(-1, 1, 10.5, 7.6, 0, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.arc(8, -1.5, 6.6, 0, 7); ctx.fill();
+  /* ears up */
+  ctx.fillStyle = '#3a2a5c';
+  ctx.beginPath();
+  ctx.moveTo(3.5, -6); ctx.lineTo(4.5, -12.5); ctx.lineTo(8, -7.5); ctx.closePath();
+  ctx.moveTo(9.5, -7.5); ctx.lineTo(13, -12); ctx.lineTo(13.5, -6); ctx.closePath();
+  ctx.fill();
+  /* eyes + fangs (spiral-free: red and awake in flight, crossed when down) */
+  if (down){
+    ctx.strokeStyle = '#ffd76a'; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(9, -4.5); ctx.lineTo(12.5, -1); ctx.moveTo(12.5, -4.5); ctx.lineTo(9, -1);
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = '#ff5252'; ctx.shadowColor = '#ff5252'; ctx.shadowBlur = 5;
+    ctx.beginPath(); ctx.arc(10.6, -2.8, 1.8, 0, 7); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#f4f1ff';
+    ctx.fillRect(8.6, 2.4, 1.8, 2.4);
+  }
+  ctx.restore();
+  if (stunned){
+    ctx.fillStyle = '#ffe066';
+    ctx.font = '900 11px system-ui'; ctx.textAlign = 'center';
+    for (let i = 0; i < 3; i++){
+      const a = runTime * 4 + i * 2.1;
+      ctx.fillText('★', cx + Math.cos(a) * 14, b.y - b.h - 6 + Math.sin(a) * 3);
     }
   }
 }
@@ -3063,7 +3384,9 @@ cv.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
 /* ================= main loop ================= */
 let lastT = performance.now();
 function frame(now){
-  const dt = Math.min(0.033, (now - lastT) / 1000);
+  /* dt is clamped at 0 as well as 0.033: a rewound clock (tab suspend /
+     timestamp hiccup) must never run physics backwards for a frame */
+  const dt = Math.min(0.033, Math.max(0, (now - lastT) / 1000));
   lastT = now;
   if (intro.on){
     intro.t -= dt;
