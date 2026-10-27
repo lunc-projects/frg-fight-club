@@ -598,7 +598,8 @@ function buildLegacy(n){
   const hFeathers = placeHiddenFeathers(grounds.map(([x, w]) => [x, GROUND_Y, w]), plats.map(p => [p.x, p.y, p.w]), walkerDefs, movers, feather);
   const updrafts = placeUpdrafts(grounds.map(([x, w]) => [x, GROUND_Y, w]), plats.map(p => [p.x, p.y, p.w]), movers, hFeathers);
   const batDefs = placeBats(grounds.map(([x, w]) => [x, GROUND_Y, w]), plats.map(p => [p.x, p.y, p.w]), walkerDefs, movers, feather, hFeathers, updrafts, n);
-  return { grounds: grounds.map(([x, w]) => [x, GROUND_Y, w]), platforms: plats.map(p => [p.x, p.y, p.w]), walkerDefs, nestX: NEST_X, feather, egg, movers, boss, hFeathers, updrafts, batDefs };
+  const alcoveDef = placeAlcoves(grounds.map(([x, w]) => [x, GROUND_Y, w]), plats.map(p => [p.x, p.y, p.w]), walkerDefs, feather, egg, hFeathers, updrafts, movers, batDefs, n);
+  return { grounds: grounds.map(([x, w]) => [x, GROUND_Y, w]), platforms: plats.map(p => [p.x, p.y, p.w]), walkerDefs, nestX: NEST_X, feather, egg, movers, boss, hFeathers, updrafts, batDefs, alcove: alcoveDef };
 }
 
 /* ================= per-world layout archetypes (L2–L10) =================
@@ -766,7 +767,8 @@ function buildLevel(n){
   const hFeathers = placeHiddenFeathers(grounds, plats.map(p => [p.x, p.y, p.w]), walkerDefs, movers, feather);
   const updrafts = placeUpdrafts(grounds, plats.map(p => [p.x, p.y, p.w]), movers, hFeathers);
   const batDefs = placeBats(grounds, plats.map(p => [p.x, p.y, p.w]), walkerDefs, movers, feather, hFeathers, updrafts, n);
-  return { grounds, platforms: plats.map(p => [p.x, p.y, p.w]), walkerDefs, nestX: NEST_X, feather, egg, movers, boss, hFeathers, updrafts, batDefs };
+  const alcoveDef = placeAlcoves(grounds, plats.map(p => [p.x, p.y, p.w]), walkerDefs, feather, egg, hFeathers, updrafts, movers, batDefs, n);
+  return { grounds, platforms: plats.map(p => [p.x, p.y, p.w]), walkerDefs, nestX: NEST_X, feather, egg, movers, boss, hFeathers, updrafts, batDefs, alcove: alcoveDef };
 }
 
 function buildCoinsFor(grounds, platforms){
@@ -950,6 +952,67 @@ function placeBats(groundsA, platsA, walkerDefs, movers, feather, hFeathers, upd
   return picks.sort((a, b) => a.ax - b.ax).map(c => ({ ax: c.ax, ay: c.ay, kind: c.kind }));
 }
 
+/* ================= secret alcove placement =================
+   One secret per level: a cracked stone slab set flush into the top
+   of a long ground segment, sealing a shallow hollow (54px deep,
+   150px wide) with a 5-coin stash inside. Only a dive-bomb breaks
+   the slab. Derived from the built geometry in the same deterministic
+   style as the feathers / updrafts / bats: the longest eligible
+   segment wins, the alcove sits slightly off its centre line, and the
+   span keeps clear of low platform slabs (the dive needs headroom),
+   the golden feather + egg, near-ground hidden feathers, updraft
+   columns, mover travel, bat anchors, and the nest. L10's final
+   segment (the boss arena) is off-limits. A first pass also avoids
+   walker patrols crossing the span (a patrol would hover over the
+   open hollow); if that leaves nothing, a second pass drops the
+   patrol rule — every level still gets its secret. */
+const ALCOVE_W = 150, ALCOVE_DEPTH = 54;
+function placeAlcoves(groundsA, platsA, walkerDefs, feather, egg, hFeathers, updrafts, movers, batDefs, n){
+  function clear(x, s, noPatrol){
+    const x1 = x + ALCOVE_W, top = s.y;
+    if (x1 > NEST_X - 240) return false;                          /* keep the nest approach clean */
+    for (const p of platsA)   /* a low overhead slab would block the dive and the fall in */
+      if (p[0] < x1 && p[0] + p[2] > x && p[1] > top - 150 && p[1] < top + ALCOVE_DEPTH) return false;
+    if (feather && feather.x > x - 70 && feather.x < x1 + 70 && feather.y > top - 170) return false;
+    if (egg && egg.x > x - 40 && egg.x < x1 + 40 && egg.y >= top - 4) return false;
+    for (const f of (hFeathers || []))
+      if (f.x > x - 80 && f.x < x1 + 80 && f.y > top - 150) return false;
+    for (const u of (updrafts || []))
+      if (u.x < x1 + 16 && u.x + u.w > x - 16) return false;
+    for (const m of (movers || [])){
+      const mx0 = m.baseX - (m.axis === 'h' ? m.amp : 0), mx1 = m.baseX + m.w + (m.axis === 'h' ? m.amp : 0);
+      if (mx0 < x1 + 24 && mx1 > x - 24) return false;
+    }
+    for (const b of (batDefs || []))
+      if (b.ax > x - 110 && b.ax < x1 + 110) return false;
+    if (noPatrol)
+      for (const d of (walkerDefs || []))
+        if (d.y === top && d.minX < x1 && d.maxX + (d.w || 32) > x) return false;
+    return true;
+  }
+  const segs = groundsA.map((g, i) => ({ i, x: g[0], y: g[1], w: g[2] }))
+    .filter(s => s.w >= 430 && !(n === 10 && s.i === groundsA.length - 1))
+    .sort((a, b) => b.w - a.w);
+  /* scan each segment (longest first) in 10px steps — a fixed handful
+     of fractions is too coarse: on the tight levels every fraction
+     lands inside some exclusion. The winner is the clear spot whose
+     position is closest to 45% across its segment: on the main path,
+     but off the obvious centre line. */
+  for (const noPatrol of [true, false]){
+    for (const s of segs){
+      let best = null, bestD = 1e9;
+      for (let x = s.x + 34; x + ALCOVE_W <= s.x + s.w - 34; x += 10){
+        if (!clear(x, s, noPatrol)) continue;
+        const d = Math.abs((x - s.x) / (s.w - ALCOVE_W) - 0.45);
+        if (d < bestD){ bestD = d; best = x; }
+      }
+      if (best !== null)
+        return { seg: s.i, hx: s.x, hy: s.y, hw: s.w, x: best, y: s.y, w: ALCOVE_W, depth: ALCOVE_DEPTH };
+    }
+  }
+  return null;
+}
+
 /* ================= state ================= */
 const GRAV = 1500, JUMP_V = 580, MAXRUN = 268, GLIDE_FALL = 85;
 const FASTFALL_ACCEL = 2400, FASTFALL_V = 1150;   /* stick-down dive: extra downward accel + its terminal cap */
@@ -961,14 +1024,30 @@ let selLevel = unlocked;
 let L_GROUNDS = GROUNDS.map(([x, w]) => [x, GROUND_Y, w]), L_PLATFORMS = PLATFORMS, L_NESTX = NEST_X;
 let SOLIDS = [];
 function rebuildSolids(){
+  const solids = [];
+  for (const [x, gy, w] of L_GROUNDS){
+    if (alcove && x === alcove.hx && gy === alcove.hy && w === alcove.hw){
+      /* the alcove splits its host segment: two rim pieces at the old
+         top, the hollow's floor below, and — until it is dive-bombed
+         open — the cracked slab sealing the top flush with the ground */
+      if (alcove.x > x) solids.push({ x, y: gy, w: alcove.x - x, ground: true });
+      const rx = alcove.x + alcove.w;
+      if (rx < x + w) solids.push({ x: rx, y: gy, w: x + w - rx, ground: true });
+      solids.push({ x: alcove.x, y: alcove.y + alcove.depth, w: alcove.w, ground: false, alcoveFloor: true });
+      if (!alcove.broken) solids.push({ x: alcove.x, y: alcove.y, w: alcove.w, ground: false, alcoveSlab: true });
+    } else {
+      solids.push({ x, y: gy, w, ground: true });
+    }
+  }
   SOLIDS = [
-    ...L_GROUNDS.map(([x, gy, w]) => ({ x, y: gy, w, ground: true })),
+    ...solids,
     ...L_PLATFORMS.map(([x, y, w]) => ({ x, y, w, ground: false })),
     ...L_MOVERS,
   ];
 }
 let coins = [], walkers = [];
 let bats = [];        /* this level's swooper bats (placeBats) */
+let alcove = null;    /* this level's secret alcove (placeAlcoves) + broken flag */
 let L_MOVERS = [], feather = null, egg = null, boss = null;
 let hFeathers = [];   /* this level's 3 hidden feathers (taken mirrors the store) */
 let updrafts = [];    /* this level's wind columns over pits (placeUpdrafts) */
@@ -1259,8 +1338,9 @@ function startLevel(n, quiet, withIntro){
   L_GROUNDS = L.grounds; L_PLATFORMS = L.platforms; L_NESTX = L.nestX;
   L_MOVERS = L.movers || [];
   feather = L.feather ? { ...L.feather } : null;
-  hFeathers = (L.hFeathers || []).map((f, i) => ({ x: f.x, y: f.y, kind: f.kind, taken: (featherStore[n] || []).includes(i) }));
+  hFeathers = (L.hFeathers || []).map((f, i) => ({ x: f.x, y: f.y, kind: f.kind, taken: (featherStore[n] || []).includes(i), sonarT: 0 }));
   updrafts = L.updrafts || [];
+  alcove = L.alcove ? { ...L.alcove, broken: false } : null;
   levelStartTotal = featherTotal(); lastSkinUnlock = null;
   egg = L.egg ? { ...L.egg } : null;
   boss = L.boss ? { ...L.boss } : null;
@@ -1358,6 +1438,7 @@ function hurt(fromPit){
   hud();
   if (lives <= 0){ showOver('dead'); return; }
   if (fromPit){
+    sealAlcove();
     P.x = checkpoint; P.y = 360; P.vx = 0; P.vy = 0;
   } else {
     P.vy = -270; P.vx = -P.face * 190;
@@ -1372,6 +1453,58 @@ function tryScreech(){
   screechCd = 1.1;
   screechFx = { t: 0, x: P.x + P.w / 2 + P.face * 26, y: P.y + 6 };
   screechSound();
+  /* sonar: the screech rings out and any hidden feather within earshot
+     answers with a 1.2s glint — position only; you still have to fly
+     there and take it. One soft ping if at least one feather answered. */
+  let heard = false;
+  const pcx = P.x + P.w / 2, pcy = P.y + P.h / 2;
+  for (const hf of hFeathers){
+    if (hf.taken) continue;
+    if (Math.hypot(hf.x - pcx, hf.y - pcy) <= 260){ hf.sonarT = 1.2; heard = true; }
+  }
+  if (heard) beep(2093, 0.05, 0.16, 'sine', 0.04);
+}
+/* a feather glints only in live play — never through the intro card,
+   the level-complete screen, or the attract preview */
+function sonarGlint(f){
+  return !!(f && f.sonarT > 0 && running && !intro.on);
+}
+
+/* ================= secret alcove: break + seal ================= */
+/* the dive-bomb got through: the slab crumbles, the eagle drops into
+   the hollow, and the stash appears. A breath of invulnerability
+   covers the fall — a guardian standing on the slab was guarding the
+   spot, not camping the explosion. */
+function breakAlcove(){
+  if (!alcove || alcove.broken) return;
+  alcove.broken = true;
+  rebuildSolids();
+  P.onGround = false; P.vy = 40; standMover = null;
+  invuln = Math.max(invuln, 0.6);
+  /* the stash: 5 coins in a shallow arc on the hollow floor — every
+     one of them inside walking pickup reach from the floor, and the
+     arc's peak low enough that the crash-in itself (eagle still at
+     rim height) cannot vacuum the middle coin up mid-break */
+  const fy = alcove.y + alcove.depth;
+  for (const [fx, dy] of [[0.12, -20], [0.31, -30], [0.5, -36], [0.69, -30], [0.88, -20]])
+    coins.push({ x: Math.round(alcove.x + alcove.w * fx), y: fy + dy, taken: false, alcove: true });
+  const cx = alcove.x + alcove.w / 2;
+  burst(cx, alcove.y + 6, 16, '#9a8d7c', 200, 0.55, 2.8, 330);
+  burst(cx, alcove.y + 2, 8, '#6f6152', 150, 0.45, 2.2, 260);
+  shakeT = Math.max(shakeT, 0.55);
+  doHitStop(0.05);
+  addFloater(cx, alcove.y - 20, '🕳 SECRET!', '#ffd76a', 16);
+  beep(110, 0, 0.16, 'square', 0.12); beep(62, 0.02, 0.26, 'triangle', 0.13); beep(196, 0.06, 0.1, 'square', 0.06);
+}
+/* a pit death seals the hollow again — the slab is level state, like
+   the coins: the next attempt faces a whole wall. Stash coins still
+   lying in the hollow vanish with it; banked coins stay banked. */
+function sealAlcove(){
+  if (!alcove || !alcove.broken) return;
+  alcove.broken = false;
+  for (let i = coins.length - 1; i >= 0; i--)
+    if (coins[i].alcove && !coins[i].taken) coins.splice(i, 1);
+  rebuildSolids();
 }
 
 /* ================= fx stepping (runs on overlays too) ================= */
@@ -1396,6 +1529,7 @@ function update(dt){
   stepMovers();
   if (standMover && P.onGround){ P.x += standMover.dx; P.y += standMover.dy; }
   if (screechCd > 0) screechCd -= dt;
+  for (const hf of hFeathers) if (hf.sonarT > 0) hf.sonarT = Math.max(0, hf.sonarT - dt);
   if (invuln > 0) invuln -= dt;
   if (landT > 0) landT -= dt;
   if (shakeT > 0) shakeT = Math.max(0, shakeT - dt * 2.2);
@@ -1446,6 +1580,7 @@ function update(dt){
   P.y += P.vy * dt;
   if (P.x < 0) P.x = 0;
   if (P.x > WORLD_W - P.w) P.x = WORLD_W - P.w;
+  const fallVy = P.vy;   /* impact speed, captured before the landing pass zeroes it */
   P.onGround = false;
   if (P.vy >= 0){
     for (const s of SOLIDS){
@@ -1460,11 +1595,38 @@ function update(dt){
     }
   }
   if (!P.onGround) standMover = null;
+  /* inside the opened hollow the rock walls are real: while the
+     eagle's feet are below the rim and its body is over the span it
+     cannot walk out through the stone — it jumps out instead. Once
+     its body is mostly past an edge the rim catch takes over, exactly
+     like the game's pit edges. */
+  if (alcove && alcove.broken && (P.y + P.h) > alcove.y + 10){
+    const bcx = P.x + P.w / 2;
+    if (bcx > alcove.x + 6 && bcx < alcove.x + alcove.w - 6){
+      if (P.x < alcove.x + 2) P.x = alcove.x + 2;
+      if (P.x > alcove.x + alcove.w - P.w - 2) P.x = alcove.x + alcove.w - P.w - 2;
+    }
+  }
   if (P.onGround && Math.abs(P.vx) > 20) P.runT += dt;
   if (P.onGround && airBefore){
     if (stompChain){ stompChain = 0; setComboHud(); }   /* combo chain ends on touchdown */
     if (vyBefore > 240) landT = 0.12;
     dustAt(P.x + P.w / 2, P.y + P.h, vyBefore);   /* dust scaled by impact speed */
+    /* the alcove slab: a dive-bomb landing on the cracked section
+       breaks it open (the eagle drops in); any other hard landing
+       just CLUNKs off the stone — no score, no damage, no way through */
+    if (alcove && !alcove.broken && (P.y + P.h) === alcove.y){
+      const acx = P.x + P.w / 2;
+      if (acx >= alcove.x && acx <= alcove.x + alcove.w){
+        if (input.fastFall && fallVy > 720) breakAlcove();
+        else if (fallVy > 240){
+          shakeT = Math.max(shakeT, 0.28);
+          dustAt(acx, alcove.y, 200);
+          addFloater(acx, alcove.y - 16, 'CLUNK', '#d8cfc0', 13);
+          beep(130, 0, 0.09, 'square', 0.09); beep(76, 0.01, 0.13, 'triangle', 0.1);
+        }
+      }
+    }
   }
   if (P.onGround && Math.abs(P.vx) > 120 && Math.random() < 0.35)
     spawnP(P.x + P.w / 2 - P.face * 14, P.y + P.h - 2, -P.vx * 0.25 + (Math.random() * 30 - 15), -Math.random() * 40, 0.35, 2, '#d9c9a3', -60);
@@ -2204,6 +2366,27 @@ function drawHiddenFeather(f){
   ctx.shadowBlur = 0;
   ctx.strokeStyle = '#c9920a'; ctx.lineWidth = 1.3;
   ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(0, 12); ctx.stroke();
+  if (sonarGlint(f)){
+    /* sonar answer: a bright flare + expanding rings + sparkles,
+       fading across the 1.2s window — visible across the screen */
+    const k = f.sonarT / 1.2, prog = 1 - k, rr = 18 + prog * 30;
+    ctx.globalAlpha = 0.55 * k;
+    ctx.shadowColor = '#fff3ae'; ctx.shadowBlur = 22;
+    ctx.fillStyle = '#fff3ae';
+    ctx.beginPath(); ctx.ellipse(0, 0, 6, 14, 0.5, 0, 7); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 0.85 * k;
+    ctx.strokeStyle = '#fff3ae'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(0, 0, rr, 0, 7); ctx.stroke();
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(0, 0, rr * 0.62, 0, 7); ctx.stroke();
+    ctx.fillStyle = '#fff8d0';
+    for (let s = 0; s < 4; s++){
+      const a = prog * 2.4 + s * Math.PI / 2, sr = rr * 0.82;
+      ctx.beginPath(); ctx.arc(Math.cos(a) * sr, Math.sin(a) * sr, 1.8, 0, 7); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
   ctx.restore();
 }
 function drawEgg(e){
@@ -2345,6 +2528,62 @@ function drawBoss(b){
 /* wind columns: a faint shaft over the pit plus rising streaks that
    loop upward — speed and spacing hashed per column so every shaft
    breathes differently. Purely cosmetic; the physics lives in update(). */
+/* the secret alcove: while sealed, a cracked stone slab set into the
+   ground top — cracks in a darker shade of the same stone, a tell and
+   not a signpost. Once dive-bombed open: a dark hollow with a stone
+   floor and rubble at its mouth. */
+function drawAlcove(){
+  if (!alcove) return;
+  const T = THEMES[level - 1];
+  const x = alcove.x, y = alcove.y, w = alcove.w, fy = y + alcove.depth;
+  ctx.save();
+  if (alcove.broken){
+    const g = ctx.createLinearGradient(0, y, 0, fy + 12);
+    g.addColorStop(0, 'rgba(24,15,8,0.92)'); g.addColorStop(1, 'rgba(10,6,3,0.96)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x, y, w, alcove.depth + 12);
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillRect(x, y, 5, alcove.depth + 12); ctx.fillRect(x + w - 5, y, 5, alcove.depth + 12);
+    ctx.fillStyle = T.dirt[0];
+    ctx.fillRect(x, fy, w, 5);
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.fillRect(x, fy, w, 1.6);
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fillRect(x, y, w, 4);
+    /* rubble at the mouth of the hollow */
+    ctx.fillStyle = '#6f6152';
+    ctx.beginPath(); ctx.moveTo(x + 2, fy); ctx.lineTo(x + 13, fy - 6); ctx.lineTo(x + 22, fy); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(x + w - 24, fy); ctx.lineTo(x + w - 12, fy - 5); ctx.lineTo(x + w - 3, fy); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#9a8d7c';
+    ctx.beginPath(); ctx.arc(x + 30, fy - 2, 2.4, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + w - 34, fy - 2, 2, 0, 7); ctx.fill();
+  } else {
+    /* slab: a stone plate in the platform palette, set into the top */
+    const g = ctx.createLinearGradient(0, y - 2, 0, y + 10);
+    g.addColorStop(0, T.platCols[0]); g.addColorStop(1, T.platCols[1]);
+    ctx.fillStyle = g;
+    ctx.fillRect(x - 3, y - 2, w + 6, 12);
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillRect(x - 3, y - 2, w + 6, 2);
+    ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 1.4;
+    ctx.strokeRect(x - 3, y - 2, w + 6, 12);
+    /* cracks — darker than the stone, wandering down the slab face
+       and onto the rock below: the hollow's only advertisement */
+    ctx.strokeStyle = 'rgba(46,34,20,0.62)'; ctx.lineWidth = 1.5; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x + w * 0.38, y - 2); ctx.lineTo(x + w * 0.41, y + 3); ctx.lineTo(x + w * 0.37, y + 8);
+    ctx.lineTo(x + w * 0.40, y + 16); ctx.lineTo(x + w * 0.36, y + 24);
+    ctx.moveTo(x + w * 0.41, y + 3); ctx.lineTo(x + w * 0.47, y + 7);
+    ctx.moveTo(x + w * 0.66, y - 2); ctx.lineTo(x + w * 0.63, y + 4); ctx.lineTo(x + w * 0.67, y + 9);
+    ctx.lineTo(x + w * 0.64, y + 15);
+    ctx.moveTo(x + w * 0.15, y + 1); ctx.lineTo(x + w * 0.18, y + 6); ctx.lineTo(x + w * 0.15, y + 11);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(46,34,20,0.5)';
+    ctx.beginPath(); ctx.arc(x + w * 0.52, y + 5, 1.6, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + w * 0.8, y + 3, 1.3, 0, 7); ctx.fill();
+  }
+  ctx.restore();
+}
 function drawUpdrafts(){
   const T = THEMES[level - 1];
   const rgb = T.dark ? '125,215,240' : '255,255,255';
@@ -2669,6 +2908,7 @@ function draw(){
       ctx.fillRect(px, topY + 6, pw, VH - topY - 6);
     }
   }
+  drawAlcove();
   drawUpdrafts();
   drawFlags(viewW);
   /* platforms */
