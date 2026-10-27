@@ -783,6 +783,9 @@ let cam = 0, checkpoint = 40, runTime = 0;
 let screechCd = 0, screechFx = null, invuln = 0;
 let particles = [], floaters = [], landT = 0, shakeT = 0;
 let ambientT = 0, flashT = 0, nextFlash = 4;
+let hitStopT = 0; const HITSTOP_MAX = 0.07;   /* hit-stop freeze on stomps: capped, re-trigger only refreshes */
+let coinChain = 0, coinChainT = 0, lastCoinFreq = 880;   /* coin pitch-ladder state */
+const DIVE_BOUNCE = -470;                    /* dive-bomb stomp bounce (normal walker stomp: -330) */
 function spawnP(x, y, vx, vy, life, size, color, grav){
   if (particles.length > 170) particles.shift();
   particles.push({ x, y, vx, vy, life, maxLife: life, size, color, grav: grav || 0 });
@@ -801,6 +804,23 @@ function addFloater(x, y, text, color, size){
   floaters.push({ x, y, text, color, size: size || 14, t: 0 });
   if (floaters.length > 24) floaters.shift();
 }
+/* landing / takeoff dust: low puffs in the level palette, scaled by impact
+   speed — a soft touchdown kicks up a couple of motes, a hard one a cloud */
+function dustAt(x, y, impact){
+  const col = THEMES[level - 1].dark ? '#7dd7f0' : '#e6d7b2';
+  const hard = Math.max(0, Math.min(1, (impact - 180) / 700));
+  const n = 2 + Math.round(hard * 12);
+  for (let i = 0; i < n; i++){
+    const dir = i % 2 ? 1 : -1;
+    spawnP(x + (Math.random() * 16 - 8), y - 1,
+      dir * (26 + Math.random() * (50 + 110 * hard)),
+      -(8 + Math.random() * (26 + 30 * hard)),
+      0.3 + Math.random() * 0.3 + hard * 0.15,
+      1.8 + Math.random() * 1.6 + hard * 1.2, col, 240);
+  }
+}
+/* brief freeze on a stomp — never stacks past HITSTOP_MAX */
+function doHitStop(d){ hitStopT = Math.min(HITSTOP_MAX, Math.max(hitStopT, d)); }
 const input = { left: false, right: false, jumpHeld: false, fastFall: false };
 let jumpQueued = false;
 
@@ -871,6 +891,7 @@ function startLevel(n, quiet, withIntro){
   P.x = 40; P.y = 380; P.vx = 0; P.vy = 0; P.face = 1; P.onGround = false; P.gliding = false;
   cam = 0; checkpoint = 40; screechCd = 0; screechFx = null; invuln = 0;
   particles = []; floaters = []; landT = 0; shakeT = 0;
+  hitStopT = 0; coinChain = 0; coinChainT = 0;
   ambientT = 0; flashT = 0; nextFlash = 3 + Math.random() * 4;
   setMood(n);
   hud();
@@ -941,7 +962,7 @@ function hurt(fromPit){
     P.x = checkpoint; P.y = 360; P.vx = 0; P.vy = 0;
   } else {
     P.vy = -270; P.vx = -P.face * 190;
-    shakeT = Math.max(shakeT, 0.5);
+    shakeT = Math.max(shakeT, 0.85);   /* damage: bigger shake than a stomp, no freeze */
     burst(P.x + P.w / 2, P.y + P.h / 2, 8, '#ff8fa8', 140, 0.4, 2.4, 200);
   }
   invuln = 1.6;
@@ -979,6 +1000,7 @@ function update(dt){
   if (invuln > 0) invuln -= dt;
   if (landT > 0) landT -= dt;
   if (shakeT > 0) shakeT = Math.max(0, shakeT - dt * 2.2);
+  if (coinChainT > 0){ coinChainT -= dt; if (coinChainT <= 0) coinChain = 0; }
   const airBefore = !P.onGround, vyBefore = P.vy;
   const accel = P.onGround ? 2400 : 1600;
   if (input.left){ P.vx = Math.max(-MAXRUN, P.vx - accel * dt); P.face = -1; }
@@ -992,6 +1014,7 @@ function update(dt){
     jumpQueued = false;
     if (P.onGround || P.coyote > 0){
       P.vy = -JUMP_V; P.onGround = false; P.coyote = 0;
+      dustAt(P.x + P.w / 2, P.y + P.h, 130);   /* tiny takeoff puff */
       beep(330, 0, 0.07, 'square', 0.07);
     }
   }
@@ -1021,9 +1044,9 @@ function update(dt){
   }
   if (!P.onGround) standMover = null;
   if (P.onGround && Math.abs(P.vx) > 20) P.runT += dt;
-  if (P.onGround && airBefore && vyBefore > 240){
-    landT = 0.12;
-    burst(P.x + P.w / 2, P.y + P.h, 6, '#e6d7b2', 90, 0.4, 2.2, 300);
+  if (P.onGround && airBefore){
+    if (vyBefore > 240) landT = 0.12;
+    dustAt(P.x + P.w / 2, P.y + P.h, vyBefore);   /* dust scaled by impact speed */
   }
   if (P.onGround && Math.abs(P.vx) > 120 && Math.random() < 0.35)
     spawnP(P.x + P.w / 2 - P.face * 14, P.y + P.h - 2, -P.vx * 0.25 + (Math.random() * 30 - 15), -Math.random() * 40, 0.35, 2, '#d9c9a3', -60);
@@ -1034,9 +1057,15 @@ function update(dt){
   for (const c of coins){
     if (!c.taken && Math.abs(c.x - pcx) < 26 && Math.abs(c.y - pcy) < 28){
       c.taken = true; coinCount++; score += 10; hud();
+      /* pitch ladder: coins grabbed within 1.2s of each other climb a
+         semitone each (max +12 = an octave), then the ladder resets */
+      if (coinChainT > 0) coinChain = Math.min(coinChain + 1, 12); else coinChain = 0;
+      coinChainT = 1.2;
+      const cmult = Math.pow(2, coinChain / 12);
+      lastCoinFreq = Math.round(880 * cmult);
       burst(c.x, c.y, 7, '#ffd76a', 130, 0.45, 2.4, 160);
       addFloater(c.x, c.y - 16, '+10', '#ffd76a', 13);
-      beep(880, 0, 0.06, 'sine', 0.1); beep(1320, 0.05, 0.08, 'sine', 0.08);
+      beep(lastCoinFreq, 0, 0.06, 'sine', 0.1); beep(Math.round(1320 * cmult), 0.05, 0.08, 'sine', 0.08);
     }
   }
   /* golden feather */
@@ -1065,23 +1094,29 @@ function update(dt){
     }
     const overlap = P.x + P.w > wk.x && P.x < wk.x + wk.w && P.y + P.h > wk.y - wk.h && P.y < wk.y;
     if (overlap){
-      const stomp = P.vy > 60 && (P.y + P.h) - (wk.y - wk.h) < 17;
+      /* stomp test: the classic penetration window, OR a swept catch — the
+         feet were above the walker's top last frame. A dive at 1150px/s
+         moves ~19px/frame and would tunnel clean past the 17px window. */
+      const stomp = P.vy > 60 && ((P.y + P.h) - (wk.y - wk.h) < 17 || (prevBottom - (wk.y - wk.h)) <= 6);
+      const dive = stomp && input.fastFall && P.vy > 720;   /* dive-bomb: only reachable via the stick-down dive */
       if (stomp){
         if (wk.kind === 'brute' && wk.hp > 1){
           wk.hp = 1; wk.stun = 2;
-          P.vy = -360;
+          P.vy = dive ? DIVE_BOUNCE : -360;
           shakeT = Math.max(shakeT, 0.6);
+          doHitStop(0.06);
           burst(wk.x + wk.w / 2, wk.y - wk.h, 12, '#9a8d7c', 170, 0.5, 2.8, 340);
           addFloater(wk.x + wk.w / 2, wk.y - wk.h - 16, 'CRACKED!', '#ffe9a8', 17);
           beep(140, 0, 0.12, 'square', 0.12);
         } else {
           wk.dead = true;
-          P.vy = wk.kind === 'brute' ? -360 : -330;
+          P.vy = dive ? DIVE_BOUNCE : (wk.kind === 'brute' ? -360 : -330);
           const pts = wk.kind === 'brute' ? 100 : 50;
           score += pts; hud();
           burst(wk.x + wk.w / 2, wk.y - wk.h, wk.kind === 'brute' ? 18 : 10, '#ff8fb0', wk.kind === 'brute' ? 190 : 160, 0.5, 2.6, 320);
-          shakeT = Math.max(shakeT, wk.kind === 'brute' ? 0.55 : 0.35);
-          addFloater(wk.x + wk.w / 2, wk.y - wk.h - 12, '+' + pts, wk.kind === 'brute' ? '#ffd76a' : '#ff8fb0', wk.kind === 'brute' ? 19 : 14);
+          shakeT = Math.max(shakeT, dive ? 0.6 : (wk.kind === 'brute' ? 0.55 : 0.35));
+          doHitStop(0.06);
+          addFloater(wk.x + wk.w / 2, wk.y - wk.h - 12, dive ? ('+' + pts + ' DIVE') : ('+' + pts), wk.kind === 'brute' ? '#ffd76a' : '#ff8fb0', wk.kind === 'brute' ? 19 : 14);
           beep(220, 0, 0.08, 'square', 0.1);
         }
       } else if (invuln <= 0){
@@ -1115,11 +1150,13 @@ function update(dt){
     const bTop = boss.y - boss.hop - boss.h;
     const bOverlap = P.x + P.w > boss.x && P.x < boss.x + boss.w && P.y + P.h > bTop && P.y < boss.y - boss.hop;
     if (bOverlap){
-      const bStomp = P.vy > 60 && (P.y + P.h) - bTop < 20;
+      const bStomp = P.vy > 60 && ((P.y + P.h) - bTop < 20 || (prevBottom - bTop) <= 6);
+      const bDive = bStomp && input.fastFall && P.vy > 720;
       if (bStomp){
         boss.hp--;
-        P.vy = -360;
+        P.vy = bDive ? DIVE_BOUNCE : -360;
         shakeT = Math.max(shakeT, 0.6);
+        doHitStop(0.06);
         burst(boss.x + boss.w / 2, bTop, 14, '#9a8d7c', 180, 0.5, 2.8, 340);
         if (boss.hp <= 0){
           boss.dead = true; bossDefeated = true;
@@ -2615,8 +2652,11 @@ function frame(now){
     try { updatePreview(dt); }
     catch (err){ console.error(err); exitPreview(); }
   } else if (running){
-    try { update(dt); }
-    catch (err){ running = false; console.error(err); }
+    if (hitStopT > 0){ hitStopT = Math.max(0, hitStopT - dt); }   /* hit-stop: world freezes, draw (and shake) keeps running */
+    else {
+      try { update(dt); }
+      catch (err){ running = false; console.error(err); }
+    }
   } else {
     runTime += dt;
     stepFx(dt);
