@@ -160,6 +160,7 @@
   #introCard .icT { font-size:42px; font-weight:900; letter-spacing:.08em; text-shadow:0 3px 0 rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.6); }
   #introCard .icS { font-size:12px; letter-spacing:.2em; opacity:.7; }
   #hudFeather { font-weight:900; font-size:15px; color:#ffe9a8; }
+  #hudTime { font-weight:900; font-size:15px; color:#bffbff; }
   #muteBtn { background:rgba(255,255,255,.12); border:1.5px solid rgba(255,255,255,.35); color:#fff; border-radius:999px; width:34px; height:34px; font-size:17px; cursor:pointer; font-family:inherit; flex:0 0 auto; }
   #shareStatus { min-height:18px; font-size:14px; margin:0; }
 </style>
@@ -170,6 +171,7 @@
   <div id="hudLevel">LV 1 · GREEN HILLS</div>
   <div id="hudCoins">🪙 0</div>
   <div id="hudFeather">🪶 0</div>
+  <div id="hudTime">⏱ 0.0</div>
   <div id="hudScore">0</div>
   <button id="muteBtn">🔊</button>
 </div>
@@ -202,6 +204,7 @@
   <div class="icK" id="icKicker">LEVEL 1</div>
   <div class="icT" id="icTitle">GREEN HILLS</div>
   <div class="icS" id="icFeather"></div>
+  <div class="icS" id="icPar"></div>
   <div class="icS">TAP TO SKIP</div>
 </div>
 
@@ -213,9 +216,11 @@
   <p>Ten worlds, one Ninja Eagle. One <b>thumb stick</b> does it all: <b>push to run</b>, <b>flick up to jump</b>,
      <b>hold up to GLIDE</b>, <b>push down mid-air to dive</b>. Stomp the stone guardians — or hit
      <b>📣 SCREECH</b> to stun them. Clear a level to unlock the next… and every world gets <b>hotter</b>. Reach the golden nest!
-     Hunt the <b>3 hidden 🪶</b> in every world — collect all 30 to unlock new <b>eagle skins</b>!</p>
+     Hunt the <b>3 hidden 🪶</b> in every world — collect all 30 to unlock new <b>eagle skins</b>!
+     Beat each world's <b>⏱ par time</b> to earn <b>🥇🥈🥉 medals</b> — gold takes a fast, clean run!</p>
   <div class="small">CHOOSE YOUR START LEVEL</div>
   <div id="levelPicker"></div>
+  <div class="small" id="medalTotals"></div>
   <div class="small">EAGLE SKIN</div>
   <div id="skinPicker"></div>
   <div class="small" id="skinCount"></div>
@@ -1053,6 +1058,78 @@ function renderSkinPicker(){
     pk.appendChild(b);
   }
 }
+/* ================= time medals =================
+   Reference times were measured from the game's own autopilot (the
+   checks-headless driver) completing each level — it runs at near
+   speedrun pace (all levels are 4500px to the nest), so:
+     GOLD = ref x 1.10, SILVER = ref x 1.45, BRONZE = ref x 2.0 (ceil).
+   Measured refs (clean completions, seconds): L1 17.7 · L2 16.7 ·
+   L3 16.8 · L4 18.0 · L5 16.9 · L6 16.6 · L8 16.6 · L9 18.6 ·
+   L10 41.0 (includes the boss; the bot's runs each had 3 deaths, so
+   gold there is generous). L7 is an ESTIMATE: the autopilot only ever
+   finished it in 76.9s with 12 deaths — that measures the bot's
+   mover-pit weakness, not the level — so its ref (19.0) is the top of
+   the measured pace band of the other levels. Medals are pure record:
+   best time + best medal per level, localStorage only, never scored,
+   never in the submit payload. */
+const MEDAL_KEY = 'garudaDashMedals';
+const PAR_TIMES = [
+  { g: 20, s: 26, b: 36 },   /* L1  ref 17.7 measured */
+  { g: 19, s: 25, b: 34 },   /* L2  ref 16.7 measured */
+  { g: 19, s: 25, b: 34 },   /* L3  ref 16.8 measured */
+  { g: 20, s: 27, b: 36 },   /* L4  ref 18.0 measured */
+  { g: 19, s: 25, b: 34 },   /* L5  ref 16.9 measured */
+  { g: 19, s: 25, b: 34 },   /* L6  ref 16.6 measured */
+  { g: 21, s: 28, b: 38 },   /* L7  ref 19.0 ESTIMATE (see note) */
+  { g: 19, s: 25, b: 34 },   /* L8  ref 16.6 measured */
+  { g: 21, s: 27, b: 38 },   /* L9  ref 18.6 measured */
+  { g: 46, s: 60, b: 82 },   /* L10 ref 41.0 measured (boss; bot runs had 3 deaths) */
+];
+const MEDAL_EMOJI = { gold: '🥇', silver: '🥈', bronze: '🥉' };
+function loadMedalStore(){
+  try { const o = JSON.parse(localStorage.getItem(MEDAL_KEY) || '{}'); return o && typeof o === 'object' ? o : {}; }
+  catch (e) { return {}; }
+}
+let medalStore = loadMedalStore();
+let lastMedal = null, lastMedalBest = false;   /* this finish's medal, for the complete card */
+function saveMedalStore(){ try { localStorage.setItem(MEDAL_KEY, JSON.stringify(medalStore)); } catch (e) {} }
+function medalFor(n, t){
+  const p = PAR_TIMES[n - 1]; if (!p) return null;
+  return t <= p.g ? 'gold' : t <= p.s ? 'silver' : t <= p.b ? 'bronze' : null;
+}
+function bestTime(n){ const e = medalStore[n]; return e && typeof e.time === 'number' ? e.time : null; }
+function bestMedal(n){ const e = medalStore[n]; return e ? (e.medal || null) : null; }
+/* record a finish: only a faster time replaces the stored best (and the
+   medal always follows the time, since medal is a pure function of it) */
+function recordMedal(n, t){
+  const medal = medalFor(n, t);
+  const prev = medalStore[n];
+  if (!prev || t < prev.time){ medalStore[n] = { time: t, medal }; saveMedalStore(); return { medal, isBest: true }; }
+  return { medal, isBest: false };
+}
+function medalTotals(){
+  let gold = 0, silver = 0, bronze = 0, finished = 0, sum = 0;
+  for (let n = 1; n <= 10; n++){
+    const e = medalStore[n]; if (!e) continue;
+    finished++; sum += e.time;
+    if (e.medal === 'gold') gold++; else if (e.medal === 'silver') silver++; else if (e.medal === 'bronze') bronze++;
+  }
+  return { gold, silver, bronze, finished, sum };
+}
+function medalTotalsLine(){
+  const c = medalTotals();
+  return '🏅 ' + c.gold + '🥇 ' + c.silver + '🥈 ' + c.bronze + '🥉' +
+    ' · ⏱ BEST TIMES ' + c.sum.toFixed(1) + 's (' + c.finished + '/10 LEVELS)';
+}
+/* running HUD timer: mirrors levelTime, writes only when the text changes */
+let _hudTimeStr = '';
+function tickHudTime(){
+  const s = '⏱ ' + levelTime.toFixed(1);
+  if (s === _hudTimeStr) return;
+  _hudTimeStr = s;
+  const el = $('hudTime'); if (el) el.textContent = s;
+}
+
 /* ================= level intro card ================= */
 function accentFor(n){ return n === 3 ? '#39e6ff' : n === 7 ? '#b06cff' : (n >= 9 ? '#ff7a1a' : '#ffd76a'); }
 function showIntro(n){
@@ -1061,6 +1138,9 @@ function showIntro(n){
   $('icTitle').style.color = accentFor(n);
   $('icFeather').textContent = '🪶 ' + featherLevelGot(n) + '/3 HERE · ' + featherTotal() + '/30 TOTAL' +
     (featherLevelGot(n) >= 3 ? ' · FULLY FEATHERED ✨' : '');
+  const _par = PAR_TIMES[n - 1], _bt = bestTime(n);
+  $('icPar').textContent = '⏱ PAR 🥇 ' + _par.g + 's · 🥈 ' + _par.s + 's · 🥉 ' + _par.b + 's' +
+    (_bt !== null ? ' · YOUR BEST ' + _bt.toFixed(1) + 's ' + (MEDAL_EMOJI[bestMedal(n)] || '—') : ' · NO TIME SET YET');
   $('introCard').style.display = 'flex';
   intro.on = true; intro.t = 1.4;
 }
@@ -1111,6 +1191,8 @@ function resetRun(n){
 }
 function levelComplete(){
   running = false;
+  const _mr = recordMedal(level, levelTime);
+  lastMedal = _mr.medal; lastMedalBest = _mr.isBest;
   const par = 60 + (level - 1) * 5;
   lastTimeBonus = Math.min(600, Math.max(0, Math.ceil(par - levelTime)) * 10);
   score += lastTimeBonus;
@@ -1138,6 +1220,9 @@ function levelComplete(){
   $('lvlStats').innerHTML =
     `Score <b>${score}</b> · Coins <b>${coinCount}</b> · ❤️ +1 life → <b>${lives}</b>` +
     `<br>⏱ TIME BONUS +${lastTimeBonus} (par ${par}s · your ${levelTime.toFixed(1)}s)` +
+    `<br>🏅 YOUR TIME <b>${levelTime.toFixed(1)}s</b> — ` +
+      (lastMedal ? MEDAL_EMOJI[lastMedal] + ' <b>' + lastMedal.toUpperCase() + '</b> MEDAL!' : 'no medal (bronze is ' + PAR_TIMES[level - 1].b + 's)') +
+      (lastMedalBest ? ' · 🏆 NEW BEST!' : ' · your best ' + bestTime(level).toFixed(1) + 's') +
     `<br>🪶 Hidden feathers: <b>${featherLevelGot(level)}/3</b> here · <b>${featherTotal()}/30</b> total` +
     (lastSkinUnlock ? `<br>🎉 NEW SKIN UNLOCKED: ${lastSkinUnlock}! Pick it on the menu.` : '') +
     (lastTierCross ? `<br>🎉 NEW HEADBAND: ${lastTierCross}!` : '') +
@@ -1153,6 +1238,7 @@ function showOver(kind){
   $('overTitle').innerHTML = won ? '👑 INFERNO CONQUERED!' : '💥 GAME OVER';
   $('overStats').innerHTML =
     `Score <b>${score}</b> · Best <b>${best}</b> · Reached <b>LV ${maxLevelReached}</b> · Coins <b>${coinCount}</b> · 🪶 <b>${runFeathers}</b> · Hidden 🪶 <b>${featherTotal()}/30</b> · Time <b>${elapsed.toFixed(1)}s</b>` +
+    `<br>${medalTotalsLine()}` +
     (won ? `<br>⏱ TIME BONUS total +${totalTimeBonus} · Campaign bonus: +500` +
            (lastTierCross ? `<br>🎉 NEW HEADBAND: ${lastTierCross}!` : '') +
            (lastSkinUnlock ? `<br>🎉 NEW SKIN UNLOCKED: ${lastSkinUnlock}! Pick it on the menu.` : '') +
@@ -2995,6 +3081,7 @@ function frame(now){
     runTime += dt;
     stepFx(dt);
   }
+  tickHudTime();
   draw();
   requestAnimationFrame(frame);
 }
@@ -3077,11 +3164,13 @@ function renderPicker(){
     const b = document.createElement('button');
     b.className = 'lvbtn' + (n === selLevel ? ' sel' : '') + (n > unlocked ? ' lock' : '') +
       (featherLevelGot(n) >= 3 ? ' full' : '');
-    b.textContent = n > unlocked ? '🔒' : String(n);
+    const _bm = bestMedal(n);
+    b.textContent = n > unlocked ? '🔒' : String(n) + (medalStore[n] ? (_bm ? MEDAL_EMOJI[_bm] : '—') : '');
     b.disabled = n > unlocked;
     b.onclick = () => { selLevel = n; renderPicker(); };
     pk.appendChild(b);
   }
+  const mt = $('medalTotals'); if (mt) mt.textContent = medalTotalsLine();
 }
 $('startBtn').onclick = () => {
   $('startScreen').style.display = 'none';
