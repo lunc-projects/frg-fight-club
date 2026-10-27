@@ -70,8 +70,8 @@ export default async function handler(req, res) {
   if (!Number.isFinite(score) || score < 0 || score > 400000) {
     return res.status(400).json({ error: 'bad score' });
   }
-  if (!Number.isFinite(seconds) || seconds < 20 || seconds > 7200) {
-    return res.status(400).json({ error: 'bad run time' });
+if (!Number.isFinite(seconds) || seconds < 3 || seconds > 7200) {
+  return res.status(400).json({ error: 'bad run time' });
   }
   if (!Number.isFinite(levels) || levels < 1 || levels > 10) {
     return res.status(400).json({ error: 'bad levels' });
