@@ -117,6 +117,20 @@
   }
   .lvbtn.sel { border-color:#ffd76a; background:rgba(255,183,0,.35); box-shadow:0 0 14px rgba(255,183,0,.45); color:#ffe9a8; }
   .lvbtn.lock { opacity:.45; cursor:default; }
+  .lvbtn { position:relative; }
+  .lvbtn.full { border-color:rgba(255,215,106,.85); }
+  .lvbtn.full::after { content:'🪶'; position:absolute; top:-8px; right:-6px; font-size:11px; }
+  /* skin picker */
+  #skinPicker { display:flex; gap:7px; flex-wrap:wrap; justify-content:center; max-width:460px; }
+  .skinbtn {
+    display:flex; flex-direction:column; align-items:center; gap:4px; padding:7px 10px;
+    border-radius:12px; border:2px solid rgba(255,255,255,.35); background:rgba(10,20,50,.55);
+    color:#fff; font-weight:900; font-size:12px; letter-spacing:.06em; cursor:pointer; font-family:inherit;
+  }
+  .skinbtn.sel { border-color:#ffd76a; background:rgba(255,183,0,.3); box-shadow:0 0 14px rgba(255,183,0,.45); color:#ffe9a8; }
+  .skinbtn.lock { opacity:.5; cursor:default; }
+  .skinbtn .swrow { display:flex; gap:3px; }
+  .skinbtn .sw { width:14px; height:14px; border-radius:50%; border:1.5px solid rgba(255,255,255,.5); }
   /* leaderboard */
   #nameInput { width:min(300px, 82vw); padding:12px 16px; border-radius:999px; border:1px solid rgba(255,255,255,.35); background:rgba(10,6,28,.85); color:#fff; font-size:16px; text-align:center; outline:none; font-family:inherit; pointer-events:auto; }
   #submitStatus { min-height:18px; font-size:14px; margin:0; }
@@ -187,6 +201,7 @@
 <div id="introCard">
   <div class="icK" id="icKicker">LEVEL 1</div>
   <div class="icT" id="icTitle">GREEN HILLS</div>
+  <div class="icS" id="icFeather"></div>
   <div class="icS">TAP TO SKIP</div>
 </div>
 
@@ -197,9 +212,13 @@
   <div class="small" id="skinLabel">HEADBAND: RED</div>
   <p>Ten worlds, one Ninja Eagle. One <b>thumb stick</b> does it all: <b>push to run</b>, <b>flick up to jump</b>,
      <b>hold up to GLIDE</b>, <b>push down mid-air to dive</b>. Stomp the stone guardians — or hit
-     <b>📣 SCREECH</b> to stun them. Clear a level to unlock the next… and every world gets <b>hotter</b>. Reach the golden nest!</p>
+     <b>📣 SCREECH</b> to stun them. Clear a level to unlock the next… and every world gets <b>hotter</b>. Reach the golden nest!
+     Hunt the <b>3 hidden 🪶</b> in every world — collect all 30 to unlock new <b>eagle skins</b>!</p>
   <div class="small">CHOOSE YOUR START LEVEL</div>
   <div id="levelPicker"></div>
+  <div class="small">EAGLE SKIN</div>
+  <div id="skinPicker"></div>
+  <div class="small" id="skinCount"></div>
   <button class="play" id="startBtn">▶ PLAY</button>
   <button class="play alt" id="boardBtn">🏆 LEADERBOARD</button>
   <button class="play alt" id="previewBtn">👀 PREVIEW LEVELS</button>
@@ -568,7 +587,8 @@ function buildLegacy(n){
     boss = { x: NEST_X - 300, minX: fin[0] + 60, maxX: NEST_X - 170, y: GROUND_Y, w: 120, h: 108,
       hp: 5, stun: 0, dir: 1, speed: 34, chargeT: 0, chargeDir: 1, hop: 0, hopV: 0, dead: false, enraged: false };
   }
-  return { grounds: grounds.map(([x, w]) => [x, GROUND_Y, w]), platforms: plats.map(p => [p.x, p.y, p.w]), walkerDefs, nestX: NEST_X, feather, egg, movers, boss };
+  const hFeathers = placeHiddenFeathers(grounds.map(([x, w]) => [x, GROUND_Y, w]), plats.map(p => [p.x, p.y, p.w]), walkerDefs, movers, feather);
+  return { grounds: grounds.map(([x, w]) => [x, GROUND_Y, w]), platforms: plats.map(p => [p.x, p.y, p.w]), walkerDefs, nestX: NEST_X, feather, egg, movers, boss, hFeathers };
 }
 
 /* ================= per-world layout archetypes (L2–L10) =================
@@ -733,7 +753,8 @@ function buildLevel(n){
     boss = { x: NEST_X - 300, minX: fin[0] + 60, maxX: NEST_X - 170, y: fin[1], w: 120, h: 108,
       hp: 5, stun: 0, dir: 1, speed: 34, chargeT: 0, chargeDir: 1, hop: 0, hopV: 0, dead: false, enraged: false };
   }
-  return { grounds, platforms: plats.map(p => [p.x, p.y, p.w]), walkerDefs, nestX: NEST_X, feather, egg, movers, boss };
+  const hFeathers = placeHiddenFeathers(grounds, plats.map(p => [p.x, p.y, p.w]), walkerDefs, movers, feather);
+  return { grounds, platforms: plats.map(p => [p.x, p.y, p.w]), walkerDefs, nestX: NEST_X, feather, egg, movers, boss, hFeathers };
 }
 
 function buildCoinsFor(grounds, platforms){
@@ -755,6 +776,66 @@ function buildCoinsFor(grounds, platforms){
   return coins;
 }
 
+/* ================= hidden feather placement =================
+   Three per level, derived from the level's own built geometry:
+   GUARDIAN — over a walker patrol (a brute if the level has one),
+     grabbed on the jump that clears or stomps it (a platform sitting
+     at that height lifts it to a hover just above that platform);
+   PERCH — above the highest platform not hosting the golden feather
+     (the golden feather's own hover offset: standing there collects);
+   CHASM — mid-pit over the widest mover-free pit, on the jump+glide
+     arc; if every pit has a mover, above that mover instead.
+   Returned sorted left→right; array indices are what the store records. */
+function placeHiddenFeathers(groundsA, platsA, walkerDefs, movers, golden){
+  const picks = [];
+  /* guardian first — the perch rule below keeps its distance from it */
+  let guardian = null;
+  const defs = walkerDefs || [];
+  if (defs.length){
+    const tx = WORLD_W * 0.62;
+    const ctr = d => (d.minX + d.maxX) / 2 + (d.w || 32) / 2;
+    const brutes = defs.filter(d => d.kind === 'brute');
+    const pool = brutes.length ? brutes : defs;
+    let best = null;
+    for (const d of pool) if (!best || Math.abs(ctr(d) - tx) < Math.abs(ctr(best) - tx)) best = d;
+    if (best){
+      guardian = { x: ctr(best), y: best.y - 96, kind: 'guardian' };
+      for (const p of platsA)   /* a platform at that height would swallow it: hover above the platform */
+        if (guardian.x >= p[0] && guardian.x <= p[0] + p[2] && p[1] > guardian.y - 48 && p[1] < guardian.y + 20)
+          guardian.y = p[1] - 40;
+      picks.push(guardian);
+    }
+  }
+  /* perch — highest spare platform, clear of the golden feather's host
+     and of the guardian spot */
+  let perch = null;
+  for (const p of platsA){
+    const cx = p[0] + p[2] / 2;
+    if (golden && Math.abs(cx - golden.x) < 1) continue;
+    if (guardian && Math.abs(cx - guardian.x) < 140) continue;
+    if (!perch || p[1] < perch[1] || (p[1] === perch[1] && p[0] > perch[0])) perch = p;
+  }
+  if (perch) picks.push({ x: perch[0] + perch[2] / 2, y: perch[1] - 34, kind: 'perch' });
+  /* chasm / mover */
+  const pits = [];
+  for (let i = 0; i < groundsA.length - 1; i++){
+    const x0 = groundsA[i][0] + groundsA[i][2], x1 = groundsA[i + 1][0];
+    if (x1 - x0 < 30) continue;
+    const mv = (movers || []).find(m => m.baseX + m.w > x0 && m.baseX < x1);
+    pits.push({ x0, x1, w: x1 - x0, top: Math.min(groundsA[i][1], groundsA[i + 1][1]), mv });
+  }
+  pits.sort((a, b) => b.w - a.w);
+  const free = pits.find(p => !p.mv);
+  if (free) picks.push({ x: (free.x0 + free.x1) / 2, y: free.top - 96, kind: 'chasm' });
+  else if (pits.length && pits[0].mv) picks.push({ x: pits[0].mv.baseX + pits[0].mv.w / 2, y: pits[0].mv.baseY - 40, kind: 'mover' });
+  /* backstop: never let two picks sit on top of each other */
+  for (let i = 1; i < picks.length; i++)
+    for (let j = 0; j < i; j++)
+      if (Math.abs(picks[i].x - picks[j].x) < 50 && Math.abs(picks[i].y - picks[j].y) < 50) picks[i].y -= 46;
+  picks.sort((a, b) => a.x - b.x);
+  return picks.map(p => ({ x: Math.round(p.x), y: Math.round(p.y), kind: p.kind, taken: false }));
+}
+
 /* ================= state ================= */
 const GRAV = 1500, JUMP_V = 580, MAXRUN = 268, GLIDE_FALL = 85;
 const FASTFALL_ACCEL = 2400, FASTFALL_V = 1150;   /* stick-down dive: extra downward accel + its terminal cap */
@@ -774,8 +855,10 @@ function rebuildSolids(){
 }
 let coins = [], walkers = [];
 let L_MOVERS = [], feather = null, egg = null, boss = null;
+let hFeathers = [];   /* this level's 3 hidden feathers (taken mirrors the store) */
 let bossDefeated = false, barrierX = 0;
 let runFeathers = 0, levelTime = 0, totalTimeBonus = 0, lastTimeBonus = 0, lastTierCross = null;
+let levelStartTotal = 0, lastSkinUnlock = null;   /* feather total at level start / skin unlocked by this level */
 let bestLevel = +(localStorage.getItem('garudaBestLevel') || 0);
 let standMover = null;
 const intro = { on: false, t: 0 };
@@ -853,12 +936,94 @@ function skinColors(){
   if (t === 'FLAME') return { main: null, dark: '#c22a12', med: '#ff8a1e', flame: true };
   return { main: '#e02318', dark: '#b8150e', med: '#ffd23e', flame: false };
 }
+/* ================= hidden feathers (collection store) =================
+   The store is the union of every index ever collected per level, so
+   a feather once grabbed stays grabbed — across deaths, runs, reloads.
+   Pure collection: +0 score, never in the submit payload. */
+const FEATHER_KEY = 'garudaDashFeathers';
+function loadFeatherStore(){
+  try { const o = JSON.parse(localStorage.getItem(FEATHER_KEY) || '{}'); return o && typeof o === 'object' ? o : {}; }
+  catch (e) { return {}; }
+}
+let featherStore = loadFeatherStore();
+function featherLevelGot(n){ const a = featherStore[n]; return Array.isArray(a) ? a.length : 0; }
+function featherTotal(){ let t = 0; for (const k in featherStore) if (Array.isArray(featherStore[k])) t += featherStore[k].length; return t; }
+function markFeather(n, i){
+  const a = Array.isArray(featherStore[n]) ? featherStore[n] : (featherStore[n] = []);
+  if (a.includes(i)) return;
+  a.push(i); a.sort((x, y) => x - y);
+  try { localStorage.setItem(FEATHER_KEY, JSON.stringify(featherStore)); } catch (e) {}
+}
+/* ================= eagle skins (feather unlocks) =================
+   Palette swaps of the drawn eagle — no new art assets. Classic keeps
+   the headband-tier progression (bandMode 'tier'); the others carry a
+   fixed band set shaped like skinColors()' return value. Unlocks come
+   only from the feather store: nothing purchasable, no currency. */
+const SKINS = [
+  { id: 'classic', name: 'CLASSIC', unlock: 0, bandMode: 'tier',
+    body: ['#8a5a30', '#6d4520', '#54331a'], bodyHi: '#a06a35', wing: ['#7c4f24', '#4c2d12'],
+    head: '#ffffff', headShade: '#eef3f8', tail: '#e8eef5', beak: ['#ffc93c', '#f08c00'], feet: '#f5a623', eye: '#14100c', brow: '#14100c' },
+  { id: 'crimson', name: 'CRIMSON', unlock: 10,
+    body: ['#8a2432', '#671624', '#470d18'], bodyHi: '#a62f42', wing: ['#711c2a', '#3f0d18'],
+    head: '#ffe9e4', headShade: '#f6cfc4', tail: '#f3d9d2', beak: ['#ffc93c', '#f08c00'], feet: '#f5a623', eye: '#20090c', brow: '#20090c',
+    band: { main: '#ffd23e', dark: '#c9920a', med: '#fff3ae' } },
+  { id: 'frost', name: 'FROST', unlock: 20,
+    body: ['#5f7f9e', '#42617f', '#2b4258'], bodyHi: '#7798b5', wing: ['#4d6a89', '#24384e'],
+    head: '#ffffff', headShade: '#dcecf8', tail: '#eaf6ff', beak: ['#ffd76a', '#eda412'], feet: '#ffb84d', eye: '#0d1c2a', brow: '#0d1c2a',
+    band: { main: '#39e6ff', dark: '#1a7ea8', med: '#e8fdff' } },
+  { id: 'shadow', name: 'SHADOW', unlock: 30,
+    body: ['#3d3d4d', '#2a2a38', '#17171f'], bodyHi: '#55556b', wing: ['#2e2e3e', '#101018'],
+    head: '#cfd2e0', headShade: '#a9adc2', tail: '#8f93a8', beak: ['#ffb700', '#e07b00'], feet: '#f5a623', eye: '#ff3b30', brow: '#05050a',
+    band: { main: '#8a5cff', dark: '#5a34b8', med: '#e6dcff' } },
+];
+let activeSkin = (() => { const id = localStorage.getItem('garudaDashSkin'); return SKINS.some(s => s.id === id) ? id : 'classic'; })();
+function skinUnlocked(s){ return featherTotal() >= s.unlock; }
+function activeSkinDef(){ const s = SKINS.find(x => x.id === activeSkin); return (s && skinUnlocked(s)) ? s : SKINS[0]; }
+function eaglePalette(){
+  const s = activeSkinDef();
+  const band = s.bandMode === 'tier' ? skinColors() : { main: s.band.main, dark: s.band.dark, med: s.band.med, flame: false };
+  return { skin: s, body: s.body, bodyHi: s.bodyHi, wing: s.wing, head: s.head, headShade: s.headShade,
+           tail: s.tail, beak: s.beak, feet: s.feet, eye: s.eye, brow: s.brow, band };
+}
+function setSkin(id){
+  const s = SKINS.find(x => x.id === id);
+  if (!s || !skinUnlocked(s)) return false;
+  activeSkin = id;
+  try { localStorage.setItem('garudaDashSkin', id); } catch (e) {}
+  updateSkinLabel();
+  renderSkinPicker();
+  return true;
+}
+function updateSkinLabel(){
+  const s = activeSkinDef();
+  $('skinLabel').textContent = 'SKIN: ' + s.name + (s.id === 'classic' ? ' · HEADBAND: ' + skinTier(bestLevel) : '');
+}
+function renderSkinPicker(){
+  const pk = $('skinPicker'); if (!pk) return;
+  pk.innerHTML = '';
+  const sc = $('skinCount'); if (sc) sc.textContent = '🪶 ' + featherTotal() + '/30 hidden feathers found';
+  for (const s of SKINS){
+    const un = skinUnlocked(s);
+    const b = document.createElement('button');
+    b.className = 'skinbtn' + (activeSkinDef().id === s.id ? ' sel' : '') + (un ? '' : ' lock');
+    b.disabled = !un;
+    const bandCol = s.bandMode === 'tier' ? (skinColors().main || '#ff7a1a') : s.band.main;
+    b.innerHTML = '<span class="swrow"><span class="sw" style="background:' + s.body[1] + '"></span>' +
+      '<span class="sw" style="background:' + bandCol + '"></span>' +
+      '<span class="sw" style="background:' + s.beak[0] + '"></span></span>' +
+      (un ? s.name : '🔒 ' + s.unlock + ' 🪶');
+    b.onclick = () => { setSkin(s.id); };
+    pk.appendChild(b);
+  }
+}
 /* ================= level intro card ================= */
 function accentFor(n){ return n === 3 ? '#39e6ff' : n === 7 ? '#b06cff' : (n >= 9 ? '#ff7a1a' : '#ffd76a'); }
 function showIntro(n){
   $('icKicker').textContent = 'LEVEL ' + n;
   $('icTitle').textContent = THEMES[n - 1].name;
   $('icTitle').style.color = accentFor(n);
+  $('icFeather').textContent = '🪶 ' + featherLevelGot(n) + '/3 HERE · ' + featherTotal() + '/30 TOTAL' +
+    (featherLevelGot(n) >= 3 ? ' · FULLY FEATHERED ✨' : '');
   $('introCard').style.display = 'flex';
   intro.on = true; intro.t = 1.4;
 }
@@ -879,6 +1044,8 @@ function startLevel(n, quiet, withIntro){
   L_GROUNDS = L.grounds; L_PLATFORMS = L.platforms; L_NESTX = L.nestX;
   L_MOVERS = L.movers || [];
   feather = L.feather ? { ...L.feather } : null;
+  hFeathers = (L.hFeathers || []).map((f, i) => ({ x: f.x, y: f.y, kind: f.kind, taken: (featherStore[n] || []).includes(i) }));
+  levelStartTotal = featherTotal(); lastSkinUnlock = null;
   egg = L.egg ? { ...L.egg } : null;
   boss = L.boss ? { ...L.boss } : null;
   bossDefeated = false;
@@ -917,6 +1084,8 @@ function levelComplete(){
   bestLevel = Math.max(bestLevel, level);
   localStorage.setItem('garudaBestLevel', bestLevel);
   lastTierCross = skinTier(bestLevel) !== prevTier ? skinTier(bestLevel) : null;
+  lastSkinUnlock = SKINS.filter(s => s.unlock > 0 && levelStartTotal < s.unlock && featherTotal() >= s.unlock)
+    .map(s => s.name).join(' + ') || null;
   if (level >= 10){
     score += 500;
     saveProgress();
@@ -931,6 +1100,8 @@ function levelComplete(){
   $('lvlStats').innerHTML =
     `Score <b>${score}</b> · Coins <b>${coinCount}</b> · ❤️ +1 life → <b>${lives}</b>` +
     `<br>⏱ TIME BONUS +${lastTimeBonus} (par ${par}s · your ${levelTime.toFixed(1)}s)` +
+    `<br>🪶 Hidden feathers: <b>${featherLevelGot(level)}/3</b> here · <b>${featherTotal()}/30</b> total` +
+    (lastSkinUnlock ? `<br>🎉 NEW SKIN UNLOCKED: ${lastSkinUnlock}! Pick it on the menu.` : '') +
     (lastTierCross ? `<br>🎉 NEW HEADBAND: ${lastTierCross}!` : '') +
     `<br>Next: <b>LV ${level + 1} · ${THEMES[level].name}</b> — it gets hotter.`;
   $('levelScreen').style.display = 'flex';
@@ -943,9 +1114,10 @@ function showOver(kind){
   $('overKicker').textContent = won ? 'CAMPAIGN COMPLETE' : kind === 'ended' ? 'RUN ENDED' : 'THE EAGLE FALLS';
   $('overTitle').innerHTML = won ? '👑 INFERNO CONQUERED!' : '💥 GAME OVER';
   $('overStats').innerHTML =
-    `Score <b>${score}</b> · Best <b>${best}</b> · Reached <b>LV ${maxLevelReached}</b> · Coins <b>${coinCount}</b> · 🪶 <b>${runFeathers}</b> · Time <b>${elapsed.toFixed(1)}s</b>` +
+    `Score <b>${score}</b> · Best <b>${best}</b> · Reached <b>LV ${maxLevelReached}</b> · Coins <b>${coinCount}</b> · 🪶 <b>${runFeathers}</b> · Hidden 🪶 <b>${featherTotal()}/30</b> · Time <b>${elapsed.toFixed(1)}s</b>` +
     (won ? `<br>⏱ TIME BONUS total +${totalTimeBonus} · Campaign bonus: +500` +
            (lastTierCross ? `<br>🎉 NEW HEADBAND: ${lastTierCross}!` : '') +
+           (lastSkinUnlock ? `<br>🎉 NEW SKIN UNLOCKED: ${lastSkinUnlock}! Pick it on the menu.` : '') +
            '<br>The Ninja Eagle rules every sky. 🥷🦅'
          : '<br>Watch the pits, glide the gaps, screech the guardians.');
   $('submitBtn').disabled = false;
@@ -1074,6 +1246,18 @@ function update(dt){
     burst(feather.x, feather.y, 12, '#ffd76a', 150, 0.6, 2.6, 120);
     addFloater(feather.x, feather.y - 18, '🪶 +250', '#ffd76a', 16);
     beep(1046, 0, 0.08, 'sine', 0.1); beep(1568, 0.08, 0.12, 'sine', 0.09);
+  }
+  /* hidden feathers — collection only: +0 score, but permanent. The
+     store write is immediate, so a death (or a reload) never un-finds one */
+  for (let i = 0; i < hFeathers.length; i++){
+    const hf = hFeathers[i];
+    if (!hf.taken && Math.abs(hf.x - pcx) < 30 && Math.abs(hf.y - pcy) < 32){
+      hf.taken = true;
+      markFeather(level, i);
+      burst(hf.x, hf.y, 10, '#ffe9a8', 130, 0.5, 2.4, 110);
+      addFloater(hf.x, hf.y - 18, '🪶', '#ffe9a8', 17);
+      beep(1318, 0, 0.07, 'triangle', 0.1); beep(1760, 0.07, 0.1, 'triangle', 0.09); beep(2217, 0.15, 0.12, 'sine', 0.07);
+    }
   }
   /* extra-life egg */
   if (egg && !egg.taken && Math.abs(egg.x - pcx) < 30 && Math.abs(egg.y - 12 - pcy) < 32){
@@ -1644,6 +1828,27 @@ function drawFeather(f){
   ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(4, -4); ctx.moveTo(0, -2); ctx.lineTo(-4, 2); ctx.stroke();
   ctx.restore();
 }
+/* hidden feather — smaller white-gold plume with a breathing ring, so
+   it reads as a collectible secret next to the big golden score feather */
+function drawHiddenFeather(f){
+  const bob = Math.sin(runTime * 3 + f.x * 0.05) * 3;
+  const pulse = Math.sin(runTime * 4 + f.x) ;
+  ctx.save();
+  ctx.translate(f.x, f.y + bob);
+  ctx.strokeStyle = 'rgba(255,233,168,' + (0.4 + 0.25 * pulse).toFixed(3) + ')';
+  ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.arc(0, 0, 15 + pulse * 2, 0, 7); ctx.stroke();
+  ctx.rotate(Math.sin(runTime * 2 + f.x * 0.03) * 0.25);
+  ctx.shadowColor = '#fff3ae'; ctx.shadowBlur = 12;
+  const fg = ctx.createLinearGradient(0, -11, 0, 11);
+  fg.addColorStop(0, '#ffffff'); fg.addColorStop(0.55, '#ffe9a8'); fg.addColorStop(1, '#ffb700');
+  ctx.fillStyle = fg;
+  ctx.beginPath(); ctx.ellipse(0, 0, 4.2, 11, 0.5, 0, 7); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = '#c9920a'; ctx.lineWidth = 1.3;
+  ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(0, 12); ctx.stroke();
+  ctx.restore();
+}
 function drawEgg(e){
   ctx.save();
   ctx.translate(e.x, e.y);
@@ -2080,6 +2285,7 @@ function draw(){
   L_PLATFORMS.forEach(([x, y, w], i) => drawPlatform(x, y, w, i));
   for (const mv of L_MOVERS) drawMover(mv);
   if (feather && !feather.taken) drawFeather(feather);
+  for (const hf of hFeathers) if (!hf.taken) drawHiddenFeather(hf);
   if (egg && !egg.taken) drawEgg(egg);
   if (boss && !boss.dead){ drawBarrier(); drawBoss(boss); }
   /* coins */
@@ -2316,6 +2522,7 @@ function drawBrute(wk){
 }
 function drawEagle(){
   if (invuln > 0 && Math.floor(invuln * 12) % 2 === 0) return;
+  const PAL = eaglePalette();
   const squash = landT > 0 ? 1 + (landT / 0.12) * 0.14 : 1;
   const stretch = !P.onGround && !P.gliding ? 1 - Math.min(0.1, Math.abs(P.vy) * 0.00012) : 1;
   const sy = squash * stretch, sx = 2 - squash > 1 ? 1 : (1 / Math.sqrt(squash)) * (2 - stretch > 1 ? 1 : 1);
@@ -2325,7 +2532,7 @@ function drawEagle(){
   ctx.translate(cx, by - bobR);
   ctx.scale(P.face * (1 / Math.sqrt(squash)), sy);
   /* tail feathers */
-  ctx.fillStyle = '#e8eef5';
+  ctx.fillStyle = PAL.tail;
   ctx.strokeStyle = 'rgba(90,110,135,0.6)'; ctx.lineWidth = 1;
   for (const off of [-8, 0, 8]){
     ctx.beginPath();
@@ -2336,10 +2543,10 @@ function drawEagle(){
   }
   /* body */
   const bg = ctx.createLinearGradient(0, -30, 0, 0);
-  bg.addColorStop(0, '#8a5a30'); bg.addColorStop(0.6, '#6d4520'); bg.addColorStop(1, '#54331a');
+  bg.addColorStop(0, PAL.body[0]); bg.addColorStop(0.6, PAL.body[1]); bg.addColorStop(1, PAL.body[2]);
   ctx.fillStyle = bg;
   ctx.beginPath(); ctx.ellipse(0, -13, 16.5, 13.5, 0, 0, 7); ctx.fill();
-  ctx.fillStyle = '#a06a35';
+  ctx.fillStyle = PAL.bodyHi;
   ctx.beginPath(); ctx.ellipse(-1, -10, 11.5, 9, 0, 0, 7); ctx.fill();
   ctx.strokeStyle = 'rgba(60,35,12,0.5)'; ctx.lineWidth = 1.1;
   for (let r = 0; r < 3; r++){
@@ -2352,7 +2559,7 @@ function drawEagle(){
   ctx.translate(-4, -20);
   ctx.rotate(glide ? -0.5 : 0.25 + flap * 0.02);
   const wg = ctx.createLinearGradient(0, 0, -20, 12);
-  wg.addColorStop(0, '#7c4f24'); wg.addColorStop(1, '#4c2d12');
+  wg.addColorStop(0, PAL.wing[0]); wg.addColorStop(1, PAL.wing[1]);
   ctx.fillStyle = wg;
   ctx.beginPath();
   ctx.moveTo(2, 0);
@@ -2366,7 +2573,7 @@ function drawEagle(){
   ctx.stroke();
   ctx.restore();
   /* feet */
-  ctx.strokeStyle = '#f5a623'; ctx.lineWidth = 2.4; ctx.lineCap = 'round';
+  ctx.strokeStyle = PAL.feet; ctx.lineWidth = 2.4; ctx.lineCap = 'round';
   const step = P.onGround && Math.abs(P.vx) > 20 ? Math.sin(P.runT * 16) * 4 : 0;
   ctx.beginPath();
   ctx.moveTo(-4, -3); ctx.lineTo(-4 + step, 0);
@@ -2375,13 +2582,13 @@ function drawEagle(){
   /* head */
   ctx.save();
   ctx.translate(11, -26);
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = PAL.head;
   ctx.beginPath(); ctx.arc(0, 0, 10.5, 0, 7); ctx.fill();
-  ctx.fillStyle = '#eef3f8';
+  ctx.fillStyle = PAL.headShade;
   ctx.beginPath(); ctx.arc(1.5, 3.4, 7.6, 0, 7); ctx.fill();
   /* beak */
   const bk = ctx.createLinearGradient(6, -2, 15, 2);
-  bk.addColorStop(0, '#ffc93c'); bk.addColorStop(1, '#f08c00');
+  bk.addColorStop(0, PAL.beak[0]); bk.addColorStop(1, PAL.beak[1]);
   ctx.fillStyle = bk;
   ctx.beginPath();
   ctx.moveTo(6, -3.4);
@@ -2390,14 +2597,14 @@ function drawEagle(){
   ctx.quadraticCurveTo(9.6, 0.4, 6.4, 0.6);
   ctx.closePath(); ctx.fill();
   /* eye + ninja brow */
-  ctx.fillStyle = '#14100c';
+  ctx.fillStyle = PAL.eye;
   ctx.beginPath(); ctx.arc(3.4, -1.6, 2.15, 0, 7); ctx.fill();
   ctx.fillStyle = '#ffffff';
   ctx.beginPath(); ctx.arc(4.1, -2.3, 0.75, 0, 7); ctx.fill();
-  ctx.strokeStyle = '#14100c'; ctx.lineWidth = 1.9; ctx.lineCap = 'round';
+  ctx.strokeStyle = PAL.brow; ctx.lineWidth = 1.9; ctx.lineCap = 'round';
   ctx.beginPath(); ctx.moveTo(-1.5, -5.2); ctx.lineTo(7.5, -3.9); ctx.stroke();
-  /* headband — skin tier (red → silver → gold → flame) */
-  const SK = skinColors();
+  /* headband — from the active skin (classic follows the tier progression) */
+  const SK = PAL.band;
   let bandFill = SK.main;
   if (SK.flame){
     const fl = ctx.createLinearGradient(-10.5, -13, 10.5, -6);
@@ -2735,12 +2942,14 @@ $('submitBtn').onclick = async () => {
 
 /* ================= level picker + wiring ================= */
 function renderPicker(){
-  $('skinLabel').textContent = 'HEADBAND: ' + skinTier(bestLevel);
+  updateSkinLabel();
+  renderSkinPicker();
   const pk = $('levelPicker');
   pk.innerHTML = '';
   for (let n = 1; n <= 10; n++){
     const b = document.createElement('button');
-    b.className = 'lvbtn' + (n === selLevel ? ' sel' : '') + (n > unlocked ? ' lock' : '');
+    b.className = 'lvbtn' + (n === selLevel ? ' sel' : '') + (n > unlocked ? ' lock' : '') +
+      (featherLevelGot(n) >= 3 ? ' full' : '');
     b.textContent = n > unlocked ? '🔒' : String(n);
     b.disabled = n > unlocked;
     b.onclick = () => { selLevel = n; renderPicker(); };
