@@ -1078,6 +1078,7 @@ const intro = { on: false, t: 0 };
 let cam = 0, checkpoint = 40, runTime = 0;
 let screechCd = 0, screechFx = null, invuln = 0;
 let particles = [], floaters = [], landT = 0, shakeT = 0;
+let flinchT = 0;   /* hurt flinch pose timer — visual only (set by hurt(), read by the eagle rig) */
 let ambientT = 0, flashT = 0, nextFlash = 4;
 let hitStopT = 0; const HITSTOP_MAX = 0.07;   /* hit-stop freeze on stomps: capped, re-trigger only refreshes */
 let coinChain = 0, coinChainT = 0, lastCoinFreq = 880;   /* coin pitch-ladder state */
@@ -1377,7 +1378,7 @@ function startLevel(n, quiet, withIntro){
     vy: 0, dirF: 1, diveT: 0, diveDur: 0, fromCx: 0, fromCy: 0, toCx: 0, toCy: 0 }));
   stompChain = 0;
   P.x = 40; P.y = 380; P.vx = 0; P.vy = 0; P.face = 1; P.onGround = false; P.gliding = false;
-  cam = 0; checkpoint = 40; screechCd = 0; screechFx = null; invuln = 0;
+  cam = 0; checkpoint = 40; screechCd = 0; screechFx = null; invuln = 0; flinchT = 0;
   particles = []; floaters = []; landT = 0; shakeT = 0;
   hitStopT = 0; coinChain = 0; coinChainT = 0;
   ambientT = 0; flashT = 0; nextFlash = 3 + Math.random() * 4;
@@ -1467,6 +1468,7 @@ function hurt(fromPit){
     burst(P.x + P.w / 2, P.y + P.h / 2, 8, '#ff8fa8', 140, 0.4, 2.4, 200);
   }
   invuln = 1.6;
+  flinchT = 0.35;
   beep(160, 0, 0.18, 'sawtooth', 0.11);
 }
 function tryScreech(){
@@ -1553,6 +1555,7 @@ function update(dt){
   if (screechCd > 0) screechCd -= dt;
   for (const hf of hFeathers) if (hf.sonarT > 0) hf.sonarT = Math.max(0, hf.sonarT - dt);
   if (invuln > 0) invuln -= dt;
+  if (flinchT > 0) flinchT -= dt;
   if (landT > 0) landT -= dt;
   if (shakeT > 0) shakeT = Math.max(0, shakeT - dt * 2.2);
   if (coinChainT > 0){ coinChainT -= dt; if (coinChainT <= 0) coinChain = 0; }
@@ -3623,25 +3626,174 @@ function drawBat(b){
     }
   }
 }
+/* ================= articulated eagle rig =================
+   Rendering only — the player eagle as a part-drawn character: a
+   two-segment wing (inner + fanned primaries), two-segment legs with
+   a run cycle, a layered tail fan, and a head with crest feathers and
+   a hinged lower beak. Every color comes from eaglePalette() (the
+   skin system swaps palettes; the structure never changes). The only
+   literal colors are inherited exceptions, listed in the checks: the
+   '#ffffff' eye glint, the headband flame-tier art, the '#8a5a10'
+   medallion axle, and three soft rgba outline strokes carried over
+   from the original single-path eagle. Poses derive purely from
+   existing player state (P, input, landT, screechFx) plus two
+   visual-only timers (eagleFx.flapT, flinchT) that gameplay never
+   reads. Z-order: far wing, legs, tail, body, head, near wing. */
+const eagleFx = { flapT: 0, wasGround: true, lastT: 0 };
+function updateEagleFx(){
+  let dtv = runTime - eagleFx.lastT;
+  eagleFx.lastT = runTime;
+  if (!(dtv > 0)) dtv = 0; else if (dtv > 0.05) dtv = 0.05;
+  if (eagleFx.wasGround && !P.onGround && P.vy < -160) eagleFx.flapT = 0.5;
+  if (P.onGround) eagleFx.flapT = 0;
+  else if (eagleFx.flapT > 0) eagleFx.flapT = Math.max(0, eagleFx.flapT - dtv);
+  eagleFx.wasGround = P.onGround;
+}
+function eaglePose(){
+  const air = !P.onGround;
+  const speedF = Math.min(1, Math.abs(P.vx) / 240);
+  let name;
+  if (!air) name = Math.abs(P.vx) > 20 ? 'run' : 'idle';
+  else if (input.fastFall) name = 'dive';   /* dive-bomb keys off fastFall even if the glide flag is still set */
+  else if (P.gliding) name = 'glide';
+  else if (P.vy < -40) name = 'rise';
+  else name = 'fall';
+  /* screech overlay: head thrown back, lower beak dropped, crest flared */
+  let headThrow = 0;
+  if (screechFx){
+    const t = screechFx.t;
+    headThrow = Math.min(1, t / 0.05) * (t > 0.22 ? Math.max(0, 1 - (t - 0.22) / 0.13) : 1);
+  }
+  const flinch = Math.max(0, Math.min(1, flinchT / 0.3));
+  const blink = (runTime % 3.9) < 0.09 && headThrow < 0.1 && flinch < 0.3;
+  const crest = Math.max(landT > 0 ? landT / 0.12 : 0, headThrow * 0.85);
+  /* jump flap overlay: two beats over 0.5s, decaying envelope */
+  let flapAmp = 0, flapOsc = 0;
+  if (eagleFx.flapT > 0){
+    const p = 1 - eagleFx.flapT / 0.5;
+    flapAmp = Math.sin(Math.min(1, p * 3) * Math.PI / 2) * (1 - p * 0.5);
+    flapOsc = Math.sin(p * Math.PI * 4) * flapAmp;
+  }
+  let wing1, wing2, spread, ripple = 0, tailSpread, tailTilt = 0, tailSway = 0.014, pitch = 0, bobY = 0, legs;
+  const runPh = P.runT * 16;
+  const tucked = [{ x: -4.6, y: -2.2, knee: [1.2, 2.4] }, { x: -5.4, y: -1.6, knee: [1.2, 2.4] }];
+  switch (name){
+    case 'idle':
+      wing1 = -2.62 + Math.sin(runTime * 2.2) * 0.02; wing2 = 2.86; spread = 0.05;
+      tailSpread = 0.15; bobY = Math.sin(runTime * 2.2) * 0.7;
+      legs = [{ x: -0.8, y: 4, knee: [1.8, 1] }, { x: 0.8, y: 4, knee: [1.8, 1] }];
+      break;
+    case 'run':
+      wing1 = -2.58 + Math.sin(runPh) * 0.07; wing2 = 2.82; spread = 0.06;
+      tailSpread = 0.12; pitch = 0.05 * speedF;
+      legs = [0, 1].map(i => { const ph = runPh + i * Math.PI;
+        return { x: Math.sin(ph) * 5.5, y: 4 - Math.max(0, Math.cos(ph)) * 3.2, knee: [2.4, 0.8] }; });
+      break;
+    case 'rise': {
+      const cont = Math.sin(runTime * 15);
+      wing1 = -2.32 - cont * 0.20 - flapOsc * 0.55;
+      wing2 = 2.55 + Math.sin(runTime * 15 - 0.9) * 0.14 + flapOsc * 0.28;
+      spread = 0.16; tailSpread = 0.17; tailSway = 0.03; pitch = -0.08;
+      legs = tucked;
+      break;
+    }
+    case 'fall':
+      wing1 = -1.98 + Math.sin(runTime * 7) * 0.07 - flapOsc * 0.35;
+      wing2 = 2.25; spread = 0.24;
+      tailSpread = 0.20; tailSway = 0.03; pitch = 0.10;
+      legs = P.vy > 150
+        ? [{ x: 1.2, y: 3.6, knee: [2.0, 0.6] }, { x: 0.4, y: 3.6, knee: [2.0, 0.6] }]
+        : tucked;
+      break;
+    case 'glide':
+      wing1 = -3.02 + Math.sin(runTime * 2.3) * 0.05;
+      wing2 = -2.74 + Math.sin(runTime * 3.1) * 0.045;
+      spread = 0.30; ripple = 1.1;
+      tailSpread = 0.30; tailTilt = -0.10; tailSway = 0.03; pitch = -0.05;
+      bobY = Math.sin(runTime * 2.3) * 0.35;
+      legs = [0, 1].map(i => ({ x: 0.6 + Math.sin(runTime * 2.3 + i * 1.7) * 0.9, y: 0.6, knee: [1.4, 1.8] }));
+      break;
+    default: /* dive */
+      wing1 = 2.98 + Math.sin(runTime * 40) * 0.02; wing2 = 2.80; spread = 0.05;
+      tailSpread = 0.045; tailTilt = 0.05; tailSway = 0.008; pitch = 0.42;
+      legs = [{ x: -7.6, y: -3.4, knee: [0.6, 1.6] }, { x: -8.4, y: -2.8, knee: [0.6, 1.6] }];
+      break;
+  }
+  if (flinch > 0){ wing1 += 0.22 * flinch; pitch -= 0.05 * flinch; }
+  return { name, wing1, wing2, spread, ripple, flap: flapAmp, tailSpread, tailTilt, tailSway,
+           pitch, bobY, legs, headThrow, beakOpen: headThrow, flinch, blink, crest };
+}
+function wingBlade(sx, sy, a1, a2, spread, lf, ripple){
+  /* path of one articulated wing: inner segment shoulder->elbow, then
+     four primary feathers fanning from the elbow. Returns the joints
+     so the caller can shade it and rule the feather separations. */
+  const L1 = 12.5 * lf, base = [15, 16.5, 15.5, 13].map(v => v * lf);
+  const ex = sx + Math.cos(a1) * L1, ey = sy + Math.sin(a1) * L1;
+  const tips = [];
+  for (let k = 0; k < 4; k++){
+    const a = a2 + (k - 1.5) * spread;
+    const rp = ripple ? Math.sin(runTime * 6 + k * 1.3) * ripple : 0;
+    tips.push([ex + Math.cos(a) * base[k] - Math.sin(a) * rp, ey + Math.sin(a) * base[k] + Math.cos(a) * rp]);
+  }
+  ctx.beginPath();
+  ctx.moveTo(sx + 1.5, sy + 3);
+  ctx.quadraticCurveTo(sx + Math.cos(a1) * L1 * 0.55, sy + Math.sin(a1) * L1 * 0.55 - 2.5 * lf, ex, ey);
+  ctx.lineTo(tips[0][0], tips[0][1]);
+  for (let k = 1; k < 4; k++){
+    const px = (tips[k - 1][0] + tips[k][0]) / 2, py = (tips[k - 1][1] + tips[k][1]) / 2;
+    ctx.quadraticCurveTo(px + (ex - px) * 0.22, py + (ey - py) * 0.22, tips[k][0], tips[k][1]);
+  }
+  ctx.quadraticCurveTo(ex + 4 * lf, ey + 8 * lf, sx + 3.5, sy + 8.5);
+  ctx.closePath();
+  return { ex, ey, tips };
+}
+function eagleLeg(pal, hx, hy, leg){
+  const fx = hx + leg.x, fy = hy + leg.y;
+  const kx = (hx + fx) / 2 + leg.knee[0], ky = (hy + fy) / 2 + leg.knee[1];
+  ctx.strokeStyle = pal.body[1]; ctx.lineWidth = 3.6; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(kx, ky); ctx.stroke();
+  ctx.strokeStyle = pal.feet; ctx.lineWidth = 2.3;
+  ctx.beginPath(); ctx.moveTo(kx, ky); ctx.lineTo(fx, fy); ctx.stroke();
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(fx, fy); ctx.lineTo(fx + 3, fy + 1);
+  ctx.moveTo(fx, fy); ctx.lineTo(fx + 1.8, fy + 2.4);
+  ctx.stroke();
+}
 function drawEagle(){
   if (invuln > 0 && Math.floor(invuln * 12) % 2 === 0) return;
   const PAL = eaglePalette();
+  updateEagleFx();
+  const pose = eaglePose();
   const squash = landT > 0 ? 1 + (landT / 0.12) * 0.14 : 1;
   const stretch = !P.onGround && !P.gliding ? 1 - Math.min(0.1, Math.abs(P.vy) * 0.00012) : 1;
-  const sy = squash * stretch, sx = 2 - squash > 1 ? 1 : (1 / Math.sqrt(squash)) * (2 - stretch > 1 ? 1 : 1);
+  const sy = squash * stretch;
   const cx = P.x + P.w / 2, by = P.y + P.h;
   const bobR = P.onGround && Math.abs(P.vx) > 20 ? Math.abs(Math.sin(P.runT * 16)) * 2.2 : 0;
   ctx.save();
-  ctx.translate(cx, by - bobR);
+  ctx.translate(cx, by - bobR - pose.bobY);
   ctx.scale(P.face * (1 / Math.sqrt(squash)), sy);
-  /* tail feathers */
+  ctx.rotate(pose.pitch);
+  /* far wing — darker silhouette behind everything */
+  ctx.save();
+  ctx.globalAlpha = 0.8;
+  ctx.fillStyle = PAL.wing[1];
+  wingBlade(-5, -19.5, pose.wing1 + 0.16, pose.wing2 + 0.12, pose.spread, 0.82, 0);
+  ctx.fill();
+  ctx.restore();
+  /* legs — two-segment, posed by the rig (run cycle / tucked / dangling) */
+  eagleLeg(PAL, -4, -4, pose.legs[0]);
+  eagleLeg(PAL, 5, -4, pose.legs[1]);
+  /* tail feathers — five layered plumes; fan in glide, stream in dive */
   ctx.fillStyle = PAL.tail;
-  ctx.strokeStyle = 'rgba(90,110,135,0.6)'; ctx.lineWidth = 1;
-  for (const off of [-8, 0, 8]){
+  ctx.strokeStyle = 'rgba(90,110,135,0.6)'; ctx.lineWidth = 0.8;
+  for (let k = -2; k <= 2; k++){
+    const a = Math.PI + pose.tailTilt + k * pose.tailSpread + Math.sin(runTime * 3.1 + k * 0.8) * pose.tailSway;
+    const len = 12.5 + (2 - Math.abs(k)) * 1.7;
+    const tx = -13 + Math.cos(a) * len, ty = -7 + Math.sin(a) * len;
+    const px = Math.cos(a + Math.PI / 2) * 1.7, py = Math.sin(a + Math.PI / 2) * 1.7;
     ctx.beginPath();
-    ctx.moveTo(-13, -9);
-    ctx.lineTo(-24 + off * 0.4, -3 + Math.abs(off) * 0.3);
-    ctx.lineTo(-13, -3);
+    ctx.moveTo(-13 + px, -7 + py); ctx.lineTo(tx, ty); ctx.lineTo(-13 - px, -7 - py);
     ctx.closePath(); ctx.fill(); ctx.stroke();
   }
   /* body */
@@ -3655,57 +3807,66 @@ function drawEagle(){
   for (let r = 0; r < 3; r++){
     ctx.beginPath(); ctx.arc(-1, -16 + r * 5, 8 - r * 1.6, 0.35, Math.PI - 0.35); ctx.stroke();
   }
-  /* wing */
-  const glide = P.gliding;
-  const flap = P.onGround ? 0 : Math.sin(runTime * 26) * (glide ? 2.2 : 5.5);
-  ctx.save();
-  ctx.translate(-4, -20);
-  ctx.rotate(glide ? -0.5 : 0.25 + flap * 0.02);
-  const wg = ctx.createLinearGradient(0, 0, -20, 12);
-  wg.addColorStop(0, PAL.wing[0]); wg.addColorStop(1, PAL.wing[1]);
-  ctx.fillStyle = wg;
-  ctx.beginPath();
-  ctx.moveTo(2, 0);
-  ctx.quadraticCurveTo(-14, -4 - flap * 0.4, glide ? -30 : -24, 2 + flap * 0.5);
-  ctx.quadraticCurveTo(-14, 8, 0, 9);
-  ctx.closePath(); ctx.fill();
-  ctx.strokeStyle = 'rgba(40,22,6,0.55)'; ctx.lineWidth = 1.2;
-  ctx.beginPath();
-  ctx.moveTo(-4, 2); ctx.lineTo(-18, 4 + flap * 0.3);
-  ctx.moveTo(-3, 5.5); ctx.lineTo(-14, 7.5);
-  ctx.stroke();
-  ctx.restore();
-  /* feet */
-  ctx.strokeStyle = PAL.feet; ctx.lineWidth = 2.4; ctx.lineCap = 'round';
-  const step = P.onGround && Math.abs(P.vx) > 20 ? Math.sin(P.runT * 16) * 4 : 0;
-  ctx.beginPath();
-  ctx.moveTo(-4, -3); ctx.lineTo(-4 + step, 0);
-  ctx.moveTo(5, -3); ctx.lineTo(5 - step, 0);
-  ctx.stroke();
   /* head */
   ctx.save();
   ctx.translate(11, -26);
+  ctx.translate(-2.2 * pose.headThrow - 2.6 * pose.flinch, 1.1 * pose.flinch - 0.8 * pose.headThrow);
+  ctx.rotate(-0.34 * pose.headThrow + 0.15 * pose.flinch);
+  /* crest feathers — flare on screech, ruffle on landing impact */
+  ctx.fillStyle = PAL.headShade;
+  for (let k = 0; k < 3; k++){
+    const ca = -2.3 + (k - 1) * (0.26 + pose.crest * 0.30);
+    const cl = (8 - Math.abs(k - 1) * 1.4) * (1 + pose.crest * 0.18);
+    const jx = pose.crest > 0.5 ? Math.sin(runTime * 60 + k * 2.2) * 0.5 * (pose.crest - 0.5) : 0;
+    const tx = -2.5 + Math.cos(ca) * cl + jx, ty = -8 + Math.sin(ca) * cl;
+    const px = Math.cos(ca + Math.PI / 2) * 1.6, py = Math.sin(ca + Math.PI / 2) * 1.6;
+    ctx.beginPath();
+    ctx.moveTo(-2.5 + px, -8 + py); ctx.lineTo(tx, ty); ctx.lineTo(-2.5 - px, -8 - py);
+    ctx.closePath(); ctx.fill();
+  }
   ctx.fillStyle = PAL.head;
   ctx.beginPath(); ctx.arc(0, 0, 10.5, 0, 7); ctx.fill();
   ctx.fillStyle = PAL.headShade;
   ctx.beginPath(); ctx.arc(1.5, 3.4, 7.6, 0, 7); ctx.fill();
-  /* beak */
+  /* beak — upper fixed; lower jaw hinged, drops open while screeching */
   const bk = ctx.createLinearGradient(6, -2, 15, 2);
   bk.addColorStop(0, PAL.beak[0]); bk.addColorStop(1, PAL.beak[1]);
   ctx.fillStyle = bk;
   ctx.beginPath();
   ctx.moveTo(6, -3.4);
   ctx.quadraticCurveTo(14.5, -2.6, 15.5, 0.8);
-  ctx.quadraticCurveTo(12, 2.6, 7.5, 2.6);
-  ctx.quadraticCurveTo(9.6, 0.4, 6.4, 0.6);
+  ctx.quadraticCurveTo(11.5, 1.0, 6.4, 0.2);
   ctx.closePath(); ctx.fill();
-  /* eye + ninja brow */
+  if (pose.beakOpen > 0.02){
+    ctx.save();
+    ctx.globalAlpha = 0.85; ctx.fillStyle = PAL.eye;
+    ctx.beginPath();
+    ctx.moveTo(6.8, -0.4);
+    ctx.quadraticCurveTo(12, 0.4, 14.6, 1.0);
+    ctx.quadraticCurveTo(11, 2.4 + pose.beakOpen * 1.6, 7.2, 1.4);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+  ctx.save();
+  ctx.translate(6.4, 0.5);
+  ctx.rotate(pose.beakOpen * 0.55);
+  ctx.fillStyle = bk;
+  ctx.beginPath();
+  ctx.moveTo(0, -0.3);
+  ctx.quadraticCurveTo(6.5, -0.6, 8.8, 0.2);
+  ctx.quadraticCurveTo(5.5, 2.3, 0.8, 2.1);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+  /* eye (blink + hurt squeeze) and ninja brow */
+  const eyeSq = pose.blink ? 0.16 : Math.max(0.18, 1 - pose.flinch * 0.78);
   ctx.fillStyle = PAL.eye;
-  ctx.beginPath(); ctx.arc(3.4, -1.6, 2.15, 0, 7); ctx.fill();
-  ctx.fillStyle = '#ffffff';
-  ctx.beginPath(); ctx.arc(4.1, -2.3, 0.75, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(3.4, -1.6, 2.15, 2.15 * eyeSq, 0, 0, 7); ctx.fill();
+  if (eyeSq > 0.5){
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(4.1, -2.3, 0.75, 0, 7); ctx.fill();
+  }
   ctx.strokeStyle = PAL.brow; ctx.lineWidth = 1.9; ctx.lineCap = 'round';
-  ctx.beginPath(); ctx.moveTo(-1.5, -5.2); ctx.lineTo(7.5, -3.9); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-1.5, -5.2 + pose.flinch * 0.4); ctx.lineTo(7.5, -3.9 + pose.flinch * 1.4); ctx.stroke();
   /* headband — from the active skin (classic follows the tier progression) */
   const SK = PAL.band;
   let bandFill = SK.main;
@@ -3729,7 +3890,7 @@ function drawEagle(){
       ctx.closePath(); ctx.fill();
     }
   }
-  const tailWave = Math.sin(runTime * 9) * 2.4 - (glide ? 3 : 0);
+  const tailWave = Math.sin(runTime * 9) * 2.4 - (pose.name === 'glide' ? 3 : 0);
   ctx.strokeStyle = SK.flame ? '#ff7a1a' : SK.main; ctx.lineWidth = 3.1;
   ctx.beginPath();
   ctx.moveTo(-9.5, -8);
@@ -3758,8 +3919,26 @@ function drawEagle(){
   ctx.fillStyle = '#8a5a10';
   ctx.beginPath(); ctx.arc(-1, -8.2, 1.1, 0, 7); ctx.fill();
   ctx.restore();
+  /* near wing — articulated, layered over the body's back */
+  const w = wingBlade(-3, -21, pose.wing1, pose.wing2, pose.spread, 1, pose.ripple);
+  const wg = ctx.createLinearGradient(-3, -21, w.tips[1][0], w.tips[1][1]);
+  wg.addColorStop(0, PAL.wing[0]); wg.addColorStop(1, PAL.wing[1]);
+  ctx.fillStyle = wg; ctx.fill();
+  ctx.strokeStyle = 'rgba(40,22,6,0.55)'; ctx.lineWidth = 1.1;
+  ctx.beginPath();
+  for (let k = 0; k < 4; k++){
+    ctx.moveTo(w.ex, w.ey);
+    ctx.lineTo(w.ex + (w.tips[k][0] - w.ex) * 0.62, w.ey + (w.tips[k][1] - w.ey) * 0.62);
+  }
+  ctx.stroke();
+  ctx.save();
+  ctx.translate(-4, -20); ctx.rotate(pose.wing1);
+  ctx.globalAlpha = 0.55; ctx.fillStyle = PAL.wing[0];
+  ctx.beginPath(); ctx.ellipse(4, 0, 8, 4.2, 0, 0, 7); ctx.fill();
+  ctx.restore();
   ctx.restore();
 }
+/* ================= end articulated eagle rig ================= */
 
 /* ================= levels preview / flythrough ================= */
 const preview = { on: false, lvl: 1, camX: 0, tail: 0 };
