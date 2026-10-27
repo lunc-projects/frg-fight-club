@@ -85,6 +85,8 @@
   button.play:disabled { opacity:.55; }
   #overScreen { display:none; }
   #startBest { font-size:13px; font-weight:800; letter-spacing:.1em; color:#7dffb0; min-height:16px; margin:0; }
+  #startStars { font-size:13px; font-weight:800; letter-spacing:.1em; color:#ffd76a; min-height:16px; margin:0; }
+  #modeRow { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; max-width:460px; }
   #skinRow { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; max-width:460px; }
   .skinBtn {
     cursor:pointer; font-family:inherit; font-size:11.5px; font-weight:800; letter-spacing:.06em;
@@ -122,11 +124,17 @@
      armored <b style="color:#4ced4b">+50</b> · gold <b style="color:#ffd76a">+100</b>. Splitter tokens
      burst into three swifts. Beware the red <b style="color:#ff6b6b">RUG TOKENS</b> — they dive
      straight at you. Grab <b>W</b> drops to raise your <b>WEAPON TIER</b>, <b>D</b> for a wingman drone,
-     and the rare <b>A — AUDIT BLAST</b> wipes the screen. Chain kills to light <b>🔥 FEVER</b> for
-     double points. Watch for <b>BULL RUNS</b> and <b>MARKET CRASHES</b> — and every 2,500 m
-     <b>THE VAULT</b> comes for the pool. Tokens that slip past <b>drain the pool</b>. Three hull
+     <b>H</b> for homing missiles, <b>O</b> for an orbit shield ring, <b>❄</b> to freeze the market,
+     and the rare <b>A — AUDIT BLAST</b> wipes the screen. <b>Hold your finger still</b> to charge a
+     piercing <b>PLASMA BLAST</b> — release to fire! Chain kills to light <b>🔥 FEVER</b> for
+     double points. Every level ends with a boss — <b>THE VAULT</b>, or worse, <b>THE RUG WHALE</b>.
+     Clear level missions to earn <b style="color:#ffd76a">★ STARS ★</b> — and beat level 5 to unlock
+     <b>ENDLESS MODE</b>. Tokens that slip past <b>drain the pool</b>. Three hull
      shields. Hold the line, defender! 🛡</p>
   <p id="startBest"></p>
+  <p id="startStars"></p>
+  <p class="small">MODE</p>
+  <div id="modeRow"></div>
   <p class="small">BOT SKINS — EARNED BY BEST DISTANCE</p>
   <div id="skinRow"></div>
   <button class="play" id="startBtn">▶ START DEFENDING</button>
@@ -210,14 +218,24 @@ function noiseBurst(dur, vol){
     src.connect(g); g.connect(AC.destination); src.start();
   } catch (e) {}
 }
-const sfxShoot = () => tone(880, 320, 0.07, 'square', 0.018);
-const sfxKill  = () => { tone(520, 90, 0.16, 'sawtooth', 0.05); noiseBurst(0.12, 0.08); };
-const sfxHit   = () => { tone(220, 55, 0.28, 'sawtooth', 0.09); noiseBurst(0.2, 0.12); };
-const sfxShield= () => tone(340, 720, 0.16, 'sine', 0.07);
-const sfxPower = () => { tone(520, 780, 0.09, 'sine', 0.06); setTimeout(() => tone(780, 1180, 0.12, 'sine', 0.06), 70); };
-const sfxMile  = () => { tone(660, 660, 0.09, 'sine', 0.05); setTimeout(() => tone(990, 990, 0.13, 'sine', 0.05), 90); };
-const sfxBoss  = () => { tone(140, 140, 0.22, 'sawtooth', 0.08); setTimeout(() => tone(140, 140, 0.22, 'sawtooth', 0.08), 260); };
-const sfxLeak  = () => tone(300, 120, 0.18, 'triangle', 0.06);
+/* every effect logs its name into audioLog (oldest 80 kept) — the log is
+   written whether or not an AudioContext exists, so the synth engine's
+   event stream is observable even where audio itself is unavailable */
+const audioLog = [];
+function logSfx(n){ audioLog.push(n); if (audioLog.length > 80) audioLog.shift(); }
+const sfxShoot = () => { logSfx('shoot'); tone(880, 320, 0.07, 'square', 0.018); };
+const sfxKill  = () => { logSfx('kill'); tone(520, 90, 0.16, 'sawtooth', 0.05); noiseBurst(0.12, 0.08); };
+const sfxHit   = () => { logSfx('hit'); tone(220, 55, 0.28, 'sawtooth', 0.09); noiseBurst(0.2, 0.12); };
+const sfxShield= () => { logSfx('shield'); tone(340, 720, 0.16, 'sine', 0.07); };
+const sfxPower = () => { logSfx('power'); tone(520, 780, 0.09, 'sine', 0.06); setTimeout(() => tone(780, 1180, 0.12, 'sine', 0.06), 70); };
+const sfxMile  = () => { logSfx('mile'); tone(660, 660, 0.09, 'sine', 0.05); setTimeout(() => tone(990, 990, 0.13, 'sine', 0.05), 90); };
+const sfxBoss  = () => { logSfx('boss'); tone(140, 140, 0.22, 'sawtooth', 0.08); setTimeout(() => tone(140, 140, 0.22, 'sawtooth', 0.08), 260); };
+const sfxLeak  = () => { logSfx('leak'); tone(300, 120, 0.18, 'triangle', 0.06); };
+const sfxFever = () => { logSfx('fever'); tone(500, 1000, 0.14, 'square', 0.05); setTimeout(() => tone(750, 1500, 0.18, 'square', 0.05), 80); };
+const sfxLevel = () => { logSfx('level'); tone(660, 660, 0.1, 'sine', 0.055); setTimeout(() => tone(880, 880, 0.1, 'sine', 0.055), 95); setTimeout(() => tone(990, 990, 0.1, 'sine', 0.055), 190); setTimeout(() => tone(1320, 1320, 0.2, 'sine', 0.06), 285); };
+const sfxTap   = () => { logSfx('tap'); tone(1250, 900, 0.05, 'sine', 0.03); };
+const sfxWarn  = () => { logSfx('warn'); tone(980, 980, 0.06, 'square', 0.04); };
+const sfxCharge= () => { logSfx('charge'); tone(200, 1400, 0.25, 'sawtooth', 0.05); };
 
 /* ================= helpers ================= */
 const clamp = (v, a, b) => v < a ? a : (v > b ? b : v);
@@ -250,9 +268,17 @@ const DASH_TIME = 0.15, DASH_SPEED = 1600, DASH_CD = 1.2, DASH_INVULN = 0.25;
 const EVENT_FIRST = 600;       /* first market event distance (m) */
 const EVENT_TIME = 10;         /* market event duration (s) */
 const EVENT_RUG_CAP = 4;       /* max live rug tokens during a MARKET CRASH */
-const KILL_SCORE = { standard: 10, swift: 25, armored: 50, rug: 25, boss: 250, gold: 100, splitter: 30 };
-const TOKEN_R  = { standard: 21, swift: 15, armored: 30, rug: 19, gold: 17, splitter: 24 };
-const TOKEN_HP = { standard: 1, swift: 1, armored: 5, rug: 1, gold: 1, splitter: 3 };
+const KILL_SCORE = { standard: 10, swift: 25, armored: 50, rug: 25, boss: 250, gold: 100, splitter: 30, ghost: 40, carrier: 75, whale: 300 };
+const TOKEN_R  = { standard: 21, swift: 15, armored: 30, rug: 19, gold: 17, splitter: 24, ghost: 20, carrier: 34 };
+const TOKEN_HP = { standard: 1, swift: 1, armored: 5, rug: 1, gold: 1, splitter: 3, ghost: 2, carrier: 12 };
+const HOMING_TIME = 12;        /* homing-missile pickup duration (s) */
+const HOMING_TURN = 6.0;       /* homing bolt turn rate (rad/s) */
+const CHARGE_MIN = 0.45, CHARGE_MAX = 1.2;   /* hold-to-charge window (s) */
+const WARN_TIME = 0.5;         /* a rug flashes its dive warning this long before committing */
+const FREEZE_TIME = 6, FREEZE_SLOW = 0.35;   /* market freeze: world speed factor + duration */
+const GHOST_SOLID_T = 0.9, GHOST_PHASE_T = 1.8;   /* ghost token flicker cycle (s) */
+const CARRIER_LAUNCH_T = 2.5;  /* seconds between a carrier's swift launches */
+const WHALE_CHARGE_SPEED = 560;
 const LEVEL_LEN = 1800;        /* metres per level — the Vault waits at each level's end */
 const BOSS_HP = 60, BOSS_HP_STEP = 30, BOSS_R = 56;
 const GUN_DX = 17, GUN_DY = -25;   /* the Bot's blaster muzzle, relative to his centre */
@@ -273,7 +299,7 @@ const ARM_SEP = 170;           /* wreckage turns solid this far from its kill po
 /* brand palette sampled from the real OrbitWire logo */
 const GREEN_HI = '#4ced4b', GREEN = '#3ddc84', GREEN_DEEP = '#139134';
 const RED_HI = '#ff6b6b', RED = '#e5484d';
-const KIND_COLOR = { tier: '#ffd76a', rapid: '#7df9ff', shield: '#9be8ff', wingman: '#c9a7ff', audit: '#ffffff' };
+const KIND_COLOR = { tier: '#ffd76a', rapid: '#7df9ff', shield: '#9be8ff', wingman: '#c9a7ff', audit: '#ffffff', homing: '#ffb14e', orbit: '#8affd1', freeze: '#aef3ff' };
 /* bot skins — cosmetic accent (trim, eye glow, jetpack flame), unlocked by all-time best distance */
 const SKINS = [
   { name: 'ORBIT GREEN',  accent: '#3ddc84', unlock: 0 },
@@ -319,6 +345,65 @@ if (skinIdx < 0 || skinIdx >= SKINS.length || bestDist < SKINS[skinIdx].unlock) 
 function skinAccent(){ return SKINS[skinIdx].accent; }
 function skinUnlocked(i){ return bestDist >= SKINS[i].unlock; }
 
+/* pack 2 state: homing / charge shot / orbit ring / market freeze */
+let homingT = 0, freezeT = 0, ring = 0;
+let charging = 0, pointerHeld = false, pressAnchor = null, spaceHeld = false;
+
+/* level missions + stars (persisted per level, best result kept) */
+let mission = null, missionRugs = 0, missionArm = 0, levelScore0 = 0, levelHits0 = 0;
+let lastLevelResult = null;
+let starsByLevel = {}, levelBests = {};
+try { starsByLevel = JSON.parse(localStorage.getItem('orbitDefenderStars') || '{}') || {}; } catch (e) { starsByLevel = {}; }
+try { levelBests = JSON.parse(localStorage.getItem('orbitDefenderLevelBests') || '{}') || {}; } catch (e) { levelBests = {}; }
+function totalStars(){ let n = 0; for (const k in starsByLevel) n += starsByLevel[k] || 0; return n; }
+function persistStars(){
+  try {
+    localStorage.setItem('orbitDefenderStars', JSON.stringify(starsByLevel));
+    localStorage.setItem('orbitDefenderLevelBests', JSON.stringify(levelBests));
+  } catch (e) {}
+}
+function missionDef(id, lv){
+  if (id === 'rugs')    return { id, target: 4 + lv, label: 'DESTROY ' + (4 + lv) + ' RUG TOKENS' };
+  if (id === 'armored') return { id, target: 3 + Math.floor(lv / 2), label: 'DESTROY ' + (3 + Math.floor(lv / 2)) + ' ARMORED TOKENS' };
+  if (id === 'score')   return { id, target: 1000 + 500 * lv, label: 'SCORE ' + (1000 + 500 * lv) + ' THIS LEVEL' };
+  return { id: 'nohit', target: 1, label: 'CLEAR THE LEVEL WITH NO HITS' };
+}
+function assignMission(){
+  const ids = ['rugs', 'armored', 'nohit', 'score'];
+  mission = missionDef(ids[Math.floor(rng() * ids.length)], level);
+  missionRugs = 0; missionArm = 0;
+  levelScore0 = killScore; levelHits0 = hullHits;
+}
+function setMissionById(id){
+  mission = missionDef(id, level);
+  missionRugs = 0; missionArm = 0;
+  levelScore0 = killScore; levelHits0 = hullHits;
+}
+function missionProgress(){
+  if (!mission) return 0;
+  if (mission.id === 'rugs') return missionRugs;
+  if (mission.id === 'armored') return missionArm;
+  if (mission.id === 'score') return killScore - levelScore0;
+  return hullHits === levelHits0 ? 1 : 0;   /* nohit */
+}
+function missionDone(){ return !!mission && missionProgress() >= mission.target; }
+
+/* endless mode: unlocked by completing level 5, own bests, own records */
+let mode = 'campaign', endlessRun = false, nextBossAt = LEVEL_LEN;
+let endlessUnlocked = false, bestEndless = 0, bestEndlessDist = 0;
+try { endlessUnlocked = localStorage.getItem('orbitDefenderEndless') === '1'; } catch (e) {}
+try { bestEndless = parseInt(localStorage.getItem('orbitDefenderEndlessBest') || '0', 10) || 0; } catch (e) {}
+try { bestEndlessDist = parseInt(localStorage.getItem('orbitDefenderEndlessBestDist') || '0', 10) || 0; } catch (e) {}
+try { mode = localStorage.getItem('orbitDefenderMode') === 'endless' ? 'endless' : 'campaign'; } catch (e) {}
+if (mode === 'endless' && !endlessUnlocked) mode = 'campaign';
+function persistEndless(){
+  try {
+    localStorage.setItem('orbitDefenderEndless', endlessUnlocked ? '1' : '0');
+    localStorage.setItem('orbitDefenderEndlessBest', String(bestEndless));
+    localStorage.setItem('orbitDefenderEndlessBestDist', String(bestEndlessDist));
+  } catch (e) {}
+}
+
 const distM = () => distPx / PX_PER_M;
 const score = () => killScore;
 const poolY = () => LH - 30;
@@ -360,12 +445,16 @@ function makeToken(type, x, y, opts){
   opts = opts || {};
   const t = {
     id: ++tokenSeq, type, x, y, baseX: x,
-    r: TOKEN_R[type], hp: opts.hp || TOKEN_HP[type], maxHp: opts.hp || TOKEN_HP[type],
+    r: opts.r || TOKEN_R[type], hp: opts.hp || TOKEN_HP[type], maxHp: opts.hp || TOKEN_HP[type],
     vy: opts.vy !== undefined ? opts.vy : (type === 'swift' ? 150 : type === 'gold' ? 168 : type === 'splitter' ? 56 : type === 'armored' ? 48 : type === 'rug' ? 74 : 68),
     spin: mr() * Math.PI * 2, spinV: (mr() - 0.5) * 1.6,
     weavePh: rng() * Math.PI * 2, mode: 'fall', flashT: 0,
     drop: opts.drop || null, dead: false,
+    phaseT: opts.ghostPh || 0, solid: true,       /* ghost flicker clock */
+    launchT: CARRIER_LAUNCH_T,                    /* carrier launch clock */
+    warnT: 0,                                     /* rug dive-warning clock */
   };
+  t.solid = (t.phaseT % GHOST_PHASE_T) < GHOST_SOLID_T;
   return t;
 }
 
@@ -389,6 +478,8 @@ function mixFor(){
     pRug: Math.min(0.20, 0.06 + Math.min(0.05, d / 8000) + L * 0.012),
     pArm: Math.min(0.20, 0.09 + L * 0.02),
     pSplit: Math.min(0.20, 0.07 + L * 0.012),
+    pGhost: Math.min(0.10, 0.06 + L * 0.004),
+    pCarrier: 0.04,
     pGold: 0.03,
     pSwift: 0.24 + Math.min(0.10, d / 3000),
   };
@@ -399,8 +490,10 @@ function pickType(){
   if (r < m.pRug) return 'rug';
   if (r < m.pRug + m.pArm) return 'armored';
   if (r < m.pRug + m.pArm + m.pSplit) return 'splitter';
-  if (r < m.pRug + m.pArm + m.pSplit + m.pGold) return 'gold';
-  if (r < m.pRug + m.pArm + m.pSplit + m.pGold + m.pSwift) return 'swift';
+  if (r < m.pRug + m.pArm + m.pSplit + m.pGhost) return 'ghost';
+  if (r < m.pRug + m.pArm + m.pSplit + m.pGhost + m.pCarrier) return 'carrier';
+  if (r < m.pRug + m.pArm + m.pSplit + m.pGhost + m.pCarrier + m.pGold) return 'gold';
+  if (r < m.pRug + m.pArm + m.pSplit + m.pGhost + m.pCarrier + m.pGold + m.pSwift) return 'swift';
   return 'standard';
 }
 /* base seconds between spawn waves — tightens with distance AND level */
@@ -423,6 +516,7 @@ function placeToken(type, yOff){
     if (stacked) continue;
     const jitter = (type === 'swift' ? 128 + rng() * 44 : type === 'gold' ? 150 + rng() * 40
                  : type === 'armored' ? 42 + rng() * 18 : type === 'splitter' ? 48 + rng() * 20
+                 : type === 'ghost' ? 54 + rng() * 26 : type === 'carrier' ? 30 + rng() * 12
                  : type === 'rug' ? 66 + rng() * 22 : 58 + rng() * 30) * speedMul();
     tokens.push(makeToken(type, cx, -36 + (yOff || 0), { vy: jitter }));
     fairStats.spawned++;
@@ -488,11 +582,12 @@ function dropPower(kind, x, y){
 }
 function rollDropKind(){
   /* the pool adapts to the ship: no tier drops at max tier, no shield
-     drops while shielded, no second wingman */
-  const pool = ['rapid'];
+     drops while shielded, no second wingman, no ring refill at full */
+  const pool = ['rapid', 'homing', 'freeze'];
   if (weaponTier < WEAPON_MAX) pool.push('tier', 'tier');
   if (!shieldUp) pool.push('shield');
   if (!wingman) pool.push('wingman');
+  if (ring < 3) pool.push('orbit');
   return pool[Math.floor(rng() * pool.length)];
 }
 /* the AUDIT BLAST: every token and rug on screen is vaporised at 50% of
@@ -537,6 +632,12 @@ function applyPower(kind, x, y){
     }
   }
   else if (kind === 'audit'){ auditBlast(); }
+  else if (kind === 'homing'){ homingT = HOMING_TIME; popup(x, y - 18, 'HOMING MISSILES!', KIND_COLOR.homing); }
+  else if (kind === 'orbit'){
+    if (ring >= 3){ killScore += 100; popup(x, y - 18, 'RING FULL +100', KIND_COLOR.orbit); }
+    else { ring = 3; popup(x, y - 18, 'ORBIT RING ×3!', KIND_COLOR.orbit); }
+  }
+  else if (kind === 'freeze'){ freezeT = FREEZE_TIME; popup(x, y - 18, 'MARKET FREEZE!', KIND_COLOR.freeze); }
   sfxPower();
 }
 /* the wingman drone: orbits the ship and fires on the nearest token
@@ -563,19 +664,31 @@ function updateWingman(dt){
   } else wingman.fireT = 0.1;
 }
 
-/* ================= THE VAULT (mini-boss) ================= */
-function spawnBoss(){
-  bossCount++;
+/* ================= THE BOSSES ================= */
+/* two bosses alternate: THE VAULT on odd levels, THE RUG WHALE on even
+   ones. In endless mode they simply alternate per appearance. */
+function nextKind(){
+  if (endlessRun) return (bossCount + 1) % 2 === 1 ? 'vault' : 'whale';
+  return level % 2 === 1 ? 'vault' : 'whale';
+}
+function makeBoss(kind){
   const hp = BOSS_HP + BOSS_HP_STEP * (bossCount - 1);
   const segs = [];
-  for (let i = 0; i < BOSS_SEG; i++) segs.push({ hp: SEG_HP, maxHp: SEG_HP });
-  boss = { x: W / 2, y: -BOSS_R - 30, hp, maxHp: hp, segs, t: 0, fireT: 1.6, phase: 0, dead: false };
+  if (kind === 'vault') for (let i = 0; i < BOSS_SEG; i++) segs.push({ hp: SEG_HP, maxHp: SEG_HP });
+  return { kind, x: W / 2, y: -BOSS_R - 30, hp, maxHp: hp, segs, t: 0, fireT: 1.6, phase: 0,
+    mode: 'hover', modeT: 0, chargeT: 5, shedT: 3.5, vx: 0, vy: 0, tx: 0, ty: 0,
+    entered: false, dead: false };
+}
+function spawnBoss(){
+  const kind = nextKind();   /* read BEFORE the count moves — it names THIS boss */
+  bossCount++;
+  boss = makeBoss(kind);
 }
 /* Vault 2.0 phases: at 66% and 33% core HP the Vault restores ALL four
    shield segments and sheds two rug tokens. Triggered from every core
    damage path so no route skips a phase. */
 function afterBossHpChange(){
-  if (!boss || boss.dead || boss.hp <= 0) return;
+  if (!boss || boss.dead || boss.hp <= 0 || boss.kind !== 'vault') return;
   const frac = boss.hp / boss.maxHp;
   const want = frac <= 1 / 3 ? 2 : (frac <= 2 / 3 ? 1 : 0);
   while (boss.phase < want){
@@ -597,6 +710,16 @@ function damageBossBullet(b){
   /* returns true when the bullet is consumed */
   const dx = b.x - boss.x, dy = b.y - boss.y;
   const d = Math.hypot(dx, dy);
+  if (boss.kind === 'whale'){
+    /* the Whale has no shield ring — every bolt that reaches its hide lands */
+    if (d < BOSS_R + 4){
+      boss.hp -= (b.dmg || 1);
+      burst(b.x, b.y, 3, RED_HI, 120);
+      if (boss.hp <= 0) killBoss();
+      return true;
+    }
+    return false;
+  }
   const bandIn = BOSS_R + 6, bandOut = BOSS_R + 30;
   if (d > bandIn && d < bandOut){
     const ang = Math.atan2(dy, dx);
@@ -626,24 +749,45 @@ function damageBossBullet(b){
 function killBoss(){
   if (!boss || boss.dead) return;
   boss.dead = true;
-  const bossPts = KILL_SCORE.boss * (feverT > 0 ? 2 : 1);
+  const kind = boss.kind, bx = boss.x, by = boss.y;
+  const bossPts = (kind === 'whale' ? KILL_SCORE.whale : KILL_SCORE.boss) * (feverT > 0 ? 2 : 1);
   killScore += bossPts;
   kills++;
   bossKills++;
   combo = Math.min(9, combo + 1); comboT = COMBO_WINDOW;
-  popup(boss.x, boss.y, '+' + bossPts + ' VAULT CRACKED!', '#ffd76a');
-  burst(boss.x, boss.y, 46, GREEN_HI, 300);
-  burst(boss.x, boss.y, 26, '#ffffff', 210);
+  popup(bx, by, '+' + bossPts + (kind === 'whale' ? ' WHALE DOWN!' : ' VAULT CRACKED!'), '#ffd76a');
+  burst(bx, by, 46, kind === 'whale' ? RED_HI : GREEN_HI, 300);
+  burst(bx, by, 26, '#ffffff', 210);
   shake(9, 0.4);
   sfxKill();
-  /* the Vault's drop is richer than most: one time in four it is the
+  sfxLevel();
+  /* the boss's drop is richer than most: one time in four it is the
      rare AUDIT BLAST (armored tokens are the only other source) */
-  dropPower(rng() < 0.25 ? 'audit' : rollDropKind(), boss.x, boss.y + 10);
+  dropPower(rng() < 0.25 ? 'audit' : rollDropKind(), bx, by + 10);
   boss = null;
-  /* cracking the Vault COMPLETES THE LEVEL: the field is swept, a
-     short breather runs, then the next level begins. Score, combo,
-     weapon, wingman — everything earned carries over. */
+  /* the field is swept either way — in endless the run simply rolls on
+     to the next boss 1,800 m later; in campaign the kill COMPLETES THE
+     LEVEL: mission + stars are judged, a breather runs, and then the
+     next level begins. Score, combo, weapon, wingman — everything
+     earned carries over. */
   for (const t of tokens) if (!t.dead){ t.dead = true; burst(t.x, t.y, 6, GREEN_HI, 150); }
+  if (endlessRun){
+    nextBossAt = distM() + LEVEL_LEN;
+    showToast(kind === 'whale' ? '🐋 THE WHALE IS DOWN!' : '🏆 VAULT CRACKED!');
+    return;
+  }
+  /* star rule: 1 for completing the level, +1 for the mission,
+     +1 for a no-hit level — best result per level is kept forever */
+  const mDone = missionDone();
+  const noHit = hullHits === levelHits0;
+  const starsEarned = 1 + (mDone ? 1 : 0) + (noHit ? 1 : 0);
+  lastLevelResult = { level, stars: starsEarned, missionDone: mDone, noHit,
+    label: mission ? mission.label : '' };
+  if (!starsByLevel[level] || starsByLevel[level] < starsEarned) starsByLevel[level] = starsEarned;
+  const lScore = killScore - levelScore0;
+  if (!levelBests[level] || levelBests[level] < lScore) levelBests[level] = lScore;
+  persistStars();
+  if (level >= 5 && !endlessUnlocked){ endlessUnlocked = true; persistEndless(); }
   levelCompleteT = 2.6;
   showToast('🏆 LEVEL ' + level + ' COMPLETE!');
 }
@@ -651,6 +795,7 @@ function advanceLevel(){
   level++;
   levelStartPx = distPx;
   levelIntroT = 1.6;
+  assignMission();
   showToast('LEVEL ' + level + ' — ' + levelDef().name);
   sfxMile();
 }
@@ -663,6 +808,7 @@ function chainKill(){
 function killToken(t, byRam){
   t.dead = true;
   kills++;
+  if (mission){ if (t.type === 'rug') missionRugs++; if (t.type === 'armored') missionArm++; }
   burst(t.x, t.y, t.type === 'armored' ? 22 : 13, t.type === 'rug' ? RED_HI : GREEN_HI, 230);
   if (!byRam){
     chainKill();
@@ -677,7 +823,7 @@ function killToken(t, byRam){
      A chunk stays harmless until it has separated ARM_SEP px from the
      kill point (euclidean), so wreckage can never ambush the ship that
      made it at point-blank; after that it turns solid. */
-  const nDeb = t.type === 'armored' ? 2 : 1;
+  const nDeb = (t.type === 'armored' || t.type === 'carrier') ? 2 : 1;
   for (let i = 0; i < nDeb; i++){
     const dx = (rng() - 0.5) * 18, dy = (rng() - 0.5) * 18;
     debris.push({ x: t.x + dx, y: t.y + dy, sx: t.x + dx, sy: t.y + dy,
@@ -690,6 +836,8 @@ function killToken(t, byRam){
   else if (t.type === 'gold') dropPower(rollDropKind(), t.x, t.y);   /* gold always pays out a drop */
   else if (t.type === 'armored' && rng() < 0.35)
     dropPower(rng() < 0.18 ? 'audit' : rollDropKind(), t.x, t.y);
+  else if (t.type === 'carrier' && rng() < 0.35)
+    dropPower(rollDropKind(), t.x, t.y);
   /* a destroyed splitter bursts into three swift tokens */
   if (t.type === 'splitter'){
     for (const off of [-36, 0, 36]){
@@ -723,8 +871,43 @@ function doDash(dir){
   dashInvulnT = DASH_INVULN;
   tone(300, 900, 0.14, 'sine', 0.05);
 }
+/* the CHARGE SHOT. Input rule (one thumb): press and HOLD the pointer
+   still — if the pointer stays within 14 px of where it landed,
+   charging builds (auto-fire pauses); drag further than that and the
+   press becomes plain steering and the charge cancels. Release after
+   at least CHARGE_MIN seconds and a piercing plasma blast fires from
+   the gun tip, its damage scaling with charge up to CHARGE_MAX.
+   Desktop equivalent: hold Space, release to fire. */
+function fireChargeBlast(){
+  const frac = clamp((charging - CHARGE_MIN) / (CHARGE_MAX - CHARGE_MIN), 0, 1);
+  const dmg = 2 + Math.round(frac * 5);         /* 2 at minimum charge, 7 at full */
+  bullets.push({ x: ship.x + GUN_DX, y: ship.y + GUN_DY, vx: 0, vy: -880,
+    dmg, pierce: true, big: true, hitIds: new Set(), bossHit: false, dead: false });
+  shotsFired++;
+  fireFlashT = 0.09;
+  shake(2, 0.1);
+  sfxCharge();
+}
+function doRelease(){
+  if (pointerHeld && state === 'play' && charging >= CHARGE_MIN) fireChargeBlast();
+  charging = 0;
+  pointerHeld = false;
+  pressAnchor = null;
+  pointerActive = false;
+}
 function hitPlayer(cause){
   if (state !== 'play' || invulnT > 0 || dashInvulnT > 0) return;
+  /* the ORBIT RING eats the hit first: one mini token breaks, and
+     nothing else is lost — no hull, no tier, no drone */
+  if (ring > 0){
+    ring--;
+    invulnT = 1.0;
+    popup(ship.x, ship.y - 30, ring > 0 ? 'RING BLOCK! ×' + ring : 'RING DOWN!', KIND_COLOR.orbit);
+    burst(ship.x, ship.y, 14, KIND_COLOR.orbit, 190);
+    shake(4, 0.2);
+    sfxShield();
+    return;
+  }
   /* a connecting hit — even one the shield eats — costs the wingman
      and knocks the weapon down a tier (floor: tier 1) */
   if (wingman){
@@ -766,17 +949,27 @@ function startDying(reason){
 }
 function gameOver(){
   state = 'over';
-  if (killScore > best){
-    best = killScore;
-    try { localStorage.setItem('orbitDefenderBest', String(best)); } catch (e) {}
-  }
-  const dmNow = Math.floor(distM());
-  if (dmNow > bestDist){
-    bestDist = dmNow;
-    try { localStorage.setItem('orbitDefenderBestDist', String(bestDist)); } catch (e) {}
+  if (endlessRun){
+    /* endless keeps its OWN records — the campaign bests stand apart */
+    if (killScore > bestEndless) bestEndless = killScore;
+    const dmNowE = Math.floor(distM());
+    if (dmNowE > bestEndlessDist) bestEndlessDist = dmNowE;
+    persistEndless();
+  } else {
+    if (killScore > best){
+      best = killScore;
+      try { localStorage.setItem('orbitDefenderBest', String(best)); } catch (e) {}
+    }
+    const dmNow = Math.floor(distM());
+    if (dmNow > bestDist){
+      bestDist = dmNow;
+      try { localStorage.setItem('orbitDefenderBestDist', String(bestDist)); } catch (e) {}
+    }
   }
   buildSkinRow();   /* a new best distance may have unlocked a skin */
-  $('overTitle').textContent = lastDeath === 'VAULT BREACH' ? 'THE VAULT GOT YOU!' : 'BOT DOWN!';
+  refreshTitleMeta();
+  $('overTitle').textContent = lastDeath === 'VAULT BREACH' ? 'THE VAULT GOT YOU!'
+    : lastDeath === 'WHALE BREACH' ? 'THE WHALE GOT YOU!' : 'BOT DOWN!';
   $('overStats').textContent =
     'Score ' + killScore + '  ·  Best ' + best + '\n' +
     'Distance ' + Math.floor(distM()) + 'm  ·  Tokens down ' + kills +
@@ -820,17 +1013,24 @@ function updateShip(dt){
     parts.push({ x: ship.x + (mr() - 0.5) * 6, y: ship.y + 25, vx: (mr() - 0.5) * 22,
       vy: 130 + mr() * 60, t: 0, life: 0.3 + mr() * 0.2, color: skinAccent(), r: 1.8 + mr() * 1.8 });
   }
+  /* charge accumulation: a pointer held within 14 px of its landing
+     point (or Space held) charges the blast; dragging cancels it */
+  const stationary = pointerHeld && pressAnchor &&
+    Math.hypot(targetX - pressAnchor.x, targetY - pressAnchor.y) <= 14;
+  if (stationary || spaceHeld) charging += dt;
+  else charging = 0;
   /* auto-fire — every bolt is born at the Bot's gun tip, and the
      pattern IS the weapon tier:
-     1 single · 2 twin barrels · 3 triple-spread · 4 plasma (dmg 2) */
+     1 single · 2 twin barrels · 3 triple-spread · 4 plasma (dmg 2).
+     Auto-fire PAUSES while a charge is building. */
   fireT -= dt;
   const interval = (rapidT > 0 || feverT > 0) ? RAPID_INT : (weaponTier >= WEAPON_MAX ? L4_INT : FIRE_INT);
-  if (fireT <= 0){
+  if (fireT <= 0 && charging <= 0){
     fireT = interval;
     fireFlashT = 0.05;
     const GX = ship.x + GUN_DX, GY = ship.y + GUN_DY;
     const mk = (bx, by, vx, vy, dmg) => {
-      bullets.push({ x: bx, y: by, vx, vy, dmg, dead: false });
+      bullets.push({ x: bx, y: by, vx, vy, dmg, homing: homingT > 0, dead: false });
       shotsFired++;
     };
     if (weaponTier === 1){
@@ -850,16 +1050,46 @@ function updateShip(dt){
 }
 function updateTokens(dt){
   const scr = scrollSpeed();
+  const launches = [];
   for (const t of tokens){
     if (t.dead) continue;
     t.spin += t.spinV * dt;
     if (t.flashT > 0) t.flashT -= dt;
-    if (t.type === 'rug'){
-      if (t.mode === 'fall' && t.y > ship.y - 340){
-        t.mode = 'dive';
-        t.ang = Math.PI / 2;   /* starts aimed straight down */
+    if (t.type === 'ghost'){
+      /* flicker: solid and shootable for GHOST_SOLID_T, then phased
+         and harmless for the rest of the cycle */
+      t.phaseT += dt;
+      t.solid = (t.phaseT % GHOST_PHASE_T) < GHOST_SOLID_T;
+    }
+    if (t.type === 'carrier'){
+      t.launchT -= dt;
+      if (t.launchT <= 0){
+        t.launchT = CARRIER_LAUNCH_T;
+        /* launches respect the director's live cap — a full sky means
+           the carrier holds its swift */
+        if (aliveTokens() < MAX_ALIVE)
+          launches.push(makeToken('swift', clamp(t.x, 24, W - 24), t.y + t.r + 8,
+            { vy: 140 + rng() * 40 }));
       }
-      if (t.mode === 'dive'){
+    }
+    if (t.type === 'rug'){
+      /* DANGER WARNING: half a second before the dive commits, the rug
+         flashes its intent — an edge warning on its side of the field
+         (drawn in draw()) and a warning tick. Only then does it dive. */
+      if (t.mode === 'fall' && t.y > ship.y - 470){
+        t.mode = 'warn';
+        t.warnT = WARN_TIME;
+        sfxWarn();
+      }
+      if (t.mode === 'warn'){
+        t.y += (t.vy + scr) * dt;
+        t.warnT -= dt;
+        if (t.warnT <= 0){
+          t.mode = 'dive';
+          t.ang = Math.PI / 2;   /* starts aimed straight down */
+        }
+      }
+      else if (t.mode === 'dive'){
         /* homing with a TURN-RATE LIMIT: it tracks hard, but a sharp
            lateral move shakes it off — perfect tracking would be
            undodgeable in traffic, and undodgeable is unfair */
@@ -882,8 +1112,13 @@ function updateTokens(dt){
     } else {
       t.y += (t.vy + scr) * dt;
     }
-    if (t.y - t.r > poolY()) leakToken(t);
+    if (t.y - t.r > poolY()){
+      /* a phased-out ghost slips through the pool line harmlessly */
+      if (t.type === 'ghost' && !t.solid) t.dead = true;
+      else leakToken(t);
+    }
   }
+  for (const c of launches) tokens.push(c);
   tokens = tokens.filter(t => !t.dead && t.y - t.r < LH + 70);
 }
 function updateBoss(dt){
@@ -894,11 +1129,16 @@ function updateBoss(dt){
   }
   if (!boss) return;
   boss.t += dt;
-  if (boss.y < 118) boss.y += 96 * dt;
-  else {
-    boss.x = W / 2 + Math.sin(boss.t * 0.7) * 108;
-    boss.y = 118 + Math.sin(boss.t * 1.25) * 13;
+  if (!boss.entered){
+    /* entry descent, both bosses — a flag, not a y test, because the
+       Whale's hover bobs ABOVE the entry line and must not re-enter */
+    boss.y += 96 * dt;
+    if (boss.y >= 118){ boss.y = 118; boss.entered = true; }
+    return;
   }
+  if (boss.kind === 'whale'){ updateWhale(dt); return; }
+  boss.x = W / 2 + Math.sin(boss.t * 0.7) * 108;
+  boss.y = 118 + Math.sin(boss.t * 1.25) * 13;
   boss.fireT -= dt;
   if (boss.fireT <= 0 && boss.y > 60){
     boss.fireT = 1.9;
@@ -909,19 +1149,71 @@ function updateBoss(dt){
     tone(190, 90, 0.16, 'sawtooth', 0.045);
   }
 }
-function updateFx(dt){
+/* THE RUG WHALE: hovers and sheds mini-rugs, then TELEGRAPHS a charge
+   (0.8 s windup, popup + shake) before lunging at the point the Bot
+   occupied when the charge locked. It never fires — its body and its
+   children are the threat. */
+function updateWhale(dt){
+  const b = boss;
+  if (b.mode === 'windup'){
+    b.modeT -= dt;
+    if (b.modeT <= 0){
+      b.mode = 'charge';
+      b.tx = clamp(ship.x, 50, W - 50);
+      b.ty = clamp(Math.min(ship.y, LH * 0.62), 140, LH * 0.75);
+      const dx = b.tx - b.x, dy = b.ty - b.y, d = Math.hypot(dx, dy) || 1;
+      b.vx = dx / d * WHALE_CHARGE_SPEED;
+      b.vy = dy / d * WHALE_CHARGE_SPEED;
+      sfxBoss();
+    }
+    return;
+  }
+  if (b.mode === 'charge'){
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    if (Math.hypot(b.tx - b.x, b.ty - b.y) < 26 || b.x < 44 || b.x > W - 44 || b.y > LH * 0.8)
+      b.mode = 'return';
+    return;
+  }
+  if (b.mode === 'return'){
+    const dx = W / 2 - b.x, dy = 118 - b.y, d = Math.hypot(dx, dy);
+    if (d < 10){ b.mode = 'hover'; b.chargeT = 5 + rng() * 1.5; }
+    else { b.x += dx / d * 300 * dt; b.y += dy / d * 300 * dt; }
+    return;
+  }
+  /* hover */
+  b.x = W / 2 + Math.sin(b.t * 0.55) * 96;
+  b.y = 118 + Math.sin(b.t * 1.1) * 10;
+  b.shedT -= dt;
+  if (b.shedT <= 0){
+    b.shedT = 4;
+    if (aliveTokens() < MAX_ALIVE)
+      tokens.push(makeToken('rug', clamp(b.x + (rng() < 0.5 ? -48 : 48), 24, W - 24), b.y + 54, { r: 13 }));
+  }
+  b.chargeT -= dt;
+  if (b.chargeT <= 0){
+    b.mode = 'windup';
+    b.modeT = 0.8;
+    popup(b.x, b.y + BOSS_R + 26, '⚠ WHALE CHARGE!', RED_HI);
+    shake(3, 0.3);
+  }
+}
+function updateFx(dt, wdt){
+  /* wdt is the WORLD clock (slowed by a Market Freeze); particles and
+     popups are player-side cosmetics and always run on real time */
+  if (wdt === undefined) wdt = dt;
   for (const p of parts){ p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 60 * dt; }
   parts = parts.filter(p => p.t < p.life);
   for (const p of popups){ p.t += dt; p.y -= 34 * dt; }
   popups = popups.filter(p => p.t < p.life);
   for (const d of debris){
-    d.x += d.vx * dt; d.y += (d.vy + scrollSpeed() * 0.35) * dt; d.rot += d.vr * dt;
+    d.x += d.vx * wdt; d.y += (d.vy + scrollSpeed() * 0.35) * wdt; d.rot += d.vr * wdt;
     if (d.x < 10){ d.x = 10; d.vx = Math.abs(d.vx); }
     if (d.x > W - 10){ d.x = W - 10; d.vx = -Math.abs(d.vx); }
     d.sep = Math.hypot(d.x - d.sx, d.y - d.sy);
   }
   debris = debris.filter(d => !d.dead && d.y - d.r < LH + 40);
-  for (const b of bossBullets){ b.x += b.vx * dt; b.y += b.vy * dt; }
+  for (const b of bossBullets){ b.x += b.vx * wdt; b.y += b.vy * wdt; }
   bossBullets = bossBullets.filter(b => !b.dead && b.x > -20 && b.x < W + 20 && b.y > -20 && b.y < LH + 20);
   if (shakeT > 0){ shakeT -= dt; if (shakeT <= 0) shakeMag = 0; }
   if (toastT > 0){ toastT -= dt; if (toastT <= 0) $('toast').style.opacity = 0; }
@@ -933,29 +1225,40 @@ function collide(){
   /* bullets vs tokens / debris / boss */
   for (const b of bullets){
     if (b.dead) continue;
-    if (boss && !boss.dead && damageBossBullet(b)){ b.dead = true; continue; }
+    if (boss && !boss.dead){
+      if (b.pierce){
+        /* a charge blast strikes the boss once and flies on */
+        if (!b.bossHit && damageBossBullet(b)) b.bossHit = true;
+      }
+      else if (damageBossBullet(b)){ b.dead = true; continue; }
+    }
     let consumed = false;
     for (const d of debris){
       if (d.dead) continue;
       if (Math.hypot(b.x - d.x, b.y - d.y) < d.r + 4){
-        /* wreckage absorbs the shot — and one shot clears the chunk */
-        consumed = true;
+        /* wreckage absorbs the shot — and one shot clears the chunk.
+           A piercing blast punches through instead of being eaten. */
         d.hp -= (b.dmg || 1);
         if (d.hp <= 0){ d.dead = true; burst(d.x, d.y, 6, '#9fb8a8', 130); }
         else burst(b.x, b.y, 2, '#9fb8a8', 90);
+        if (!b.pierce) consumed = true;
         break;
       }
     }
     if (consumed){ b.dead = true; continue; }
     for (const t of tokens){
       if (t.dead) continue;
-      if (Math.hypot(b.x - t.x, b.y - t.y) < t.r + 4){
-        b.dead = true;
+      if (t.type === 'ghost' && !t.solid) continue;   /* phased out: bolts pass clean through */
+      if (Math.hypot(b.x - t.x, b.y - t.y) < t.r + (b.big ? 9 : 4)){
+        if (b.pierce){
+          if (b.hitIds.has(t.id)) continue;   /* the blast wounds each token once */
+          b.hitIds.add(t.id);
+        } else b.dead = true;
         t.hp -= (b.dmg || 1);
         t.flashT = 0.08;
         if (t.hp <= 0) killToken(t, false);
         else burst(b.x, b.y, 3, GREEN_HI, 110);
-        break;
+        if (!b.pierce) break;
       }
     }
   }
@@ -972,6 +1275,7 @@ function collide(){
   if (state === 'play'){
     for (const t of tokens){
       if (t.dead) continue;
+      if (t.type === 'ghost' && !t.solid) continue;   /* phased out: it drifts through the Bot */
       if (Math.hypot(t.x - ship.x, t.y - ship.y) < t.r + SHIP_R - 6){
         killToken(t, true);
         hitPlayer('TOKEN IMPACT');
@@ -999,8 +1303,37 @@ function collide(){
       }
     }
     if (state === 'play' && boss && !boss.dead){
-      if (Math.hypot(boss.x - ship.x, boss.y - ship.y) < BOSS_R + SHIP_R - 4) hitPlayer('VAULT BREACH');
+      if (Math.hypot(boss.x - ship.x, boss.y - ship.y) < BOSS_R + SHIP_R - 4)
+        hitPlayer(boss.kind === 'whale' ? 'WHALE BREACH' : 'VAULT BREACH');
     }
+  }
+}
+/* player bolts fly on real time even in a freeze; homing bolts steer
+   toward the nearest hittable token (or the boss) with a bounded turn */
+function updateBullets(dt){
+  for (const b of bullets){
+    if (b.homing && !b.pierce){
+      let tx = null, ty = null, bd = Infinity;
+      for (const t of tokens){
+        if (t.dead) continue;
+        if (t.type === 'ghost' && !t.solid) continue;
+        const d2 = (t.x - b.x) * (t.x - b.x) + (t.y - b.y) * (t.y - b.y);
+        if (d2 < bd){ bd = d2; tx = t.x; ty = t.y; }
+      }
+      if (tx === null && boss && !boss.dead){ tx = boss.x; ty = boss.y; }
+      if (tx !== null){
+        const want = Math.atan2(ty - b.y, tx - b.x);
+        let diff = want - Math.atan2(b.vy, b.vx);
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        const turn = clamp(diff, -HOMING_TURN * dt, HOMING_TURN * dt);
+        const sp = Math.hypot(b.vx, b.vy), a = Math.atan2(b.vy, b.vx) + turn;
+        b.vx = Math.cos(a) * sp;
+        b.vy = Math.sin(a) * sp;
+      }
+    }
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
   }
 }
 function step(dt){
@@ -1024,12 +1357,24 @@ function step(dt){
   }
   if (state !== 'play'){ updateFx(dt); return; }
   elapsed += dt;
-  distPx += scrollSpeed() * dt;
+  /* the WORLD clock: a Market Freeze slows tokens, bosses, debris,
+     boss fire, power-up drift and distance itself to FREEZE_SLOW —
+     the Bot, his fire rate and his bolts stay on real time */
+  const wdt = freezeT > 0 ? dt * FREEZE_SLOW : dt;
+  distPx += scrollSpeed() * wdt;
+  /* endless difficulty is a smooth ramp: the working level is read
+     straight off the distance, so escalation never pauses */
+  if (endlessRun){
+    level = 1 + Math.floor(distM() / LEVEL_LEN);
+    levelStartPx = distPx - (distM() % LEVEL_LEN) * PX_PER_M;
+  }
   if (invulnT > 0) invulnT = Math.max(0, invulnT - dt);
   if (dashInvulnT > 0) dashInvulnT = Math.max(0, dashInvulnT - dt);
   if (dashCdT > 0) dashCdT = Math.max(0, dashCdT - dt);
   if (dashT > 0) dashT = Math.max(0, dashT - dt);
   if (rapidT > 0) rapidT = Math.max(0, rapidT - dt);
+  if (homingT > 0) homingT = Math.max(0, homingT - dt);
+  if (freezeT > 0) freezeT = Math.max(0, freezeT - dt);
   if (fireFlashT > 0) fireFlashT = Math.max(0, fireFlashT - dt);
   if (comboT > 0){ comboT = Math.max(0, comboT - dt); if (comboT <= 0) combo = 1; }
   /* fever: a full meter ignites 10 s of double points + rapid fire,
@@ -1040,7 +1385,7 @@ function step(dt){
   } else if (fever >= 100){
     feverT = FEVER_TIME;
     showToast('🔥 FEVER MODE! DOUBLE POINTS!');
-    sfxMile();
+    sfxFever();
   }
   /* level flow: the intro banner fades; the post-Vault breather runs
      down and then hands over to the next level */
@@ -1057,19 +1402,19 @@ function step(dt){
     if (!event && distM() >= nextEventAt)
       startEvent(eventCount % 2 === 0 ? 'bull' : 'crash');
     if (!event){
-      spawnTimer -= dt;
+      spawnTimer -= wdt;
       if (spawnTimer <= 0) trySpawnWave();
     }
   }
-  if (event && levelCompleteT <= 0) updateEvent(dt);
+  if (event && levelCompleteT <= 0) updateEvent(wdt);
   updateShip(dt);
   updateWingman(dt);
-  updateTokens(dt);
-  updateBoss(dt);
-  for (const b of bullets){ b.x += b.vx * dt; b.y += b.vy * dt; }
-  for (const p of powerups){ p.t += dt; p.y += p.vy * dt; }
+  updateTokens(wdt);
+  updateBoss(wdt);
+  updateBullets(dt);
+  for (const p of powerups){ p.t += dt; p.y += p.vy * wdt; }
   collide();
-  updateFx(dt);
+  updateFx(dt, wdt);
   const dm = distM();
   if (dm >= nextMile){
     milestones++;
@@ -1077,10 +1422,12 @@ function step(dt){
     showToast('🚀 ' + milestones * MILE_EVERY + 'm');
     sfxMile();
   }
-  /* the Vault guards the end of every level */
-  if (!boss && bossWarn <= 0 && levelCompleteT <= 0 && levelProgM() >= LEVEL_LEN){
+  /* a boss guards every 1,800 m — the end of a campaign level, or the
+     endless cadence point. Vault and Whale alternate. */
+  const bossDue = endlessRun ? (distM() >= nextBossAt) : (levelProgM() >= LEVEL_LEN);
+  if (!boss && bossWarn <= 0 && levelCompleteT <= 0 && bossDue){
     bossWarn = BOSS_WARN_T;
-    showToast('⚠ THE VAULT APPROACHES ⚠');
+    showToast(nextKind() === 'whale' ? '⚠ THE RUG WHALE APPROACHES ⚠' : '⚠ THE VAULT APPROACHES ⚠');
     sfxBoss();
   }
   updateHud();
@@ -1099,6 +1446,11 @@ function reset(){
   distPx = 0; elapsed = 0;
   rapidT = 0; invulnT = 0; fireT = 0.3; fireFlashT = 0;
   weaponTier = 1; fever = 0; feverT = 0;
+  homingT = 0; freezeT = 0; ring = 0;
+  charging = 0; pointerHeld = false; pressAnchor = null; spaceHeld = false;
+  mission = null; missionRugs = 0; missionArm = 0; levelScore0 = 0; levelHits0 = 0;
+  lastLevelResult = null;
+  endlessRun = false; nextBossAt = LEVEL_LEN;
   wingman = null;
   dashT = 0; dashCdT = 0; dashInvulnT = 0; dashDir = 1; ghosts = [];
   event = null; eventTimer = 0; nextEventAt = EVENT_FIRST; eventCount = 0;
@@ -1120,7 +1472,14 @@ function startGame(){
   reset();
   state = 'play';
   levelIntroT = 1.6;
-  showToast('LEVEL 1 — ' + levelDef().name);
+  if (mode === 'endless' && endlessUnlocked){
+    endlessRun = true;
+    nextBossAt = LEVEL_LEN;
+    showToast('ENDLESS — HOW FAR CAN THE BOT GO?');
+  } else {
+    assignMission();
+    showToast('LEVEL 1 — ' + levelDef().name);
+  }
   $('startScreen').style.display = 'none';
   $('overScreen').style.display = 'none';
 }
@@ -1129,8 +1488,53 @@ function toMenu(){
   state = 'menu';
   $('overScreen').style.display = 'none';
   $('startScreen').style.display = 'flex';
-  $('startBest').textContent = best > 0 ? 'BEST ' + best : '';
+  refreshTitleMeta();
   buildSkinRow();
+}
+
+/* the title block: campaign best, total stars, and (once unlocked)
+   the endless record — refreshed at boot, at the menu and at game over */
+function refreshTitleMeta(){
+  const sb = $('startBest');
+  if (sb) sb.textContent = best > 0 ? 'BEST ' + best : '';
+  const ss = $('startStars');
+  if (ss){
+    const ts = totalStars();
+    ss.textContent = (ts > 0 ? '★ TOTAL ' + ts : '') +
+      (endlessUnlocked && bestEndless > 0 ? (ts > 0 ? '  ·  ' : '') + '∞ BEST ' + bestEndless : '');
+  }
+  buildModeRow();
+}
+
+/* ================= mode select (campaign / endless) ================= */
+let modeBtns = null;
+function buildModeRow(){
+  const row = $('modeRow');
+  if (!row) return;
+  if (!modeBtns){
+    modeBtns = ['campaign', 'endless'].map(m => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.onclick = () => { sfxTap(); selectMode(m); };
+      row.appendChild(b);
+      return b;
+    });
+  }
+  modeBtns.forEach((b, i) => {
+    const m = i === 0 ? 'campaign' : 'endless';
+    const locked = m === 'endless' && !endlessUnlocked;
+    b.textContent = (mode === m ? '▶ ' : '') +
+      (m === 'campaign' ? 'CAMPAIGN' : (locked ? 'ENDLESS 🔒 LV5' : 'ENDLESS'));
+    b.disabled = locked;
+    b.className = 'skinBtn' + (mode === m ? ' sel' : '');
+  });
+}
+function selectMode(m){
+  if (m === 'endless' && !endlessUnlocked) return;   /* gated until level 5 falls */
+  if (m !== 'campaign' && m !== 'endless') return;
+  mode = m;
+  try { localStorage.setItem('orbitDefenderMode', mode); } catch (e) {}
+  buildModeRow();
 }
 
 /* ================= bot skins ================= */
@@ -1156,13 +1560,14 @@ function buildSkinRow(){
 }
 function selectSkin(i){
   if (i < 0 || i >= SKINS.length || !skinUnlocked(i)) return;
+  sfxTap();
   skinIdx = i;
   try { localStorage.setItem('orbitDefenderSkin', String(i)); } catch (e) {}
   buildSkinRow();
 }
 function updateHud(){
   $('hudHull').textContent = '💚'.repeat(Math.max(0, hull)) + '🖤'.repeat(Math.max(0, 3 - hull));
-  $('hudLevel').textContent = 'LV ' + level;
+  $('hudLevel').textContent = endlessRun ? '∞ ' + level : 'LV ' + level;
   $('hudDist').textContent = Math.floor(distM()) + 'm';
   $('hudCombo').textContent = combo > 1 ? 'COMBO ×' + combo : '';
   $('hudScore').textContent = killScore;
@@ -1177,6 +1582,12 @@ function updateHud(){
   if (event) fx.push(event.kind === 'bull'
     ? '🐂 BULL RUN ' + Math.ceil(event.t) + 's'
     : '💥 CRASH ' + Math.ceil(event.t) + 's');
+  if (homingT > 0) fx.push('🎯 HOMING ' + Math.ceil(homingT) + 's');
+  if (ring > 0) fx.push('⭕ RING ×' + ring);
+  if (freezeT > 0) fx.push('❄ FREEZE ' + Math.ceil(freezeT) + 's');
+  if (charging >= CHARGE_MIN) fx.push('⚡ ' + Math.round(Math.min(1, charging / CHARGE_MAX) * 100) + '%');
+  if (mission && state === 'play' && !endlessRun)
+    fx.push('🎯 ' + Math.min(missionProgress(), mission.target) + '/' + mission.target);
   $('fxBar').textContent = fx.join('  ·  ');
 }
 
@@ -1199,16 +1610,18 @@ function drawTokenArt(x, y, r, spin, alpha){
 }
 function drawToken(t){
   const pulse = t.type === 'rug' ? 0.75 + 0.25 * Math.sin(animT * 9) : 1;
+  const ghostA = t.type === 'ghost' ? (t.solid ? 1 : 0.28) : 1;   /* phased ghosts fade out */
   ctx.save();
+  ctx.globalAlpha = ghostA;
   ctx.shadowColor = t.type === 'rug' ? RED : (t.type === 'gold' ? '#ffd76a' : GREEN);
   ctx.shadowBlur = t.type === 'armored' ? 10 : 16 * pulse;
   ctx.beginPath();
   ctx.arc(t.x, t.y, t.r, 0, Math.PI * 2);
-  ctx.fillStyle = t.type === 'rug' ? '#2a0709' : (t.type === 'gold' ? '#2a2002' : '#06240f');
+  ctx.fillStyle = t.type === 'rug' ? '#2a0709' : (t.type === 'gold' ? '#2a2002' : t.type === 'ghost' ? '#0a1a24' : '#06240f');
   ctx.fill();
   ctx.shadowBlur = 0;
   ctx.lineWidth = t.type === 'armored' ? 4.5 : 3;
-  ctx.strokeStyle = t.flashT > 0 ? '#ffffff' : (t.type === 'rug' ? RED : t.type === 'swift' ? GREEN_HI : t.type === 'gold' ? '#ffd76a' : GREEN);
+  ctx.strokeStyle = t.flashT > 0 ? '#ffffff' : (t.type === 'rug' ? RED : t.type === 'swift' ? GREEN_HI : t.type === 'gold' ? '#ffd76a' : t.type === 'ghost' ? '#bfefff' : GREEN);
   ctx.stroke();
   ctx.restore();
   if (t.type === 'armored'){
@@ -1236,7 +1649,21 @@ function drawToken(t){
       ctx.restore();
     }
   }
-  drawTokenArt(t.x, t.y, t.r, t.spin, 1);
+  drawTokenArt(t.x, t.y, t.r, t.spin, ghostA);
+  if (t.type === 'carrier'){
+    /* a heavy double rim + three docked swifts waiting in their bays */
+    ctx.save();
+    ctx.strokeStyle = GREEN_HI; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(t.x, t.y, t.r + 5, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = GREEN_HI;
+    for (let i = 0; i < 3; i++){
+      const a = t.spin * 0.8 + i * (Math.PI * 2 / 3);
+      ctx.beginPath();
+      ctx.arc(t.x + Math.cos(a) * t.r * 0.55, t.y + Math.sin(a) * t.r * 0.55, 4.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
   if (t.type === 'splitter'){
     /* three cores riding inside — the three swifts waiting to burst out */
     ctx.save();
@@ -1258,44 +1685,94 @@ function drawToken(t){
     ctx.moveTo(t.x + s, t.y - s); ctx.lineTo(t.x - s, t.y + s);
     ctx.stroke();
     ctx.restore();
+    if (t.mode === 'warn'){
+      /* the dive telegraph: a pulsing red ring closing around the rug */
+      ctx.save();
+      ctx.globalAlpha = 0.55 + 0.45 * Math.sin(animT * 26);
+      ctx.strokeStyle = RED_HI; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(t.x, t.y, t.r + 7, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    }
   }
 }
 function drawBoss(){
   if (!boss) return;
   const b = boss;
-  ctx.save();
-  ctx.shadowColor = '#ffd76a'; ctx.shadowBlur = 22;
-  ctx.beginPath(); ctx.arc(b.x, b.y, BOSS_R, 0, Math.PI * 2);
-  ctx.fillStyle = '#0a2413'; ctx.fill();
-  ctx.shadowBlur = 0;
-  ctx.lineWidth = 5; ctx.strokeStyle = '#ffd76a'; ctx.stroke();
-  ctx.restore();
-  drawTokenArt(b.x, b.y, BOSS_R, b.t * 0.4, 1);
-  /* rotating shield segments */
-  const span = (Math.PI * 2) / BOSS_SEG, cover = span * 0.62;
-  ctx.save();
-  ctx.lineCap = 'round';
-  for (let i = 0; i < BOSS_SEG; i++){
-    const s = b.segs[i];
-    if (s.hp <= 0) continue;
-    const a = segAngleAt(i, b.t);
-    ctx.strokeStyle = s.hp === s.maxHp ? '#7dffb0' : (s.hp === 2 ? '#ffd76a' : RED_HI);
-    ctx.globalAlpha = 0.55 + 0.45 * (s.hp / s.maxHp);
-    ctx.lineWidth = 13;
-    ctx.beginPath(); ctx.arc(b.x, b.y, BOSS_R + 18, a, a + cover); ctx.stroke();
+  if (b.kind === 'whale'){
+    /* THE RUG WHALE — a vast dark-red rug token with a dorsal fin and
+       gill arcs; it flashes white through its windup so the charge is
+       unmistakable */
+    const wind = b.mode === 'windup';
+    ctx.save();
+    ctx.shadowColor = RED; ctx.shadowBlur = wind ? 30 : 20;
+    ctx.beginPath(); ctx.arc(b.x, b.y, BOSS_R, 0, Math.PI * 2);
+    ctx.fillStyle = wind && Math.floor(b.t * 12) % 2 === 0 ? '#4a0d10' : '#2a0709';
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = 7; ctx.strokeStyle = RED; ctx.stroke();
+    ctx.restore();
+    /* dorsal fin */
+    ctx.save();
+    ctx.fillStyle = RED;
+    ctx.beginPath();
+    ctx.moveTo(b.x - 16, b.y - BOSS_R + 6);
+    ctx.lineTo(b.x, b.y - BOSS_R - 20);
+    ctx.lineTo(b.x + 16, b.y - BOSS_R + 6);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+    /* gill arcs */
+    ctx.save();
+    ctx.strokeStyle = RED_HI; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    for (let i = 0; i < 3; i++){
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, BOSS_R * (0.42 + i * 0.2), Math.PI * 1.15, Math.PI * 1.85);
+      ctx.stroke();
+    }
+    ctx.restore();
+    /* the giant rug ✕ */
+    ctx.save();
+    ctx.strokeStyle = RED_HI; ctx.lineWidth = 9; ctx.lineCap = 'round';
+    const s = BOSS_R * 0.44;
+    ctx.beginPath();
+    ctx.moveTo(b.x - s, b.y - s); ctx.lineTo(b.x + s, b.y + s);
+    ctx.moveTo(b.x + s, b.y - s); ctx.lineTo(b.x - s, b.y + s);
+    ctx.stroke();
+    ctx.restore();
+  } else {
+    ctx.save();
+    ctx.shadowColor = '#ffd76a'; ctx.shadowBlur = 22;
+    ctx.beginPath(); ctx.arc(b.x, b.y, BOSS_R, 0, Math.PI * 2);
+    ctx.fillStyle = '#0a2413'; ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = 5; ctx.strokeStyle = '#ffd76a'; ctx.stroke();
+    ctx.restore();
+    drawTokenArt(b.x, b.y, BOSS_R, b.t * 0.4, 1);
+    /* rotating shield segments */
+    const span = (Math.PI * 2) / BOSS_SEG, cover = span * 0.62;
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (let i = 0; i < BOSS_SEG; i++){
+      const s = b.segs[i];
+      if (s.hp <= 0) continue;
+      const a = segAngleAt(i, b.t);
+      ctx.strokeStyle = s.hp === s.maxHp ? '#7dffb0' : (s.hp === 2 ? '#ffd76a' : RED_HI);
+      ctx.globalAlpha = 0.55 + 0.45 * (s.hp / s.maxHp);
+      ctx.lineWidth = 13;
+      ctx.beginPath(); ctx.arc(b.x, b.y, BOSS_R + 18, a, a + cover); ctx.stroke();
+    }
+    ctx.restore();
   }
-  ctx.restore();
   /* HP bar */
   const bw = 190, bx = b.x - bw / 2, by = Math.max(8, b.y - BOSS_R - 46);
   ctx.save();
   ctx.fillStyle = 'rgba(0,0,0,.55)';
   ctx.fillRect(bx - 3, by - 15, bw + 6, 27);
   ctx.fillStyle = '#12291a'; ctx.fillRect(bx, by, bw, 9);
-  ctx.fillStyle = '#ffd76a';
+  ctx.fillStyle = b.kind === 'whale' ? RED_HI : '#ffd76a';
   ctx.fillRect(bx, by, bw * clamp(b.hp / b.maxHp, 0, 1), 9);
   ctx.fillStyle = '#fff'; ctx.font = '900 11px system-ui, sans-serif';
   ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-  ctx.fillText('THE VAULT', b.x, by - 1);
+  ctx.fillText(b.kind === 'whale' ? 'THE RUG WHALE' : 'THE VAULT', b.x, by - 1);
   ctx.restore();
 }
 function traceBotPath(x, y){
@@ -1312,8 +1789,22 @@ function traceBotPath(x, y){
    hand (bolts are born at its tip — see GUN_DX/GUN_DY) and a little
    jetpack doing the flying. The selected skin tints his trim, his eye
    glow and his jetpack flame. */
+/* the Bot's visor tells the story: happy arcs normally, a bigger grin
+   in the level-complete breather, narrowed DETERMINED slashes in Fever,
+   X X when he dies — and a blink every few seconds while idle */
+function botMood(){
+  if (state === 'dying') return 'dead';
+  if (feverT > 0) return 'determined';
+  if (levelCompleteT > 0) return 'happy';
+  return 'idle';
+}
+function botExpression(){
+  const m = botMood();
+  if (m === 'idle' && (animT % 3.4) < 0.12) return 'blink';
+  return m;
+}
 function drawBot(){
-  if (state === 'dying' || state === 'over') return;
+  if (state === 'over') return;   /* he IS drawn while dying — with X X eyes */
   const x = ship.x, y = ship.y, acc = skinAccent();
   /* dash ghost after-images */
   for (const gh of ghosts){
@@ -1376,15 +1867,49 @@ function drawBot(){
   /* the black visor */
   ctx.beginPath(); ctx.ellipse(x, y - 12, 11, 8.6, 0, 0, Math.PI * 2);
   ctx.fillStyle = '#050d08'; ctx.fill();
-  /* two glowing happy-arc eyes, lit in the skin accent */
+  /* the visor eyes — expression follows the moment (see botMood) */
   ctx.save();
   ctx.strokeStyle = acc; ctx.lineWidth = 2.6; ctx.lineCap = 'round';
   ctx.shadowColor = acc; ctx.shadowBlur = 7;
+  const expr = botExpression();
   for (const ex of [x - 5, x + 5]){
-    ctx.beginPath(); ctx.arc(ex, y - 10.5, 3.1, Math.PI * 1.08, Math.PI * 1.92); ctx.stroke();
+    if (expr === 'dead'){          /* X X */
+      ctx.beginPath();
+      ctx.moveTo(ex - 3, y - 15.5); ctx.lineTo(ex + 3, y - 9.5);
+      ctx.moveTo(ex + 3, y - 15.5); ctx.lineTo(ex - 3, y - 9.5);
+      ctx.stroke();
+    } else if (expr === 'blink'){  /* flat lids */
+      ctx.beginPath(); ctx.moveTo(ex - 3.2, y - 12); ctx.lineTo(ex + 3.2, y - 12); ctx.stroke();
+    } else if (expr === 'determined'){  /* narrowed slashes, slanting down to centre */
+      ctx.beginPath();
+      if (ex < x){ ctx.moveTo(ex - 3.4, y - 14.6); ctx.lineTo(ex + 3.4, y - 11.2); }
+      else { ctx.moveTo(ex - 3.4, y - 11.2); ctx.lineTo(ex + 3.4, y - 14.6); }
+      ctx.stroke();
+    } else if (expr === 'happy'){  /* ^^ — wider, higher arcs */
+      ctx.beginPath(); ctx.arc(ex, y - 9.6, 3.6, Math.PI * 1.08, Math.PI * 1.92); ctx.stroke();
+    } else {                       /* idle happy arcs */
+      ctx.beginPath(); ctx.arc(ex, y - 10.5, 3.1, Math.PI * 1.08, Math.PI * 1.92); ctx.stroke();
+    }
   }
   ctx.restore();
   ctx.restore();
+  /* the ORBIT RING: one mini token per remaining charge, circling him */
+  if (ring > 0 && state === 'play'){
+    for (let i = 0; i < ring; i++){
+      const a = animT * 2.6 + i * (Math.PI * 2 / 3);
+      drawTokenArt(x + Math.cos(a) * 30, y + 2 + Math.sin(a) * 30, 8, a, 0.95);
+    }
+  }
+  /* the charge glow: the gun tip swells with light as a blast builds */
+  if (charging > 0.05 && state === 'play'){
+    const frac = Math.min(1, charging / CHARGE_MAX);
+    ctx.save();
+    ctx.globalAlpha = 0.35 + frac * 0.55;
+    ctx.shadowColor = '#ffd76a'; ctx.shadowBlur = 10 + frac * 16;
+    ctx.beginPath(); ctx.arc(x + GUN_DX, y + GUN_DY - 6, 3 + frac * 6, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffd76a'; ctx.fill();
+    ctx.restore();
+  }
   /* muzzle flash — at the gun tip, where the bolts are born */
   if (fireFlashT > 0){
     ctx.save();
@@ -1429,9 +1954,19 @@ function drawPower(p){
     ctx.quadraticCurveTo(p.x - 4.4, bobY + 18.6, p.x - 4.4, bobY + 15.2);
     ctx.lineTo(p.x - 4.4, bobY + 11.4);
     ctx.closePath(); ctx.fill();
+  } else if (p.kind === 'freeze'){
+    /* a snowflake asterisk */
+    ctx.strokeStyle = '#06240f'; ctx.lineWidth = 1.9; ctx.lineCap = 'round';
+    for (let i = 0; i < 3; i++){
+      const a = i * Math.PI / 3;
+      ctx.beginPath();
+      ctx.moveTo(p.x - Math.cos(a) * 4.6, bobY + 14 - Math.sin(a) * 4.6);
+      ctx.lineTo(p.x + Math.cos(a) * 4.6, bobY + 14 + Math.sin(a) * 4.6);
+      ctx.stroke();
+    }
   } else {
     ctx.font = '900 10.5px system-ui, sans-serif';
-    ctx.fillText({ tier: 'W', rapid: 'R', wingman: 'D', audit: 'A' }[p.kind] || '?', p.x, bobY + 14.6);
+    ctx.fillText({ tier: 'W', rapid: 'R', wingman: 'D', audit: 'A', homing: 'H', orbit: 'O' }[p.kind] || '?', p.x, bobY + 14.6);
   }
   ctx.restore();
 }
@@ -1572,7 +2107,31 @@ function draw(){
     ctx.fillText('LEVEL ' + level, W / 2, LH * 0.3);
     ctx.font = '800 16px system-ui, sans-serif';
     ctx.fillStyle = skinAccent();
-    ctx.fillText(levelDef().name, W / 2, LH * 0.3 + 34);
+    ctx.fillText(endlessRun ? 'ENDLESS' : levelDef().name, W / 2, LH * 0.3 + 34);
+    if (mission && !endlessRun){
+      ctx.font = '800 13px system-ui, sans-serif';
+      ctx.fillStyle = '#ffe9a8';
+      ctx.fillText('🎯 MISSION: ' + mission.label, W / 2, LH * 0.3 + 60);
+    }
+    ctx.restore();
+  }
+  /* level-complete banner: the stars + the mission verdict */
+  if (levelCompleteT > 0 && state === 'play' && lastLevelResult){
+    const r = lastLevelResult;
+    ctx.save();
+    ctx.globalAlpha = clamp(levelCompleteT / 0.5, 0, 1);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(0,0,0,.85)'; ctx.shadowBlur = 10;
+    ctx.font = '900 28px system-ui, sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('LEVEL ' + r.level + ' COMPLETE', W / 2, LH * 0.3);
+    ctx.font = '900 30px system-ui, sans-serif';
+    ctx.fillStyle = '#ffd76a';
+    ctx.fillText('★'.repeat(r.stars) + '☆'.repeat(3 - r.stars), W / 2, LH * 0.3 + 40);
+    ctx.font = '800 13px system-ui, sans-serif';
+    ctx.fillStyle = r.missionDone ? '#7dffb0' : '#9fb8a8';
+    ctx.fillText((r.missionDone ? '✓ MISSION: ' : '✗ MISSION: ') + r.label +
+      (r.noHit ? '  ·  ✓ NO HIT' : ''), W / 2, LH * 0.3 + 68);
     ctx.restore();
   }
   /* boss warning banner */
@@ -1583,7 +2142,7 @@ function draw(){
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = '#ffd76a';
     ctx.shadowColor = 'rgba(0,0,0,.85)'; ctx.shadowBlur = 10;
-    ctx.fillText('⚠ THE VAULT ⚠', W / 2, LH * 0.34);
+    ctx.fillText(nextKind() === 'whale' ? '⚠ THE RUG WHALE ⚠' : '⚠ THE VAULT ⚠', W / 2, LH * 0.34);
     ctx.restore();
   }
   /* market event opening banner */
@@ -1604,6 +2163,26 @@ function draw(){
     ctx.fillStyle = '#d8ffe2';
     ctx.fillRect(0, 0, W, LH);
     ctx.restore();
+  }
+  /* market freeze: the whole world tints blue-green while it lasts */
+  if (freezeT > 0){
+    ctx.save();
+    ctx.fillStyle = 'rgba(120,220,255,0.10)';
+    ctx.fillRect(0, 0, W, LH);
+    ctx.restore();
+  }
+  /* rug dive warnings: a flashing bar on the edge each warning rug
+     is about to dive from */
+  if (state === 'play'){
+    for (const t of tokens){
+      if (t.type !== 'rug' || t.mode !== 'warn' || t.dead) continue;
+      ctx.save();
+      ctx.globalAlpha = 0.5 + 0.5 * Math.sin(animT * 26);
+      ctx.fillStyle = RED_HI;
+      if (t.x < W / 2) ctx.fillRect(0, 0, 7, LH);
+      else ctx.fillRect(W - 7, 0, 7, LH);
+      ctx.restore();
+    }
   }
   /* low-hull vignette */
   if (state === 'play' && hull === 1){
@@ -1643,6 +2222,7 @@ wrap.addEventListener('pointerdown', e => {
   if (animT - lastTapT < 0.33) doDash(p.x >= ship.x ? 1 : -1);
   lastTapT = animT;
   targetX = p.x; targetY = p.y; pointerActive = true;
+  pointerHeld = true; pressAnchor = { x: p.x, y: p.y };   /* charge-shot anchor */
   if (e.preventDefault) e.preventDefault();
 });
 wrap.addEventListener('pointermove', e => {
@@ -1650,8 +2230,8 @@ wrap.addEventListener('pointermove', e => {
   const p = evPos(e);
   targetX = p.x; targetY = p.y;
 });
-addEventListener('pointerup', () => { pointerActive = false; });
-addEventListener('pointercancel', () => { pointerActive = false; });
+addEventListener('pointerup', () => { doRelease(); });
+addEventListener('pointercancel', () => { doRelease(); });
 addEventListener('keydown', e => {
   const c = e.code;
   if (c === 'ShiftLeft' || c === 'ShiftRight'){
@@ -1670,10 +2250,12 @@ addEventListener('keydown', e => {
   }
   else if (c === 'ArrowUp' || c === 'KeyW') keys.up = true;
   else if (c === 'ArrowDown' || c === 'KeyS') keys.down = true;
+  else if (c === 'KeyM') toggleMute();
   else if (c === 'KeyR' && (state === 'play' || state === 'over')) startGame();
   else if (c === 'Space' || c === 'Enter'){
     if (state === 'menu') startGame();
     else if (state === 'over') startGame();
+    else if (c === 'Space' && state === 'play') spaceHeld = true;   /* desktop charge hold */
     if (e.preventDefault) e.preventDefault();
   }
 });
@@ -1683,17 +2265,23 @@ addEventListener('keyup', e => {
   else if (c === 'ArrowRight' || c === 'KeyD') keys.right = false;
   else if (c === 'ArrowUp' || c === 'KeyW') keys.up = false;
   else if (c === 'ArrowDown' || c === 'KeyS') keys.down = false;
+  else if (c === 'Space'){
+    if (spaceHeld && state === 'play' && charging >= CHARGE_MIN) fireChargeBlast();
+    spaceHeld = false;
+    charging = 0;
+  }
 });
-$('startBtn').onclick = () => startGame();
-$('againBtn').onclick = () => startGame();
-$('menuBtn').onclick = () => toMenu();
-$('rstBtn').onclick = () => { if (state === 'play' || state === 'over' || state === 'dying') startGame(); };
-$('muteBtn').onclick = () => {
+$('startBtn').onclick = () => { sfxTap(); startGame(); };
+$('againBtn').onclick = () => { sfxTap(); startGame(); };
+$('menuBtn').onclick = () => { sfxTap(); toMenu(); };
+$('rstBtn').onclick = () => { sfxTap(); if (state === 'play' || state === 'over' || state === 'dying') startGame(); };
+function toggleMute(){
   muted = !muted;
   $('muteBtn').textContent = muted ? '🔇' : '🔊';
   try { localStorage.setItem('orbitDefenderMuted', muted ? '1' : '0'); } catch (e) {}
   if (!muted) ensureAudio();
-};
+}
+$('muteBtn').onclick = () => toggleMute();
 $('muteBtn').textContent = muted ? '🔇' : '🔊';
 
 /* ================= test API ================= */
@@ -1719,7 +2307,7 @@ window.OD = {
     powerups.push(p);
     return p;
   },
-  spawnBossNow(){ if (!boss && bossWarn <= 0){ bossCount++; const hp = BOSS_HP + BOSS_HP_STEP * (bossCount - 1); const segs = []; for (let i = 0; i < BOSS_SEG; i++) segs.push({ hp: SEG_HP, maxHp: SEG_HP }); boss = { x: W / 2, y: 118, hp, maxHp: hp, segs, t: 0, fireT: 2.5, phase: 0, dead: false }; } },
+  spawnBossNow(kind){ if (!boss && bossWarn <= 0){ const k = kind === 'whale' ? 'whale' : kind === 'vault' ? 'vault' : nextKind(); bossCount++; boss = makeBoss(k); boss.y = 118; boss.entered = true; boss.fireT = 2.5; } },
   hurtBoss(n){ if (boss){ boss.hp -= n; afterBossHpChange(); if (boss.hp <= 0) killBoss(); } },
   hurtSeg(i, n){ if (boss && boss.segs[i]) boss.segs[i].hp = Math.max(0, boss.segs[i].hp - (n || 1)); },
   setHull(n){ hull = n; },
@@ -1746,14 +2334,19 @@ window.OD = {
     levelStartPx = distPx;
     levelCompleteT = 0;
   },
-  tokens(){ return tokens.filter(t => !t.dead).map(t => ({ id: t.id, type: t.type, x: t.x, y: t.y, r: t.r, hp: t.hp, mode: t.mode })); },
+  tokens(){ return tokens.filter(t => !t.dead).map(t => ({ id: t.id, type: t.type, x: t.x, y: t.y, r: t.r, hp: t.hp, mode: t.mode, solid: t.solid })); },
   debris(){ return debris.map(d => ({ x: d.x, y: d.y, r: d.r, vx: d.vx, vy: d.vy, armed: d.sep >= ARM_SEP })); },
   powerups(){ return powerups.filter(p => !p.dead).map(p => ({ kind: p.kind, x: p.x, y: p.y })); },
+  pressAt(x, y){ pointerHeld = true; pressAnchor = { x, y }; targetX = x; targetY = y; pointerActive = true; },
+  releasePointer(){ doRelease(); },
+  setMission(id){ setMissionById(id); },
+  selectMode(m){ selectMode(m); },
   bossBullets(){ return bossBullets.map(b => ({ x: b.x, y: b.y, vx: b.vx, vy: b.vy })); },
-  bullets(){ return bullets.map(b => ({ x: b.x, y: b.y, vx: b.vx, vy: b.vy })); },
+  bullets(){ return bullets.map(b => ({ x: b.x, y: b.y, vx: b.vx, vy: b.vy, pierce: !!b.pierce, homing: !!b.homing, big: !!b.big, dmg: b.dmg || 1 })); },
   bossInfo(){
     if (!boss) return null;
     return { x: boss.x, y: boss.y, hp: boss.hp, maxHp: boss.maxHp, phase: boss.phase,
+      kind: boss.kind, mode: boss.mode,
       segAlive: boss.segs.filter(s => s.hp > 0).length,
       segHp: boss.segs.map(s => s.hp) };
   },
@@ -1770,11 +2363,22 @@ window.OD = {
       bossActive: !!boss, bossWarn, bossKills, milestones,
       lastToast, lastDeath, best, fairViolations,
       fairStats: { ...fairStats },
+      homingT, freezeT, ring, charging,
+      warnCount: tokens.filter(t => t.type === 'rug' && t.mode === 'warn').length,
+      expression: botExpression(),
+      audio: { muted, log: audioLog.slice() },
+      mission: mission ? { id: mission.id, label: mission.label, target: mission.target,
+        progress: missionProgress(), done: missionDone() } : null,
+      stars: { total: totalStars(), byLevel: { ...starsByLevel } },
+      lastLevel: lastLevelResult ? { ...lastLevelResult } : null,
+      mode, endlessRun, endlessUnlocked, bestEndless, nextBossAt,
       tokenCount: aliveTokens(), bulletCount: bullets.length };
   },
   constants: { W, COLS, MAX_ALIVE, KILL_SCORE, TOKEN_R, TOKEN_HP, LEVEL_LEN, BOSS_HP,
     BOSS_R, MILE_EVERY, POWER_TIME, FIRE_INT, RAPID_INT, GUN_DX, GUN_DY,
     WEAPON_MAX, FEVER_TIME, DASH_CD, DASH_INVULN, EVENT_TIME, EVENT_RUG_CAP, SKINS, LEVELS,
+    HOMING_TIME, HOMING_TURN, CHARGE_MIN, CHARGE_MAX, WARN_TIME, FREEZE_TIME, FREEZE_SLOW,
+    GHOST_SOLID_T, GHOST_PHASE_T, CARRIER_LAUNCH_T,
     get LH(){ return LH; }, get POOL_Y(){ return poolY(); }, get HOME_Y(){ return homeY(); } },
 };
 
@@ -1782,7 +2386,7 @@ window.OD = {
 fit();
 reset();
 state = 'menu';
-$('startBest').textContent = best > 0 ? 'BEST ' + best : '';
+refreshTitleMeta();
 buildSkinRow();
 requestAnimationFrame(loop);
 </script>
