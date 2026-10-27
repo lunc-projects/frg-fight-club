@@ -588,7 +588,8 @@ function buildLegacy(n){
       hp: 5, stun: 0, dir: 1, speed: 34, chargeT: 0, chargeDir: 1, hop: 0, hopV: 0, dead: false, enraged: false };
   }
   const hFeathers = placeHiddenFeathers(grounds.map(([x, w]) => [x, GROUND_Y, w]), plats.map(p => [p.x, p.y, p.w]), walkerDefs, movers, feather);
-  return { grounds: grounds.map(([x, w]) => [x, GROUND_Y, w]), platforms: plats.map(p => [p.x, p.y, p.w]), walkerDefs, nestX: NEST_X, feather, egg, movers, boss, hFeathers };
+  const updrafts = placeUpdrafts(grounds.map(([x, w]) => [x, GROUND_Y, w]), plats.map(p => [p.x, p.y, p.w]), movers, hFeathers);
+  return { grounds: grounds.map(([x, w]) => [x, GROUND_Y, w]), platforms: plats.map(p => [p.x, p.y, p.w]), walkerDefs, nestX: NEST_X, feather, egg, movers, boss, hFeathers, updrafts };
 }
 
 /* ================= per-world layout archetypes (L2–L10) =================
@@ -654,7 +655,7 @@ const ARCHETYPES = {
   7: {
     grounds: [[0,470,700],[1060,470,700],[2140,470,700],[3190,470,1410]],
     platforms: [[300,372,100],[1300,360,100],[2050,404,90],[2400,362,100],[3560,368,110],[3980,378,110]],
-    walkers: [{seg:0,speed:60},{seg:1,speed:64},{seg:2,at:0.22,speed:62},{seg:2,kind:'brute'},{seg:3,at:0.35,speed:66}],
+    walkers: [{seg:0,speed:60},{seg:1,speed:64},{seg:2,at:0.22,speed:62},{seg:2,kind:'brute',shield:true},{seg:3,at:0.35,speed:66}],
     movers: [{pit:0,axis:'v',off:0.4167},{pit:1,axis:'v',off:0.3947},{pit:2,axis:'v',off:0.4286}],
   },
   /* 8 · STORM COAST — mover chains: two 300px+ pits each crossed by a pair
@@ -663,7 +664,7 @@ const ARCHETYPES = {
     grounds: [[0,470,620],[740,470,560],[1600,470,620],[2550,470,560],[3230,470,1370]],
     platforms: [[200,378,110],[900,368,110],[1800,368,110],[2750,368,110],[3560,366,110],[3740,288,110],[3980,372,120]],
     walkers: [{seg:0,speed:78},{seg:1,speed:84},{seg:2,at:0.25,speed:88},{seg:2,kind:'brute',at:0.7},
-      {seg:3,at:0.3,speed:92},{seg:3,kind:'brute',at:0.65},{seg:4,at:0.3,speed:80}],
+      {seg:3,at:0.3,speed:92},{seg:3,kind:'brute',at:0.65,shield:true},{seg:4,at:0.3,speed:80}],
     movers: [{pit:1,axis:'h',off:0.2333,phase:0},{pit:1,axis:'h',off:0.6833,phase:3.1416},
              {pit:2,axis:'h',off:0.2273,phase:0},{pit:2,axis:'h',off:0.6818,phase:3.1416}],
   },
@@ -672,7 +673,7 @@ const ARCHETYPES = {
   9: {
     grounds: [[0,470,560],[740,470,150],[1090,470,140],[1420,470,160],[1770,470,140],[2090,470,150],[2430,470,420],[3040,470,140],[3370,470,150],[3710,470,890]],
     platforms: [[240,378,100],[820,366,90],[1500,368,100],[2560,368,110],[3180,366,90],[3900,372,110],[4200,378,110]],
-    walkers: [{seg:0,speed:64},{seg:3,speed:70},{seg:6,kind:'brute',at:0.3},{seg:6,kind:'brute',at:0.72},{seg:7,speed:70},{seg:9,at:0.3,speed:66}],
+    walkers: [{seg:0,speed:64},{seg:3,speed:70},{seg:6,kind:'brute',at:0.3},{seg:6,kind:'brute',at:0.72,shield:true},{seg:7,speed:70},{seg:9,at:0.3,speed:66}],
     movers: [{pit:1,axis:'h',off:0.5},{pit:5,axis:'h',off:0.5}],
   },
   /* 10 · INFERNO THRONE — the gauntlet: six defended segments (brutes on
@@ -682,7 +683,7 @@ const ARCHETYPES = {
     grounds: [[0,470,520],[670,470,430],[1260,470,430],[1860,470,440],[2480,470,430],[3080,470,420],[3660,470,940]],
     platforms: [[180,378,110],[760,368,110],[1350,368,110],[1950,360,110],[2570,368,110],[3160,360,110],[3800,364,120],[4020,278,130]],
     walkers: [{seg:1,at:0.3,speed:70},{seg:1,at:0.7,speed:74},{seg:2,at:0.3,speed:72},{seg:2,kind:'brute'},
-      {seg:3,at:0.7,speed:76},{seg:3,kind:'brute'},{seg:4,at:0.3,speed:74},{seg:4,kind:'brute'},
+      {seg:3,at:0.7,speed:76},{seg:3,kind:'brute',shield:true},{seg:4,at:0.3,speed:74},{seg:4,kind:'brute'},
       {seg:5,at:0.5,speed:78},{seg:6,at:0.12,speed:66}],
     movers: [{pit:3,axis:'h',off:0.5},{pit:4,axis:'h',off:0.5}],
   },
@@ -706,7 +707,7 @@ function buildLevel(n){
       const cxm = gx + gw * (ws.at != null ? ws.at : 0.5);
       const minX = Math.max(gx + 4, Math.round(cxm - inset));
       const maxX = Math.min(gx + gw - bw - 4, Math.round(cxm + inset));
-      walkerDefs.push({ minX, maxX: Math.max(maxX, minX + 8), y: gy, speed: Math.round((ws.speed || (kind === 'brute' ? 46 : 64)) * spd), kind, hp: kind === 'brute' ? 2 : 1, w: bw, h: bh });
+      walkerDefs.push({ minX, maxX: Math.max(maxX, minX + 8), y: gy, speed: Math.round((ws.speed || (kind === 'brute' ? 46 : 64)) * spd), kind, hp: kind === 'brute' ? 2 : 1, w: bw, h: bh, shield: !!ws.shield });
     } else if (ws.platX != null){
       const p = plats.find(q => q.x === ws.platX);
       if (!p) continue;
@@ -754,7 +755,8 @@ function buildLevel(n){
       hp: 5, stun: 0, dir: 1, speed: 34, chargeT: 0, chargeDir: 1, hop: 0, hopV: 0, dead: false, enraged: false };
   }
   const hFeathers = placeHiddenFeathers(grounds, plats.map(p => [p.x, p.y, p.w]), walkerDefs, movers, feather);
-  return { grounds, platforms: plats.map(p => [p.x, p.y, p.w]), walkerDefs, nestX: NEST_X, feather, egg, movers, boss, hFeathers };
+  const updrafts = placeUpdrafts(grounds, plats.map(p => [p.x, p.y, p.w]), movers, hFeathers);
+  return { grounds, platforms: plats.map(p => [p.x, p.y, p.w]), walkerDefs, nestX: NEST_X, feather, egg, movers, boss, hFeathers, updrafts };
 }
 
 function buildCoinsFor(grounds, platforms){
@@ -836,6 +838,40 @@ function placeHiddenFeathers(groundsA, platsA, walkerDefs, movers, golden){
   return picks.map(p => ({ x: Math.round(p.x), y: Math.round(p.y), kind: p.kind, taken: false }));
 }
 
+/* ================= updraft placement =================
+   Wind columns over pits, derived from the built geometry (same style
+   as placeHiddenFeathers): candidates are mover-free, feather-free
+   pits — the two widest (at least 100px) win. On L1 every template
+   pit is 60px, so if fewer than two qualify, the widest clean pits
+   fill in — the tutorial level still teaches the mechanic. Mover pits
+   are never eligible (the mover is the intended crossing) and a column
+   never shares a pit with a hidden feather. A column only ever ADDS
+   lift: its top ends below any platform slab overhanging its span. */
+function placeUpdrafts(groundsA, platsA, movers, hFeathers){
+  const pits = [];
+  for (let i = 0; i < groundsA.length - 1; i++){
+    const x0 = groundsA[i][0] + groundsA[i][2], x1 = groundsA[i + 1][0];
+    if (x1 - x0 < 40) continue;
+    const mv = (movers || []).find(m => m.baseX + m.w > x0 && m.baseX < x1);
+    const feathered = (hFeathers || []).some(f => f.x > x0 && f.x < x1);
+    pits.push({ x0, x1, w: x1 - x0, top: Math.min(groundsA[i][1], groundsA[i + 1][1]),
+      bot: Math.max(groundsA[i][1], groundsA[i + 1][1]), clean: !mv && !feathered });
+  }
+  const byWidth = (a, b) => b.w - a.w;
+  const picks = pits.filter(p => p.clean && p.w >= 100).sort(byWidth).slice(0, 2);
+  if (picks.length < 2)
+    for (const p of pits.filter(p => p.clean).sort(byWidth))
+      if (picks.length >= 2) break; else if (!picks.includes(p)) picks.push(p);
+  return picks.map(p => {
+    const w = Math.max(36, Math.min(110, p.w - 24));
+    const x = Math.round((p.x0 + p.x1) / 2 - w / 2);
+    let top = p.top - 150;
+    for (const pl of (platsA || []))   /* end below any slab overhanging the column */
+      if (pl[0] < x + w && pl[0] + pl[2] > x && pl[1] > top) top = Math.max(top, pl[1] + 14);
+    return { x, w, top, bot: Math.min(648, p.bot + 172), pitX0: p.x0, pitX1: p.x1 };
+  }).sort((a, b) => a.x - b.x);
+}
+
 /* ================= state ================= */
 const GRAV = 1500, JUMP_V = 580, MAXRUN = 268, GLIDE_FALL = 85;
 const FASTFALL_ACCEL = 2400, FASTFALL_V = 1150;   /* stick-down dive: extra downward accel + its terminal cap */
@@ -856,6 +892,7 @@ function rebuildSolids(){
 let coins = [], walkers = [];
 let L_MOVERS = [], feather = null, egg = null, boss = null;
 let hFeathers = [];   /* this level's 3 hidden feathers (taken mirrors the store) */
+let updrafts = [];    /* this level's wind columns over pits (placeUpdrafts) */
 let bossDefeated = false, barrierX = 0;
 let runFeathers = 0, levelTime = 0, totalTimeBonus = 0, lastTimeBonus = 0, lastTierCross = null;
 let levelStartTotal = 0, lastSkinUnlock = null;   /* feather total at level start / skin unlocked by this level */
@@ -1045,6 +1082,7 @@ function startLevel(n, quiet, withIntro){
   L_MOVERS = L.movers || [];
   feather = L.feather ? { ...L.feather } : null;
   hFeathers = (L.hFeathers || []).map((f, i) => ({ x: f.x, y: f.y, kind: f.kind, taken: (featherStore[n] || []).includes(i) }));
+  updrafts = L.updrafts || [];
   levelStartTotal = featherTotal(); lastSkinUnlock = null;
   egg = L.egg ? { ...L.egg } : null;
   boss = L.boss ? { ...L.boss } : null;
@@ -1196,6 +1234,24 @@ function update(dt){
   if (!P.onGround && input.fastFall) P.vy += FASTFALL_ACCEL * dt;   /* stick held down: dive */
   const termV = (!P.onGround && input.fastFall) ? FASTFALL_V : 720;
   if (P.vy > termV) P.vy = termV;
+  /* updrafts — airborne inside a wind column, vy is pulled toward a
+     capped rise rate. Holding jump (the glide input) rides higher:
+     -205 against -125 plain. The pull only ever slows a fall toward
+     that cap, so a jump already rising faster is never clipped, and
+     standing in a column does nothing at all. */
+  const wasDraft = !!P.inDraft;
+  P.inDraft = false;
+  if (!P.onGround){
+    const dcx = P.x + P.w / 2, dcy = P.y + P.h / 2;
+    for (const u of updrafts){
+      if (dcx > u.x && dcx < u.x + u.w && dcy > u.top && dcy < u.bot){ P.inDraft = true; break; }
+    }
+    if (P.inDraft){
+      const target = input.jumpHeld ? -205 : -125;
+      if (P.vy > target) P.vy = Math.max(target, P.vy - 3200 * dt);
+      if (!wasDraft) burst(dcx, P.y + P.h, 3, THEMES[level - 1].dark ? '#7dd7f0' : '#ffffff', 60, 0.4, 2, -120);
+    }
+  }
   const prevBottom = P.y + P.h;
   P.x += P.vx * dt;
   P.y += P.vy * dt;
@@ -1284,7 +1340,17 @@ function update(dt){
       const stomp = P.vy > 60 && ((P.y + P.h) - (wk.y - wk.h) < 17 || (prevBottom - (wk.y - wk.h)) <= 6);
       const dive = stomp && input.fastFall && P.vy > 720;   /* dive-bomb: only reachable via the stick-down dive */
       if (stomp){
-        if (wk.kind === 'brute' && wk.hp > 1){
+        if (wk.shield && !dive && wk.stun <= 0){
+          /* SHIELD BRUTE with its shield up: the stomp CLANGS off.
+             Nobody is hurt and nobody scores — the eagle just bounces
+             away. Only a dive-bomb, or a stomp while a screech stun
+             has the shield down, gets through (both handled below). */
+          P.vy = -360;
+          shakeT = Math.max(shakeT, 0.3);
+          burst(wk.x + (wk.dir > 0 ? wk.w + 2 : -2), wk.y - wk.h + 12, 8, '#ffe9a8', 160, 0.35, 2.2, 260);
+          addFloater(wk.x + wk.w / 2, wk.y - wk.h - 12, 'CLANG!', '#fff3c4', 15);
+          beep(1568, 0, 0.05, 'square', 0.07); beep(190, 0.01, 0.1, 'square', 0.11);
+        } else if (wk.kind === 'brute' && wk.hp > 1 && !wk.shield){
           wk.hp = 1; wk.stun = 2;
           P.vy = dive ? DIVE_BOUNCE : -360;
           shakeT = Math.max(shakeT, 0.6);
@@ -1298,6 +1364,7 @@ function update(dt){
           const pts = wk.kind === 'brute' ? 100 : 50;
           score += pts; hud();
           burst(wk.x + wk.w / 2, wk.y - wk.h, wk.kind === 'brute' ? 18 : 10, '#ff8fb0', wk.kind === 'brute' ? 190 : 160, 0.5, 2.6, 320);
+          if (wk.shield) burst(wk.x + wk.w / 2, wk.y - wk.h + 8, 10, '#c8ccd4', 200, 0.5, 2.6, 330);   /* shield shards */
           shakeT = Math.max(shakeT, dive ? 0.6 : (wk.kind === 'brute' ? 0.55 : 0.35));
           doHitStop(0.06);
           addFloater(wk.x + wk.w / 2, wk.y - wk.h - 12, dive ? ('+' + pts + ' DIVE') : ('+' + pts), wk.kind === 'brute' ? '#ffd76a' : '#ff8fb0', wk.kind === 'brute' ? 19 : 14);
@@ -1985,6 +2052,38 @@ function drawBoss(b){
   }
 }
 
+/* wind columns: a faint shaft over the pit plus rising streaks that
+   loop upward — speed and spacing hashed per column so every shaft
+   breathes differently. Purely cosmetic; the physics lives in update(). */
+function drawUpdrafts(){
+  const T = THEMES[level - 1];
+  const rgb = T.dark ? '125,215,240' : '255,255,255';
+  for (let ci = 0; ci < updrafts.length; ci++){
+    const u = updrafts[ci];
+    if (u.x + u.w < cam || u.x > cam + W / SCALE + 40) continue;
+    const hgt = u.bot - u.top;
+    const g = ctx.createLinearGradient(0, u.top, 0, u.bot);
+    g.addColorStop(0, `rgba(${rgb},0)`);
+    g.addColorStop(0.3, `rgba(${rgb},0.07)`);
+    g.addColorStop(1, `rgba(${rgb},0.13)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(u.x, u.top, u.w, hgt);
+    ctx.strokeStyle = `rgba(${rgb},0.55)`;
+    ctx.fillStyle = `rgba(${rgb},0.55)`;
+    ctx.lineWidth = 2; ctx.lineCap = 'round';
+    for (let s = 0; s < 6; s++){
+      const fx = u.x + 8 + ((ci * 37 + s * 53) % Math.max(10, u.w - 16));
+      const speed = 95 + ((ci * 29 + s * 41) % 50);
+      const len = 13 + ((ci * 13 + s * 7) % 9);
+      const yy = u.bot - ((runTime * speed + ci * 91 + s * 67) % hgt);
+      ctx.globalAlpha = Math.max(0.05, 0.2 + 0.12 * Math.sin(runTime * 2 + s * 1.7 + ci));
+      ctx.beginPath(); ctx.moveTo(fx, yy); ctx.lineTo(fx, yy - len); ctx.stroke();
+      ctx.beginPath(); ctx.arc(fx, yy - len, 1.8, 0, 7); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
 function draw(){
   const T = THEMES[level - 1];
   const viewW = W / SCALE;
@@ -2280,6 +2379,7 @@ function draw(){
       ctx.fillRect(px, topY + 6, pw, VH - topY - 6);
     }
   }
+  drawUpdrafts();
   drawFlags(viewW);
   /* platforms */
   L_PLATFORMS.forEach(([x, y, w], i) => drawPlatform(x, y, w, i));
@@ -2509,6 +2609,33 @@ function drawBrute(wk){
     ctx.beginPath();
     ctx.moveTo(wk.x + 10, baseY - 42); ctx.lineTo(wk.x + 18, baseY - 30);
     ctx.stroke();
+  }
+  /* shield brute: a steel plate carried on the front (patrol
+     direction — it flips when the brute turns). While stunned the
+     plate lies dropped at its feet: that dropped shield is the
+     visual tell for the stomp window. */
+  if (wk.shield){
+    ctx.save();
+    if (stunned){
+      ctx.translate(wk.dir > 0 ? wk.x + wk.w - 2 : wk.x + 2, baseY - 3);
+      ctx.rotate(wk.dir > 0 ? 1.25 : -1.25);
+      ctx.translate(-10, -13);
+    } else {
+      ctx.translate(wk.dir > 0 ? wk.x + wk.w - 4 : wk.x - 16, baseY - 42);
+    }
+    const sg = ctx.createLinearGradient(0, 0, 0, 40);
+    sg.addColorStop(0, '#d7dce4'); sg.addColorStop(0.5, '#9aa3b2'); sg.addColorStop(1, '#5f6875');
+    ctx.fillStyle = sg;
+    ctx.beginPath();
+    ctx.moveTo(2, 0); ctx.lineTo(18, 0); ctx.lineTo(18, 22);
+    ctx.quadraticCurveTo(18, 34, 10, 40);
+    ctx.quadraticCurveTo(2, 34, 2, 22);
+    ctx.closePath(); ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = '#39404c'; ctx.stroke();
+    ctx.fillStyle = '#ffd76a'; ctx.shadowColor = '#ffb700'; ctx.shadowBlur = 5;
+    ctx.beginPath(); ctx.arc(10, 15, 3.4, 0, 7); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.restore();
   }
   ctx.restore();
   if (stunned){
