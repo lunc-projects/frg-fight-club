@@ -36,6 +36,20 @@
     color:#ffd76a; text-shadow:0 0 18px rgba(255,183,0,.8), 0 2px 12px rgba(0,0,0,.7);
     opacity:0; transition:opacity .15s; pointer-events:none; padding:0 12px;
   }
+  #zoneBanner {
+    position:absolute; top:34%; width:100%; text-align:center; font-size:34px; font-weight:900; letter-spacing:.14em;
+    color:#fff; text-shadow:0 0 10px #40e0d0, 0 0 30px #40e0d0, 0 0 52px #ffb700, 0 2px 14px rgba(0,0,0,.8);
+    opacity:0; transition:opacity .3s; pointer-events:none; padding:0 12px;
+  }
+  #fxBar {
+    position:absolute; top:12px; width:100%; text-align:center; font-size:15px; font-weight:800; letter-spacing:.04em;
+    color:#ffe9a8; text-shadow:0 1px 8px rgba(0,0,0,.85); pointer-events:none; min-height:20px;
+  }
+  #hudZone { font-weight:900; font-size:11px; letter-spacing:.12em; color:#9be8ff; white-space:nowrap; }
+  #altMeter { width:64px; height:7px; border-radius:99px; background:rgba(255,255,255,.16);
+    border:1px solid rgba(255,255,255,.3); overflow:hidden; flex:0 0 auto; }
+  #altFill { height:100%; width:0%; border-radius:99px;
+    background:linear-gradient(90deg,#40e0d0,#ffd76a); transition:width .2s; }
   .screen {
     position:fixed; inset:0; z-index:10; display:flex; flex-direction:column; align-items:center; justify-content:center;
     gap:13px; text-align:center; padding:22px; background:rgba(6,12,30,.55); pointer-events:auto;
@@ -80,7 +94,7 @@
 <body>
 <div id="hud">
   <div id="hudCoins">🪙 0</div>
-  <div id="hudMid"><span id="hudLevel">ALT 0m</span><span class="chipPreview">PREVIEW</span></div>
+  <div id="hudMid"><span id="hudLevel">ALT 0m</span><span id="hudZone">SKY</span><div id="altMeter"><div id="altFill"></div></div><span class="chipPreview">PREVIEW</span></div>
   <div id="hudScore">0</div>
   <button id="rstBtn" title="Restart run (R)">↩</button>
   <button id="muteBtn">🔊</button>
@@ -88,7 +102,9 @@
 <div id="cvwrap"><canvas id="game"></canvas></div>
 
 <div id="ui">
+  <div id="fxBar"></div>
   <div id="toast"></div>
+  <div id="zoneBanner"></div>
 </div>
 
 <div class="screen" id="startScreen">
@@ -100,6 +116,12 @@
      blast you sky-high, but <b>cracked platforms crumble</b> under your boots. Grab the LUNC coins
      (<b>+10</b>) and the rare USTC (<b>+25</b>) on the way up — and whatever you do, don't fall:
      the sky only scrolls one way. 🧑‍🚀🌕</p>
+  <p>Grab the gear you find on the way: <b>🚀 jetpacks</b> and <b>🌀 propeller caps</b> fly you
+     upward, a <b>🛡️ shield bubble</b> eats one comet hit, and a <b>🧲 magnet</b> pulls coins in.
+     <b>Comet critters</b> drift between the platforms — <b>bounce on top of one for +25</b>,
+     but hit one from the side and the run is over. Climb through the <b>Sky</b>, the
+     <b>Stratosphere</b> and <b>Orbit</b> into <b>Deep Space</b> — your best-height flag 🚩
+     is waiting up there to be beaten.</p>
   <button class="play" id="startBtn">▶ START CLIMBING</button>
   <button class="play alt" id="boardBtn">🏆 LEADERBOARD</button>
 </div>
@@ -219,6 +241,12 @@ const sfx = {
   ustc(){ tone(760, 1520, 0.20, 'triangle', 0.12); },
   crack(){ tone(160, 60, 0.16, 'sawtooth', 0.10); },
   fall(){ tone(700, 90, 0.55, 'sine', 0.12); },
+  power(){ tone(520, 780, 0.09, 'square', 0.07); setTimeout(() => tone(780, 1180, 0.12, 'square', 0.07), 70); },
+  shieldUp(){ tone(440, 880, 0.18, 'triangle', 0.10); },
+  shieldPop(){ tone(340, 70, 0.22, 'sawtooth', 0.12); },
+  stomp(){ tone(420, 940, 0.14, 'square', 0.09); },
+  zone(){ tone(392, 392, 0.10, 'triangle', 0.09); setTimeout(() => tone(587, 587, 0.10, 'triangle', 0.09), 100); setTimeout(() => tone(784, 784, 0.16, 'triangle', 0.09), 200); },
+  mile(){ tone(988, 1318, 0.14, 'sine', 0.09); },
 };
 
 /* ================= game state ================= */
@@ -230,15 +258,60 @@ const MAX_GAP = 148;        /* generator ceiling for one hop (well under the 267
 const PW2 = 15;             /* player half width */
 const PLAYER_H = 46;
 
+/* ---- upgrade pack: power-ups, comet critters, altitude zones ---- */
+const JET_VEL = 1420, JET_TIME = 2.6;      /* jetpack: strong, sustained climb */
+const PROP_VEL = 1020, PROP_TIME = 1.5;    /* propeller cap: weaker + shorter */
+const MAGNET_TIME = 6, MAGNET_R = 140;     /* coin magnet duration / pull radius */
+const INVULN_TIME = 1.2;                   /* grace after a shield save */
+const CRIT_R = 15;                         /* comet critter radius */
+const PICKUP_MIN_Y = 700;                  /* no pickups in the opening bounce zone */
+const CRIT_MIN_Y = 1400;                   /* no critters down low either */
+const ZONES = [
+  { name: 'SKY',          until: 1500,     icon: '🌤️' },
+  { name: 'STRATOSPHERE', until: 4000,     icon: '🛩️' },
+  { name: 'ORBIT',        until: 8000,     icon: '🛰️' },
+  { name: 'DEEP SPACE',   until: Infinity, icon: '🌌' },
+];
+/* sky gradient stops (altitude px → [top rgb, bottom rgb]) — deep navy at the
+   surface, lightening zone by zone toward space blue, as before */
+const SKY_STOPS = [
+  [0,    [12, 18, 56],  [7, 11, 36]],
+  [1500, [26, 38, 102], [13, 20, 62]],
+  [4000, [48, 60, 142], [24, 30, 86]],
+  [8000, [74, 88, 164], [36, 46, 102]],
+];
+function zoneIdxFor(alt){
+  for (let i = 0; i < ZONES.length; i++) if (alt < ZONES[i].until) return i;
+  return ZONES.length - 1;
+}
+function skyAt(alt){
+  let a = SKY_STOPS[0], b = SKY_STOPS[SKY_STOPS.length - 1];
+  for (let i = 0; i < SKY_STOPS.length - 1; i++){
+    if (alt >= SKY_STOPS[i][0] && alt <= SKY_STOPS[i + 1][0]){ a = SKY_STOPS[i]; b = SKY_STOPS[i + 1]; break; }
+  }
+  if (alt > b[0]) a = b;
+  const f = b[0] === a[0] ? 0 : clamp((alt - a[0]) / (b[0] - a[0]), 0, 1);
+  return [lerpC(a[1], b[1], f), lerpC(a[2], b[2], f)];
+}
+
 let state = 'menu';         /* menu | play | dying | over */
 let RUN_SEED = 1, seedPinned = null, rng = mulberry(1);
+let fxRng = mulberry(987654);   /* cosmetic-only rng — never touches generation */
 let platforms = [], shards = [], freeCoins = [];
-let genY = 0, lastX = 0, lastType = 'rock', idc = 1;
+let pickups = [], critters = [], parts = [];
+let genY = 0, lastX = 0, lastType = 'rock', idc = 1, pkc = 1, crc = 1;
 let px = 0, py = 0, pvx = 0, pvy = 0;         /* py = altitude of the astronaut's feet */
 let camAlt = 0, maxAlt = 0;
 let score = 0, coinScore = 0, coinCount = 0, luncCount = 0, ustcCount = 0;
 let elapsed = 0, tGlobal = 0, deathT = 0, bounceT = 0, lastDeath = null;
 let keySteer = 0, pointerActive = false, pointerWX = 0;
+/* upgrade-pack state */
+let flyT = 0, flyKind = null;              /* 'jetpack' | 'prop' while > 0 */
+let shieldOn = false, magnetT = 0, invulnT = 0;
+let stompCount = 0, pickupCount = 0;
+let zoneIdx = 0, lastZoneIdx = 0, milestones = 0;
+let bestAlt = 0, flagAlt = 0, bestBeaten = false;
+let shakeT = 0, shakeMag = 0, trailAcc = 0;
 
 /* star layers for the background (screen-space, parallax by wrap) */
 const STARS = [];
@@ -280,6 +353,41 @@ function genNext(){
   if (type !== 'crack' && rng() < 0.27) opts.coin = rng() < 0.12 ? 'ustc' : 'lunc';
   const p = makePlatform(x, y, w, type, opts);
   platforms.push(p);
+  /* upgrade pack: a power-up sometimes hovers over the new platform. It is a
+     bonus floating off the required path — the hop never depends on it. */
+  if (y >= PICKUP_MIN_Y && type !== 'crack' && rng() < 0.045){
+    const r = rng();
+    const kind = r < 0.20 ? 'jetpack' : (r < 0.47 ? 'prop' : (r < 0.74 ? 'shield' : 'magnet'));
+    pickups.push({ id: pkc++, kind, plat: p, x: 0, y: 0, taken: false, ph: rng() * 6.28 });
+  }
+  /* upgrade pack: a comet critter sometimes drifts in the gap just crossed.
+     Placement is corridor-safe BY CONSTRUCTION. A climber crossing a gap
+     sweeps the whole span between the two platform centres through the gap's
+     altitude band, so the only safe spot is the far side of the world: the
+     antipode of the gap's midpoint, kept ≥150px (wrap-aware) from BOTH
+     centres — patrol (±20) + collision box (±28) + steering wander still
+     leave ~100px of clearance from every centre a climber aims at or bounces
+     on. Extra guards: no critter when the lower platform carries a spring
+     (a spring launch crosses several gaps at once) and none next to a moving
+     platform (its sway widens the corridor). If no spot qualifies — narrow
+     world, wide step — the spawn is skipped. A climber who ignores critters
+     completely therefore still climbs: they are bonuses, never the only
+     way up, and never on the required path. */
+  const lowerP = platforms.length >= 2 ? platforms[platforms.length - 2] : null;
+  if (y >= CRIT_MIN_Y && lowerP && !lowerP.spring && lowerP.type !== 'move' && type !== 'move'
+      && rng() < 0.30 + 0.15 * clamp(genY / 12000, 0, 1)){
+    const stepD = wrapDelta(x - lastX);
+    const anti = lastX + stepD / 2 + worldW / 2;
+    for (const off of [0, 30, -30, 60, -60, 90, -90]){
+      let cx = (anti + off) % worldW; if (cx < 0) cx += worldW;
+      if (Math.abs(wrapDelta(cx - lastX)) >= 150 && Math.abs(wrapDelta(cx - x)) >= 150){
+        const midY = (genY + y) / 2;
+        critters.push({ id: crc++, ax: cx, baseY: midY, x: cx, y: midY,
+          ph: rng() * 6.28, knocked: false, kvx: 0, kvy: 0, life: 0, dead: false });
+        break;
+      }
+    }
+  }
   genY = y; lastX = x; lastType = type;
   return p;
 }
@@ -288,7 +396,16 @@ function genUpTo(limit){ while (genY < limit) genNext(); }
 function reset(){
   RUN_SEED = (seedPinned !== null ? seedPinned : (Date.now() % 2147483647)) >>> 0;
   rng = mulberry(RUN_SEED);
-  platforms = []; shards = []; freeCoins = []; idc = 1;
+  fxRng = mulberry(987654);
+  platforms = []; shards = []; freeCoins = [];
+  pickups = []; critters = []; parts = [];
+  idc = 1; pkc = 1; crc = 1;
+  flyT = 0; flyKind = null; shieldOn = false; magnetT = 0; invulnT = 0;
+  stompCount = 0; pickupCount = 0;
+  zoneIdx = 0; lastZoneIdx = 0; milestones = 0;
+  shakeT = 0; shakeMag = 0; trailAcc = 0;
+  bestAlt = parseFloat(localStorage.getItem('lunaClimbBest') || '0') || 0;
+  flagAlt = bestAlt; bestBeaten = false;
   genY = 0; lastX = worldW / 2; lastType = 'rock';
   platforms.push({ id: 0, x: worldW / 2, baseX: worldW / 2, y: 0, w: worldW + 80, type: 'rock',
     amp: 0, spd: 0, ph: 0, spring: false, springT: 0, coin: null, broken: false, seed: 7 });
@@ -326,7 +443,7 @@ function landOn(p){
   py = p.y;
   bounceT = 0.14;
   if (p.spring && Math.abs(wrapDelta(p.x - px)) <= 20){
-    pvy = SPRING_VEL; p.springT = 0.28; sfx.spring();
+    pvy = SPRING_VEL; p.springT = 0.28; sfx.spring(); shake(3, 0.12);
   } else {
     pvy = BOUNCE_VEL; sfx.bounce();
   }
@@ -338,13 +455,76 @@ function collect(c, kind){
   else { coinScore += 10; luncCount++; sfx.coin(); }
   score = Math.floor(maxAlt / 10) + coinScore;
 }
-function die(){
-  state = 'dying'; deathT = 0; lastDeath = 'fall';
+/* ================= upgrade pack: particles ================= */
+function spawnParts(x, y, n, kind, spread){
+  for (let i = 0; i < n; i++){
+    const a = fxRng() * 6.283, sp = (spread || 60) * (0.3 + fxRng() * 0.7);
+    parts.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp + 30,
+      life: 0, max: 0.35 + fxRng() * 0.3, kind, size: 1.6 + fxRng() * 2.2 });
+  }
+  if (parts.length > 140) parts.splice(0, parts.length - 140);
+}
+function shake(mag, dur){ shakeMag = Math.max(shakeMag, mag); shakeT = Math.max(shakeT, dur); }
+/* ================= upgrade pack: power-ups ================= */
+function pickupPos(pk){ return pk.plat ? { x: pk.plat.x, y: pk.plat.y + 58 } : { x: pk.x, y: pk.y }; }
+function gainPickup(pk){
+  pk.taken = true;
+  pickupCount++;
+  const pos = pickupPos(pk);
+  spawnParts(pos.x, pos.y, 7, 'spark', 130);
+  if (pk.kind === 'jetpack'){ flyKind = 'jetpack'; flyT = JET_TIME; toast('🚀 JETPACK!'); sfx.power(); }
+  else if (pk.kind === 'prop'){ flyKind = 'prop'; flyT = PROP_TIME; toast('🌀 PROPELLER CAP!'); sfx.power(); }
+  else if (pk.kind === 'shield'){ shieldOn = true; toast('🛡️ SHIELD BUBBLE!'); sfx.shieldUp(); }
+  else if (pk.kind === 'magnet'){ magnetT = MAGNET_TIME; toast('🧲 COIN MAGNET!'); sfx.power(); }
+}
+/* ================= upgrade pack: comet critters ================= */
+function critterPos(c){
+  if (c.knocked) return { x: c.x, y: c.y };
+  if (c.patrol === false) return { x: c.ax, y: c.baseY };
+  return { x: c.ax + Math.sin(tGlobal * 0.6 + c.ph) * 20,
+           y: c.baseY + Math.sin(tGlobal * 1.3 + c.ph) * 8 };
+}
+function stompCritter(c){
+  c.dead = true;
+  stompCount++;
+  coinScore += 25;
+  score = Math.floor(maxAlt / 10) + coinScore;
+  py = c.y + CRIT_R + 2;
+  pvy = SPRING_VEL;
+  bounceT = 0.14;
+  shake(2, 0.10);
+  spawnParts(c.x, c.y, 8, 'spark', 150);
+  toast('☄️ COMET STOMP +25');
+  sfx.stomp();
+}
+function hitCritter(c){
+  if (shieldOn){
+    shieldOn = false;
+    invulnT = INVULN_TIME;
+    c.knocked = true; c.life = 0.8;
+    const away = wrapDelta(c.x - px) >= 0 ? 1 : -1;
+    c.kvx = away * 280; c.kvy = 60;
+    shake(6, 0.25);
+    spawnParts(px, py + 23, 10, 'spark', 170);
+    toast('🛡️ SHIELD SAVED YOU!');
+    sfx.shieldPop();
+  } else {
+    die('critter');
+  }
+}
+function die(cause){
+  state = 'dying'; deathT = 0; lastDeath = cause || 'fall';
   sfx.fall();
 }
 function showOver(){
   state = 'over';
-  $('overTitle').textContent = 'YOU FELL!';
+  if (maxAlt > bestAlt){
+    bestAlt = maxAlt;
+    try { localStorage.setItem('lunaClimbBest', String(Math.floor(bestAlt))); } catch (e) { /* private mode */ }
+  }
+  $('overTitle').textContent = lastDeath === 'critter' ? 'COMET GOT YOU!' : 'YOU FELL!';
+  $('overBadge').textContent = lastDeath === 'critter' ? '☄️' : '🌠';
+  $('overKicker').textContent = 'RUN ENDED · BEST ' + Math.floor(bestAlt / 10) + 'm';
   $('overStats').textContent =
     `You climbed ${Math.floor(maxAlt / 10)} metres and scored ${score} — ` +
     `${luncCount} LUNC coin${luncCount === 1 ? '' : 's'}, ${ustcCount} USTC, ${Math.round(elapsed)}s in the sky.`;
@@ -355,6 +535,20 @@ function updateHud(){
   $('hudCoins').textContent = '🪙 ' + coinCount;
   $('hudLevel').textContent = 'ALT ' + Math.floor(maxAlt / 10) + 'm';
   $('hudScore').textContent = score;
+  /* altitude meter: progress through the current zone (Deep Space fills
+     toward the next 500 m milestone instead) */
+  const zi = zoneIdxFor(maxAlt);
+  $('hudZone').textContent = ZONES[zi].name;
+  const zStart = zi === 0 ? 0 : ZONES[zi - 1].until;
+  const zEnd = ZONES[zi].until === Infinity ? zStart + 5000 : ZONES[zi].until;
+  $('altFill').style.width = (clamp((maxAlt - zStart) / (zEnd - zStart), 0, 1) * 100).toFixed(1) + '%';
+  /* active-effect icons with remaining time */
+  const fx = [];
+  if (flyT > 0 && flyKind) fx.push((flyKind === 'jetpack' ? '🚀 ' : '🌀 ') + flyT.toFixed(1) + 's');
+  if (shieldOn) fx.push('🛡️');
+  if (magnetT > 0) fx.push('🧲 ' + magnetT.toFixed(1) + 's');
+  if (invulnT > 0) fx.push('✨ ' + invulnT.toFixed(1) + 's');
+  $('fxBar').textContent = fx.join('   ');
 }
 
 function step(dt){
@@ -362,6 +556,9 @@ function step(dt){
   tGlobal += dt;
   if (state === 'play') elapsed += dt;
   if (bounceT > 0) bounceT -= dt;
+  if (invulnT > 0) invulnT -= dt;
+  if (magnetT > 0) magnetT -= dt;
+  if (shakeT > 0){ shakeT -= dt; if (shakeT <= 0) shakeMag = 0; }
 
   /* steering */
   if (state === 'play'){
@@ -382,9 +579,18 @@ function step(dt){
     if (p.springT > 0) p.springT -= dt;
   }
 
-  /* vertical physics */
+  /* vertical physics — powered flight overrides gravity while it lasts */
   const prevY = py;
-  pvy -= GRAV * dt;
+  if (state === 'play' && flyT > 0){
+    flyT -= dt;
+    pvy = flyKind === 'jetpack' ? JET_VEL : PROP_VEL;
+    if (flyKind === 'jetpack')
+      parts.push({ x: px - 16 + (fxRng() - 0.5) * 6, y: py - 32, vx: (fxRng() - 0.5) * 30,
+        vy: -300 - fxRng() * 120, life: 0, max: 0.30, kind: 'flame', size: 2.5 + fxRng() * 2.5 });
+    if (flyT <= 0){ flyT = 0; flyKind = null; }
+  } else {
+    pvy -= GRAV * dt;
+  }
   py += pvy * dt;
   px += pvx * dt;
   if (px < -PW2) px += worldW; else if (px > worldW + PW2) px -= worldW;
@@ -417,6 +623,83 @@ function step(dt){
     }
   }
 
+  /* magnet: nearby coins break loose and home in on the astronaut */
+  if (state === 'play' && magnetT > 0){
+    const cy = py + PLAYER_H / 2;
+    for (const p of platforms){
+      if (p.coin && !p.coin.taken){
+        const cyy = p.y + 40 + Math.sin(tGlobal * 3 + p.seed) * 3;
+        const dx = wrapDelta(p.x - px);
+        if (Math.abs(dx) < MAGNET_R && Math.abs(cyy - cy) < MAGNET_R){
+          p.coin.taken = true;
+          freeCoins.push({ x: p.x, y: cyy, kind: p.coin.kind, taken: false, homing: true });
+        }
+      }
+    }
+    for (const c of freeCoins){
+      if (c.taken || c.homing) continue;
+      if (Math.abs(wrapDelta(c.x - px)) < MAGNET_R && Math.abs(c.y - cy) < MAGNET_R) c.homing = true;
+    }
+  }
+  if (state === 'play'){
+    const cy = py + PLAYER_H / 2;
+    for (const c of freeCoins){
+      if (c.taken || !c.homing) continue;
+      const dx = wrapDelta(px - c.x), dy = cy - c.y;
+      const d = Math.hypot(dx, dy);
+      if (d > 4){ c.x += dx / d * 560 * dt; c.y += dy / d * 560 * dt; }
+    }
+  }
+
+  /* power-up pickups */
+  if (state === 'play'){
+    const cy = py + PLAYER_H / 2;
+    for (const pk of pickups){
+      if (pk.taken) continue;
+      const pos = pickupPos(pk);
+      const bobY = pos.y + Math.sin(tGlobal * 2.4 + pk.ph) * 3;
+      if (Math.abs(wrapDelta(pos.x - px)) < 32 && Math.abs(bobY - cy) < 42) gainPickup(pk);
+    }
+  }
+
+  /* comet critters: drift, patrol, collide */
+  if (state === 'play' || critters.length){
+    const cy = py + PLAYER_H / 2;
+    for (const c of critters){
+      if (c.dead) continue;
+      if (c.knocked){
+        c.life -= dt;
+        c.x += c.kvx * dt; c.y += c.kvy * dt;
+        c.kvy -= GRAV * 0.25 * dt;
+        if (c.x < -30) c.x += worldW; else if (c.x > worldW + 30) c.x -= worldW;
+        if (c.life <= 0) c.dead = true;
+        continue;
+      }
+      const pos = critterPos(c);
+      c.x = pos.x; c.y = pos.y;
+      if (state !== 'play' || invulnT > 0) continue;
+      const dx = wrapDelta(c.x - px), dy = c.y - cy;
+      if (Math.abs(dx) < CRIT_R + 13 && Math.abs(dy) < CRIT_R + 20){
+        /* stomp: falling, with the boots at or above the critter's centre */
+        if (pvy < -60 && py >= c.y - 6) stompCritter(c);
+        else hitCritter(c);
+        if (state !== 'play') break;
+      }
+    }
+    critters = critters.filter(c => !c.dead);
+  }
+
+  /* star trail behind the astronaut */
+  if (state === 'play'){
+    trailAcc += dt;
+    while (trailAcc > 0.04){
+      trailAcc -= 0.04;
+      parts.push({ x: px + (fxRng() - 0.5) * 18, y: py + 16 + (fxRng() - 0.5) * 10,
+        vx: (fxRng() - 0.5) * 24, vy: -46 - fxRng() * 30, life: 0, max: 0.5, kind: 'star', size: 1.8 + fxRng() * 1.8 });
+    }
+    if (parts.length > 140) parts.splice(0, parts.length - 140);
+  }
+
   /* camera only moves up */
   if (state !== 'menu'){
     const target = py - VH * 0.52;
@@ -424,15 +707,45 @@ function step(dt){
     if (py > maxAlt){ maxAlt = py; score = Math.floor(maxAlt / 10) + coinScore; }
   }
 
+  /* altitude zones, 500 m milestones, personal-best flag (play only) */
+  if (state === 'play'){
+    zoneIdx = zoneIdxFor(maxAlt);
+    if (zoneIdx > lastZoneIdx){
+      lastZoneIdx = zoneIdx;
+      showBanner(ZONES[zoneIdx].icon + ' ' + ZONES[zoneIdx].name);
+      sfx.zone();
+    }
+    const ms = Math.floor(maxAlt / 5000);
+    if (ms > milestones){
+      milestones = ms;
+      toast('🎉 ' + (ms * 500) + 'm!');
+      sfx.mile();
+    }
+    if (flagAlt > 0 && !bestBeaten && maxAlt > flagAlt){
+      bestBeaten = true;
+      toast('🚩 NEW PERSONAL BEST!');
+    }
+    if (maxAlt > bestAlt){
+      bestAlt = maxAlt;
+      try { localStorage.setItem('lunaClimbBest', String(Math.floor(bestAlt))); } catch (e) { /* private mode */ }
+    }
+  }
+
   /* generation + culling */
   genUpTo(camAlt + VH + 260);
   const cull = camAlt - 140;
   if (platforms.length && platforms[0].y < cull) platforms = platforms.filter(p => p.y >= cull);
   if (freeCoins.length) freeCoins = freeCoins.filter(c => c.y >= cull && !c.taken);
+  if (pickups.length) pickups = pickups.filter(pk => !pk.taken && (pk.plat ? platforms.includes(pk.plat) : pk.y >= cull));
+  if (critters.length) critters = critters.filter(c => !c.dead && c.baseY >= cull - 80);
 
   /* shards */
   for (const s of shards){ s.vy -= GRAV * 0.6 * dt; s.y += s.vy * dt; s.rot += s.vr * dt; s.life -= dt; }
   shards = shards.filter(s => s.life > 0);
+
+  /* juice particles (trail stars, pickup sparkles, jetpack flames) */
+  for (const pt of parts){ pt.life += dt; pt.x += pt.vx * dt; pt.y += pt.vy * dt; }
+  parts = parts.filter(pt => pt.life < pt.max);
 
   /* death */
   if (state === 'play' && py < camAlt - 40) die();
@@ -561,6 +874,20 @@ function drawAstronaut(xoff){
   ctx.translate(x, feetSy);
   ctx.scale(2 - sq > 1.18 ? 1 : 1 / Math.sqrt(sq), sq);
   const kick = clamp(pvy / 2600, -1, 1) * 3;
+  /* jetpack (worn while the jetpack pickup is active) + its flame */
+  if (flyKind === 'jetpack'){
+    if (flyT > 0){
+      const fl = 13 + Math.sin(tGlobal * 34) * 4;
+      ctx.fillStyle = 'rgba(255,140,40,0.9)';
+      ctx.beginPath(); ctx.moveTo(-25, -6); ctx.lineTo(-13, -6); ctx.lineTo(-19, -6 + fl + 8); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(255,230,150,0.95)';
+      ctx.beginPath(); ctx.moveTo(-22.5, -6); ctx.lineTo(-15.5, -6); ctx.lineTo(-19, -6 + fl * 0.6 + 4); ctx.closePath(); ctx.fill();
+    }
+    ctx.fillStyle = '#e8641e';
+    ctx.fillRect(-27, -38, 8, 26); ctx.fillRect(-12, -38, 8, 26);
+    ctx.fillStyle = '#c8ccd8';
+    ctx.fillRect(-27, -41, 8, 4); ctx.fillRect(-12, -41, 8, 4);
+  }
   /* backpack */
   ctx.fillStyle = '#8d99c9';
   ctx.fillRect(-20, -33, 8, 23);
@@ -602,15 +929,146 @@ function drawAstronaut(xoff){
   ctx.strokeStyle = '#ffd76a';
   ctx.beginPath(); ctx.moveTo(8, -52); ctx.lineTo(13, -60); ctx.stroke();
   drawStar(14, -62, 4, '#ffd76a');
+  /* propeller cap (worn while the propeller pickup is active) */
+  if (flyKind === 'prop'){
+    ctx.fillStyle = '#ff5d7a';
+    ctx.beginPath(); ctx.arc(0, -50, 9, Math.PI, 0); ctx.fill();
+    ctx.fillRect(-9, -51, 18, 3);
+    ctx.save();
+    ctx.translate(0, -59);
+    ctx.rotate(tGlobal * 32);
+    ctx.fillStyle = '#9be8ff';
+    ctx.fillRect(-17, -1.6, 34, 3.2);
+    ctx.restore();
+    ctx.fillStyle = '#ffd76a';
+    ctx.beginPath(); ctx.arc(0, -59, 2.4, 0, Math.PI * 2); ctx.fill();
+  }
+  /* shield bubble */
+  if (shieldOn){
+    ctx.beginPath(); ctx.arc(0, -23, 31 + Math.sin(tGlobal * 3.4) * 1.4, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(120,220,255,0.13)'; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(170,235,255,0.85)'; ctx.stroke(); ctx.lineWidth = 1;
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.beginPath(); ctx.arc(-13, -36, 3.4, 0, Math.PI * 2); ctx.fill();
+  }
+  /* invulnerability sparkle right after a shield save */
+  if (invulnT > 0 && Math.sin(tGlobal * 26) > 0){
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.arc(0, -23, 35, 0, Math.PI * 2); ctx.stroke(); ctx.lineWidth = 1;
+  }
   ctx.restore();
+}
+function drawPickup(pk){
+  const pos = pickupPos(pk);
+  const bobY = pos.y + Math.sin(tGlobal * 2.4 + pk.ph) * 3;
+  const sy = SY(bobY);
+  if (sy < -36 || sy > VH + 36) return;
+  const x = pos.x;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(x, sy, 15 + Math.sin(tGlobal * 3.2 + pk.ph) * 1.5, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,215,106,0.16)'; ctx.fill();
+  ctx.lineWidth = 1.6;
+  if (pk.kind === 'jetpack'){
+    ctx.fillStyle = '#e8641e';
+    ctx.fillRect(x - 8, sy - 10, 7, 17); ctx.fillRect(x + 1, sy - 10, 7, 17);
+    ctx.fillStyle = '#c8ccd8';
+    ctx.fillRect(x - 8, sy - 13, 7, 4); ctx.fillRect(x + 1, sy - 13, 7, 4);
+    ctx.fillStyle = '#ffd76a';
+    ctx.beginPath(); ctx.moveTo(x - 6, sy + 7); ctx.lineTo(x - 2, sy + 7); ctx.lineTo(x - 4, sy + 12); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(x + 3, sy + 7); ctx.lineTo(x + 7, sy + 7); ctx.lineTo(x + 5, sy + 12); ctx.closePath(); ctx.fill();
+  } else if (pk.kind === 'prop'){
+    ctx.strokeStyle = '#9be8ff'; ctx.beginPath(); ctx.moveTo(x - 12, sy - 9); ctx.lineTo(x + 12, sy - 9); ctx.stroke();
+    ctx.fillStyle = '#ff5d7a';
+    ctx.beginPath(); ctx.arc(x, sy - 2, 8, Math.PI, 0); ctx.fill();
+    ctx.fillRect(x - 8, sy - 2, 16, 3);
+    ctx.fillStyle = '#ffd76a'; ctx.beginPath(); ctx.arc(x, sy - 9, 2.4, 0, Math.PI * 2); ctx.fill();
+  } else if (pk.kind === 'shield'){
+    ctx.beginPath(); ctx.arc(x, sy, 11, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(120,220,255,0.25)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(170,235,255,0.95)'; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.beginPath(); ctx.arc(x - 4, sy - 4, 3, 0, Math.PI * 2); ctx.fill();
+  } else { /* magnet */
+    ctx.strokeStyle = '#ff5d5d'; ctx.lineWidth = 4.5;
+    ctx.beginPath(); ctx.arc(x, sy - 1, 8, Math.PI, 0); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x - 8, sy - 1); ctx.lineTo(x - 8, sy + 7); ctx.moveTo(x + 8, sy - 1); ctx.lineTo(x + 8, sy + 7); ctx.stroke();
+    ctx.strokeStyle = '#e8eaf4'; ctx.lineWidth = 4.5;
+    ctx.beginPath(); ctx.moveTo(x - 8, sy + 4); ctx.lineTo(x - 8, sy + 8); ctx.moveTo(x + 8, sy + 4); ctx.lineTo(x + 8, sy + 8); ctx.stroke();
+    ctx.lineWidth = 1;
+  }
+  ctx.restore();
+}
+function drawCritter(c){
+  const sy = SY(c.y);
+  if (sy < -40 || sy > VH + 40) return;
+  const x = c.x;
+  ctx.save();
+  ctx.translate(x, sy);
+  if (c.knocked){ ctx.rotate(tGlobal * 9); ctx.globalAlpha = Math.max(0, c.life / 0.8); }
+  /* flame tail, flickering behind the rock (it drifts sideways; tail trails -x) */
+  const fl = 12 + Math.sin(tGlobal * 22 + c.ph) * 4;
+  ctx.fillStyle = 'rgba(255,140,40,0.85)';
+  ctx.beginPath(); ctx.moveTo(-CRIT_R + 2, -5); ctx.lineTo(-CRIT_R - fl, 0); ctx.lineTo(-CRIT_R + 2, 5); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = 'rgba(255,215,106,0.9)';
+  ctx.beginPath(); ctx.moveTo(-CRIT_R + 2, -2.5); ctx.lineTo(-CRIT_R - fl * 0.55, 0); ctx.lineTo(-CRIT_R + 2, 2.5); ctx.closePath(); ctx.fill();
+  /* rocky body */
+  ctx.beginPath(); ctx.arc(0, 0, CRIT_R, 0, Math.PI * 2);
+  ctx.fillStyle = '#a0522d'; ctx.fill();
+  ctx.lineWidth = 2; ctx.strokeStyle = '#6e3418'; ctx.stroke(); ctx.lineWidth = 1;
+  ctx.fillStyle = 'rgba(60,26,10,0.5)';
+  for (let i = 0; i < 3; i++){
+    const a = c.ph + i * 2.2;
+    ctx.beginPath(); ctx.arc(Math.cos(a) * 6, Math.sin(a) * 5, 2.6 + (i % 2), 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.beginPath(); ctx.arc(-4, -4, 1.6, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(4, -4, 1.6, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+function drawFlag(){
+  if (flagAlt <= 0) return;
+  const sy = SY(flagAlt);
+  if (sy < -50 || sy > VH + 50) return;
+  const x = worldW - 30;
+  ctx.save();
+  ctx.strokeStyle = '#e8eaf4'; ctx.lineWidth = 2.4;
+  ctx.beginPath(); ctx.moveTo(x, sy); ctx.lineTo(x, sy - 36); ctx.stroke(); ctx.lineWidth = 1;
+  ctx.fillStyle = bestBeaten ? '#4ade3d' : '#ffd76a';
+  ctx.beginPath(); ctx.moveTo(x, sy - 36); ctx.lineTo(x + 17, sy - 30); ctx.lineTo(x, sy - 24); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.font = '900 9px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText('BEST ' + Math.floor(flagAlt / 10) + 'm', x - 4, sy + 9);
+  ctx.restore();
+}
+function drawParts(){
+  for (const pt of parts){
+    const sy = SY(pt.y);
+    if (sy < -20 || sy > VH + 20) continue;
+    const a = Math.max(0, 1 - pt.life / pt.max);
+    ctx.save();
+    ctx.globalAlpha = a;
+    if (pt.kind === 'flame'){
+      ctx.fillStyle = pt.life < pt.max * 0.5 ? '#ffb700' : '#e8641e';
+      ctx.beginPath(); ctx.arc(pt.x, sy, pt.size * (1 - pt.life / pt.max * 0.5), 0, Math.PI * 2); ctx.fill();
+    } else if (pt.kind === 'spark'){
+      drawStar(pt.x, sy, pt.size * 2.1, '#ffe9a8');
+    } else {
+      drawStar(pt.x, sy, pt.size * 1.7, 'rgba(255,255,255,0.9)');
+    }
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
 }
 function draw(){
   ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
-  /* sky — deep navy at the surface, lightening toward space as you climb */
+  if (shakeT > 0 && shakeMag > 0)
+    ctx.translate((hash01((tGlobal * 60) | 0) - 0.5) * 2 * shakeMag, (hash01(((tGlobal * 60) | 0) + 777) - 0.5) * 2 * shakeMag);
+  /* sky — deep navy at the surface, lightening zone by zone toward space */
   const f = clamp(camAlt / 26000, 0, 1);
+  const sky = skyAt(camAlt);
   const g = ctx.createLinearGradient(0, 0, 0, VH);
-  g.addColorStop(0, rgb(lerpC([12, 18, 56], [74, 88, 164], f)));
-  g.addColorStop(1, rgb(lerpC([7, 11, 36], [36, 46, 102], f)));
+  g.addColorStop(0, rgb(sky[0]));
+  g.addColorStop(1, rgb(sky[1]));
   ctx.fillStyle = g; ctx.fillRect(0, 0, worldW, VH);
   /* stars (parallax layers) */
   for (const s of STARS){
@@ -645,6 +1103,10 @@ function draw(){
   /* platforms, coins, shards, astronaut */
   for (const p of platforms) if (!p.broken) drawPlatform(p);
   for (const c of freeCoins) if (!c.taken) drawCoin(c.x, c.y, c.kind);
+  for (const pk of pickups) if (!pk.taken) drawPickup(pk);
+  for (const c of critters) if (!c.dead) drawCritter(c);
+  drawFlag();
+  drawParts();
   for (const s of shards){
     ctx.save();
     ctx.translate(s.x, SY(s.y));
@@ -670,7 +1132,14 @@ function draw(){
   }
 }
 
-/* ================= toast ================= */
+/* ================= toast + zone banner ================= */
+function showBanner(msg){
+  const b = $('zoneBanner');
+  b.textContent = msg;
+  b.style.opacity = 1;
+  clearTimeout(b._h);
+  b._h = setTimeout(() => { b.style.opacity = 0; }, 1500);
+}
 function toast(msg){
   const t = $('toast');
   t.textContent = msg;
@@ -844,16 +1313,47 @@ window.LC = {
     freeCoins.push(c);
     return c;
   },
-  removePlatforms(){ platforms = []; genY = camAlt + VH + 400; },
+  spawnPickup(dy, kind, dx){
+    const pk = { id: pkc++, kind: kind || 'jetpack', plat: null,
+      x: ((px + (dx || 0)) % worldW + worldW) % worldW, y: py + (dy || 0), taken: false, ph: 0 };
+    pickups.push(pk);
+    return pk;
+  },
+  spawnCritter(dy, dx, opts){
+    opts = opts || {};
+    const cx = ((px + (dx || 0)) % worldW + worldW) % worldW;
+    const c = { id: crc++, ax: cx, baseY: py + (dy || 0), x: cx, y: py + (dy || 0),
+      ph: 0, patrol: opts.patrol !== false, knocked: false, kvx: 0, kvy: 0, life: 0, dead: false };
+    critters.push(c);
+    return c;
+  },
+  removePlatforms(){ platforms = []; pickups = pickups.filter(pk => !pk.plat); critters = []; genY = camAlt + VH + 400; },
   platforms(){
     return platforms.map(p => ({ id: p.id, x: p.x, y: p.y, w: p.w, type: p.type, spring: p.spring, broken: p.broken }));
   },
+  pickups(){
+    return pickups.map(pk => { const pos = pickupPos(pk);
+      return { id: pk.id, kind: pk.kind, x: pos.x, y: pos.y, taken: pk.taken,
+        platType: pk.plat ? pk.plat.type : null, platY: pk.plat ? pk.plat.y : null }; });
+  },
+  critters(){
+    return critters.map(c => ({ id: c.id, x: c.x, y: c.y, baseY: c.baseY, knocked: c.knocked, dead: c.dead }));
+  },
+  freeCoins(){
+    return freeCoins.map(c => ({ x: c.x, y: c.y, kind: c.kind, taken: c.taken, homing: !!c.homing }));
+  },
+  effects(){
+    return { flyT, flyKind, shield: shieldOn, magnetT, invulnT };
+  },
   state(){
     return { state, score, heightPts: Math.floor(maxAlt / 10), coinScore, coinCount, luncCount, ustcCount,
-      elapsed, x: px, y: py, vy: pvy, vx: pvx, camAlt, maxAlt, lastDeath, worldW, VH };
+      elapsed, x: px, y: py, vy: pvy, vx: pvx, camAlt, maxAlt, lastDeath, worldW, VH,
+      stompCount, pickupCount, zone: ZONES[zoneIdx].name, zoneIdx, milestones,
+      bestAlt, flagAlt, partsN: parts.length, shakeT, shield: shieldOn };
   },
   constants: { GRAV, BOUNCE_VEL, SPRING_VEL, MAX_GAP, MAX_VX, VH,
-    RISE: BOUNCE_VEL * BOUNCE_VEL / (2 * GRAV), SPRING_RISE: SPRING_VEL * SPRING_VEL / (2 * GRAV) },
+    RISE: BOUNCE_VEL * BOUNCE_VEL / (2 * GRAV), SPRING_RISE: SPRING_VEL * SPRING_VEL / (2 * GRAV),
+    JET_VEL, JET_TIME, PROP_VEL, PROP_TIME, MAGNET_R, MAGNET_TIME, INVULN_TIME, CRIT_R, PICKUP_MIN_Y, CRIT_MIN_Y },
 };
 
 /* ================= boot ================= */
