@@ -39,6 +39,7 @@ const GAMES = {
   bubble: { prefix: 'bub', maxScore: 60000, minSec: 10, maxSec: 3600, rateMul: 60, rateBase: 1000 },
   climb: { prefix: 'climb', maxScore: 40000, minSec: 10, maxSec: 3600, rateMul: 45, rateBase: 1500 },
   blaster: { prefix: 'blaster', maxScore: 100000, minSec: 10, maxSec: 3600, rateMul: 300, rateBase: 2000 },
+  orbit: { prefix: 'orbit', maxScore: 500000, minSec: 5, maxSec: 7200, rateMul: 300, rateBase: 2500 },
 };
 
 function weekKey(d = new Date()) {
@@ -192,6 +193,18 @@ export default async function handler(req, res) {
   const game = String((req.query && req.query.game) || '');
   const cfg = GAMES[game];
   if (!cfg) return res.status(400).json({ error: 'unknown game' });
+  /* orbit-cors:start — Orbit Defender is hosted OFF-origin by the
+     OrbitWire team (their own site), so orbit's board — and only
+     orbit's — is CORS-open. Every other game is same-origin with this
+     endpoint or runs inside Telegram and keeps the router's default
+     behaviour: no CORS headers at all. */
+  if (game === 'orbit') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') return res.status(204).end();
+  }
+  /* orbit-cors:end */
   if (!process.env.NEONRUSH_UPSTASH_URL || !process.env.NEONRUSH_UPSTASH_TOKEN) {
     return res.status(503).json({ error: 'leaderboard not configured' });
   }
