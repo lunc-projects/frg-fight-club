@@ -80,7 +80,8 @@
   .check li{ margin:5px 0; font-size:14.5px; }
   .check li.done{ color:var(--green); }
   .bigScore{ font-size:30px; font-weight:800; }
-  .starsBig{ color:var(--gold); font-size:26px; letter-spacing:4px; }
+  .starsBig{ color:var(--gold); font-size:26px; letter-spacing:4px; overflow-wrap:anywhere; }
+  #finalStars{ font-size:20px; letter-spacing:2px; } /* 15 glyphs must fit a phone viewport without pushing the page sideways */
   .toast{ background:#12234d; border:1px solid var(--gold); color:var(--gold);
     border-radius:10px; padding:8px 12px; font-weight:700; font-size:14px; margin-bottom:10px; display:none; }
 </style>
@@ -563,6 +564,15 @@ function doAction(name, n){
   n = n || 0;
   actMsg = '';
   const before = JSON.stringify([S.purseLunc, S.purseUstc, S.supplied, S.collateral, S.debt, S.stable]);
+  /* Amount-bearing actions require a positive amount. The UI only ever
+     sends the fixed button amounts, but the shared action layer must
+     never let a zero / negative / non-numeric amount corrupt balances
+     (a negative "supply" would mint purse funds out of thin air). */
+  const AMOUNT_ACTIONS = ['supply','withdraw','deposit','topup','borrow','repay','fundstable','withdrawcol'];
+  if (AMOUNT_ACTIONS.indexOf(name) >= 0 && !(n > 0)){
+    actMsg = 'Enter an amount above zero.';
+    return finishAction(before);
+  }
   if (name === 'supply'){
     if (S.purseLunc < n){ actMsg = 'Not enough SIM-LUNC in your purse.'; return finishAction(before); }
     S.purseLunc -= n; S.supplied += n;
@@ -937,6 +947,7 @@ function showQuiz(levelIdx){
   showScreen('quiz');
 }
 function answerQuiz(i){
+  if (quizState.answeredRight) return true; /* already passed: extra taps must not clobber the explanation or the pass */
   const q = LEVELS[quizState.level].quiz;
   const kids = els.quizOpts.children;
   if (i === q.right){
