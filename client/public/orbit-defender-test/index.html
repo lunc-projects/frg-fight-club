@@ -645,7 +645,8 @@ const KIND_COLOR = { tier: '#ffd76a', rapid: '#7df9ff', shield: '#9be8ff', wingm
    address actually holds. Fails soft — offline or a dead LCD just
    leaves the free fleet flying. The ONE signature this game ever
    asks for is the TEST purchase: a plain LUNC send from the
-   player's own Keplr wallet to the game wallet (see the buy
+   player's own wallet (injected Keplr, or Keplr over
+   WalletConnect) to the game wallet (see the buy
    section below) — the read, the connect and everything else
    sign nothing. */
 const NFT_CONFIG = {
@@ -739,10 +740,17 @@ let nftTiersCache = [];        /* tiers from the last good chain read */
 let nftReadState = 'idle';     /* idle | loading | ok | error */
 const WALLET_STORE_KEY = 'orbitDefenderWallet';
 let walletAddress = '';
-let walletMode = '';   /* '' | 'keplr' (live Keplr session — can pay) | 'paste' (read-only look). A boot-restored address starts as 'paste': this page holds no Keplr session for it yet. */
+let walletMode = '';   /* '' | 'keplr' (live injected-Keplr session — can pay) | 'wc' (live WalletConnect session — can pay) | 'paste' (read-only look). A boot-restored address starts as 'paste': this page holds no live session for it yet. */
 try { walletAddress = String(localStorage.getItem(WALLET_STORE_KEY) || ''); } catch (e) {}
 let walletBootRead = false;    /* the boot read may restore the stored fighter pick */
 let keplrForTest = null;       /* headless hook only — never set in play */
+let wcLibsHook = null;         /* headless hook only — a WalletConnect libs bundle (or a function returning one / a promise of one); never set in play */
+let wcClient = null;           /* the WalletConnect sign client, once initialised */
+let wcLibsCache = null;        /* the normalised libs bundle, once loaded */
+let wcModal = null;            /* the WalletConnect modal instance */
+let wcSession = null;          /* the live WalletConnect session { topic, namespaces, expiry } */
+let wcPubkey = null;           /* Uint8Array — the WC account's pubkey, when the wallet reported one */
+let wcConnecting = false;      /* a pairing is in flight — CONNECT taps don't stack */
 
 function ownedNftTiers(){
   if (nftOwnedOverride) return nftOwnedOverride.slice();
@@ -820,19 +828,26 @@ function restoreStoredShip(){
 }
 
 /* ================= wallet connect =================
-   Two ways in:
+   Three ways in:
    (a) Keplr, when the page runs inside a wallet browser — enable
        columbus-5 and read the account address via getKey. If
        Keplr does not know the chain, suggest it (coin type 330)
-       and retry once; any failure falls back to (b) with a hint.
+       and retry once; any failure falls back to (c) with a hint.
        A Keplr connection is a LIVE session (walletMode 'keplr'):
-       it is the only connection that can pay for a test fighter.
-   (b) Paste an address — how the owner tests in a normal browser.
+       it can pay for a test fighter.
+   (b) WalletConnect, in any other browser — the WalletConnect
+       block below pairs the page with the player's wallet app
+       (Keplr) through the WC modal; the session persists in the
+       sign client's own storage, so later visits reconnect
+       silently. Also a LIVE session (walletMode 'wc'): it can
+       pay, signing over the bridge (see wcPay).
+   (c) Paste an address — how the owner tests in a normal browser.
        Strictly read-only (walletMode 'paste'): it can look at a
        wallet's fighters but can never pay for one.
-   Connecting itself never signs anything either way. The address
+   Connecting itself never signs anything any way. The address
    persists in localStorage ('orbitDefenderWallet'); disconnect
-   clears it and the owned tiers with it. */
+   clears it and the owned tiers with it (and drops the WC
+   session too, when there is one). */
 function keplrApi(){
   if (typeof window !== 'undefined' && window.keplr) return window.keplr;
   return keplrForTest;
@@ -848,7 +863,7 @@ function setWalletAddress(addr, mode){
     return Promise.resolve(false);
   }
   walletAddress = addr;
-  walletMode = mode === 'keplr' ? 'keplr' : 'paste';
+  walletMode = (mode === 'keplr' || mode === 'wc') ? mode : 'paste';
   try { localStorage.setItem(WALLET_STORE_KEY, addr); } catch (e) {}
   hidePasteRow();
   resetBuySession();
@@ -856,6 +871,7 @@ function setWalletAddress(addr, mode){
   return refreshNftTiers(false).then(() => true);
 }
 function clearWallet(){
+  wcDisconnect();   /* a live WalletConnect session ends with the wallet (fire-and-forget; hoisted) */
   walletAddress = ''; walletMode = ''; nftTiersCache = []; nftReadState = 'idle'; walletBootRead = false;
   resetBuySession();
   try { localStorage.removeItem(WALLET_STORE_KEY); } catch (e) {}
@@ -898,17 +914,322 @@ function keplrConnect(quiet){
     });
 }
 
+/* ================= WalletConnect transport =================
+   The bridge for every browser that is NOT a wallet browser:
+   tap CONNECT → the WalletConnect modal opens with the pairing
+   URI (its wallet list deep-links Keplr on a phone) → the player
+   approves once in Keplr → this page holds a live session
+   (walletMode 'wc') that can read the account and, for a test
+   purchase, sign the payment over the bridge (wcPay below).
+   Sessions persist in the sign client's own localStorage; at
+   boot a live one is restored silently (wcRestoreSession).
+   The libraries load lazily from esm.sh as ES modules — nothing
+   is fetched until a connect or a restore actually needs them —
+   and a load failure is said out loud, with the paste fallback
+   left standing (see wcConnect's catch). */
+const WC_PROJECT_ID = '7e363f1ed5d676ecc4ae2d40c5b83fbf';   /* the Reown project id the owner's other apps use */
+const WC_CHAIN = 'cosmos:' + TEST_CHAIN_ID;
+const WC_METHODS = ['cosmos_signDirect', 'cosmos_signAmino', 'cosmos_getAccounts'];
+const WC_URLS = {
+  signClient: 'https://esm.sh/@walletconnect/sign-client@2.11.2?bundle',
+  modal: 'https://esm.sh/@walletconnect/modal@2.7.0?bundle',
+  protoSigning: 'https://esm.sh/@cosmjs/proto-signing@0.33.1?bundle',
+  stargate: 'https://esm.sh/@cosmjs/stargate@0.33.1?bundle',
+  encoding: 'https://esm.sh/@cosmjs/encoding@0.33.1?bundle',
+  txTypes: 'https://esm.sh/cosmjs-types@0.9.0/cosmos/tx/v1beta1/tx?bundle',
+};
+const WC_METADATA = { name: 'Orbit Defender — NFT TEST', description: 'Orbit Defender test build: connect a Terra Classic wallet to see and buy test NFT fighters.',
+  url: 'https://frg-fight-club.vercel.app/orbit-defender-test/', icons: [] };
+let wcLibsPromise = null;
+/* where a libs bundle can come from without the network: the
+   headless hook (OD.setWcForTest, or a bundle pre-seeded on
+   window.__odWcLibs before boot) — the suites inject the real
+   CosmJS plus a fake sign client at this seam, exactly like the
+   LCD stub at the fetch seam. In play both are always empty. */
+function wcHookLibs(){
+  if (wcLibsHook) return wcLibsHook;
+  if (typeof window !== 'undefined' && window.__odWcLibs) return window.__odWcLibs;
+  return null;
+}
+/* resolves with the bundle the rest of the WC code consumes:
+   { SignClient, WalletConnectModal, cosmjs: { Registry,
+   defaultRegistryTypes, makeAuthInfoBytes, makeSignDoc,
+   encodePubkey, calculateFee, TxRaw, TxBody, fromBase64,
+   toBase64 } }. Rejects when the CDN cannot be reached — the
+   caller says so plainly; a failed load is NOT cached, so the
+   next tap retries. */
+function loadWcLibs(){
+  if (wcLibsCache) return Promise.resolve(wcLibsCache);
+  const hook = wcHookLibs();
+  if (hook)
+    return Promise.resolve().then(() => (typeof hook === 'function' ? hook() : hook))
+      .then(libs => { wcLibsCache = libs; return libs; });
+  if (!wcLibsPromise){
+    wcLibsPromise = Promise.resolve()
+      .then(() => Promise.all([import(WC_URLS.signClient), import(WC_URLS.modal),
+        import(WC_URLS.protoSigning), import(WC_URLS.stargate), import(WC_URLS.encoding), import(WC_URLS.txTypes)]))
+      .then(([sc, md, ps, sg, en, tx]) => {
+        const libs = {
+          SignClient: (sc && (sc.SignClient || sc.default)) || null,
+          WalletConnectModal: (md && (md.WalletConnectModal || md.default)) || null,
+          cosmjs: {
+            Registry: ps && ps.Registry,
+            defaultRegistryTypes: (sg && sg.defaultRegistryTypes) || (ps && ps.defaultRegistryTypes) || [],
+            makeAuthInfoBytes: ps && ps.makeAuthInfoBytes,
+            makeSignDoc: ps && ps.makeSignDoc,
+            encodePubkey: ps && ps.encodePubkey,
+            calculateFee: sg && sg.calculateFee,
+            TxRaw: (tx && tx.TxRaw) || (ps && ps.TxRaw),
+            TxBody: tx && tx.TxBody,
+            fromBase64: en && en.fromBase64,
+            toBase64: en && en.toBase64,
+          },
+        };
+        if (!libs.SignClient || !libs.WalletConnectModal || !libs.cosmjs.Registry || !libs.cosmjs.TxRaw)
+          throw new Error('the WalletConnect libraries loaded incomplete');
+        wcLibsCache = libs;
+        return libs;
+      })
+      .catch(err => { wcLibsPromise = null; throw err; });
+  }
+  return wcLibsPromise;
+}
+function wcEnsureClient(){
+  if (wcClient) return Promise.resolve(wcClient);
+  return loadWcLibs()
+    .then(libs => libs.SignClient.init({ projectId: WC_PROJECT_ID, metadata: WC_METADATA }))
+    .then(client => { wcClient = client; return client; });
+}
+function wcOpenModal(uri){
+  return loadWcLibs().then(libs => {
+    if (!wcModal) wcModal = new libs.WalletConnectModal({ projectId: WC_PROJECT_ID, chains: [WC_CHAIN] });
+    wcModal.openModal({ uri });
+  }).catch(() => {});   /* the pairing continues even if the modal itself stumbles */
+}
+function wcCloseModal(){ if (wcModal && typeof wcModal.closeModal === 'function'){ try { wcModal.closeModal(); } catch (e) {} } }
+/* the Terra address inside a WC session: namespaces.cosmos.
+   accounts entries are "cosmos:columbus-5:terra1…" */
+function wcSessionAddress(session){
+  try {
+    const accs = (session && session.namespaces && session.namespaces.cosmos && session.namespaces.cosmos.accounts) || [];
+    for (const a of accs){
+      const parts = String(a).split(':');
+      if (parts[0] === 'cosmos' && parts[1] === TEST_CHAIN_ID) return parts.slice(2).join(':');
+    }
+    if (accs.length) return String(accs[0]).split(':').slice(2).join(':');
+  } catch (e) {}
+  return '';
+}
+function wcStorePubkey(acc){
+  if (!acc) return;
+  const raw = acc.pubKey || acc.pubkey;
+  if (!raw) return;
+  try {
+    if (raw instanceof Uint8Array) wcPubkey = raw;
+    else if (typeof raw === 'string' && wcLibsCache) wcPubkey = wcLibsCache.cosmjs.fromBase64(raw);
+    else if (Array.isArray(raw)) wcPubkey = new Uint8Array(raw);
+  } catch (e) {}
+}
+/* cosmos_getAccounts over the live session — gives the address +
+   pubkey the payment signer needs. Any failure is survivable:
+   the address also rides in the session, and the pubkey can
+   come from the chain account at payment time (see wcPay). */
+function wcGetAccounts(){
+  if (!wcClient || !wcSession) return Promise.resolve(null);
+  return Promise.resolve()
+    .then(() => wcClient.request({ topic: wcSession.topic, chainId: WC_CHAIN, request: { method: 'cosmos_getAccounts', params: {} } }))
+    .then(res => { const list = Array.isArray(res) ? res : ((res && res.accounts) || []); return list[0] || null; })
+    .catch(() => null);
+}
+function wcFailLine(err){
+  const msg = String((err && err.message) || err || '');
+  if (/reject|denied|deny|cancel|closed|expire|pairing/i.test(msg))
+    return 'The WalletConnect pairing ended before a wallet approved it — tap CONNECT WALLET to try again, or paste an address below just to look (read-only).';
+  return "WalletConnect couldn't start in this browser — the wallet bridge failed to load. Paste your terra address below just to look (read-only, can't buy), or open this page inside the Keplr app's browser to connect directly.";
+}
+/* CONNECT, WalletConnect flavor: propose the session, show the
+   modal with the pairing URI, and on approval adopt the account.
+   Resolves true when a wallet landed. Every failure lands on the
+   paste row with an honest line — never a dead button. */
+function wcConnect(){
+  if (wcConnecting) return Promise.resolve(false);
+  wcConnecting = true;
+  walletHint('Opening WalletConnect — pick your wallet (Keplr) and approve the connection…');
+  return wcEnsureClient()
+    .then(client => client.connect({ requiredNamespaces: { cosmos: { methods: WC_METHODS.slice(), chains: [WC_CHAIN], events: [] } } }))
+    .then(({ uri, approval }) => {
+      if (uri) wcOpenModal(uri);
+      return approval();
+    })
+    .then(session => {
+      wcCloseModal();
+      wcSession = session;
+      const addr = wcSessionAddress(session);
+      if (!validTerraAddress(addr)) throw new Error('the wallet did not return a Terra Classic account');
+      return wcGetAccounts().then(acc => { wcStorePubkey(acc); return setWalletAddress(addr, 'wc'); });
+    })
+    .catch(err => {
+      wcCloseModal();
+      console.log('[od-test] WalletConnect connect failed: ' + (err && err.message));
+      showPasteRow(wcFailLine(err));
+      return false;
+    })
+    .then(ok => { wcConnecting = false; return ok; });
+}
+/* DISCONNECT drops the WC session too (best effort — the local
+   clear in clearWallet never waits on the relay). */
+function wcDisconnect(){
+  const client = wcClient, session = wcSession;
+  wcSession = null; wcPubkey = null; wcConnecting = false;
+  if (!client || !session) return Promise.resolve();
+  return Promise.resolve()
+    .then(() => client.disconnect({ topic: session.topic, reason: { code: 6000, message: 'User disconnected' } }))
+    .catch(() => {});
+}
+/* did this browser ever complete a WalletConnect pairing? The
+   sign client keeps its state under wc@2:* keys — if none exist
+   there is nothing to restore and the bridge is not even loaded. */
+function wcHasStoredState(){
+  try {
+    if (typeof localStorage.key === 'function' && typeof localStorage.length === 'number'){
+      for (let i = 0; i < localStorage.length; i++){
+        const k = localStorage.key(i);
+        if (k && k.indexOf('wc@2:') === 0) return true;
+      }
+      return false;
+    }
+  } catch (e) {}
+  return false;
+}
+/* boot: silently adopt a still-live stored session. Quiet by
+   design — a dead or expired session just leaves the page as it
+   was, and an injected-Keplr session always wins the boot. */
+function wcRestoreSession(){
+  if (!wcHookLibs() && !wcHasStoredState()) return;
+  wcEnsureClient().then(client => {
+    const all = (client.session && typeof client.session.getAll === 'function') ? client.session.getAll() : [];
+    const now = Math.floor(Date.now() / 1000);
+    const live = (all || []).filter(s => s && (!s.expiry || s.expiry > now));
+    if (!live.length) return;
+    wcSession = live[live.length - 1];
+    const addr = wcSessionAddress(wcSession);
+    if (!validTerraAddress(addr)){ wcSession = null; return; }
+    if (walletMode === 'keplr') return;   /* the injected session connected first */
+    wcGetAccounts().then(acc => {
+      wcStorePubkey(acc);
+      if (wcSession && walletMode !== 'keplr') setWalletAddress(addr, 'wc');
+    });
+  }).catch(err => console.log('[od-test] WalletConnect restore skipped: ' + (err && err.message)));
+}
+/* the chain-side account record the WC signer needs (account
+   number + sequence, plus the on-chain pubkey as a fallback
+   when the wallet never reported one) */
+function lcdAccount(addr){
+  return lbFetch(NFT_LCD + '/cosmos/auth/v1beta1/accounts/' + addr, { method: 'GET' }, 10000)
+    .then(r => { if (!r || !r.ok) throw new Error('account lookup failed (LCD status ' + (r && r.status) + ')'); return r.json(); })
+    .then(j => {
+      const a = (j && j.account) || {};
+      return { accountNumber: Number(a.account_number || 0), sequence: Number(a.sequence || 0),
+        pubkeyB64: (a.pub_key && a.pub_key.key) || '' };
+    });
+}
+/* an OfflineDirectSigner-shaped adapter over the WC session —
+   getAccounts answers from the session, signDirect relays the
+   doc to the wallet via cosmos_signDirect and returns the
+   signed doc + signature, byte for byte as Keplr gave them. */
+function wcDirectSigner(C){
+  return {
+    getAccounts(){
+      return Promise.resolve([{ address: walletAddress, algo: 'secp256k1', pubkey: wcPubkey }]);
+    },
+    signDirect(address, signDoc){
+      return Promise.resolve().then(() => wcClient.request({ topic: wcSession.topic, chainId: WC_CHAIN,
+        request: { method: 'cosmos_signDirect', params: { signerAddress: address,
+          signDoc: { bodyBytes: C.toBase64(signDoc.bodyBytes), authInfoBytes: C.toBase64(signDoc.authInfoBytes),
+            chainId: signDoc.chainId, accountNumber: String(signDoc.accountNumber) } } } }))
+        .then(resp => {
+          const signed = (resp && resp.signed) || {};
+          const sig = resp && resp.signature && resp.signature.signature;
+          if (!sig) throw new Error('the wallet returned no signature');
+          return {
+            signed: {
+              bodyBytes: signed.bodyBytes ? C.fromBase64(signed.bodyBytes) : signDoc.bodyBytes,
+              authInfoBytes: signed.authInfoBytes ? C.fromBase64(signed.authInfoBytes) : signDoc.authInfoBytes,
+              chainId: signed.chainId || signDoc.chainId,
+              accountNumber: signed.accountNumber != null ? signed.accountNumber : signDoc.accountNumber,
+            },
+            signature: C.fromBase64(sig),
+          };
+        });
+    },
+  };
+}
+const WC_GAS_LIMIT = 100000;   /* the buy's fee gas over WalletConnect (x the standing 28.325uluna price = 2,832,500uluna) */
+/* the WC flavor of the test payment: build the same MsgSend the
+   Keplr path sends (same amount, same memo, same game wallet),
+   sign it in the player's wallet over the bridge, assemble the
+   TxRaw from Keplr's signed doc, and broadcast it through the
+   LCD. Resolves with the tx hash — from here the flow is the
+   shared one (pending record → /buy → ownership re-read). */
+function wcPay(tier){
+  if (!wcClient || !wcSession)
+    return Promise.reject(new Error('the WalletConnect session is gone — disconnect and connect again'));
+  const C = wcLibsCache && wcLibsCache.cosmjs;
+  if (!C || !C.Registry || !C.TxRaw)
+    return Promise.reject(new Error('the WalletConnect bridge is not loaded — disconnect and connect again'));
+  const from = walletAddress;
+  return lcdAccount(from).then(acct => {
+    let pubBytes = wcPubkey;
+    if (!pubBytes && acct.pubkeyB64) pubBytes = C.fromBase64(acct.pubkeyB64);
+    if (!pubBytes)
+      throw new Error('no public key is known for this account yet — make any small transaction from this wallet once, then buy');
+    wcPubkey = pubBytes;
+    const fee = (typeof C.calculateFee === 'function')
+      ? C.calculateFee(WC_GAS_LIMIT, BUY_GAS_PRICE + 'uluna')
+      : { amount: [{ denom: 'uluna', amount: String(Math.ceil(WC_GAS_LIMIT * BUY_GAS_PRICE)) }], gas: String(WC_GAS_LIMIT) };
+    const msg = { typeUrl: '/cosmos.bank.v1beta1.MsgSend',
+      value: { fromAddress: from, toAddress: GAME_WALLET, amount: [{ denom: 'uluna', amount: buyPriceUluna() }] } };
+    const registry = new C.Registry([...(C.defaultRegistryTypes || []), ['/cosmos.tx.v1beta1.TxBody', C.TxBody]]);
+    const bodyBytes = registry.encode({ typeUrl: '/cosmos.tx.v1beta1.TxBody', value: { messages: [msg], memo: buyMemo(tier) } });
+    const signer = wcDirectSigner(C);
+    return signer.getAccounts().then(accounts => {
+      const pubkey = C.encodePubkey({ type: 'tendermint/PubKeySecp256k1', value: C.toBase64(accounts[0].pubkey || pubBytes) });
+      const authInfoBytes = C.makeAuthInfoBytes([{ pubkey, sequence: acct.sequence }], fee.amount, Number(fee.gas), undefined, undefined);
+      const signDoc = C.makeSignDoc(bodyBytes, authInfoBytes, TEST_CHAIN_ID, acct.accountNumber);
+      return signer.signDirect(from, signDoc);
+    }).then(({ signature, signed }) => {
+      const txRaw = C.TxRaw.fromPartial({ bodyBytes: signed.bodyBytes, authInfoBytes: signed.authInfoBytes, signatures: [signature] });
+      const txBytes = C.TxRaw.encode(txRaw).finish();
+      return lbFetch(NFT_LCD + '/cosmos/tx/v1beta1/txs', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tx_bytes: C.toBase64(txBytes), mode: 'BROADCAST_MODE_SYNC' }) }, 25000);
+    }).then(r => {
+      if (!r || typeof r.json !== 'function') throw new Error('the chain did not answer the broadcast');
+      return r.json();
+    }).then(j => {
+      const tr = j && j.tx_response;
+      if (!tr || !tr.txhash) throw new Error('the chain did not answer the broadcast');
+      if (tr.code) throw new Error('the payment broadcast failed (code ' + tr.code + ')' + (tr.raw_log ? ': ' + String(tr.raw_log).slice(0, 80) : ''));
+      return String(tr.txhash);
+    });
+  });
+}
+/* which payment does BUY use? The live session decides: an
+   injected Keplr session pays through Keplr, a WalletConnect
+   session pays over the bridge. Anything else cannot pay. */
+function walletCanPay(){ return walletMode === 'keplr' || walletMode === 'wc'; }
+function payForTier(tier){ return walletMode === 'wc' ? wcPay(tier) : keplrPay(tier); }
+
 /* ================= wallet UI ================= */
 function updateWalletUi(){
   const btn = $('walletBtn'), st = $('walletStatus');
   if (!btn || !st) return;
   if (!walletAddress){
     btn.textContent = '🔗 CONNECT WALLET';
-    st.textContent = 'Connect to see your NFT fighters. The ownership read never signs anything — buying a test fighter is the one action that asks your Keplr wallet to send LUNC.';
+    st.textContent = 'Connect to see your NFT fighters. The ownership read never signs anything — buying a test fighter is the one action that asks your wallet to send LUNC.';
     return;
   }
   btn.textContent = '✖ DISCONNECT';
-  const modeTxt = walletMode === 'keplr' ? ' · Keplr connected' : (walletMode === 'paste' ? ' · pasted address (read-only)' : '');
+  const modeTxt = walletMode === 'keplr' ? ' · Keplr connected' : (walletMode === 'wc' ? ' · WalletConnect · Keplr' : (walletMode === 'paste' ? ' · pasted address (read-only)' : ''));
   const n = ownedNftTiers().length;
   if (nftReadState === 'loading') st.textContent = 'Wallet ' + shortAddr(walletAddress) + modeTxt + ' · reading your NFTs…';
   else if (nftReadState === 'ok') st.textContent = 'Wallet ' + shortAddr(walletAddress) + modeTxt + ' · NFT: ' + n + ' owned' +
@@ -936,7 +1257,7 @@ function hidePasteRow(){
    The community-member test flow: connect with Keplr, BUY a test
    fighter for NFT_CONFIG.buyPriceLunc LUNC, fly it. Exactly what
    the cards say happens:
-     1. The player pays from their OWN connected Keplr wallet — a
+     1. The player pays from their OWN connected wallet — a
         plain MsgSend of the price to the game wallet, memo
         "ODTEST-BUY tier:<n>" (keplrPay below).
      2. The game hands { address, tier, txHash } to the buy service
@@ -1105,11 +1426,11 @@ function startBuy(tier){
   if (tier < 1 || tier > 6 || ownedNftTiers().includes(tier)) return Promise.resolve(false);
   if (!walletAddress){
     showPasteRow();
-    walletHint('Connect a wallet first — buying needs your Keplr wallet to send the payment.');
+    walletHint('Connect a wallet first — buying needs a connected wallet to send the payment.');
     return Promise.resolve(false);
   }
   if (pendingForCurrentWallet()) return verifyBuy();   /* an earlier payment is still finishing — never charge twice */
-  if (walletMode !== 'keplr'){
+  if (!walletCanPay()){
     buyNotes[tier] = { cls: 'err', text: 'Open in Keplr to buy — a pasted address is read-only and cannot pay.' };
     buildShipRow();
     return Promise.resolve(false);
@@ -1126,7 +1447,7 @@ function startBuy(tier){
   /* clearing the busy flag re-renders, so the card's button leaves
      its busy label behind in the same frame the flow ends */
   const finish = (ok) => { if (buyBusyTier === tier){ buyBusyTier = 0; buildShipRow(); } return ok; };
-  return keplrPay(tier)
+  return payForTier(tier)
     .then(txHash => {
       const p = { address: addr, tier, txHash };
       savePendingBuy(p);   /* the money has moved — record it before anything else can happen */
@@ -2810,7 +3131,7 @@ function buildShipRow(){
               (note ? '<span class="buyNote ' + note.cls + '">' + escapeHtml(note.text) + '</span>' : '');
           else if (buyAvailability === 'closed')
             buyHtml = '<span class="buyNote err">' + BUY_DOWN_LINE + '</span>';
-          else if (walletMode !== 'keplr'){
+          else if (!walletCanPay()){
             showBuyBtn = true;   /* the .off lookalike — a hint tap, never a payment */
             buyHtml = '<span class="buyLine">A pasted address is read-only — it can look at fighters, never pay for one.</span>';
             if (note) buyHtml += '<span class="buyNote ' + note.cls + '">' + escapeHtml(note.text) + '</span>';
@@ -2841,7 +3162,7 @@ function buildShipRow(){
        has somewhere honest to land */
     if (showBuyBtn){
       const bb = document.createElement('span');
-      const pasteMode = walletMode !== 'keplr';
+      const pasteMode = !walletCanPay();
       bb.className = 'buyBtn' + (buyBusyTier === s.nftTier ? ' busy' : '') + (pasteMode ? ' off' : '');
       bb.textContent = buyBusyTier === s.nftTier ? 'Paying…'
         : (pasteMode ? 'Open in Keplr to buy' : '🛒 BUY — ' + NFT_CONFIG.buyPriceLunc + ' LUNC');
@@ -3666,8 +3987,13 @@ $('rewardsCloseBtn').onclick = () => closeRewards();
 $('walletBtn').onclick = () => {
   sfxTap();
   if (walletAddress){ clearWallet(); return; }
-  if (keplrApi()) keplrConnect();
-  else showPasteRow('No wallet in this browser. To connect and buy, open this page inside the Keplr app (its Browser tab) — your wallet lives there, and this game connects to it automatically. Or paste your terra address here just to look — read-only, nothing gets signed, and pasted addresses cannot buy.');
+  if (keplrApi()){ keplrConnect(); return; }
+  /* no wallet lives in this browser: pair over WalletConnect
+     (the modal deep-links Keplr on a phone). The paste row opens
+     at once as the standing fallback — wcConnect narrates the
+     pairing over it and explains itself there if it fails. */
+  showPasteRow();
+  wcConnect();
 };
 $('walletPasteBtn').onclick = () => { sfxTap(); showPasteRow(); };
 $('walletUseBtn').onclick = () => { sfxTap(); setWalletAddress($('walletInput').value, 'paste'); };
@@ -3746,7 +4072,14 @@ window.OD = {
   connectKeplr(){ return keplrConnect(); },
   disconnectWallet(){ clearWallet(); },
   setKeplrForTest(k){ keplrForTest = k || null; },
-  walletState(){ return { address: walletAddress, mode: walletMode, readState: nftReadState, tiers: ownedNftTiers(), keplr: !!keplrApi() }; },
+  walletState(){ return { address: walletAddress, mode: walletMode, readState: nftReadState, tiers: ownedNftTiers(), keplr: !!keplrApi(), wc: !!wcSession }; },
+  /* TEST BUILD WalletConnect hooks: inject the libs bundle (real
+     CosmJS + a fake sign client in the suites) and drive the WC
+     connect flow without a DOM click */
+  setWcForTest(x){ wcLibsHook = x || null; },
+  connectWalletConnect(){ return wcConnect(); },
+  wcState(){ return { connected: !!wcSession, connecting: wcConnecting, client: !!wcClient,
+    topic: wcSession ? wcSession.topic : '', pubkey: !!wcPubkey }; },
   setRewardsUrl(u){ NFT_CONFIG.rewardsUrl = String(u || ''); },
   /* TEST BUILD buy hooks: point the game at a (stub) buy service
      and drive the paid-buy flow without a DOM click */
@@ -3850,6 +4183,7 @@ if (walletAddress){
   if (keplrApi()) keplrConnect(true);   /* inside a wallet browser, quietly upgrade to a live Keplr session */
 }
 if (buyConfigured()) refreshBuyState();
+wcRestoreSession();   /* a stored WalletConnect session reconnects silently (no-op when none exists) */
 requestAnimationFrame(loop);
 </script>
 </body>
