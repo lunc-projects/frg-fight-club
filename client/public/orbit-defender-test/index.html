@@ -268,6 +268,17 @@
   }
   #walletInput:focus { border-color:#7dffb0; box-shadow:0 0 12px rgba(61,220,132,.35); }
   #walletStatus { font-size:12.5px; line-height:1.45; opacity:.85; min-height:16px; margin:0; max-width:400px; text-align:center; }
+  #walletPicker { display:none; flex-direction:column; gap:7px; align-items:center; width:100%; }
+  #walletPicker.on { display:flex; }
+  #walletPicker .small { margin:0; }
+  #walletPairBox { display:none; flex-direction:column; gap:6px; align-items:center; width:100%; }
+  #walletPairBox.on { display:flex; }
+  #walletPairNote { font-size:12px; line-height:1.45; opacity:.8; margin:0; max-width:400px; text-align:center; }
+  #walletPairUri {
+    font-family:inherit; font-size:11.5px; text-align:center; color:#eafff2;
+    background:rgba(5,26,14,.6); border:1px solid rgba(76,236,75,.35); border-radius:12px;
+    padding:8px 10px; width:min(340px,80vw); outline:none; -webkit-user-select:text; user-select:text;
+  }
   /* ===== weekly rewards ===== */
   #rewardsScreen { display:none; z-index:12; }
   #rewardsBody { display:flex; flex-direction:column; gap:10px; align-items:center; width:min(430px,92vw); }
@@ -381,11 +392,24 @@
       <button class="play alt" id="walletBtn">🔗 CONNECT WALLET</button>
       <button class="play alt" id="walletPasteBtn">⌨ PASTE ADDRESS</button>
     </div>
+    <div id="walletPicker">
+      <p class="small">CHOOSE YOUR WALLET</p>
+      <div class="btnRow">
+        <button class="play alt" id="wpKeplr">KEPLR</button>
+        <button class="play alt" id="wpGalaxy">GALAXY STATION</button>
+        <button class="play alt" id="wpStation">STATION</button>
+      </div>
+      <button class="play alt" id="wpCancel">✖ CANCEL</button>
+    </div>
     <div id="walletPasteRow">
       <input id="walletInput" maxlength="64" autocomplete="off" spellcheck="false" placeholder="terra1…">
       <button class="play alt" id="walletUseBtn">USE</button>
     </div>
     <p id="walletStatus">Read-only connection — this game never asks your wallet to sign anything.</p>
+    <div id="walletPairBox">
+      <p id="walletPairNote">Pairing link for your wallet app — copy it and paste it into the wallet's WalletConnect scanner if no approval prompt appeared.</p>
+      <input id="walletPairUri" readonly autocomplete="off" spellcheck="false">
+    </div>
   </div>
   <p class="credits">ORBIT DEFENDER · BUILT FOR ORBITWIRE</p>
 </div>
@@ -645,10 +669,9 @@ const KIND_COLOR = { tier: '#ffd76a', rapid: '#7df9ff', shield: '#9be8ff', wingm
    address actually holds. Fails soft — offline or a dead LCD just
    leaves the free fleet flying. The ONE signature this game ever
    asks for is the TEST purchase: a plain LUNC send from the
-   player's own wallet (injected Keplr, or Keplr over
-   WalletConnect) to the game wallet (see the buy
-   section below) — the read, the connect and everything else
-   sign nothing. */
+   player's own wallet (CosmosKit — Keplr, Galaxy Station or
+   Station) to the game wallet (see the buy section below) — the
+   read, the connect and everything else sign nothing. */
 const NFT_CONFIG = {
   collection: 'terra1lcqrpmp5plxanak0uvjf25ev8tr7xfh2tk30ywcfy2fhx7xvxfusdx6pn8',   /* ODTEST — TEST collection */
   rewardsUrl: '',   /* the weekly rewards service base URL — '' = not set up yet */
@@ -740,17 +763,9 @@ let nftTiersCache = [];        /* tiers from the last good chain read */
 let nftReadState = 'idle';     /* idle | loading | ok | error */
 const WALLET_STORE_KEY = 'orbitDefenderWallet';
 let walletAddress = '';
-let walletMode = '';   /* '' | 'keplr' (live injected-Keplr session — can pay) | 'wc' (live WalletConnect session — can pay) | 'paste' (read-only look). A boot-restored address starts as 'paste': this page holds no live session for it yet. */
+let walletMode = '';   /* '' | 'kit' (live CosmosKit session — can pay) | 'paste' (read-only look). A boot-restored address starts as 'paste': this page holds no live session for it yet. */
 try { walletAddress = String(localStorage.getItem(WALLET_STORE_KEY) || ''); } catch (e) {}
 let walletBootRead = false;    /* the boot read may restore the stored fighter pick */
-let keplrForTest = null;       /* headless hook only — never set in play */
-let wcLibsHook = null;         /* headless hook only — a WalletConnect libs bundle (or a function returning one / a promise of one); never set in play */
-let wcClient = null;           /* the WalletConnect sign client, once initialised */
-let wcLibsCache = null;        /* the normalised libs bundle, once loaded */
-let wcModal = null;            /* the WalletConnect modal instance */
-let wcSession = null;          /* the live WalletConnect session { topic, namespaces, expiry } */
-let wcPubkey = null;           /* Uint8Array — the WC account's pubkey, when the wallet reported one */
-let wcConnecting = false;      /* a pairing is in flight — CONNECT taps don't stack */
 
 function ownedNftTiers(){
   if (nftOwnedOverride) return nftOwnedOverride.slice();
@@ -827,35 +842,49 @@ function restoreStoredShip(){
   } catch (e) {}
 }
 
-/* ================= wallet connect =================
-   Three ways in:
-   (a) Keplr, when the page runs inside a wallet browser — enable
-       columbus-5 and read the account address via getKey. If
-       Keplr does not know the chain, suggest it (coin type 330)
-       and retry once; any failure falls back to (c) with a hint.
-       A Keplr connection is a LIVE session (walletMode 'keplr'):
-       it can pay for a test fighter.
-   (b) WalletConnect, in any other browser — the WalletConnect
-       block below pairs the page with the player's wallet app
-       (Keplr) through the WC modal; the session persists in the
-       sign client's own storage, so later visits reconnect
-       silently. Also a LIVE session (walletMode 'wc'): it can
-       pay, signing over the bridge (see wcPay).
-   (c) Paste an address — how the owner tests in a normal browser.
-       Strictly read-only (walletMode 'paste'): it can look at a
-       wallet's fighters but can never pay for one.
-   Connecting itself never signs anything any way. The address
-   persists in localStorage ('orbitDefenderWallet'); disconnect
-   clears it and the owned tiers with it (and drops the WC
-   session too, when there is one). */
-function keplrApi(){
-  if (typeof window !== 'undefined' && window.keplr) return window.keplr;
-  return keplrForTest;
-}
+/* ================= wallet connect — CosmosKit =================
+   The wallet layer is CosmosKit — the exact stack the owner's LNC
+   staking app and FRG app run (their ChainProvider wiring, ported
+   to vanilla JS over @cosmos-kit/core's framework-agnostic
+   WalletManager; no React). The hand-rolled WalletConnect modal
+   integration this replaces failed live with Keplr: the deep link
+   opened the wallet and no approval ever appeared. CosmosKit's
+   own clients build the pairing and the deep links — including
+   Keplr Mobile's formatter and the custom Galaxy Station links
+   below — so the game never hands a raw wc: URI to a generic
+   modal again.
+
+   Tap CONNECT WALLET → an in-game picker: Keplr / Galaxy Station /
+   Station. Resolution per entry:
+     Keplr          — window.keplr present (a wallet browser):
+                      the keplr-extension entry; otherwise the
+                      keplr-mobile WalletConnect entry.
+     Galaxy Station — the custom WalletConnect entry ported from
+                      the LNC app's wallets.js (in Galaxy's own
+                      browser it injects window.station, which the
+                      Station entry covers).
+     Station        — window.station present: the station-extension
+                      entry; otherwise it honestly says it only
+                      connects inside Station's own browser.
+   A live CosmosKit session is walletMode 'kit': it can pay for a
+   test fighter (kitPay). Paste stays exactly as it was: a typed
+   address is walletMode 'paste', read-only, never able to pay.
+   Sessions persist in CosmosKit's own storage; on load and on
+   pageshow a live one is adopted silently (kitRestoreSession) —
+   the other apps' "just go to the game and you're connected"
+   behavior. Connecting itself never signs anything. The address
+   also persists in localStorage ('orbitDefenderWallet');
+   disconnect clears it, the owned tiers, and the CosmosKit
+   session with it. */
 function validTerraAddress(a){
   return /^terra1[02-9ac-hj-np-z]{38}$/.test(a);   /* bech32 charset — the chain read is the real verdict */
 }
 function shortAddr(a){ return a ? a.slice(0, 12) + '…' + a.slice(-6) : ''; }
+const TEST_CHAIN_ID = 'columbus-5';
+const KIT_CHAIN_NAME = 'terraclassic';   /* CosmosKit lookup key (chainDef chain_name) */
+let kitChainWallet = null;   /* the connected CosmosKit chain wallet while mode is 'kit' */
+let kitWalletName = '';      /* its registry name — 'keplr-extension' | 'keplr-mobile' | 'station-extension' | 'galaxy-station' */
+let kitPrettyName = '';      /* its pretty name ('Keplr', 'Galaxy Station', …) — narration names the wallet from this */
 function setWalletAddress(addr, mode){
   addr = String(addr || '').trim();
   if (!validTerraAddress(addr)){
@@ -863,445 +892,488 @@ function setWalletAddress(addr, mode){
     return Promise.resolve(false);
   }
   walletAddress = addr;
-  walletMode = (mode === 'keplr' || mode === 'wc') ? mode : 'paste';
+  walletMode = (mode === 'kit') ? 'kit' : 'paste';
   try { localStorage.setItem(WALLET_STORE_KEY, addr); } catch (e) {}
   hidePasteRow();
+  hidePicker();
+  hidePairBox();
   resetBuySession();
   refreshBuyState();
   return refreshNftTiers(false).then(() => true);
 }
 function clearWallet(){
-  wcDisconnect();   /* a live WalletConnect session ends with the wallet (fire-and-forget; hoisted) */
+  kitDisconnect();   /* a live CosmosKit session ends with the wallet (fire-and-forget; hoisted) */
   walletAddress = ''; walletMode = ''; nftTiersCache = []; nftReadState = 'idle'; walletBootRead = false;
   resetBuySession();
   try { localStorage.removeItem(WALLET_STORE_KEY); } catch (e) {}
   if (shipIsNft(skinIdx)){ skinIdx = 0; persistShip(); }
   hidePasteRow();
+  hidePicker();
+  hidePairBox();
   buildShipRow(); updateWalletUi();
 }
-const TEST_CHAIN_ID = 'columbus-5';
-function columbusChainInfo(){
-  return {
-    chainId: TEST_CHAIN_ID, chainName: 'Terra Classic',
-    rpc: 'https://terra-classic-rpc.publicnode.com', rest: NFT_LCD,
-    bip44: { coinType: 330 },
-    bech32Config: { bech32PrefixAccAddr: 'terra', bech32PrefixAccPub: 'terrapub',
-      bech32PrefixValAddr: 'terravaloper', bech32PrefixValPub: 'terravaloperpub',
-      bech32PrefixConsAddr: 'terravalcons', bech32PrefixConsPub: 'terravalconspub' },
-    currencies: [{ coinDenom: 'LUNC', coinMinimalDenom: 'uluna', coinDecimals: 6 }],
-    feeCurrencies: [{ coinDenom: 'LUNC', coinMinimalDenom: 'uluna', coinDecimals: 6,
-      gasPriceStep: { low: 29, average: 30, high: 31 } }],
-    stakeCurrency: { coinDenom: 'LUNC', coinMinimalDenom: 'uluna', coinDecimals: 6 },
-    coinType: 330,
+function kitWalletPretty(){ return kitPrettyName || 'your wallet'; }
+
+/* ---- the chain definition: the LNC app's chainDef.js, verbatim
+   (LCD/RPC inlined from its config.js — the publicnode endpoints).
+   Columbus-5 is not in the upstream chain-registry package
+   CosmosKit consumes, so the app ships its own Chain + AssetList. */
+const TERRA_CLASSIC_CHAIN = {
+  $schema: '../chain.schema.json',
+  chain_name: 'terraclassic',
+  status: 'live',
+  network_type: 'mainnet',
+  pretty_name: 'Terra Classic',
+  chain_id: 'columbus-5',
+  bech32_prefix: 'terra',
+  daemon_name: 'terrad',
+  node_home: '$HOME/.terra',
+  slip44: 330,
+  fees: {
+    fee_tokens: [
+      { denom: 'uluna', fixed_min_gas_price: 0.15, low_gas_price: 0.15, average_gas_price: 0.15, high_gas_price: 0.15 },
+    ],
+  },
+  staking: { staking_tokens: [{ denom: 'uluna' }] },
+  codebase: { git_repo: 'https://github.com/classic-terra/core', recommended_version: 'v4.1.1', compatible_versions: ['v4.1.1'] },
+  apis: {
+    rpc: [{ address: 'https://terra-classic-rpc.publicnode.com', provider: 'PublicNode' }],
+    rest: [{ address: 'https://terra-classic-lcd.publicnode.com', provider: 'PublicNode' }],
+    grpc: [],
+  },
+  explorers: [{ kind: 'Terra Finder', url: 'https://finder.terraclassic.community/mainnet', tx_page: 'https://finder.terraclassic.community/mainnet/tx/${txHash}' }],
+};
+const TERRA_CLASSIC_ASSETS = {
+  $schema: '../assetlist.schema.json',
+  chain_name: 'terraclassic',
+  assets: [
+    {
+      description: 'The native staking and gas token of Terra Classic.',
+      denom_units: [
+        { denom: 'uluna', exponent: 0 },
+        { denom: 'luna', exponent: 6 },
+      ],
+      base: 'uluna',
+      name: 'Terra Luna Classic',
+      display: 'luna',
+      symbol: 'LUNC',
+      logo_URIs: { png: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/terraclassic/images/lunc.png' },
+      coingecko_id: 'terra-luna',
+    },
+  ],
+};
+
+/* ---- the custom Galaxy Station WalletConnect wallet: the LNC
+   app's wallets.js, ported near-verbatim (the base classes arrive
+   with the lazily loaded @cosmos-kit/walletconnect bundle, so the
+   classes are built by this factory at load time). Galaxy Station
+   is not listed in the WalletConnect explorer registry, so no
+   upstream CosmosKit package exists for it; in its in-app browser
+   it injects window.station, covered by the Station entry — this
+   entry adds the standard pairing flow for other browsers. */
+function galaxyKitFrom(wc){
+  /* Galaxy Station has no WalletConnect Explorer listing (no
+     listing ID), so WCClient's Explorer lookup leaves wcCloudInfo
+     undefined and initAppUrl() throws before it can fall back to
+     the registry `mobile` links below — leaving redirect
+     permanently false and the modal stuck on the QR view. Seed an
+     empty wcCloudInfo so the fallback is reached (the same
+     pattern @cosmos-kit/keplr-mobile uses). */
+  class GalaxyClient extends wc.WCClient {
+    async initWCCloudInfo() {
+      this.wcCloudInfo = { mobile: {} };
+    }
+  }
+  const galaxyStationInfo = {
+    name: 'galaxy-station',
+    prettyName: 'Galaxy Station',
+    logo: 'https://station.terraclassic.community/favicon.svg',
+    mode: 'wallet-connect',
+    mobileDisabled: false,
+    rejectMessage: {
+      source: 'Request rejected',
+    },
+    downloads: [
+      {
+        link: 'https://station.terraclassic.community',
+      },
+    ],
+    supportedChains: ['terraclassic'],
+    walletconnect: {
+      name: 'Galaxy Station',
+      /* Galaxy Station returns base64-encoded pubkeys; with the
+         client default ('hex') account decoding after approval
+         would be wrong. */
+      encoding: 'base64',
+      mobile: {
+        /* Real app links, proven in the FRG app — NOT the project
+           website. Android goes through the Hexxagon intent link;
+           iOS only answers to its native scheme (the HTTPS site
+           just loads the web dashboard and strands the user). */
+        native: {
+          ios: 'galaxystation:',
+          android: 'https://station.hexxagon.io/wcV2',
+        },
+      },
+      /* Composes the pairing deep link from the native app URL +
+         the WalletConnect URI, modeled on @cosmos-kit/keplr-mobile:
+           iOS:     galaxystation://wcV2?<encoded wc uri>
+           Android: https://station.hexxagon.io/wcV2?<encoded wc uri>
+                    #Intent;package=io.hexxagon.station;scheme=galaxystation;end; */
+      formatNativeUrl: (appUrl, wcUri, os, _name) => {
+        const encodedWcUrl = encodeURIComponent(wcUri);
+        switch (os) {
+          case 'ios':
+            return `galaxystation://wcV2?${encodedWcUrl}`;
+          case 'android':
+            return `${appUrl}?${encodedWcUrl}#Intent;package=io.hexxagon.station;scheme=galaxystation;end;`;
+          default:
+            return `galaxystation://wcV2?${encodedWcUrl}`;
+        }
+      },
+    },
   };
-}
-function keplrConnect(quiet){
-  const k = keplrApi();
-  if (!k) return Promise.resolve(false);
-  const enable = () => k.enable(TEST_CHAIN_ID);
-  return Promise.resolve().then(enable)
-    .catch(() => {
-      if (typeof k.experimentalSuggestChain !== 'function') throw new Error('keplr cannot add columbus-5');
-      return k.experimentalSuggestChain(columbusChainInfo()).then(enable);
-    })
-    .then(() => k.getKey(TEST_CHAIN_ID))
-    .then(key => setWalletAddress(key && key.bech32Address, 'keplr'))
-    .catch(err => {
-      console.log('[od-test] Keplr connect failed: ' + (err && err.message));
-      if (!quiet)   /* the boot auto-connect fails silently — a manual tap explains itself */
-        showPasteRow('Keplr could not open Terra Classic (columbus-5) — paste your terra address instead. Pasting is read-only: it can look, never pay.');
-      return false;
-    });
+  class ChainGalaxyStation extends wc.ChainWC {
+    constructor(walletInfo, chainInfo) {
+      super(walletInfo, chainInfo, GalaxyClient);
+    }
+  }
+  class GalaxyStationWallet extends wc.WCWallet {
+    constructor(walletInfo) {
+      super(walletInfo, ChainGalaxyStation, GalaxyClient);
+    }
+  }
+  return { GalaxyClient, ChainGalaxyStation, GalaxyStationWallet, galaxyStationInfo };
 }
 
-/* ================= WalletConnect transport =================
-   The bridge for every browser that is NOT a wallet browser:
-   tap CONNECT → the WalletConnect modal opens with the pairing
-   URI (its wallet list deep-links Keplr on a phone) → the player
-   approves once in Keplr → this page holds a live session
-   (walletMode 'wc') that can read the account and, for a test
-   purchase, sign the payment over the bridge (wcPay below).
-   Sessions persist in the sign client's own localStorage; at
-   boot a live one is restored silently (wcRestoreSession).
-   The libraries load lazily from esm.sh as ES modules — nothing
-   is fetched until a connect or a restore actually needs them —
-   and a load failure is said out loud, with the paste fallback
-   left standing (see wcConnect's catch). */
-const WC_PROJECT_ID = '7e363f1ed5d676ecc4ae2d40c5b83fbf';   /* the Reown project id the owner's other apps use */
-const WC_CHAIN = 'cosmos:' + TEST_CHAIN_ID;
-const WC_METHODS = ['cosmos_signDirect', 'cosmos_signAmino', 'cosmos_getAccounts'];
-const WC_URLS = {
-  signClient: 'https://esm.sh/@walletconnect/sign-client@2.11.2?bundle',
-  modal: 'https://esm.sh/@walletconnect/modal@2.7.0?bundle',
-  protoSigning: 'https://esm.sh/@cosmjs/proto-signing@0.33.1?bundle',
+/* ---- the CosmosKit libraries, loaded lazily as ES modules from
+   esm.sh (plain, non-bundled entry points — the ?bundle build of
+   @cosmos-kit/keplr fails to resolve on esm.sh; the plain entries
+   resolve their own dependency graph and were smoke-verified on
+   2026-10-28). Nothing is fetched until a connect or a restore
+   actually needs the stack, and a load failure is said out loud
+   with the paste fallback left standing. The Buffer shim comes
+   first (the LNC app's polyfills.js does the same): WCClient
+   decodes account pubkeys with the global Buffer. */
+const KIT_PROJECT_ID = '7e363f1ed5d676ecc4ae2d40c5b83fbf';   /* the Reown project id the owner's other apps use */
+const KIT_APP_URL = 'https://frg-fight-club.vercel.app/orbit-defender-test/';
+const KIT_URLS = {
+  buffer: 'https://esm.sh/buffer@6.0.3?bundle',
+  core: 'https://esm.sh/@cosmos-kit/core@2.18.1',
+  keplr: 'https://esm.sh/@cosmos-kit/keplr@2.17.1',
+  station: 'https://esm.sh/@cosmos-kit/station@2.15.1',
+  walletconnect: 'https://esm.sh/@cosmos-kit/walletconnect@2.15.1',
   stargate: 'https://esm.sh/@cosmjs/stargate@0.33.1?bundle',
-  encoding: 'https://esm.sh/@cosmjs/encoding@0.33.1?bundle',
-  txTypes: 'https://esm.sh/cosmjs-types@0.9.0/cosmos/tx/v1beta1/tx?bundle',
 };
-const WC_METADATA = { name: 'Orbit Defender — NFT TEST', description: 'Orbit Defender test build: connect a Terra Classic wallet to see and buy test NFT fighters.',
-  url: 'https://frg-fight-club.vercel.app/orbit-defender-test/', icons: [] };
-/* the Terra Classic ecosystem wallets the modal recommends FIRST,
-   in this order (every other listed wallet still shows below).
-   The ids are the WalletConnect explorer's own listing ids,
-   fetched live from explorer-api.walletconnect.com (v3 wallets
-   endpoint, this project id) on 2026-10-28: Keplr, Leap and
-   Cosmostation are listed. Galaxy Station has NO explorer
-   listing (searched "Galaxy Station" and "Galaxy" — zero
-   results), so it cannot be pinned: inventing an id would
-   corrupt the modal's list, not extend it. */
-const WC_RECOMMENDED_WALLETS = [
-  '6adb6082c909901b9e7189af3a4a0223102cd6f8d5c39e39f3d49acb92b578bb',   /* Keplr */
-  '3ed8cc046c6211a798dc5ec70f1302b43e07db9639fd287de44a9aa115a21ed6',   /* Leap */
-  'feb6ff1fb426db18110f5a80c7adbde846d0a7e96b2bc53af4b73aaf32552bea',   /* Cosmostation */
-];
-let wcLibsPromise = null;
-/* where a libs bundle can come from without the network: the
-   headless hook (OD.setWcForTest, or a bundle pre-seeded on
-   window.__odWcLibs before boot) — the suites inject the real
-   CosmJS plus a fake sign client at this seam, exactly like the
-   LCD stub at the fetch seam. In play both are always empty. */
-function wcHookLibs(){
-  if (wcLibsHook) return wcLibsHook;
-  if (typeof window !== 'undefined' && window.__odWcLibs) return window.__odWcLibs;
+let kitTestHook = null;   /* headless hook only — { manager } or { libs } (or the libs themselves); never set in play */
+let kitLibsCache = null;
+let kitLibsPromise = null;
+function kitHook(){
+  if (kitTestHook) return kitTestHook;
+  if (typeof window !== 'undefined' && window.__odKitLibs) return window.__odKitLibs;
   return null;
 }
-/* resolves with the bundle the rest of the WC code consumes:
-   { SignClient, WalletConnectModal, cosmjs: { Registry,
-   defaultRegistryTypes, makeAuthInfoBytes, makeSignDoc,
-   encodePubkey, calculateFee, TxRaw, TxBody, fromBase64,
-   toBase64, SigningStargateClient, GasPrice } }. (The last two
-   also power the offline-signer payment path in keplrPay, for
-   wallet browsers — Galaxy Station, Station — whose injected
-   provider has no send of its own.) Rejects when the CDN cannot
-   be reached — the caller says so plainly; a failed load is NOT
-   cached, so the next tap retries. */
-function loadWcLibs(){
-  if (wcLibsCache) return Promise.resolve(wcLibsCache);
-  const hook = wcHookLibs();
-  if (hook)
-    return Promise.resolve().then(() => (typeof hook === 'function' ? hook() : hook))
-      .then(libs => { wcLibsCache = libs; return libs; });
-  if (!wcLibsPromise){
-    wcLibsPromise = Promise.resolve()
-      .then(() => Promise.all([import(WC_URLS.signClient), import(WC_URLS.modal),
-        import(WC_URLS.protoSigning), import(WC_URLS.stargate), import(WC_URLS.encoding), import(WC_URLS.txTypes)]))
-      .then(([sc, md, ps, sg, en, tx]) => {
-        const libs = {
-          SignClient: (sc && (sc.SignClient || sc.default)) || null,
-          WalletConnectModal: (md && (md.WalletConnectModal || md.default)) || null,
-          cosmjs: {
-            Registry: ps && ps.Registry,
-            defaultRegistryTypes: (sg && sg.defaultRegistryTypes) || (ps && ps.defaultRegistryTypes) || [],
-            makeAuthInfoBytes: ps && ps.makeAuthInfoBytes,
-            makeSignDoc: ps && ps.makeSignDoc,
-            encodePubkey: ps && ps.encodePubkey,
-            calculateFee: sg && sg.calculateFee,
-            SigningStargateClient: sg && sg.SigningStargateClient,
-            GasPrice: sg && sg.GasPrice,
-            TxRaw: (tx && tx.TxRaw) || (ps && ps.TxRaw),
-            TxBody: tx && tx.TxBody,
-            fromBase64: en && en.fromBase64,
-            toBase64: en && en.toBase64,
-          },
-        };
-        if (!libs.SignClient || !libs.WalletConnectModal || !libs.cosmjs.Registry || !libs.cosmjs.TxRaw)
-          throw new Error('the WalletConnect libraries loaded incomplete');
-        wcLibsCache = libs;
-        return libs;
+function normalizeKitLibs(libs){
+  if (!libs || !libs.core || !libs.core.WalletManager || !libs.keplr || !libs.station || !libs.walletconnect)
+    throw new Error('the CosmosKit libraries loaded incomplete');
+  if (!libs.cosmjs || !libs.cosmjs.SigningStargateClient || !libs.cosmjs.GasPrice)
+    throw new Error('the signing library loaded incomplete');
+  const out = {
+    core: libs.core, keplr: libs.keplr, station: libs.station, walletconnect: libs.walletconnect,
+    cosmjs: libs.cosmjs, galaxy: galaxyKitFrom(libs.walletconnect),
+    chain: TERRA_CLASSIC_CHAIN, assets: TERRA_CLASSIC_ASSETS,
+  };
+  kitLibsCache = out;
+  return out;
+}
+function loadKitLibs(){
+  if (kitLibsCache) return Promise.resolve(kitLibsCache);
+  const hook = kitHook();
+  const hookLibs = hook && (hook.libs || (hook.core ? hook : null));
+  if (hookLibs)
+    return Promise.resolve().then(() => (typeof hookLibs === 'function' ? hookLibs() : hookLibs)).then(normalizeKitLibs);
+  if (!kitLibsPromise){
+    kitLibsPromise = Promise.resolve()
+      .then(() => import(KIT_URLS.buffer))
+      .then(bm => {
+        if (typeof globalThis !== 'undefined' && !globalThis.Buffer && bm && bm.Buffer) globalThis.Buffer = bm.Buffer;
+        if (typeof window !== 'undefined' && !window.global) window.global = window;
       })
-      .catch(err => { wcLibsPromise = null; throw err; });
+      .then(() => Promise.all([import(KIT_URLS.core), import(KIT_URLS.keplr), import(KIT_URLS.station), import(KIT_URLS.walletconnect), import(KIT_URLS.stargate)]))
+      .then(([core, keplr, station, walletconnect, stargate]) => normalizeKitLibs({
+        core, keplr, station, walletconnect,
+        cosmjs: { SigningStargateClient: stargate && stargate.SigningStargateClient, GasPrice: stargate && stargate.GasPrice },
+      }))
+      .catch(err => { kitLibsPromise = null; throw err; });
   }
-  return wcLibsPromise;
+  return kitLibsPromise;
 }
-function wcEnsureClient(){
-  if (wcClient) return Promise.resolve(wcClient);
-  return loadWcLibs()
-    .then(libs => libs.SignClient.init({ projectId: WC_PROJECT_ID, metadata: WC_METADATA }))
-    .then(client => { wcClient = client; return client; });
+
+/* ---- the WalletManager: the LNC app's ChainProvider wiring
+   (wallets = keplr group + station group + the custom Galaxy
+   wallet; the same sign-client options, with this game's name
+   and URL; signer gas price at the game's buy rate — the
+   reference sets signingCosmwasm only, the game adds
+   signingStargate at the same price because its one signature is
+   a stargate MsgSend). onMounted runs un-awaited: it initializes
+   every WalletConnect client (network work) before it restores
+   stored accounts, and a connect must not queue behind that — a
+   chain wallet's own connect() initializes its client itself.
+   The restore path awaits it under a ceiling instead. */
+let kitManager = null;
+let kitMountedPromise = null;
+function kitNoopActions(){
+  return { viewOpen(){}, viewWalletRepo(){}, data(){}, state(){}, message(){}, clientState(){}, clientMessage(){}, render(){} };
 }
-function wcOpenModal(uri){
-  return loadWcLibs().then(libs => {
-    if (!wcModal) wcModal = new libs.WalletConnectModal({ projectId: WC_PROJECT_ID, chains: [WC_CHAIN],
-      explorerRecommendedWalletIds: WC_RECOMMENDED_WALLETS });
-    wcModal.openModal({ uri });
-  }).catch(() => {});   /* the pairing continues even if the modal itself stumbles */
+function ensureKitManager(){
+  if (kitManager) return Promise.resolve(kitManager);
+  const hook = kitHook();
+  if (hook && hook.manager){
+    kitManager = hook.manager;
+    kitMountedPromise = Promise.resolve().then(() => (kitManager.onMounted ? kitManager.onMounted() : undefined)).catch(() => {});
+    kitMountedPromise.then(() => { kitScanAdopt(); });
+    return Promise.resolve(kitManager);
+  }
+  return loadKitLibs().then(kit => {
+    const wallets = [...kit.keplr.wallets, ...kit.station.wallets,
+      new kit.galaxy.GalaxyStationWallet(kit.galaxy.galaxyStationInfo)];
+    const wm = new kit.core.WalletManager(
+      [kit.chain], wallets, new kit.core.Logger('WARN'), false, true, undefined,
+      [kit.assets], 'icns',
+      { signClient: { projectId: KIT_PROJECT_ID, metadata: {
+          name: 'Orbit Defender', description: 'Orbit Defender NFT test build', url: KIT_APP_URL, icons: [],
+          redirect: { native: KIT_APP_URL, universal: KIT_APP_URL } } } },
+      { signingCosmwasm: () => ({ gasPrice: kit.cosmjs.GasPrice.fromString(BUY_GAS_PRICE + 'uluna') }),
+        signingStargate: () => ({ gasPrice: kit.cosmjs.GasPrice.fromString(BUY_GAS_PRICE + 'uluna') }) },
+      undefined, undefined);
+    try {
+      const acts = kitNoopActions();
+      wm.setActions(acts);
+      (wm.walletRepos || []).forEach(repo => {
+        if (repo.setActions) repo.setActions(acts);
+        (repo.wallets || []).forEach(w => { if (w.setActions) w.setActions(acts); });
+      });
+      (wm.mainWallets || []).forEach(w => { if (w.setActions) w.setActions(acts); });
+    } catch (e) {}
+    kitManager = wm;
+    kitMountedPromise = Promise.resolve().then(() => wm.onMounted()).catch(() => {});
+    /* backstop: when the mount (and its stored-account restore)
+       finishes — whenever that is — adopt whatever it found */
+    kitMountedPromise.then(() => { kitScanAdopt(); });
+    return wm;
+  });
 }
-function wcCloseModal(){ if (wcModal && typeof wcModal.closeModal === 'function'){ try { wcModal.closeModal(); } catch (e) {} } }
-/* the Terra address inside a WC session: namespaces.cosmos.
-   accounts entries are "cosmos:columbus-5:terra1…" */
-function wcSessionAddress(session){
-  try {
-    const accs = (session && session.namespaces && session.namespaces.cosmos && session.namespaces.cosmos.accounts) || [];
-    for (const a of accs){
-      const parts = String(a).split(':');
-      if (parts[0] === 'cosmos' && parts[1] === TEST_CHAIN_ID) return parts.slice(2).join(':');
-    }
-    if (accs.length) return String(accs[0]).split(':').slice(2).join(':');
-  } catch (e) {}
-  return '';
+
+/* ---- the picker + the pairing-link box ---- */
+function showPicker(){ const p = $('walletPicker'); if (p) p.classList.add('on'); }
+function hidePicker(){ const p = $('walletPicker'); if (p) p.classList.remove('on'); }
+function showPairBox(uri){
+  const inp = $('walletPairUri');
+  if (inp) inp.value = uri;
+  const b = $('walletPairBox');
+  if (b) b.classList.add('on');
 }
-function wcStorePubkey(acc){
-  if (!acc) return;
-  const raw = acc.pubKey || acc.pubkey;
-  if (!raw) return;
-  try {
-    if (raw instanceof Uint8Array) wcPubkey = raw;
-    else if (typeof raw === 'string' && wcLibsCache) wcPubkey = wcLibsCache.cosmjs.fromBase64(raw);
-    else if (Array.isArray(raw)) wcPubkey = new Uint8Array(raw);
-  } catch (e) {}
+function hidePairBox(){
+  const b = $('walletPairBox');
+  if (b) b.classList.remove('on');
+  const inp = $('walletPairUri');
+  if (inp) inp.value = '';
 }
-/* cosmos_getAccounts over the live session — gives the address +
-   pubkey the payment signer needs. Any failure is survivable:
-   the address also rides in the session, and the pubkey can
-   come from the chain account at payment time (see wcPay). */
-function wcGetAccounts(){
-  if (!wcClient || !wcSession) return Promise.resolve(null);
-  return Promise.resolve()
-    .then(() => wcClient.request({ topic: wcSession.topic, chainId: WC_CHAIN, request: { method: 'cosmos_getAccounts', params: {} } }))
-    .then(res => { const list = Array.isArray(res) ? res : ((res && res.accounts) || []); return list[0] || null; })
-    .catch(() => null);
+/* while a WalletConnect pairing waits, the client holds the
+   pairing URI (client.qrUrl). On a phone the client redirects
+   into the wallet app itself (client.redirect) and no box is
+   needed; anywhere else the box offers the raw link for the
+   wallet's own WalletConnect scanner — the honest desktop path
+   now that the generic modal is gone. */
+function watchPairing(cw, pretty){
+  let stopped = false, timer = null;
+  const tick = () => {
+    if (stopped) return;
+    try {
+      const client = cw.client;
+      const uri = client && client.qrUrl && client.qrUrl.data;
+      if (uri && !(client && client.redirect)){
+        showPairBox(uri);
+        walletHint('Approve the connection in ' + pretty + ' — or paste the pairing link below into its WalletConnect scanner.');
+      }
+    } catch (e) {}
+    if (!stopped) timer = setTimeout(tick, 500);
+  };
+  timer = setTimeout(tick, 600);
+  return { stop(){ stopped = true; if (timer) clearTimeout(timer); } };
 }
-function wcFailLine(err){
-  const msg = String((err && err.message) || err || '');
-  if (/expire|timed out|timeout/i.test(msg))
-    return 'The WalletConnect pairing ended — the request expired before a wallet approved it. Tap CONNECT WALLET to try again, or paste an address below just to look (read-only).';
-  if (/reject|denied|declin|cancel|closed/i.test(msg))
-    return 'The WalletConnect pairing ended — the connection was rejected in the wallet. Tap CONNECT WALLET to try again, or paste an address below just to look (read-only).';
-  return "WalletConnect couldn't start — the relay didn't answer. Paste your terra address below just to look (read-only, can't buy), or open this page inside the Keplr app's browser to connect directly.";
+
+/* ---- connect ---- */
+function injectedKeplr(){ try { return (typeof window !== 'undefined' && window.keplr) || null; } catch (e) { return null; } }
+function injectedStation(){ try { return (typeof window !== 'undefined' && window.station) || null; } catch (e) { return null; } }
+const KIT_ENTRIES = [
+  { id: 'keplr', label: 'Keplr', resolve(){ return injectedKeplr() ? 'keplr-extension' : 'keplr-mobile'; } },
+  { id: 'galaxy', label: 'Galaxy Station', resolve(){ return 'galaxy-station'; } },
+  { id: 'station', label: 'Station', resolve(){ return injectedStation() ? 'station-extension' : null; } },
+];
+function kitEntry(id){ for (const e of KIT_ENTRIES) if (e.id === id) return e; return null; }
+function kitFailLine(cw, pretty){
+  if (cw && cw.isWalletNotExist)
+    return pretty + " isn't available in this browser — open this page inside the " + pretty + ' app, or pick another wallet. You can also paste an address below just to look (read-only).';
+  if (cw && cw.isWalletRejected)
+    return 'Connection rejected in ' + pretty + ' — tap CONNECT WALLET to try again, or paste an address below just to look (read-only).';
+  const msg = cw && cw.message ? String(cw.message) : '';
+  return pretty + " couldn't connect" + (msg ? ': ' + msg.slice(0, 90) : '') + ' — tap CONNECT WALLET to try again, or paste an address below just to look (read-only).';
 }
-/* the methods this session actually granted (its namespaces) —
-   the wallet decides what it offers; cosmos_getAccounts in
-   particular is NOT universal across wallets */
-function wcSessionMethods(){
-  try {
-    const m = wcSession && wcSession.namespaces && wcSession.namespaces.cosmos && wcSession.namespaces.cosmos.methods;
-    return Array.isArray(m) ? m : [];
-  } catch (e) { return []; }
-}
-/* adopt an approved session as THE connection. The address comes
-   from the session's own accounts (CAIP-10 strings) — that alone
-   is the connection, and it lands immediately. cosmos_getAccounts
-   is optional enrichment for the pubkey only: it is skipped when
-   the session never granted it, and its failure can never cost
-   the connection (wcPay falls back to the on-chain pubkey). A
-   session that granted less — even one without signing — is
-   still a connection; only PAYING fails without signDirect,
-   and it fails there, in plain words (see wcPay). */
-function wcAdoptSession(session){
-  wcSession = session;
-  const addr = wcSessionAddress(session);
-  if (!validTerraAddress(addr)){ wcSession = null; return Promise.resolve(false); }
-  if (walletMode === 'keplr') return Promise.resolve(false);   /* an injected session owns the wallet box */
-  const methods = wcSessionMethods();
-  if (!methods.length || methods.includes('cosmos_getAccounts'))
-    wcGetAccounts().then(acc => wcStorePubkey(acc)).catch(() => {});
-  return setWalletAddress(addr, 'wc');
-}
-const WC_APPROVAL_TIMEOUT_MS = 120000;
-/* the approval wait, with a ceiling: a pairing nobody answers
-   must end as an honest "expired" line, not a button that sits
-   silent forever. A late approval is not lost either — it lands
-   in the sign client's store, and adopt-on-return picks it up
-   when the player comes back to the page. */
-function wcAwaitApproval(approval){
-  return Promise.race([
-    approval(),
-    new Promise((_, reject) => setTimeout(
-      () => reject(new Error('the connection request expired — no wallet answered in time')), WC_APPROVAL_TIMEOUT_MS)),
-  ]);
-}
-/* CONNECT, WalletConnect flavor: propose the session, show the
-   modal with the pairing URI, and on approval adopt the account.
-   The status line narrates every stage — opening the wallet
-   list, waiting for the approval in the wallet, connected — so
-   the button never sits silent while the wallet already said
-   yes. Resolves true when a wallet landed. Every failure lands
-   on the paste row with an honest, classified line. */
-function wcConnect(){
-  if (wcConnecting) return Promise.resolve(false);
-  wcConnecting = true;
-  walletHint('Opening WalletConnect — pick your wallet in the list that pops up…');
-  return wcEnsureClient()
-    .then(client => client.connect({ requiredNamespaces: { cosmos: { methods: WC_METHODS.slice(), chains: [WC_CHAIN], events: [] } } }))
-    .then(({ uri, approval }) => {
-      if (uri) wcOpenModal(uri);
-      walletHint('Waiting for approval in your wallet — approve the connection there, then come back to the game…');
-      return wcAwaitApproval(approval);
+let kitConnecting = '';
+function kitConnect(entryId, opts){
+  const quiet = !!(opts && opts.quiet);
+  const entry = kitEntry(entryId);
+  if (!entry || kitConnecting) return Promise.resolve(false);
+  const walletName = entry.resolve();
+  if (!walletName){
+    if (!quiet)
+      showPasteRow(entry.label + ' only connects inside the ' + entry.label + " app's own browser — open this page there, or pick another wallet. You can also paste an address below just to look (read-only).");
+    return Promise.resolve(false);
+  }
+  kitConnecting = entryId;
+  hidePicker();
+  if (!quiet) walletHint('Opening ' + entry.label + '…');
+  return ensureKitManager()
+    .then(wm => {
+      const cw = wm.getChainWallet(KIT_CHAIN_NAME, walletName);
+      if (!cw) throw new Error('the ' + entry.label + ' wallet is not registered');
+      const pretty = cw.walletPrettyName || entry.label;
+      if (!quiet) walletHint('Approve the connection in ' + pretty + ' — then come back to the game…');
+      const watch = watchPairing(cw, pretty);
+      return Promise.resolve().then(() => cw.connect())
+        .then(() => { watch.stop(); return { cw, pretty }; })
+        .catch(err => { watch.stop(); throw err; });
     })
-    .then(session => {
-      wcCloseModal();
-      wcConnecting = false;
-      return wcAdoptSession(session);
+    .then(({ cw, pretty }) => {
+      kitConnecting = '';
+      hidePairBox();
+      if (cw.isWalletConnected && cw.address){
+        kitChainWallet = cw; kitWalletName = walletName; kitPrettyName = pretty;
+        return setWalletAddress(cw.address, 'kit');
+      }
+      if (!quiet) showPasteRow(kitFailLine(cw, pretty));
+      return false;
     })
     .catch(err => {
-      wcCloseModal();
-      wcConnecting = false;
-      console.log('[od-test] WalletConnect connect failed: ' + (err && err.message));
-      showPasteRow(wcFailLine(err));
+      kitConnecting = '';
+      hidePairBox();
+      console.log('[od-test] ' + entry.label + ' connect failed: ' + (err && err.message));
+      if (!quiet)
+        showPasteRow(entry.label + " couldn't connect" + (err && err.message ? ': ' + String(err.message).slice(0, 90) : '') + ' — tap CONNECT WALLET to try again, or paste an address below just to look (read-only).');
       return false;
     });
 }
-/* DISCONNECT drops the WC session too (best effort — the local
-   clear in clearWallet never waits on the relay). */
-function wcDisconnect(){
-  const client = wcClient, session = wcSession;
-  wcSession = null; wcPubkey = null; wcConnecting = false;
-  if (!client || !session) return Promise.resolve();
-  return Promise.resolve()
-    .then(() => client.disconnect({ topic: session.topic, reason: { code: 6000, message: 'User disconnected' } }))
-    .catch(() => {});
+/* DISCONNECT tears the CosmosKit session down too (best effort —
+   the local clear in clearWallet never waits on the wallet). */
+function kitDisconnect(){
+  const cw = kitChainWallet;
+  kitChainWallet = null; kitWalletName = ''; kitPrettyName = '';
+  if (cw && typeof cw.disconnect === 'function')
+    return Promise.resolve().then(() => cw.disconnect()).catch(() => {});
+  return Promise.resolve();
 }
-/* did this browser ever complete a WalletConnect pairing? The
-   sign client keeps its state under wc@2:* keys — if none exist
-   there is nothing to restore and the bridge is not even loaded. */
-function wcHasStoredState(){
+
+/* ---- session restore: on load and on pageshow, adopt a live
+   CosmosKit session silently. Detection first: CosmosKit keeps
+   the current wallet under its own localStorage key (and the WC
+   sign clients theirs under wc@2:*) — with neither present and
+   no test hook injected there is nothing to restore and the
+   stack is not even loaded. */
+const KIT_WALLET_NAMES = ['keplr-extension', 'keplr-mobile', 'station-extension', 'galaxy-station'];
+function kitHasStoredState(){
+  try {
+    if (localStorage.getItem('cosmos-kit@2:core//current-wallet')) return true;
+  } catch (e) {}
   try {
     if (typeof localStorage.key === 'function' && typeof localStorage.length === 'number'){
       for (let i = 0; i < localStorage.length; i++){
         const k = localStorage.key(i);
-        if (k && k.indexOf('wc@2:') === 0) return true;
+        if (k && (k.indexOf('wc@2:') === 0 || k.indexOf('cosmos-kit@2:') === 0)) return true;
       }
-      return false;
     }
   } catch (e) {}
   return false;
 }
-/* adopt a still-live stored session — at boot, and again every
-   time the page returns to the front. The return path matters as
-   much as the boot path: approving in the wallet app backgrounds
-   this page, mobile browsers throttle or kill background tabs,
-   and the approval can land in the sign client's store while
-   this page's own connect promise never resolves. Re-checking
-   the store on return connects without a reload. Quiet by
-   design — a dead or expired session just leaves the page as it
-   was, and an injected-Keplr session always wins. */
-let wcAdopting = false;
-function wcAdoptStoredSession(){
-  if (wcAdopting || wcSession || walletMode === 'keplr') return Promise.resolve(false);
-  if (!wcHookLibs() && !wcHasStoredState()) return Promise.resolve(false);
-  wcAdopting = true;
-  return wcEnsureClient().then(client => {
-    const all = (client.session && typeof client.session.getAll === 'function') ? client.session.getAll() : [];
-    const now = Math.floor(Date.now() / 1000);
-    const live = (all || []).filter(s => s && (!s.expiry || s.expiry > now));
-    if (!live.length) return false;
-    return wcAdoptSession(live[live.length - 1]);
-  }).catch(err => { console.log('[od-test] WalletConnect adopt skipped: ' + (err && err.message)); return false; })
-    .then(ok => { wcAdopting = false; return ok; });
+function kitScanAdopt(){
+  if (!kitManager || walletMode === 'kit') return false;
+  for (const name of KIT_WALLET_NAMES){
+    let cw = null;
+    try { cw = kitManager.getChainWallet(KIT_CHAIN_NAME, name); } catch (e) {}
+    if (cw && cw.isWalletConnected && cw.address && validTerraAddress(cw.address)){
+      kitChainWallet = cw; kitWalletName = name; kitPrettyName = cw.walletPrettyName || name;
+      setWalletAddress(cw.address, 'kit');
+      return true;
+    }
+  }
+  return false;
 }
-function wcRestoreSession(){ return wcAdoptStoredSession(); }
-/* coming back to the page re-runs the stored-session check */
+let kitAdopting = false;
+function kitRestoreSession(){
+  if (kitAdopting) return Promise.resolve(false);
+  if (walletMode === 'kit') return Promise.resolve(true);
+  if (!kitHook() && !kitHasStoredState()) return Promise.resolve(false);
+  kitAdopting = true;
+  return ensureKitManager()
+    .then(() => Promise.race([kitMountedPromise || Promise.resolve(), new Promise(r => setTimeout(r, 6000))]))
+    .then(() => kitScanAdopt())
+    .catch(err => { console.log('[od-test] CosmosKit restore skipped: ' + (err && err.message)); return false; })
+    .then(ok => { kitAdopting = false; return ok; });
+}
+/* boot: restore first; with a stored address inside a wallet's own
+   browser, quietly upgrade the read-only restore to a live session
+   with that wallet (the behavior the injected-Keplr boot had). */
+function kitBootFlow(){
+  return kitRestoreSession().then(() => {
+    if (walletMode === 'kit' || !walletAddress) return;
+    if (injectedKeplr()) kitConnect('keplr', { quiet: true });
+    else if (injectedStation()) kitConnect('station', { quiet: true });
+  });
+}
+/* coming back to the page re-runs the stored-session check — the
+   return path matters: approving in the wallet app backgrounds
+   this page, and the session can land in CosmosKit's store while
+   this page's own connect promise never resolves */
 if (typeof window !== 'undefined' && typeof window.addEventListener === 'function')
-  window.addEventListener('pageshow', () => { wcAdoptStoredSession(); });
+  window.addEventListener('pageshow', () => { kitRestoreSession(); });
 if (typeof document !== 'undefined' && typeof document.addEventListener === 'function')
   document.addEventListener('visibilitychange', () => {
     const vis = document.visibilityState ? document.visibilityState === 'visible' : !document.hidden;
-    if (vis) wcAdoptStoredSession();
+    if (vis) kitRestoreSession();
   });
-/* the chain-side account record the WC signer needs (account
-   number + sequence, plus the on-chain pubkey as a fallback
-   when the wallet never reported one) */
-function lcdAccount(addr){
-  return lbFetch(NFT_LCD + '/cosmos/auth/v1beta1/accounts/' + addr, { method: 'GET' }, 10000)
-    .then(r => { if (!r || !r.ok) throw new Error('account lookup failed (LCD status ' + (r && r.status) + ')'); return r.json(); })
-    .then(j => {
-      const a = (j && j.account) || {};
-      return { accountNumber: Number(a.account_number || 0), sequence: Number(a.sequence || 0),
-        pubkeyB64: (a.pub_key && a.pub_key.key) || '' };
+
+/* ---- the payment: ONE path for every wallet. The connected
+   chain wallet's offline signer (direct when it offers one) feeds
+   the existing CosmJS signing client; the wallet — Keplr, Galaxy
+   Station, Station, extension or WalletConnect — does all the
+   signing inside CosmosKit. Same MsgSend, same amount, same memo
+   as ever. Resolves with the tx hash; rejects with the wallet's
+   own error, so a refused signature reads as exactly what it was. */
+function kitPay(tier){
+  const cw = kitChainWallet;
+  if (!cw) return Promise.reject(new Error('the wallet session is gone — disconnect and connect again'));
+  const from = walletAddress, memo = buyMemo(tier);
+  const amount = [{ denom: 'uluna', amount: buyPriceUluna() }];
+  return Promise.resolve()
+    .then(() => (typeof cw.initOfflineSigner === 'function' ? cw.initOfflineSigner('direct') : undefined))
+    .then(() => {
+      const signer = cw.offlineSigner ||
+        (cw.client && typeof cw.client.getOfflineSigner === 'function' ? cw.client.getOfflineSigner(TEST_CHAIN_ID, 'direct') : null);
+      if (!signer) throw noPayMethodError();
+      return buyStargateClient(signer);
+    })
+    .then(client => client.sendTokens(from, GAME_WALLET, amount, 'auto', memo))
+    .then(result => {
+      if (result && result.code) throw new Error('the payment broadcast failed (code ' + result.code + ')');
+      const h = keplrExtractHash(result);
+      if (!h) throw new Error('the wallet sent the payment but returned no tx hash');
+      return h;
     });
 }
-/* an OfflineDirectSigner-shaped adapter over the WC session —
-   getAccounts answers from the session, signDirect relays the
-   doc to the wallet via cosmos_signDirect and returns the
-   signed doc + signature, byte for byte as Keplr gave them. */
-function wcDirectSigner(C){
-  return {
-    getAccounts(){
-      return Promise.resolve([{ address: walletAddress, algo: 'secp256k1', pubkey: wcPubkey }]);
-    },
-    signDirect(address, signDoc){
-      return Promise.resolve().then(() => wcClient.request({ topic: wcSession.topic, chainId: WC_CHAIN,
-        request: { method: 'cosmos_signDirect', params: { signerAddress: address,
-          signDoc: { bodyBytes: C.toBase64(signDoc.bodyBytes), authInfoBytes: C.toBase64(signDoc.authInfoBytes),
-            chainId: signDoc.chainId, accountNumber: String(signDoc.accountNumber) } } } }))
-        .then(resp => {
-          const signed = (resp && resp.signed) || {};
-          const sig = resp && resp.signature && resp.signature.signature;
-          if (!sig) throw new Error('the wallet returned no signature');
-          return {
-            signed: {
-              bodyBytes: signed.bodyBytes ? C.fromBase64(signed.bodyBytes) : signDoc.bodyBytes,
-              authInfoBytes: signed.authInfoBytes ? C.fromBase64(signed.authInfoBytes) : signDoc.authInfoBytes,
-              chainId: signed.chainId || signDoc.chainId,
-              accountNumber: signed.accountNumber != null ? signed.accountNumber : signDoc.accountNumber,
-            },
-            signature: C.fromBase64(sig),
-          };
-        });
-    },
-  };
-}
-const WC_GAS_LIMIT = 100000;   /* the buy's fee gas over WalletConnect (x the standing 28.325uluna price = 2,832,500uluna) */
-/* the WC flavor of the test payment: build the same MsgSend the
-   Keplr path sends (same amount, same memo, same game wallet),
-   sign it in the player's wallet over the bridge, assemble the
-   TxRaw from Keplr's signed doc, and broadcast it through the
-   LCD. Resolves with the tx hash — from here the flow is the
-   shared one (pending record → /buy → ownership re-read). */
-function wcPay(tier){
-  if (!wcClient || !wcSession)
-    return Promise.reject(new Error('the WalletConnect session is gone — disconnect and connect again'));
-  /* the session is the contract: one that never granted
-     cosmos_signDirect can look but cannot pay — say so plainly
-     here, at pay time; connect accepted it on purpose. Checked
-     first: the fact needs no libraries to know. */
-  const wcMethods = wcSessionMethods();
-  if (wcMethods.length && !wcMethods.includes('cosmos_signDirect'))
-    return Promise.reject(new Error("this wallet session can't sign payments — it didn't grant cosmos_signDirect. Disconnect, reconnect, and approve signing to buy."));
-  const C = wcLibsCache && wcLibsCache.cosmjs;
-  if (!C || !C.Registry || !C.TxRaw)
-    return Promise.reject(new Error('the WalletConnect bridge is not loaded — disconnect and connect again'));
-  const from = walletAddress;
-  return lcdAccount(from).then(acct => {
-    let pubBytes = wcPubkey;
-    if (!pubBytes && acct.pubkeyB64) pubBytes = C.fromBase64(acct.pubkeyB64);
-    if (!pubBytes)
-      throw new Error('no public key is known for this account yet — make any small transaction from this wallet once, then buy');
-    wcPubkey = pubBytes;
-    const fee = (typeof C.calculateFee === 'function')
-      ? C.calculateFee(WC_GAS_LIMIT, BUY_GAS_PRICE + 'uluna')
-      : { amount: [{ denom: 'uluna', amount: String(Math.ceil(WC_GAS_LIMIT * BUY_GAS_PRICE)) }], gas: String(WC_GAS_LIMIT) };
-    const msg = { typeUrl: '/cosmos.bank.v1beta1.MsgSend',
-      value: { fromAddress: from, toAddress: GAME_WALLET, amount: [{ denom: 'uluna', amount: buyPriceUluna() }] } };
-    const registry = new C.Registry([...(C.defaultRegistryTypes || []), ['/cosmos.tx.v1beta1.TxBody', C.TxBody]]);
-    const bodyBytes = registry.encode({ typeUrl: '/cosmos.tx.v1beta1.TxBody', value: { messages: [msg], memo: buyMemo(tier) } });
-    const signer = wcDirectSigner(C);
-    return signer.getAccounts().then(accounts => {
-      const pubkey = C.encodePubkey({ type: 'tendermint/PubKeySecp256k1', value: C.toBase64(accounts[0].pubkey || pubBytes) });
-      const authInfoBytes = C.makeAuthInfoBytes([{ pubkey, sequence: acct.sequence }], fee.amount, Number(fee.gas), undefined, undefined);
-      const signDoc = C.makeSignDoc(bodyBytes, authInfoBytes, TEST_CHAIN_ID, acct.accountNumber);
-      return signer.signDirect(from, signDoc);
-    }).then(({ signature, signed }) => {
-      const txRaw = C.TxRaw.fromPartial({ bodyBytes: signed.bodyBytes, authInfoBytes: signed.authInfoBytes, signatures: [signature] });
-      const txBytes = C.TxRaw.encode(txRaw).finish();
-      return lbFetch(NFT_LCD + '/cosmos/tx/v1beta1/txs', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tx_bytes: C.toBase64(txBytes), mode: 'BROADCAST_MODE_SYNC' }) }, 25000);
-    }).then(r => {
-      if (!r || typeof r.json !== 'function') throw new Error('the chain did not answer the broadcast');
-      return r.json();
-    }).then(j => {
-      const tr = j && j.tx_response;
-      if (!tr || !tr.txhash) throw new Error('the chain did not answer the broadcast');
-      if (tr.code) throw new Error('the payment broadcast failed (code ' + tr.code + ')' + (tr.raw_log ? ': ' + String(tr.raw_log).slice(0, 80) : ''));
-      return String(tr.txhash);
-    });
-  });
-}
-/* which payment does BUY use? The live session decides: an
-   injected Keplr session pays through Keplr, a WalletConnect
-   session pays over the bridge. Anything else cannot pay. */
-function walletCanPay(){ return walletMode === 'keplr' || walletMode === 'wc'; }
-function payForTier(tier){ return walletMode === 'wc' ? wcPay(tier) : keplrPay(tier); }
+/* which wallets can pay? A live CosmosKit session can; a pasted
+   address never can. */
+function walletCanPay(){ return walletMode === 'kit'; }
+function payForTier(tier){ return kitPay(tier); }
 
 /* ================= wallet UI ================= */
 function updateWalletUi(){
@@ -1313,7 +1385,7 @@ function updateWalletUi(){
     return;
   }
   btn.textContent = '✖ DISCONNECT';
-  const modeTxt = walletMode === 'keplr' ? ' · Keplr connected' : (walletMode === 'wc' ? ' · WalletConnect · Keplr' : (walletMode === 'paste' ? ' · pasted address (read-only)' : ''));
+  const modeTxt = walletMode === 'kit' ? ' · ' + (kitPrettyName || 'wallet') + ' connected' : (walletMode === 'paste' ? ' · pasted address (read-only)' : '');
   const n = ownedNftTiers().length;
   if (nftReadState === 'loading') st.textContent = 'Wallet ' + shortAddr(walletAddress) + modeTxt + ' · reading your NFTs…';
   else if (nftReadState === 'ok') st.textContent = 'Wallet ' + shortAddr(walletAddress) + modeTxt + ' · NFT: ' + n + ' owned' +
@@ -1338,12 +1410,12 @@ function hidePasteRow(){
 }
 
 /* ================= paid TEST buy (test build only) =================
-   The community-member test flow: connect with Keplr, BUY a test
-   fighter for NFT_CONFIG.buyPriceLunc LUNC, fly it. Exactly what
-   the cards say happens:
+   The community-member test flow: connect a wallet (CosmosKit),
+   BUY a test fighter for NFT_CONFIG.buyPriceLunc LUNC, fly it.
+   Exactly what the cards say happens:
      1. The player pays from their OWN connected wallet — a
         plain MsgSend of the price to the game wallet, memo
-        "ODTEST-BUY tier:<n>" (keplrPay below).
+        "ODTEST-BUY tier:<n>" (kitPay, in the wallet section).
      2. The game hands { address, tier, txHash } to the buy service
         (NFT_CONFIG.mintUrl), which verifies the payment on-chain
         and mints the NFT to the buyer from the game wallet.
@@ -1351,7 +1423,7 @@ function hidePasteRow(){
         unlocks because the chain says so, never because the buy
         response said so.
    A pasted address is read-only and can never reach step 1: its
-   button reads "Open in Keplr to buy". While mintUrl is '' nothing
+   button reads "Connect a wallet to buy". While mintUrl is '' nothing
    here renders or runs — the cards keep their plain locked
    behavior and the registry prices. Service contract:
      GET  {mintUrl}/state                 -> { open }
@@ -1430,21 +1502,13 @@ function buyErrorText(code){
 function buyErrorKeepsPending(code){
   return code !== 'payment_invalid' && code !== 'payment_used';
 }
-/* ---- the payment: a plain LUNC send through the wallet provider ----
-   Feature-detected against the API the injected wallet actually
-   exposes, in this order:
-     1. keplr.sendTokens (Keplr's convenience send) when present;
-     2. keplr.signAndBroadcast with a hand-built MsgSend and a fee
-        at the going gas price (28.325uluna);
-     3. the provider's offline signer + CosmJS (keplrPayViaSigner)
-        — the only send some wallet browsers offer: Galaxy Station
-        and Station inject enable / getKey / getOfflineSigner but
-        neither of the two sends above.
-   Resolves with the tx hash; rejects with the wallet's own error,
-   so a refused signature reads as exactly what it was and the
-   flow stops before any money moves. Only when no path exists at
-   all does the no-method error show — worded for any wallet app,
-   never naming one. */
+/* ---- the payment helpers for kitPay (in the wallet section):
+   the connected CosmosKit chain wallet's offline signer feeds
+   buyStargateClient below; the wallet signs inside CosmosKit.
+   keplrExtractHash reads the hash out of whatever shape the
+   signing client returns; noPayMethodError is the one failure
+   that is about the wallet APP, not the chain or the player —
+   flagged so startBuy can word it neutrally. */
 function keplrExtractHash(res){
   if (!res) return '';
   if (typeof res === 'string') return res;
@@ -1459,74 +1523,22 @@ function noPayMethodError(){
   e.noPayMethod = true;
   return e;
 }
-/* the CosmJS signing client for the offline-signer path, built
-   from the same lazily-loaded stargate bundle the WalletConnect
-   code uses. The headless suites replace the factory at this seam
+/* the CosmJS signing client for the payment, built from the
+   stargate bundle that loads with the CosmosKit stack. The
+   headless suites replace the factory at this seam
    (OD.setSignerClientForTest) — in play it is always the real
    SigningStargateClient against the public RPC. */
 const BUY_RPC_URL = 'https://terra-classic-rpc.publicnode.com';
 let signerClientHook = null;   /* headless hook only — never set in play */
 function buyStargateClient(signer){
   if (signerClientHook) return Promise.resolve().then(() => signerClientHook(signer));
-  return loadWcLibs().then(libs => {
-    const C = libs && libs.cosmjs;
+  return loadKitLibs().then(kit => {
+    const C = kit && kit.cosmjs;
     if (!C || typeof C.SigningStargateClient !== 'function' || !C.GasPrice)
       throw new Error('the signing library loaded incomplete');
     return C.SigningStargateClient.connectWithSigner(BUY_RPC_URL, signer,
       { gasPrice: C.GasPrice.fromString(BUY_GAS_PRICE + 'uluna') });
   });
-}
-/* payment path 3: build the send with CosmJS through the wallet's
-   own offline signer. The wallet still signs everything — the
-   game only assembles the same plain MsgSend, memo and all, that
-   the other paths send. */
-function keplrPayViaSigner(k, from, amount, memo, enabled){
-  const getSigner = () => {
-    if (typeof k.getOfflineSigner === 'function') return k.getOfflineSigner(TEST_CHAIN_ID);
-    if (typeof k.getOfflineSignerOnlyAmino === 'function') return k.getOfflineSignerOnlyAmino(TEST_CHAIN_ID);
-    return null;
-  };
-  return enabled
-    .then(() => getSigner())
-    .then(signer => {
-      if (!signer) throw noPayMethodError();
-      return buyStargateClient(signer);
-    })
-    .then(client => client.sendTokens(from, GAME_WALLET, amount, 'auto', memo))
-    .then(result => {
-      if (result && result.code) throw new Error('the payment broadcast failed (code ' + result.code + ')');
-      const h = keplrExtractHash(result);
-      if (!h) throw new Error('the wallet sent the payment but returned no tx hash');
-      return h;
-    });
-}
-function keplrPay(tier){
-  const k = keplrApi();
-  if (!k) return Promise.reject(new Error('no Keplr in this browser'));
-  const from = walletAddress, memo = buyMemo(tier);
-  const amount = [{ denom: 'uluna', amount: buyPriceUluna() }];
-  const enabled = Promise.resolve().then(() => k.enable(TEST_CHAIN_ID)).catch(() => {});
-  if (typeof k.sendTokens === 'function'){
-    return enabled.then(() => k.sendTokens(TEST_CHAIN_ID, from, GAME_WALLET, amount, memo))
-      .then(res => {
-        const h = keplrExtractHash(res);
-        if (!h) throw new Error('Keplr sent the payment but returned no tx hash');
-        return h;
-      });
-  }
-  if (typeof k.signAndBroadcast === 'function'){
-    const msgs = [{ typeUrl: '/cosmos.bank.v1beta1.MsgSend',
-      value: { fromAddress: from, toAddress: GAME_WALLET, amount } }];
-    const fee = { amount: [{ denom: 'uluna', amount: String(Math.ceil(BUY_GAS_LIMIT * BUY_GAS_PRICE)) }], gas: String(BUY_GAS_LIMIT) };
-    return enabled.then(() => k.signAndBroadcast(TEST_CHAIN_ID, from, msgs, fee, memo))
-      .then(res => {
-        if (res && res.code) throw new Error('the payment broadcast failed (code ' + res.code + ')');
-        const h = keplrExtractHash(res);
-        if (!h) throw new Error('Keplr sent the payment but returned no tx hash');
-        return h;
-      });
-  }
-  return keplrPayViaSigner(k, from, amount, memo, enabled);
 }
 /* ---- hand the payment to the service, which verifies + mints ---- */
 function postBuy(p){
@@ -1573,7 +1585,7 @@ function startBuy(tier){
   }
   if (pendingForCurrentWallet()) return verifyBuy();   /* an earlier payment is still finishing — never charge twice */
   if (!walletCanPay()){
-    buyNotes[tier] = { cls: 'err', text: 'Open in Keplr to buy — a pasted address is read-only and cannot pay.' };
+    buyNotes[tier] = { cls: 'err', text: 'Connect a wallet to buy — a pasted address is read-only and cannot pay.' };
     buildShipRow();
     return Promise.resolve(false);
   }
@@ -1601,8 +1613,8 @@ function startBuy(tier){
       buyNotes[tier] = { cls: 'err', text: (err && err.noPayMethod)
         ? "This wallet app can't send the payment from its browser — the game charged nothing."
         : /reject|denied|deny|cancel/i.test(msg)
-          ? 'Payment cancelled in Keplr — nothing was sent.'
-          : 'Keplr could not send the payment' + (msg ? ': ' + msg.slice(0, 90) : '') + ' — the game charged nothing.' };
+          ? 'Payment cancelled in ' + kitWalletPretty() + ' — nothing was sent.'
+          : kitWalletPretty() + ' could not send the payment' + (msg ? ': ' + msg.slice(0, 90) : '') + ' — the game charged nothing.' };
       buildShipRow();
       return finish(false);
     });
@@ -3309,7 +3321,7 @@ function buildShipRow(){
       const pasteMode = !walletCanPay();
       bb.className = 'buyBtn' + (buyBusyTier === s.nftTier ? ' busy' : '') + (pasteMode ? ' off' : '');
       bb.textContent = buyBusyTier === s.nftTier ? 'Paying…'
-        : (pasteMode ? 'Open in Keplr to buy' : '🛒 BUY — ' + NFT_CONFIG.buyPriceLunc + ' LUNC');
+        : (pasteMode ? 'Connect a wallet to buy' : '🛒 BUY — ' + NFT_CONFIG.buyPriceLunc + ' LUNC');
       bb.tabIndex = 0;
       bb.onclick = (ev) => { if (ev && ev.stopPropagation) ev.stopPropagation(); sfxTap(); startBuy(s.nftTier); };
       b.appendChild(bb);
@@ -4131,15 +4143,20 @@ $('rewardsCloseBtn').onclick = () => closeRewards();
 $('walletBtn').onclick = () => {
   sfxTap();
   if (walletAddress){ clearWallet(); return; }
-  if (keplrApi()){ keplrConnect(); return; }
-  /* no wallet lives in this browser: pair over WalletConnect
-     (the modal deep-links Keplr on a phone). The paste row opens
-     at once as the standing fallback — wcConnect narrates the
-     pairing over it and explains itself there if it fails. */
-  showPasteRow();
-  wcConnect();
+  /* the picker: Keplr / Galaxy Station / Station via CosmosKit —
+     the stack the owner's other apps run. kitConnect resolves
+     each pick to its extension entry inside that wallet's own
+     browser and to its WalletConnect entry everywhere else. */
+  const p = $('walletPicker');
+  if (p && p.classList.contains('on')){ hidePicker(); return; }
+  showPicker();
+  walletHint('Pick your wallet — Keplr, Galaxy Station or Station. Connecting never signs anything.');
 };
-$('walletPasteBtn').onclick = () => { sfxTap(); showPasteRow(); };
+$('wpKeplr').onclick = () => { sfxTap(); kitConnect('keplr'); };
+$('wpGalaxy').onclick = () => { sfxTap(); kitConnect('galaxy'); };
+$('wpStation').onclick = () => { sfxTap(); kitConnect('station'); };
+$('wpCancel').onclick = () => { sfxTap(); hidePicker(); };
+$('walletPasteBtn').onclick = () => { sfxTap(); hidePicker(); showPasteRow(); };
 $('walletUseBtn').onclick = () => { sfxTap(); setWalletAddress($('walletInput').value, 'paste'); };
 $('tabFree').onclick = () => setBoardTab('free');
 $('tabNft').onclick = () => setBoardTab('nft');
@@ -4210,25 +4227,25 @@ window.OD = {
      exercise the mechanics behind the (empty) production config */
   setNftOwned(t){ nftOwnedOverride = Array.isArray(t) ? t.slice() : null; buildShipRow(); },
   setCollection(a){ NFT_CONFIG.collection = String(a || ''); buildShipRow(); },
-  /* TEST BUILD wallet hooks: drive the real read-only connect flow
-     (paste path / stubbed Keplr) so the suites can prove it end to end */
+  /* TEST BUILD wallet hooks: drive the real connect flows (paste
+     path / CosmosKit picker entries) so the suites can prove them
+     end to end */
   connectWallet(addr, mode){ return setWalletAddress(addr, mode); },
-  connectKeplr(){ return keplrConnect(); },
   disconnectWallet(){ clearWallet(); },
-  setKeplrForTest(k){ keplrForTest = k || null; },
-  walletState(){ return { address: walletAddress, mode: walletMode, readState: nftReadState, tiers: ownedNftTiers(), keplr: !!keplrApi(), wc: !!wcSession }; },
-  /* TEST BUILD WalletConnect hooks: inject the libs bundle (real
-     CosmJS + a fake sign client in the suites) and drive the WC
-     connect flow without a DOM click */
-  setWcForTest(x){ wcLibsHook = x || null; },
-  /* the stargate factory seam for the offline-signer payment
-     path (Galaxy Station & friends): the suites stand in a
-     recording client for the real SigningStargateClient */
+  walletState(){ return { address: walletAddress, mode: walletMode, readState: nftReadState, tiers: ownedNftTiers(),
+    keplr: !!injectedKeplr(), station: !!injectedStation(), kit: walletMode === 'kit', walletName: kitWalletName, pretty: kitPrettyName }; },
+  /* TEST BUILD CosmosKit hooks: inject the kit seam (a fake wallet
+     manager in the ChainWalletBase shape, or the real libs bundle)
+     and drive the picker flow + session restore without DOM clicks */
+  setKitForTest(x){ kitTestHook = x || null; kitManager = null; kitMountedPromise = null; kitLibsCache = null; kitLibsPromise = null; },
+  connectKitWallet(entry){ return kitConnect(entry); },
+  restoreKitSession(){ return kitRestoreSession(); },
+  loadKitLibs(){ return loadKitLibs(); },
+  kitState(){ return { manager: !!kitManager, connecting: kitConnecting, walletName: kitWalletName,
+    pretty: kitPrettyName, connected: walletMode === 'kit' }; },
+  /* the stargate factory seam for the payment path: the suites
+     stand in a recording client for the real SigningStargateClient */
   setSignerClientForTest(fn){ signerClientHook = fn || null; },
-  connectWalletConnect(){ return wcConnect(); },
-  adoptWcSession(){ return wcAdoptStoredSession(); },
-  wcState(){ return { connected: !!wcSession, connecting: wcConnecting, client: !!wcClient,
-    topic: wcSession ? wcSession.topic : '', pubkey: !!wcPubkey }; },
   setRewardsUrl(u){ NFT_CONFIG.rewardsUrl = String(u || ''); },
   /* TEST BUILD buy hooks: point the game at a (stub) buy service
      and drive the paid-buy flow without a DOM click */
@@ -4327,12 +4344,11 @@ buildSkinRow();
 updateWalletUi();
 if (walletAddress){
   walletBootRead = true;
-  walletMode = 'paste';   /* a restored address is read-only until Keplr actually connects this session */
+  walletMode = 'paste';   /* a restored address is read-only until a wallet actually connects this session */
   refreshNftTiers(true);
-  if (keplrApi()) keplrConnect(true);   /* inside a wallet browser, quietly upgrade to a live Keplr session */
 }
 if (buyConfigured()) refreshBuyState();
-wcRestoreSession();   /* a stored WalletConnect session reconnects silently (no-op when none exists) */
+kitBootFlow();   /* CosmosKit: adopt a stored session silently; inside a wallet browser, quietly upgrade the stored address to a live session with that wallet */
 requestAnimationFrame(loop);
 </script>
 </body>
