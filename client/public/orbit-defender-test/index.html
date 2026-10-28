@@ -231,6 +231,25 @@
   .shipCard.nft { border-color:rgba(255,215,106,.45); }
   .shipCard.nft.sel { border-color:#ffd76a;
     box-shadow:0 0 18px rgba(255,215,106,.35), 0 6px 16px rgba(0,0,0,.4); }
+  /* paid TEST buy controls (test build only): the buy/verify span is a
+     real element appended inside the card, the notes are small print
+     under it. .off is the paste-mode lookalike — same pill, no payment */
+  .buyBtn {
+    margin-top:6px; cursor:pointer; font-size:11px; font-weight:900; letter-spacing:.1em;
+    color:#04150b; background:linear-gradient(180deg,#ffe98a,#ffd76a); border:1px solid #ffe98a;
+    border-radius:999px; padding:7px 12px; box-shadow:0 3px 10px rgba(0,0,0,.35);
+  }
+  .buyBtn.busy { opacity:.55; cursor:default; }
+  .buyBtn.off { background:rgba(255,217,106,.12); color:#ffd76a; border-color:rgba(255,217,106,.5); box-shadow:none; }
+  .flyBtn {
+    margin-top:6px; cursor:pointer; font-size:11px; font-weight:900; letter-spacing:.1em;
+    color:#04150b; background:linear-gradient(180deg,#5df59a,#22b45e); border:1px solid #7dffb0;
+    border-radius:999px; padding:7px 12px; box-shadow:0 3px 10px rgba(0,0,0,.35);
+  }
+  .buyLine { font-size:10px; line-height:1.45; opacity:.8; }
+  .buyNote { font-size:10.5px; font-weight:800; line-height:1.45; color:#ffd76a; }
+  .buyNote.ok { color:#8ff5b1; }
+  .buyNote.err { color:#ffb1b1; }
   /* ===== NFT TEST build: banner + wallet (read-only) ===== */
   #testBanner {
     width:min(430px,92vw); text-align:center; margin:2px auto 0;
@@ -618,17 +637,27 @@ const KIND_COLOR = { tier: '#ffd76a', rapid: '#7df9ff', shield: '#9be8ff', wingm
 /* ================= NFT + REWARDS — OWNER CONFIG =================
    *** NFT TEST BUILD *** — this copy is wired to the throwaway
    "Orbit Defender TEST" (ODTEST) collection on Terra Classic
-   mainnet so the mint → ownership → gameplay loop can be proven
-   end to end. The collection below is a TEST collection only; the
-   weekly rewards service is still not set up ('' on purpose).
-   Ownership is READ-ONLY: the game queries the chain (public LCD,
-   no wallet signature anywhere) and lights up the NFT fighters the
-   connected address actually holds. Fails soft — offline or a dead
-   LCD just leaves the free fleet flying. */
+   mainnet so the buy → mint → ownership → gameplay loop can be
+   proven end to end. The collection below is a TEST collection
+   only; the weekly rewards service is still not set up ('' on
+   purpose). Ownership is READ-ONLY: the game queries the chain
+   (public LCD) and lights up the NFT fighters the connected
+   address actually holds. Fails soft — offline or a dead LCD just
+   leaves the free fleet flying. The ONE signature this game ever
+   asks for is the TEST purchase: a plain LUNC send from the
+   player's own Keplr wallet to the game wallet (see the buy
+   section below) — the read, the connect and everything else
+   sign nothing. */
 const NFT_CONFIG = {
   collection: 'terra1lcqrpmp5plxanak0uvjf25ev8tr7xfh2tk30ywcfy2fhx7xvxfusdx6pn8',   /* ODTEST — TEST collection */
   rewardsUrl: '',   /* the weekly rewards service base URL — '' = not set up yet */
+  mintUrl: '',   /* the buy/mint service base URL — '' = buy buttons hidden */
+  buyPriceLunc: 50,   /* TEST purchase price: every tier costs this many LUNC in the test build */
 };
+/* the game wallet: TEST purchase payments land here, and it is the
+   ODTEST collection's minter — the buy service mints from it once a
+   payment verifies on-chain */
+const GAME_WALLET = 'terra1rkwuy56d0m5s6cq2kj03ned5uxj75tc7el8s9c';
 /* read-only Terra Classic LCD for the ownership queries */
 const NFT_LCD = 'https://terra-classic-lcd.publicnode.com';
 /* the six NFT fighters, one per tier. Prices are the owner's decided
@@ -710,6 +739,7 @@ let nftTiersCache = [];        /* tiers from the last good chain read */
 let nftReadState = 'idle';     /* idle | loading | ok | error */
 const WALLET_STORE_KEY = 'orbitDefenderWallet';
 let walletAddress = '';
+let walletMode = '';   /* '' | 'keplr' (live Keplr session — can pay) | 'paste' (read-only look). A boot-restored address starts as 'paste': this page holds no Keplr session for it yet. */
 try { walletAddress = String(localStorage.getItem(WALLET_STORE_KEY) || ''); } catch (e) {}
 let walletBootRead = false;    /* the boot read may restore the stored fighter pick */
 let keplrForTest = null;       /* headless hook only — never set in play */
@@ -767,6 +797,7 @@ function refreshNftTiers(fromBoot){
       const tiers = [...new Set(found.filter(t => t >= 1 && t <= 6))].sort((a, b) => a - b);
       if (walletAddress !== addr) return tiers;   /* wallet changed mid-read — drop the result */
       nftTiersCache = tiers; nftReadState = 'ok';
+      reconcilePendingBuy(tiers);   /* a stored purchase whose NFT has landed is finished business */
       if (fromBoot || walletBootRead){ walletBootRead = false; restoreStoredShip(); }
       buildShipRow(); updateWalletUi();
       return tiers;
@@ -788,15 +819,20 @@ function restoreStoredShip(){
   } catch (e) {}
 }
 
-/* ================= wallet connect (read-only) =================
-   Two ways in, neither of which can sign anything:
+/* ================= wallet connect =================
+   Two ways in:
    (a) Keplr, when the page runs inside a wallet browser — enable
        columbus-5 and read the account address via getKey. If
        Keplr does not know the chain, suggest it (coin type 330)
        and retry once; any failure falls back to (b) with a hint.
+       A Keplr connection is a LIVE session (walletMode 'keplr'):
+       it is the only connection that can pay for a test fighter.
    (b) Paste an address — how the owner tests in a normal browser.
-   The address persists in localStorage ('orbitDefenderWallet');
-   disconnect clears it and the owned tiers with it. */
+       Strictly read-only (walletMode 'paste'): it can look at a
+       wallet's fighters but can never pay for one.
+   Connecting itself never signs anything either way. The address
+   persists in localStorage ('orbitDefenderWallet'); disconnect
+   clears it and the owned tiers with it. */
 function keplrApi(){
   if (typeof window !== 'undefined' && window.keplr) return window.keplr;
   return keplrForTest;
@@ -805,19 +841,23 @@ function validTerraAddress(a){
   return /^terra1[02-9ac-hj-np-z]{38}$/.test(a);   /* bech32 charset — the chain read is the real verdict */
 }
 function shortAddr(a){ return a ? a.slice(0, 12) + '…' + a.slice(-6) : ''; }
-function setWalletAddress(addr){
+function setWalletAddress(addr, mode){
   addr = String(addr || '').trim();
   if (!validTerraAddress(addr)){
     walletHint('That does not look like a terra address — check it and try again.');
     return Promise.resolve(false);
   }
   walletAddress = addr;
+  walletMode = mode === 'keplr' ? 'keplr' : 'paste';
   try { localStorage.setItem(WALLET_STORE_KEY, addr); } catch (e) {}
   hidePasteRow();
+  resetBuySession();
+  refreshBuyState();
   return refreshNftTiers(false).then(() => true);
 }
 function clearWallet(){
-  walletAddress = ''; nftTiersCache = []; nftReadState = 'idle'; walletBootRead = false;
+  walletAddress = ''; walletMode = ''; nftTiersCache = []; nftReadState = 'idle'; walletBootRead = false;
+  resetBuySession();
   try { localStorage.removeItem(WALLET_STORE_KEY); } catch (e) {}
   if (shipIsNft(skinIdx)){ skinIdx = 0; persistShip(); }
   hidePasteRow();
@@ -839,7 +879,7 @@ function columbusChainInfo(){
     coinType: 330,
   };
 }
-function keplrConnect(){
+function keplrConnect(quiet){
   const k = keplrApi();
   if (!k) return Promise.resolve(false);
   const enable = () => k.enable(TEST_CHAIN_ID);
@@ -849,10 +889,11 @@ function keplrConnect(){
       return k.experimentalSuggestChain(columbusChainInfo()).then(enable);
     })
     .then(() => k.getKey(TEST_CHAIN_ID))
-    .then(key => setWalletAddress(key && key.bech32Address))
+    .then(key => setWalletAddress(key && key.bech32Address, 'keplr'))
     .catch(err => {
       console.log('[od-test] Keplr connect failed: ' + (err && err.message));
-      showPasteRow('Keplr could not open Terra Classic (columbus-5) — paste your terra address instead. Read-only: nothing gets signed.');
+      if (!quiet)   /* the boot auto-connect fails silently — a manual tap explains itself */
+        showPasteRow('Keplr could not open Terra Classic (columbus-5) — paste your terra address instead. Pasting is read-only: it can look, never pay.');
       return false;
     });
 }
@@ -863,16 +904,17 @@ function updateWalletUi(){
   if (!btn || !st) return;
   if (!walletAddress){
     btn.textContent = '🔗 CONNECT WALLET';
-    st.textContent = 'Read-only connection — this game never asks your wallet to sign anything.';
+    st.textContent = 'Connect to see your NFT fighters. The ownership read never signs anything — buying a test fighter is the one action that asks your Keplr wallet to send LUNC.';
     return;
   }
   btn.textContent = '✖ DISCONNECT';
+  const modeTxt = walletMode === 'keplr' ? ' · Keplr connected' : (walletMode === 'paste' ? ' · pasted address (read-only)' : '');
   const n = ownedNftTiers().length;
-  if (nftReadState === 'loading') st.textContent = 'Wallet ' + shortAddr(walletAddress) + ' · reading your NFTs…';
-  else if (nftReadState === 'ok') st.textContent = 'Wallet ' + shortAddr(walletAddress) + ' · NFT: ' + n + ' owned' +
+  if (nftReadState === 'loading') st.textContent = 'Wallet ' + shortAddr(walletAddress) + modeTxt + ' · reading your NFTs…';
+  else if (nftReadState === 'ok') st.textContent = 'Wallet ' + shortAddr(walletAddress) + modeTxt + ' · NFT: ' + n + ' owned' +
     (n ? ' — your NFT fighters are unlocked below.' : ' — no test fighters in this wallet yet.');
-  else if (nftReadState === 'error') st.textContent = 'Wallet ' + shortAddr(walletAddress) + ' · NFT read failed (connection?) — the free fleet flies on regardless.';
-  else st.textContent = 'Wallet ' + shortAddr(walletAddress) + ' · NFT: ' + n + ' owned';
+  else if (nftReadState === 'error') st.textContent = 'Wallet ' + shortAddr(walletAddress) + modeTxt + ' · NFT read failed (connection?) — the free fleet flies on regardless.';
+  else st.textContent = 'Wallet ' + shortAddr(walletAddress) + modeTxt + ' · NFT: ' + n + ' owned';
 }
 function walletHint(msg){
   const st = $('walletStatus');
@@ -889,6 +931,231 @@ function hidePasteRow(){
   const row = $('walletPasteRow');
   if (row) row.classList.remove('on');
 }
+
+/* ================= paid TEST buy (test build only) =================
+   The community-member test flow: connect with Keplr, BUY a test
+   fighter for NFT_CONFIG.buyPriceLunc LUNC, fly it. Exactly what
+   the cards say happens:
+     1. The player pays from their OWN connected Keplr wallet — a
+        plain MsgSend of the price to the game wallet, memo
+        "ODTEST-BUY tier:<n>" (keplrPay below).
+     2. The game hands { address, tier, txHash } to the buy service
+        (NFT_CONFIG.mintUrl), which verifies the payment on-chain
+        and mints the NFT to the buyer from the game wallet.
+     3. The game re-runs the REAL ownership read — the plane
+        unlocks because the chain says so, never because the buy
+        response said so.
+   A pasted address is read-only and can never reach step 1: its
+   button reads "Open in Keplr to buy". While mintUrl is '' nothing
+   here renders or runs — the cards keep their plain locked
+   behavior and the registry prices. Service contract:
+     GET  {mintUrl}/state                 -> { open }
+     POST {mintUrl}/buy { address, tier, txHash }
+          -> { ok: true, tokenId, tier }
+          -> { error: payment_not_found | payment_invalid |
+                      payment_used | mint_not_configured | chain_error }
+   A purchase interrupted between the payment and the mint is NOT
+   lost: the pending record persists in localStorage, and its card
+   offers "Finish your purchase" — a re-POST of /buy (verifyBuy).
+   The service resumes safely and the player never pays twice: the
+   LUNC already moved. */
+const BUY_STORE_KEY = 'orbitDefenderPendingBuy';
+const BUY_GAS_LIMIT = 200000;
+const BUY_GAS_PRICE = 28.325;   /* uluna per gas unit — the rate Steve set for this build */
+let buyBusyTier = 0;            /* tier with a payment or /buy POST in flight (0 = none) */
+let buyJustTier = 0;            /* tier bought this session (its card offers FLY IT) */
+let buyAvailability = 'unknown';   /* unknown | open | closed — from GET /state */
+const buyNotes = {};            /* tier -> { cls, text } sticky per-card note */
+const buyEls = {};              /* card index -> the live buy/verify/fly span (rebuilt per render) */
+let pendingBuy = null;          /* { address, tier, txHash } — paid on-chain, mint not yet confirmed */
+try {
+  const p = JSON.parse(localStorage.getItem(BUY_STORE_KEY) || 'null');
+  if (p && validTerraAddress(String(p.address || '')) && Math.floor(p.tier) >= 1 && Math.floor(p.tier) <= 6 &&
+      typeof p.txHash === 'string' && p.txHash)
+    pendingBuy = { address: String(p.address), tier: Math.floor(p.tier), txHash: p.txHash };
+} catch (e) {}
+const BUY_DOWN_LINE = "Mint service isn't available right now";
+
+function buyConfigured(){ return !!NFT_CONFIG.mintUrl; }
+function buyPriceUluna(){ return String(Math.round(NFT_CONFIG.buyPriceLunc * 1000000)); }
+function buyMemo(tier){ return 'ODTEST-BUY tier:' + tier; }
+function buyLine(){
+  return 'Test purchase — you pay ' + NFT_CONFIG.buyPriceLunc + ' LUNC from your connected wallet to the game wallet, then the NFT is minted to you.';
+}
+function savePendingBuy(p){
+  pendingBuy = p;
+  try { localStorage.setItem(BUY_STORE_KEY, JSON.stringify(p)); } catch (e) {}
+}
+function clearPendingBuy(){
+  pendingBuy = null;
+  try { localStorage.removeItem(BUY_STORE_KEY); } catch (e) {}
+}
+function pendingForCurrentWallet(){
+  return (pendingBuy && pendingBuy.address === walletAddress) ? pendingBuy : null;
+}
+/* the chain read just proved the pending purchase's NFT landed:
+   finish the record quietly and let its card offer FLY IT */
+function reconcilePendingBuy(tiers){
+  if (!pendingBuy || pendingBuy.address !== walletAddress) return;
+  if (tiers.includes(pendingBuy.tier)){ buyJustTier = pendingBuy.tier; clearPendingBuy(); }
+}
+function resetBuySession(){
+  buyJustTier = 0;
+  for (const k in buyNotes) delete buyNotes[k];
+}
+/* ask the service whether buying is open; a failed ask keeps the
+   last known state (the /buy path carries its own honest errors) */
+function refreshBuyState(){
+  if (!buyConfigured()){ buyAvailability = 'unknown'; return Promise.resolve(buyAvailability); }
+  return lbFetch(NFT_CONFIG.mintUrl + '/state', { method: 'GET' }, 6000)
+    .then(r => { if (!r || !r.ok) throw new Error('bad response'); return r.json(); })
+    .then(d => { buyAvailability = (d && d.open) ? 'open' : 'closed'; buildShipRow(); return buyAvailability; })
+    .catch(() => buyAvailability);
+}
+function buyErrorText(code){
+  if (code === 'payment_not_found') return 'Payment not visible on-chain yet';
+  if (code === 'payment_invalid') return "That payment doesn't match a " + NFT_CONFIG.buyPriceLunc + ' LUNC purchase for this tier';
+  if (code === 'payment_used') return 'That payment was already redeemed';
+  return 'Mint hiccup — your payment is safe on-chain, tap VERIFY to finish';   /* mint_not_configured, chain_error, a dead service, a garbled body */
+}
+/* does this /buy outcome leave the pending purchase (and its VERIFY
+   button) in place? not_found and the hiccup family do — the money
+   already moved, and finishing is a re-POST, never a re-pay.
+   invalid can never redeem and used already did: both end it. */
+function buyErrorKeepsPending(code){
+  return code !== 'payment_invalid' && code !== 'payment_used';
+}
+/* ---- the payment: a plain LUNC send through the Keplr provider ----
+   Feature-detected against the API the installed Keplr actually
+   exposes: keplr.sendTokens (its convenience send) when present,
+   else keplr.signAndBroadcast with a hand-built MsgSend and a fee
+   at the going gas price (28.325uluna). Resolves with the tx hash;
+   rejects with the wallet's own error, so a refused signature reads
+   as exactly what it was and the flow stops before any money moves. */
+function keplrExtractHash(res){
+  if (!res) return '';
+  if (typeof res === 'string') return res;
+  return String(res.transactionHash || res.txhash || res.hash || '');
+}
+function keplrPay(tier){
+  const k = keplrApi();
+  if (!k) return Promise.reject(new Error('no Keplr in this browser'));
+  const from = walletAddress, memo = buyMemo(tier);
+  const amount = [{ denom: 'uluna', amount: buyPriceUluna() }];
+  const enabled = Promise.resolve().then(() => k.enable(TEST_CHAIN_ID)).catch(() => {});
+  if (typeof k.sendTokens === 'function'){
+    return enabled.then(() => k.sendTokens(TEST_CHAIN_ID, from, GAME_WALLET, amount, memo))
+      .then(res => {
+        const h = keplrExtractHash(res);
+        if (!h) throw new Error('Keplr sent the payment but returned no tx hash');
+        return h;
+      });
+  }
+  if (typeof k.signAndBroadcast === 'function'){
+    const msgs = [{ typeUrl: '/cosmos.bank.v1beta1.MsgSend',
+      value: { fromAddress: from, toAddress: GAME_WALLET, amount } }];
+    const fee = { amount: [{ denom: 'uluna', amount: String(Math.ceil(BUY_GAS_LIMIT * BUY_GAS_PRICE)) }], gas: String(BUY_GAS_LIMIT) };
+    return enabled.then(() => k.signAndBroadcast(TEST_CHAIN_ID, from, msgs, fee, memo))
+      .then(res => {
+        if (res && res.code) throw new Error('the payment broadcast failed (code ' + res.code + ')');
+        const h = keplrExtractHash(res);
+        if (!h) throw new Error('Keplr sent the payment but returned no tx hash');
+        return h;
+      });
+  }
+  return Promise.reject(new Error('this Keplr cannot send payments from the browser'));
+}
+/* ---- hand the payment to the service, which verifies + mints ---- */
+function postBuy(p){
+  return lbFetch(NFT_CONFIG.mintUrl + '/buy', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address: p.address, tier: p.tier, txHash: p.txHash }) }, 25000)
+    .then(r => (r && typeof r.json === 'function' ? r.json().catch(() => null) : null))
+    .catch(() => null);   /* a network failure is the hiccup case in settleBuy (data === null) */
+}
+/* every /buy answer lands here — the first POST and each VERIFY
+   re-POST alike. Resolves true when the mint is confirmed. */
+function settleBuy(p, data){
+  const tier = p.tier;
+  if (data && data.ok){
+    const tokenId = String(data.tokenId || ('test-tier-' + tier));
+    clearPendingBuy();
+    buyJustTier = tier;
+    buyNotes[tier] = { cls: 'ok', text: '✓ Bought — ' + tokenId + ' is yours. Reading the chain…' };
+    buildShipRow();
+    return refreshNftTiers(false).then(() => {
+      if (walletAddress === p.address){
+        buyNotes[tier] = { cls: 'ok', text: ownedNftTiers().includes(tier)
+          ? '✓ Bought — ' + tokenId + ' is yours, unlocked below.'
+          : '✓ Bought — ' + tokenId + ' is yours (the chain read is still catching up).' };
+        buildShipRow();
+      }
+      return true;
+    });
+  }
+  const code = data && data.error;
+  if (!buyErrorKeepsPending(code)) clearPendingBuy();
+  buyNotes[tier] = { cls: 'err', text: buyErrorText(code) };
+  buildShipRow();
+  if (code === 'payment_used') refreshNftTiers(false);   /* redeemed earlier — the read may already show the NFT */
+  return Promise.resolve(false);
+}
+function startBuy(tier){
+  tier = Math.floor(tier) || 0;
+  if (!buyConfigured() || buyBusyTier) return Promise.resolve(false);
+  if (tier < 1 || tier > 6 || ownedNftTiers().includes(tier)) return Promise.resolve(false);
+  if (!walletAddress){
+    showPasteRow();
+    walletHint('Connect a wallet first — buying needs your Keplr wallet to send the payment.');
+    return Promise.resolve(false);
+  }
+  if (pendingForCurrentWallet()) return verifyBuy();   /* an earlier payment is still finishing — never charge twice */
+  if (walletMode !== 'keplr'){
+    buyNotes[tier] = { cls: 'err', text: 'Open in Keplr to buy — a pasted address is read-only and cannot pay.' };
+    buildShipRow();
+    return Promise.resolve(false);
+  }
+  if (buyAvailability === 'closed'){
+    buyNotes[tier] = { cls: 'err', text: BUY_DOWN_LINE };
+    buildShipRow();
+    return Promise.resolve(false);
+  }
+  const addr = walletAddress;
+  buyBusyTier = tier;
+  delete buyNotes[tier];
+  buildShipRow();
+  /* clearing the busy flag re-renders, so the card's button leaves
+     its busy label behind in the same frame the flow ends */
+  const finish = (ok) => { if (buyBusyTier === tier){ buyBusyTier = 0; buildShipRow(); } return ok; };
+  return keplrPay(tier)
+    .then(txHash => {
+      const p = { address: addr, tier, txHash };
+      savePendingBuy(p);   /* the money has moved — record it before anything else can happen */
+      if (walletAddress !== addr){ buildShipRow(); return finish(false); }   /* wallet switched mid-payment; the record waits for its own wallet */
+      return postBuy(p).then(data => settleBuy(p, data)).then(ok => finish(ok));
+    })
+    .catch(err => {
+      const msg = String((err && err.message) || err || '');
+      buyNotes[tier] = { cls: 'err', text: /reject|denied|deny|cancel/i.test(msg)
+        ? 'Payment cancelled in Keplr — nothing was sent.'
+        : 'Keplr could not send the payment' + (msg ? ': ' + msg.slice(0, 90) : '') + ' — the game charged nothing.' };
+      buildShipRow();
+      return finish(false);
+    });
+}
+/* VERIFY — "Finish your purchase": re-POST the stored payment. No
+   new payment, no new charge; the service checks the same tx and
+   finishes the mint if it can. Works in any wallet mode — the
+   signing already happened when the payment was made. */
+function verifyBuy(){
+  const p = pendingForCurrentWallet();
+  if (!buyConfigured() || !p || buyBusyTier) return Promise.resolve(false);
+  buyBusyTier = p.tier;
+  delete buyNotes[p.tier];
+  buildShipRow();
+  return postBuy(p).then(data => settleBuy(p, data))
+    .then(ok => { if (buyBusyTier === p.tier) buyBusyTier = 0; buildShipRow(); return ok; });
+}
+
 function shipIsNft(i){ return !!(SHIPS[i] && SHIPS[i].nftTier); }
 function shipSelectable(i){
   if (i < 0 || i >= SHIPS.length) return false;
@@ -2494,17 +2761,67 @@ function buildShipRow(){
     const un = shipSelectable(i);
     const th = shipThumbs && shipThumbs[i];
     let stateHtml;
+    let buyHtml = '', showBuyBtn = false, showVerifyBtn = false, showFlyBtn = false;
+    /* drop the previous render's buy/verify/fly span: innerHTML below
+       wipes it in a browser; the headless stub keeps children, so
+       neutralize */
+    if (buyEls[i]){
+      const old = buyEls[i]; buyEls[i] = null;
+      if (old.remove) old.remove();
+      old.className = ''; old.textContent = ''; old.onclick = null;
+    }
     if (shipIsNft(i)){
-      /* NFT cards always show their tier price (owner-decided fact);
-         what changes is the state line: no collection yet, held by
-         someone else, or held by you */
-      stateHtml = '<span class="shipCardNft">NFT · ' + s.priceLunc.toLocaleString('en-US') + ' LUNC</span>';
+      /* NFT cards show a price line: the registry tier price, or —
+         while the TEST buy is configured — the flat test price from
+         NFT_CONFIG.buyPriceLunc, which is what a buyer actually pays */
+      stateHtml = '<span class="shipCardNft">NFT · ' +
+        (buyConfigured() ? NFT_CONFIG.buyPriceLunc : s.priceLunc).toLocaleString('en-US') + ' LUNC</span>';
       if (!NFT_CONFIG.collection)
         stateHtml += '<span class="shipCardState lock">MINT COMING SOON</span>';
-      else if (un)
+      else if (un){
         stateHtml += '<span class="shipCardState">' + (i === skinIdx ? '▶ SELECTED' : 'TAP TO FLY') + '</span>';
-      else
+        /* the fighter this session just bought offers a FLY IT
+           shortcut + keeps its success note until the wallet changes */
+        if (buyJustTier === s.nftTier && walletAddress){
+          showFlyBtn = true;
+          const jn = buyNotes[s.nftTier];
+          if (jn) stateHtml += '<span class="buyNote ok">' + escapeHtml(jn.text) + '</span>';
+        }
+      }
+      else {
         stateHtml += '<span class="shipCardState lock">🔒 NFT — NOT OWNED</span>';
+        /* paid TEST buy (only while the buy service is configured):
+           connect prompt > a pending purchase to finish > closed
+           service > the paste-mode lookalike > the BUY button with
+           its plain pay-then-minted line */
+        if (buyConfigured()){
+          const note = buyNotes[s.nftTier];
+          const pending = pendingForCurrentWallet();
+          if (!walletAddress)
+            buyHtml = '<span class="buyNote">Connect a wallet below to buy a test fighter.</span>';
+          else if (pending && pending.tier === s.nftTier){
+            showVerifyBtn = true;
+            buyHtml = '<span class="buyNote">You already paid for this fighter — finish your purchase:</span>';
+            if (note) buyHtml += '<span class="buyNote ' + note.cls + '">' + escapeHtml(note.text) + '</span>';
+          }
+          else if (pending)
+            buyHtml = '<span class="buyNote">Finish your pending purchase on the ' +
+              (NFT_TIERS[pending.tier - 1] ? NFT_TIERS[pending.tier - 1].name : 'other') + ' card first.</span>' +
+              (note ? '<span class="buyNote ' + note.cls + '">' + escapeHtml(note.text) + '</span>' : '');
+          else if (buyAvailability === 'closed')
+            buyHtml = '<span class="buyNote err">' + BUY_DOWN_LINE + '</span>';
+          else if (walletMode !== 'keplr'){
+            showBuyBtn = true;   /* the .off lookalike — a hint tap, never a payment */
+            buyHtml = '<span class="buyLine">A pasted address is read-only — it can look at fighters, never pay for one.</span>';
+            if (note) buyHtml += '<span class="buyNote ' + note.cls + '">' + escapeHtml(note.text) + '</span>';
+          }
+          else {
+            showBuyBtn = true;
+            buyHtml = '<span class="buyLine">' + buyLine() + '</span>';
+            if (note) buyHtml += '<span class="buyNote ' + note.cls + '">' + escapeHtml(note.text) + '</span>';
+          }
+        }
+      }
     } else {
       stateHtml = un
         ? '<span class="shipCardState">' + (i === skinIdx ? '▶ SELECTED' : 'TAP TO FLY') + '</span>'
@@ -2513,9 +2830,42 @@ function buildShipRow(){
     b.innerHTML = (th ? '<img class="shipCardImg" src="' + th + '" alt="">' : '') +
       '<span class="shipCardName">' + s.name + '</span>' +
       '<span class="shipCardLivery" style="--acc:' + s.accent + '">' + s.livery + '</span>' +
-      '<span class="shipCardBlurb">' + s.blurb + '</span>' + stateHtml;
-    b.disabled = !un;
+      '<span class="shipCardBlurb">' + s.blurb + '</span>' + stateHtml + buyHtml;
+    /* a locked card stays disabled — except when it carries a buy or
+       verify span, which must stay clickable (the card's own click
+       still refuses selection in selectShip) */
+    b.disabled = !un && !showBuyBtn && !showVerifyBtn;
     b.className = 'shipCard' + (shipIsNft(i) ? ' nft' : '') + (i === skinIdx ? ' sel' : '') + (un ? '' : ' locked');
+    /* the buy/verify/fly controls are real elements (like the rewards
+       CLAIM button), appended after the innerHTML render so the click
+       has somewhere honest to land */
+    if (showBuyBtn){
+      const bb = document.createElement('span');
+      const pasteMode = walletMode !== 'keplr';
+      bb.className = 'buyBtn' + (buyBusyTier === s.nftTier ? ' busy' : '') + (pasteMode ? ' off' : '');
+      bb.textContent = buyBusyTier === s.nftTier ? 'Paying…'
+        : (pasteMode ? 'Open in Keplr to buy' : '🛒 BUY — ' + NFT_CONFIG.buyPriceLunc + ' LUNC');
+      bb.tabIndex = 0;
+      bb.onclick = (ev) => { if (ev && ev.stopPropagation) ev.stopPropagation(); sfxTap(); startBuy(s.nftTier); };
+      b.appendChild(bb);
+      buyEls[i] = bb;
+    } else if (showVerifyBtn){
+      const vb = document.createElement('span');
+      vb.className = 'buyBtn' + (buyBusyTier === s.nftTier ? ' busy' : '');
+      vb.textContent = buyBusyTier === s.nftTier ? 'Verifying…' : '✓ VERIFY — FINISH PURCHASE';
+      vb.tabIndex = 0;
+      vb.onclick = (ev) => { if (ev && ev.stopPropagation) ev.stopPropagation(); sfxTap(); verifyBuy(); };
+      b.appendChild(vb);
+      buyEls[i] = vb;
+    } else if (showFlyBtn){
+      const fb = document.createElement('span');
+      fb.className = 'flyBtn';
+      fb.textContent = '▶ FLY IT';
+      fb.tabIndex = 0;
+      fb.onclick = (ev) => { if (ev && ev.stopPropagation) ev.stopPropagation(); selectShip(i); buyJustTier = 0; buildShipRow(); };
+      b.appendChild(fb);
+      buyEls[i] = fb;
+    }
   });
   refreshTitleShip();
 }
@@ -3320,7 +3670,7 @@ $('walletBtn').onclick = () => {
   else showPasteRow('No wallet app found in this browser — paste your terra address instead. Read-only: nothing gets signed.');
 };
 $('walletPasteBtn').onclick = () => { sfxTap(); showPasteRow(); };
-$('walletUseBtn').onclick = () => { sfxTap(); setWalletAddress($('walletInput').value); };
+$('walletUseBtn').onclick = () => { sfxTap(); setWalletAddress($('walletInput').value, 'paste'); };
 $('tabFree').onclick = () => setBoardTab('free');
 $('tabNft').onclick = () => setBoardTab('nft');
 $('tabFreeO').onclick = () => setBoardTab('free');
@@ -3392,12 +3742,19 @@ window.OD = {
   setCollection(a){ NFT_CONFIG.collection = String(a || ''); buildShipRow(); },
   /* TEST BUILD wallet hooks: drive the real read-only connect flow
      (paste path / stubbed Keplr) so the suites can prove it end to end */
-  connectWallet(addr){ return setWalletAddress(addr); },
+  connectWallet(addr, mode){ return setWalletAddress(addr, mode); },
   connectKeplr(){ return keplrConnect(); },
   disconnectWallet(){ clearWallet(); },
   setKeplrForTest(k){ keplrForTest = k || null; },
-  walletState(){ return { address: walletAddress, readState: nftReadState, tiers: ownedNftTiers(), keplr: !!keplrApi() }; },
+  walletState(){ return { address: walletAddress, mode: walletMode, readState: nftReadState, tiers: ownedNftTiers(), keplr: !!keplrApi() }; },
   setRewardsUrl(u){ NFT_CONFIG.rewardsUrl = String(u || ''); },
+  /* TEST BUILD buy hooks: point the game at a (stub) buy service
+     and drive the paid-buy flow without a DOM click */
+  setMintUrl(u){ NFT_CONFIG.mintUrl = String(u || ''); refreshBuyState(); buildShipRow(); },
+  buyTier(t){ return startBuy(t); },
+  verifyBuy(){ return verifyBuy(); },
+  buyState(){ return { configured: buyConfigured(), availability: buyAvailability, busyTier: buyBusyTier,
+    pending: pendingBuy ? { ...pendingBuy } : null, justTier: buyJustTier, mode: walletMode, priceLunc: NFT_CONFIG.buyPriceLunc }; },
   setBoardTab(t){ setBoardTab(t); },
   showRewards(){ openRewards(); },
   setShip(x, y){ ship.x = x; ship.y = y; targetX = x; targetY = y; },
@@ -3465,6 +3822,8 @@ window.OD = {
       mode, endlessRun, endlessUnlocked, bestEndless, nextBossAt,
       board: { name: playerName, state: boardState, rows: boardRows, lastSubmit, tab: boardTab },
       rewards: { configured: rewardsConfigured(), state: rewardsState, data: rewardsData },
+      buy: { configured: buyConfigured(), availability: buyAvailability, busyTier: buyBusyTier,
+        pending: pendingBuy ? { ...pendingBuy } : null, justTier: buyJustTier, mode: walletMode },
       tokenCount: aliveTokens(), bulletCount: bullets.length };
   },
   constants: { W, COLS, MAX_ALIVE, KILL_SCORE, TOKEN_R, TOKEN_HP, LEVEL_LEN, BOSS_HP,
@@ -3484,7 +3843,13 @@ syncChrome();
 refreshTitleMeta();
 buildSkinRow();
 updateWalletUi();
-if (walletAddress){ walletBootRead = true; refreshNftTiers(true); }
+if (walletAddress){
+  walletBootRead = true;
+  walletMode = 'paste';   /* a restored address is read-only until Keplr actually connects this session */
+  refreshNftTiers(true);
+  if (keplrApi()) keplrConnect(true);   /* inside a wallet browser, quietly upgrade to a live Keplr session */
+}
+if (buyConfigured()) refreshBuyState();
 requestAnimationFrame(loop);
 </script>
 </body>
