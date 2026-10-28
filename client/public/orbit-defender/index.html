@@ -95,6 +95,25 @@
   }
   .skinBtn.sel { background:linear-gradient(180deg,#5df59a,#22b45e); color:#04120a; border-color:#7dffb0; }
   .skinBtn:disabled { opacity:.45; cursor:default; }
+  #nameInput {
+    font-family:inherit; font-size:16px; font-weight:800; text-align:center; color:#eafff2;
+    background:rgba(255,255,255,.08); border:1.5px solid rgba(61,220,132,.5); border-radius:12px;
+    padding:10px 14px; width:min(300px,80vw); outline:none; -webkit-user-select:text; user-select:text;
+  }
+  #nameInput:focus { border-color:#7dffb0; box-shadow:0 0 12px rgba(61,220,132,.35); }
+  #boardScreen { display:none; z-index:12; }
+  .boardList { width:min(430px,92vw); display:flex; flex-direction:column; gap:4px; }
+  .brow {
+    display:flex; justify-content:space-between; align-items:center; gap:10px; padding:6px 14px;
+    border-radius:10px; background:rgba(255,255,255,.06); font-size:14.5px; font-weight:700;
+  }
+  .brow .brank { opacity:.55; min-width:30px; text-align:left; }
+  .brow .bname { flex:1; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .brow .bscore { font-variant-numeric:tabular-nums; color:#7dffb0; }
+  .brow.me { background:rgba(61,220,132,.28); border:1.5px solid rgba(125,255,176,.75); }
+  #boardStatus, #overBoardStatus { font-size:13px; opacity:.75; min-height:16px; margin:0; }
+  #overBoard { width:min(430px,92vw); display:flex; flex-direction:column; gap:6px; align-items:center; }
+  #overBoard .boardList { width:100%; }
 </style>
 </head>
 <body>
@@ -133,11 +152,14 @@
      shields. Hold the line, defender! 🛡</p>
   <p id="startBest"></p>
   <p id="startStars"></p>
+  <p class="small">PILOT NAME</p>
+  <input id="nameInput" maxlength="20" autocomplete="off" spellcheck="false">
   <p class="small">MODE</p>
   <div id="modeRow"></div>
   <p class="small">BOT SKINS — EARNED BY BEST DISTANCE</p>
   <div id="skinRow"></div>
   <button class="play" id="startBtn">▶ START DEFENDING</button>
+  <button class="play alt" id="boardBtn">🏆 LEADERBOARD</button>
 </div>
 
 <div class="screen" id="overScreen">
@@ -145,8 +167,17 @@
   <img id="mascotOver" alt="The Orbit Bot">
   <h1 id="overTitle">BOT DOWN!</h1>
   <p id="overStats"></p>
+  <div id="overBoard"><div class="boardList" id="overBoardList"></div><p id="overBoardStatus"></p></div>
   <button class="play" id="againBtn">↩ FLY AGAIN</button>
   <button class="play alt" id="menuBtn">MENU</button>
+</div>
+
+<div class="screen" id="boardScreen">
+  <div class="small">ORBIT DEFENDER</div>
+  <h1>🏆 LEADERBOARD</h1>
+  <div class="boardList" id="boardList"></div>
+  <p id="boardStatus"></p>
+  <button class="play alt" id="boardCloseBtn">CLOSE</button>
 </div>
 
 <script>
@@ -402,6 +433,130 @@ function persistEndless(){
     localStorage.setItem('orbitDefenderEndlessBest', String(bestEndless));
     localStorage.setItem('orbitDefenderEndlessBestDist', String(bestEndlessDist));
   } catch (e) {}
+}
+
+/* ================= leaderboard =================
+   Finished runs post to the family's shared leaderboard backend (the
+   shared games router, game key "orbit") and the board shows on the title
+   screen and the game-over screen. HANDOFF NOTE for the OrbitWire team:
+   LEADERBOARD_URL below is the ONLY network wiring in this file — scores
+   flow through our free backend until you run your own; to repoint the
+   game at your backend, change this ONE constant and nothing else. The
+   board is best-effort decoration: offline, slow or dead backend, the
+   game plays and ends exactly as it always has (fire-and-forget post,
+   short timeouts, local bests untouched). */
+const LEADERBOARD_URL = 'https://frg-fight-club.vercel.app/api/luna-games?game=orbit';
+let playerName = 'Guest';
+try { playerName = String(localStorage.getItem('orbitDefenderName') || 'Guest'); } catch (e) {}
+let boardRows = null;        /* last board fetched (best-first rows) */
+let boardState = 'idle';     /* idle | loading | ok | empty | error */
+let lastSubmit = null;       /* last payload handed to the backend */
+
+function cleanName(raw){
+  const n = String(raw == null ? '' : raw).trim().replace(/[<>/\\]/g, '').slice(0, 20);
+  return n.length >= 2 ? n : 'Guest';
+}
+function setPlayerName(raw){
+  playerName = cleanName(raw);
+  try { localStorage.setItem('orbitDefenderName', playerName); } catch (e) {}
+  const inp = $('nameInput');
+  if (inp && inp.value !== playerName) inp.value = playerName;
+}
+/* a fetch that can never hang the game: raced against a short timeout,
+   and a clean rejection when fetch does not exist (offline shells) */
+function lbFetch(url, opts, timeoutMs){
+  if (typeof fetch !== 'function') return Promise.reject(new Error('offline'));
+  let p;
+  try { p = fetch(url, opts); } catch (e) { return Promise.reject(e); }
+  return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), timeoutMs || 4000))]);
+}
+function tgInitData(){
+  try {
+    const tg = (typeof window !== 'undefined' && window.Telegram && window.Telegram.WebApp) ||
+      (typeof Telegram !== 'undefined' ? Telegram.WebApp : null);
+    return tg && tg.initData ? String(tg.initData) : '';
+  } catch (e) { return ''; }
+}
+function submitScore(){
+  if (!(killScore > 0)) return;
+  const payload = {
+    name: playerName,
+    score: Math.floor(killScore),
+    seconds: Math.max(1, Math.floor(elapsed)),
+    distance: Math.floor(distM()),
+    level: level,
+    mode: endlessRun ? 'endless' : 'campaign',
+  };
+  const init = tgInitData();
+  if (init) payload.initData = init;
+  lastSubmit = payload;
+  /* fire-and-forget: a dead backend changes NOTHING about the run */
+  lbFetch(LEADERBOARD_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload) }, 4000).catch(() => {});
+}
+/* one row per display name (the backend dedupes too; this keeps any
+   board source honest), best-first, capped at 20 */
+function dedupeRows(rows){
+  const seen = new Set(); const out = [];
+  for (const r of (rows || [])){
+    if (!r || typeof r.name !== 'string') continue;
+    const key = r.name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ name: r.name, score: Math.floor(+r.score) || 0 });
+    if (out.length >= 20) break;
+  }
+  return out;
+}
+function escapeHtml(s){
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+function boardRowsHtml(rows){
+  return rows.map((r, i) => {
+    const me = r.name.toLowerCase() === playerName.toLowerCase();
+    return '<div class="brow' + (me ? ' me' : '') + '"><span class="brank">' + (i + 1) +
+      '</span><span class="bname">' + escapeHtml(r.name) + (me ? ' ◀ YOU' : '') +
+      '</span><span class="bscore">' + r.score + '</span></div>';
+  }).join('');
+}
+function paintBoard(listEl, statusEl){
+  if (!listEl) return;
+  if (boardState === 'loading'){ if (statusEl) statusEl.textContent = 'Loading the board…'; return; }
+  if (boardState === 'error'){
+    if (statusEl) statusEl.textContent = 'Leaderboard unavailable — your best is saved on this device.';
+    return;
+  }
+  const rows = boardRows || [];
+  listEl.innerHTML = boardRowsHtml(rows);
+  if (statusEl) statusEl.textContent = rows.length ? '' : 'No scores on the board yet — be the first!';
+}
+function refreshBoard(){
+  boardState = 'loading';
+  paintBoard($('boardList'), $('boardStatus'));
+  paintBoard($('overBoardList'), $('overBoardStatus'));
+  lbFetch(LEADERBOARD_URL, { method: 'GET' }, 5000)
+    .then(r => { if (!r || !r.ok) throw new Error('bad response'); return r.json(); })
+    .then(data => {
+      boardRows = dedupeRows(data && data.all);
+      boardState = boardRows.length ? 'ok' : 'empty';
+      paintBoard($('boardList'), $('boardStatus'));
+      paintBoard($('overBoardList'), $('overBoardStatus'));
+    })
+    .catch(() => {
+      boardState = 'error';
+      paintBoard($('boardList'), $('boardStatus'));
+      paintBoard($('overBoardList'), $('overBoardStatus'));
+    });
+}
+function openBoard(){
+  sfxTap();
+  $('boardScreen').style.display = 'flex';
+  refreshBoard();
+}
+function closeBoard(){
+  sfxTap();
+  $('boardScreen').style.display = 'none';
 }
 
 const distM = () => distPx / PX_PER_M;
@@ -975,6 +1130,10 @@ function gameOver(){
     'Distance ' + Math.floor(distM()) + 'm  ·  Tokens down ' + kills +
     '  ·  Vaults cracked ' + bossKills + '  ·  Pool leaks ' + leaks;
   $('overScreen').style.display = 'flex';
+  /* leaderboard: post the run, then show the board — both best-effort,
+     neither can block or break the game-over screen */
+  submitScore();
+  refreshBoard();
 }
 
 /* ================= updates ================= */
@@ -2274,6 +2433,14 @@ addEventListener('keyup', e => {
 $('startBtn').onclick = () => { sfxTap(); startGame(); };
 $('againBtn').onclick = () => { sfxTap(); startGame(); };
 $('menuBtn').onclick = () => { sfxTap(); toMenu(); };
+$('boardBtn').onclick = () => openBoard();
+$('boardCloseBtn').onclick = () => closeBoard();
+{ const ni = $('nameInput');
+  if (ni){
+    ni.value = playerName;
+    ni.addEventListener('change', () => setPlayerName(ni.value));
+    ni.addEventListener('blur', () => setPlayerName(ni.value));
+  } }
 $('rstBtn').onclick = () => { sfxTap(); if (state === 'play' || state === 'over' || state === 'dying') startGame(); };
 function toggleMute(){
   muted = !muted;
@@ -2372,6 +2539,7 @@ window.OD = {
       stars: { total: totalStars(), byLevel: { ...starsByLevel } },
       lastLevel: lastLevelResult ? { ...lastLevelResult } : null,
       mode, endlessRun, endlessUnlocked, bestEndless, nextBossAt,
+      board: { name: playerName, state: boardState, rows: boardRows, lastSubmit },
       tokenCount: aliveTokens(), bulletCount: bullets.length };
   },
   constants: { W, COLS, MAX_ALIVE, KILL_SCORE, TOKEN_R, TOKEN_HP, LEVEL_LEN, BOSS_HP,
