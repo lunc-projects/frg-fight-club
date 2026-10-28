@@ -752,7 +752,8 @@ const SKINS = SHIPS.map(s => ({ name: s.livery, accent: s.accent, unlock: s.unlo
      1. { tokens: { owner } }            — the tokens the address holds
      2. { nft_info: { token_id } } each  — tier from the metadata
         extension.attributes (trait_type "tier"), falling back to
-        the "test-tier-<n>" token_id pattern.
+        the "test-tier-<n>" / "paid-tier-<n>-<hash>" token_id
+        patterns.
    The result is cached for the session; ownedNftTiers() answers
    from the cache, so gameplay never waits on the network. Any
    failure — offline, LCD down, bad response — degrades to the
@@ -797,14 +798,17 @@ function lcdSmart(contract, msg){
   }).then(j => (j && j.data) || {});
 }
 /* a token's tier: the metadata attribute is the source of truth,
-   the test token_id pattern is the fallback (the test tokens were
-   minted with empty extensions, so the fallback carries them) */
+   the token_id pattern is the fallback (the minted tokens carry
+   empty extensions, so the fallback carries them). Token ids come
+   in two shapes: the hand-minted "test-tier-<n>" and the buy
+   service's "paid-tier-<n>-<payment hash>" — a wallet whose only
+   token is a paid one must still resolve its tier. */
 function tierFromToken(tokenId, extension){
   const attrs = (extension && extension.attributes) || [];
   for (const a of attrs){
     if (a && a.trait_type === 'tier' && /^\d+$/.test(String(a.value))) return Number(a.value);
   }
-  const m = /^test-tier-(\d+)$/.exec(tokenId);
+  const m = /^(?:test|paid)-tier-(\d+)(?:-|$)/.exec(tokenId);
   return m ? Number(m[1]) : null;
 }
 function refreshNftTiers(fromBoot){
@@ -1444,6 +1448,9 @@ let buyJustTier = 0;            /* tier bought this session (its card offers FLY
 let buyAvailability = 'unknown';   /* unknown | open | closed — from GET /state */
 const buyNotes = {};            /* tier -> { cls, text } sticky per-card note */
 const buyEls = {};              /* card index -> the live buy/verify/fly span (rebuilt per render) */
+let buyWatch = null;            /* { tier, address, tokenId, timer, until } — the one active post-buy ownership watch */
+let buyWatchEveryMs = 4000;     /* post-buy ownership re-read cadence (the suites shrink it via OD.setBuyWatchForTest) */
+let buyWatchForMs = 90000;      /* how long the watch keeps re-reading before its honest give-up note */
 let pendingBuy = null;          /* { address, tier, txHash } — paid on-chain, mint not yet confirmed */
 try {
   const p = JSON.parse(localStorage.getItem(BUY_STORE_KEY) || 'null');
@@ -1477,6 +1484,7 @@ function reconcilePendingBuy(tiers){
   if (tiers.includes(pendingBuy.tier)){ buyJustTier = pendingBuy.tier; clearPendingBuy(); }
 }
 function resetBuySession(){
+  stopBuyWatch();   /* a wallet connect/disconnect ends any post-buy ownership watch */
   buyJustTier = 0;
   for (const k in buyNotes) delete buyNotes[k];
 }
@@ -1547,6 +1555,54 @@ function postBuy(p){
     .then(r => (r && typeof r.json === 'function' ? r.json().catch(() => null) : null))
     .catch(() => null);   /* a network failure is the hiccup case in settleBuy (data === null) */
 }
+/* ---- the post-buy ownership watch ----
+   A confirmed mint can take a few seconds to surface in the LCD
+   ownership read (the live case: the card sat at NOT OWNED until
+   a manual reload). After a buy settles, keep re-running the REAL
+   read every few seconds for up to ~90 s; the moment the bought
+   tier appears, land it (plain owned note + auto-select). The
+   watch never marks anything owned itself — only the read does.
+   One watch at a time: a newer settled purchase replaces it, and
+   a wallet disconnect/switch ends it (resetBuySession stops it,
+   and every step re-checks the wallet it was started for). */
+function stopBuyWatch(){
+  if (buyWatch && buyWatch.timer) clearTimeout(buyWatch.timer);
+  buyWatch = null;
+}
+/* the bought tier is proven on-chain: plain owned note, and the
+   bought plane becomes the selected fighter (the same direct
+   pick restoreStoredShip makes — no fake tap) */
+function landBoughtTier(tier, tokenId){
+  buyJustTier = tier;
+  const i = SHIPS.findIndex(s => s.nftTier === tier);
+  if (i >= 0 && i !== skinIdx && shipSelectable(i)){ skinIdx = i; persistShip(); }
+  buyNotes[tier] = { cls: 'ok', text: '✓ Bought — ' + tokenId + ' is yours, unlocked below.' };
+  buildShipRow(); updateWalletUi();
+}
+function expireBuyWatch(w){
+  stopBuyWatch();
+  buyNotes[w.tier] = { cls: 'ok', text: '✓ Bought — ' + w.tokenId + ' — still confirming on-chain; it will appear shortly.' };
+  buildShipRow();
+}
+function startBuyWatch(tier, address, tokenId){
+  stopBuyWatch();   /* never stack: a newer purchase's watch replaces this one */
+  const w = { tier, address, tokenId, timer: 0, until: Date.now() + buyWatchForMs };
+  buyWatch = w;
+  const step = () => {
+    if (buyWatch !== w) return;                                  /* replaced or stopped */
+    if (walletAddress !== w.address){ stopBuyWatch(); return; }  /* disconnected or switched mid-watch */
+    if (ownedNftTiers().includes(w.tier)){ stopBuyWatch(); landBoughtTier(w.tier, w.tokenId); return; }
+    if (Date.now() >= w.until){ expireBuyWatch(w); return; }
+    refreshNftTiers(false).then(() => {
+      if (buyWatch !== w) return;
+      if (walletAddress !== w.address){ stopBuyWatch(); return; }
+      if (ownedNftTiers().includes(w.tier)){ stopBuyWatch(); landBoughtTier(w.tier, w.tokenId); return; }
+      if (Date.now() >= w.until){ expireBuyWatch(w); return; }
+      w.timer = setTimeout(step, buyWatchEveryMs);
+    });
+  };
+  w.timer = setTimeout(step, buyWatchEveryMs);
+}
 /* every /buy answer lands here — the first POST and each VERIFY
    re-POST alike. Resolves true when the mint is confirmed. */
 function settleBuy(p, data){
@@ -1559,10 +1615,15 @@ function settleBuy(p, data){
     buildShipRow();
     return refreshNftTiers(false).then(() => {
       if (walletAddress === p.address){
-        buyNotes[tier] = { cls: 'ok', text: ownedNftTiers().includes(tier)
-          ? '✓ Bought — ' + tokenId + ' is yours, unlocked below.'
-          : '✓ Bought — ' + tokenId + ' is yours (the chain read is still catching up).' };
-        buildShipRow();
+        if (ownedNftTiers().includes(tier)) landBoughtTier(tier, tokenId);
+        else {
+          /* the mint is confirmed but the LCD read has not caught
+             up: keep the honest note and let the watch keep
+             re-reading until the chain shows it — no reload */
+          buyNotes[tier] = { cls: 'ok', text: '✓ Bought — ' + tokenId + ' is yours (the chain read is still catching up).' };
+          buildShipRow();
+          startBuyWatch(tier, p.address, tokenId);
+        }
       }
       return true;
     });
@@ -4253,7 +4314,11 @@ window.OD = {
   buyTier(t){ return startBuy(t); },
   verifyBuy(){ return verifyBuy(); },
   buyState(){ return { configured: buyConfigured(), availability: buyAvailability, busyTier: buyBusyTier,
-    pending: pendingBuy ? { ...pendingBuy } : null, justTier: buyJustTier, mode: walletMode, priceLunc: NFT_CONFIG.buyPriceLunc }; },
+    pending: pendingBuy ? { ...pendingBuy } : null, justTier: buyJustTier, watchTier: buyWatch ? buyWatch.tier : 0,
+    mode: walletMode, priceLunc: NFT_CONFIG.buyPriceLunc }; },
+  /* shrink the post-buy ownership watch so the suites can watch
+     it land / expire in milliseconds instead of ~90 s */
+  setBuyWatchForTest(everyMs, forMs){ if (everyMs > 0) buyWatchEveryMs = everyMs; if (forMs > 0) buyWatchForMs = forMs; },
   setBoardTab(t){ setBoardTab(t); },
   showRewards(){ openRewards(); },
   setShip(x, y){ ship.x = x; ship.y = y; targetX = x; targetY = y; },
