@@ -940,6 +940,20 @@ const WC_URLS = {
 };
 const WC_METADATA = { name: 'Orbit Defender — NFT TEST', description: 'Orbit Defender test build: connect a Terra Classic wallet to see and buy test NFT fighters.',
   url: 'https://frg-fight-club.vercel.app/orbit-defender-test/', icons: [] };
+/* the Terra Classic ecosystem wallets the modal recommends FIRST,
+   in this order (every other listed wallet still shows below).
+   The ids are the WalletConnect explorer's own listing ids,
+   fetched live from explorer-api.walletconnect.com (v3 wallets
+   endpoint, this project id) on 2026-10-28: Keplr, Leap and
+   Cosmostation are listed. Galaxy Station has NO explorer
+   listing (searched "Galaxy Station" and "Galaxy" — zero
+   results), so it cannot be pinned: inventing an id would
+   corrupt the modal's list, not extend it. */
+const WC_RECOMMENDED_WALLETS = [
+  '6adb6082c909901b9e7189af3a4a0223102cd6f8d5c39e39f3d49acb92b578bb',   /* Keplr */
+  '3ed8cc046c6211a798dc5ec70f1302b43e07db9639fd287de44a9aa115a21ed6',   /* Leap */
+  'feb6ff1fb426db18110f5a80c7adbde846d0a7e96b2bc53af4b73aaf32552bea',   /* Cosmostation */
+];
 let wcLibsPromise = null;
 /* where a libs bundle can come from without the network: the
    headless hook (OD.setWcForTest, or a bundle pre-seeded on
@@ -955,9 +969,12 @@ function wcHookLibs(){
    { SignClient, WalletConnectModal, cosmjs: { Registry,
    defaultRegistryTypes, makeAuthInfoBytes, makeSignDoc,
    encodePubkey, calculateFee, TxRaw, TxBody, fromBase64,
-   toBase64 } }. Rejects when the CDN cannot be reached — the
-   caller says so plainly; a failed load is NOT cached, so the
-   next tap retries. */
+   toBase64, SigningStargateClient, GasPrice } }. (The last two
+   also power the offline-signer payment path in keplrPay, for
+   wallet browsers — Galaxy Station, Station — whose injected
+   provider has no send of its own.) Rejects when the CDN cannot
+   be reached — the caller says so plainly; a failed load is NOT
+   cached, so the next tap retries. */
 function loadWcLibs(){
   if (wcLibsCache) return Promise.resolve(wcLibsCache);
   const hook = wcHookLibs();
@@ -979,6 +996,8 @@ function loadWcLibs(){
             makeSignDoc: ps && ps.makeSignDoc,
             encodePubkey: ps && ps.encodePubkey,
             calculateFee: sg && sg.calculateFee,
+            SigningStargateClient: sg && sg.SigningStargateClient,
+            GasPrice: sg && sg.GasPrice,
             TxRaw: (tx && tx.TxRaw) || (ps && ps.TxRaw),
             TxBody: tx && tx.TxBody,
             fromBase64: en && en.fromBase64,
@@ -1002,7 +1021,8 @@ function wcEnsureClient(){
 }
 function wcOpenModal(uri){
   return loadWcLibs().then(libs => {
-    if (!wcModal) wcModal = new libs.WalletConnectModal({ projectId: WC_PROJECT_ID, chains: [WC_CHAIN] });
+    if (!wcModal) wcModal = new libs.WalletConnectModal({ projectId: WC_PROJECT_ID, chains: [WC_CHAIN],
+      explorerRecommendedWalletIds: WC_RECOMMENDED_WALLETS });
     wcModal.openModal({ uri });
   }).catch(() => {});   /* the pairing continues even if the modal itself stumbles */
 }
@@ -1043,38 +1063,83 @@ function wcGetAccounts(){
 }
 function wcFailLine(err){
   const msg = String((err && err.message) || err || '');
-  if (/reject|denied|deny|cancel|closed|expire|pairing/i.test(msg))
-    return 'The WalletConnect pairing ended before a wallet approved it — tap CONNECT WALLET to try again, or paste an address below just to look (read-only).';
-  return "WalletConnect couldn't start in this browser — the wallet bridge failed to load. Paste your terra address below just to look (read-only, can't buy), or open this page inside the Keplr app's browser to connect directly.";
+  if (/expire|timed out|timeout/i.test(msg))
+    return 'The WalletConnect pairing ended — the request expired before a wallet approved it. Tap CONNECT WALLET to try again, or paste an address below just to look (read-only).';
+  if (/reject|denied|declin|cancel|closed/i.test(msg))
+    return 'The WalletConnect pairing ended — the connection was rejected in the wallet. Tap CONNECT WALLET to try again, or paste an address below just to look (read-only).';
+  return "WalletConnect couldn't start — the relay didn't answer. Paste your terra address below just to look (read-only, can't buy), or open this page inside the Keplr app's browser to connect directly.";
+}
+/* the methods this session actually granted (its namespaces) —
+   the wallet decides what it offers; cosmos_getAccounts in
+   particular is NOT universal across wallets */
+function wcSessionMethods(){
+  try {
+    const m = wcSession && wcSession.namespaces && wcSession.namespaces.cosmos && wcSession.namespaces.cosmos.methods;
+    return Array.isArray(m) ? m : [];
+  } catch (e) { return []; }
+}
+/* adopt an approved session as THE connection. The address comes
+   from the session's own accounts (CAIP-10 strings) — that alone
+   is the connection, and it lands immediately. cosmos_getAccounts
+   is optional enrichment for the pubkey only: it is skipped when
+   the session never granted it, and its failure can never cost
+   the connection (wcPay falls back to the on-chain pubkey). A
+   session that granted less — even one without signing — is
+   still a connection; only PAYING fails without signDirect,
+   and it fails there, in plain words (see wcPay). */
+function wcAdoptSession(session){
+  wcSession = session;
+  const addr = wcSessionAddress(session);
+  if (!validTerraAddress(addr)){ wcSession = null; return Promise.resolve(false); }
+  if (walletMode === 'keplr') return Promise.resolve(false);   /* an injected session owns the wallet box */
+  const methods = wcSessionMethods();
+  if (!methods.length || methods.includes('cosmos_getAccounts'))
+    wcGetAccounts().then(acc => wcStorePubkey(acc)).catch(() => {});
+  return setWalletAddress(addr, 'wc');
+}
+const WC_APPROVAL_TIMEOUT_MS = 120000;
+/* the approval wait, with a ceiling: a pairing nobody answers
+   must end as an honest "expired" line, not a button that sits
+   silent forever. A late approval is not lost either — it lands
+   in the sign client's store, and adopt-on-return picks it up
+   when the player comes back to the page. */
+function wcAwaitApproval(approval){
+  return Promise.race([
+    approval(),
+    new Promise((_, reject) => setTimeout(
+      () => reject(new Error('the connection request expired — no wallet answered in time')), WC_APPROVAL_TIMEOUT_MS)),
+  ]);
 }
 /* CONNECT, WalletConnect flavor: propose the session, show the
    modal with the pairing URI, and on approval adopt the account.
-   Resolves true when a wallet landed. Every failure lands on the
-   paste row with an honest line — never a dead button. */
+   The status line narrates every stage — opening the wallet
+   list, waiting for the approval in the wallet, connected — so
+   the button never sits silent while the wallet already said
+   yes. Resolves true when a wallet landed. Every failure lands
+   on the paste row with an honest, classified line. */
 function wcConnect(){
   if (wcConnecting) return Promise.resolve(false);
   wcConnecting = true;
-  walletHint('Opening WalletConnect — pick your wallet (Keplr) and approve the connection…');
+  walletHint('Opening WalletConnect — pick your wallet in the list that pops up…');
   return wcEnsureClient()
     .then(client => client.connect({ requiredNamespaces: { cosmos: { methods: WC_METHODS.slice(), chains: [WC_CHAIN], events: [] } } }))
     .then(({ uri, approval }) => {
       if (uri) wcOpenModal(uri);
-      return approval();
+      walletHint('Waiting for approval in your wallet — approve the connection there, then come back to the game…');
+      return wcAwaitApproval(approval);
     })
     .then(session => {
       wcCloseModal();
-      wcSession = session;
-      const addr = wcSessionAddress(session);
-      if (!validTerraAddress(addr)) throw new Error('the wallet did not return a Terra Classic account');
-      return wcGetAccounts().then(acc => { wcStorePubkey(acc); return setWalletAddress(addr, 'wc'); });
+      wcConnecting = false;
+      return wcAdoptSession(session);
     })
     .catch(err => {
       wcCloseModal();
+      wcConnecting = false;
       console.log('[od-test] WalletConnect connect failed: ' + (err && err.message));
       showPasteRow(wcFailLine(err));
       return false;
-    })
-    .then(ok => { wcConnecting = false; return ok; });
+    });
 }
 /* DISCONNECT drops the WC session too (best effort — the local
    clear in clearWallet never waits on the relay). */
@@ -1101,26 +1166,38 @@ function wcHasStoredState(){
   } catch (e) {}
   return false;
 }
-/* boot: silently adopt a still-live stored session. Quiet by
+/* adopt a still-live stored session — at boot, and again every
+   time the page returns to the front. The return path matters as
+   much as the boot path: approving in the wallet app backgrounds
+   this page, mobile browsers throttle or kill background tabs,
+   and the approval can land in the sign client's store while
+   this page's own connect promise never resolves. Re-checking
+   the store on return connects without a reload. Quiet by
    design — a dead or expired session just leaves the page as it
-   was, and an injected-Keplr session always wins the boot. */
-function wcRestoreSession(){
-  if (!wcHookLibs() && !wcHasStoredState()) return;
-  wcEnsureClient().then(client => {
+   was, and an injected-Keplr session always wins. */
+let wcAdopting = false;
+function wcAdoptStoredSession(){
+  if (wcAdopting || wcSession || walletMode === 'keplr') return Promise.resolve(false);
+  if (!wcHookLibs() && !wcHasStoredState()) return Promise.resolve(false);
+  wcAdopting = true;
+  return wcEnsureClient().then(client => {
     const all = (client.session && typeof client.session.getAll === 'function') ? client.session.getAll() : [];
     const now = Math.floor(Date.now() / 1000);
     const live = (all || []).filter(s => s && (!s.expiry || s.expiry > now));
-    if (!live.length) return;
-    wcSession = live[live.length - 1];
-    const addr = wcSessionAddress(wcSession);
-    if (!validTerraAddress(addr)){ wcSession = null; return; }
-    if (walletMode === 'keplr') return;   /* the injected session connected first */
-    wcGetAccounts().then(acc => {
-      wcStorePubkey(acc);
-      if (wcSession && walletMode !== 'keplr') setWalletAddress(addr, 'wc');
-    });
-  }).catch(err => console.log('[od-test] WalletConnect restore skipped: ' + (err && err.message)));
+    if (!live.length) return false;
+    return wcAdoptSession(live[live.length - 1]);
+  }).catch(err => { console.log('[od-test] WalletConnect adopt skipped: ' + (err && err.message)); return false; })
+    .then(ok => { wcAdopting = false; return ok; });
 }
+function wcRestoreSession(){ return wcAdoptStoredSession(); }
+/* coming back to the page re-runs the stored-session check */
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function')
+  window.addEventListener('pageshow', () => { wcAdoptStoredSession(); });
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function')
+  document.addEventListener('visibilitychange', () => {
+    const vis = document.visibilityState ? document.visibilityState === 'visible' : !document.hidden;
+    if (vis) wcAdoptStoredSession();
+  });
 /* the chain-side account record the WC signer needs (account
    number + sequence, plus the on-chain pubkey as a fallback
    when the wallet never reported one) */
@@ -1174,6 +1251,13 @@ const WC_GAS_LIMIT = 100000;   /* the buy's fee gas over WalletConnect (x the st
 function wcPay(tier){
   if (!wcClient || !wcSession)
     return Promise.reject(new Error('the WalletConnect session is gone — disconnect and connect again'));
+  /* the session is the contract: one that never granted
+     cosmos_signDirect can look but cannot pay — say so plainly
+     here, at pay time; connect accepted it on purpose. Checked
+     first: the fact needs no libraries to know. */
+  const wcMethods = wcSessionMethods();
+  if (wcMethods.length && !wcMethods.includes('cosmos_signDirect'))
+    return Promise.reject(new Error("this wallet session can't sign payments — it didn't grant cosmos_signDirect. Disconnect, reconnect, and approve signing to buy."));
   const C = wcLibsCache && wcLibsCache.cosmjs;
   if (!C || !C.Registry || !C.TxRaw)
     return Promise.reject(new Error('the WalletConnect bridge is not loaded — disconnect and connect again'));
@@ -1346,17 +1430,75 @@ function buyErrorText(code){
 function buyErrorKeepsPending(code){
   return code !== 'payment_invalid' && code !== 'payment_used';
 }
-/* ---- the payment: a plain LUNC send through the Keplr provider ----
-   Feature-detected against the API the installed Keplr actually
-   exposes: keplr.sendTokens (its convenience send) when present,
-   else keplr.signAndBroadcast with a hand-built MsgSend and a fee
-   at the going gas price (28.325uluna). Resolves with the tx hash;
-   rejects with the wallet's own error, so a refused signature reads
-   as exactly what it was and the flow stops before any money moves. */
+/* ---- the payment: a plain LUNC send through the wallet provider ----
+   Feature-detected against the API the injected wallet actually
+   exposes, in this order:
+     1. keplr.sendTokens (Keplr's convenience send) when present;
+     2. keplr.signAndBroadcast with a hand-built MsgSend and a fee
+        at the going gas price (28.325uluna);
+     3. the provider's offline signer + CosmJS (keplrPayViaSigner)
+        — the only send some wallet browsers offer: Galaxy Station
+        and Station inject enable / getKey / getOfflineSigner but
+        neither of the two sends above.
+   Resolves with the tx hash; rejects with the wallet's own error,
+   so a refused signature reads as exactly what it was and the
+   flow stops before any money moves. Only when no path exists at
+   all does the no-method error show — worded for any wallet app,
+   never naming one. */
 function keplrExtractHash(res){
   if (!res) return '';
   if (typeof res === 'string') return res;
   return String(res.transactionHash || res.txhash || res.hash || '');
+}
+/* the one failure that is about the wallet APP, not the chain or
+   the player: no payment method exists in this browser at all.
+   Flagged so startBuy can word it neutrally — the wallet here
+   may be Keplr, Galaxy Station, Station… */
+function noPayMethodError(){
+  const e = new Error("this wallet app can't send the payment from its browser");
+  e.noPayMethod = true;
+  return e;
+}
+/* the CosmJS signing client for the offline-signer path, built
+   from the same lazily-loaded stargate bundle the WalletConnect
+   code uses. The headless suites replace the factory at this seam
+   (OD.setSignerClientForTest) — in play it is always the real
+   SigningStargateClient against the public RPC. */
+const BUY_RPC_URL = 'https://terra-classic-rpc.publicnode.com';
+let signerClientHook = null;   /* headless hook only — never set in play */
+function buyStargateClient(signer){
+  if (signerClientHook) return Promise.resolve().then(() => signerClientHook(signer));
+  return loadWcLibs().then(libs => {
+    const C = libs && libs.cosmjs;
+    if (!C || typeof C.SigningStargateClient !== 'function' || !C.GasPrice)
+      throw new Error('the signing library loaded incomplete');
+    return C.SigningStargateClient.connectWithSigner(BUY_RPC_URL, signer,
+      { gasPrice: C.GasPrice.fromString(BUY_GAS_PRICE + 'uluna') });
+  });
+}
+/* payment path 3: build the send with CosmJS through the wallet's
+   own offline signer. The wallet still signs everything — the
+   game only assembles the same plain MsgSend, memo and all, that
+   the other paths send. */
+function keplrPayViaSigner(k, from, amount, memo, enabled){
+  const getSigner = () => {
+    if (typeof k.getOfflineSigner === 'function') return k.getOfflineSigner(TEST_CHAIN_ID);
+    if (typeof k.getOfflineSignerOnlyAmino === 'function') return k.getOfflineSignerOnlyAmino(TEST_CHAIN_ID);
+    return null;
+  };
+  return enabled
+    .then(() => getSigner())
+    .then(signer => {
+      if (!signer) throw noPayMethodError();
+      return buyStargateClient(signer);
+    })
+    .then(client => client.sendTokens(from, GAME_WALLET, amount, 'auto', memo))
+    .then(result => {
+      if (result && result.code) throw new Error('the payment broadcast failed (code ' + result.code + ')');
+      const h = keplrExtractHash(result);
+      if (!h) throw new Error('the wallet sent the payment but returned no tx hash');
+      return h;
+    });
 }
 function keplrPay(tier){
   const k = keplrApi();
@@ -1384,7 +1526,7 @@ function keplrPay(tier){
         return h;
       });
   }
-  return Promise.reject(new Error('this Keplr cannot send payments from the browser'));
+  return keplrPayViaSigner(k, from, amount, memo, enabled);
 }
 /* ---- hand the payment to the service, which verifies + mints ---- */
 function postBuy(p){
@@ -1456,9 +1598,11 @@ function startBuy(tier){
     })
     .catch(err => {
       const msg = String((err && err.message) || err || '');
-      buyNotes[tier] = { cls: 'err', text: /reject|denied|deny|cancel/i.test(msg)
-        ? 'Payment cancelled in Keplr — nothing was sent.'
-        : 'Keplr could not send the payment' + (msg ? ': ' + msg.slice(0, 90) : '') + ' — the game charged nothing.' };
+      buyNotes[tier] = { cls: 'err', text: (err && err.noPayMethod)
+        ? "This wallet app can't send the payment from its browser — the game charged nothing."
+        : /reject|denied|deny|cancel/i.test(msg)
+          ? 'Payment cancelled in Keplr — nothing was sent.'
+          : 'Keplr could not send the payment' + (msg ? ': ' + msg.slice(0, 90) : '') + ' — the game charged nothing.' };
       buildShipRow();
       return finish(false);
     });
@@ -4077,7 +4221,12 @@ window.OD = {
      CosmJS + a fake sign client in the suites) and drive the WC
      connect flow without a DOM click */
   setWcForTest(x){ wcLibsHook = x || null; },
+  /* the stargate factory seam for the offline-signer payment
+     path (Galaxy Station & friends): the suites stand in a
+     recording client for the real SigningStargateClient */
+  setSignerClientForTest(fn){ signerClientHook = fn || null; },
   connectWalletConnect(){ return wcConnect(); },
+  adoptWcSession(){ return wcAdoptStoredSession(); },
   wcState(){ return { connected: !!wcSession, connecting: wcConnecting, client: !!wcClient,
     topic: wcSession ? wcSession.topic : '', pubkey: !!wcPubkey }; },
   setRewardsUrl(u){ NFT_CONFIG.rewardsUrl = String(u || ''); },
