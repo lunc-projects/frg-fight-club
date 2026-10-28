@@ -6,6 +6,14 @@
 // getting a score+board pair).
 //   POST /api/luna-games?game=penalty|darts|blocks|rider|pool|zombie|breakout  {name, score, seconds, initData?}
 //   GET  /api/luna-games?game=penalty|darts|blocks|rider|pool|zombie|breakout  -> {all, week}
+// LUNC Grand Prix ("gprix") is a multi-board game: it must pass
+// &level=<1..6> and gets a separate board per level, stored under the
+// prefix gprix<level>: (e.g. gprix3:all). A missing or out-of-range
+// level is rejected with 400 — there is no default board to leak into.
+// Orbit Grand Prix ("ogprix") is the OrbitWire edition of the same
+// racer: same per-level scheme under ogprix<level>:, fully separate
+// boards from gprix. Like Orbit Defender it is hosted off-origin by
+// the OrbitWire team, so its board is CORS-open too (see below).
 // Stores each player's BEST score in Upstash Redis sorted sets (all-time +
 // current ISO week) plus a name map, per game prefix. Telegram WebApp
 // initData is verified against the LUNC Assistant Bot token when present
@@ -40,6 +48,10 @@ const GAMES = {
   climb: { prefix: 'climb', maxScore: 40000, minSec: 10, maxSec: 3600, rateMul: 45, rateBase: 1500 },
   blaster: { prefix: 'blaster', maxScore: 100000, minSec: 10, maxSec: 3600, rateMul: 300, rateBase: 2000 },
   orbit: { prefix: 'orbit', maxScore: 500000, minSec: 5, maxSec: 7200, rateMul: 300, rateBase: 2500 },
+  /* levels: N marks a per-level game — the handler requires ?level=1..N
+     and rewrites the storage prefix to prefix+level ("gprix3"). */
+  gprix: { prefix: 'gprix', maxScore: 100000, minSec: 40, maxSec: 3600, rateMul: 200, rateBase: 2000, levels: 6 },
+  ogprix: { prefix: 'ogprix', maxScore: 100000, minSec: 40, maxSec: 3600, rateMul: 200, rateBase: 2000, levels: 6 },
 };
 
 function weekKey(d = new Date()) {
@@ -191,14 +203,22 @@ async function board(cfg, res) {
 
 export default async function handler(req, res) {
   const game = String((req.query && req.query.game) || '');
-  const cfg = GAMES[game];
+  let cfg = GAMES[game];
   if (!cfg) return res.status(400).json({ error: 'unknown game' });
+  if (cfg.levels) {
+    const lvl = Number((req.query && req.query.level) || '');
+    if (!Number.isInteger(lvl) || lvl < 1 || lvl > cfg.levels) {
+      return res.status(400).json({ error: 'bad level' });
+    }
+    cfg = { ...cfg, prefix: cfg.prefix + lvl };
+  }
   /* orbit-cors:start — Orbit Defender is hosted OFF-origin by the
-     OrbitWire team (their own site), so orbit's board — and only
-     orbit's — is CORS-open. Every other game is same-origin with this
-     endpoint or runs inside Telegram and keeps the router's default
-     behaviour: no CORS headers at all. */
-  if (game === 'orbit') {
+     OrbitWire team (their own site), so orbit's board is CORS-open.
+     Orbit Grand Prix (ogprix) is hosted by the same team the same
+     way, so it shares the exception. Every other game is same-origin
+     with this endpoint or runs inside Telegram and keeps the router's
+     default behaviour: no CORS headers at all. */
+  if (game === 'orbit' || game === 'ogprix') {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
