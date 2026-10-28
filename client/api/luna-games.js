@@ -14,6 +14,10 @@
 // racer: same per-level scheme under ogprix<level>:, fully separate
 // boards from gprix. Like Orbit Defender it is hosted off-origin by
 // the OrbitWire team, so its board is CORS-open too (see below).
+// Orbit Defender's NFT board ("orbitn") is the second Defender board:
+// runs flown in an NFT fighter post here instead of "orbit", under
+// the prefix orbitn:. Same caps and rate window as "orbit", same
+// off-origin CORS exception.
 // Stores each player's BEST score in Upstash Redis sorted sets (all-time +
 // current ISO week) plus a name map, per game prefix. Telegram WebApp
 // initData is verified against the LUNC Assistant Bot token when present
@@ -48,6 +52,7 @@ const GAMES = {
   climb: { prefix: 'climb', maxScore: 40000, minSec: 10, maxSec: 3600, rateMul: 45, rateBase: 1500 },
   blaster: { prefix: 'blaster', maxScore: 100000, minSec: 10, maxSec: 3600, rateMul: 300, rateBase: 2000 },
   orbit: { prefix: 'orbit', maxScore: 500000, minSec: 5, maxSec: 7200, rateMul: 300, rateBase: 2500 },
+  orbitn: { prefix: 'orbitn', maxScore: 500000, minSec: 5, maxSec: 7200, rateMul: 300, rateBase: 2500 },
   /* levels: N marks a per-level game — the handler requires ?level=1..N
      and rewrites the storage prefix to prefix+level ("gprix3"). */
   gprix: { prefix: 'gprix', maxScore: 100000, minSec: 40, maxSec: 3600, rateMul: 200, rateBase: 2000, levels: 6 },
@@ -215,10 +220,11 @@ export default async function handler(req, res) {
   /* orbit-cors:start — Orbit Defender is hosted OFF-origin by the
      OrbitWire team (their own site), so orbit's board is CORS-open.
      Orbit Grand Prix (ogprix) is hosted by the same team the same
-     way, so it shares the exception. Every other game is same-origin
+     way, so it shares the exception, as does Orbit Defender's NFT
+     board (orbitn). Every other game is same-origin
      with this endpoint or runs inside Telegram and keeps the router's
      default behaviour: no CORS headers at all. */
-  if (game === 'orbit' || game === 'ogprix') {
+  if (game === 'orbit' || game === 'ogprix' || game === 'orbitn') {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
