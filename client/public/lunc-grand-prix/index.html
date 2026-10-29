@@ -3427,31 +3427,51 @@ if (el.rotateHint) { el.rotateHint.addEventListener('click', function (e) { if (
    buttons win while physically held, tilt rules otherwise, and
    in TOUCH mode sensor events are ignored entirely.
 
-   FRAME MATH. beta/gamma arrive in the DEVICE frame (the phone's
-   natural portrait axes); the content may be rotated against
-   that frame by the native screen orientation and/or the CSS
-   force-rotate (which never moves screen.orientation). The
-   effective content angle is
-     θ = (screen.orientation.angle ?? window.orientation ?? 0)
-         + (forceRotated ? forceDir * 90 : 0)        (mod 360)
-   and the steering axis/sign per θ — derived from the gravity
-   vector g = (sinγ·cosβ, −sinβ, −cosβ·cosγ) for a tilted-back
-   playing posture rolled about the screen normal, so "tilt the
-   top of the phone toward screen-left" steers screen-left in
-   every frame:
-     θ = 0   natural portrait ......... gamma, sign +1
-     θ = 90  landscape / forced A ..... beta,  sign +1
-     θ = 180 upside-down portrait ..... gamma, sign −1
-     θ = 270 landscape / forced B ..... beta,  sign −1
-   (Worked example, θ=90: the posture reads β≈0, γ≈−45; rolling
-   toward screen-right moves β positive. θ=270 mirrors it.) The
-   headless checks synthesise sensor values from the gravity
-   vector itself, so a flipped sign in this table fails them.
+   FRAME MATH — CONTINUOUS GRAVITY PROJECTION (rewritten
+   2026-10-29, after the owner's phone proved the original
+   snapped axis table wrong in native landscape: "when I flip
+   my phone to the left, it thinks I'm turning left when my
+   screen is tilted — vice versa"). beta/gamma arrive in the
+   DEVICE frame. The W3C deviceorientation rotation model puts
+   the gravity vector in device coordinates at
+     g = (sinγ·cosβ, −sinβ, −cosβ·cosγ).
+   Steering is the component of gravity along the direction the
+   CONTENT's right points in device coordinates. For the visual
+   frame angle θv (see tiltFrameAngle), content-right in device
+   coordinates is (cos θv, sin θv, 0), so
+     steer_raw = gx·cos θv + gy·sin θv.
+   No axis ever snaps and there is no per-frame sign to get
+   wrong — the projection is right in every frame by
+   construction, PROVIDED θv names the frame the player
+   actually sees:
+     θv = screen.orientation.angle − (forceRotated ? forceDir·90 : 0)
+   The two terms compose with OPPOSITE signs because they are
+   different kinds of rotation. The native angle reports the
+   DEVICE's rotation — on the owner's Android Chrome it grows
+   clockwise (top edge right reports 90, top edge left reports
+   270) — while the CSS force-rotate turns the CONTENT, and
+   rotate(+90deg) (content clockwise on screen) is viewed
+   upright from the counterclockwise grip, so it subtracts.
+   The original table folded both into one sum and hard-coded
+   which device axis each quarter-turn meant; the native
+   landscape pairing came out backwards — and the first
+   headless checks shared the same assumed pairing, so they
+   passed while his phone steered inverted. The checks now
+   synthesise events from physical postures (grip, back-tilt,
+   roll) through the W3C gravity relations and pair the stubbed
+   angle from the owner's device; they fail on the pre-fix
+   build in exactly the two native landscape frames.
+   Calibration captures the PROJECTED value itself (frame-true
+   by construction), and the deadzone/curve pipeline below runs
+   on the difference of arcsines — the effective roll in
+   degrees relative to that centre — so the feel constants mean
+   the same thing in every frame.
 
    CALIBRATION & FEEL. Enabling tilt takes the NEXT reading as
-   the centre (both axes stored, so a mid-race frame change
-   keeps a sane centre per axis); every race start re-captures
-   it — the driver is holding the phone ready at the lights.
+   the centre (its projected roll — one number, true in
+   whatever frame it was captured); every race start
+   re-captures it — the driver is holding the phone ready at
+   the lights.
    Feel tune (owner, 2026-10-29: "works but hard to drive"):
    the raw reading is EMA-filtered at the source (α 0.35 per
    event) so hand tremor dies before it can steer; dead zone
@@ -3474,35 +3494,51 @@ var TILT_FULL_LOCK = 34;      /* degrees from centre that mean full lock (tune 2
 var TILT_CURVE = 1.6;         /* progressive response: steer = sign(x)·|x|^1.6 (tune 2026-10-29: was linear) */
 var TILT_EMA_ALPHA = 0.35;    /* per-event EMA on the raw reading, before the curve (tune 2026-10-29: was none) */
 var TILT_WATCH_MS = 1500;     /* sensor-arrival watchdog after enabling */
-var tilt = { mode: 'touch', raw: null, filt: null, cBeta: null, cGamma: null,
+var tilt = { mode: 'touch', raw: null, filt: null, center: null,
   smooth: 0, awaiting: false, watchTimer: null, noteTimer: null };
 function tiltFrameAngle() {
   var a = 0;
   var so = flipOrientation();
   if (so && typeof so.angle === 'number' && isFinite(so.angle)) a = so.angle;
-  else if (typeof window !== 'undefined' && typeof window.orientation === 'number' && isFinite(window.orientation)) a = window.orientation;
-  if (flipState.forceRotated) a += (flipState.forceDir || 1) * 90;
+  else if (typeof window !== 'undefined' && typeof window.orientation === 'number' && isFinite(window.orientation)) {
+    /* the deprecated window.orientation runs in the OPPOSITE
+       sense to screen.orientation.angle (+90 there is the
+       counterclockwise grip, 270 here) — negate it into the
+       same convention */
+    a = -window.orientation;
+  }
+  /* the CSS force-rotate turns the CONTENT, opposite in sense
+     to the device rotation the native angle reports — it
+     SUBTRACTS (see FRAME MATH above) */
+  if (flipState.forceRotated) a -= (flipState.forceDir || 1) * 90;
   a = ((a % 360) + 360) % 360;
   return a;
 }
-function tiltAxis() {
-  var q = Math.round(tiltFrameAngle() / 90) % 4;
-  if (q === 0) return { key: 'gamma', sign: 1 };
-  if (q === 1) return { key: 'beta', sign: 1 };
-  if (q === 2) return { key: 'gamma', sign: -1 };
-  return { key: 'beta', sign: -1 };
+/* the gravity projection: the component of gravity along the
+   content's right, in device coordinates (see FRAME MATH).
+   Continuous in beta, gamma and the frame angle — no seams
+   (sin/cos never wrap), no snapped axes — and frame-true at
+   any angle, not just quarter turns. Returns -1..1: a sine of
+   the effective roll toward screen-right. */
+function tiltProjection() {
+  if (!tilt.raw) return 0;
+  var b = tilt.raw.beta * Math.PI / 180, g = tilt.raw.gamma * Math.PI / 180;
+  var gx = Math.sin(g) * Math.cos(b), gy = -Math.sin(b);
+  var th = tiltFrameAngle() * Math.PI / 180;
+  return gx * Math.cos(th) + gy * Math.sin(th);
 }
 function tiltCaptureCenter() {
   if (!tilt.raw) return;
-  tilt.cBeta = tilt.raw.beta; tilt.cGamma = tilt.raw.gamma;
+  tilt.center = tiltProjection();
 }
 function tiltSteerTarget() {
-  if (tilt.mode !== 'tilt' || !tilt.raw || tilt.cBeta === null || tilt.cGamma === null) return 0;
-  var ax = tiltAxis();
-  var d = (ax.key === 'beta' ? tilt.raw.beta - tilt.cBeta : tilt.raw.gamma - tilt.cGamma) * ax.sign;
-  /* beta lives on a circle: wrap the delta so a centre near the
-     ±180 seam cannot fake a full-lock jump */
-  if (ax.key === 'beta') { while (d > 180) d -= 360; while (d < -180) d += 360; }
+  if (tilt.mode !== 'tilt' || !tilt.raw || tilt.center === null) return 0;
+  /* effective roll relative to the captured centre, in degrees:
+     the difference of the two arcsines, so the deadzone and the
+     lock angle below mean the same thing in every frame */
+  var p = Math.max(-1, Math.min(1, tiltProjection()));
+  var c = Math.max(-1, Math.min(1, tilt.center));
+  var d = (Math.asin(p) - Math.asin(c)) * 180 / Math.PI;
   var ad = Math.abs(d);
   if (ad <= TILT_DEADZONE) return 0;
   var v = (ad - TILT_DEADZONE) / (TILT_FULL_LOCK - TILT_DEADZONE);
@@ -3555,7 +3591,7 @@ function tiltSetTilt() {
   tiltClearNote();
   tilt.mode = 'tilt'; tilt.awaiting = true; tilt.smooth = 0;
   tilt.filt = null;   /* the EMA re-seeds on the first fresh reading */
-  tilt.cBeta = null; tilt.cGamma = null;   /* the next reading becomes the centre */
+  tilt.center = null;   /* the next reading becomes the centre */
   storeSet(TILT_KEY, 'tilt');
   tiltRefreshToggle();
   tiltArmWatch();
@@ -3608,7 +3644,7 @@ window.addEventListener('deviceorientation', function (e) {
   }
   tilt.raw = tilt.filt;
   if (tilt.awaiting) { tilt.awaiting = false; tiltCancelWatch(); }
-  if (tilt.cBeta === null) tiltCaptureCenter();
+  if (tilt.center === null) tiltCaptureCenter();
 });
 /* restore the persisted preference (default TOUCH). A restored
    TILT arms the same arrival watchdog: on a sensor-less visit —
@@ -4405,10 +4441,10 @@ window.MR_DIAMOND_3D_TEST = {
       hint: el.rotateHint ? el.rotateHint.textContent : '' }; }
   },
   tilt: {
-    state: function () { var ax = tiltAxis(); return { mode: tilt.mode, awaiting: tilt.awaiting,
+    state: function () { return { mode: tilt.mode, awaiting: tilt.awaiting,
       smooth: +tilt.smooth.toFixed(3), target: +tiltSteerTarget().toFixed(3),
-      frame: tiltFrameAngle(), axis: ax.key, sign: ax.sign,
-      cBeta: tilt.cBeta, cGamma: tilt.cGamma, raw: tilt.raw,
+      frame: tiltFrameAngle(), proj: +tiltProjection().toFixed(4),
+      center: tilt.center, raw: tilt.raw,
       label: el.steerToggle ? el.steerToggle.textContent : '' }; },
     sensorTimeout: function () { tiltSensorTimeout(); }
   },
