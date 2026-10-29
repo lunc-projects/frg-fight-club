@@ -1211,8 +1211,14 @@ function buildWheel(front) {
   return { pivot: pivot, spin: spin };
 }
 
-function buildCar(paintHex, isPlayer) {
+function buildCar(paintHex, isPlayer, livery) {
   var paint = paintMat(paintHex);
+  /* dressed cars (the race field) carry a second tone + an accent:
+     paint2 on the cover/airbox/fin/rear wing, the accent on the
+     halo and the rear-wing trim. Player, NFT, rival and ghost cars
+     pass no livery and build exactly as before. */
+  var paint2 = livery ? paintMat(livery.paint2) : null;
+  var accentMat = livery ? paintMat(livery.accent) : null;
   var g = new THREE.Group();
   var body = new THREE.Group(); g.add(body);
   function add(geo, mat, x, y, z, sx, sy, sz, rx, ry, rz) {
@@ -1230,11 +1236,13 @@ function buildCar(paintHex, isPlayer) {
   /* nose: tapered cone + base blend */
   var nose = add(GEO.nose, paint, 0, 0.31, 1.55); nose.scale.set(1, 0.58, 1);
   add(new B(0.52, 0.3, 0.95), paint, 0, 0.34, 0.72);
-  /* racing stripes down the nose (player car only — the livery
-     system recolors them per car; see applyPlayerLivery) */
-  if (isPlayer) {
-    var smA = new THREE.MeshStandardMaterial({ color: 0xd8b45a, roughness: 0.3, metalness: 0.6 });
-    var smB = new THREE.MeshStandardMaterial({ color: 0xf4d97b, roughness: 0.3, metalness: 0.6 });
+  /* racing stripes down the nose (the player's car and every
+     dressed field car — the livery system recolors them per car;
+     see applyPlayerLivery) */
+  var stripeCols = isPlayer ? [0xd8b45a, 0xf4d97b] : (livery ? livery.stripes : null);
+  if (stripeCols) {
+    var smA = new THREE.MeshStandardMaterial({ color: stripeCols[0], roughness: 0.3, metalness: 0.6 });
+    var smB = new THREE.MeshStandardMaterial({ color: stripeCols[1], roughness: 0.3, metalness: 0.6 });
     var stA = new THREE.Mesh(new B(0.15, 0.018, 1.85), smA); stA.position.set(0, 0.475, 1.52); stA.rotation.x = 0.045; body.add(stA);
     [-1, 1].forEach(function (s) {
       var stB = new THREE.Mesh(new B(0.045, 0.018, 1.85), smB); stB.position.set(s * 0.115, 0.475, 1.52); stB.rotation.x = 0.045; body.add(stB);
@@ -1269,30 +1277,30 @@ function buildCar(paintHex, isPlayer) {
     decal.position.set(s * 0.548, 0.47, 0.72); decal.rotation.y = s * Math.PI / 2; body.add(decal);
   });
   /* engine cover + airbox + fin */
-  var cover = add(GEO.cover, paint, 0, 0.55, -0.62); cover.scale.set(1.0, 0.62, 2.6);
+  var cover = add(GEO.cover, paint2 || paint, 0, 0.55, -0.62); cover.scale.set(1.0, 0.62, 2.6);
   var coverDecal = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 1.2),
     new THREE.MeshBasicMaterial({ map: texCoverDecal, transparent: true }));
   coverDecal.position.set(0, 0.885, -0.68); coverDecal.rotation.set(-Math.PI / 2, 0, Math.PI); body.add(coverDecal);
-  add(new B(0.34, 0.3, 0.82), paint, 0, 0.99, -0.62);
+  add(new B(0.34, 0.3, 0.82), paint2 || paint, 0, 0.99, -0.62);
   add(new B(0.24, 0.18, 0.03), MAT.dark, 0, 1.0, -0.2);
-  add(new B(0.035, 0.32, 1.2), paint, 0, 0.9, -1.38);
+  add(new B(0.035, 0.32, 1.2), paint2 || paint, 0, 0.9, -1.38);
   /* halo (gold on the player's car — the mockup's signature) */
-  var halo = add(GEO.halo, isPlayer ? MAT.gold : MAT.carbon, 0, 0.86, 0.42); halo.scale.set(1, 1, 1.35);
-  body.add(strut(new THREE.Vector3(0, 0.6, 1.04), new THREE.Vector3(0, 0.88, 0.58), 0.035, isPlayer ? MAT.gold : MAT.carbon));
+  var halo = add(GEO.halo, isPlayer ? MAT.gold : (accentMat || MAT.carbon), 0, 0.86, 0.42); halo.scale.set(1, 1, 1.35);
+  body.add(strut(new THREE.Vector3(0, 0.6, 1.04), new THREE.Vector3(0, 0.88, 0.58), 0.035, isPlayer ? MAT.gold : (accentMat || MAT.carbon)));
   /* mirrors */
   [-1, 1].forEach(function (s) {
     body.add(strut(new THREE.Vector3(s * 0.4, 0.68, 0.82), new THREE.Vector3(s * 0.56, 0.78, 0.8), 0.016, MAT.carbon));
     add(new B(0.16, 0.07, 0.05), MAT.gold, s * 0.58, 0.79, 0.8);
   });
   /* rear wing + endplates with LUNA CLASSIC */
-  add(new B(1.18, 0.05, 0.36), paint, 0, 1.05, -2.18);
+  add(new B(1.18, 0.05, 0.36), paint2 || paint, 0, 1.05, -2.18);
   add(new B(1.1, 0.04, 0.26), MAT.carbon, 0, 1.15, -2.27, 1, 1, 1, 0.25);
   var wingSideMat = new THREE.MeshBasicMaterial({ map: texWingText });
   [-1, 1].forEach(function (s) {
     var ep = new THREE.Mesh(new B(0.045, 0.36, 0.52),
-      [wingSideMat, wingSideMat, MAT.carbon, MAT.carbon, MAT.carbon, MAT.carbon]);
+      [wingSideMat, wingSideMat, accentMat || MAT.carbon, accentMat || MAT.carbon, MAT.carbon, MAT.carbon]);
     ep.position.set(s * 0.57, 1.07, -2.2); body.add(ep);
-    add(new B(0.05, 0.3, 0.08), MAT.carbon, s * 0.12, 0.9, -2.16);
+    add(new B(0.05, 0.3, 0.08), accentMat || MAT.carbon, s * 0.12, 0.9, -2.16);
   });
   add(new B(0.16, 0.05, 0.03), MAT.redLight, 0, 0.44, -2.52);
   [-1, 1].forEach(function (s) {
@@ -1302,7 +1310,7 @@ function buildCar(paintHex, isPlayer) {
   var torso = add(GEO.cover, MAT.suit, 0, 0.58, 0.26); torso.scale.set(0.58, 0.42, 0.55);
   var helmetMat = isPlayer
     ? new THREE.MeshStandardMaterial({ map: texHelmet, roughness: 0.25, metalness: 0.3, envMapIntensity: 1.3 })
-    : paint;
+    : (paint2 || paint);
   var helmet = add(GEO.helmet, helmetMat, 0, 0.82, 0.42);
   add(new B(0.27, 0.09, 0.05), MAT.glass, 0, 0.83, 0.6, 1, 1, 1, -0.15);
   /* wheels + suspension */
@@ -1458,9 +1466,35 @@ var RIVAL_PACES = [0.972, 0.955, 0.948, 0.938, 0.928, 0.918, 0.908, 0.897, 0.885
 var RIVAL_LANES = [-3.4, 3.2, -1.2, 1.4, -4.2, 4.4, -2.2, 2.6, -0.4, 0.8, -3.8];
 var cars = [], player = null;
 
+/* the race field's liveries — one dressed identity per AI slot,
+   applied through the same machinery as the shop cars
+   (carSideTexture / carCoverTexture): two-tone paint, nose stripes
+   in the car's own colors, its number in the sidepod roundel and
+   on the engine cover, and a contrasting accent on the halo and
+   rear-wing trim. Names + numbers are unique across the field and
+   never collide with the shop cars or the free car (№ 47). */
+var FIELD_LIVERIES = [
+  { key: 'field-0', number: 11, name: 'COMET RACING', sideText: 'COMET RACING', paint: RIVAL_PAINTS[0], paint2: 0x23262e, stripes: [0xffffff, 0xffd75e], stripesCss: ['#ffffff', '#ffd75e'], accent: 0xffffff, logo: null },
+  { key: 'field-1', number: 12, name: 'NOVA WORKS', sideText: 'NOVA WORKS', paint: RIVAL_PAINTS[1], paint2: 0x141433, stripes: [0x19d3e6, 0xffffff], stripesCss: ['#19d3e6', '#ffffff'], accent: 0x19d3e6, logo: null },
+  { key: 'field-2', number: 14, name: 'ECLIPSE GP', sideText: 'ECLIPSE GP', paint: RIVAL_PAINTS[2], paint2: 0xe8e8ec, stripes: [0xe8e8ec, 0xffd75e], stripesCss: ['#e8e8ec', '#ffd75e'], accent: 0xe8e8ec, logo: null },
+  { key: 'field-3', number: 15, name: 'ZENITH RACING', sideText: 'ZENITH RACING', paint: RIVAL_PAINTS[3], paint2: 0x2456c8, stripes: [0x2456c8, 0xc22424], stripesCss: ['#2456c8', '#c22424'], accent: 0x2456c8, logo: null },
+  { key: 'field-4', number: 16, name: 'METEOR GP', sideText: 'METEOR GP', paint: RIVAL_PAINTS[4], paint2: 0x23262e, stripes: [0xffffff, 0x14161c], stripesCss: ['#ffffff', '#14161c'], accent: 0xffffff, logo: null },
+  { key: 'field-5', number: 17, name: 'HALO WORKS', sideText: 'HALO WORKS', paint: RIVAL_PAINTS[5], paint2: 0x0d2150, stripes: [0xffd75e, 0xffffff], stripesCss: ['#ffd75e', '#ffffff'], accent: 0xffd75e, logo: null },
+  { key: 'field-6', number: 18, name: 'ORBIT RACING', sideText: 'ORBIT RACING', paint: RIVAL_PAINTS[6], paint2: 0xe8e8ec, stripes: [0xffffff, 0x19d3e6], stripesCss: ['#ffffff', '#19d3e6'], accent: 0x19d3e6, logo: null },
+  { key: 'field-7', number: 19, name: 'VELOCE', sideText: 'VELOCE', paint: RIVAL_PAINTS[7], paint2: 0x141433, stripes: [0xffffff, 0xffd75e], stripesCss: ['#ffffff', '#ffd75e'], accent: 0xffffff, logo: null },
+  { key: 'field-8', number: 20, name: 'SOLSTICE GP', sideText: 'SOLSTICE GP', paint: RIVAL_PAINTS[8], paint2: 0x23262e, stripes: [0xc22424, 0xffffff], stripesCss: ['#c22424', '#ffffff'], accent: 0xc22424, logo: null },
+  { key: 'field-9', number: 22, name: 'CRESCENT WORKS', sideText: 'CRESCENT WORKS', paint: RIVAL_PAINTS[9], paint2: 0x14161c, stripes: [0xf4d97b, 0xffffff], stripesCss: ['#f4d97b', '#ffffff'], accent: 0xf4d97b, logo: null },
+  { key: 'field-10', number: 23, name: 'SUMMIT GP', sideText: 'SUMMIT GP', paint: RIVAL_PAINTS[10], paint2: 0xe8e8ec, stripes: [0x14161c, 0xffd75e], stripesCss: ['#14161c', '#ffd75e'], accent: 0x14161c, logo: null }
+];
+
 function makeCar(slot, isPlayerCar, paintHex, pace, lane) {
-  var refs = buildCar(paintHex, isPlayerCar);
-  return { refs: refs, isPlayer: isPlayerCar, slot: slot,
+  var liv = isPlayerCar ? null : (FIELD_LIVERIES[slot] || null);
+  var refs = buildCar(paintHex, isPlayerCar, liv);
+  if (liv) {
+    refs.sideMeshes.forEach(function (mm) { mm.material.map = carSideTexture(liv); mm.material.needsUpdate = true; });
+    if (refs.coverMesh) { refs.coverMesh.material.map = carCoverTexture(liv); refs.coverMesh.material.needsUpdate = true; }
+  }
+  return { refs: refs, isPlayer: isPlayerCar, slot: slot, livery: liv,
     s0: TRACK_LEN - 14 - slot * 7.5, dist: 0, lat: lane || 0, speed: 0,
     pace: pace || 0, laneBase: lane || 0, steerVis: 0, prevSpeed: 0,
     worldPos: new THREE.Vector3(), forward: new THREE.Vector3(0, 0, 1) };
@@ -1987,7 +2021,7 @@ function placeCar(c, dt) {
   R.wheels.rl.spin.rotation.x += spin; R.wheels.rr.spin.rotation.x += spin;
   R.wheels.fl.pivot.rotation.y = sv * 0.42; R.wheels.fr.pivot.rotation.y = sv * 0.42;
   if (c.isPlayer) {
-    R.steerWheel.rotation.z = -G.steerVis * 1.9;
+    R.steerWheel.rotation.z = G.steerVis * 1.9;
     var lit = Math.round(clamp(G.rpmRatio || 0, 0, 1) * 8);
     for (var li = 0; li < R.leds.length; li++) {
       R.leds[li].material.color.setHex(li < lit ? (li < 5 ? 0x2eff7a : (li < 7 ? 0xffd75e : 0xff2d3f)) : 0x11231a);
@@ -2272,6 +2306,21 @@ window.MR_DIAMOND_3D_TEST = {
   diamondsList: function () { return DIA_FRACS.map(function (f, i) { return { s: f * TRACK_LEN, lat: DIA_LATS[i], offset: DIA_LATS[i] }; }); },
   placeBehindRival: placeBehindRival,
   rivalsList: function () { return cars.filter(function (c) { return !c.isPlayer; }).map(function (c) { return { slot: c.slot, speed: c.speed, dist: c.dist, lat: c.lat, pace: c.pace, s: carS(c) }; }); },
+  graphics: function () {
+    var freeSide = carSideTexture(FREE_CAR), freeCover = carCoverTexture(FREE_CAR);
+    return {
+      wheelZ: player && player.refs && player.refs.steerWheel ? player.refs.steerWheel.rotation.z : null,
+      field: cars.filter(function (c) { return !c.isPlayer; }).map(function (c) {
+        var liv = c.livery || null;
+        return { slot: c.slot, livery: liv, stripeHexes: c.refs.stripeMats.map(function (mm) { return mm.color.getHex(); }),
+          sideOk: !!liv && c.refs.sideMeshes.length > 0 && c.refs.sideMeshes.every(function (mm) { return mm.material.map === carSideTexture(liv); }),
+          coverOk: !!liv && !!c.refs.coverMesh && c.refs.coverMesh.material.map === carCoverTexture(liv) };
+      }),
+      playerFree: { number: FREE_CAR.number,
+        sideOk: !!player && player.refs.sideMeshes.length > 0 && player.refs.sideMeshes.every(function (mm) { return mm.material.map === freeSide; }),
+        coverOk: !!player && !!player.refs.coverMesh && player.refs.coverMesh.material.map === freeCover }
+    };
+  },
   nft: {
     config: function () { return { collection: NFT_CONFIG.collection, mintUrl: NFT_CONFIG.mintUrl,
       gameWallet: NFT_CONFIG.gameWallet, memoTemplate: NFT_CONFIG.memoTemplate, items: GP_ITEMS.length,
@@ -2428,6 +2477,16 @@ var GP_CARS = [
     topSpeed: 104, revLimit: 9800, sound: { wave: 'sawtooth', wave2: 'square', base: 54, span: 240 },
     blurb: 'The ultimate racer. Full gold, black slash, number 99 — fastest car, highest revs, nothing above it.' }
 ];
+
+/* the player's FREE (stock) car as a livery spec in the shop cars'
+   shape, so the free car wears the same dress as everything else
+   on the grid: its own number in the sidepod roundel and on the
+   cover, its name spelled along the body. Paint + stripes match
+   the stock build exactly (lunar navy; the two golds the car's
+   own descriptor already advertises). NFT cars never resolve
+   through here — carByKey finds them first. */
+var FREE_CAR = { key: 'free', number: 47, name: 'LUNA CLASSIC', sideText: 'LUNA CLASSIC',
+  paint: 0x0d2150, finish: 'gloss', stripes: [0xd8b45a, 0xf4d97b], stripesCss: ['#d8b45a', '#f4d97b'], logo: null };
 
 /* ---- every purchasable item: cars first (tiers 1–10), then
    parts and upgrades in price-list order. slot = the equip slot
@@ -2656,7 +2715,7 @@ function applyPlayerPaint() {
 }
 function applyPlayerLivery() {
   if (!player || !player.refs) return;
-  var car = carByKey(selCarKey);
+  var car = carByKey(selCarKey) || (selCarKey === 'free' ? FREE_CAR : null);
   var sideTex = car ? carSideTexture(car) : texSideText;
   player.refs.sideMeshes.forEach(function (mm) { mm.material.map = sideTex; mm.material.needsUpdate = true; });
   if (player.refs.coverMesh) {
@@ -4093,7 +4152,7 @@ function buildRivalCar() {
   var d = LIVE.oppCarDesc || {};
   var paint = (typeof d.paint === 'number') ? d.paint : 0x0d2150;
   var refs = buildCar(paint, false);
-  var car = (typeof d.itemId === 'string') ? carByKey(d.itemId) : null;
+  var car = (typeof d.itemId === 'string') ? (carByKey(d.itemId) || (d.itemId === 'free' ? FREE_CAR : null)) : null;
   if (car) {
     refs.sideMeshes.forEach(function (mm) { mm.material.map = carSideTexture(car); mm.material.needsUpdate = true; });
     if (refs.coverMesh) { refs.coverMesh.material.map = carCoverTexture(car); refs.coverMesh.material.needsUpdate = true; }
@@ -4274,7 +4333,7 @@ function ghostEnsure() {
   if (GHOST.refs && GHOST.level === curLevel && GHOST.data === g) return g;
   ghostHide();
   var refs = buildCar((typeof g.paint === 'number') ? g.paint : 0x0d2150, false);
-  var car = (typeof g.itemId === 'string') ? carByKey(g.itemId) : null;
+  var car = (typeof g.itemId === 'string') ? (carByKey(g.itemId) || (g.itemId === 'free' ? FREE_CAR : null)) : null;
   if (car) {
     refs.sideMeshes.forEach(function (mm) { mm.material.map = carSideTexture(car); mm.material.needsUpdate = true; });
     if (refs.coverMesh) { refs.coverMesh.material.map = carCoverTexture(car); refs.coverMesh.material.needsUpdate = true; }
