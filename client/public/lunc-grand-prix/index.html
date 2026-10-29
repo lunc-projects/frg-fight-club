@@ -2709,7 +2709,20 @@ function placeCar(c, dt) {
   var spin = (c.speed / 0.36) * dt;
   R.wheels.fl.spin.rotation.x += spin; R.wheels.fr.spin.rotation.x += spin;
   R.wheels.rl.spin.rotation.x += spin; R.wheels.rr.spin.rotation.x += spin;
-  R.wheels.fl.pivot.rotation.y = sv * 0.42; R.wheels.fr.pivot.rotation.y = sv * 0.42;
+  /* front-wheel steer visual — SIGN CORRECTED 2026-10-29. The
+     car model's local frame is mirrored against the track frame
+     (local +X renders screen-LEFT; dot(camRight, carX) = -1 with
+     the shipped three.js), so the old +sv yaw tipped the wheels
+     toward screen-left on a RIGHT press: the front wheels
+     rendered steering OPPOSITE to the car's travel, measured by
+     projecting the pivots through the live camera in the VM
+     suite and in real Chrome (RIGHT: fl dx +0.267 -> -0.089 —
+     screen-left). The cockpit wheel's rotation.z was measured
+     CORRECT (rim top moves screen-right on a right press) and is
+     untouched, as are input, steerIn, steerVis and lat physics.
+     Display application only: negate the yaw so the wheels point
+     where the car is going. */
+  R.wheels.fl.pivot.rotation.y = -sv * 0.42; R.wheels.fr.pivot.rotation.y = -sv * 0.42;
   if (c.isPlayer) {
     R.steerWheel.rotation.z = G.steerVis * 1.9;
     var lit = Math.round(clamp(G.rpmRatio || 0, 0, 1) * 8);
@@ -3035,8 +3048,84 @@ if (el.shopClose) el.shopClose.addEventListener('click', function () { closeShop
    takes a swapped box and a rotate(90deg), and the renderer is
    fed the swapped dimensions. Controls rotate with the picture,
    so input stays truthful; the pill says the view is rotated and
-   tapping a rotate control toggles it back off. */
-var flipState = { attempted: 0, fsOk: false, locked: false, lockedType: '', armed: false, forceRotated: false, lastErr: '' };
+   tapping a rotate control toggles it back off.
+
+   ONE STATE MACHINE + RESULT WATCHDOG + ROTATE CYCLE
+   (2026-10-29, third and fourth owner reports: wallet — "it's
+   not working the flip"; regular Chrome — "it flips but then it
+   gets stuck"; then "the whole car controls left and right
+   opposite when you drive"). Three root causes, three cures:
+
+   1. NEVER-SETTLING PROMISES. In wallet WebViews,
+      screen.orientation.lock() can return a promise that neither
+      resolves nor rejects (and requestFullscreen can hang the
+      same way), so failure-detection by promise never fired and
+      the CSS fallback never engaged. Cure: a RESULT watchdog —
+      800 ms after any attempt begins, look at the VIEWPORT, not
+      at promises: still portrait, no lock landed, no mechanism
+      active → engage the CSS fallback. The native path can no
+      longer hang the flip.
+
+   2. NO EXIT EXISTED FOR THE NATIVE PATH. The first two builds
+      never called orientation.unlock() or exitFullscreen()
+      anywhere: once Chrome locked landscape, a rotate tap landed
+      in the already-landscape branch and did nothing — "flips
+      but gets stuck". Cure: ONE state machine — the game is
+      always in exactly one of mode 'natural' | 'native' |
+      'forced', transitions happen in exactly one place each, the
+      watchdog can never stack the CSS box on a held native lock,
+      and a rotate-control tap while flipped (either mechanism)
+      walks the cycle below instead of stranding the player.
+
+   3. THE ROTATED FRAME vs HIS GRIP. Every inversion report began
+      when rotation entered the picture, and the screen-space
+      proof says the car/input were never inverted in an
+      UNROTATED frame. If the view is rotated 180° from the grip
+      he actually holds — the native lock took the primary flavor
+      while he turned the phone the other way, or the CSS
+      fallback's fixed +90° is upside-down for his habitual turn —
+      then buttons, wheel and car ALL read inverted from his
+      seat while every harness number stays "correct". No API
+      can sense his grip inside a WebView, so the cure is reach
+      and memory, not detection: the rotate control is a CYCLE
+      (portrait → landscape direction A → landscape direction B
+      → portrait; each control tap advances), the last direction
+      he used is remembered in localStorage and preferred next
+      time, a readable orientation type/angle seeds the starting
+      direction (best effort only), and while force-rotated the
+      pill says "⟳ UPSIDE DOWN? TAP ⟳ AGAIN" — the way to the
+      other landscape is written at the point of use. */
+var flipState = { attempted: 0, fsOk: false, locked: false, lockedType: '', armed: false, forceRotated: false, lastErr: '',
+  mode: 'natural', lockSeq: 0, forceDir: 1, cycleStep: 0 };
+/* The player's landscape direction for the CSS fallback: +1 is
+   rotate(90deg) (the landscape-primary grip the native lock
+   would pick), -1 is rotate(-90deg) (the other turn). His last
+   used direction is remembered across sessions — the grip that
+   worked for him is the grip he gets first next time. */
+var FLIP_DIR_KEY = 'mrDiamond3dFlipDir';
+function flipSavedDir() {
+  try { var v = localStorage.getItem(FLIP_DIR_KEY); if (v === '-90') return -1; if (v === '90') return 1; } catch (e) {}
+  return 0;
+}
+function flipSaveDir(d) {
+  try { localStorage.setItem(FLIP_DIR_KEY, d < 0 ? '-90' : '90'); } catch (e) {}
+}
+/* Best-effort starting direction: a readable orientation flavor
+   or angle that names a landscape side wins; otherwise his
+   remembered direction; otherwise +90. The CYCLE is the
+   guarantee — this only picks where the cycle starts. */
+function flipPreferredDir() {
+  var t = flipType();
+  if (t === 'landscape-secondary') return -1;
+  if (t === 'landscape-primary') return 1;
+  try {
+    var so = flipOrientation();
+    if (so && typeof so.angle === 'number') { if (so.angle === 270) return -1; if (so.angle === 90) return 1; }
+  } catch (e) {}
+  var s = flipSavedDir();
+  if (s) return s;
+  return 1;
+}
 var flipWired = { btn: false, pill: false };
 var FLIP_HINT_FAILED = '⟳ TURN PHONE SIDEWAYS — CHECK AUTO-ROTATE IS ON';
 function flipFailHint() { if (el.rotateHint) el.rotateHint.textContent = FLIP_HINT_FAILED; }
@@ -3057,7 +3146,17 @@ function lockFlipTo(type) {
   var lp;
   try { lp = so.lock(type); } catch (e) { flipState.lastErr = String(e && e.message || e); engageForceRotate(); return Promise.resolve(flipState); }
   if (lp && typeof lp.then === 'function') {
-    return lp.then(function () { flipState.locked = true; flipState.lockedType = type; return flipState; },
+    return lp.then(function () {
+        flipState.locked = true; flipState.lockedType = type; flipState.lockSeq++;
+        cancelFlipWatchdog();   /* the attempt concluded natively — the result judge retires */
+        /* state machine: a landed lock owns the screen — unless
+           the CSS fallback is already up (a lock that resolves
+           LATE, after the watchdog engaged): then the mode stays
+           'forced' until the real landscape viewport retires the
+           CSS box in syncViewport, which promotes it to 'native' */
+        if (flipState.mode !== 'forced') { flipState.mode = 'native'; flipState.cycleStep = 1; }
+        return flipState;
+      },
       function (err) { flipState.lastErr = String(err && err.message || err); engageForceRotate(); return flipState; });
   }
   engageForceRotate();   /* lock() returned no promise — cannot confirm it landed */
@@ -3121,10 +3220,15 @@ function armFlipFollow() {
    viewDims()/syncViewport — the game renders TRUE landscape
    inside the rotated box, no letterbox, no distortion, and every
    control's hit area rotates with its picture. */
-var FLIP_HINT_FORCED = '⟳ ROTATED VIEW — TAP ⟳ TO GO BACK';
+var FLIP_HINT_FORCED = '⟳ UPSIDE DOWN? TAP ⟳ AGAIN';
 var FLIP_HINT_DEFAULT = '⟳ ROTATE FOR BEST EXPERIENCE';
 var flipDefaultHint = null;
-function setForceRotate(on) {
+/* dir: +1 → rotate(90deg), -1 → rotate(-90deg). The swapped box
+   is identical for both turns (it is centred on the viewport);
+   only the rotation sign — which edge of the phone ends up —
+   differs. Turning it off hands the mode back to whichever
+   mechanism remains: a held native lock, or natural. */
+function setForceRotate(on, dir) {
   var wrap = null;
   try { wrap = document.getElementById('wrap'); } catch (e) { wrap = null; }
   if (!wrap || !wrap.style) { if (on) flipFailHint(); return false; }
@@ -3133,6 +3237,7 @@ function setForceRotate(on) {
     flipDefaultHint = (curHint && curHint !== FLIP_HINT_FAILED && curHint !== FLIP_HINT_FORCED) ? curHint : FLIP_HINT_DEFAULT;
   }
   if (on) {
+    var d = (dir === -1 || dir === 1) ? dir : (flipState.forceDir || 1);
     var vw = window.innerWidth, vh = window.innerHeight;
     wrap.style.width = vh + 'px';
     wrap.style.height = vw + 'px';
@@ -3141,8 +3246,10 @@ function setForceRotate(on) {
     wrap.style.right = 'auto';
     wrap.style.bottom = 'auto';
     wrap.style.transformOrigin = 'center center';
-    wrap.style.transform = 'rotate(90deg)';
+    wrap.style.transform = 'rotate(' + (d * 90) + 'deg)';
     flipState.forceRotated = true;
+    flipState.forceDir = d;
+    flipState.mode = 'forced';
     if (el.rotateHint) el.rotateHint.textContent = FLIP_HINT_FORCED;
   } else {
     wrap.style.width = ''; wrap.style.height = '';
@@ -3150,15 +3257,25 @@ function setForceRotate(on) {
     wrap.style.right = ''; wrap.style.bottom = '';
     wrap.style.transform = ''; wrap.style.transformOrigin = '';
     flipState.forceRotated = false;
+    flipState.mode = flipState.locked ? 'native' : 'natural';
+    if (flipState.mode === 'natural') flipState.cycleStep = 0;
     if (el.rotateHint) el.rotateHint.textContent = flipDefaultHint;
   }
   syncViewport();
   return true;
 }
+/* The ONLY door into the forced state. Guards keep the state
+   machine honest: never on top of a native lock, never when a
+   mechanism already owns the screen, never into a viewport that
+   is already landscape. Engages at the player's preferred
+   direction and remembers it as his latest. */
 function engageForceRotate() {
   if (flipState.forceRotated) return;
+  if (flipState.mode !== 'natural') return;
   try { if (window.innerWidth >= window.innerHeight) { flipFailHint(); return; } } catch (e) { /* engage anyway */ }
-  if (!setForceRotate(true)) flipFailHint();
+  var d = flipPreferredDir();
+  if (setForceRotate(true, d)) { flipSaveDir(d); flipState.cycleStep = 1; cancelFlipWatchdog(); }
+  else flipFailHint();
 }
 /* The dimensions the game treats as its viewport: swapped while
    the CSS force-rotate is on, the real window otherwise. */
@@ -3166,30 +3283,105 @@ function viewDims() {
   if (flipState.forceRotated) return { w: window.innerHeight, h: window.innerWidth };
   return { w: window.innerWidth, h: window.innerHeight };
 }
+/* ---- RESULT WATCHDOG ----
+   Armed at the start of every native attempt (control tap,
+   race-start and race-live auto-attempts alike). 800 ms later it
+   judges the OBSERVABLE RESULT — the viewport — never the
+   promises: WebView lock/fullscreen promises can hang forever,
+   and a hang must read as failure. It stands down when a
+   mechanism owns the screen (mode moved on), when the viewport
+   really turned, or when a lock landed inside the window. A
+   sequence number retires stale watchdogs (re-taps, exits), so
+   a pending watchdog can never re-flip a player who just
+   manually exited — after an exit, nothing re-flips him until
+   his next explicit tap (the race-start tap is one, as before). */
+var flipWatch = { timer: null, seq: 0 };
+function armFlipWatchdog() {
+  var seq = ++flipWatch.seq;
+  var lockSeqAtArm = flipState.lockSeq;
+  if (flipWatch.timer) { try { clearTimeout(flipWatch.timer); } catch (e) {} flipWatch.timer = null; }
+  try {
+    flipWatch.timer = setTimeout(function () {
+      if (seq !== flipWatch.seq) return;                 /* superseded or exited */
+      flipWatch.timer = null;
+      if (flipState.mode !== 'natural') return;          /* a mechanism owns the screen */
+      var land = false;
+      try { land = window.innerWidth >= window.innerHeight; } catch (e) { land = true; }
+      if (land) return;                                  /* the turn really happened */
+      if (flipState.lockSeq !== lockSeqAtArm) return;    /* a lock landed in the window */
+      disarmFlipFollow();
+      engageForceRotate();
+    }, 800);
+  } catch (e) {}
+}
+function cancelFlipWatchdog() {
+  flipWatch.seq++;
+  if (flipWatch.timer) { try { clearTimeout(flipWatch.timer); } catch (e) {} flipWatch.timer = null; }
+}
+/* ---- ONE-TAP EXIT ----
+   From either mechanism back to clean natural portrait. The CSS
+   box comes off FIRST (synchronous), then the native lock is
+   released — orientation.unlock() where offered, and leaving
+   fullscreen, which is the documented way a lock dies with its
+   fullscreen session. No intermediate state can stick: both
+   mechanisms are cleared inside one gesture handler, and the
+   watchdog + follow watch are cancelled so nothing re-flips. */
+function exitFlipToPortrait() {
+  cancelFlipWatchdog();
+  disarmFlipFollow();
+  if (flipState.forceRotated) setForceRotate(false);
+  if (flipState.locked) {
+    var so = flipOrientation();
+    try { if (so && typeof so.unlock === 'function') so.unlock(); } catch (e) {}
+    flipState.locked = false;
+    flipState.lockedType = '';
+  }
+  try {
+    var de = (typeof document !== 'undefined' && document) ? document : null;
+    if (de && typeof de.exitFullscreen === 'function' && (de.fullscreenElement || flipState.fsOk)) {
+      var xp = de.exitFullscreen();
+      if (xp && typeof xp.catch === 'function') xp.catch(function () {});
+    }
+  } catch (e) {}
+  flipState.fsOk = false;
+  flipState.mode = 'natural';
+  flipState.cycleStep = 0;
+  return Promise.resolve(flipState);
+}
+/* ---- THE ROTATE CYCLE ----
+   Control taps walk: natural → flipped (native or forced-A) →
+   forced-B (forced only) → natural. Auto attempts (race start,
+   race live) only ever START an attempt from natural — they
+   never advance the cycle and never un-flip anyone. */
 function tryFlipLandscape(fromControl) {
   flipState.attempted++;
-  if (flipState.forceRotated) {
-    /* already force-rotated: only the rotate controls toggle it
-       off — a race-start / race-live tap must never un-rotate */
-    if (fromControl) { disarmFlipFollow(); setForceRotate(false); }
+  if (flipState.mode === 'forced') {
+    if (!fromControl) return Promise.resolve(flipState);
+    if (flipState.cycleStep >= 2) return exitFlipToPortrait();   /* B was the last stop: home to portrait */
+    /* first landscape stop: the other turn is one tap away —
+       this is the tap the pill's "UPSIDE DOWN?" line promises */
+    var nd = flipState.forceDir === -1 ? 1 : -1;
+    setForceRotate(true, nd);
+    flipSaveDir(nd);
+    flipState.cycleStep = 2;
     return Promise.resolve(flipState);
   }
-  var curType = flipType();
-  var isLand = curType.indexOf('landscape') === 0;
+  if (flipState.mode === 'native') {
+    /* a held lock followed HIS turn (the follow watch locks the
+       side he picked), so its side is his side by construction;
+       the control tap is the exit the first builds never had */
+    if (fromControl) return exitFlipToPortrait();
+    return Promise.resolve(flipState);
+  }
+  /* mode 'natural': nothing of ours owns the screen */
   var viewLand = false;
-  try { viewLand = window.innerWidth >= window.innerHeight; } catch (e) { /* decide by type alone */ }
-  if (viewLand) {
-    /* already sideways on screen: the only intervention is when an
-       earlier lock of ours pinned the OTHER side than the one the
-       player is holding now (he turned the phone over afterwards)
-       — then follow him to the side he is actually holding. */
-    if (isLand && flipState.locked && flipState.lockedType && flipState.lockedType !== curType) return lockFlipTo(curType);
-    return Promise.resolve(flipState);
-  }
+  try { viewLand = window.innerWidth >= window.innerHeight; } catch (e) { /* decide by attempt anyway */ }
+  if (viewLand) return Promise.resolve(flipState);   /* already sideways naturally — nothing to flip, nothing of ours to undo */
+  armFlipWatchdog();
   return flipGoFullscreen().then(function () {
     var t = flipType();
     if (t && t.indexOf('landscape') === 0) return lockFlipTo(t);   /* already mid-turn: lock HIS side */
-    if (!t) return lockFlipTo('landscape');                        /* type unreadable: platform default, as before — CSS fallback if even that fails */
+    if (!t) return lockFlipTo('landscape');                        /* type unreadable: platform default — CSS fallback if even that fails, by rejection or by watchdog */
     armFlipFollow();                                               /* known portrait: wait for HIS turn, lock the side HE picks */
     return flipState;
   });
@@ -3790,6 +3982,39 @@ window.MR_DIAMOND_3D_TEST = {
         plus25: ndc(tp(25, 5)), minus25: ndc(tp(25, -5)),
         carRelRoad: +(car.x - road.x).toFixed(4),
         dotSideRight: +(me[0] * fr.side.x + me[1] * fr.side.y + me[2] * fr.side.z).toFixed(4) };
+    },
+    /* STEERING VISUALS in rendered space (2026-10-29): the
+       screen-space proof covered where the CAR goes; this covers
+       what the player SEES steering. wheel: the cockpit rim's top
+       point projected through the live camera, relative to the
+       wheel centre — dx > 0 means the top of the wheel sits
+       screen-right of centre (clockwise from the driver's seat).
+       fl/fr: a point 1.2 ahead of each front-wheel pivot along
+       the pivot's own forward, projected against the pivot
+       centre — dx > 0 means that wheel's nose tips screen-right.
+       Read with bc.screen() in whichever camMode is live. */
+    steer: function () {
+      if (!player || !camera || !player.refs) return null;
+      camera.updateMatrixWorld();
+      if (camera.matrixWorldInverse) camera.matrixWorldInverse.copy(camera.matrixWorld).invert();
+      camera.updateProjectionMatrix();
+      function ndc(v) { var w = v.clone().project(camera); return { x: +w.x.toFixed(4), y: +w.y.toFixed(4) }; }
+      var R = player.refs, out = { camMode: G.camMode, steerVis: +G.steerVis.toFixed(3), wheel: null, fl: null, fr: null };
+      if (R.steerWheel) {
+        R.steerWheel.updateWorldMatrix(true, false);
+        var wc = ndc(R.steerWheel.localToWorld(new THREE.Vector3(0, 0, 0)));
+        var wt = ndc(R.steerWheel.localToWorld(new THREE.Vector3(0, 0.185, 0)));
+        out.wheel = { dx: +(wt.x - wc.x).toFixed(4), dy: +(wt.y - wc.y).toFixed(4) };
+      }
+      function fw(w) {
+        if (!w || !w.pivot) return null;
+        w.pivot.updateWorldMatrix(true, false);
+        var c = ndc(w.pivot.localToWorld(new THREE.Vector3(0, 0, 0)));
+        var a = ndc(w.pivot.localToWorld(new THREE.Vector3(0, 0, 1.2)));
+        return { dx: +(a.x - c.x).toFixed(4), dy: +(a.y - c.y).toFixed(4) };
+      }
+      if (R.wheels) { out.fl = fw(R.wheels.fl); out.fr = fw(R.wheels.fr); }
+      return out;
     }
   },
   start: function () { startRace(); },
@@ -3928,6 +4153,8 @@ window.MR_DIAMOND_3D_TEST = {
     tryFlip: function () { return tryFlipLandscape(); },
     state: function () { return { attempted: flipState.attempted, fsOk: flipState.fsOk, locked: flipState.locked,
       lockedType: flipState.lockedType, armed: flipState.armed, forceRotated: flipState.forceRotated,
+      mode: flipState.mode, lockSeq: flipState.lockSeq, watching: !!flipWatch.timer,
+      forceDir: flipState.forceDir, cycleStep: flipState.cycleStep, savedDir: flipSavedDir(),
       lastErr: flipState.lastErr, wired: { btn: flipWired.btn, pill: flipWired.pill },
       hint: el.rotateHint ? el.rotateHint.textContent : '' }; }
   },
