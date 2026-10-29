@@ -3004,45 +3004,198 @@ if (el.shopClose) el.shopClose.addEventListener('click', function () { closeShop
    the game has no back-to-title transition (finish offers RACE
    AGAIN / NEXT LEVEL), and dropping the lock there would rotate a
    player who is about to race again; the OS releases the lock when
-   fullscreen exits or the page closes. */
-var flipState = { attempted: 0, fsOk: false, locked: false, lastErr: '' };
+   fullscreen exits or the page closes.
+
+   FOLLOW THE PLAYER'S TURN (2026-10-29): the first flip build
+   locked the generic value 'landscape', which per the Screen
+   Orientation API means the device's PRIMARY landscape flavor. If
+   the player turns the phone to the OTHER side (landscape-
+   secondary — cable side, grip, habit), the page then renders
+   rotated 180° from his hands: the on-screen ◀ sits under his
+   right thumb and its glyph reads as ▶, so pressing "left" drives
+   the car right — the exact bug the owner reported minutes after
+   the flip shipped (screen-space A/B tests prove the game's own
+   steering math was never inverted; see checks-headless). The lock
+   now follows the player: when the API reports a landscape flavor,
+   THAT exact flavor is locked; when it reports portrait, no flavor
+   is guessed — a short watch waits for the player's own turn and
+   locks the side he actually turned to. Only when the browser
+   cannot report an orientation type at all does the old generic
+   'landscape' fallback apply (nothing better exists there).
+
+   CSS FORCE-ROTATE (2026-10-29, second owner report: "the
+   rotation on the screen is not rotating"): in wallet in-app
+   browsers the native path can fail END TO END — no fullscreen,
+   no orientation.lock — leaving a portrait page while the player
+   holds the phone sideways, which ALSO swaps the touch buttons
+   from his grip's point of view (the same incident read as
+   inverted steering). So whenever the native path reports
+   failure or unavailability, the game rotates ITSELF: #wrap —
+   the fixed root holding the canvas and every HUD/touch control —
+   takes a swapped box and a rotate(90deg), and the renderer is
+   fed the swapped dimensions. Controls rotate with the picture,
+   so input stays truthful; the pill says the view is rotated and
+   tapping a rotate control toggles it back off. */
+var flipState = { attempted: 0, fsOk: false, locked: false, lockedType: '', armed: false, forceRotated: false, lastErr: '' };
 var flipWired = { btn: false, pill: false };
 var FLIP_HINT_FAILED = '⟳ TURN PHONE SIDEWAYS — CHECK AUTO-ROTATE IS ON';
 function flipFailHint() { if (el.rotateHint) el.rotateHint.textContent = FLIP_HINT_FAILED; }
-function tryFlipLandscape() {
-  flipState.attempted++;
-  try { if (window.innerWidth >= window.innerHeight) return Promise.resolve(flipState); } catch (e) { /* try anyway */ }
-  var tryLock = function () {
-    var so = null;
-    try { so = (typeof screen !== 'undefined' && screen) ? screen.orientation : null; } catch (e) { so = null; }
-    if (!so || typeof so.lock !== 'function') { flipFailHint(); return Promise.resolve(flipState); }
-    var lp;
-    try { lp = so.lock('landscape'); } catch (e) { flipState.lastErr = String(e && e.message || e); flipFailHint(); return Promise.resolve(flipState); }
-    if (lp && typeof lp.then === 'function') {
-      return lp.then(function () { flipState.locked = true; return flipState; },
-        function (err) { flipState.lastErr = String(err && err.message || err); flipFailHint(); return flipState; });
-    }
-    flipFailHint();   /* lock() returned no promise — cannot confirm it landed */
-    return Promise.resolve(flipState);
-  };
+function flipOrientation() {
+  try { return (typeof screen !== 'undefined' && screen) ? screen.orientation : null; } catch (e) { return null; }
+}
+function flipType() {
+  var so = flipOrientation();
+  try { return (so && typeof so.type === 'string') ? so.type : ''; } catch (e) { return ''; }
+}
+/* Lock ONE specific orientation value. locked/lockedType move ONLY
+   when the lock promise resolves — the honesty rule. Any failure
+   hands over to the CSS force-rotate: a rejected or missing lock
+   means the native path cannot deliver landscape at all. */
+function lockFlipTo(type) {
+  var so = flipOrientation();
+  if (!so || typeof so.lock !== 'function') { engageForceRotate(); return Promise.resolve(flipState); }
+  var lp;
+  try { lp = so.lock(type); } catch (e) { flipState.lastErr = String(e && e.message || e); engageForceRotate(); return Promise.resolve(flipState); }
+  if (lp && typeof lp.then === 'function') {
+    return lp.then(function () { flipState.locked = true; flipState.lockedType = type; return flipState; },
+      function (err) { flipState.lastErr = String(err && err.message || err); engageForceRotate(); return flipState; });
+  }
+  engageForceRotate();   /* lock() returned no promise — cannot confirm it landed */
+  return Promise.resolve(flipState);
+}
+/* Fullscreen half of a flip attempt (Chrome wants fullscreen
+   before a lock). Always resolves; a rejection is recorded but
+   never stops the lock step — exactly as the old inline flow. */
+function flipGoFullscreen() {
   var de = null, req = null;
   try {
     de = (typeof document !== 'undefined' && document) ? document.documentElement : null;
     req = de ? (de.requestFullscreen || de.webkitRequestFullscreen) : null;
   } catch (e) { req = null; }
-  if (typeof req === 'function') {
-    var fp;
-    try { fp = req.call(de); } catch (e) { flipState.lastErr = String(e && e.message || e); return tryLock(); }
-    if (fp && typeof fp.then === 'function') {
-      return fp.then(function () { flipState.fsOk = true; return tryLock(); },
-        function (err) { flipState.lastErr = String(err && err.message || err); return tryLock(); });
-    }
-    return tryLock();   /* legacy callback-style fullscreen: nothing to await */
+  if (typeof req !== 'function') return Promise.resolve(flipState);
+  var fp;
+  try { fp = req.call(de); } catch (e) { flipState.lastErr = String(e && e.message || e); return Promise.resolve(flipState); }
+  if (fp && typeof fp.then === 'function') {
+    return fp.then(function () { flipState.fsOk = true; return flipState; },
+      function (err) { flipState.lastErr = String(err && err.message || err); return flipState; });
   }
-  return tryLock();
+  return Promise.resolve(flipState);   /* legacy callback-style fullscreen: nothing to await */
 }
-if (el.btnRotate) { el.btnRotate.addEventListener('click', function (e) { if (e && e.stopPropagation) e.stopPropagation(); audioInit(); tryFlipLandscape(); }); flipWired.btn = true; }
-if (el.rotateHint) { el.rotateHint.addEventListener('click', function (e) { if (e && e.stopPropagation) e.stopPropagation(); audioInit(); tryFlipLandscape(); }); flipWired.pill = true; }
+/* FOLLOW-THE-TURN WATCH: armed when the API reports the player is
+   still holding portrait. The first turn landing on a landscape
+   flavor locks THAT flavor — never a guessed side. If the watch
+   expires with the phone still portrait, the CSS fallback
+   delivers the landscape he asked for instead. */
+var flipFollow = { onChange: null, timer: null };
+function disarmFlipFollow() {
+  if (flipFollow.onChange) {
+    try { var so = flipOrientation(); if (so && typeof so.removeEventListener === 'function') so.removeEventListener('change', flipFollow.onChange); } catch (e) {}
+    try { window.removeEventListener('orientationchange', flipFollow.onChange); } catch (e) {}
+    flipFollow.onChange = null;
+  }
+  if (flipFollow.timer) { try { clearTimeout(flipFollow.timer); } catch (e) {} flipFollow.timer = null; }
+  flipState.armed = false;
+}
+function armFlipFollow() {
+  disarmFlipFollow();
+  var so = flipOrientation();
+  if (!so) { engageForceRotate(); return; }
+  var onChange = function () {
+    var t = flipType();
+    if (t && t.indexOf('landscape') === 0) { disarmFlipFollow(); lockFlipTo(t); }
+  };
+  var wired = false;
+  try { if (typeof so.addEventListener === 'function') { so.addEventListener('change', onChange); wired = true; } } catch (e) {}
+  try { window.addEventListener('orientationchange', onChange); wired = true; } catch (e) {}
+  if (!wired) { engageForceRotate(); return; }
+  flipFollow.onChange = onChange;
+  flipState.armed = true;
+  try { flipFollow.timer = setTimeout(function () { disarmFlipFollow(); engageForceRotate(); }, 8000); } catch (e) {}
+}
+/* ---- CSS FORCE-ROTATE (the WebView cure) ----
+   #wrap is position:fixed inset:0 and holds the canvas plus every
+   HUD / touch control. Forcing rotation = give #wrap the swapped
+   box in px, centred on the viewport, rotate(90deg) about its
+   centre (the landscape-primary grip the native lock would have
+   picked), and feed the renderer the swapped dimensions via
+   viewDims()/syncViewport — the game renders TRUE landscape
+   inside the rotated box, no letterbox, no distortion, and every
+   control's hit area rotates with its picture. */
+var FLIP_HINT_FORCED = '⟳ ROTATED VIEW — TAP ⟳ TO GO BACK';
+var FLIP_HINT_DEFAULT = '⟳ ROTATE FOR BEST EXPERIENCE';
+var flipDefaultHint = null;
+function setForceRotate(on) {
+  var wrap = null;
+  try { wrap = document.getElementById('wrap'); } catch (e) { wrap = null; }
+  if (!wrap || !wrap.style) { if (on) flipFailHint(); return false; }
+  if (flipDefaultHint === null) {
+    var curHint = el.rotateHint ? el.rotateHint.textContent : '';
+    flipDefaultHint = (curHint && curHint !== FLIP_HINT_FAILED && curHint !== FLIP_HINT_FORCED) ? curHint : FLIP_HINT_DEFAULT;
+  }
+  if (on) {
+    var vw = window.innerWidth, vh = window.innerHeight;
+    wrap.style.width = vh + 'px';
+    wrap.style.height = vw + 'px';
+    wrap.style.left = ((vw - vh) / 2) + 'px';
+    wrap.style.top = ((vh - vw) / 2) + 'px';
+    wrap.style.right = 'auto';
+    wrap.style.bottom = 'auto';
+    wrap.style.transformOrigin = 'center center';
+    wrap.style.transform = 'rotate(90deg)';
+    flipState.forceRotated = true;
+    if (el.rotateHint) el.rotateHint.textContent = FLIP_HINT_FORCED;
+  } else {
+    wrap.style.width = ''; wrap.style.height = '';
+    wrap.style.left = ''; wrap.style.top = '';
+    wrap.style.right = ''; wrap.style.bottom = '';
+    wrap.style.transform = ''; wrap.style.transformOrigin = '';
+    flipState.forceRotated = false;
+    if (el.rotateHint) el.rotateHint.textContent = flipDefaultHint;
+  }
+  syncViewport();
+  return true;
+}
+function engageForceRotate() {
+  if (flipState.forceRotated) return;
+  try { if (window.innerWidth >= window.innerHeight) { flipFailHint(); return; } } catch (e) { /* engage anyway */ }
+  if (!setForceRotate(true)) flipFailHint();
+}
+/* The dimensions the game treats as its viewport: swapped while
+   the CSS force-rotate is on, the real window otherwise. */
+function viewDims() {
+  if (flipState.forceRotated) return { w: window.innerHeight, h: window.innerWidth };
+  return { w: window.innerWidth, h: window.innerHeight };
+}
+function tryFlipLandscape(fromControl) {
+  flipState.attempted++;
+  if (flipState.forceRotated) {
+    /* already force-rotated: only the rotate controls toggle it
+       off — a race-start / race-live tap must never un-rotate */
+    if (fromControl) { disarmFlipFollow(); setForceRotate(false); }
+    return Promise.resolve(flipState);
+  }
+  var curType = flipType();
+  var isLand = curType.indexOf('landscape') === 0;
+  var viewLand = false;
+  try { viewLand = window.innerWidth >= window.innerHeight; } catch (e) { /* decide by type alone */ }
+  if (viewLand) {
+    /* already sideways on screen: the only intervention is when an
+       earlier lock of ours pinned the OTHER side than the one the
+       player is holding now (he turned the phone over afterwards)
+       — then follow him to the side he is actually holding. */
+    if (isLand && flipState.locked && flipState.lockedType && flipState.lockedType !== curType) return lockFlipTo(curType);
+    return Promise.resolve(flipState);
+  }
+  return flipGoFullscreen().then(function () {
+    var t = flipType();
+    if (t && t.indexOf('landscape') === 0) return lockFlipTo(t);   /* already mid-turn: lock HIS side */
+    if (!t) return lockFlipTo('landscape');                        /* type unreadable: platform default, as before — CSS fallback if even that fails */
+    armFlipFollow();                                               /* known portrait: wait for HIS turn, lock the side HE picks */
+    return flipState;
+  });
+}
+if (el.btnRotate) { el.btnRotate.addEventListener('click', function (e) { if (e && e.stopPropagation) e.stopPropagation(); audioInit(); tryFlipLandscape(true); }); flipWired.btn = true; }
+if (el.rotateHint) { el.rotateHint.addEventListener('click', function (e) { if (e && e.stopPropagation) e.stopPropagation(); audioInit(); tryFlipLandscape(true); }); flipWired.pill = true; }
 el.btnCam.addEventListener('click', function () { audioInit(); toggleCam(); });
 el.btnPause.addEventListener('click', function () { audioInit(); togglePause(); });
 el.btnMute.addEventListener('click', function () { setMuted(!audio.muted); audioInit(); });
@@ -3092,9 +3245,13 @@ window.addEventListener('keyup', function (e) {
   else if (k === ' ' || k === 'ArrowUp' || k === 'w' || k === 'W') G.input.boost = false;
 });
 function syncViewport() {
-  camera.aspect = window.innerWidth / window.innerHeight;
+  var d = viewDims();
+  camera.aspect = d.w / d.h;
   camera.updateProjectionMatrix();
-  if (renderer) renderer.setSize(window.innerWidth, window.innerHeight);
+  if (renderer) renderer.setSize(d.w, d.h);
+  /* a REAL landscape viewport retires the CSS fallback at once —
+     the forced rotation must never double-rotate a turned phone */
+  if (flipState.forceRotated && window.innerWidth >= window.innerHeight) setForceRotate(false);
 }
 window.addEventListener('resize', syncViewport);
 window.addEventListener('orientationchange', function () {
@@ -3612,6 +3769,27 @@ window.MR_DIAMOND_3D_TEST = {
         noseW: player && player.refs.noseMeshes[0] ? player.refs.noseMeshes[0].geometry.parameters.width : 0,
         sideW: player && player.refs.sideMeshes[0] ? player.refs.sideMeshes[0].geometry.parameters.width : 0,
         sideH: player && player.refs.sideMeshes[0] ? player.refs.sideMeshes[0].geometry.parameters.height : 0 };
+    },
+    /* screen-space steering probe: projects the player car and fixed
+       track reference points through the LIVE camera. carRelRoad is
+       the car's NDC x minus the road-centre-at-the-car NDC x — the
+       offset a player actually sees open up when steering. */
+    screen: function () {
+      if (!player || !camera) return null;
+      camera.updateMatrixWorld();
+      if (camera.matrixWorldInverse) camera.matrixWorldInverse.copy(camera.matrixWorld).invert();
+      camera.updateProjectionMatrix();
+      var s = carS(player);
+      function ndc(v) { var w = v.clone().project(camera); return { x: +w.x.toFixed(4), y: +w.y.toFixed(4) }; }
+      function tp(ds, la) { var o = new THREE.Vector3(); trackPointAt(((s + ds) % TRACK_LEN + TRACK_LEN) % TRACK_LEN, la, o); return o; }
+      var fr = frameAt(s), me = camera.matrixWorld.elements;
+      var car = ndc(player.worldPos), road = ndc(tp(0, 0));
+      return { phase: G.phase, camMode: G.camMode, lat: +player.lat.toFixed(3),
+        aspect: +camera.aspect.toFixed(4), vw: window.innerWidth, vh: window.innerHeight,
+        car: car, roadHere: road, road25: ndc(tp(25, 0)),
+        plus25: ndc(tp(25, 5)), minus25: ndc(tp(25, -5)),
+        carRelRoad: +(car.x - road.x).toFixed(4),
+        dotSideRight: +(me[0] * fr.side.x + me[1] * fr.side.y + me[2] * fr.side.z).toFixed(4) };
     }
   },
   start: function () { startRace(); },
@@ -3749,6 +3927,7 @@ window.MR_DIAMOND_3D_TEST = {
   flip: {
     tryFlip: function () { return tryFlipLandscape(); },
     state: function () { return { attempted: flipState.attempted, fsOk: flipState.fsOk, locked: flipState.locked,
+      lockedType: flipState.lockedType, armed: flipState.armed, forceRotated: flipState.forceRotated,
       lastErr: flipState.lastErr, wired: { btn: flipWired.btn, pill: flipWired.pill },
       hint: el.rotateHint ? el.rotateHint.textContent : '' }; }
   },
@@ -6494,9 +6673,9 @@ function ghostTick(dt) {
 }
 
 el.btnMute.textContent = audio.muted ? '🔇' : '🔊';
-camera.aspect = window.innerWidth / window.innerHeight;
+camera.aspect = viewDims().w / viewDims().h;
 camera.updateProjectionMatrix();
-if (renderer) renderer.setSize(window.innerWidth, window.innerHeight);
+if (renderer) renderer.setSize(viewDims().w, viewDims().h);
 var lastTs = 0;
 function frame(ts) {
   requestAnimationFrame(frame);
