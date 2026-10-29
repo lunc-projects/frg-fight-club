@@ -739,26 +739,27 @@ const GREEN_HI = '#4ced4b', GREEN = '#3ddc84', GREEN_DEEP = '#139134';
 const RED_HI = '#ff6b6b', RED = '#e5484d';
 const KIND_COLOR = { tier: '#ffd76a', rapid: '#7df9ff', shield: '#9be8ff', wingman: '#c9a7ff', audit: '#ffffff', homing: '#ffb14e', orbit: '#8affd1', freeze: '#aef3ff' };
 /* ================= NFT + REWARDS — OWNER CONFIG =================
-   *** NFT TEST BUILD *** — this copy is wired to the throwaway
-   "Orbit Defender TEST" (ODTEST) collection on Terra Classic
-   mainnet so the buy → mint → ownership → gameplay loop can be
-   proven end to end. The collection below is a TEST collection
-   only; the weekly rewards service is still not set up ('' on
-   purpose). Ownership is READ-ONLY: the game queries the chain
-   (public LCD) and lights up the NFT fighters the connected
-   address actually holds. Fails soft — offline or a dead LCD just
-   leaves the free fleet flying. The ONE signature this game ever
-   asks for is the TEST purchase: a plain LUNC send from the
-   player's own wallet (CosmosKit — Keplr, Galaxy Station or
-   Station) to the game wallet (see the buy section below) — the
-   read, the connect and everything else sign nothing. */
+   This build is wired to the real "Orbit Defender" (ODNFT)
+   collection on Terra Classic mainnet; the buy → mint →
+   ownership → gameplay loop runs against it end to end. Supply
+   is capped at 1,000 per tier, enforced by the mint service
+   (the collection's only mint path). The weekly rewards service
+   is still not set up ('' on purpose). Ownership is READ-ONLY:
+   the game queries the chain (public LCD) and lights up the NFT
+   fighters the connected address actually holds. Fails soft —
+   offline or a dead LCD just leaves the free fleet flying. The
+   ONE signature this game ever asks for is the purchase: a plain
+   LUNC send from the player's own wallet (CosmosKit — Keplr,
+   Galaxy Station or Station) to the game wallet (see the buy
+   section below) — the read, the connect and everything else
+   sign nothing. */
 const NFT_CONFIG = {
-  collection: 'terra1lcqrpmp5plxanak0uvjf25ev8tr7xfh2tk30ywcfy2fhx7xvxfusdx6pn8',   /* ODTEST — TEST collection */
+  collection: 'terra1xhykrgdr58m6gplv7umv9pet25eah4psca7qjrn98xphlr0tra7qwgffax',   /* ODNFT — the real "Orbit Defender" collection */
   rewardsUrl: '',   /* the weekly rewards service base URL — '' = not set up yet */
   mintUrl: 'https://orbit-defender-mint-production.up.railway.app',   /* the buy/mint service base URL — '' = buy buttons hidden */
 };
-/* the game wallet: TEST purchase payments land here, and it is the
-   ODTEST collection's minter — the buy service mints from it once a
+/* the game wallet: purchase payments land here, and it is the
+   collection's minter — the buy service mints from it once a
    payment verifies on-chain */
 const GAME_WALLET = 'terra1rkwuy56d0m5s6cq2kj03ned5uxj75tc7el8s9c';
 /* read-only Terra Classic LCD for the ownership queries */
@@ -823,16 +824,17 @@ const SHIPS = FREE_SHIPS.concat(NFT_TIERS.map(t => ({
    older callers read SKINS; it is derived so the two can never drift */
 const SKINS = SHIPS.map(s => ({ name: s.livery, accent: s.accent, unlock: s.unlock }));
 
-/* ================= NFT ownership gate — TEST BUILD =================
+/* ================= NFT ownership gate =================
    The chain read lives HERE, as designed. It is READ-ONLY: plain
-   LCD smart queries against the ODTEST test collection, no wallet
+   LCD smart queries against the ODNFT collection, no wallet
    signature anywhere in this file. Flow (the same two queries the
    verified CLI checker runs):
      1. { tokens: { owner } }            — the tokens the address holds
      2. { nft_info: { token_id } } each  — tier from the metadata
         extension.attributes (trait_type "tier"), falling back to
-        the "test-tier-<n>" / "paid-tier-<n>-<hash>" token_id
-        patterns.
+        the "paid-tier-<n>-<hash>" / "free-tier-<n>-<counter>"
+        token_id patterns (the legacy "test-tier-<n>" shape from
+        the throwaway ODTEST era still resolves too).
    The result is cached for the session; ownedNftTiers() answers
    from the cache, so gameplay never waits on the network. Any
    failure — offline, LCD down, bad response — degrades to the
@@ -876,18 +878,20 @@ function lcdSmart(contract, msg){
     return r.json();
   }).then(j => (j && j.data) || {});
 }
-/* a token's tier: the metadata attribute is the source of truth,
-   the token_id pattern is the fallback (the minted tokens carry
-   empty extensions, so the fallback carries them). Token ids come
-   in two shapes: the hand-minted "test-tier-<n>" and the buy
-   service's "paid-tier-<n>-<payment hash>" — a wallet whose only
-   token is a paid one must still resolve its tier. */
+/* a token's tier: the metadata attribute is the source of truth
+   (every mint from the service carries it), the token_id pattern
+   is the fallback for any token whose extension reads empty.
+   Token ids from the mint service come in two shapes:
+   "paid-tier-<n>-<payment hash>" (a purchase) and
+   "free-tier-<n>-<counter>" (a free claim); the legacy
+   hand-minted "test-tier-<n>" shape resolves too. A wallet whose
+   only token is a paid one must still resolve its tier. */
 function tierFromToken(tokenId, extension){
   const attrs = (extension && extension.attributes) || [];
   for (const a of attrs){
     if (a && a.trait_type === 'tier' && /^\d+$/.test(String(a.value))) return Number(a.value);
   }
-  const m = /^(?:test|paid)-tier-(\d+)(?:-|$)/.exec(tokenId);
+  const m = /^(?:free|test|paid)-tier-(\d+)(?:-|$)/.exec(tokenId);
   return m ? Number(m[1]) : null;
 }
 function refreshNftTiers(fromBoot){
@@ -909,7 +913,7 @@ function refreshNftTiers(fromBoot){
       return tiers;
     })
     .catch(err => {
-      console.log('[od-test] NFT ownership read failed: ' + (err && err.message));
+      console.log('[od] NFT ownership read failed: ' + (err && err.message));
       if (walletAddress === addr){ nftReadState = 'error'; updateWalletUi(); }
       return nftTiersCache.slice();
     });
@@ -1377,7 +1381,7 @@ function kitConnect(entryId, opts){
     .catch(err => {
       kitConnecting = '';
       hidePairBox();
-      console.log('[od-test] ' + entry.label + ' connect failed: ' + (err && err.message));
+      console.log('[od] ' + entry.label + ' connect failed: ' + (err && err.message));
       if (!quiet)
         showPasteRow(entry.label + " couldn't connect" + (err && err.message ? ': ' + String(err.message).slice(0, 90) : '') + ' — tap CONNECT WALLET to try again, or paste an address below just to look (read-only).');
       return false;
@@ -1436,7 +1440,7 @@ function kitRestoreSession(){
   return ensureKitManager()
     .then(() => Promise.race([kitMountedPromise || Promise.resolve(), new Promise(r => setTimeout(r, 6000))]))
     .then(() => kitScanAdopt())
-    .catch(err => { console.log('[od-test] CosmosKit restore skipped: ' + (err && err.message)); return false; })
+    .catch(err => { console.log('[od] CosmosKit restore skipped: ' + (err && err.message)); return false; })
     .then(ok => { kitAdopting = false; return ok; });
 }
 /* boot: restore first; with a stored address inside a wallet's own
@@ -1528,13 +1532,13 @@ function hidePasteRow(){
   if (row) row.classList.remove('on');
 }
 
-/* ================= paid TEST buy (test build only) =================
-   The community-member test flow: connect a wallet (CosmosKit),
-   BUY a test fighter for that tier's own NFT_TIERS price, fly it.
+/* ================= paid buy =================
+   The purchase flow: connect a wallet (CosmosKit), BUY a fighter
+   for that tier's own NFT_TIERS price, fly it.
    Exactly what the cards say happens:
      1. The player pays from their OWN connected wallet — a
         plain MsgSend of the price to the game wallet, memo
-        "ODTEST-BUY tier:<n>" (kitPay, in the wallet section).
+        "OD-BUY tier:<n>" (kitPay, in the wallet section).
      2. The game hands { address, tier, txHash } to the buy service
         (NFT_CONFIG.mintUrl), which verifies the payment on-chain
         and mints the NFT to the buyer from the game wallet.
@@ -1581,7 +1585,7 @@ function buyConfigured(){ return !!NFT_CONFIG.mintUrl; }
    charges its real LUNC price (Striker 20,000 … Sovereign 500,000) */
 function tierPriceLunc(tier){ const t = NFT_TIERS[tier - 1]; return t ? t.priceLunc : 0; }
 function buyPriceUluna(tier){ return String(Math.round(tierPriceLunc(tier) * 1000000)); }
-function buyMemo(tier){ return 'ODTEST-BUY tier:' + tier; }
+function buyMemo(tier){ return 'OD-BUY tier:' + tier; }
 function buyLine(tier){
   return 'Purchase — you pay ' + tierPriceLunc(tier).toLocaleString('en-US') + ' LUNC from your connected wallet to the game wallet, then the NFT is minted to you.';
 }
@@ -1727,7 +1731,7 @@ function startBuyWatch(tier, address, tokenId){
 function settleBuy(p, data){
   const tier = p.tier;
   if (data && data.ok){
-    const tokenId = String(data.tokenId || ('test-tier-' + tier));
+    const tokenId = String(data.tokenId || ('paid-tier-' + tier));
     clearPendingBuy();
     buyJustTier = tier;
     buyNotes[tier] = { cls: 'ok', text: '✓ Bought — ' + tokenId + ' is yours. Reading the chain…' };
