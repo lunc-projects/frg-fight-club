@@ -56,6 +56,11 @@ const GAMES = {
   /* levels: N marks a per-level game — the handler requires ?level=1..N
      and rewrites the storage prefix to prefix+level ("gprix3"). */
   gprix: { prefix: 'gprix', maxScore: 100000, minSec: 40, maxSec: 3600, rateMul: 200, rateBase: 2000, levels: 6 },
+  /* LUNC Grand Prix's NFT board: runs driven in an NFT car or with any
+     paid part equipped post here instead of "gprix", under the prefix
+     gprixn<level>: — same per-level scheme, caps and rate window as
+     gprix, fully separate boards. Same-origin like gprix (no CORS). */
+  gprixn: { prefix: 'gprixn', maxScore: 100000, minSec: 40, maxSec: 3600, rateMul: 200, rateBase: 2000, levels: 6 },
   ogprix: { prefix: 'ogprix', maxScore: 100000, minSec: 40, maxSec: 3600, rateMul: 200, rateBase: 2000, levels: 6 },
 };
 
