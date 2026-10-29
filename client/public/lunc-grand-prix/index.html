@@ -1812,6 +1812,112 @@ function strut(a, b, r, mat) {
   m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
   return m;
 }
+/* lofted body shell (NEW CAR MESH, 2026-10-29 — the owner's call:
+   replace the cone + box + sphere body with properly shaped
+   open-wheel bodywork). Cross-sections along z, each a superellipse
+   ring {z, cx, hw, top, bot, e}: hw = half width, top/bot = the
+   section's crown and floor lines, e = superellipse exponent
+   (2 = ellipse, higher = boxier flanks). Smooth-shaded, end-capped,
+   built once and shared by every car (player, AI, ghost, rivals,
+   garage). radial = points per ring. */
+function loftGeo(sections, radial) {
+  radial = radial || 16;
+  var verts = [], idx = [], i, j, s, cy, ht, hb, t, c, sn, ex;
+  for (i = 0; i < sections.length; i++) {
+    s = sections[i]; cy = (s.top + s.bot) / 2; ht = s.top - cy; hb = cy - s.bot;
+    for (j = 0; j < radial; j++) {
+      t = j / radial * Math.PI * 2; c = Math.cos(t); sn = Math.sin(t); ex = 2 / s.e;
+      verts.push((s.cx || 0) + s.hw * Math.sign(c) * Math.pow(Math.abs(c), ex),
+        cy + (sn >= 0 ? ht : hb) * Math.sign(sn) * Math.pow(Math.abs(sn), ex), s.z);
+    }
+  }
+  for (i = 0; i < sections.length - 1; i++) for (j = 0; j < radial; j++) {
+    var a = i * radial + j, b = i * radial + (j + 1) % radial, c2 = a + radial, d = b + radial;
+    idx.push(a, c2, b, b, c2, d);
+  }
+  for (var end = 0; end < 2; end++) {
+    var ring = end === 0 ? 0 : sections.length - 1;
+    s = sections[ring];
+    var ci = verts.length / 3;
+    verts.push(s.cx || 0, (s.top + s.bot) / 2, s.z);
+    for (j = 0; j < radial; j++) {
+      var a2 = ring * radial + j, b2 = ring * radial + (j + 1) % radial;
+      if (end === 0) idx.push(ci, a2, b2); else idx.push(ci, b2, a2);
+    }
+  }
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+/* the new body profiles — car frame: +z forward, ground y=0.
+   The nose top line runs straight from the bulkhead (z 1.05,
+   top 0.60) down to the tip (z 2.34, top 0.345) so the racing
+   stripes and the nose roundel lie flat on it; the tub crown
+   holds 0.65 under the cockpit rim; the sidepod flank stands at
+   |x| ~0.55 across the decal window (z -0.1..1.05) so the side
+   livery sits ON the surface; the engine cover crown holds
+   ~0.88 under its decal, then tapers to the tail. */
+var LOFT_CHASSIS = [
+  { z: 2.34, hw: 0.045, top: 0.345, bot: 0.270, e: 2.0 },
+  { z: 2.12, hw: 0.070, top: 0.389, bot: 0.258, e: 2.0 },
+  { z: 1.85, hw: 0.105, top: 0.442, bot: 0.246, e: 2.1 },
+  { z: 1.55, hw: 0.150, top: 0.502, bot: 0.232, e: 2.2 },
+  { z: 1.28, hw: 0.215, top: 0.555, bot: 0.215, e: 2.3 },
+  { z: 1.05, hw: 0.300, top: 0.600, bot: 0.200, e: 2.4 },
+  { z: 0.80, hw: 0.400, top: 0.635, bot: 0.190, e: 2.6 },
+  { z: 0.56, hw: 0.460, top: 0.645, bot: 0.180, e: 2.7 },
+  { z: 0.34, hw: 0.500, top: 0.650, bot: 0.172, e: 2.8 },
+  { z: 0.10, hw: 0.515, top: 0.650, bot: 0.168, e: 2.9 },
+  { z: -0.18, hw: 0.510, top: 0.645, bot: 0.168, e: 2.9 },
+  { z: -0.45, hw: 0.465, top: 0.600, bot: 0.175, e: 2.7 },
+  { z: -0.70, hw: 0.390, top: 0.520, bot: 0.190, e: 2.4 },
+  { z: -0.88, hw: 0.300, top: 0.450, bot: 0.205, e: 2.2 }
+];
+var LOFT_POD_R = [
+  { z: 1.50, cx: 0.360, hw: 0.070, top: 0.420, bot: 0.235, e: 2.0 },
+  { z: 1.28, cx: 0.395, hw: 0.105, top: 0.500, bot: 0.180, e: 2.2 },
+  { z: 1.02, cx: 0.415, hw: 0.128, top: 0.565, bot: 0.145, e: 2.5 },
+  { z: 0.70, cx: 0.420, hw: 0.130, top: 0.600, bot: 0.128, e: 2.6 },
+  { z: 0.35, cx: 0.420, hw: 0.130, top: 0.610, bot: 0.122, e: 2.6 },
+  { z: 0.00, cx: 0.415, hw: 0.127, top: 0.600, bot: 0.122, e: 2.6 },
+  { z: -0.38, cx: 0.400, hw: 0.118, top: 0.560, bot: 0.130, e: 2.5 },
+  { z: -0.72, cx: 0.365, hw: 0.100, top: 0.505, bot: 0.155, e: 2.3 },
+  { z: -1.02, cx: 0.315, hw: 0.078, top: 0.450, bot: 0.190, e: 2.1 },
+  { z: -1.22, cx: 0.270, hw: 0.055, top: 0.415, bot: 0.225, e: 2.0 }
+];
+var LOFT_POD_L = LOFT_POD_R.map(function (s) {
+  return { z: s.z, cx: -s.cx, hw: s.hw, top: s.top, bot: s.bot, e: s.e };
+});
+var LOFT_COVER = [
+  { z: 0.05, hw: 0.300, top: 0.830, bot: 0.300, e: 2.1 },
+  { z: -0.30, hw: 0.335, top: 0.878, bot: 0.275, e: 2.3 },
+  { z: -0.65, hw: 0.320, top: 0.880, bot: 0.260, e: 2.3 },
+  { z: -1.00, hw: 0.275, top: 0.868, bot: 0.255, e: 2.2 },
+  { z: -1.35, hw: 0.215, top: 0.838, bot: 0.250, e: 2.1 },
+  { z: -1.65, hw: 0.155, top: 0.782, bot: 0.260, e: 2.0 },
+  { z: -1.90, hw: 0.105, top: 0.700, bot: 0.275, e: 2.0 },
+  { z: -2.08, hw: 0.070, top: 0.600, bot: 0.295, e: 2.0 }
+];
+var LOFT_AIRBOX = [
+  { z: -0.16, hw: 0.085, top: 1.045, bot: 0.820, e: 2.0 },
+  { z: -0.38, hw: 0.125, top: 1.125, bot: 0.800, e: 2.2 },
+  { z: -0.62, hw: 0.130, top: 1.135, bot: 0.790, e: 2.2 },
+  { z: -0.85, hw: 0.105, top: 1.075, bot: 0.780, e: 2.1 },
+  { z: -1.02, hw: 0.060, top: 0.985, bot: 0.760, e: 2.0 }
+];
+/* shark fin: a side-profile shape (z, y) extruded across x */
+var GEO_FIN = (function () {
+  var pts = [[-0.82, 0.80], [-0.95, 1.05], [-1.35, 1.02], [-1.80, 0.94],
+    [-2.10, 0.84], [-2.16, 0.60], [-1.60, 0.55], [-1.05, 0.62]];
+  var sh = new THREE.Shape();
+  pts.forEach(function (p, i) { if (i === 0) sh.moveTo(p[0], p[1]); else sh.lineTo(p[0], p[1]); });
+  sh.closePath();
+  var g = new THREE.ExtrudeGeometry(sh, { depth: 0.032, bevelEnabled: false });
+  g.rotateY(-Math.PI / 2); g.translate(0.016, 0, 0);
+  return g;
+})();
 var GEO = {
   tireF: new THREE.CylinderGeometry(0.355, 0.355, 0.37, 22).rotateZ(Math.PI / 2),
   tireR: new THREE.CylinderGeometry(0.375, 0.375, 0.43, 22).rotateZ(Math.PI / 2),
@@ -1819,10 +1925,18 @@ var GEO = {
   rimR: new THREE.CylinderGeometry(0.21, 0.21, 0.44, 12).rotateZ(Math.PI / 2),
   spoke: new THREE.BoxGeometry(0.07, 0.35, 0.1),
   hub: new THREE.CylinderGeometry(0.07, 0.07, 0.46, 8).rotateZ(Math.PI / 2),
-  nose: new THREE.ConeGeometry(0.26, 2.0, 14).rotateX(Math.PI / 2),
-  tub: new THREE.BoxGeometry(1.06, 0.46, 2.3),
+  /* the lofted body shells (new car mesh): chassis (nose + tub in
+     one sculpted shell), sidepods, engine cover, airbox, fin.
+     The old cone/box/sphere GEO.nose / GEO.tub / GEO.sidepod are
+     retired; GEO.cover (sphere) remains only as the driver's
+     torso blank. */
+  chassis: loftGeo(LOFT_CHASSIS, 16),
+  podR: loftGeo(LOFT_POD_R, 16),
+  podL: loftGeo(LOFT_POD_L, 16),
+  engineCover: loftGeo(LOFT_COVER, 16),
+  airbox: loftGeo(LOFT_AIRBOX, 12),
+  fin: GEO_FIN,
   cover: new THREE.SphereGeometry(0.5, 18, 12),
-  sidepod: new THREE.SphereGeometry(0.5, 14, 10),
   halo: new THREE.TorusGeometry(0.335, 0.045, 8, 22, Math.PI * 1.3).rotateX(Math.PI / 2).rotateY(Math.PI * 0.85),
   helmet: new THREE.SphereGeometry(0.205, 16, 12)
 };
@@ -1936,9 +2050,9 @@ function buildCar(paintHex, isPlayer, livery) {
   [-0.32, 0, 0.32].forEach(function (sx) {
     add(new B(0.03, 0.17, 0.46), MAT.carbon, sx, 0.13, -2.16, 1, 1, 1, 0.16);
   });
-  /* nose: tapered cone + base blend */
-  var nose = add(GEO.nose, paint, 0, 0.31, 1.55); nose.scale.set(1, 0.58, 1);
-  add(new B(0.52, 0.3, 0.95), paint, 0, 0.34, 0.72);
+  /* chassis: ONE lofted shell — the tapered nose cone flows into
+     the tub with sculpted shoulders (was: a cone stuck on a box) */
+  add(GEO.chassis, paint, 0, 0, 0);
   /* racing stripes down the nose (the player's car and every
      dressed field car — the livery system recolors them per car;
      see applyPlayerLivery) */
@@ -1946,9 +2060,12 @@ function buildCar(paintHex, isPlayer, livery) {
   if (stripeCols) {
     var smA = new THREE.MeshStandardMaterial({ color: stripeCols[0], roughness: 0.2, metalness: 0.7, envMapIntensity: 1.5 });
     var smB = new THREE.MeshStandardMaterial({ color: stripeCols[1], roughness: 0.2, metalness: 0.7, envMapIntensity: 1.5 });
-    var stA = new THREE.Mesh(new B(0.15, 0.018, 1.85), smA); stA.position.set(0, 0.475, 1.52); stA.rotation.x = 0.045; body.add(stA);
+    /* the stripes ride the new nose's straight top line: pitched
+       0.195 rad to match the bulkhead-to-tip slope, sized to the
+       tapered nose so they never overhang its edges */
+    var stA = new THREE.Mesh(new B(0.11, 0.018, 0.88), smA); stA.position.set(0, 0.531, 1.46); stA.rotation.x = 0.195; body.add(stA);
     [-1, 1].forEach(function (s) {
-      var stB = new THREE.Mesh(new B(0.045, 0.018, 1.85), smB); stB.position.set(s * 0.115, 0.475, 1.52); stB.rotation.x = 0.045; body.add(stB);
+      var stB = new THREE.Mesh(new B(0.035, 0.018, 0.88), smB); stB.position.set(s * 0.0825, 0.531, 1.46); stB.rotation.x = 0.195; body.add(stB);
     });
     stripeMatsArr = [smA, smB];
   }
@@ -1956,7 +2073,9 @@ function buildCar(paintHex, isPlayer, livery) {
      per car and swapped by applyCarDecals like the side/cover art */
   var noseDecal = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5),
     new THREE.MeshBasicMaterial({ map: carNoseTexture(livery || (isPlayer ? FREE_CAR : null)), transparent: true }));
-  noseDecal.position.set(0, 0.502, 0.78); noseDecal.rotation.x = -Math.PI / 2; body.add(noseDecal);
+  /* the roundel now lies ON the nose slope (pitched with it),
+     fully visible — on the old build it sat inside the tub box */
+  noseDecal.position.set(0, 0.509, 1.58); noseDecal.rotation.x = -Math.PI / 2 + 0.195; body.add(noseDecal);
   /* front wing */
   add(new B(2.24, 0.045, 0.6), MAT.carbon, 0, 0.10, 2.52);
   add(new B(2.05, 0.04, 0.3), paint, 0, 0.175, 2.4, 1, 1, 1, -0.12);
@@ -1974,36 +2093,42 @@ function buildCar(paintHex, isPlayer, livery) {
       new THREE.MeshStandardMaterial({ color: 0xbfe6ff, emissive: 0x3f9fff, emissiveIntensity: 0.9, roughness: 0.1, flatShading: true }));
     cry.scale.set(0.6, 1.5, 0.6); cry.position.set(s * 1.1, 0.22, 2.78); body.add(cry);
   });
-  /* tub + cockpit */
-  add(GEO.tub, paint, 0, 0.42, 0.05);
+  /* cockpit (the tub is the chassis loft's crown now) */
   var rim2 = new THREE.Mesh(new THREE.TorusGeometry(0.33, 0.045, 8, 20).rotateX(Math.PI / 2), MAT.carbon);
   rim2.position.set(0, 0.665, 0.5); rim2.scale.set(1, 1, 1.45); body.add(rim2);
-  var hole = add(new THREE.CircleGeometry(0.315, 20), MAT.dark, 0, 0.662, 0.5, 1, 1.45, 1, -Math.PI / 2);
+  /* the opening disc tips with the crown's fall toward the nose
+     so its front edge meets the body instead of hovering */
+  var hole = add(new THREE.CircleGeometry(0.315, 20), MAT.dark, 0, 0.648, 0.5, 1, 1.45, 1, -Math.PI / 2 + 0.10);
   add(new B(0.46, 0.3, 0.2), MAT.dark, 0, 0.6, 0.02);                     /* seat back */
-  add(new B(0.3, 0.22, 0.1), paint, 0, 0.74, -0.14);                      /* headrest */
-  /* sidepods + intakes + gold pinstripes */
+  add(new B(0.3, 0.22, 0.1), paint, 0, 0.79, -0.14);                      /* headrest (raised: the new cover crown is higher) */
+  /* sidepods: lofted, with a sculpted intake mouth on the leading
+     face and the livery decal lying on the flank (the flank stands
+     at |x| ~0.55 through the decal window, so the roundel + name
+     read at full size — the old sphere buried the decal's middle).
+     The gold pinstripes run BELOW the decal now: on the new flank
+     the old over-decal stripe line would slice through the film. */
   [-1, 1].forEach(function (s) {
-    var pod = add(GEO.sidepod, paint, s * 0.55, 0.38, 0.1); pod.scale.set(0.62, 0.52, 1.85);
-    add(new B(0.3, 0.2, 0.05), MAT.dark, s * 0.62, 0.42, 1.03);
-    /* the references' signature: a big sculpted intake mouth on the
-       pod's outer face, framed in carbon */
-    add(new B(0.05, 0.3, 0.62), MAT.carbon, s * 0.868, 0.4, 0.55);
-    add(new B(0.03, 0.22, 0.5), MAT.dark, s * 0.885, 0.4, 0.55);
-    add(new B(0.02, 0.03, 1.5), MAT.gold, s * 0.865, 0.56, 0.1);
-    /* a second, lower gold pinstripe along the pod's skirt line */
-    add(new B(0.02, 0.022, 1.5), MAT.gold, s * 0.865, 0.24, 0.1);
+    add(s < 0 ? GEO.podL : GEO.podR, paint, 0, 0, 0);
+    var inF = add(new B(0.26, 0.22, 0.04), MAT.carbon, s * 0.375, 0.345, 1.408);
+    inF.rotation.set(-0.42, s * 0.18, 0);
+    var inD = add(new B(0.20, 0.16, 0.045), MAT.dark, s * 0.375, 0.345, 1.418);
+    inD.rotation.set(-0.42, s * 0.18, 0);
+    add(new B(0.02, 0.03, 1.1), MAT.gold, s * 0.552, 0.315, 0.42);
+    add(new B(0.02, 0.022, 1.1), MAT.gold, s * 0.552, 0.262, 0.42);
     var decal = new THREE.Mesh(new THREE.PlaneGeometry(1.58, 0.222),
       new THREE.MeshBasicMaterial({ map: texSideText, transparent: true }));
-    decal.position.set(s * 0.548, 0.47, 0.72); decal.rotation.y = s * Math.PI / 2; body.add(decal);
+    decal.position.set(s * 0.553, 0.47, 0.42); decal.rotation.y = s * Math.PI / 2; body.add(decal);
   });
-  /* engine cover + airbox + fin */
-  var cover = add(GEO.cover, paint2 || paint, 0, 0.55, -0.62); cover.scale.set(1.0, 0.62, 2.6);
+  /* engine cover + airbox + fin: lofted cover tapering to the
+     tail, a lofted airbox hump, and an extruded shark fin (was:
+     a scaled sphere, a box, and a thin slab) */
+  add(GEO.engineCover, paint2 || paint, 0, 0, 0);
   var coverDecal = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 1.2),
     new THREE.MeshBasicMaterial({ map: texCoverDecal, transparent: true }));
-  coverDecal.position.set(0, 0.885, -0.68); coverDecal.rotation.set(-Math.PI / 2, 0, Math.PI); body.add(coverDecal);
-  add(new B(0.34, 0.3, 0.82), paint2 || paint, 0, 0.99, -0.62);
-  add(new B(0.24, 0.18, 0.03), MAT.dark, 0, 1.0, -0.2);
-  add(new B(0.035, 0.32, 1.2), paint2 || paint, 0, 0.9, -1.38);
+  coverDecal.position.set(0, 0.892, -0.68); coverDecal.rotation.set(-Math.PI / 2, 0, Math.PI); body.add(coverDecal);
+  add(GEO.airbox, paint2 || paint, 0, 0, 0);
+  var abIn = add(new B(0.19, 0.14, 0.03), MAT.dark, 0, 1.01, -0.148); abIn.rotation.x = -0.1;
+  add(GEO.fin, paint2 || paint, 0, 0, 0);
   /* T-cam pods astride the airbox + the whip aerial (reference detail) */
   add(new B(0.11, 0.05, 0.16), new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.4 }), -0.1, 1.17, -0.62);
   add(new B(0.11, 0.05, 0.16), MAT.carbon, 0.1, 1.17, -0.62);
@@ -2015,7 +2140,7 @@ function buildCar(paintHex, isPlayer, livery) {
   });
   /* halo (gold on the player's car — the mockup's signature) */
   var halo = add(GEO.halo, isPlayer ? MAT.gold : (accentMat || MAT.carbon), 0, 0.86, 0.42); halo.scale.set(1, 1, 1.35);
-  body.add(strut(new THREE.Vector3(0, 0.6, 1.04), new THREE.Vector3(0, 0.88, 0.58), 0.035, isPlayer ? MAT.gold : (accentMat || MAT.carbon)));
+  body.add(strut(new THREE.Vector3(0, 0.615, 1.03), new THREE.Vector3(0, 0.88, 0.58), 0.035, isPlayer ? MAT.gold : (accentMat || MAT.carbon)));
   /* mirrors — body-colored shells on stalks, as in the references */
   [-1, 1].forEach(function (s) {
     body.add(strut(new THREE.Vector3(s * 0.4, 0.68, 0.82), new THREE.Vector3(s * 0.56, 0.78, 0.8), 0.016, MAT.carbon));
@@ -2062,9 +2187,14 @@ function buildCar(paintHex, isPlayer, livery) {
     wheels[k] = w;
     w.sideMats.forEach(function (sm) { tireSideMats.push(sm); });
     (w.brakeMats || []).forEach(function (bm) { brakeMatsAll.push(bm); });
-    body.add(strut(new THREE.Vector3(Math.sign(p[0]) * 0.34, 0.44, p[2] + 0.2), new THREE.Vector3(p[0], p[1] + 0.03, p[2]), 0.02, MAT.carbon));
-    body.add(strut(new THREE.Vector3(Math.sign(p[0]) * 0.34, 0.44, p[2] - 0.2), new THREE.Vector3(p[0], p[1] + 0.03, p[2]), 0.02, MAT.carbon));
-    body.add(strut(new THREE.Vector3(Math.sign(p[0]) * 0.34, 0.26, p[2]), new THREE.Vector3(p[0], p[1] - 0.05, p[2]), 0.018, MAT.carbon));
+    /* suspension arms: the front pair roots on the tub flank as
+       before; the rear pair roots on the new cover's flank (the
+       old sphere reached x 0.34 there, the lofted tail is
+       narrower, so the roots move inboard onto its surface) */
+    var sbx = front ? 0.34 : 0.21, sbyU = front ? 0.44 : 0.50, sbyL = front ? 0.26 : 0.34;
+    body.add(strut(new THREE.Vector3(Math.sign(p[0]) * sbx, sbyU, p[2] + 0.2), new THREE.Vector3(p[0], p[1] + 0.03, p[2]), 0.02, MAT.carbon));
+    body.add(strut(new THREE.Vector3(Math.sign(p[0]) * sbx, sbyU, p[2] - 0.2), new THREE.Vector3(p[0], p[1] + 0.03, p[2]), 0.02, MAT.carbon));
+    body.add(strut(new THREE.Vector3(Math.sign(p[0]) * sbx, sbyL, p[2]), new THREE.Vector3(p[0], p[1] - 0.05, p[2]), 0.018, MAT.carbon));
   });
   /* exhaust flames (boost) */
   var flameMat = new THREE.MeshBasicMaterial({ color: 0x66ccff, transparent: true, opacity: 0.0,
@@ -2097,11 +2227,16 @@ function buildCar(paintHex, isPlayer, livery) {
   /* ---- cockpit interior (player car only — dash, wheel, screen) ---- */
   if (isPlayer) {
     var intG = new THREE.Group(); body.add(intG);
-    var dash = new THREE.Mesh(new B(0.94, 0.3, 0.26), MAT.carbon); dash.position.set(0, 0.68, 0.88); intG.add(dash);
-    var dashTop = new THREE.Mesh(new B(1.0, 0.05, 0.42), MAT.dark); dashTop.position.set(0, 0.83, 0.8); intG.add(dashTop);
+    /* narrowed for the new mesh (2026-10-29): the lofted tub is
+       slimmer than the old box at the cockpit front, and the old
+       0.94/1.0-wide dash slabs overhung its silhouette as a dark
+       bench visible from outside. Widths now stay inside the
+       crown; the cockpit view keeps its dash, shelf and walls. */
+    var dash = new THREE.Mesh(new B(0.62, 0.3, 0.26), MAT.carbon); dash.position.set(0, 0.68, 0.82); intG.add(dash);
+    var dashTop = new THREE.Mesh(new B(0.68, 0.05, 0.42), MAT.dark); dashTop.position.set(0, 0.83, 0.78); intG.add(dashTop);
     [-1, 1].forEach(function (s) {
       var wall = new THREE.Mesh(new B(0.05, 0.24, 0.95), paint);
-      wall.position.set(s * 0.44, 0.68, 0.42); intG.add(wall);
+      wall.position.set(s * 0.30, 0.68, 0.42); intG.add(wall);
     });
     for (var li = 0; li < 8; li++) {
       var led = new THREE.Mesh(new B(0.055, 0.02, 0.02),
@@ -4492,6 +4627,97 @@ window.MR_DIAMOND_3D_TEST = {
         floor: part(R.floorMesh), diffuser: part(R.diffuserMesh),
         showroomOn: !!G.showroom, groupVisible: showroomGroup ? showroomGroup.visible : false,
         glowInScene: !!showroomGlow, stageChildren: showroomGroup ? showroomGroup.children.length : 0 };
+    },
+    /* NEW CAR MESH probe (2026-10-29): the lofted body shells as
+       the renderer draws them. Per-shell body-local boxes + tri
+       counts (shells found by their shared geometries), the
+       chassis taper read from raw vertices in z bands, whole-car
+       triangle total, decal placement vs the surfaces they sit
+       on, and shell coverage across the field / live rivals /
+       ghost (all five buildCar uses). */
+    carMesh: function () {
+      if (!player || !player.refs || !player.refs.body) return null;
+      var R = player.refs, body = R.body;
+      body.updateMatrixWorld(true);
+      var inv = new THREE.Matrix4().copy(body.matrixWorld).invert();
+      var tmp = new THREE.Vector3();
+      function localBox(mesh) {
+        var geo = mesh.geometry; if (!geo) return null;
+        if (!geo.boundingBox) geo.computeBoundingBox();
+        var bb = geo.boundingBox;
+        var mn = { x: Infinity, y: Infinity, z: Infinity }, mx = { x: -Infinity, y: -Infinity, z: -Infinity };
+        for (var i = 0; i < 8; i++) {
+          tmp.set((i & 1) ? bb.max.x : bb.min.x, (i & 2) ? bb.max.y : bb.min.y, (i & 4) ? bb.max.z : bb.min.z);
+          tmp.applyMatrix4(mesh.matrixWorld).applyMatrix4(inv);
+          if (tmp.x < mn.x) mn.x = tmp.x; if (tmp.y < mn.y) mn.y = tmp.y; if (tmp.z < mn.z) mn.z = tmp.z;
+          if (tmp.x > mx.x) mx.x = tmp.x; if (tmp.y > mx.y) mx.y = tmp.y; if (tmp.z > mx.z) mx.z = tmp.z;
+        }
+        return { min: mn, max: mx };
+      }
+      function tris(geo) {
+        if (!geo) return 0;
+        return geo.index ? geo.index.count / 3 : (geo.attributes && geo.attributes.position ? geo.attributes.position.count / 3 : 0);
+      }
+      function part(mesh) {
+        if (!mesh) return null;
+        var b = localBox(mesh); if (!b) return null;
+        return { tris: Math.round(tris(mesh.geometry)),
+          x: [+b.min.x.toFixed(3), +b.max.x.toFixed(3)], y: [+b.min.y.toFixed(3), +b.max.y.toFixed(3)],
+          z: [+b.min.z.toFixed(3), +b.max.z.toFixed(3)],
+          painted: R.paintMeshes.indexOf(mesh) >= 0 };
+      }
+      var found = {};
+      body.traverse(function (o) {
+        if (!o.isMesh) return;
+        if (o.geometry === GEO.chassis) found.chassis = o;
+        else if (o.geometry === GEO.podR) found.podR = o;
+        else if (o.geometry === GEO.podL) found.podL = o;
+        else if (o.geometry === GEO.engineCover) found.cover = o;
+        else if (o.geometry === GEO.airbox) found.airbox = o;
+        else if (o.geometry === GEO.fin) found.fin = o;
+      });
+      var totalTris = 0;
+      R.group.traverse(function (o) { if (o.isMesh) totalTris += tris(o.geometry); });
+      /* chassis taper: widest |x| among raw vertices per z band */
+      function bandW(z0, z1) {
+        var p = GEO.chassis.attributes.position, w = 0;
+        for (var i = 0; i < p.count; i++) {
+          var z = p.getZ(i);
+          if (z >= z0 && z <= z1) { var x = Math.abs(p.getX(i)); if (x > w) w = x; }
+        }
+        return +w.toFixed(3);
+      }
+      function bodyHasChassis(refs) {
+        var has = false;
+        if (refs && refs.body) refs.body.traverse(function (o) { if (o.isMesh && o.geometry === GEO.chassis) has = true; });
+        return has;
+      }
+      var fieldCount = 0, fieldChassis = 0;
+      cars.forEach(function (c) {
+        if (c.isPlayer) return;
+        fieldCount++;
+        if (bodyHasChassis(c.refs)) fieldChassis++;
+      });
+      var rivalChassis = null;
+      if (typeof LIVE !== 'undefined' && LIVE.rivals) {
+        var rk = Object.keys(LIVE.rivals);
+        if (rk.length) rivalChassis = rk.every(function (k) { return bodyHasChassis(LIVE.rivals[k].refs); });
+      }
+      var sideDecals = (R.sideMeshes || []).map(function (mm) { return +mm.position.x.toFixed(3); });
+      var nose = (R.noseMeshes && R.noseMeshes[0]) || null;
+      return {
+        chassis: part(found.chassis), podR: part(found.podR), podL: part(found.podL),
+        cover: part(found.cover), airbox: part(found.airbox), fin: part(found.fin),
+        totalTris: Math.round(totalTris),
+        tipW: bandW(2.0, 2.35), noseW: bandW(1.5, 1.62), tubW: bandW(0.0, 0.35),
+        fieldCount: fieldCount, fieldChassis: fieldChassis,
+        rivalChassis: rivalChassis,
+        ghostChassis: (typeof GHOST !== 'undefined' && GHOST.refs) ? bodyHasChassis(GHOST.refs) : null,
+        sideDecalX: sideDecals,
+        noseDecal: nose ? { y: +nose.position.y.toFixed(3), z: +nose.position.z.toFixed(3),
+          tilt: +(nose.rotation.x + Math.PI / 2).toFixed(3) } : null,
+        coverDecalY: R.coverMesh ? +R.coverMesh.position.y.toFixed(3) : null
+      };
     },
     guardrail: function () {
       return { kit: SCENERY && SCENERY.kit ? SCENERY.kit.guardrailText || null : null,
@@ -7295,14 +7521,49 @@ function setRivalTag(r, text) {
   if (!r || !r.refs) return;
   var tag = makeNameTag(text);
   tag.position.set(0, 2.6, 0);
-  if (r.tag) { try { r.refs.group.remove(r.tag); } catch (e) {} }
+  if (r.tag) {
+    try { r.refs.group.remove(r.tag); } catch (e) {}
+    /* the old tag's canvas texture + material are one-offs — free them */
+    if (r.tag.material) { if (r.tag.material.map) r.tag.material.map.dispose(); r.tag.material.dispose(); }
+  }
   r.refs.group.add(tag);
   r.tag = tag;
+}
+/* MEMORY (2026-10-29 audit): free a torn-down car's per-car GPU
+   resources. Live rivals and the ghost are rebuilt again and
+   again (every live race, every new personal best) and were only
+   scene.remove()d — their geometries/materials/textures stayed
+   resident for the life of the tab, which grows until the phone
+   kills it (the owner's mid-race "Aw, Snap!"). Shared assets are
+   NEVER disposed: the GEO.* shells + wheel blanks, the MAT.* set,
+   the cached paint materials, and the cached canvas textures
+   (side/cover/nose/wing/tire art) belong to every car. What IS
+   per-car: buildCar's box/plane geometries, its decal / brake /
+   flame / stripe materials, the ghost's cloned fade materials,
+   and the name-tag sprites with their one-off canvas textures. */
+function disposeCarGroup(group) {
+  if (!group) return;
+  var sharedMats = {}, sharedGeos = {};
+  Object.keys(MAT).forEach(function (k) { sharedMats[MAT[k].uuid] = true; });
+  Object.keys(paintMats).forEach(function (k) { sharedMats[paintMats[k].uuid] = true; });
+  Object.keys(paintFinishCache).forEach(function (k) { sharedMats[paintFinishCache[k].uuid] = true; });
+  [GEO.tireF, GEO.tireR, GEO.rimF, GEO.rimR, GEO.spoke, GEO.hub, GEO.chassis, GEO.podR, GEO.podL,
+   GEO.engineCover, GEO.airbox, GEO.fin, GEO.cover, GEO.halo, GEO.helmet].forEach(function (g) { sharedGeos[g.uuid] = true; });
+  group.traverse(function (o) {
+    if (o.isSprite) {
+      if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); }
+      return;
+    }
+    if (!o.isMesh) return;
+    if (o.geometry && !sharedGeos[o.geometry.uuid]) o.geometry.dispose();
+    var ms = Array.isArray(o.material) ? o.material : [o.material];
+    ms.forEach(function (mm) { if (mm && !sharedMats[mm.uuid]) mm.dispose(); });
+  });
 }
 function hideRivalCars() {
   if (LIVE.rivals) for (var k in LIVE.rivals) {
     var r = LIVE.rivals[k];
-    if (r && r.refs) { try { scene.remove(r.refs.group); } catch (e) {} }
+    if (r && r.refs) { try { scene.remove(r.refs.group); } catch (e) {} disposeCarGroup(r.refs.group); }
   }
   LIVE.rivals = {};
   LIVE.opp = null;
@@ -7530,7 +7791,7 @@ function ghostEnsure() {
   return g;
 }
 function ghostHide() {
-  if (GHOST.refs) { try { scene.remove(GHOST.refs.group); } catch (e) {} }
+  if (GHOST.refs) { try { scene.remove(GHOST.refs.group); } catch (e) {} disposeCarGroup(GHOST.refs.group); }
   GHOST.refs = null; GHOST.data = null;
 }
 var _gv = new THREE.Vector3();
