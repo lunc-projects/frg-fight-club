@@ -346,6 +346,11 @@
     white-space: nowrap; }
   /* tire compound chips on the title screen */
   #cmpRow { display: flex; gap: 7px; margin-top: 9px; flex-wrap: wrap; justify-content: center; padding: 0 12px; }
+  /* steering source toggle on the title screen (same pill look as .chip) */
+  #steerRow { display: flex; gap: 7px; margin-top: 7px; flex-wrap: wrap; justify-content: center; padding: 0 12px; }
+  #steerToggle { pointer-events: auto; cursor: pointer; font-family: inherit; font-size: 11.5px; font-weight: 800; letter-spacing: 1.2px; color: #cfe1ff;
+    background: rgba(5,13,30,0.66); border: 1px solid rgba(110,175,255,0.45); border-radius: 999px; padding: 7px 11px; }
+  #steerToggle.on { color: #081226; background: linear-gradient(180deg, #ffe98a, #e9b83a); border-color: #ffe98a; }
   .cmpDot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
   /* podium header on the finish card */
   #podiumHead { display: none; font-size: 21px; font-weight: 900; letter-spacing: 2px; color: #ffd75e;
@@ -496,6 +501,9 @@
       <button class="pillBtn cmpPill" id="cmpSoft"><span class="cmpDot" style="background:#e10600"></span>SOFT</button>
       <button class="pillBtn cmpPill" id="cmpMedium"><span class="cmpDot" style="background:#ffd12e"></span>MEDIUM</button>
       <button class="pillBtn cmpPill" id="cmpHard"><span class="cmpDot" style="background:#f2f2f2"></span>HARD</button>
+    </div>
+    <div id="steerRow">
+      <button class="pillBtn" id="steerToggle">STEERING: TOUCH</button>
     </div>
     <div id="titleBest"></div>
     <div id="pilotRow"><label for="pilotName">PILOT</label><input id="pilotName" maxlength="20" placeholder="YOUR NAME" autocomplete="off"></div>
@@ -701,6 +709,7 @@ var el = {
   topBar: $('topBar'), tbStrip: $('tbStrip'),
   sectorLine: $('sectorLine'), deltaLine: $('deltaLine'), fastestBanner: $('fastestBanner'),
   cmpSoft: $('cmpSoft'), cmpMedium: $('cmpMedium'), cmpHard: $('cmpHard'),
+  steerToggle: $('steerToggle'),
   podiumHead: $('podiumHead'), stageCaption: $('stageCaption'),
   raceMsg: $('raceMsg'), pausedTag: $('pausedTag'), rotateHint: $('rotateHint'),
   btnL: $('btnL'), btnR: $('btnR'), btnBrake: $('btnBrake'), btnBoost: $('btnBoost'),
@@ -2336,6 +2345,9 @@ function startRace() {
   G.raceNft = runIsNft();
   audioApplyMode();
   resetField();
+  /* tilt steering: at the lights the driver's hands are on the
+     phone, holding it ready — that posture becomes the centre */
+  if (tilt.mode === 'tilt') tiltCaptureCenter();
   G.phase = 'countdown'; G.cdT = 0; G.cdStage = -1; G.paused = false;
   /* the two extra gantry lamps light at a per-race random hold —
      presentation only; GO timing itself is unchanged */
@@ -2482,6 +2494,18 @@ function stepSim(dt) {
   if (racing) {
     if (G.autoDrive) autoInput();
     var steerIn = (G.input.right ? 1 : 0) - (G.input.left ? 1 : 0);
+    /* tilt steering writes into this same channel, upstream of
+       steerVis and the physics: in TILT mode with no steer button
+       or key held, the smoothed tilt value replaces the digital
+       ±1. Buttons win while held; the QA attract driver keeps its
+       own input. In TOUCH mode none of this runs. */
+    if (tilt.mode === 'tilt' && !G.input.left && !G.input.right && !G.autoDrive) {
+      tilt.smooth = lerp(tilt.smooth, tiltSteerTarget(), 1 - Math.exp(-dt * 12));
+      if (Math.abs(tilt.smooth) < 0.002) tilt.smooth = 0;
+      steerIn = tilt.smooth;
+    } else if (tilt.smooth !== 0) {
+      tilt.smooth = 0;
+    }
     G.steerVis = lerp(G.steerVis, steerIn, 1 - Math.exp(-dt * 9 * curPerf.steerMul));
     var latRate = G.steerVis * (7 + p.speed * 0.14) * curPerf.gripMul;
     var push = pFr.kappa * p.speed * p.speed * 0.042 * curPerf.pushMul;
@@ -3394,6 +3418,179 @@ function tryFlipLandscape(fromControl) {
 }
 if (el.btnRotate) { el.btnRotate.addEventListener('click', function (e) { if (e && e.stopPropagation) e.stopPropagation(); audioInit(); tryFlipLandscape(true); }); flipWired.btn = true; }
 if (el.rotateHint) { el.rotateHint.addEventListener('click', function (e) { if (e && e.stopPropagation) e.stopPropagation(); audioInit(); tryFlipLandscape(true); }); flipWired.pill = true; }
+
+/* ================= tilt (gyroscope) steering =================
+   The title-screen STEERING toggle (TOUCH / TILT, persisted in
+   localStorage, default TOUCH) switches the source of the steer
+   channel. In TILT mode deviceorientation drives the SAME
+   steerIn the ◀ ▶ buttons and arrow keys feed (see stepSim) —
+   buttons win while physically held, tilt rules otherwise, and
+   in TOUCH mode sensor events are ignored entirely.
+
+   FRAME MATH. beta/gamma arrive in the DEVICE frame (the phone's
+   natural portrait axes); the content may be rotated against
+   that frame by the native screen orientation and/or the CSS
+   force-rotate (which never moves screen.orientation). The
+   effective content angle is
+     θ = (screen.orientation.angle ?? window.orientation ?? 0)
+         + (forceRotated ? forceDir * 90 : 0)        (mod 360)
+   and the steering axis/sign per θ — derived from the gravity
+   vector g = (sinγ·cosβ, −sinβ, −cosβ·cosγ) for a tilted-back
+   playing posture rolled about the screen normal, so "tilt the
+   top of the phone toward screen-left" steers screen-left in
+   every frame:
+     θ = 0   natural portrait ......... gamma, sign +1
+     θ = 90  landscape / forced A ..... beta,  sign +1
+     θ = 180 upside-down portrait ..... gamma, sign −1
+     θ = 270 landscape / forced B ..... beta,  sign −1
+   (Worked example, θ=90: the posture reads β≈0, γ≈−45; rolling
+   toward screen-right moves β positive. θ=270 mirrors it.) The
+   headless checks synthesise sensor values from the gravity
+   vector itself, so a flipped sign in this table fails them.
+
+   CALIBRATION & FEEL. Enabling tilt takes the NEXT reading as
+   the centre (both axes stored, so a mid-race frame change
+   keeps a sane centre per axis); every race start re-captures
+   it — the driver is holding the phone ready at the lights.
+   Dead zone 3.5°, full lock at 28° from centre, output clamped
+   to [−1, 1] and lerped in the sim so jitter never reaches
+   the car.
+
+   HONESTY. The sensor is never trusted on faith. On iOS the
+   permission request runs inside the toggle tap (the gesture);
+   a denial — or 1.5 s without one usable reading on any
+   platform — reverts to TOUCH and the toggle says so. Nothing
+   here throws when the sensor stack is absent. */
+var TILT_KEY = 'luncGpSteering';
+var TILT_DEADZONE = 3.5;      /* degrees of wobble that mean "straight ahead" */
+var TILT_FULL_LOCK = 28;      /* degrees from centre that mean full lock */
+var TILT_WATCH_MS = 1500;     /* sensor-arrival watchdog after enabling */
+var tilt = { mode: 'touch', raw: null, cBeta: null, cGamma: null,
+  smooth: 0, awaiting: false, watchTimer: null, noteTimer: null };
+function tiltFrameAngle() {
+  var a = 0;
+  var so = flipOrientation();
+  if (so && typeof so.angle === 'number' && isFinite(so.angle)) a = so.angle;
+  else if (typeof window !== 'undefined' && typeof window.orientation === 'number' && isFinite(window.orientation)) a = window.orientation;
+  if (flipState.forceRotated) a += (flipState.forceDir || 1) * 90;
+  a = ((a % 360) + 360) % 360;
+  return a;
+}
+function tiltAxis() {
+  var q = Math.round(tiltFrameAngle() / 90) % 4;
+  if (q === 0) return { key: 'gamma', sign: 1 };
+  if (q === 1) return { key: 'beta', sign: 1 };
+  if (q === 2) return { key: 'gamma', sign: -1 };
+  return { key: 'beta', sign: -1 };
+}
+function tiltCaptureCenter() {
+  if (!tilt.raw) return;
+  tilt.cBeta = tilt.raw.beta; tilt.cGamma = tilt.raw.gamma;
+}
+function tiltSteerTarget() {
+  if (tilt.mode !== 'tilt' || !tilt.raw || tilt.cBeta === null || tilt.cGamma === null) return 0;
+  var ax = tiltAxis();
+  var d = (ax.key === 'beta' ? tilt.raw.beta - tilt.cBeta : tilt.raw.gamma - tilt.cGamma) * ax.sign;
+  /* beta lives on a circle: wrap the delta so a centre near the
+     ±180 seam cannot fake a full-lock jump */
+  if (ax.key === 'beta') { while (d > 180) d -= 360; while (d < -180) d += 360; }
+  var ad = Math.abs(d);
+  if (ad <= TILT_DEADZONE) return 0;
+  var v = (ad - TILT_DEADZONE) / (TILT_FULL_LOCK - TILT_DEADZONE);
+  if (v > 1) v = 1;
+  return d < 0 ? -v : v;
+}
+function tiltClearNote() {
+  if (tilt.noteTimer) { clearTimeout(tilt.noteTimer); tilt.noteTimer = null; }
+}
+function tiltRefreshToggle() {
+  if (!el.steerToggle) return;
+  el.steerToggle.textContent = tilt.mode === 'tilt' ? 'STEERING: TILT' : 'STEERING: TOUCH';
+  el.steerToggle.classList.toggle('on', tilt.mode === 'tilt');
+}
+function tiltShowUnavailable() {
+  if (!el.steerToggle) return;
+  tiltClearNote();
+  el.steerToggle.textContent = 'STEERING: TILT NOT AVAILABLE HERE';
+  el.steerToggle.classList.remove('on');
+  tilt.noteTimer = setTimeout(function () { tilt.noteTimer = null; tiltRefreshToggle(); }, 2400);
+}
+function tiltCancelWatch() {
+  if (tilt.watchTimer) { clearTimeout(tilt.watchTimer); tilt.watchTimer = null; }
+}
+function tiltSensorTimeout() {
+  tilt.watchTimer = null;
+  if (tilt.mode !== 'tilt' || !tilt.awaiting) return;
+  /* enabled, but no usable reading ever arrived — do not pretend */
+  tilt.awaiting = false;
+  tilt.mode = 'touch';
+  storeSet(TILT_KEY, 'touch');
+  tiltRefreshToggle();
+  tiltShowUnavailable();
+}
+function tiltArmWatch() {
+  tiltCancelWatch();
+  tilt.watchTimer = setTimeout(tiltSensorTimeout, TILT_WATCH_MS);
+}
+function tiltSetTouch() {
+  tiltClearNote();
+  tilt.mode = 'touch'; tilt.awaiting = false; tilt.smooth = 0;
+  tiltCancelWatch();
+  storeSet(TILT_KEY, 'touch');
+  tiltRefreshToggle();
+}
+function tiltSetTilt() {
+  tiltClearNote();
+  tilt.mode = 'tilt'; tilt.awaiting = true; tilt.smooth = 0;
+  tilt.cBeta = null; tilt.cGamma = null;   /* the next reading becomes the centre */
+  storeSet(TILT_KEY, 'tilt');
+  tiltRefreshToggle();
+  tiltArmWatch();
+}
+function tiltRefuse() {
+  /* permission denied (or the request itself failed): stay in TOUCH, say so */
+  tiltClearNote();
+  tilt.mode = 'touch'; tilt.awaiting = false; tilt.smooth = 0;
+  tiltCancelWatch();
+  storeSet(TILT_KEY, 'touch');
+  tiltRefreshToggle();
+  tiltShowUnavailable();
+}
+if (el.steerToggle) el.steerToggle.addEventListener('click', function (e) {
+  if (e && e.stopPropagation) e.stopPropagation();
+  audioInit();
+  if (tilt.mode === 'tilt') { tiltSetTouch(); return; }
+  /* turning tilt ON — this tap is the permission gesture on iOS */
+  var DOE = (typeof DeviceOrientationEvent !== 'undefined') ? DeviceOrientationEvent : null;
+  if (DOE && typeof DOE.requestPermission === 'function') {
+    var p = null, threw = false;
+    try { p = DOE.requestPermission(); } catch (err) { threw = true; }
+    if (!threw && p && typeof p.then === 'function') {
+      p.then(function (res) { if (res === 'granted') tiltSetTilt(); else tiltRefuse(); },
+             function () { tiltRefuse(); });
+      return;
+    }
+    /* a requestPermission that throws or returns nothing usable
+       falls through: enable anyway and let the arrival watchdog
+       judge by whether readings actually show up */
+  }
+  tiltSetTilt();
+});
+window.addEventListener('deviceorientation', function (e) {
+  if (tilt.mode !== 'tilt') return;   /* TOUCH mode: the sensor is ignored entirely */
+  if (!e || typeof e.beta !== 'number' || typeof e.gamma !== 'number') return;
+  if (!isFinite(e.beta) || !isFinite(e.gamma)) return;
+  tilt.raw = { beta: e.beta, gamma: e.gamma };
+  if (tilt.awaiting) { tilt.awaiting = false; tiltCancelWatch(); }
+  if (tilt.cBeta === null) tiltCaptureCenter();
+});
+/* restore the persisted preference (default TOUCH). A restored
+   TILT arms the same arrival watchdog: on a sensor-less visit —
+   or on iOS before its permission gesture — it falls back to
+   TOUCH with the note instead of pretending to steer. */
+tilt.mode = (storeGet(TILT_KEY) === 'tilt') ? 'tilt' : 'touch';
+tiltRefreshToggle();
+if (tilt.mode === 'tilt') { tilt.awaiting = true; tiltArmWatch(); }
 el.btnCam.addEventListener('click', function () { audioInit(); toggleCam(); });
 el.btnPause.addEventListener('click', function () { audioInit(); togglePause(); });
 el.btnMute.addEventListener('click', function () { setMuted(!audio.muted); audioInit(); });
@@ -4180,6 +4377,14 @@ window.MR_DIAMOND_3D_TEST = {
       forceDir: flipState.forceDir, cycleStep: flipState.cycleStep, savedDir: flipSavedDir(),
       lastErr: flipState.lastErr, wired: { btn: flipWired.btn, pill: flipWired.pill },
       hint: el.rotateHint ? el.rotateHint.textContent : '' }; }
+  },
+  tilt: {
+    state: function () { var ax = tiltAxis(); return { mode: tilt.mode, awaiting: tilt.awaiting,
+      smooth: +tilt.smooth.toFixed(3), target: +tiltSteerTarget().toFixed(3),
+      frame: tiltFrameAngle(), axis: ax.key, sign: ax.sign,
+      cBeta: tilt.cBeta, cGamma: tilt.cGamma, raw: tilt.raw,
+      label: el.steerToggle ? el.steerToggle.textContent : '' }; },
+    sensorTimeout: function () { tiltSensorTimeout(); }
   },
   live: {
     relayUrl: function () { return RELAY_URL; },
