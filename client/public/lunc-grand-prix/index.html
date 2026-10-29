@@ -787,10 +787,10 @@ if (renderOK && renderer) {
         new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(intensity) }));
       m.position.set(x, y, z); if (ry) m.rotation.y = ry; if (rx) m.rotation.x = rx; envScene.add(m);
     }
-    envPanel(0x6f92d8, 3.4, 30, 10, 0, 14, 0, 0, Math.PI / 2);      /* cool sky light */
-    envPanel(0xffe6b0, 3.6, 16, 7, -16, 6, 4, Math.PI / 2.4, 0);    /* warm key */
+    envPanel(0x6f92d8, 3.9, 30, 10, 0, 14, 0, 0, Math.PI / 2);      /* cool sky light */
+    envPanel(0xffe6b0, 4.3, 16, 7, -16, 6, 4, Math.PI / 2.4, 0);    /* warm key */
     envPanel(0x4fc3ff, 2.6, 18, 6, 16, 5, -3, -Math.PI / 2.4, 0);   /* cyan fill */
-    envPanel(0xffffff, 2.0, 24, 5, 0, 4, -17, 0, 0);                /* front strip */
+    envPanel(0xffffff, 2.4, 24, 5, 0, 4, -17, 0, 0);                /* front strip */
     var pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(envScene, 0.06).texture;
     pmrem.dispose();
@@ -799,6 +799,27 @@ if (renderOK && renderer) {
 var hemi = new THREE.HemisphereLight(LEVELS[0].hemiSky, LEVELS[0].hemiGround, LEVELS[0].hemiInt); scene.add(hemi);
 var moonLight = new THREE.DirectionalLight(LEVELS[0].moonColor, LEVELS[0].moonInt); moonLight.position.set(-180, 320, 120); scene.add(moonLight);
 var warmLight = new THREE.DirectionalLight(0xffd9a0, LEVELS[0].warmInt); warmLight.position.set(240, 140, -200); scene.add(warmLight);
+
+/* title-screen dressing (fancy pass): a warm spotlight over the grid,
+   a gold rim light parked opposite the orbiting camera, and a soft
+   pool of light on the asphalt under the hero car. Aimed every title
+   frame by updateCamera and parked at intensity 0 in a race — the
+   lights stay in the scene so no material ever recompiles. */
+var titleSpot = new THREE.SpotLight(0xfff1d6, 0, 70, 0.55, 0.65, 1);
+scene.add(titleSpot); scene.add(titleSpot.target);
+var titleRim = new THREE.PointLight(0xffc873, 0, 34, 1.6);
+scene.add(titleRim);
+var texPool = (function () {
+  var c = makeCanvas(256, 256), x = c.getContext('2d');
+  var g = x.createRadialGradient(128, 128, 8, 128, 128, 126);
+  g.addColorStop(0, 'rgba(255,238,200,0.55)'); g.addColorStop(0.55, 'rgba(255,220,160,0.20)');
+  g.addColorStop(1, 'rgba(255,210,140,0)');
+  x.fillStyle = g; x.fillRect(0, 0, 256, 256);
+  return canvasTexture(c, false);
+})();
+var titlePool = new THREE.Mesh(new THREE.CircleGeometry(6.6, 40).rotateX(-Math.PI / 2),
+  new THREE.MeshBasicMaterial({ map: texPool, transparent: true, depthWrite: false }));
+titlePool.visible = false; titlePool.renderOrder = 1; scene.add(titlePool);
 
 /* ---------------- track definition (per-level, rebuilt on switch) ---------------- */
 var N_SAMP = 1200;
@@ -928,6 +949,16 @@ var texBarrier = (function () {
   x.shadowColor = 'transparent'; x.shadowBlur = 0; x.shadowOffsetY = 0;
   var t = canvasTexture(c); t.wrapS = THREE.RepeatWrapping; return t;
 })();
+/* mirrored twin of the barrier art, for the wall on the +side of the
+   track: that wall's winding presents its BACK face to the track, so
+   the shared texture reads reversed from the driver's seat there
+   (the owner's phone screenshot showed exactly that). Same canvas,
+   repeat.x = -1: the wordmark reads correctly from the track on
+   BOTH sides. */
+var texBarrierFlip = texBarrier.clone();
+texBarrierFlip.wrapS = THREE.RepeatWrapping;
+texBarrierFlip.repeat.x = -1;
+texBarrierFlip.needsUpdate = true;
 var texBanner = (function () {
   var c = makeCanvas(1024, 128), x = c.getContext('2d');
   x.fillStyle = '#0a1a38'; x.fillRect(0, 0, 1024, 128);
@@ -945,7 +976,7 @@ var texChecker = (function () {
 var texBlob = (function () {
   var c = makeCanvas(128, 128), x = c.getContext('2d');
   var g = x.createRadialGradient(64, 64, 6, 64, 64, 62);
-  g.addColorStop(0, 'rgba(0,0,0,0.52)'); g.addColorStop(0.7, 'rgba(0,0,0,0.30)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  g.addColorStop(0, 'rgba(0,0,0,0.62)'); g.addColorStop(0.7, 'rgba(0,0,0,0.38)'); g.addColorStop(1, 'rgba(0,0,0,0)');
   x.fillStyle = g; x.fillRect(0, 0, 128, 128);
   return canvasTexture(c, false);
 })();
@@ -1045,24 +1076,35 @@ function groundRibbon(latCenter, width, yOff, mat, vRepeat) {
   g.setIndex(idx); g.computeVertexNormals();
   var m = new THREE.Mesh(g, mat); m.frustumCulled = false; worldGroup.add(m); return m;
 }
-function wallRibbon(latAbs, height, mat) {
-  var step = 4, verts = [], uvs = [], idx = [];
-  var rows = Math.floor(N_SAMP / step);
+/* one mesh per side, so each side can carry its own texture
+   transform: both walls share one winding (front-face normal along
+   +side), which means the track sees the FRONT face of the -side
+   wall but the BACK face of the +side wall — and a texture viewed
+   through its back face reads mirrored. The +side wall therefore
+   gets matFlip (the repeat.x = -1 twin of the same art) so the
+   guardrail wordmark reads correctly from the track on both sides. */
+function wallRibbon(latAbs, height, mat, matFlip) {
+  var step = 4, last = null;
   [-1, 1].forEach(function (sgn) {
-    var base = verts.length / 3;
+    var verts = [], uvs = [], idx = [];
+    var rows = Math.floor(N_SAMP / step);
     for (var i = 0; i <= rows; i++) {
       var si = (i * step) % N_SAMP, fr = frames[si];
       var p = fr.p.clone().addScaledVector(fr.side, latAbs * sgn);
       verts.push(p.x, p.y + 0.02, p.z, p.x, p.y + height, p.z);
       uvs.push(i * SAMP_DS * step / 13, 0, i * SAMP_DS * step / 13, 1);
-      if (i < rows) { var k = base + i * 2; idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3); }
+      if (i < rows) { var k = i * 2; idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3); }
     }
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    g.setIndex(idx); g.computeVertexNormals();
+    var m = new THREE.Mesh(g, (sgn > 0 && matFlip) ? matFlip : mat);
+    m.frustumCulled = false; worldGroup.add(m);
+    if (matFlip) GUARD_WALLS.push({ side: sgn, mesh: m });   /* guardrails only — the catch fence shares this builder */
+    last = m;
   });
-  var g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
-  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  g.setIndex(idx); g.computeVertexNormals();
-  var m = new THREE.Mesh(g, mat); m.frustumCulled = false; worldGroup.add(m); return m;
+  return last;
 }
 
 /* The whole visible world lives in ONE group per level. Switching levels
@@ -1072,6 +1114,7 @@ var worldGroup = null;
 var SCENERY = { level: 0, name: '', theme: '', crystals: 0, heroCrystals: 0, earthBackdrop: false, pickupStyle: 'gold markers', kit: {} };
 /* broadcast-pass world state (declared early: buildWorld runs at boot,
    before the feature section further down) */
+var GUARD_WALLS = [];     /* the current world's barrier walls, one mesh per side */
 var BRIDGE = null;        /* L2 drawbridge span { s0, leafLen, period, maxAngle } or null */
 var BRIDGE_VIS = null;    /* { pivot, beacons[] } for the current world build */
 var CROWD_MAT = null;     /* the current build's crowd material (wave animation) */
@@ -1096,25 +1139,29 @@ function ribbonSpan(sFrom, sTo, latCenter, width, yOff, mat, vRepeat) {
   g.setIndex(idx); g.computeVertexNormals();
   var m = new THREE.Mesh(g, mat); m.frustumCulled = false; worldGroup.add(m); return m;
 }
-function wallSpan(sFrom, sTo, latAbs, height, mat) {
-  var step = 4, verts = [], uvs = [], idx = [];
+function wallSpan(sFrom, sTo, latAbs, height, mat, matFlip) {
+  var step = 4, last = null;
   var i0 = Math.ceil(sFrom / (SAMP_DS * step)) * step, i1 = Math.floor(sTo / (SAMP_DS * step)) * step;
   [-1, 1].forEach(function (sgn) {
-    var base = verts.length / 3;
+    var verts = [], uvs = [], idx = [];
     var rows = (i1 - i0) / step;
     for (var i = 0; i <= rows; i++) {
       var fr = frames[(i0 + i * step) % N_SAMP];
       var p = fr.p.clone().addScaledVector(fr.side, latAbs * sgn);
       verts.push(p.x, p.y + 0.02, p.z, p.x, p.y + height, p.z);
       uvs.push(i * SAMP_DS * step / 13, 0, i * SAMP_DS * step / 13, 1);
-      if (i < rows) { var k = base + i * 2; idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3); }
+      if (i < rows) { var k = i * 2; idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3); }
     }
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    g.setIndex(idx); g.computeVertexNormals();
+    var m = new THREE.Mesh(g, (sgn > 0 && matFlip) ? matFlip : mat);
+    m.frustumCulled = false; worldGroup.add(m);
+    if (matFlip) GUARD_WALLS.push({ side: sgn, mesh: m });   /* guardrails only — the catch fence shares this builder */
+    last = m;
   });
-  var g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
-  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  g.setIndex(idx); g.computeVertexNormals();
-  var m = new THREE.Mesh(g, mat); m.frustumCulled = false; worldGroup.add(m); return m;
+  return last;
 }
 function disposeWorld() {
   if (!worldGroup) return;
@@ -1130,6 +1177,7 @@ function disposeWorld() {
 }
 function buildWorld(cfg) {
   worldGroup = new THREE.Group(); scene.add(worldGroup);
+  GUARD_WALLS = [];
   seed = 1877;   /* deterministic dressing layout for every level build */
   SCENERY = { level: cfg.id, name: cfg.name, theme: cfg.theme, crystals: 0, heroCrystals: 0,
     earthBackdrop: false, pickupStyle: 'gold markers',
@@ -1158,7 +1206,7 @@ function buildWorld(cfg) {
   /* road — a wet circuit gets a low-roughness, high-sheen surface */
   texAsphalt.repeat.set(1, 1);
   var roadMat = new THREE.MeshStandardMaterial({ map: texAsphalt, color: cfg.roadTint,
-    roughness: cfg.wet ? 0.32 : 0.94, metalness: cfg.wet ? 0.05 : 0.0, envMapIntensity: cfg.wet ? 1.5 : 1.0 });
+    roughness: cfg.wet ? 0.32 : 0.94, metalness: cfg.wet ? 0.05 : 0.0, envMapIntensity: cfg.wet ? 1.5 : 1.18 });
   trackRibbon(0, ROAD_HALF * 2, 0.02, roadMat, 26);
   SCENERY.kit.roadWet = !!cfg.wet; SCENERY.kit.roadRoughness = roadMat.roughness;
   /* the rubbered-in racing line wanders over the asphalt */
@@ -1251,11 +1299,13 @@ function buildWorld(cfg) {
     new THREE.MeshBasicMaterial({ map: texChecker }));
   sl.rotation.x = -Math.PI / 2; sl.rotation.z = -startFr.theta;
   sl.position.copy(startFr.p); sl.position.y += 0.05; worldGroup.add(sl);
-  /* barriers */
+  /* barriers — the +side wall wears the mirrored texture twin so
+     the wordmark reads correctly from the track on both sides */
   var barMat = new THREE.MeshStandardMaterial({ map: texBarrier, roughness: 0.75, metalness: 0.1, side: THREE.DoubleSide });
+  var barMatFlip = new THREE.MeshStandardMaterial({ map: texBarrierFlip, roughness: 0.75, metalness: 0.1, side: THREE.DoubleSide });
   SCENERY.kit.guardrailText = 'LUNA CLASSIC RACING';
-  if (BRIDGE) wallSpan(skipB, skipA + TRACK_LEN, ROAD_HALF + cfg.wallOff, 0.95, barMat);
-  else wallRibbon(ROAD_HALF + cfg.wallOff, 0.95, barMat);
+  if (BRIDGE) wallSpan(skipB, skipA + TRACK_LEN, ROAD_HALF + cfg.wallOff, 0.95, barMat, barMatFlip);
+  else wallRibbon(ROAD_HALF + cfg.wallOff, 0.95, barMat, barMatFlip);
   /* start gantry */
   var gantry = new THREE.Group();
   var trussMat = new THREE.MeshStandardMaterial({ color: 0x1a2436, roughness: 0.5, metalness: 0.7 });
@@ -1563,7 +1613,7 @@ var GEO = {
 var MAT = {
   carbon: new THREE.MeshStandardMaterial({ color: 0x0b0c0f, roughness: 0.55, metalness: 0.45, envMapIntensity: 0.5 }),
   tire: new THREE.MeshStandardMaterial({ color: 0x0a0a0b, roughness: 0.95, metalness: 0.0 }),
-  gold: new THREE.MeshStandardMaterial({ color: 0xd8b45a, roughness: 0.28, metalness: 0.95, envMapIntensity: 1.3 }),
+  gold: new THREE.MeshStandardMaterial({ color: 0xd8b45a, roughness: 0.17, metalness: 0.95, envMapIntensity: 1.75 }),
   glass: new THREE.MeshStandardMaterial({ color: 0x0d1626, roughness: 0.12, metalness: 0.9, envMapIntensity: 1.6 }),
   dark: new THREE.MeshStandardMaterial({ color: 0x11141a, roughness: 0.9, metalness: 0.1, envMapIntensity: 0.5 }),
   suit: new THREE.MeshStandardMaterial({ color: 0x14161e, roughness: 0.85, metalness: 0.05 }),
@@ -1573,7 +1623,7 @@ var MAT = {
 var paintMats = {};
 function paintMat(hex) {
   if (!paintMats[hex]) paintMats[hex] = new THREE.MeshStandardMaterial({
-    color: hex, roughness: 0.22, metalness: 0.5, envMapIntensity: 1.05 });
+    color: hex, roughness: 0.15, metalness: 0.55, envMapIntensity: 1.4 });
   return paintMats[hex];
 }
 var texCoverDecal = (function () {
@@ -1670,8 +1720,8 @@ function buildCar(paintHex, isPlayer, livery) {
      see applyPlayerLivery) */
   var stripeCols = isPlayer ? [0xd8b45a, 0xf4d97b] : (livery ? livery.stripes : null);
   if (stripeCols) {
-    var smA = new THREE.MeshStandardMaterial({ color: stripeCols[0], roughness: 0.3, metalness: 0.6 });
-    var smB = new THREE.MeshStandardMaterial({ color: stripeCols[1], roughness: 0.3, metalness: 0.6 });
+    var smA = new THREE.MeshStandardMaterial({ color: stripeCols[0], roughness: 0.2, metalness: 0.7, envMapIntensity: 1.5 });
+    var smB = new THREE.MeshStandardMaterial({ color: stripeCols[1], roughness: 0.2, metalness: 0.7, envMapIntensity: 1.5 });
     var stA = new THREE.Mesh(new B(0.15, 0.018, 1.85), smA); stA.position.set(0, 0.475, 1.52); stA.rotation.x = 0.045; body.add(stA);
     [-1, 1].forEach(function (s) {
       var stB = new THREE.Mesh(new B(0.045, 0.018, 1.85), smB); stB.position.set(s * 0.115, 0.475, 1.52); stB.rotation.x = 0.045; body.add(stB);
@@ -1680,7 +1730,7 @@ function buildCar(paintHex, isPlayer, livery) {
   }
   /* big nose number — a roundel plate on the nose base, dressed
      per car and swapped by applyCarDecals like the side/cover art */
-  var noseDecal = new THREE.Mesh(new THREE.PlaneGeometry(0.44, 0.44),
+  var noseDecal = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5),
     new THREE.MeshBasicMaterial({ map: carNoseTexture(livery || (isPlayer ? FREE_CAR : null)), transparent: true }));
   noseDecal.position.set(0, 0.502, 0.78); noseDecal.rotation.x = -Math.PI / 2; body.add(noseDecal);
   /* front wing */
@@ -1716,7 +1766,9 @@ function buildCar(paintHex, isPlayer, livery) {
     add(new B(0.05, 0.3, 0.62), MAT.carbon, s * 0.868, 0.4, 0.55);
     add(new B(0.03, 0.22, 0.5), MAT.dark, s * 0.885, 0.4, 0.55);
     add(new B(0.02, 0.03, 1.5), MAT.gold, s * 0.865, 0.56, 0.1);
-    var decal = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.21),
+    /* a second, lower gold pinstripe along the pod's skirt line */
+    add(new B(0.02, 0.022, 1.5), MAT.gold, s * 0.865, 0.24, 0.1);
+    var decal = new THREE.Mesh(new THREE.PlaneGeometry(1.58, 0.222),
       new THREE.MeshBasicMaterial({ map: texSideText, transparent: true }));
     decal.position.set(s * 0.548, 0.47, 0.72); decal.rotation.y = s * Math.PI / 2; body.add(decal);
   });
@@ -2580,6 +2632,8 @@ function placeCar(c, dt) {
 }
 function updateCamera(dt) {
   var p = player, R = p.refs;
+  /* the title dressing lights only burn on the title screen */
+  if (G.phase !== 'title') { titleSpot.intensity = 0; titleRim.intensity = 0; titlePool.visible = false; }
   /* garage turntable: slow orbit while the shop sheet is open */
   if (G.showroom && showroomGroup) {
     var sa = G.showAngle;
@@ -2602,6 +2656,19 @@ function updateCamera(dt) {
     camera.position.set(p.worldPos.x + Math.sin(a) * 6.2, p.worldPos.y + 1.55 + Math.sin(G.time * 0.13) * 0.4, p.worldPos.z + Math.cos(a) * 6.2);
     camera.lookAt(p.worldPos.x, p.worldPos.y + 0.6, p.worldPos.z);
     setFov(56, dt);
+    /* fancy pass: dress the hero car — a warm spotlight pool from
+       above the grid, a gold rim light parked opposite the camera
+       so the paint edge glows as the view orbits, and the pool of
+       light laid on the asphalt under the car */
+    titleSpot.intensity = 1.5;
+    titleSpot.position.set(p.worldPos.x + p.forward.x * 5, p.worldPos.y + 9.5, p.worldPos.z + p.forward.z * 5);
+    titleSpot.target.position.set(p.worldPos.x, p.worldPos.y + 0.4, p.worldPos.z);
+    var rdx = camera.position.x - p.worldPos.x, rdz = camera.position.z - p.worldPos.z;
+    var rl = Math.sqrt(rdx * rdx + rdz * rdz) || 1;
+    titleRim.intensity = 1.15;
+    titleRim.position.set(p.worldPos.x - rdx / rl * 6.5, p.worldPos.y + 2.3, p.worldPos.z - rdz / rl * 6.5);
+    titlePool.visible = true;
+    titlePool.position.set(p.worldPos.x, p.worldPos.y + 0.055, p.worldPos.z);
     return;
   }
   if (G.camMode === 1) {
@@ -3342,7 +3409,23 @@ window.MR_DIAMOND_3D_TEST = {
         brakeMats: player ? player.refs.brakeMats.length : 0 };
     },
     guardrail: function () {
-      return { kit: SCENERY && SCENERY.kit ? SCENERY.kit.guardrailText || null : null };
+      return { kit: SCENERY && SCENERY.kit ? SCENERY.kit.guardrailText || null : null,
+        walls: GUARD_WALLS.map(function (w) {
+          var mp = w.mesh && w.mesh.material ? w.mesh.material.map : null;
+          return { side: w.side, repeatX: mp ? mp.repeat.x : null,
+            sameArt: mp ? mp.image === texBarrier.image : false };
+        }) };
+    },
+    fancy: function () {
+      var pm = paintMat(0x0d2150), pf = paintMatFinish(0x0d2150, 'gloss');
+      return { paintRough: pm.roughness, paintEnv: pm.envMapIntensity,
+        glossRough: pf.roughness, glossEnv: pf.envMapIntensity,
+        goldRough: MAT.gold.roughness, goldEnv: MAT.gold.envMapIntensity,
+        spotI: titleSpot ? titleSpot.intensity : -1, rimI: titleRim ? titleRim.intensity : -1,
+        poolVis: titlePool ? titlePool.visible : false,
+        noseW: player && player.refs.noseMeshes[0] ? player.refs.noseMeshes[0].geometry.parameters.width : 0,
+        sideW: player && player.refs.sideMeshes[0] ? player.refs.sideMeshes[0].geometry.parameters.width : 0,
+        sideH: player && player.refs.sideMeshes[0] ? player.refs.sideMeshes[0].geometry.parameters.height : 0 };
     }
   },
   start: function () { startRace(); },
@@ -3798,11 +3881,11 @@ var paintFinishCache = {};
 function paintMatFinish(hex, finish) {
   var key = hex + '|' + finish;
   if (!paintFinishCache[key]) {
-    var p = { color: hex, roughness: 0.24, metalness: 0.45, envMapIntensity: 0.95 };
+    var p = { color: hex, roughness: 0.15, metalness: 0.5, envMapIntensity: 1.4 };
     if (finish === 'matte') { p.roughness = 0.85; p.metalness = 0.05; }
-    else if (finish === 'metallic') { p.roughness = 0.22; p.metalness = 0.85; p.envMapIntensity = 0.9; }
+    else if (finish === 'metallic') { p.roughness = 0.15; p.metalness = 0.85; p.envMapIntensity = 1.3; }
     else if (finish === 'chrome') { p.roughness = 0.08; p.metalness = 1.0; p.envMapIntensity = 1.25; }
-    else if (finish === 'pearl') { p.roughness = 0.38; p.metalness = 0.3; p.envMapIntensity = 1.05; }
+    else if (finish === 'pearl') { p.roughness = 0.3; p.metalness = 0.3; p.envMapIntensity = 1.3; }
     else if (finish === 'glow') { p.roughness = 0.4; p.metalness = 0.2; p.emissive = hex; p.emissiveIntensity = 0.45; }
     paintFinishCache[key] = new THREE.MeshStandardMaterial(p);
   }
@@ -3856,7 +3939,7 @@ function drawRoundel(x, cx, cy, r, number) {
   x.fillStyle = '#f5f2e8'; x.fill();
   x.lineWidth = Math.max(3, r * 0.09); x.strokeStyle = '#14161c'; x.stroke();
   x.fillStyle = '#14161c'; x.textAlign = 'center'; x.textBaseline = 'middle';
-  fitFont(x, String(number), r * 1.25, r * (number > 9 ? 1.05 : 1.3), '900');
+  fitFont(x, String(number), r * 1.42, r * (number > 9 ? 1.18 : 1.48), '900');
   x.fillText(String(number), cx, cy + r * 0.05);
 }
 function carSideTexture(car) {
@@ -3887,7 +3970,11 @@ function carSideTexture(car) {
   var gInt = x.createLinearGradient(0, 0, 190, 0);
   gInt.addColorStop(0, 'rgba(0,0,0,0.42)'); gInt.addColorStop(1, 'rgba(0,0,0,0)');
   x.fillStyle = gInt; x.fillRect(0, 30, 190, 92);
-  drawRoundel(x, 88, 72, 56, car.number);
+  /* pinstripe pair sweeping the pod under the name line, in the
+     car's own stripe tones (the roundel + name paint over them) */
+  x.fillStyle = car.stripesCss[0]; x.fillRect(0, 97, 1024, 3);
+  x.fillStyle = car.stripesCss[1]; x.fillRect(0, 103, 1024, 2);
+  drawRoundel(x, 88, 72, 62, car.number);
   x.textAlign = 'left'; x.textBaseline = 'middle'; x.fillStyle = '#ffffff';
   fitFont(x, car.sideText, 800, 80, '800');
   x.fillText(car.sideText, 176, 74);
@@ -3921,6 +4008,11 @@ function carCoverTexture(car) {
     x.globalAlpha = 0.85;
     x.fillStyle = car.stripesCss[0]; x.fillRect(192, 0, 36, 640);
     x.fillStyle = car.stripesCss[1]; x.fillRect(284, 0, 36, 640);
+    x.globalAlpha = 1;
+    /* pinstripes flanking the twin cover stripes */
+    x.globalAlpha = 0.9;
+    x.fillStyle = car.stripesCss[0]; x.fillRect(176, 0, 4, 640);
+    x.fillStyle = car.stripesCss[1]; x.fillRect(332, 0, 4, 640);
     x.globalAlpha = 1;
     /* panel seams */
     x.fillStyle = 'rgba(10,10,14,0.28)'; x.fillRect(20, 84, 472, 3); x.fillRect(20, 556, 472, 3);
@@ -4036,6 +4128,8 @@ function carNoseTexture(car) {
      reference noses carry under the number */
   x.strokeStyle = car ? car.stripesCss[0] : '#ffd75e'; x.lineWidth = 5;
   x.beginPath(); x.arc(128, 116, 112, 0, Math.PI * 2); x.stroke();
+  x.strokeStyle = car ? car.stripesCss[1] : '#f4d97b'; x.lineWidth = 2.5;
+  x.beginPath(); x.arc(128, 116, 119, 0, Math.PI * 2); x.stroke();
   x.textAlign = 'center'; x.textBaseline = 'middle';
   x.fillStyle = car ? car.stripesCss[0] : '#ffd75e';
   fitFont(x, car ? carSponsors(car)[0] : 'LUNC GP', 220, 27, '800');
