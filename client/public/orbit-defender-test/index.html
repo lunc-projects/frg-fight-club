@@ -12,26 +12,12 @@
          -webkit-user-select:none; user-select:none; touch-action:none;
          display:flex; flex-direction:column; height:100dvh; }
   #cvwrap { position:relative; flex:1; min-height:0; }
-  /* ===== virtual joystick (ported from Garuda Dash) =====
-     one floating stick over the play field: the base appears where
-     the thumb lands, the knob follows it. OrbitWire colours — green
-     ring + knob where Garuda wears cyan + gold. At rest the base is
-     hidden: Defender has no control band, the field itself is the
-     zone, so an idle stick would just be clutter. */
-  #stickZone { position:absolute; inset:0; z-index:4; pointer-events:auto; touch-action:none; }
-  #stickBase {
-    position:absolute; left:50%; top:60%; width:96px; height:96px; margin:-48px 0 0 -48px;
-    border-radius:50%; border:2px solid rgba(76,236,75,.55); background:rgba(5,26,14,.34);
-    box-shadow:0 0 16px rgba(61,220,132,.25), inset 0 0 18px rgba(61,220,132,.12);
-    opacity:0; pointer-events:none; transition:opacity .15s;
-  }
-  #stickBase.on { opacity:.95; background:rgba(5,26,14,.5); border-color:rgba(125,255,176,.9); }
-  #stickKnob {
-    position:absolute; left:50%; top:50%; width:52px; height:52px; margin:-26px 0 0 -26px; border-radius:50%;
-    border:2px solid rgba(125,255,176,.9);
-    background:radial-gradient(circle at 35% 30%, rgba(220,255,232,.95), rgba(61,220,132,.5) 58%, rgba(10,60,30,.55));
-    box-shadow:0 0 14px rgba(61,220,132,.45);
-  }
+  /* ===== finger-follow touch surface =====
+     one transparent zone over the play field: drag anywhere and the
+     Bot flies to a point just above the fingertip, so it never hides
+     under your thumb. No on-screen stick — the field itself is the
+     control, and nothing is drawn for it. */
+  #touchZone { position:absolute; inset:0; z-index:4; pointer-events:auto; touch-action:none; }
   #game { position:absolute; inset:0; width:100%; height:100%; display:block; }
   #ui { position:fixed; inset:0; pointer-events:none; }
   /* ===== presentation system (poster pass) =====
@@ -401,7 +387,7 @@
 </div>
 <div id="feverWrap"><div id="feverFill"></div></div>
 <div id="missionRow"><span id="missionChip" style="visibility:hidden">🎯 0/3</span></div>
-<div id="cvwrap"><canvas id="game"></canvas><div id="stickZone"><div id="stickBase"><div id="stickKnob"></div></div></div></div>
+<div id="cvwrap"><canvas id="game"></canvas><div id="touchZone"></div></div>
 
 <div id="ui">
   <div id="fxBar"></div>
@@ -514,9 +500,9 @@
   </div>
   <p class="secLabel">CONTROLS</p>
   <div class="cardGrid">
-    <div class="card wide"><div><div class="ctlName">🕹️ THUMB STICK</div><div class="cardDesc">Press anywhere on the field — the stick appears under your thumb. <b>Push to fly, push further to fly faster</b>, let go to glide to a stop. Your cannons fire on their own. Desktop: drag with the mouse for the same stick, or arrow keys / WASD.</div></div></div>
+    <div class="card wide"><div><div class="ctlName">👆 FINGER FOLLOW</div><div class="cardDesc">Drag anywhere on the field — the Bot flies to a point <b>just above your fingertip</b>, so it never hides under your thumb. Let go and it settles where it is. Your cannons fire on their own. Desktop: mouse drag works the same, or arrow keys / WASD.</div></div></div>
     <div class="card wide"><div><div class="ctlName">⏩ DASH <span class="dim">(desktop: Shift, or double-tap a direction key)</span></div><div class="cardDesc">to <b>DASH</b> — a split-second burst to dodge a dive, ready again in about a second.</div></div></div>
-    <div class="card wide plasma"><div><div class="ctlName">⚡ HOLD THE STICK STILL</div><div class="cardDesc">Thumb down, stick centred, to charge a massive <b>PLASMA BLAST</b> and release to fire! It pierces everything in its path — the longer the charge, the harder it hits. Desktop: hold Space.</div></div></div>
+    <div class="card wide plasma"><div><div class="ctlName">⚡ HOLD YOUR FINGER STILL</div><div class="cardDesc">Finger down and held still, to charge a massive <b>PLASMA BLAST</b> and release to fire! It pierces everything in its path — the longer the charge, the harder it hits. Desktop: hold Space.</div></div></div>
   </div>
   <p class="secLabel">POWER-UPS</p>
   <div class="cardGrid">
@@ -2788,7 +2774,7 @@ function doRelease(){
   pointerHeld = false;
   pressAnchor = null;
   pointerActive = false;
-  stickClear();   /* every press end — real or simulated — parks the stick */
+  touchClear();   /* every press end — real or simulated — parks the follow target */
 }
 function hitPlayer(cause){
   if (state !== 'play' || invulnT > 0 || dashInvulnT > 0 || dashShieldT > 0) return;
@@ -2882,9 +2868,13 @@ function gameOver(){
 
 /* ================= updates ================= */
 function updateShip(dt){
-  /* steering input: the keyboard is a digital push, the joystick an
-     analogue one (direction AND speed follow its deflection) — both
-     resolve to one desired velocity */
+  /* steering input: the keyboard is a digital push; the finger is a
+     follow point (the ship's target rides TOUCH_OFFSET_Y above the
+     fingertip). Both resolve to one desired velocity: for the follow
+     point it is the closing vector, its speed the gap closed over
+     FOLLOW_TAU seconds, capped at SHIP_SPEED — fast far away, gentle
+     on arrival, so the ship settles on the point instead of orbiting
+     it, and never teleports */
   let ix = 0, iy = 0;
   if (keys.left) ix -= 1;
   if (keys.right) ix += 1;
@@ -2894,13 +2884,18 @@ function updateShip(dt){
     const len = Math.hypot(ix, iy);
     ix /= len; iy /= len;
     targetX = ship.x; targetY = ship.y;   /* keys flying never charges */
-  } else if (stickVec.x || stickVec.y){
-    ix = stickVec.x; iy = stickVec.y;
+  } else if (followActive){
+    const dx = followX - ship.x, dy = followY - ship.y;
+    const d = Math.hypot(dx, dy);
+    if (d > 1){
+      const sp = Math.min(SHIP_SPEED, d / FOLLOW_TAU);
+      ix = dx / d * (sp / SHIP_SPEED); iy = dy / d * (sp / SHIP_SPEED);
+    }
   }
   /* the ship carries a velocity with a short ease: it leans into a
-     push within a few frames and GLIDES to a stop when the stick is
-     released, instead of halting dead */
-  const ease = 1 - Math.exp(-dt / STICK_EASE_T);
+     push within a few frames and GLIDES to a stop when the finger
+     lifts, instead of halting dead */
+  const ease = 1 - Math.exp(-dt / SHIP_EASE_T);
   shipVx += (ix * SHIP_SPEED - shipVx) * ease;
   shipVy += (iy * SHIP_SPEED - shipVy) * ease;
   if (!ix && Math.abs(shipVx) < 1) shipVx = 0;
@@ -3466,7 +3461,8 @@ function reset(){
   fairStats = { spawned: 0, maxAlive: 0, minFreeCols: COLS };
   ship.x = W / 2; ship.y = homeY();
   targetX = ship.x; targetY = ship.y;
-  shipVx = 0; shipVy = 0; stickVec.x = 0; stickVec.y = 0; stickId = null;
+  shipVx = 0; shipVy = 0; touchId = null;
+  followActive = false; followX = ship.x; followY = ship.y;
   pointerActive = false;
   keys = {};
   updateHud();
@@ -4580,96 +4576,81 @@ function evPos(e){
     y: (e.clientY - r.top) * (LH / (r.height || LH)),
   };
 }
-/* ================= virtual joystick =================
-   Ported from Garuda Dash's stick (same pattern, OrbitWire colours):
-   ONE floating stick replaces drag-to-move. The base appears where
-   the thumb lands on the field, the knob follows it clamped to
-   STICK_R, and the ship's desired velocity is the analogue push —
-   direction AND speed follow the deflection; letting go eases the
-   ship to a stop (the ease lives in updateShip). Pointer Events +
-   setPointerCapture route every move/up for the active thumb back
-   to the zone, and every exit path — up, cancel, lost capture,
-   window blur, tab hidden — ends the press through doRelease, so
-   the ship can never fly on its own.
-   Dash note: the old double-TAP dash is gone — with a stick, a
-   quick re-grab is just flying, and dashing by accident costs hull.
-   Dash keeps its other triggers: Shift, or a double-tap of a
-   direction key (desktop). The charge shot survives the port: a
-   thumb held still (stick centred within the old 14px of its base)
-   still builds the blast, and releasing still fires it. */
-const stickZone = $('stickZone'), stickBase = $('stickBase'), stickKnob = $('stickKnob');
-const STICK_R = 48;              /* knob travel radius, client px */
-const STICK_DEAD = 7;            /* deadzone, client px */
-const STICK_R_GAME = 52;         /* STICK_R in game px, for the test API */
-const STICK_EASE_T = 0.055;      /* ship velocity ease, seconds */
-let stickId = null;              /* active pointerId; null = no thumb down */
-let stickBx = 0, stickBy = 0;    /* base centre, client coords */
-const stickVec = { x: 0, y: 0 }; /* analogue push, magnitude 0..1 */
+/* ================= finger-follow control =================
+   The player tried the Garuda stick (Upgrade #2) and chose this
+   instead: drag anywhere on the field and the ship flies to a point
+   TOUCH_OFFSET_Y above the fingertip — never under it, so the ship
+   and its glow stay visible. The finger writes a follow target; the
+   ship steers to it through updateShip's eased velocity (the drive
+   lives there). The RAW pointer position is still what the charge
+   math reads — pressAnchor is the touch point itself, and a finger
+   held within 14px of where it landed still builds the blast, so
+   holding still charges and releasing fires, exactly as before;
+   dragging cancels the charge and steers. Release parks the follow
+   target: the ship glides to a stop where it is.
+   Pointer Events + setPointerCapture route every move/up for the
+   active finger back to the zone, and every exit path — up, cancel,
+   lost capture, window blur, tab hidden — ends the press through
+   doRelease, so the ship can never fly on its own.
+   Dash note: unchanged from the stick build — no double-TAP dash
+   on touch (a re-grab is just flying). Dash keeps its triggers:
+   Shift, or a double-tap of a direction key (desktop). */
+const touchZone = $('touchZone');
+const TOUCH_OFFSET_Y = 120;      /* the ship flies this far above the fingertip, game px — raised from 76 at the user's word: the bottom edge must clear a real fingertip (~44px touch blob) completely */
+const FOLLOW_TAU = 0.07;         /* follow drive: gap-closing time constant, seconds */
+const SHIP_EASE_T = 0.055;       /* ship velocity ease, seconds */
+let touchId = null;              /* active pointerId; null = no finger down */
+let followActive = false;        /* a follow target is steering the ship */
+let followX = W / 2, followY = 600;  /* the ship's follow target, game coords */
 let shipVx = 0, shipVy = 0;      /* the ship's eased velocity */
-function stickShow(on, kx, ky){
-  /* the zone fills the wrap exactly (inset 0), so the wrap's rect is
-     the one true coordinate frame — the same one evPos reads */
-  const r = wrap.getBoundingClientRect();
-  stickBase.style.left = (stickBx - r.left) + 'px';
-  stickBase.style.top = (stickBy - r.top) + 'px';
-  stickBase.classList.toggle('on', !!on);
-  stickKnob.style.transform = 'translate(' + (kx || 0) + 'px,' + (ky || 0) + 'px)';
+function followPoint(px, py){
+  /* the ship's target for a finger at (px, py): level with the
+     finger, TOUCH_OFFSET_Y above it, clamped to the ship's own
+     on-field box — at the top edge the offset shrinks gracefully
+     instead of pushing the ship off-screen */
+  return { x: clamp(px, 26, W - 26), y: clamp(py - TOUCH_OFFSET_Y, 92, poolY() - 34) };
 }
-function stickApply(cx, cy){
-  const dx = cx - stickBx, dy = cy - stickBy;
-  const len = Math.hypot(dx, dy);
-  const kx = len > STICK_R ? dx * STICK_R / len : dx;
-  const ky = len > STICK_R ? dy * STICK_R / len : dy;
-  if (len <= STICK_DEAD){ stickVec.x = 0; stickVec.y = 0; }
-  else {
-    const f = Math.min(1, len / STICK_R);
-    stickVec.x = dx / len * f; stickVec.y = dy / len * f;
-  }
+function touchMove(cx, cy){
   const p = evPos({ clientX: cx, clientY: cy });
   targetX = p.x; targetY = p.y;   /* the charge anchor math reads the pointer here */
-  stickShow(true, kx, ky);
+  const t = followPoint(p.x, p.y);
+  followX = t.x; followY = t.y; followActive = true;
 }
-function stickDown(cx, cy){
-  const r = wrap.getBoundingClientRect(), RX = 58;
-  const RY = Math.min(58, r.height / 2);   /* short fields: never let the clamp invert */
-  stickBx = Math.min(Math.max(cx, r.left + RX), r.right - RX);
-  stickBy = Math.min(Math.max(cy, r.top + RY), r.bottom - RY);
+function touchDown(cx, cy){
   pointerHeld = true; pointerActive = true;
-  const b = evPos({ clientX: stickBx, clientY: stickBy });
-  pressAnchor = { x: b.x, y: b.y };   /* charge anchor = the stick's base */
-  targetX = b.x; targetY = b.y;
-  stickApply(cx, cy);
+  const p = evPos({ clientX: cx, clientY: cy });
+  pressAnchor = { x: p.x, y: p.y };   /* charge anchor = the touch point itself */
+  touchMove(cx, cy);
 }
-function stickClear(){
-  stickId = null;
-  stickVec.x = 0; stickVec.y = 0;
-  stickShow(false, 0, 0);
+function touchClear(){
+  touchId = null;
+  followActive = false;
 }
-stickZone.addEventListener('pointerdown', e => {
+touchZone.addEventListener('pointerdown', e => {
   ensureAudio();
   if (state !== 'play') return;
-  if (stickId !== null) return;                    /* one thumb only */
-  stickId = e.pointerId;
-  try { stickZone.setPointerCapture(stickId); } catch (err) {}
-  stickDown(e.clientX, e.clientY);
+  if (touchId !== null) return;                    /* one finger only */
+  touchId = e.pointerId;
+  try { touchZone.setPointerCapture(touchId); } catch (err) {}
+  touchDown(e.clientX, e.clientY);
   if (e.preventDefault) e.preventDefault();
 });
-stickZone.addEventListener('pointermove', e => {
-  if (e.pointerId !== stickId) return;
-  stickApply(e.clientX, e.clientY);
+touchZone.addEventListener('pointermove', e => {
+  if (e.pointerId !== touchId) return;
+  touchMove(e.clientX, e.clientY);
 });
-function stickEnd(e){
-  if (stickId === null || (e && e.pointerId === stickId)) doRelease();
+function touchEnd(e){
+  if (touchId === null || (e && e.pointerId === touchId)) doRelease();
 }
-stickZone.addEventListener('pointerup', stickEnd);
-stickZone.addEventListener('pointercancel', stickEnd);
-stickZone.addEventListener('lostpointercapture', stickEnd);
-/* global anti-stick safety net, same as Garuda's: an exit that never
-   reaches the zone still ends the press */
-addEventListener('pointerup', () => { if (stickId !== null) doRelease(); });
-addEventListener('pointercancel', () => { if (stickId !== null) doRelease(); });
-addEventListener('blur', () => { if (stickId !== null) doRelease(); });
-document.addEventListener('visibilitychange', () => { if (document.hidden && stickId !== null) doRelease(); });
+touchZone.addEventListener('pointerup', touchEnd);
+touchZone.addEventListener('pointercancel', touchEnd);
+touchZone.addEventListener('lostpointercapture', touchEnd);
+/* global safety net: an exit that never reaches the zone still ends
+   the press */
+addEventListener('pointerup', () => { if (touchId !== null) doRelease(); });
+addEventListener('pointercancel', () => { if (touchId !== null) doRelease(); });
+addEventListener('blur', () => { if (touchId !== null) doRelease(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden && touchId !== null) doRelease(); });
 addEventListener('keydown', e => {
   const c = e.code;
   if (c === 'ShiftLeft' || c === 'ShiftRight'){
@@ -4775,21 +4756,17 @@ window.OD = {
   setSeed(s){ seedPinned = s >>> 0; },
   setGen(b){ genOn = !!b; },
   pointerTo(x, y){
-    /* the autopilot steers through the SAME input the stick writes:
-       with a press planted it is a stick move; without one it is a
-       ship-relative push (full push once the point is a stick-radius
-       or more away) */
+    /* the autopilot steers through the SAME follow target the
+       finger writes: with a finger planted it moves that finger
+       (and the offset applies); without one it names the ship's
+       target point directly */
     if (pointerHeld){
       const r = wrap.getBoundingClientRect();
-      stickApply(r.left + x * ((r.width || W) / W), r.top + y * ((r.height || LH) / LH));
+      touchMove(r.left + x * ((r.width || W) / W), r.top + y * ((r.height || LH) / LH));
     } else {
-      const dx = x - ship.x, dy = y - ship.y, len = Math.hypot(dx, dy);
-      if (len <= 4){ stickVec.x = 0; stickVec.y = 0; }
-      else {
-        const f = Math.min(1, len / STICK_R_GAME);
-        stickVec.x = dx / len * f; stickVec.y = dy / len * f;
-      }
       targetX = x; targetY = y; pointerActive = true;
+      followX = clamp(x, 26, W - 26); followY = clamp(y, 92, poolY() - 34);
+      followActive = true;
     }
   },
   clearField(){ tokens = []; debris = []; powerups = []; bossBullets = []; foeShots = []; },
@@ -4856,7 +4833,7 @@ window.OD = {
   setBuyWatchForTest(everyMs, forMs){ if (everyMs > 0) buyWatchEveryMs = everyMs; if (forMs > 0) buyWatchForMs = forMs; },
   setBoardTab(t){ setBoardTab(t); },
   showRewards(){ openRewards(); },
-  setShip(x, y){ ship.x = x; ship.y = y; targetX = x; targetY = y; shipVx = 0; shipVy = 0; },
+  setShip(x, y){ ship.x = x; ship.y = y; targetX = x; targetY = y; shipVx = 0; shipVy = 0; followX = x; followY = y; },
   setDist(m){
     distPx = m * PX_PER_M;
     milestones = Math.floor(m / MILE_EVERY);
@@ -4878,10 +4855,11 @@ window.OD = {
   debris(){ return debris.map(d => ({ x: d.x, y: d.y, r: d.r, vx: d.vx, vy: d.vy, armed: d.sep >= ARM_SEP })); },
   powerups(){ return powerups.filter(p => !p.dead).map(p => ({ kind: p.kind, x: p.x, y: p.y })); },
   pressAt(x, y){
-    /* a simulated thumb plant: the stick's base lands at (x, y) in
-       game coords, exactly like a real pointerdown there */
+    /* a simulated finger plant: the touch lands at (x, y) in game
+       coords, exactly like a real pointerdown there — the ship's
+       follow target is the offset point above it */
     const r = wrap.getBoundingClientRect();
-    stickDown(r.left + x * ((r.width || W) / W), r.top + y * ((r.height || LH) / LH));
+    touchDown(r.left + x * ((r.width || W) / W), r.top + y * ((r.height || LH) / LH));
   },
   releasePointer(){ doRelease(); },
   setMission(id){ setMissionById(id); },
@@ -4932,7 +4910,7 @@ window.OD = {
         pending: pendingBuy ? { ...pendingBuy } : null, justTier: buyJustTier, mode: walletMode },
       tokenCount: aliveTokens(), bulletCount: bullets.length,
       foeShotCount: foeShots.length,
-      stick: { held: pointerHeld, x: stickVec.x, y: stickVec.y, vx: shipVx, vy: shipVy } };
+      follow: { held: pointerHeld, active: followActive, x: followX, y: followY, px: targetX, py: targetY, vx: shipVx, vy: shipVy, off: TOUCH_OFFSET_Y } };
   },
   constants: { W, COLS, MAX_ALIVE, KILL_SCORE, TOKEN_R, TOKEN_HP, LEVEL_LEN, BOSS_HP,
     BOSS_R, MILE_EVERY, POWER_TIME, FIRE_INT, RAPID_INT, GUN_DX, GUN_DY,
@@ -4943,7 +4921,7 @@ window.OD = {
     MINE_DIST_M, MINE_WAVE_P, MINE_FUSE_T, MINE_BLAST_R, MINE_PROX_R, MINE_CHAIN_T, MINE_CHAIN_STEP,
     RAIDER_DIST_M, RAIDER_WAVE_P, RAIDER_FIRE_T, RAIDER_WINDUP_T, RAIDER_SHOT_SPEED,
     LUNC_SHOT_DIST_M, LUNC_SHOT_T, LUNC_SHOT_SPEED, MAX_FOE_SHOTS,
-    STICK_R, STICK_DEAD, STICK_R_GAME, STICK_EASE_T,
+    TOUCH_OFFSET_Y, FOLLOW_TAU, SHIP_EASE_T,
     get LH(){ return LH; }, get POOL_Y(){ return poolY(); }, get HOME_Y(){ return homeY(); } },
 };
 
