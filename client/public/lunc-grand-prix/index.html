@@ -2500,7 +2500,7 @@ function stepSim(dt) {
        ±1. Buttons win while held; the QA attract driver keeps its
        own input. In TOUCH mode none of this runs. */
     if (tilt.mode === 'tilt' && !G.input.left && !G.input.right && !G.autoDrive) {
-      tilt.smooth = lerp(tilt.smooth, tiltSteerTarget(), 1 - Math.exp(-dt * 12));
+      tilt.smooth = lerp(tilt.smooth, tiltSteerTarget(), 1 - Math.exp(-dt * 9));
       if (Math.abs(tilt.smooth) < 0.002) tilt.smooth = 0;
       steerIn = tilt.smooth;
     } else if (tilt.smooth !== 0) {
@@ -3452,9 +3452,16 @@ if (el.rotateHint) { el.rotateHint.addEventListener('click', function (e) { if (
    the centre (both axes stored, so a mid-race frame change
    keeps a sane centre per axis); every race start re-captures
    it — the driver is holding the phone ready at the lights.
-   Dead zone 3.5°, full lock at 28° from centre, output clamped
-   to [−1, 1] and lerped in the sim so jitter never reaches
-   the car.
+   Feel tune (owner, 2026-10-29: "works but hard to drive"):
+   the raw reading is EMA-filtered at the source (α 0.35 per
+   event) so hand tremor dies before it can steer; dead zone
+   4.5°, full lock at 34° from centre; the response between is
+   PROGRESSIVE — steer = sign(x)·|x|^1.6 over the normalised
+   travel x, so mid-tilt gives well under half steering while
+   full lock still lands exactly at the lock angle; output
+   clamped to [−1, 1] and lerped gently (9/s) in the sim. The
+   shared steerVis smoothing downstream is NOT part of this
+   tune — TOUCH feel is untouched.
 
    HONESTY. The sensor is never trusted on faith. On iOS the
    permission request runs inside the toggle tap (the gesture);
@@ -3462,10 +3469,12 @@ if (el.rotateHint) { el.rotateHint.addEventListener('click', function (e) { if (
    platform — reverts to TOUCH and the toggle says so. Nothing
    here throws when the sensor stack is absent. */
 var TILT_KEY = 'luncGpSteering';
-var TILT_DEADZONE = 3.5;      /* degrees of wobble that mean "straight ahead" */
-var TILT_FULL_LOCK = 28;      /* degrees from centre that mean full lock */
+var TILT_DEADZONE = 4.5;      /* degrees of wobble that mean "straight ahead" (tune 2026-10-29: was 3.5) */
+var TILT_FULL_LOCK = 34;      /* degrees from centre that mean full lock (tune 2026-10-29: was 28) */
+var TILT_CURVE = 1.6;         /* progressive response: steer = sign(x)·|x|^1.6 (tune 2026-10-29: was linear) */
+var TILT_EMA_ALPHA = 0.35;    /* per-event EMA on the raw reading, before the curve (tune 2026-10-29: was none) */
 var TILT_WATCH_MS = 1500;     /* sensor-arrival watchdog after enabling */
-var tilt = { mode: 'touch', raw: null, cBeta: null, cGamma: null,
+var tilt = { mode: 'touch', raw: null, filt: null, cBeta: null, cGamma: null,
   smooth: 0, awaiting: false, watchTimer: null, noteTimer: null };
 function tiltFrameAngle() {
   var a = 0;
@@ -3498,6 +3507,9 @@ function tiltSteerTarget() {
   if (ad <= TILT_DEADZONE) return 0;
   var v = (ad - TILT_DEADZONE) / (TILT_FULL_LOCK - TILT_DEADZONE);
   if (v > 1) v = 1;
+  /* progressive curve: gentle around the centre so small tilts
+     make small corrections; v = 1 at the lock angle either way */
+  v = Math.pow(v, TILT_CURVE);
   return d < 0 ? -v : v;
 }
 function tiltClearNote() {
@@ -3542,6 +3554,7 @@ function tiltSetTouch() {
 function tiltSetTilt() {
   tiltClearNote();
   tilt.mode = 'tilt'; tilt.awaiting = true; tilt.smooth = 0;
+  tilt.filt = null;   /* the EMA re-seeds on the first fresh reading */
   tilt.cBeta = null; tilt.cGamma = null;   /* the next reading becomes the centre */
   storeSet(TILT_KEY, 'tilt');
   tiltRefreshToggle();
@@ -3580,7 +3593,20 @@ window.addEventListener('deviceorientation', function (e) {
   if (tilt.mode !== 'tilt') return;   /* TOUCH mode: the sensor is ignored entirely */
   if (!e || typeof e.beta !== 'number' || typeof e.gamma !== 'number') return;
   if (!isFinite(e.beta) || !isFinite(e.gamma)) return;
-  tilt.raw = { beta: e.beta, gamma: e.gamma };
+  /* light EMA on the raw reading, upstream of calibration and
+     the curve: resting hand tremor is filtered at the source
+     instead of being chased by a second laggy smoother later.
+     The beta step is seam-wrapped so a centre near ±180 cannot
+     swing the average the long way round. */
+  if (tilt.filt) {
+    var db = e.beta - tilt.filt.beta;
+    if (db > 180) db -= 360; else if (db < -180) db += 360;
+    tilt.filt.beta += TILT_EMA_ALPHA * db;
+    tilt.filt.gamma += TILT_EMA_ALPHA * (e.gamma - tilt.filt.gamma);
+  } else {
+    tilt.filt = { beta: e.beta, gamma: e.gamma };
+  }
+  tilt.raw = tilt.filt;
   if (tilt.awaiting) { tilt.awaiting = false; tiltCancelWatch(); }
   if (tilt.cBeta === null) tiltCaptureCenter();
 });
