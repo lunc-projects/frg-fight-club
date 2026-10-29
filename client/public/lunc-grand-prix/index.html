@@ -3454,27 +3454,46 @@ if (el.rotateHint) { el.rotateHint.addEventListener('click', function (e) { if (
    frame angle θv (see tiltFrameAngle), content-right in device
    coordinates is (cos θv, sin θv, 0), so
      steer_raw = gx·cos θv + gy·sin θv.
-   No axis ever snaps and there is no per-frame sign to get
-   wrong — the projection is right in every frame by
-   construction, PROVIDED θv names the frame the player
-   actually sees:
-     θv = screen.orientation.angle − (forceRotated ? forceDir·90 : 0)
-   The two terms compose with OPPOSITE signs because they are
-   different kinds of rotation. The native angle reports the
-   DEVICE's rotation — on the owner's Android Chrome it grows
-   clockwise (top edge right reports 90, top edge left reports
-   270) — while the CSS force-rotate turns the CONTENT, and
-   rotate(+90deg) (content clockwise on screen) is viewed
-   upright from the counterclockwise grip, so it subtracts.
+   No axis ever snaps; the one sign freedom left is the sense
+   in which the reported native angle names the frame, and
+   that is DEVICE-PINNED, not derived:
+     θv = −(native angle) − (forceRotated ? forceDir·90 : 0)
+   The evidence chain, all of it the owner's Android Chrome:
+   (1) the original snapped table steered backwards in the
+   landscape he reaches by flipping the phone left; (2) the
+   first projection build composed θv = +angle − forced, and
+   he reported three times, consistently, that upright/portrait
+   steering was CORRECT but sideways steering was BACKWARDS —
+   in both sideways holds. Portrait is the control case: at
+   angle 0 the native term vanishes, so a fault isolated to
+   exactly the two landscapes is a fault in the native term's
+   sense. Negating it flips the projection at 90/270 (sin is
+   odd about those quarter turns) and leaves 0/180 untouched.
+   Equivalently: on his phone the reported angle grows
+   counterclockwise relative to the pairing the spec-derived
+   model assumed — clockwise grip reports 270, counterclockwise
+   grip reports 90. The forced term keeps its sign: the CSS
+   force-rotate turns the CONTENT, and rotate(+90deg) (content
+   clockwise on screen) is viewed upright from the
+   counterclockwise grip, so it subtracts — that sense is
+   spec-fixed, and no forced frame was ever reported inverted.
+   RESIDUAL CAVEAT: a different browser whose angle follows
+   the opposite convention would invert native landscape
+   there; the TILT CHECK panel on the title screen is the
+   instrument that would show it — its β/γ, reported angle and
+   projected steer name the convention outright.
    The original table folded both into one sum and hard-coded
-   which device axis each quarter-turn meant; the native
-   landscape pairing came out backwards — and the first
-   headless checks shared the same assumed pairing, so they
-   passed while his phone steered inverted. The checks now
-   synthesise events from physical postures (grip, back-tilt,
-   roll) through the W3C gravity relations and pair the stubbed
-   angle from the owner's device; they fail on the pre-fix
-   build in exactly the two native landscape frames.
+   which device axis each quarter-turn meant — and the first
+   headless checks shared its assumed pairing, which is why
+   they kept passing while his phone steered inverted: the
+   pairing itself was the bug's hiding place, twice over. The
+   checks now synthesise events from physical postures (grip,
+   back-tilt, roll) through the W3C gravity relations and pair
+   the stubbed angle from the owner's device (clockwise grip
+   270, counterclockwise grip 90); reverting the negation in
+   tiltFrameAngle makes exactly those two native landscape
+   direction checks fail — the negative proof, run and
+   recorded 2026-10-29.
    Calibration captures the PROJECTED value itself (frame-true
    by construction), and the deadzone/curve pipeline below runs
    on the difference of arcsines — the effective roll in
@@ -3521,6 +3540,15 @@ function tiltFrameAngle() {
        same convention */
     a = -window.orientation;
   }
+  /* DEVICE-PINNED SIGN (2026-10-29): the native term enters
+     the projection NEGATED. With the +angle form, the owner's
+     Android Chrome steered correctly in portrait but backwards
+     in BOTH native landscapes — three consistent reports on
+     the projection build (see FRAME MATH above). The fallback
+     above has already folded window.orientation into the
+     screen.orientation convention, so this one negation
+     covers both sources. */
+  a = -a;
   /* the CSS force-rotate turns the CONTENT, opposite in sense
      to the device rotation the native angle reports — it
      SUBTRACTS (see FRAME MATH above) */
