@@ -704,6 +704,18 @@ const LUNC_SHOT_DIST_M = 400;  /* standard (LUNC) tokens shoot back past here */
 const LUNC_SHOT_T = 3.4;       /* seconds between a standard token's shots */
 const LUNC_SHOT_SPEED = 170;   /* straight down its column, slow */
 const MAX_FOE_SHOTS = 10;      /* hard cap on live enemy projectiles */
+/* ================= fx pass: neon juice, capped pools =================
+   The blaster treatment, one notch up — every effect below lives in
+   a capped pool, and the caps ARE the perf budget on a mid-range
+   phone: the suites assert the pools never exceed them. All fx
+   state runs on real time (updateFx), never the world clock. */
+const FX_PART_MAX = 320;       /* particle pool ceiling — burst() and sparks() share it */
+const FX_POPUP_MAX = 24;       /* floating-text ceiling */
+const BLOOM_MAX = 10;          /* live radial bloom flashes */
+const BLOOM_T = 0.28;          /* bloom life, s */
+const POP_MAX = 24;            /* live kill-pop ghosts */
+const POP_T = 0.18;            /* kill-pop life, s */
+const GRID_FLASH_T = 0.35;     /* grid flash life after a big event (boss death, mine chain) */
 const WHALE_CHARGE_SPEED = 560;
 const LEVEL_LEN = 1800;        /* metres per level — the Vault waits at each level's end */
 const BOSS_HP = 60, BOSS_HP_STEP = 30, BOSS_R = 56;
@@ -1836,6 +1848,8 @@ let tokens = [], bullets = [], debris = [], powerups = [], bossBullets = [];
 let foeShots = [];             /* Upgrade #2: enemy projectiles (raider + LUNC return fire) */
 let blasts = [];               /* Upgrade #2: mine explosion rings (fx) */
 let parts = [], popups = [];
+let blooms = [], pops = [];    /* fx pass: radial bloom flashes + kill-pop ghosts */
+let gridFlashT = 0;            /* fx pass: grid flash timer after a big event */
 let boss = null, bossWarn = 0, bossCount = 0, bossKills = 0;
 let level = 1, levelStartPx = 0, levelCompleteT = 0, levelIntroT = 0;
 let milestones = 0, nextMile = MILE_EVERY;
@@ -2218,7 +2232,7 @@ for (let i = 0; i < 90; i++)
 /* ================= fx ================= */
 function popup(x, y, text, color){
   popups.push({ x, y, text, color: color || '#fff', t: 0, life: 0.9 });
-  if (popups.length > 24) popups.shift();
+  if (popups.length > FX_POPUP_MAX) popups.shift();
 }
 function burst(x, y, n, color, spd){
   for (let i = 0; i < n; i++){
@@ -2226,8 +2240,55 @@ function burst(x, y, n, color, spd){
     parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 40,
       t: 0, life: 0.35 + mr() * 0.4, color, r: 1.6 + mr() * 2.4 });
   }
-  if (parts.length > 320) parts.splice(0, parts.length - 320);
+  if (parts.length > FX_PART_MAX) parts.splice(0, parts.length - FX_PART_MAX);
 }
+/* impact sparks: the short-lived neon grit a landed hit throws off —
+   same particle pool (and cap) as burst(), tighter life and radius */
+function sparks(x, y, n, color){
+  for (let i = 0; i < n; i++){
+    const a = mr() * Math.PI * 2, v = 200 + mr() * 260;
+    parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v,
+      t: 0, life: 0.14 + mr() * 0.14, color, r: 1.1 + mr() * 1.4 });
+  }
+  if (parts.length > FX_PART_MAX) parts.splice(0, parts.length - FX_PART_MAX);
+}
+/* bloom flashes: a white-hot heart falling off into colour, drawn
+   from pre-rendered radial sprites (one per colour family, made
+   once) — a kill never allocates in the frame it lands */
+let bloomSprites = null;
+function ensureBloomSprites(){
+  if (bloomSprites) return;
+  const mk = fall => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d');
+    const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gr.addColorStop(0, 'rgba(255,255,255,0.95)');
+    gr.addColorStop(0.25, fall);
+    gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+    return c;
+  };
+  bloomSprites = {
+    white: mk('rgba(255,255,255,0.55)'),
+    green: mk('rgba(76,237,75,0.50)'),
+    amber: mk('rgba(255,177,78,0.55)'),
+    red:   mk('rgba(255,107,107,0.50)'),
+    gold:  mk('rgba(255,215,106,0.55)'),
+  };
+}
+function bloom(x, y, r, kind){
+  blooms.push({ x, y, r, t: 0, kind: kind || 'white' });
+  if (blooms.length > BLOOM_MAX) blooms.shift();
+}
+/* the kill pop: the dead thing flashes and swells for one beat
+   where it died, before the debris takes over */
+function pop(x, y, r, color){
+  pops.push({ x, y, r, t: 0, color });
+  if (pops.length > POP_MAX) pops.shift();
+}
+/* a big event (boss death, a mine chain) flashes the grid once */
+function gridFlash(){ gridFlashT = GRID_FLASH_T; }
 function showToast(text){
   lastToast = text;
   const el = $('toast');
@@ -2530,6 +2591,7 @@ function damageBossBullet(b){
     if (d < BOSS_R + 4){
       boss.hp -= (b.dmg || 1);
       burst(b.x, b.y, 3, RED_HI, 120);
+      sparks(b.x, b.y, 3, RED_HI);
       if (boss.hp <= 0) killBoss();
       return true;
     }
@@ -2547,6 +2609,7 @@ function damageBossBullet(b){
       if (rel <= cover){
         s.hp -= (b.dmg || 1);
         burst(b.x, b.y, 4, '#b8ffd6', 130);
+        sparks(b.x, b.y, 3, '#b8ffd6');
         if (s.hp <= 0) { burst(boss.x + dx * 1.15, boss.y + dy * 1.15, 14, GREEN_HI, 220); shake(4, 0.18); tone(300, 80, 0.14, 'sawtooth', 0.05); }
         return true;
       }
@@ -2555,6 +2618,7 @@ function damageBossBullet(b){
   if (d < BOSS_R){
     boss.hp -= (b.dmg || 1);
     burst(b.x, b.y, 3, GREEN_HI, 120);
+    sparks(b.x, b.y, 3, GREEN_HI);
     afterBossHpChange();
     if (boss.hp <= 0) killBoss();
     return true;
@@ -2573,6 +2637,11 @@ function killBoss(){
   popup(bx, by, '+' + bossPts + (kind === 'whale' ? ' WHALE DOWN!' : ' VAULT CRACKED!'), '#ffd76a');
   burst(bx, by, 46, kind === 'whale' ? RED_HI : GREEN_HI, 300);
   burst(bx, by, 26, '#ffffff', 210);
+  /* fx pass: a boss death is a big event — the biggest single bloom
+     on the field and a flash through the grid */
+  pop(bx, by, BOSS_R, '#ffd76a');
+  bloom(bx, by, BOSS_R * 2.6, kind === 'whale' ? 'red' : 'gold');
+  gridFlash();
   shake(9, 0.4);
   sfxKill();
   sfxLevel();
@@ -2626,6 +2695,11 @@ function killToken(t, byRam){
   if (mission){ if (t.type === 'rug') missionRugs++; if (t.type === 'armored') missionArm++; }
   burst(t.x, t.y, t.type === 'armored' ? 22 : 13, t.type === 'rug' ? RED_HI : GREEN_HI, 230);
   burst(t.x, t.y, 4, '#ffffff', 300);   /* a white-hot heart to every kill — the blaster's punch */
+  /* fx pass: the kill pops and blooms where it died, scaled by the body */
+  pop(t.x, t.y, t.r, t.type === 'rug' ? RED_HI : (t.type === 'gold' ? '#ffd76a' : GREEN_HI));
+  bloom(t.x, t.y, t.r * ((t.type === 'armored' || t.type === 'carrier') ? 2.8 : 2.2),
+        t.type === 'rug' ? 'red' : (t.type === 'gold' ? 'gold' : 'green'));
+  sparks(t.x, t.y, 5, t.type === 'rug' ? RED_HI : GREEN_HI);
   if (!byRam){
     chainKill();
     const pts = KILL_SCORE[t.type] * combo * (feverT > 0 ? 2 : 1);
@@ -2693,6 +2767,7 @@ function detonateMine(t){
   blasts.push({ x: t.x, y: t.y, t: 0 });
   burst(t.x, t.y, 26, '#ffb14e', 300);
   burst(t.x, t.y, 14, RED_HI, 220);
+  bloom(t.x, t.y, MINE_BLAST_R * 1.2, 'amber');   /* fx pass: the blast blooms at its heart */
   shake(4, 0.25);
   tone(110, 38, 0.3, 'sawtooth', 0.09); noiseBurst(0.22, 0.12);
   if (state === 'play' && Math.hypot(t.x - ship.x, t.y - ship.y) <= MINE_BLAST_R)
@@ -2705,6 +2780,9 @@ function detonateMine(t){
     else if (u.type === 'ghost' && !u.solid) continue;   /* phased out: the blast passes through it, like a bolt */
     else killToken(u, false);
   }
+  /* fx pass: a chain is the biggest event in the sky — a second,
+     larger bloom over the first and a flash through the grid */
+  if (chained > 0){ bloom(t.x, t.y, MINE_BLAST_R * 1.7, 'amber'); gridFlash(); }
 }
 function leakToken(t){
   t.dead = true;
@@ -3160,6 +3238,11 @@ function updateFx(dt, wdt){
   foeShots = foeShots.filter(b => !b.dead && b.x > -20 && b.x < W + 20 && b.y > -20 && b.y < LH + 20);
   for (const bl of blasts) bl.t += dt;
   blasts = blasts.filter(bl => bl.t < 0.38);
+  for (const bm of blooms) bm.t += dt;
+  blooms = blooms.filter(bm => bm.t < BLOOM_T);
+  for (const kp of pops) kp.t += dt;
+  pops = pops.filter(kp => kp.t < POP_T);
+  if (gridFlashT > 0) gridFlashT = Math.max(0, gridFlashT - dt);
   if (shakeT > 0){ shakeT -= dt; if (shakeT <= 0) shakeMag = 0; }
   if (toastT > 0){ toastT -= dt; if (toastT <= 0) $('toast').style.opacity = 0; }
   if (flashT > 0) flashT = Math.max(0, flashT - dt);
@@ -3185,7 +3268,7 @@ function collide(){
            A piercing blast punches through instead of being eaten. */
         d.hp -= (b.dmg || 1);
         if (d.hp <= 0){ d.dead = true; burst(d.x, d.y, 6, '#9fb8a8', 130); }
-        else burst(b.x, b.y, 2, '#9fb8a8', 90);
+        else { burst(b.x, b.y, 2, '#9fb8a8', 90); sparks(b.x, b.y, 2, '#cfe8d8'); }
         if (!b.pierce) consumed = true;
         break;
       }
@@ -3205,11 +3288,12 @@ function collide(){
              the killing, and whatever it catches scores for you */
           lightMine(t, MINE_FUSE_T);
           burst(b.x, b.y, 3, '#ffb14e', 110);
+          sparks(b.x, b.y, 2, '#ffb14e');
         } else {
           t.hp -= (b.dmg || 1);
           t.flashT = 0.08;
           if (t.hp <= 0) killToken(t, false);
-          else burst(b.x, b.y, 3, GREEN_HI, 110);
+          else { burst(b.x, b.y, 3, GREEN_HI, 110); sparks(b.x, b.y, 3, GREEN_HI); }
         }
         if (!b.pierce) break;
       }
@@ -3415,6 +3499,7 @@ function reset(){
   tokens = []; bullets = []; debris = []; powerups = []; bossBullets = [];
   foeShots = []; blasts = [];
   parts = []; popups = [];
+  blooms = []; pops = []; gridFlashT = 0;
   boss = null; bossWarn = 0; bossCount = 0; bossKills = 0;
   level = 1; levelStartPx = 0; levelCompleteT = 0; levelIntroT = 0;
   hullMax = 3 + curAdv().hullBonus;   /* NFT Lance+ frames start with extra hull */
@@ -4126,6 +4211,26 @@ function drawShip(){
     drawShipSprite(gh.x, gh.y);
     ctx.restore();
   }
+  /* fx pass: auras — Fever bathes the fighter in orange; a building
+     charge wraps it in its own accent, swelling as the blast charges,
+     so the glow-up reads before the shot lands */
+  if (state === 'play' && feverT > 0){
+    ctx.save();
+    ctx.globalAlpha = 0.20 + (REDUCED_MOTION ? 0 : 0.06 * Math.sin(animT * 10));
+    ctx.fillStyle = '#ff7a28';
+    ctx.shadowColor = '#ff7a28'; ctx.shadowBlur = 22;
+    ctx.beginPath(); ctx.arc(x, y, SHIP_R + 15, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+  if (state === 'play' && charging > 0.05){
+    const fracA = Math.min(1, charging / CHARGE_MAX);
+    ctx.save();
+    ctx.globalAlpha = 0.10 + fracA * 0.22;
+    ctx.fillStyle = skinAccent();
+    ctx.shadowColor = skinAccent(); ctx.shadowBlur = 14 + fracA * 14;
+    ctx.beginPath(); ctx.arc(x, y, SHIP_R + 8 + fracA * 10, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
   ctx.save();
   if (invulnT > 0 && Math.floor(invulnT * 14) % 2 === 0) ctx.globalAlpha = 0.35;
   /* engine exhaust — flickering blue streams under both thrusters */
@@ -4157,8 +4262,8 @@ function drawShip(){
   if (charging > 0.05 && state === 'play'){
     const frac = Math.min(1, charging / CHARGE_MAX);
     ctx.save();
-    ctx.globalAlpha = 0.35 + frac * 0.55;
-    ctx.shadowColor = '#ffd76a'; ctx.shadowBlur = 10 + frac * 16;
+    ctx.globalAlpha = 0.4 + frac * 0.6;
+    ctx.shadowColor = '#ffd76a'; ctx.shadowBlur = 12 + frac * 24;
     ctx.beginPath(); ctx.arc(x + GUN_DX, y + GUN_DY - 6, 3 + frac * 6, 0, Math.PI * 2);
     ctx.fillStyle = '#ffd76a'; ctx.fill();
     ctx.restore();
@@ -4316,14 +4421,22 @@ function draw(){
   }
   ctx.globalAlpha = 1;
   /* neon grid backdrop — a light borrow from the blaster genre (the
-     GAMEE/Luna Blaster language): a faint violet lattice scrolling
-     with the world, UNDER everything. Seasoning only — the level
-     tint and the OrbitWire greens stay dominant on top of it */
+     GAMEE/Luna Blaster language): a violet lattice scrolling with
+     the world, UNDER everything. The fx pass gives it more presence:
+     a stronger base, a slow breathing pulse, a sideways drift, and
+     a green flash on big events. Seasoning still — the level tint
+     and the OrbitWire greens stay dominant on top of it */
   ctx.save();
-  ctx.strokeStyle = 'rgba(150,90,255,0.055)'; ctx.lineWidth = 1;
+  const gPulse = REDUCED_MOTION ? 0 : Math.sin(animT * 0.9) * 0.012;
+  const gFlash = gridFlashT > 0 ? gridFlashT / GRID_FLASH_T : 0;
+  const gAlpha = 0.085 + gPulse + gFlash * 0.30;
+  ctx.strokeStyle = gFlash > 0
+    ? 'rgba(120,255,170,' + gAlpha.toFixed(3) + ')'
+    : 'rgba(150,90,255,' + gAlpha.toFixed(3) + ')';
+  ctx.lineWidth = 1;
   ctx.beginPath();
-  const GS = 52, goff = scrollPx % GS;
-  for (let x = GS / 2; x < W; x += GS){ ctx.moveTo(x, 0); ctx.lineTo(x, LH); }
+  const GS = 52, goff = scrollPx % GS, gxoff = (animT * 5) % GS;
+  for (let x = GS / 2 - gxoff; x < W; x += GS){ ctx.moveTo(x, 0); ctx.lineTo(x, LH); }
   for (let y = goff - GS; y < LH; y += GS){ ctx.moveTo(0, y); ctx.lineTo(W, y); }
   ctx.stroke();
   ctx.restore();
@@ -4372,6 +4485,20 @@ function draw(){
   }
   for (const t of tokens) drawToken(t);
   drawBoss();
+  /* fx pass: kill pops — the dead flash white and swell for one
+     beat where they died, ringed in their own colour */
+  for (const kp of pops){
+    const pp = kp.t / POP_T;
+    ctx.save();
+    ctx.globalAlpha = (1 - pp) * 0.55;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(kp.x, kp.y, kp.r * (0.7 + 0.3 * pp), 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = (1 - pp) * 0.9;
+    ctx.strokeStyle = kp.color; ctx.lineWidth = 2.5;
+    ctx.shadowColor = kp.color; ctx.shadowBlur = 10;
+    ctx.beginPath(); ctx.arc(kp.x, kp.y, kp.r * (1 + 0.45 * pp), 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
   for (const b of bossBullets){
     ctx.save();
     ctx.fillStyle = RED_HI;
@@ -4379,12 +4506,17 @@ function draw(){
     ctx.beginPath(); ctx.arc(b.x, b.y, 5, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   }
-  /* Upgrade #2: enemy fire — violet orbs, visibly NOT Vault red */
+  /* Upgrade #2: enemy fire — violet orbs, visibly NOT Vault red.
+     fx pass: a hot pink core with a white-hot heart, so danger
+     reads instantly against the green field */
   for (const b of foeShots){
     ctx.save();
-    ctx.fillStyle = '#e08aff';
-    ctx.shadowColor = '#b45cff'; ctx.shadowBlur = 10;
+    ctx.fillStyle = '#ff8df7';
+    ctx.shadowColor = '#ff4fd8'; ctx.shadowBlur = 14;
     ctx.beginPath(); ctx.arc(b.x, b.y, 4.5, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(b.x, b.y, 1.9, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   }
   /* Upgrade #2: mine blasts — an expanding amber ring out to the
@@ -4405,6 +4537,19 @@ function draw(){
     ctx.beginPath(); ctx.arc(bl.x, bl.y, MINE_BLAST_R * (0.25 + 0.75 * p), 0, Math.PI * 2); ctx.stroke();
     ctx.restore();
   }
+  /* fx pass: bloom flashes — pre-rendered radial sprites blitted
+     additively, swelling and fading over BLOOM_T; the biggest
+     flash on the field belongs to mine chains and boss deaths */
+  ensureBloomSprites();
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const bm of blooms){
+    const bp = bm.t / BLOOM_T, rr = bm.r * (0.55 + 0.45 * bp);
+    ctx.globalAlpha = (1 - bp) * 0.85;
+    const img = bloomSprites[bm.kind] || bloomSprites.white;
+    ctx.drawImage(img, bm.x - rr, bm.y - rr, rr * 2, rr * 2);
+  }
+  ctx.restore();
   ensureBulletSprites();
   const feverGlow = feverT > 0;
   for (const b of bullets){
@@ -4415,8 +4560,15 @@ function draw(){
     ctx.translate(b.x, b.y);
     ctx.rotate(Math.atan2(b.vy, b.vx) + Math.PI / 2);
     /* neon tracer halo on every bolt (fever burns brighter) — the
-       blaster's glow language on the crystal streams */
-    ctx.shadowColor = '#57b6ff'; ctx.shadowBlur = feverGlow ? 13 : 7;
+       blaster's glow language on the crystal streams. fx pass: a
+       brighter core, and a two-step ghost trail behind each bolt
+       (in local space +y is backwards along the flight path) */
+    ctx.shadowColor = '#57b6ff'; ctx.shadowBlur = feverGlow ? 17 : 10;
+    ctx.globalAlpha = 0.13;
+    ctx.drawImage(spr.img, -spr.w * sc * 0.62 / 2, 19 - spr.h * sc * 0.62 / 2, spr.w * sc * 0.62, spr.h * sc * 0.62);
+    ctx.globalAlpha = 0.28;
+    ctx.drawImage(spr.img, -spr.w * sc * 0.8 / 2, 10 - spr.h * sc * 0.8 / 2, spr.w * sc * 0.8, spr.h * sc * 0.8);
+    ctx.globalAlpha = 1;
     ctx.drawImage(spr.img, -spr.w * sc / 2, -spr.h * sc / 2, spr.w * sc, spr.h * sc);
     ctx.restore();
   }
@@ -4435,7 +4587,9 @@ function draw(){
     ctx.globalAlpha = clamp(1 - p.t / p.life, 0, 1);
     ctx.font = '900 15px system-ui, sans-serif';
     ctx.fillStyle = p.color;
-    ctx.shadowColor = 'rgba(0,0,0,.8)'; ctx.shadowBlur = 6;
+    /* fx pass: the floating numbers glow in their own neon colour
+       (the genre floats its numbers lit, not shadowed) */
+    ctx.shadowColor = p.color; ctx.shadowBlur = 9;
     ctx.fillText(p.text, p.x, p.y);
     ctx.restore();
   }
@@ -4514,6 +4668,21 @@ function draw(){
     ctx.fillRect(0, 0, W, LH);
     ctx.restore();
   }
+  /* fx pass: the neon cabinet frame — the blaster's electric border
+     in OrbitWire green: a bright hairline inside a breathing glow.
+     Drawn late so it edges everything the field holds; the rug
+     warnings and the low-hull vignette still paint over it */
+  ctx.save();
+  const fPulse = REDUCED_MOTION ? 0.5 : 0.5 + 0.5 * Math.sin(animT * 1.6);
+  ctx.globalAlpha = 0.55 + 0.3 * fPulse;
+  ctx.strokeStyle = GREEN; ctx.lineWidth = 2;
+  ctx.shadowColor = GREEN_HI; ctx.shadowBlur = 8 + 8 * fPulse;
+  ctx.strokeRect(2, 2, W - 4, LH - 4);
+  ctx.globalAlpha = 0.9;
+  ctx.shadowBlur = 0; ctx.lineWidth = 1;
+  ctx.strokeStyle = '#baffd2';
+  ctx.strokeRect(4.5, 4.5, W - 9, LH - 9);
+  ctx.restore();
   /* rug dive warnings: a flashing bar on the edge each warning rug
      is about to dive from */
   if (state === 'play'){
@@ -4891,6 +5060,7 @@ window.OD = {
         pending: pendingBuy ? { ...pendingBuy } : null, justTier: buyJustTier, mode: walletMode },
       tokenCount: aliveTokens(), bulletCount: bullets.length,
       foeShotCount: foeShots.length,
+      fx: { parts: parts.length, popups: popups.length, blooms: blooms.length, pops: pops.length, gridFlashT },
       follow: { held: pointerHeld, active: followActive, x: followX, y: followY, px: targetX, py: targetY, vx: shipVx, vy: shipVy, off: TOUCH_OFFSET_Y } };
   },
   constants: { W, COLS, MAX_ALIVE, KILL_SCORE, TOKEN_R, TOKEN_HP, LEVEL_LEN, BOSS_HP,
@@ -4902,6 +5072,7 @@ window.OD = {
     MINE_DIST_M, MINE_WAVE_P, MINE_FUSE_T, MINE_BLAST_R, MINE_PROX_R, MINE_CHAIN_T, MINE_CHAIN_STEP,
     RAIDER_DIST_M, RAIDER_WAVE_P, RAIDER_FIRE_T, RAIDER_WINDUP_T, RAIDER_SHOT_SPEED,
     LUNC_SHOT_DIST_M, LUNC_SHOT_T, LUNC_SHOT_SPEED, MAX_FOE_SHOTS,
+    FX_PART_MAX, FX_POPUP_MAX, BLOOM_MAX, BLOOM_T, POP_MAX, POP_T, GRID_FLASH_T,
     TOUCH_OFFSET_Y, FOLLOW_TAU, SHIP_EASE_T,
     get LH(){ return LH; }, get POOL_Y(){ return poolY(); }, get HOME_Y(){ return homeY(); } },
 };
