@@ -351,6 +351,14 @@
   #steerToggle { pointer-events: auto; cursor: pointer; font-family: inherit; font-size: 11.5px; font-weight: 800; letter-spacing: 1.2px; color: #cfe1ff;
     background: rgba(5,13,30,0.66); border: 1px solid rgba(110,175,255,0.45); border-radius: 999px; padding: 7px 11px; }
   #steerToggle.on { color: #081226; background: linear-gradient(180deg, #ffe98a, #e9b83a); border-color: #ffe98a; }
+  /* live tilt diagnostic readout under the steering pill (title screen only, instrumentation) */
+  #tiltDiag { pointer-events: none; margin: 7px auto 0; max-width: 440px; padding: 6px 10px 8px; text-align: center;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; letter-spacing: 0.4px;
+    color: #9fc2ee; background: rgba(5,13,30,0.55); border: 1px solid rgba(110,175,255,0.28); border-radius: 8px; }
+  #tiltDiagVals { margin-top: 2px; }
+  #tiltDiagBar { position: relative; height: 10px; margin-top: 5px; background: rgba(110,175,255,0.14); border-radius: 5px; }
+  #tiltDiagTick { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: rgba(207,225,255,0.65); }
+  #tiltDiagMark { position: absolute; top: 1px; bottom: 1px; width: 10px; margin-left: -5px; left: 50%; border-radius: 4px; background: #ffd75e; }
   .cmpDot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
   /* podium header on the finish card */
   #podiumHead { display: none; font-size: 21px; font-weight: 900; letter-spacing: 2px; color: #ffd75e;
@@ -504,6 +512,11 @@
     </div>
     <div id="steerRow">
       <button class="pillBtn" id="steerToggle">STEERING: TOUCH</button>
+    </div>
+    <div id="tiltDiag">
+      <div id="tiltDiagHead">TILT CHECK — lean the phone; the bar should follow your lean. · gyro diag v1</div>
+      <div id="tiltDiagVals">β — · γ — · angle — · flip natural · mode TOUCH · steer —</div>
+      <div id="tiltDiagBar"><div id="tiltDiagTick"></div><div id="tiltDiagMark"></div></div>
     </div>
     <div id="titleBest"></div>
     <div id="pilotRow"><label for="pilotName">PILOT</label><input id="pilotName" maxlength="20" placeholder="YOUR NAME" autocomplete="off"></div>
@@ -710,6 +723,7 @@ var el = {
   sectorLine: $('sectorLine'), deltaLine: $('deltaLine'), fastestBanner: $('fastestBanner'),
   cmpSoft: $('cmpSoft'), cmpMedium: $('cmpMedium'), cmpHard: $('cmpHard'),
   steerToggle: $('steerToggle'),
+  tiltDiag: $('tiltDiag'), tiltDiagHead: $('tiltDiagHead'), tiltDiagVals: $('tiltDiagVals'), tiltDiagMark: $('tiltDiagMark'),
   podiumHead: $('podiumHead'), stageCaption: $('stageCaption'),
   raceMsg: $('raceMsg'), pausedTag: $('pausedTag'), rotateHint: $('rotateHint'),
   btnL: $('btnL'), btnR: $('btnR'), btnBrake: $('btnBrake'), btnBoost: $('btnBoost'),
@@ -3653,6 +3667,80 @@ window.addEventListener('deviceorientation', function (e) {
 tilt.mode = (storeGet(TILT_KEY) === 'tilt') ? 'tilt' : 'touch';
 tiltRefreshToggle();
 if (tilt.mode === 'tilt') { tilt.awaiting = true; tiltArmWatch(); }
+
+/* ================= tilt diagnostic (instrumentation only) ====
+   A live readout under the STEERING pill, title screen only,
+   added 2026-10-29 to settle the tilt-direction dispute with
+   EMPIRICAL data from the owner's phone instead of inference —
+   two builds with opposite conventions each looked right from
+   the desk, so the phone itself now testifies. The panel shows
+   beta/gamma as received, the orientation angle/type the page
+   sees, the flip state, and the projected steer (the same
+   gravity projection the steering pipeline consumes, BEFORE
+   calibration and curve) as a number and a sliding bar. The
+   owner leans, screenshots, and the bar either follows the lean
+   or it doesn't — and the build tag in the header proves which
+   build his phone is actually running (cache witness).
+
+   INSTRUMENTATION ONLY: a separate display listener keeps its
+   own latest reading (tiltDiag.raw) so values also flow in
+   TOUCH mode, where the steering handler deliberately ignores
+   the sensor. Nothing here writes tilt.*, flipState or any
+   steering state. In TILT mode the panel shows tiltProjection()
+   itself — the pipeline's own value; the mirror computation
+   below only stands in for TOUCH mode. The panel is
+   pointer-events:none, so a tap where it sits is the same
+   backdrop tap it was before the panel existed. */
+var tiltDiag = { raw: null, timer: null };
+window.addEventListener('deviceorientation', function (e) {
+  if (!e || typeof e.beta !== 'number' || typeof e.gamma !== 'number') return;
+  if (!isFinite(e.beta) || !isFinite(e.gamma)) return;
+  tiltDiag.raw = { beta: e.beta, gamma: e.gamma };
+});
+function tiltDiagProjectionFor(raw) {
+  /* tiltProjection()'s math, from a caller-supplied reading */
+  if (!raw) return null;
+  var b = raw.beta * Math.PI / 180, g = raw.gamma * Math.PI / 180;
+  var gx = Math.sin(g) * Math.cos(b), gy = -Math.sin(b);
+  var th = tiltFrameAngle() * Math.PI / 180;
+  var p = gx * Math.cos(th) + gy * Math.sin(th);
+  return Math.max(-1, Math.min(1, p));
+}
+function tiltDiagProj() {
+  /* TILT mode: the pipeline's own projected value (its
+     EMA-filtered reading). TOUCH mode: the same projection from
+     the diagnostic mirror, so postures can be tested on the
+     title screen without enabling steering. */
+  if (tilt.raw) return tiltProjection();
+  return tiltDiagProjectionFor(tiltDiag.raw);
+}
+function tiltDiagFlipLabel() {
+  if (flipState.mode === 'forced') return flipState.forceDir === -1 ? 'forced B' : 'forced A';
+  return flipState.mode;   /* 'natural' | 'native' */
+}
+function tiltDiagUpdate() {
+  if (!el.tiltDiag) return;
+  var vis = G.phase === 'title'
+    && !(el.shopSheet && el.shopSheet.classList.contains('on'))
+    && !(el.garageSheet && el.garageSheet.classList.contains('on'));
+  el.tiltDiag.style.display = vis ? '' : 'none';
+  if (!vis) return;
+  var r = tiltDiag.raw, so = flipOrientation();
+  var ang = (so && typeof so.angle === 'number' && isFinite(so.angle)) ? String(Math.round(so.angle)) : '—';
+  var typ = (so && so.type) ? String(so.type) : '—';
+  var p = tiltDiagProj();
+  var txt = 'β ' + (r ? r.beta.toFixed(1) : '—') + ' · γ ' + (r ? r.gamma.toFixed(1) : '—')
+    + ' · angle ' + ang + ' ' + typ
+    + ' · flip ' + tiltDiagFlipLabel() + (flipState.mode === 'forced' ? ' dir ' + (flipState.forceDir || 1) : '')
+    + ' · mode ' + tilt.mode.toUpperCase()
+    + ' · steer ' + (p === null ? '—' : (p < 0 ? '' : '+') + p.toFixed(2));
+  if (el.tiltDiagVals && el.tiltDiagVals.textContent !== txt) el.tiltDiagVals.textContent = txt;
+  if (el.tiltDiagMark) el.tiltDiagMark.style.left = ((p === null ? 0 : p) + 1) * 50 + '%';
+}
+if (el.tiltDiagHead) el.tiltDiagHead.textContent = 'TILT CHECK — lean the phone; the bar should follow your lean. · gyro diag v1';
+function tiltDiagTick() { tiltDiagUpdate(); tiltDiag.timer = setTimeout(tiltDiagTick, 100); }
+tiltDiag.timer = setTimeout(tiltDiagTick, 100);
+
 el.btnCam.addEventListener('click', function () { audioInit(); toggleCam(); });
 el.btnPause.addEventListener('click', function () { audioInit(); togglePause(); });
 el.btnMute.addEventListener('click', function () { setMuted(!audio.muted); audioInit(); });
@@ -4446,7 +4534,13 @@ window.MR_DIAMOND_3D_TEST = {
       frame: tiltFrameAngle(), proj: +tiltProjection().toFixed(4),
       center: tilt.center, raw: tilt.raw,
       label: el.steerToggle ? el.steerToggle.textContent : '' }; },
-    sensorTimeout: function () { tiltSensorTimeout(); }
+    sensorTimeout: function () { tiltSensorTimeout(); },
+    diag: function () { tiltDiagUpdate(); return { present: !!el.tiltDiag,
+      head: el.tiltDiagHead ? el.tiltDiagHead.textContent : '',
+      text: el.tiltDiagVals ? el.tiltDiagVals.textContent : '',
+      display: el.tiltDiag ? el.tiltDiag.style.display : '',
+      markLeft: el.tiltDiagMark ? el.tiltDiagMark.style.left : '',
+      raw: tiltDiag.raw, proj: tiltDiagProj(), flip: tiltDiagFlipLabel(), mode: tilt.mode }; }
   },
   live: {
     relayUrl: function () { return RELAY_URL; },
