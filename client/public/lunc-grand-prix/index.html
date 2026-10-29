@@ -1922,11 +1922,19 @@ function buildCar(paintHex, isPlayer, livery) {
   var B = THREE.BoxGeometry, C = THREE.CylinderGeometry;
   var stripeMatsArr = [];
   var wingDecalMeshes = [], tireSideMats = [], brakeMatsAll = [];
-  /* floor + diffuser (with the strake fences the references show) */
-  add(new B(1.86, 0.07, 4.7), MAT.carbon, 0, 0.075, -0.1);
-  add(new B(1.5, 0.15, 0.72), MAT.carbon, 0, 0.15, -2.32, 1, 1, 1, 0.16);
+  /* floor + diffuser (with the strake fences the references show).
+     REAR TREATMENT (2026-10-29, owner's call): the floor used to run
+     4.7 long and stuck out behind the rear tyres as a flat board —
+     the display-stand slab he had already struck from the NFT
+     posters. The floor now ends at the rear-tyre line (z -2.00) and
+     a shorter diffuser exiting at the rear-wing line (z ~-2.43) is
+     the car's rear termination, as on the real cars in his
+     reference grid; its front tucks over the floor's end, so the
+     underside stays continuous — no hole, no floating rear. */
+  var floorMesh = add(new B(1.86, 0.07, 4.25), MAT.carbon, 0, 0.075, 0.125);
+  var diffuserMesh = add(new B(1.5, 0.15, 0.52), MAT.carbon, 0, 0.15, -2.16, 1, 1, 1, 0.16);
   [-0.32, 0, 0.32].forEach(function (sx) {
-    add(new B(0.03, 0.17, 0.62), MAT.carbon, sx, 0.13, -2.38, 1, 1, 1, 0.16);
+    add(new B(0.03, 0.17, 0.46), MAT.carbon, sx, 0.13, -2.16, 1, 1, 1, 0.16);
   });
   /* nose: tapered cone + base blend */
   var nose = add(GEO.nose, paint, 0, 0.31, 1.55); nose.scale.set(1, 0.58, 1);
@@ -2033,7 +2041,7 @@ function buildCar(paintHex, isPlayer, livery) {
     ep.position.set(s * 0.57, 1.07, -2.2); body.add(ep);
     add(new B(0.05, 0.3, 0.08), accentMat || MAT.carbon, s * 0.12, 0.9, -2.16);
   });
-  var rainLight = add(new B(0.16, 0.05, 0.03), MAT.redLight, 0, 0.44, -2.52);
+  var rainLight = add(new B(0.16, 0.05, 0.03), MAT.redLight, 0, 0.44, -2.47);
   [-1, 1].forEach(function (s) {
     var ex = add(new C(0.045, 0.045, 0.18, 8), MAT.steel, s * 0.09, 0.53, -2.42); ex.rotation.x = Math.PI / 2;
   });
@@ -2076,7 +2084,8 @@ function buildCar(paintHex, isPlayer, livery) {
     helmet: helmet, torso: torso, steerWheel: null, dashCtx: null, dashTex: null, leds: [],
     paintMeshes: [], coverMesh: null, sideMeshes: [], stripeMats: stripeMatsArr,
     noseMeshes: [noseDecal], wingDecalMeshes: wingDecalMeshes, wingSideMats: wingSideMats,
-    tireSideMats: tireSideMats, brakeMats: brakeMatsAll, drsFlap: drsFlap, rainLight: rainLight };
+    tireSideMats: tireSideMats, brakeMats: brakeMatsAll, drsFlap: drsFlap, rainLight: rainLight,
+    floorMesh: floorMesh, diffuserMesh: diffuserMesh };
   g.traverse(function (o) {
     if (o.isMesh) {
       if (o.material === paint) refs.paintMeshes.push(o);
@@ -4433,6 +4442,56 @@ window.MR_DIAMOND_3D_TEST = {
       return { spinChildren: spinKids, bodyChildren: bodyKids,
         hasDrsFlap: !!(player && player.refs.drsFlap), hasRainLight: !!(player && player.refs.rainLight),
         brakeMats: player ? player.refs.brakeMats.length : 0 };
+    },
+    /* REAR TREATMENT probe (2026-10-29): every visible mesh of the
+       player car's body group measured in BODY-LOCAL space via the
+       same matrixWorld chain the renderer draws with — so these are
+       the rendered extents, not source numbers. rearMost = the most
+       rearward (min z) point of any body mesh, exhaust flames
+       excluded (transient boost FX, not structure). boardRear = the
+       rear edge of the most rearward WIDE FLAT mesh (w >= 1.5,
+       h <= 0.1 — a board profile: the floor, the front wing);
+       floor/diffuser give the tagged parts' full local boxes. */
+    rear: function () {
+      if (!player || !player.refs || !player.refs.body) return null;
+      var R = player.refs, body = R.body;
+      body.updateMatrixWorld(true);
+      var inv = new THREE.Matrix4().copy(body.matrixWorld).invert();
+      var tmp = new THREE.Vector3();
+      function localBox(mesh) {
+        var geo = mesh.geometry; if (!geo) return null;
+        if (!geo.boundingBox) geo.computeBoundingBox();
+        var bb = geo.boundingBox;
+        var mn = { x: Infinity, y: Infinity, z: Infinity }, mx = { x: -Infinity, y: -Infinity, z: -Infinity };
+        for (var i = 0; i < 8; i++) {
+          tmp.set((i & 1) ? bb.max.x : bb.min.x, (i & 2) ? bb.max.y : bb.min.y, (i & 4) ? bb.max.z : bb.min.z);
+          tmp.applyMatrix4(mesh.matrixWorld).applyMatrix4(inv);
+          if (tmp.x < mn.x) mn.x = tmp.x; if (tmp.y < mn.y) mn.y = tmp.y; if (tmp.z < mn.z) mn.z = tmp.z;
+          if (tmp.x > mx.x) mx.x = tmp.x; if (tmp.y > mx.y) mx.y = tmp.y; if (tmp.z > mx.z) mx.z = tmp.z;
+        }
+        return { min: mn, max: mx };
+      }
+      function part(mesh) {
+        if (!mesh) return null;
+        var b = localBox(mesh); if (!b) return null;
+        return { rear: +b.min.z.toFixed(3), front: +b.max.z.toFixed(3),
+          bottom: +b.min.y.toFixed(3), top: +b.max.y.toFixed(3),
+          width: +(b.max.x - b.min.x).toFixed(3), height: +(b.max.y - b.min.y).toFixed(3) };
+      }
+      var flames = R.flames || [];
+      var rearMost = Infinity, boardRear = null;
+      body.traverse(function (o) {
+        if (!o.isMesh || !o.visible || flames.indexOf(o) >= 0) return;
+        var b = localBox(o); if (!b) return;
+        if (b.min.z < rearMost) rearMost = b.min.z;
+        var w = b.max.x - b.min.x, h = b.max.y - b.min.y;
+        if (w >= 1.5 && h <= 0.1 && (boardRear === null || b.min.z < boardRear)) boardRear = b.min.z;
+      });
+      return { rearMost: isFinite(rearMost) ? +rearMost.toFixed(3) : null,
+        boardRear: boardRear === null ? null : +boardRear.toFixed(3),
+        floor: part(R.floorMesh), diffuser: part(R.diffuserMesh),
+        showroomOn: !!G.showroom, groupVisible: showroomGroup ? showroomGroup.visible : false,
+        glowInScene: !!showroomGlow, stageChildren: showroomGroup ? showroomGroup.children.length : 0 };
     },
     guardrail: function () {
       return { kit: SCENERY && SCENERY.kit ? SCENERY.kit.guardrailText || null : null,
