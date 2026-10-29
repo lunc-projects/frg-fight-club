@@ -1918,6 +1918,77 @@ var GEO_FIN = (function () {
   g.rotateY(-Math.PI / 2); g.translate(0.016, 0, 0);
   return g;
 })();
+/* airfoil wing element (REAR WING REWORK, 2026-10-29): a true
+   airfoil-section prism across the span — rounded leading edge,
+   tapered tail — with the tips raked back (sweep), lifted
+   (dihedral) and slightly shorter in chord, as on the real cars.
+   Replaces the flat box planes that read as slabs. Built per car
+   inside buildCar (disposed with the car); profile peak-to-peak
+   is 0.74 units, scaled to the requested max thickness. */
+function wingGeo(span, chord, thick, tipScale, sweep, dihedral) {
+  var prof = [[0, 0], [0.10, 0.34], [0.30, 0.50], [0.50, 0.46], [0.75, 0.28],
+    [1, 0.0], [0.75, -0.18], [0.50, -0.24], [0.30, -0.20], [0.10, -0.08]];
+  var tS = thick / 0.74, ring = prof.length;
+  var stations = [-1, 0, 1];
+  var verts = [], idx = [], i, j;
+  stations.forEach(function (t) {
+    var x = t * span / 2, ch = chord * (1 - (1 - tipScale) * Math.abs(t));
+    var zOff = -sweep * Math.abs(t), yOff = dihedral * Math.abs(t);
+    prof.forEach(function (p) {
+      verts.push(x, p[1] * tS + yOff, (0.5 - p[0]) * ch + zOff);
+    });
+  });
+  for (i = 0; i < stations.length - 1; i++) for (j = 0; j < ring; j++) {
+    var a = i * ring + j, b = i * ring + (j + 1) % ring, c2 = a + ring, d = b + ring;
+    idx.push(a, c2, b, b, c2, d);
+  }
+  [0, stations.length - 1].forEach(function (si, ei) {
+    var base = si * ring, cx = 0, cy = 0, cz = 0, j2;
+    for (j2 = 0; j2 < ring; j2++) { cx += verts[(base + j2) * 3]; cy += verts[(base + j2) * 3 + 1]; cz += verts[(base + j2) * 3 + 2]; }
+    var ci = verts.length / 3;
+    verts.push(cx / ring, cy / ring, cz / ring);
+    for (j2 = 0; j2 < ring; j2++) {
+      var a3 = base + j2, b3 = base + (j2 + 1) % ring;
+      if (ei === 0) idx.push(ci, a3, b3); else idx.push(ci, b3, a3);
+    }
+  });
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+/* shaped flat plate from a (z, y) side profile, extruded across
+   x and centered — the GEO_FIN construction generalized, for
+   the rear-wing endplates and pylons. */
+function plateGeo(pts, depth) {
+  var sh = new THREE.Shape();
+  pts.forEach(function (p, i) { if (i === 0) sh.moveTo(p[0], p[1]); else sh.lineTo(p[0], p[1]); });
+  sh.closePath();
+  var g = new THREE.ExtrudeGeometry(sh, { depth: depth, bevelEnabled: false });
+  g.rotateY(-Math.PI / 2); g.translate(depth / 2, 0, 0);
+  return g;
+}
+/* endplate texture mapping: ExtrudeGeometry hands the caps raw
+   shape coords as UVs; normalize the cap range (group 0) so the
+   wing art maps u: front(0) -> rear(1), v: bottom(0) -> top(1). */
+function normalizePlateUV(g, zRear, zFront, yBot, yTop) {
+  if (!g.attributes.uv) return;
+  var uv = g.attributes.uv;
+  var n = uv.count;
+  if (g.groups && g.groups.length && g.groups[0].count !== Infinity) {
+    n = Math.min(n, (g.groups[0].start || 0) + g.groups[0].count);
+  }
+  for (var i = 0; i < n; i++) {
+    uv.setXY(i, (zFront - uv.getX(i)) / (zFront - zRear), (uv.getY(i) - yBot) / (yTop - yBot));
+  }
+  uv.needsUpdate = true;
+}
+function flipGeoU(g) {
+  var uv = g.attributes.uv; if (!uv) return;
+  for (var i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i));
+  uv.needsUpdate = true;
+}
 var GEO = {
   tireF: new THREE.CylinderGeometry(0.355, 0.355, 0.37, 22).rotateZ(Math.PI / 2),
   tireR: new THREE.CylinderGeometry(0.375, 0.375, 0.43, 22).rotateZ(Math.PI / 2),
@@ -2036,19 +2107,32 @@ function buildCar(paintHex, isPlayer, livery) {
   var B = THREE.BoxGeometry, C = THREE.CylinderGeometry;
   var stripeMatsArr = [];
   var wingDecalMeshes = [], tireSideMats = [], brakeMatsAll = [];
-  /* floor + diffuser (with the strake fences the references show).
+  /* floor + rear underside.
      REAR TREATMENT (2026-10-29, owner's call): the floor used to run
      4.7 long and stuck out behind the rear tyres as a flat board —
      the display-stand slab he had already struck from the NFT
-     posters. The floor now ends at the rear-tyre line (z -2.00) and
-     a shorter diffuser exiting at the rear-wing line (z ~-2.43) is
-     the car's rear termination, as on the real cars in his
-     reference grid; its front tucks over the floor's end, so the
-     underside stays continuous — no hole, no floating rear. */
-  var floorMesh = add(new B(1.86, 0.07, 4.25), MAT.carbon, 0, 0.075, 0.125);
-  var diffuserMesh = add(new B(1.5, 0.15, 0.52), MAT.carbon, 0, 0.15, -2.16, 1, 1, 1, 0.16);
-  [-0.32, 0, 0.32].forEach(function (sx) {
-    add(new B(0.03, 0.17, 0.46), MAT.carbon, sx, 0.13, -2.16, 1, 1, 1, 0.16);
+     posters. It then ended at the rear-tyre line (z -2.00) with
+     a shorter diffuser exiting at the rear-wing line (z ~-2.43).
+     His clarification the same evening (below) opened the rear
+     underside up entirely: the floor now ends ahead of the rear
+     axle and only the spine + strakes sit behind it. */
+  var floorMesh = add(new B(1.86, 0.07, 3.18), MAT.carbon, 0, 0.075, 0.66);
+  /* OPEN REAR UNDERSIDE (2026-10-29, the owner's clarification):
+     the old diffuser was a solid 1.5-wide block filling the whole
+     gap between the rear wheels — from a low rear view the car
+     sat on one big black slab and neither the tyres' inside
+     faces, the suspension nor the exhaust could be seen. The
+     floor now ends ahead of the rear axle (z -0.93); behind it
+     the underside is OPEN around a narrow central spine (the
+     gearbox casing), with a slim central diffuser ramp and four
+     thin strakes as the only bodywork in the window — the
+     see-through gap the checks now measure by raycast. */
+  var spineMesh = add(new B(0.34, 0.30, 1.52), MAT.dark, 0, 0.27, -1.60);
+  add(new B(0.24, 0.12, 1.30), MAT.carbon, 0, 0.47, -1.66);   /* casing top taper, up into the cover */
+  var diffuserMesh = add(new B(0.52, 0.05, 0.66), MAT.carbon, 0, 0.145, -2.10, 1, 1, 1, 0.16);
+  var strakeMeshes = [];
+  [-0.19, -0.065, 0.065, 0.19].forEach(function (sx) {
+    strakeMeshes.push(add(new B(0.024, 0.17, 0.55), MAT.carbon, sx, 0.115, -2.12, 1, 1, 1, 0.16));
   });
   /* chassis: ONE lofted shell — the tapered nose cone flows into
      the tub with sculpted shoulders (was: a cone stuck on a box) */
@@ -2076,9 +2160,14 @@ function buildCar(paintHex, isPlayer, livery) {
   /* the roundel now lies ON the nose slope (pitched with it),
      fully visible — on the old build it sat inside the tub box */
   noseDecal.position.set(0, 0.509, 1.58); noseDecal.rotation.x = -Math.PI / 2 + 0.195; body.add(noseDecal);
-  /* front wing */
-  add(new B(2.24, 0.045, 0.6), MAT.carbon, 0, 0.10, 2.52);
-  add(new B(2.05, 0.04, 0.3), paint, 0, 0.175, 2.4, 1, 1, 1, -0.12);
+  /* front wing — airfoil sections since the rear-wing rework
+     (2026-10-29): same span/chord/placement as the old box
+     planes, so extents and decals are unchanged, but the
+     elements now have a rounded leading edge and tapered tail
+     instead of a plank profile. The endplates stay: narrow
+     painted plates with gold trim, not slabs. */
+  add(wingGeo(2.24, 0.60, 0.055, 0.92, 0.02, 0.0), MAT.carbon, 0, 0.10, 2.52);
+  add(wingGeo(2.05, 0.30, 0.040, 0.92, 0.02, 0.0), paint, 0, 0.175, 2.4, 1, 1, 1, -0.12);
   [-1, 1].forEach(function (s) {
     add(new B(0.05, 0.24, 0.66), paint, s * 1.1, 0.17, 2.5);
     add(new B(0.056, 0.03, 0.66), MAT.gold, s * 1.1, 0.30, 2.5);
@@ -2151,24 +2240,54 @@ function buildCar(paintHex, isPlayer, livery) {
   [-1, 1].forEach(function (s) {
     add(new B(0.09, 0.16, 0.34), MAT.dark, s * 0.3, 0.72, 0.3);
   });
-  /* rear wing + endplates with LUNA CLASSIC */
-  add(new B(1.18, 0.05, 0.36), paint2 || paint, 0, 1.05, -2.18);
-  /* the upper flap is the DRS element: it flattens on the straights */
-  var drsFlap = add(new B(1.1, 0.04, 0.26), MAT.carbon, 0, 1.15, -2.27, 1, 1, 1, 0.25);
+  /* rear wing (REWORKED 2026-10-29, owner's play-test): the old
+     assembly — one 0.36-deep box plane, a box flap and solid box
+     endplates — read from behind as a single black SLAB on
+     struts. It is now a proper slim assembly: two thin airfoil
+     elements with a visible slot gap, carried on dual slim
+     pylon blades rising from the fin/cover line, closed by
+     shaped endplates (tapered top edge) wearing the wing art.
+     Extents preserved: endplates end at z -2.47, the flap's
+     trailing edge at ~-2.50, exhaust tips still rearmost. */
+  var PYLON_PTS = [[-1.90, 0.60], [-1.98, 0.82], [-2.10, 1.00], [-2.28, 1.01],
+    [-2.30, 0.90], [-2.12, 0.74], [-1.97, 0.58]];
+  [-1, 1].forEach(function (s) {
+    add(plateGeo(PYLON_PTS, 0.034), paint2 || paint, s * 0.085, 0, 0);
+  });
+  var wingMain = add(wingGeo(1.16, 0.30, 0.034, 0.82, 0.05, 0.035), paint2 || paint, 0, 1.03, -2.20, 1, 1, 1, 0.16);
+  /* the upper flap is the DRS element: it flattens on the
+     straights. Its geometry is shifted so the mesh origin sits
+     on the leading edge — the DRS rotation pivots there. */
+  var flapGeo = wingGeo(1.08, 0.21, 0.026, 0.85, 0.02, 0.03);
+  flapGeo.translate(0, 0, -0.105);
+  var drsFlap = add(flapGeo, MAT.carbon, 0, 1.155, -2.29, 1, 1, 1, 0.25);
   var wingTex0 = (livery || isPlayer) ? carWingTexture(livery || FREE_CAR) : texWingText;
-  var wingSideMatA = new THREE.MeshBasicMaterial({ map: wingTex0 });
-  var wingSideMatB = new THREE.MeshBasicMaterial({ map: wingTex0 });
+  var wingSideMatA = new THREE.MeshBasicMaterial({ map: wingTex0, side: THREE.DoubleSide });
+  var wingSideMatB = new THREE.MeshBasicMaterial({ map: wingTex0, side: THREE.DoubleSide });
   var wingSideMats = [wingSideMatA, wingSideMatB];
+  var ENDPLATE_PTS = [[-2.04, 1.20], [-2.14, 1.27], [-2.30, 1.285], [-2.44, 1.24],
+    [-2.47, 1.10], [-2.47, 0.97], [-2.40, 0.93], [-2.10, 0.93]];
   [-1, 1].forEach(function (s) {
     var wsMat = s < 0 ? wingSideMatA : wingSideMatB;
-    var ep = new THREE.Mesh(new B(0.045, 0.36, 0.52),
-      [wsMat, wsMat, accentMat || MAT.carbon, accentMat || MAT.carbon, MAT.carbon, MAT.carbon]);
-    ep.position.set(s * 0.57, 1.07, -2.2); body.add(ep);
-    add(new B(0.05, 0.3, 0.08), accentMat || MAT.carbon, s * 0.12, 0.9, -2.16);
+    var epGeo = plateGeo(ENDPLATE_PTS, 0.03);
+    normalizePlateUV(epGeo, -2.47, -2.04, 0.93, 1.285);
+    if (s < 0) flipGeoU(epGeo);
+    var ep = new THREE.Mesh(epGeo, [wsMat, accentMat || MAT.carbon]);
+    ep.position.set(s * 0.585, 0, 0);
+    if (s < 0) ep.scale.x = -1;
+    body.add(ep);
   });
-  var rainLight = add(new B(0.16, 0.05, 0.03), MAT.redLight, 0, 0.44, -2.47);
+  /* rain light, now mounted on the spine's rear face */
+  var rainLight = add(new B(0.16, 0.05, 0.03), MAT.redLight, 0, 0.40, -2.385);
+  /* exhaust run, visible in the open underside: a collector box
+     on the spine under the cover tail, pipes running back to
+     the tips (the tips stay the rearmost point of the car) */
+  add(new B(0.30, 0.10, 0.34), MAT.steel, 0, 0.545, -2.02);
+  var exhaustTips = [];
   [-1, 1].forEach(function (s) {
+    body.add(strut(new THREE.Vector3(s * 0.085, 0.545, -2.08), new THREE.Vector3(s * 0.09, 0.53, -2.335), 0.043, MAT.steel));
     var ex = add(new C(0.045, 0.045, 0.18, 8), MAT.steel, s * 0.09, 0.53, -2.42); ex.rotation.x = Math.PI / 2;
+    exhaustTips.push(ex);
   });
   /* driver */
   var torso = add(GEO.cover, MAT.suit, 0, 0.58, 0.26); torso.scale.set(0.58, 0.42, 0.55);
@@ -2196,14 +2315,40 @@ function buildCar(paintHex, isPlayer, livery) {
     body.add(strut(new THREE.Vector3(Math.sign(p[0]) * sbx, sbyU, p[2] - 0.2), new THREE.Vector3(p[0], p[1] + 0.03, p[2]), 0.02, MAT.carbon));
     body.add(strut(new THREE.Vector3(Math.sign(p[0]) * sbx, sbyL, p[2]), new THREE.Vector3(p[0], p[1] - 0.05, p[2]), 0.018, MAT.carbon));
   });
-  /* exhaust flames (boost) */
-  var flameMat = new THREE.MeshBasicMaterial({ color: 0x66ccff, transparent: true, opacity: 0.0,
+  /* rear suspension, completed for the open underside
+     (2026-10-29): the wheel loop already hangs two upper arms
+     and one lower arm off the cover per side; with the slab
+     gone the linkage had to read complete — a lower wishbone
+     pair and a track rod now run from the gearbox casing
+     (spine) to a hub carrier at each rear wheel. The sim has
+     no vertical wheel travel (wheel pivots steer + spin only),
+     so the arms are fixed in the body like the existing struts
+     and stay registered to the hubs. */
+  var hubCarriers = [];
+  [-1, 1].forEach(function (s) {
+    body.add(strut(new THREE.Vector3(s * 0.15, 0.22, -1.34), new THREE.Vector3(s * 0.79, 0.28, -1.50), 0.017, MAT.carbon));
+    body.add(strut(new THREE.Vector3(s * 0.15, 0.22, -1.86), new THREE.Vector3(s * 0.79, 0.28, -1.66), 0.017, MAT.carbon));
+    body.add(strut(new THREE.Vector3(s * 0.16, 0.42, -2.02), new THREE.Vector3(s * 0.80, 0.40, -1.70), 0.014, MAT.carbon));
+    hubCarriers.push(add(new B(0.09, 0.30, 0.13), MAT.dark, s * 0.795, 0.375, -1.58));
+  });
+  /* exhaust flames: an orange outer cone + a blue-white inner
+     core at each tip, driven by engine state in
+     updateCarVisual (flicker under power, spit on lift) */
+  var flameMat = new THREE.MeshBasicMaterial({ color: 0xff7a26, transparent: true, opacity: 0.0,
     blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
   var flameGeo = new THREE.ConeGeometry(0.085, 0.9, 10).rotateX(-Math.PI / 2);
   var flames = [];
   [-1, 1].forEach(function (s) {
     var f = new THREE.Mesh(flameGeo, flameMat);
     f.position.set(s * 0.09, 0.53, -2.95); f.visible = false; body.add(f); flames.push(f);
+  });
+  var flameInMat = new THREE.MeshBasicMaterial({ color: 0xa8d4ff, transparent: true, opacity: 0.0,
+    blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+  var flameInGeo = new THREE.ConeGeometry(0.05, 0.55, 10).rotateX(-Math.PI / 2);
+  var flamesIn = [];
+  [-1, 1].forEach(function (s) {
+    var f2 = new THREE.Mesh(flameInGeo, flameInMat);
+    f2.position.set(s * 0.09, 0.53, -2.72); f2.visible = false; body.add(f2); flamesIn.push(f2);
   });
   /* blob shadow */
   var shadow = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 5.8),
@@ -2215,7 +2360,8 @@ function buildCar(paintHex, isPlayer, livery) {
     paintMeshes: [], coverMesh: null, sideMeshes: [], stripeMats: stripeMatsArr,
     noseMeshes: [noseDecal], wingDecalMeshes: wingDecalMeshes, wingSideMats: wingSideMats,
     tireSideMats: tireSideMats, brakeMats: brakeMatsAll, drsFlap: drsFlap, rainLight: rainLight,
-    floorMesh: floorMesh, diffuserMesh: diffuserMesh };
+    floorMesh: floorMesh, diffuserMesh: diffuserMesh, spineMesh: spineMesh, strakes: strakeMeshes,
+    wingMain: wingMain, flamesIn: flamesIn, flameInMat: flameInMat, hubCarriers: hubCarriers };
   g.traverse(function (o) {
     if (o.isMesh) {
       if (o.material === paint) refs.paintMeshes.push(o);
@@ -3010,12 +3156,42 @@ function placeCar(c, dt) {
     for (var li = 0; li < R.leds.length; li++) {
       R.leds[li].material.color.setHex(li < lit ? (li < 5 ? 0x2eff7a : (li < 7 ? 0xffd75e : 0xff2d3f)) : 0x11231a);
     }
-    var boostVis = G.boosting && G.phase === 'race';
-    R.flames.forEach(function (f, fi) {
-      f.visible = boostVis;
-      if (boostVis) { f.scale.set(1, 1, 0.7 + Math.random() * 0.55 + spdR * 0.4); }
+    /* exhaust flames (REWORKED 2026-10-29, owner's call): the
+       cones used to light only under boost. Now they breathe
+       with the engine — a short blue-core flicker whenever the
+       engine is pulling, and a bigger blue-orange spit on
+       throttle lift / downshift / brake stab, the same events
+       the exhaust-pop sparks in bcFxTick fire on. Boost keeps
+       its long flame. Everything rides the two cone pairs +
+       the capped sparks pool; nothing new accumulates. */
+    var racingFx = G.phase === 'race' || G.phase === 'countdown';
+    if (racingFx && c.speed > 25 && R._lg !== undefined && G.gear !== undefined && G.gear < R._lg) {
+      R._pop = 0.32;
+      _v3.copy(c.worldPos).addScaledVector(c.forward, -2.55); _v3.y += 0.53;
+      burst(sparks, _v3, 4, { speed: 2.0, life: 0.18, color: [1.0, 0.52, 0.14], grav: 0 });
+    }
+    if (racingFx && G.input.brake && !R._wb && c.speed > 38) R._pop = Math.max(R._pop || 0, 0.26);
+    if (racingFx && G.limiter && Math.random() < 0.3) R._pop = Math.max(R._pop || 0, 0.10);
+    R._lg = G.gear; R._wb = G.input.brake;
+    R._pop = Math.max(0, (R._pop || 0) - dt);
+    var popK = clamp((R._pop || 0) / 0.32, 0, 1);
+    var loadFx = racingFx && !G.input.brake && c.speed > 3;
+    var lenFx = (G.boosting && G.phase === 'race') ? 1.30 :
+      (loadFx ? 0.36 + (G.rpmRatio || 0) * 0.30 : (racingFx ? 0.16 : 0)) + popK * 0.85;
+    var flVis = racingFx && lenFx > 0.05;
+    var flFlick = 0.85 + Math.random() * 0.3;
+    R.flames.forEach(function (f) {
+      f.visible = flVis;
+      if (flVis) f.scale.set(0.9 + popK * 0.35, 0.9 + popK * 0.35, lenFx / 0.9 * flFlick);
     });
-    R.flameMat.opacity = boostVis ? 0.5 + Math.random() * 0.25 : 0;
+    R.flameMat.opacity = flVis ? clamp(0.30 + popK * 0.50 + (G.boosting ? 0.20 : 0), 0, 0.88) : 0;
+    if (R.flamesIn) {
+      R.flamesIn.forEach(function (f) {
+        f.visible = flVis;
+        if (flVis) f.scale.set(0.9 + popK * 0.3, 0.9 + popK * 0.3, lenFx * 0.62 / 0.55 * flFlick);
+      });
+      R.flameInMat.opacity = flVis ? clamp(0.28 + (G.rpmRatio || 0) * 0.30 + popK * 0.40, 0, 0.95) : 0;
+    }
   }
 }
 function updateCamera(dt) {
@@ -4576,17 +4752,26 @@ window.MR_DIAMOND_3D_TEST = {
       if (player && player.refs.body) bodyKids = player.refs.body.children.length;
       return { spinChildren: spinKids, bodyChildren: bodyKids,
         hasDrsFlap: !!(player && player.refs.drsFlap), hasRainLight: !!(player && player.refs.rainLight),
-        brakeMats: player ? player.refs.brakeMats.length : 0 };
+        brakeMats: player ? player.refs.brakeMats.length : 0,
+        flameVis: !!(player && player.refs.flames && player.refs.flames.some(function (f) { return f.visible; })),
+        flameOp: player && player.refs.flameMat ? +player.refs.flameMat.opacity.toFixed(3) : 0,
+        flameInOp: player && player.refs.flameInMat ? +player.refs.flameInMat.opacity.toFixed(3) : 0,
+        popT: player && player.refs._pop ? +player.refs._pop.toFixed(3) : 0 };
     },
-    /* REAR TREATMENT probe (2026-10-29): every visible mesh of the
-       player car's body group measured in BODY-LOCAL space via the
-       same matrixWorld chain the renderer draws with — so these are
-       the rendered extents, not source numbers. rearMost = the most
-       rearward (min z) point of any body mesh, exhaust flames
-       excluded (transient boost FX, not structure). boardRear = the
-       rear edge of the most rearward WIDE FLAT mesh (w >= 1.5,
-       h <= 0.1 — a board profile: the floor, the front wing);
-       floor/diffuser give the tagged parts' full local boxes. */
+    /* REAR probe (2026-10-29, extended for the OPEN REAR the
+       same evening): every visible mesh of the player car's
+       body group measured in BODY-LOCAL space via the same
+       matrixWorld chain the renderer draws with — so these are
+       the rendered extents, not source numbers. rearMost = the
+       most rearward (min z) point of any body mesh, exhaust
+       flames excluded (transient FX, not structure). boardRear
+       = the rear edge of the most rearward WIDE FLAT mesh
+       (w >= 1.5, h <= 0.1 — a board profile: the floor, the
+       front wing); floor/diffuser/spine give the tagged parts'
+       full local boxes. openness = a raycast census of the low
+       underbody window behind the car (see below); rearArms =
+       the suspension census; wing = the airfoil slot/thickness
+       measurements that keep the rear wing from going slab. */
     rear: function () {
       if (!player || !player.refs || !player.refs.body) return null;
       var R = player.refs, body = R.body;
@@ -4614,17 +4799,91 @@ window.MR_DIAMOND_3D_TEST = {
           width: +(b.max.x - b.min.x).toFixed(3), height: +(b.max.y - b.min.y).toFixed(3) };
       }
       var flames = R.flames || [];
+      var flamesIn = R.flamesIn || [];
       var rearMost = Infinity, boardRear = null;
       body.traverse(function (o) {
-        if (!o.isMesh || !o.visible || flames.indexOf(o) >= 0) return;
+        if (!o.isMesh || !o.visible || flames.indexOf(o) >= 0 || flamesIn.indexOf(o) >= 0) return;
         var b = localBox(o); if (!b) return;
         if (b.min.z < rearMost) rearMost = b.min.z;
         var w = b.max.x - b.min.x, h = b.max.y - b.min.y;
         if (w >= 1.5 && h <= 0.1 && (boardRear === null || b.min.z < boardRear)) boardRear = b.min.z;
       });
+      /* OPEN REAR census: rays fired forward (+z in body space)
+         through the low underbody band (y 0.06..0.21) from
+         behind the car to the plane z -1.25 (just ahead of the
+         rear tyres' rear edge). Side channels |x| 0.34..0.58
+         should be OPEN (see-through between spine and tyres);
+         the centre |x| <= 0.12 should be BLOCKED by the spine.
+         Wheels are not body meshes — they frame the window. */
+      var rayMeshes = [];
+      body.traverse(function (o) {
+        if (o.isMesh && o.visible && flames.indexOf(o) < 0 && flamesIn.indexOf(o) < 0) rayMeshes.push(o);
+      });
+      var rc = new THREE.Raycaster();
+      var rayDir = new THREE.Vector3(0, 0, 1).applyQuaternion(body.getWorldQuaternion(new THREE.Quaternion()));
+      function rayOpen(x, y) {
+        var o = body.localToWorld(new THREE.Vector3(x, y, -3.4));
+        rc.set(o, rayDir); rc.far = 2.15;
+        return rc.intersectObjects(rayMeshes, false).length === 0;
+      }
+      var sideOpen = 0, sideTotal = 0, cenBlocked = 0, cenTotal = 0;
+      [0.06, 0.11, 0.16, 0.21].forEach(function (yy) {
+        [-0.58, -0.50, -0.42, -0.34, 0.34, 0.42, 0.50, 0.58].forEach(function (xx) {
+          sideTotal++; if (rayOpen(xx, yy)) sideOpen++;
+        });
+        [-0.12, 0, 0.12].forEach(function (xx) {
+          cenTotal++; if (!rayOpen(xx, yy)) cenBlocked++;
+        });
+      });
+      /* rear suspension census: strut() arms are 6-sided
+         cylinders of r 0.014..0.021 — count them per side in
+         the rear zone (mirrors/aerial/pipes have other radii
+         or sit outside the zone) */
+      var armL = 0, armR = 0;
+      body.traverse(function (o) {
+        if (!o.isMesh || !o.geometry || o.geometry.type !== 'CylinderGeometry') return;
+        var gp = o.geometry.parameters || {};
+        if (gp.radialSegments !== 6 || !(gp.radiusTop >= 0.013 && gp.radiusTop <= 0.021)) return;
+        var b = localBox(o); if (!b) return;
+        var cx = (b.min.x + b.max.x) / 2, cz = (b.min.z + b.max.z) / 2;
+        if (cz < -2.05 || cz > -1.15 || Math.abs(cx) < 0.25) return;
+        if (cx < 0) armL++; else armR++;
+      });
+      /* wing section thickness from each airfoil geometry's
+         centre-span ring (dihedral offset is 0 there, so the
+         ring's y range IS the section thickness) + the slot:
+         flap leading edge vs main trailing edge in body space */
+      function centreThick(geo) {
+        if (!geo || !geo.attributes.position) return null;
+        var p = geo.attributes.position, mnY = Infinity, mxY = -Infinity;
+        for (var i = 0; i < p.count; i++) {
+          if (Math.abs(p.getX(i)) > 0.01) continue;
+          var y = p.getY(i); if (y < mnY) mnY = y; if (y > mxY) mxY = y;
+        }
+        return isFinite(mnY) ? +(mxY - mnY).toFixed(3) : null;
+      }
+      function bodyPoint(mesh, x, y, z) {
+        return new THREE.Vector3(x, y, z).applyMatrix4(mesh.matrixWorld).applyMatrix4(inv);
+      }
+      var wingOut = null;
+      if (R.wingMain && R.drsFlap) {
+        var teP = bodyPoint(R.wingMain, 0, 0, -0.15);
+        var leP = bodyPoint(R.drsFlap, 0, 0, 0);
+        wingOut = { mainThick: centreThick(R.wingMain.geometry), flapThick: centreThick(R.drsFlap.geometry),
+          slotDy: +(leP.y - teP.y).toFixed(3), slotDz: +(leP.z - teP.z).toFixed(3) };
+      }
+      var strakeRear = null;
+      (R.strakes || []).forEach(function (sm) {
+        var b = localBox(sm); if (b && (strakeRear === null || b.min.z < strakeRear)) strakeRear = b.min.z;
+      });
       return { rearMost: isFinite(rearMost) ? +rearMost.toFixed(3) : null,
         boardRear: boardRear === null ? null : +boardRear.toFixed(3),
-        floor: part(R.floorMesh), diffuser: part(R.diffuserMesh),
+        floor: part(R.floorMesh), diffuser: part(R.diffuserMesh), spine: part(R.spineMesh),
+        strakes: { count: (R.strakes || []).length, rear: strakeRear === null ? null : +strakeRear.toFixed(3) },
+        wing: wingOut,
+        openness: { side: +(sideOpen / sideTotal).toFixed(3), centerBlock: +(cenBlocked / cenTotal).toFixed(3) },
+        rearArms: { left: armL, right: armR },
+        carriers: (R.hubCarriers || []).length,
         showroomOn: !!G.showroom, groupVisible: showroomGroup ? showroomGroup.visible : false,
         glowInScene: !!showroomGlow, stageChildren: showroomGroup ? showroomGroup.children.length : 0 };
     },
