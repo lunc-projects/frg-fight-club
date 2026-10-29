@@ -3391,7 +3391,24 @@ if (el.rotateHint) { el.rotateHint.addEventListener('click', function (e) { if (
 el.btnCam.addEventListener('click', function () { audioInit(); toggleCam(); });
 el.btnPause.addEventListener('click', function () { audioInit(); togglePause(); });
 el.btnMute.addEventListener('click', function () { setMuted(!audio.muted); audioInit(); });
-el.titleScreen.addEventListener('click', function () { if (G.phase === 'title') { tryFlipLandscape(); startRace(); } });
+el.titleScreen.addEventListener('click', function (e) {
+  if (G.phase !== 'title') return;
+  /* Tap-to-race is owned by this backdrop and the TAP TO RACE
+     button ONLY. Every other control on the title screen (CONNECT
+     WALLET, SHOP, GARAGE, RACE LIVE, level chips, board tabs, the
+     pilot name field) owns its own tap — a click bubbling up from
+     one of them must never fall through into a flip attempt and a
+     race start. (Owner bug, 2026-10-29: one tap on CONNECT WALLET
+     opened the picker AND flipped the screen AND started the race
+     behind the picker, because this handler trusted bubbled clicks
+     and the wallet button never stopped propagation.) */
+  var t = e && e.target;
+  if (t && t !== el.titleScreen && t !== el.startBtn) {
+    if (typeof t.closest === 'function' && t.closest('button, input, a, select, textarea, label')) return;
+    if (t === el.walletBtnTitle) return;
+  }
+  tryFlipLandscape(); startRace();
+});
 el.againBtn.addEventListener('click', function () { startRace(); });
 el.nextBtn.addEventListener('click', function () {
   if (G.unlockedNow && selectLevel(G.unlockedNow)) { startRace(); return; }
@@ -5991,11 +6008,13 @@ if (el.shopBody) el.shopBody.addEventListener('click', function (e) {
     else if (it2 && it2.kind === 'paint') previewPaint(it2);
   }
 });
-if (el.walletBtn) el.walletBtn.addEventListener('click', function () {
+if (el.walletBtn) el.walletBtn.addEventListener('click', function (e) {
+  if (e && e.stopPropagation) e.stopPropagation();
   if (walletAddress) clearWallet();
   else showPicker();
 });
-if (el.walletBtnTitle) el.walletBtnTitle.addEventListener('click', function () {
+if (el.walletBtnTitle) el.walletBtnTitle.addEventListener('click', function (e) {
+  if (e && e.stopPropagation) e.stopPropagation();
   if (walletAddress) clearWallet();
   else showPicker();
 });
