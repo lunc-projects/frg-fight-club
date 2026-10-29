@@ -80,10 +80,13 @@
   #raceMsg { position: absolute; top: 30%; left: 50%; transform: translateX(-50%); z-index: 6; pointer-events: none;
     font-size: 34px; font-weight: 800; color: #ffd75e; letter-spacing: 3px; display: none;
     text-shadow: 0 2px 14px rgba(0,0,0,0.8); }
-  /* rotate hint: sits BELOW the top panels so it can never cover them */
+  /* rotate hint: sits BELOW the top panels so it can never cover them.
+     Tappable since the rotate fix: a tap tries fullscreen + landscape lock. */
   #rotateHint { position: absolute; top: 158px; left: 50%; transform: translateX(-50%); z-index: 6; display: none;
     background: rgba(5, 13, 30, 0.72); border: 1px solid rgba(255, 215, 94, 0.55); color: #ffd75e;
-    padding: 6px 14px; border-radius: 999px; font-size: 12px; letter-spacing: 2px; font-weight: 700; pointer-events: none; }
+    padding: 6px 14px; border-radius: 999px; font-size: 12px; letter-spacing: 2px; font-weight: 700;
+    pointer-events: auto; cursor: pointer; }
+  #rotateHint:active { background: rgba(40, 80, 140, 0.75); }
   /* touch controls */
   .tBtn { position: absolute; z-index: 9; pointer-events: auto; cursor: pointer; display: flex; align-items: center;
     justify-content: center; color: #eaf2ff; background: rgba(8, 18, 38, 0.5); border: 1.5px solid rgba(140, 190, 255, 0.5); }
@@ -434,6 +437,7 @@
   </div>
   <div id="miniWrap"><canvas id="minimap" width="184" height="184"></canvas></div>
   <div id="sysBtns">
+    <div class="sysBtn" id="btnRotate" title="Flip to landscape">⟳</div>
     <div class="sysBtn" id="btnCam" title="Camera">📷</div>
     <div class="sysBtn" id="btnPause" title="Pause">⏸</div>
     <div class="sysBtn" id="btnMute" title="Sound">🔊</div>
@@ -692,9 +696,9 @@ var el = {
   sectorLine: $('sectorLine'), deltaLine: $('deltaLine'), fastestBanner: $('fastestBanner'),
   cmpSoft: $('cmpSoft'), cmpMedium: $('cmpMedium'), cmpHard: $('cmpHard'),
   podiumHead: $('podiumHead'), stageCaption: $('stageCaption'),
-  raceMsg: $('raceMsg'), pausedTag: $('pausedTag'),
+  raceMsg: $('raceMsg'), pausedTag: $('pausedTag'), rotateHint: $('rotateHint'),
   btnL: $('btnL'), btnR: $('btnR'), btnBrake: $('btnBrake'), btnBoost: $('btnBoost'),
-  btnCam: $('btnCam'), btnPause: $('btnPause'), btnMute: $('btnMute'),
+  btnRotate: $('btnRotate'), btnCam: $('btnCam'), btnPause: $('btnPause'), btnMute: $('btnMute'),
   titleScreen: $('titleScreen'), titleBest: $('titleBest'), startBtn: $('startBtn'),
   finishScreen: $('finishScreen'), finPos: $('finPos'), finSub: $('finSub'),
   finRows: $('finRows'), finBest: $('finBest'), againBtn: $('againBtn'),
@@ -2984,10 +2988,65 @@ if (el.shopClose) el.shopClose.addEventListener('click', function () { closeShop
 [[el.tabFree, 'free'], [el.tabNft, 'nft'], [el.tabFreeO, 'free'], [el.tabNftO, 'nft']].forEach(function (pair) {
   if (pair[0]) pair[0].addEventListener('click', function (e) { e.stopPropagation(); setBoardTab(pair[1]); });
 });
+/* ================= rotate / fullscreen flip =================
+   The rotate pill and the ⟳ button are gestures: on tap, try to put
+   the page fullscreen, then lock the screen to landscape (Chrome
+   requires fullscreen before a lock is granted). Wallet in-app
+   browsers commonly block one or both APIs — every step is wrapped,
+   every rejection is caught and recorded in flipState, and the
+   returned promise always resolves, so a flip attempt can never
+   throw, never surface an unhandled rejection, and never delay or
+   block a race start. Honesty rule: flipState.locked is set ONLY
+   when the lock promise resolves; if anything fails, the pill text
+   switches to plain advice (turn the phone, check auto-rotate) and
+   the pill itself disappears only when CSS sees a real landscape
+   viewport. There is deliberately NO unlock on the finish screen:
+   the game has no back-to-title transition (finish offers RACE
+   AGAIN / NEXT LEVEL), and dropping the lock there would rotate a
+   player who is about to race again; the OS releases the lock when
+   fullscreen exits or the page closes. */
+var flipState = { attempted: 0, fsOk: false, locked: false, lastErr: '' };
+var flipWired = { btn: false, pill: false };
+var FLIP_HINT_FAILED = '⟳ TURN PHONE SIDEWAYS — CHECK AUTO-ROTATE IS ON';
+function flipFailHint() { if (el.rotateHint) el.rotateHint.textContent = FLIP_HINT_FAILED; }
+function tryFlipLandscape() {
+  flipState.attempted++;
+  try { if (window.innerWidth >= window.innerHeight) return Promise.resolve(flipState); } catch (e) { /* try anyway */ }
+  var tryLock = function () {
+    var so = null;
+    try { so = (typeof screen !== 'undefined' && screen) ? screen.orientation : null; } catch (e) { so = null; }
+    if (!so || typeof so.lock !== 'function') { flipFailHint(); return Promise.resolve(flipState); }
+    var lp;
+    try { lp = so.lock('landscape'); } catch (e) { flipState.lastErr = String(e && e.message || e); flipFailHint(); return Promise.resolve(flipState); }
+    if (lp && typeof lp.then === 'function') {
+      return lp.then(function () { flipState.locked = true; return flipState; },
+        function (err) { flipState.lastErr = String(err && err.message || err); flipFailHint(); return flipState; });
+    }
+    flipFailHint();   /* lock() returned no promise — cannot confirm it landed */
+    return Promise.resolve(flipState);
+  };
+  var de = null, req = null;
+  try {
+    de = (typeof document !== 'undefined' && document) ? document.documentElement : null;
+    req = de ? (de.requestFullscreen || de.webkitRequestFullscreen) : null;
+  } catch (e) { req = null; }
+  if (typeof req === 'function') {
+    var fp;
+    try { fp = req.call(de); } catch (e) { flipState.lastErr = String(e && e.message || e); return tryLock(); }
+    if (fp && typeof fp.then === 'function') {
+      return fp.then(function () { flipState.fsOk = true; return tryLock(); },
+        function (err) { flipState.lastErr = String(err && err.message || err); return tryLock(); });
+    }
+    return tryLock();   /* legacy callback-style fullscreen: nothing to await */
+  }
+  return tryLock();
+}
+if (el.btnRotate) { el.btnRotate.addEventListener('click', function (e) { if (e && e.stopPropagation) e.stopPropagation(); audioInit(); tryFlipLandscape(); }); flipWired.btn = true; }
+if (el.rotateHint) { el.rotateHint.addEventListener('click', function (e) { if (e && e.stopPropagation) e.stopPropagation(); audioInit(); tryFlipLandscape(); }); flipWired.pill = true; }
 el.btnCam.addEventListener('click', function () { audioInit(); toggleCam(); });
 el.btnPause.addEventListener('click', function () { audioInit(); togglePause(); });
 el.btnMute.addEventListener('click', function () { setMuted(!audio.muted); audioInit(); });
-el.titleScreen.addEventListener('click', function () { if (G.phase === 'title') startRace(); });
+el.titleScreen.addEventListener('click', function () { if (G.phase === 'title') { tryFlipLandscape(); startRace(); } });
 el.againBtn.addEventListener('click', function () { startRace(); });
 el.nextBtn.addEventListener('click', function () {
   if (G.unlockedNow && selectLevel(G.unlockedNow)) { startRace(); return; }
@@ -3032,10 +3091,18 @@ window.addEventListener('keyup', function (e) {
   else if (k === 'ArrowDown' || k === 's' || k === 'S') G.input.brake = false;
   else if (k === ' ' || k === 'ArrowUp' || k === 'w' || k === 'W') G.input.boost = false;
 });
-window.addEventListener('resize', function () {
+function syncViewport() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   if (renderer) renderer.setSize(window.innerWidth, window.innerHeight);
+}
+window.addEventListener('resize', syncViewport);
+window.addEventListener('orientationchange', function () {
+  syncViewport();
+  /* some Android WebViews fire the event before the new dimensions
+     settle — re-sync once shortly after so the canvas cannot be left
+     sized for the old orientation */
+  setTimeout(syncViewport, 250);
 });
 window.addEventListener('pointerdown', function () { audioInit(); }, { once: true });
 
@@ -3678,6 +3745,12 @@ window.MR_DIAMOND_3D_TEST = {
     garageUi: function () { renderGarage(); return garageUiState(); },
     refreshOwned: function () { return refreshOwned(false); },
     refreshBuyState: function () { return refreshBuyState(); }
+  },
+  flip: {
+    tryFlip: function () { return tryFlipLandscape(); },
+    state: function () { return { attempted: flipState.attempted, fsOk: flipState.fsOk, locked: flipState.locked,
+      lastErr: flipState.lastErr, wired: { btn: flipWired.btn, pill: flipWired.pill },
+      hint: el.rotateHint ? el.rotateHint.textContent : '' }; }
   },
   live: {
     relayUrl: function () { return RELAY_URL; },
@@ -6315,7 +6388,7 @@ function liveRenderTick(dt) {
   }
   ghostTick(dt);
 }
-if (el.liveBtn) el.liveBtn.addEventListener('click', function (e) { e.stopPropagation(); liveQueue(); });
+if (el.liveBtn) el.liveBtn.addEventListener('click', function (e) { e.stopPropagation(); tryFlipLandscape(); liveQueue(); });
 if (el.liveCancelBtn) el.liveCancelBtn.addEventListener('click', function (e) { e.stopPropagation(); liveCancel(); });
 if (el.liveWaitMoreBtn) el.liveWaitMoreBtn.addEventListener('click', function (e) { e.stopPropagation(); liveKeepWaiting(); });
 if (el.liveSoloBtn) el.liveSoloBtn.addEventListener('click', function (e) { e.stopPropagation(); liveSoloFallback(); });
