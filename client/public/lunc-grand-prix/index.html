@@ -434,6 +434,54 @@
     font-size: 13px; font-weight: 800; letter-spacing: 1.5px; color: #ffe98a; font-family: inherit;
     background: rgba(5,13,30,0.72); border: 1.5px solid rgba(255,215,94,0.65); border-radius: 999px; padding: 11px 20px; }
   @media (orientation: portrait) { #rotateHint { display: block; } }
+  /* ---- short-landscape compaction (2026-10-29, owner's phone) ----
+     On a landscape phone (~844x390) the finish card was taller than
+     the screen: centred with margin:auto inside the scrolling
+     .screen, its header clipped off the top and RACE AGAIN fell off
+     the bottom. Under a short landscape viewport the card is
+     compacted until header, stats, score, TOP PILOTS board and the
+     buttons all fit without scrolling, and the screen aligns to
+     the top so any residual overflow scrolls instead of clipping.
+     The title screen (same .screen pattern) gets the same tighter
+     steps. Portrait and tall screens are untouched. The shop and
+     garage sheets need no compaction: fixed head + flexing scroll
+     area already fits any height. */
+  @media (orientation: landscape) and (max-height: 500px) {
+    #finishScreen { justify-content: flex-start; padding: 6px 0; }
+    #finCard { margin: 0 auto; padding: 10px 16px 12px; max-height: calc(100dvh - 12px); overflow-y: auto; }
+    #podiumHead { font-size: 15px; margin-bottom: 2px; }
+    #finPos { font-size: 26px; }
+    #finSub { font-size: 12px; margin-top: 0; }
+    #finRows { font-size: 12px; margin: 6px auto 2px; }
+    #finRows .row { padding: 1px 0; }
+    #finRows .tot { font-size: 14px; margin-top: 3px; padding-top: 4px; }
+    #finBest { font-size: 11.5px; margin-top: 4px; min-height: 0; }
+    #liveResult { font-size: 12px; margin-top: 6px; padding-top: 6px; line-height: 1.4; }
+    #finBoard { margin-top: 6px; padding: 6px 12px 5px; }
+    #finBoard .lbHead { font-size: 10.5px; }
+    #finBoard .boardTabs { margin-top: 3px; }
+    #finBoard .btab { padding: 2px 10px; font-size: 10px; }
+    #fbRows { max-height: 62px; margin-top: 3px; }
+    #fbRows .lbRow { font-size: 11.5px; padding: 1px 2px; }
+    #fbNote { font-size: 10.5px; min-height: 0; margin-top: 2px; }
+    #againBtn, #nextBtn { margin-top: 8px; padding: 7px 24px; font-size: 14px; }
+    #titleScreen { padding: 6px 0; }
+    #titleMain { font-size: 40px; margin: 2px 0 0; }
+    #titleSub { font-size: 15px; letter-spacing: 4px; }
+    #titleBest { margin-top: 6px; font-size: 12.5px; min-height: 0; }
+    #lvlChips { margin-top: 8px; }
+    #lvlChips .chip { padding: 5px 9px; font-size: 11px; }
+    #lvlHint { margin-top: 4px; min-height: 0; }
+    #pilotRow { margin-top: 6px; }
+    #steerRow { margin-top: 4px; }
+    #tiltDiag { margin-top: 4px; padding: 4px 8px 5px; }
+    #titleBoard { margin-top: 8px; padding: 6px 14px 5px; }
+    #tbRows { margin-top: 2px; }
+    #titleHow { margin-top: 6px; font-size: 11.5px; line-height: 1.4; }
+    #startBtn { margin-top: 10px; padding: 9px 34px; font-size: 16px; }
+    #shopBtn { margin-top: 8px; padding: 7px 24px; font-size: 13px; }
+    #liveWaitCard { padding: 14px 20px; }
+  }
 </style>
 </head>
 <body>
@@ -753,6 +801,12 @@ var MAX_SPEED = 88;                 /* m/s  ≈ 320 KM/H */
 var BOOST_SPEED = 101;              /* m/s  ≈ 364 KM/H */
 var ROAD_HALF = 7.5;                /* road half-width, metres */
 var BARRIER_LAT = ROAD_HALF + 1.55; /* lateral clamp at the walls */
+/* player heading model (2026-10-29): seconds of full steerVis to
+   slew the nose across its cap; the light steering assist's
+   curve pre-turn fraction and nose-settle rate (see stepSim) */
+var HEAD_RESPONSE = 0.10;
+var ASSIST_FF = 0.5;
+var ASSIST_DAMP = 3.5;
 var SCORE_CAP = 100000;
 var POS_POINTS = [0, 5000, 3500, 2500, 1800, 1400, 1100, 800, 600, 450, 300, 200, 100];
 var DIA_PER_LAP = 6;
@@ -2518,7 +2572,7 @@ function makeCar(slot, isPlayerCar, paintHex, pace, lane) {
   if (liv) applyCarDecals(refs, liv);
   return { refs: refs, isPlayer: isPlayerCar, slot: slot, livery: liv,
     s0: TRACK_LEN - 14 - slot * 7.5, dist: 0, lat: lane || 0, speed: 0,
-    pace: pace || 0, laneBase: lane || 0, steerVis: 0, prevSpeed: 0,
+    pace: pace || 0, laneBase: lane || 0, steerVis: 0, prevSpeed: 0, heading: 0,
     _sec: -1, _secT: 0, _lapT0: 0, lastLap: 0, brakeGlow: 0, drs: false, _drsV: 0,
     airY: 0, airVy: 0, air: false, jumpA: 0, _onLeaf: false, groundOff: 0,
     _gearBand: -1, _skidPrev: null, _skidAcc: 0,
@@ -2707,7 +2761,7 @@ function showMsg(txt, dur) {
 }
 function resetField() {
   cars.forEach(function (c) {
-    c.dist = 0; c.speed = 0; c.lat = c.isPlayer ? 0 : c.laneBase; c.steerVis = 0; c.prevSpeed = 0;
+    c.dist = 0; c.speed = 0; c.lat = c.isPlayer ? 0 : c.laneBase; c.steerVis = 0; c.prevSpeed = 0; c.heading = 0;
   });
   G.raceTime = 0; G.lapMark = 0; G.bestLap = 0; G.curLapTime = 0;
   G.rpm = 900; G.rpmRatio = 900 / curPerf.revLimit; G.gear = 1; G.limiter = false;   /* idling on the grid */
@@ -2904,9 +2958,44 @@ function stepSim(dt) {
       tilt.smooth = 0;
     }
     G.steerVis = lerp(G.steerVis, steerIn, 1 - Math.exp(-dt * 9 * curPerf.steerMul));
-    var latRate = G.steerVis * (7 + p.speed * 0.14) * curPerf.gripMul;
+    /* ---- player heading (REWORKED 2026-10-29, owner's call) ----
+       Before this pass the player had no heading of his own: the
+       car was placed on the spline frame every frame (position =
+       spline point + side * lat, nose along the spline tangent)
+       and steering only slid it sideways, so with auto-throttle
+       the car traced the racing line by itself at full speed —
+       hands-off, it drove the whole track. The player now carries
+       a real heading state: p.heading = the signed angle between
+       the car's nose and the track tangent. Steering yaws the
+       nose; the track frame rotating underneath (kappa * speed)
+       swings an unattended nose wide, exactly like holding a
+       straight wheel through a bend, and the centrifugal push
+       (unchanged) adds its outward drift on top.
+       A LIGHT assist stays, per the owner's refinement ("a little
+       bit of steering assist is good"): hands-off it pre-turns the
+       nose for ASSIST_FF of the frame rotation and eases the nose
+       back toward the tangent at ASSIST_DAMP /s, which settles
+       the car on straights and softens small mistakes. The assist
+       weight falls to zero by ~45% steer input, so it never fights
+       the driver; and with ASSIST_FF < 1 it cannot corner alone:
+       hands-off in a bend the heading error settles at
+       kappa * v * (1 - ASSIST_FF) / ASSIST_DAMP and the car drifts
+       off the road (pinned by the zero-steer checks in the suite).
+       Full-steer lateral authority is unchanged: the heading cap
+       is asin(latFull / v), so nose-at-cap lateral speed equals
+       the old latRate exactly. */
+    var steerAbs = Math.abs(steerIn);
+    var assistW = clamp(1 - steerAbs * 2.2, 0, 1);
+    var latFull = (7 + p.speed * 0.14) * curPerf.gripMul;
+    var headCap = Math.asin(clamp(latFull / Math.max(p.speed, 12), 0, 0.95));
+    var yawRate = headCap / HEAD_RESPONSE;
+    var frameTurn = pFr.kappa * p.speed * Math.cos(p.heading);
+    p.heading += (-G.steerVis * yawRate
+      - frameTurn * (1 - ASSIST_FF * assistW)
+      - ASSIST_DAMP * p.heading * assistW) * dt;
+    p.heading = clamp(p.heading, -headCap, headCap);
     var push = pFr.kappa * p.speed * p.speed * 0.042 * curPerf.pushMul;
-    p.lat += (latRate + push) * dt;
+    p.lat += (-p.speed * Math.sin(p.heading) + push) * dt;
     G.boosting = G.input.boost && G.boost > 0.5 && !G.input.brake;
     var target = curPerf.topSpeed;
     if (G.boosting) { target = curPerf.boostSpeed; G.boost = Math.max(0, G.boost - 26 * curPerf.boostDrainMul * dt); }
@@ -2929,7 +3018,7 @@ function stepSim(dt) {
     var rate = (target < p.speed) ? (G.input.brake ? 2.6 * curPerf.brakeMul : 1.7) : 0.8 * curPerf.accelMul;
     p.speed += (target - p.speed) * Math.min(1, dt * rate);
     if (p.speed < 0) p.speed = 0;
-    p.dist += p.speed * dt;
+    p.dist += p.speed * Math.cos(p.heading) * dt;   /* progress along the track follows the nose, not the road */
     /* barrier scrape */
     if (Math.abs(p.lat) > BARRIER_LAT) {
       p.lat = clamp(p.lat, -BARRIER_LAT, BARRIER_LAT);
@@ -3092,6 +3181,7 @@ function placeBehindRival() {
   if (!bestC) bestC = cars[1];
   p.dist = bestC.dist + (bestC.s0 - p.s0) - 7;
   p.lat = bestC.lat;
+  p.heading = 0;   /* a teleport re-seats the car square with the road */
   p.speed = Math.max(bestC.speed, MAX_SPEED * 0.65);
   G.towTimer = 0;
 }
@@ -3108,9 +3198,18 @@ function placeCar(c, dt) {
   c.worldPos.copy(_v1);
   var R = c.refs;
   R.group.position.copy(_v1);
-  _v2.copy(_v1); _v2.x += fr.tan.x * 10; _v2.z += fr.tan.z * 10; _v2.y = _v1.y + 0.32;
+  /* the player's nose follows his own heading state (2026-10-29):
+     lookAt target = position + heading vector, where the heading
+     vector is the tangent swung by p.heading toward the frame's
+     side axis (forward . side = -sin(heading), matching stepSim's
+     lateral rate -v * sin(heading)). Rivals carry heading 0, so
+     their placement is exactly the old tangent lookAt. */
+  var hdA = c.isPlayer ? (c.heading || 0) : 0;
+  var hdC = Math.cos(hdA), hdS = Math.sin(hdA);
+  var fwX = fr.tan.x * hdC - fr.side.x * hdS, fwZ = fr.tan.z * hdC - fr.side.z * hdS;
+  _v2.copy(_v1); _v2.x += fwX * 10; _v2.z += fwZ * 10; _v2.y = _v1.y + 0.32;
   R.group.lookAt(_v2);
-  c.forward.set(fr.tan.x, 0, fr.tan.z);
+  c.forward.set(fwX, 0, fwZ);
   var sv = c.isPlayer ? G.steerVis : c.steerVis;
   var spdR = clamp(c.speed / MAX_SPEED, 0, 1);
   var pitchT = c.isPlayer ? (G.input.brake && G.phase === 'race' ? -0.018 : (G.boosting ? 0.013 : 0)) : 0;
@@ -3176,21 +3275,41 @@ function placeCar(c, dt) {
     R._pop = Math.max(0, (R._pop || 0) - dt);
     var popK = clamp((R._pop || 0) / 0.32, 0, 1);
     var loadFx = racingFx && !G.input.brake && c.speed > 3;
-    var lenFx = (G.boosting && G.phase === 'race') ? 1.30 :
-      (loadFx ? 0.36 + (G.rpmRatio || 0) * 0.30 : (racingFx ? 0.16 : 0)) + popK * 0.85;
+    var baseFx = (G.boosting && G.phase === 'race') ? 0.95 :
+      (loadFx ? 0.30 + (G.rpmRatio || 0) * 0.25 : (racingFx ? 0.14 : 0));
+    /* the pop spike yields as the base flame grows (2026-10-29):
+       at sustained top speed the limiter re-fires the pop almost
+       every frame, and the old straight stack (1.30 boost + 0.85
+       pop) held the cones at ~2.15 m permanently — the owner's
+       recording shows them as two long static wedges, not flames.
+       Now a pop on a short flame still spikes hard, while at full
+       boost it only adds a flicker on top of the long flame. The
+       cones also dance now: hard length/girth jitter and a small
+       random tilt every frame, so they read as turbulent flame
+       instead of rigid pale spikes (the flat-shaded uniform cones
+       at a timid ±15% flicker photographed as icicles). */
+    var lenFx = baseFx + popK * 0.85 * Math.max(0, 1 - baseFx / 1.6);
     var flVis = racingFx && lenFx > 0.05;
-    var flFlick = 0.85 + Math.random() * 0.3;
+    var flFlick = 0.70 + Math.random() * 0.55;
+    var flGirth = 0.85 + Math.random() * 0.3;
+    var flWobX = (Math.random() - 0.5) * 0.12, flWobY = (Math.random() - 0.5) * 0.12;
     R.flames.forEach(function (f) {
       f.visible = flVis;
-      if (flVis) f.scale.set(0.9 + popK * 0.35, 0.9 + popK * 0.35, lenFx / 0.9 * flFlick);
+      if (flVis) {
+        f.scale.set((0.75 + popK * 0.3) * flGirth, (0.75 + popK * 0.3) * flGirth, lenFx / 0.9 * flFlick);
+        f.rotation.x = flWobX; f.rotation.y = flWobY;
+      }
     });
-    R.flameMat.opacity = flVis ? clamp(0.30 + popK * 0.50 + (G.boosting ? 0.20 : 0), 0, 0.88) : 0;
+    R.flameMat.opacity = flVis ? clamp(0.42 + popK * 0.45 + (G.boosting ? 0.18 : 0), 0, 0.9) : 0;
     if (R.flamesIn) {
       R.flamesIn.forEach(function (f) {
         f.visible = flVis;
-        if (flVis) f.scale.set(0.9 + popK * 0.3, 0.9 + popK * 0.3, lenFx * 0.62 / 0.55 * flFlick);
+        if (flVis) {
+          f.scale.set((0.75 + popK * 0.25) * flGirth, (0.75 + popK * 0.25) * flGirth, lenFx * 0.62 / 0.55 * flFlick);
+          f.rotation.x = flWobX; f.rotation.y = flWobY;
+        }
       });
-      R.flameInMat.opacity = flVis ? clamp(0.28 + (G.rpmRatio || 0) * 0.30 + popK * 0.40, 0, 0.95) : 0;
+      R.flameInMat.opacity = flVis ? clamp(0.20 + (G.rpmRatio || 0) * 0.22 + popK * 0.35, 0, 0.85) : 0;
     }
   }
 }
@@ -4665,7 +4784,8 @@ function stateSnapshot() {
     inTow: G.towTimer > 0.25, slipActive: G.slipActive, camMode: G.camMode,
     pilot: pilotName, lbStatus: lbState[lbKey(curLevel)] ? lbState[lbKey(curLevel)].status : 'idle',
     rpm: Math.round(G.rpm || 0), gear: G.gear, limiter: !!G.limiter, raceNft: !!G.raceNft,
-    offTrack: G.offTrack, muted: audio.muted, steerVis: G.steerVis, renderOK: renderOK };
+    offTrack: G.offTrack, muted: audio.muted, steerVis: G.steerVis, renderOK: renderOK,
+    heading: player.heading || 0 };
 }
 window.__qaState = stateSnapshot;
 window.MR_DIAMOND_3D_TEST = {
@@ -5083,7 +5203,8 @@ window.MR_DIAMOND_3D_TEST = {
   skipCountdown: skipCountdown,
   step: function (dt) { stepSim(dt || 0.05); },
   state: stateSnapshot,
-  constants: { MAX_SPEED: MAX_SPEED, BOOST_SPEED: BOOST_SPEED, TRACK_LEN: TRACK_LEN, SCORE_CAP: SCORE_CAP, ROAD_HALF: ROAD_HALF, TOTAL_LAPS: TOTAL_LAPS },
+  constants: { MAX_SPEED: MAX_SPEED, BOOST_SPEED: BOOST_SPEED, TRACK_LEN: TRACK_LEN, SCORE_CAP: SCORE_CAP, ROAD_HALF: ROAD_HALF, TOTAL_LAPS: TOTAL_LAPS,
+    ASSIST_FF: ASSIST_FF, ASSIST_DAMP: ASSIST_DAMP, HEAD_RESPONSE: HEAD_RESPONSE },
   input: function (o) { if (!o) return; ['left', 'right', 'brake', 'boost'].forEach(function (k) { if (o[k] !== undefined) G.input[k] = !!o[k]; }); },
   levels: function () {
     return LEVELS.map(function (c) {
@@ -5120,6 +5241,9 @@ window.MR_DIAMOND_3D_TEST = {
     if (o.dist !== undefined) player.dist = o.dist;
     if (o.playerX !== undefined) player.lat = o.playerX * ROAD_HALF;
     if (o.playerLat !== undefined) player.lat = o.playerLat;
+    if (o.heading !== undefined) player.heading = o.heading;
+    else if (o.dist !== undefined || o.s !== undefined || o.position !== undefined ||
+             o.playerX !== undefined || o.playerLat !== undefined) player.heading = 0;   /* teleports re-seat the nose */
     if (o.speed !== undefined) player.speed = o.speed;
     if (o.boost !== undefined) G.boost = o.boost;
   },
