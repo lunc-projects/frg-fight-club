@@ -804,7 +804,7 @@
   <div class="cardGrid">
     <div class="card"><span class="pChip" style="--c:#ffd76a">W</span><div><div class="cardName">WEAPON TIER</div><div class="cardDesc">Raise your cannons — up to plasma tier 4</div></div></div>
     <div class="card"><span class="pChip" style="--c:#7df9ff">R</span><div><div class="cardName">RAPID FIRE</div><div class="cardDesc">Double-rate fire for 12 seconds</div></div></div>
-    <div class="card"><span class="pChip" style="--c:#c9a7ff">D</span><div><div class="cardName">WINGMAN DRONE</div><div class="cardDesc">Orbits you and fires on its own</div></div></div>
+    <div class="card"><span class="pChip" style="--c:#c9a7ff">B</span><div><div class="cardName">BACKUP FLYER</div><div class="cardDesc">A second little fighter flies your wing and fires on its own for 8 seconds</div></div></div>
     <div class="card"><span class="pChip" style="--c:#ffb14e">H</span><div><div class="cardName">HOMING MISSILES</div><div class="cardDesc">Bolts curve to their targets for 12 seconds</div></div></div>
     <div class="card"><span class="pChip" style="--c:#8affd1">O</span><div><div class="cardName">ORBIT RING</div><div class="cardDesc">Three mini tokens circle you and eat hits</div></div></div>
     <div class="card"><span class="pChip" style="--c:#9be8ff">🛡</span><div><div class="cardName">SHIELD</div><div class="cardDesc">Blocks the next hit, free</div></div></div>
@@ -1157,6 +1157,7 @@ const HOMING_TURN = 6.0;       /* homing bolt turn rate (rad/s) */
 const CHARGE_MIN = 0.45, CHARGE_MAX = 1.2;   /* hold-to-charge window (s) */
 const WARN_TIME = 0.5;         /* a rug flashes its dive warning this long before committing */
 const FREEZE_TIME = 6, FREEZE_SLOW = 0.35;   /* market freeze: world speed factor + duration */
+const WINGMAN_T = 8;           /* backup-flyer duration (s) — collect the item, get a wingman for a few seconds */
 const GHOST_SOLID_T = 0.9, GHOST_PHASE_T = 1.8;   /* ghost token flicker cycle (s) */
 const CARRIER_LAUNCH_T = 2.5;  /* seconds between a carrier's swift launches */
 /* ================= Upgrade #2: mines, raiders, return fire =================
@@ -2351,7 +2352,7 @@ let combo = 1, comboT = 0, leaks = 0, leakLoss = 0;
 let distPx = 0, elapsed = 0;
 let rapidT = 0, invulnT = 0, fireT = 0, fireFlashT = 0;
 let weaponTier = 1, fever = 0, feverT = 0;
-let wingman = null;                     /* { ang, fireT, x, y } while active */
+let wingman = null;                     /* { t, fireT, x, y } while the backup flyer is up */
 let dashT = 0, dashCdT = 0, dashInvulnT = 0, dashDir = 1, faceDir = 1;
 let dashShieldT = 0;           /* NFT dash aegis: shield seconds left after a dash */
 let ghosts = [];                        /* dash after-images */
@@ -3050,10 +3051,10 @@ function applyPower(kind, x, y){
     else { shieldUp = true; popup(x, y - 18, 'SHIELD UP!', KIND_COLOR.shield); }
   }
   else if (kind === 'wingman'){
-    if (wingman){ killScore += 100; popup(x, y - 18, 'DRONE +100', KIND_COLOR.wingman); }
+    if (wingman){ killScore += 100; wingman.t = WINGMAN_T; popup(x, y - 18, 'FLYER +100 · TIME RESET', KIND_COLOR.wingman); }
     else {
-      wingman = { ang: -1.2, fireT: 0.4, x: ship.x, y: ship.y - 36 };
-      popup(x, y - 18, 'ORBIT DRONE ONLINE!', KIND_COLOR.wingman);
+      wingman = { t: WINGMAN_T, fireT: 0.4, x: ship.x - 60, y: ship.y + 18 };
+      popup(x, y - 18, 'BACKUP FLYER ONLINE!', KIND_COLOR.wingman);
     }
   }
   else if (kind === 'audit'){ auditBlast(); }
@@ -3065,14 +3066,27 @@ function applyPower(kind, x, y){
   else if (kind === 'freeze'){ freezeT = FREEZE_TIME; popup(x, y - 18, 'MARKET FREEZE!', KIND_COLOR.freeze); }
   sfxPower();
 }
-/* the wingman drone: orbits the ship and fires on the nearest token
-   (or the Vault) in range. It fights until a hit gets through to the
-   ship — see hitPlayer. */
+/* the backup flyer: a second little fighter that slots into
+   formation on your left wing and fires on the nearest token (or
+   the Vault) in range. It stays WINGMAN_T seconds — or until a hit
+   gets through to the ship (see hitPlayer). (Owner's design,
+   Oct 30: collect the little item, get a backup shooter for a
+   few seconds. Before this pass it was an orbiting drone that
+   never timed out.) */
 function updateWingman(dt){
   if (!wingman) return;
-  wingman.ang += dt * 2.4;
-  wingman.x = ship.x + Math.cos(wingman.ang) * 36;
-  wingman.y = ship.y + Math.sin(wingman.ang) * 36;
+  wingman.t -= dt;
+  if (wingman.t <= 0){
+    burst(wingman.x, wingman.y, 8, KIND_COLOR.wingman, 160);
+    popup(wingman.x, wingman.y - 16, 'BACKUP FLYER GONE', KIND_COLOR.wingman);
+    wingman = null;
+    return;
+  }
+  /* formation: tucked on the left wing, easing after the ship */
+  const ax = ship.x - 46, ay = ship.y + 14 + Math.sin(animT * 3) * 2;
+  const k = Math.min(1, dt * 5);
+  wingman.x += (ax - wingman.x) * k;
+  wingman.y += (ay - wingman.y) * k;
   wingman.fireT -= dt;
   if (wingman.fireT > 0) return;
   let tgt = null, bd = 460 * 460;
@@ -3084,7 +3098,13 @@ function updateWingman(dt){
   if (!tgt && boss && !boss.dead) tgt = boss;
   if (tgt){
     wingman.fireT = 0.28;
-    const a = Math.atan2(tgt.y - wingman.y, tgt.x - wingman.x);
+    /* lead the target by its fall: a token drops (vy + scroll) every
+       second, and an un-led shot at range passes behind it — the
+       flyer aims where the target will be when the bolt arrives */
+    const dx = tgt.x - wingman.x, dy = tgt.y - wingman.y;
+    const flight = Math.hypot(dx, dy) / 620;
+    const leadY = tgt.vy !== undefined ? (tgt.vy + scrollSpeed()) * flight : 0;
+    const a = Math.atan2(dy + leadY, dx);
     bullets.push({ x: wingman.x, y: wingman.y, vx: Math.cos(a) * 620, vy: Math.sin(a) * 620, dmg: 1, drone: true, dead: false });
   } else wingman.fireT = 0.1;
 }
@@ -3510,7 +3530,7 @@ function hitPlayer(cause){
      and knocks the weapon down a tier (floor: tier 1) */
   if (wingman){
     wingman = null;
-    popup(ship.x, ship.y - 34, 'DRONE DOWN!', KIND_COLOR.wingman);
+    popup(ship.x, ship.y - 34, 'FLYER DOWN!', KIND_COLOR.wingman);
     burst(ship.x, ship.y - 20, 12, KIND_COLOR.wingman, 180);
   }
   if (weaponTier > 1){
@@ -4622,7 +4642,7 @@ function updateHud(){
   if (rapidT > 0) fx.push('R RAPID ' + Math.ceil(rapidT) + 's');
   if (shieldUp) fx.push('🛡 SHIELD UP');
   if (dashShieldT > 0) fx.push('🛡 AEGIS ' + Math.ceil(dashShieldT) + 's');
-  if (wingman) fx.push('🛸 DRONE');
+  if (wingman) fx.push('✈ BACKUP FLYER ' + Math.ceil(wingman.t) + 's');
   if (dashCdT > 0) fx.push('💨 ' + Math.ceil(dashCdT) + 's');
   if (event) fx.push(event.kind === 'bull'
     ? '🐂 BULL RUN ' + Math.ceil(event.t) + 's'
@@ -5387,32 +5407,32 @@ function drawPower(p){
     }
   } else {
     ctx.font = '900 10.5px system-ui, sans-serif';
-    ctx.fillText({ tier: 'W', rapid: 'R', wingman: 'D', audit: 'A', homing: 'H', orbit: 'O' }[p.kind] || '?', p.x, bobY + 14.6);
+    ctx.fillText({ tier: 'W', rapid: 'R', wingman: 'B', audit: 'A', homing: 'H', orbit: 'O' }[p.kind] || '?', p.x, bobY + 14.6);
   }
   ctx.restore();
 }
 function drawWingman(){
   if (!wingman || state === 'dying' || state === 'over') return;
   const wx = wingman.x, wy = wingman.y;
-  /* the drone's ring + rotors wear the selected ship's accent — the
-     wingman flies as part of your fighter's flight, not a stranger's */
   ctx.save();
-  ctx.shadowColor = skinAccent(); ctx.shadowBlur = 10;
-  ctx.beginPath(); ctx.arc(wx, wy, 10, 0, Math.PI * 2);
-  ctx.fillStyle = '#170b2e'; ctx.fill();
-  ctx.shadowBlur = 0;
-  ctx.lineWidth = 2; ctx.strokeStyle = skinAccent(); ctx.stroke();
+  /* the last two seconds it blinks — its time is nearly up */
+  if (wingman.t < 2 && Math.floor(animT * 10) % 2 === 0) ctx.globalAlpha = 0.35;
+  /* a mini copy of your own fighter, flying your wing — the
+     selected hull at just over half size, engine glow and all */
+  ctx.save();
+  ctx.translate(wx, wy);
+  ctx.scale(0.55, 0.55);
+  ctx.translate(-wx, -wy);
+  drawShipSprite(wx, wy);
   ctx.restore();
-  drawTokenArt(wx, wy, 10, animT * 2, 1);
-  /* spinning rotor ticks + its little cannon — a mini token-drone */
+  ctx.restore();
+  /* its remaining seconds ride under the hull as a shrinking bar */
   ctx.save();
-  ctx.strokeStyle = skinAccent(); ctx.lineWidth = 2; ctx.lineCap = 'round';
-  for (const sgn of [-1, 1]){
-    const rx = wx + sgn * 12, ry = wy - 6 + Math.sin(animT * 14 + (sgn > 0 ? 1.6 : 0)) * 1.6;
-    ctx.beginPath(); ctx.moveTo(rx - 4, ry); ctx.lineTo(rx + 4, ry); ctx.stroke();
-  }
-  ctx.lineWidth = 2.4;
-  ctx.beginPath(); ctx.moveTo(wx, wy - 8); ctx.lineTo(wx, wy - 13); ctx.stroke();
+  const bw = 30, frac = clamp(wingman.t / WINGMAN_T, 0, 1);
+  ctx.fillStyle = 'rgba(2,8,5,.72)';
+  ctx.fillRect(wx - bw / 2 - 1, wy + 15, bw + 2, 5);
+  ctx.fillStyle = KIND_COLOR.wingman;
+  ctx.fillRect(wx - bw / 2, wy + 16, bw * frac, 3);
   ctx.restore();
 }
 let bgGradKey = '', bgGrad = null;
@@ -6260,6 +6280,7 @@ window.OD = {
       x: ship.x, y: ship.y, combo, comboT, leaks, leakLoss, kills, shotsFired, hullHits,
       rapidT, invulnT, distM: distM(), elapsed,
       weaponTier, fever, feverT, wingman: !!wingman,
+      wingmanT: wingman ? wingman.t : 0, wingmanPos: wingman ? { x: Math.round(wingman.x), y: Math.round(wingman.y) } : null,
       dashT, dashCdT, dashInvulnT, dashShieldT, hullMax,
       adv: { ...curAdv() }, nftOwned: ownedNftTiers(), wallet: walletAddress, nftRead: nftReadState,
       event: event ? event.kind : null, eventT: event ? event.t : 0, nextEventAt,
@@ -6293,7 +6314,7 @@ window.OD = {
     BOSS_R, MILE_EVERY, POWER_TIME, FIRE_INT, RAPID_INT, GUN_DX, GUN_DY,
     WEAPON_MAX, FEVER_TIME, DASH_CD, DASH_INVULN, EVENT_TIME, EVENT_RUG_CAP, SKINS, SHIPS, LEVELS,
     NFT_CONFIG, NFT_TIERS, BASE_ADV, LB_URL: LEADERBOARD_URL, LB_NFT_URL: LEADERBOARD_URL_NFT,
-    HOMING_TIME, HOMING_TURN, CHARGE_MIN, CHARGE_MAX, WARN_TIME, FREEZE_TIME, FREEZE_SLOW,
+    HOMING_TIME, HOMING_TURN, CHARGE_MIN, CHARGE_MAX, WARN_TIME, FREEZE_TIME, FREEZE_SLOW, WINGMAN_T,
     GHOST_SOLID_T, GHOST_PHASE_T, CARRIER_LAUNCH_T,
     MINE_DIST_M, MINE_WAVE_P, MINE_FUSE_T, MINE_BLAST_R, MINE_PROX_R, MINE_CHAIN_T, MINE_CHAIN_STEP, MINE_FAN_T,
     RAIDER_DIST_M, RAIDER_WAVE_P, RAIDER_FIRE_T, RAIDER_WINDUP_T, RAIDER_SHOT_SPEED,
