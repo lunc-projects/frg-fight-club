@@ -746,6 +746,12 @@
   <h1 id="overTitle">SHIP DOWN!</h1>
   <p id="overStats"></p>
   <div id="overBoard"><div class="boardTabs sm"><button class="btab on" id="tabFreeO">FREE</button><button class="btab" id="tabNftO">NFT</button></div><div class="boardList" id="overBoardList"></div><p id="overBoardStatus"></p></div>
+  <div id="continuePanel" style="display:none; border:2px solid #ffd76a; border-radius:14px; padding:12px 14px; margin:4px 0 10px; background:rgba(255,215,106,0.07); max-width:340px;">
+    <div style="font-weight:800; letter-spacing:0.06em; color:#ffd76a;">⚡ CONTINUE?</div>
+    <p style="margin:6px 0 10px;">Revive and continue from where you left off.<br>One continue per run.</p>
+    <button class="play" id="continueBtn">10,000 LUNC</button>
+    <p id="continueStatus" style="margin:8px 0 0; min-height:1em;"></p>
+  </div>
   <button class="play" id="againBtn">↩ FLY AGAIN</button>
   <button class="play alt" id="menuBtn">MENU</button>
 </div>
@@ -893,6 +899,40 @@ const VAULT_SPRITE_IMGS = VAULT_SPRITE_SRC.map(s => { const i = new Image(); i.s
 const VAULT_SPRITE_AR = [0.804, 0.927];   /* height / width per ship */
 const VAULT_FAN_COLORS = ['#ff4747', '#ffd76a'];
 let vaultSpriteDraws = {};   /* test probe */
+/* EVERY VAULT A DIFFERENT SHIP (Orbit's notes, Oct 30): seven hulls
+   rotate by Vault met — the team's two flagships plus five fleet
+   heroes — and each hull carries its OWN weapon spec, harder than
+   the last. Past the seventh, hulls cycle and the cadence keeps
+   tightening (see updateBoss). fan = darts per fan; twin = two fans
+   offset around the aim; burst = aimed singles trailing each volley;
+   mines = shed an orb ship every Nth volley; spiral = a rotating
+   dart stream instead of fans. ALL fire rides the one foe-shot gate. */
+const VAULT_HULLS = [
+  { img: 'vault0', color: '#ff4747' },
+  { img: 'hero-red', color: '#ff4747' },
+  { img: 'vault1', color: '#ffd76a' },
+  { img: 'hero-orange', color: '#ffb14e' },
+  { img: 'hero-blue', color: '#57b6ff' },
+  { img: 'hero-violet', color: '#c9a7ff' },
+  { img: 'hero-green', color: '#5dff8a' },
+];
+const VAULT_SPECS = [
+  { fan: 5, cadence: 1.0 },
+  { fan: 5, cadence: 1.0, burst: 3 },
+  { fan: 4, twin: true, cadence: 1.0 },
+  { fan: 5, cadence: 0.95, mines: 2 },
+  { spiral: true, cadence: 1.0 },
+  { fan: 7, cadence: 0.85, burst: 3 },
+  { fan: 4, twin: true, cadence: 0.8, mines: 3 },
+];
+function vaultHull(b){ return VAULT_HULLS[(b.variant || 0) % VAULT_HULLS.length]; }
+function vaultSpec(b){ return VAULT_SPECS[(b.variant || 0) % VAULT_SPECS.length]; }
+function vaultArt(b){
+  const h = vaultHull(b);
+  if (h.img === 'vault0') return { img: VAULT_SPRITE_IMGS[0], ar: VAULT_SPRITE_AR[0], color: h.color };
+  if (h.img === 'vault1') return { img: VAULT_SPRITE_IMGS[1], ar: VAULT_SPRITE_AR[1], color: h.color };
+  return { img: SHIP_SPRITE_IMGS[h.img], ar: SHIP_SPRITE_AR[h.img] || 1, color: h.color };
+}
 const PLANE_SPRITE_SRC = {
   pfheavy: VAULT_SPRITE_SRC[0], pfcarrier: VAULT_SPRITE_SRC[1],
   pfescort: 'data:image/webp;base64,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',
@@ -1255,7 +1295,7 @@ const POP_T = 0.18;            /* kill-pop life, s */
 const GRID_FLASH_T = 0.35;     /* grid flash life after a big event (boss death, mine chain) */
 const WHALE_CHARGE_SPEED = 560;
 const LEVEL_LEN = 1800;        /* metres per level — the Vault waits at each level's end */
-const BOSS_HP = 60, BOSS_HP_STEP = 30, BOSS_R = 56;
+const BOSS_HP = 150, BOSS_HP_STEP = 120, BOSS_R = 56;   /* Oct 30 Orbit pass: real boss fights (was 60/+30 — a few shots ended them) */
 const GUN_DX = 0, GUN_DY = -30;   /* the starfighter's nose cannon, relative to its centre */
 /* level identities — names + backdrop tints cycle with the level
    number while the difficulty keeps climbing with it */
@@ -1274,7 +1314,7 @@ const LEVELS = [
   { name: 'DARK POOL',        zone: 'DERELICT RING', tint: '#100a02', hi: '#241a06' },
   { name: 'FINAL LIQUIDATION', zone: 'CRIMSON THRONE', tint: '#170208', hi: '#33051a' },
 ];
-const BOSS_SEG = 4, SEG_HP = 3, BOSS_WARN_T = 2.0;
+const BOSS_SEG = 4, SEG_HP = 5, BOSS_WARN_T = 2.0;   /* SEG_HP 3 -> 5 in the Oct 30 Vault pass */
 const MILE_EVERY = 1000;
 const INVULN_HIT = 1.6, INVULN_SHIELD = 1.4;
 const COMBO_WINDOW = 4.0;      /* seconds to chain the next kill */
@@ -2364,6 +2404,174 @@ function verifyBuy(){
     .then(ok => { if (buyBusyTier === p.tier) buyBusyTier = 0; buildShipRow(); return ok; });
 }
 
+/* ================= CONTINUE — the paid revive (Orbit's notes, Oct 30) ===
+   The team's game-over mockup: CONTINUE? — "Revive and continue from
+   where you left off" for 10,000 LUNC. ONE continue per run. The
+   payment rides the exact rail as the fighter buys: a plain MsgSend
+   of the price from the player's OWN connected wallet to the game
+   wallet, memo "OD-CONTINUE". Then the game verifies the tx itself
+   on the public LCD — success code, recipient, amount, memo — and
+   only a verified payment revives. No verification, no revive; a
+   pasted address can never pay. A payment that lands but isn't
+   confirmed yet is REMEMBERED (same record pattern as the buys):
+   it waits for its own wallet and can be checked again at the next
+   game over — it is never charged twice. */
+const CONTINUE_PRICE_ULUNA = '10000000000';   /* 10,000 LUNC */
+const CONTINUE_MEMO = 'OD-CONTINUE';
+const CONTINUE_STORE_KEY = 'orbitDefenderContinue';
+let continueUsed = false, continueBusy = false, continueNote = '';
+let pendingContinue = null;
+try { pendingContinue = JSON.parse(localStorage.getItem(CONTINUE_STORE_KEY) || 'null'); } catch (e) { pendingContinue = null; }
+let continueVerifyHook = null;   /* test seam — production verifies via the LCD */
+let continuePollMs = 3000;       /* chain-confirmation poll interval (test seam can shorten) */
+function savePendingContinue(p){
+  pendingContinue = p;
+  try { localStorage.setItem(CONTINUE_STORE_KEY, JSON.stringify(p)); } catch (e) {}
+}
+function clearPendingContinue(){
+  pendingContinue = null;
+  try { localStorage.removeItem(CONTINUE_STORE_KEY); } catch (e) {}
+}
+function continuePendingForWallet(){
+  return (pendingContinue && pendingContinue.address === walletAddress) ? pendingContinue : null;
+}
+function continueStatus(txt){ continueNote = txt || ''; paintContinue(); }
+function paintContinue(){
+  const panel = $('continuePanel'), btn = $('continueBtn'), st = $('continueStatus');
+  if (!panel || !btn || !st) return;
+  const show = state === 'over' && !continueUsed;
+  panel.style.display = show ? 'block' : 'none';
+  if (!show) return;
+  const p = continuePendingForWallet();
+  btn.textContent = continueBusy ? 'WORKING…'
+    : p ? '↻ CHECK MY PAYMENT' : '⚡ CONTINUE — 10,000 LUNC';
+  btn.disabled = !!continueBusy;
+  st.textContent = continueNote || (p
+    ? 'Your continue payment is already sent — tap CHECK MY PAYMENT to finish it. You will NOT be charged again.'
+    : !walletAddress
+      ? 'Connect a wallet from the menu first — a continue is paid from your own wallet, like the fighter buys.'
+      : !walletCanPay()
+        ? 'A pasted address is read-only and cannot pay — connect a wallet to continue.'
+        : '');
+}
+function kitPayContinue(){
+  const cw = kitChainWallet;
+  if (!cw) return Promise.reject(new Error('the wallet session is gone — disconnect and connect again'));
+  const from = walletAddress;
+  const amount = [{ denom: 'uluna', amount: CONTINUE_PRICE_ULUNA }];
+  return Promise.resolve()
+    .then(() => (typeof cw.initOfflineSigner === 'function' ? cw.initOfflineSigner('direct') : undefined))
+    .then(() => {
+      const signer = cw.offlineSigner ||
+        (cw.client && typeof cw.client.getOfflineSigner === 'function' ? cw.client.getOfflineSigner(TEST_CHAIN_ID, 'direct') : null);
+      if (!signer) throw noPayMethodError();
+      return buyStargateClient(signer);
+    })
+    .then(client => client.sendTokens(from, GAME_WALLET, amount, 'auto', CONTINUE_MEMO))
+    .then(result => {
+      if (result && result.code) throw new Error('the payment broadcast failed (code ' + result.code + ')');
+      const h = keplrExtractHash(result);
+      if (!h) throw new Error('the wallet sent the payment but returned no tx hash');
+      return h;
+    });
+}
+/* read the tx back from the chain and check EVERY field the revive
+   depends on: it succeeded, it paid the game wallet at least the
+   price in LUNC, and it carries the continue memo */
+function verifyContinueTx(hash){
+  if (continueVerifyHook) return continueVerifyHook(hash);
+  return fetch(NFT_LCD + '/cosmos/tx/v1beta1/txs/' + encodeURIComponent(hash))
+    .then(r => (r && r.ok) ? r.json() : null)
+    .then(j => {
+      const resp = j && j.tx_response, tx = j && j.tx;
+      if (!resp || !tx || Number(resp.code) !== 0) return false;
+      if (!tx.body || tx.body.memo !== CONTINUE_MEMO) return false;
+      const msgs = tx.body.messages || [];
+      return msgs.some(m => m && m['@type'] === '/cosmos.bank.v1beta1.MsgSend' &&
+        m.to_address === GAME_WALLET &&
+        (m.amount || []).some(a => a && a.denom === 'uluna' &&
+          BigInt(a.amount || '0') >= BigInt(CONTINUE_PRICE_ULUNA)));
+    })
+    .catch(() => false);
+}
+function pollContinue(tries){
+  const p = continuePendingForWallet();
+  if (!p) return Promise.resolve(false);
+  return verifyContinueTx(p.txHash).then(ok => {
+    if (ok){
+      /* revive FIRST, clear the record only when the revive lands —
+         if the player already flew again, the paid continue is not
+         consumed; it waits for the next game over */
+      const revived = reviveShip();
+      if (revived) clearPendingContinue();
+      return revived;
+    }
+    if (tries > 1){
+      continueStatus('Payment sent — confirming on chain…');
+      return new Promise(r => setTimeout(r, continuePollMs)).then(() => pollContinue(tries - 1));
+    }
+    continueBusy = false;
+    continueStatus('Not confirmed yet — if your wallet sent it, the chain may just be slow. It is saved: check again here, you will not be charged twice.');
+    return false;
+  });
+}
+function startContinue(){
+  if (state !== 'over' || continueUsed || continueBusy) return Promise.resolve(false);
+  if (continuePendingForWallet()){
+    /* an earlier payment is still finishing — check it, never charge twice */
+    continueBusy = true; paintContinue();
+    return pollContinue(10).then(ok => { continueBusy = false; paintContinue(); return ok; });
+  }
+  if (!walletAddress){
+    continueStatus('Connect a wallet from the menu first — a continue is paid from your own wallet, like the fighter buys.');
+    return Promise.resolve(false);
+  }
+  if (!walletCanPay()){
+    continueStatus('A pasted address is read-only and cannot pay — connect a wallet to continue.');
+    return Promise.resolve(false);
+  }
+  const addr = walletAddress;
+  continueBusy = true;
+  continueStatus('Waiting for wallet approval…');
+  return kitPayContinue()
+    .then(txHash => {
+      savePendingContinue({ address: addr, txHash });   /* the money has moved — record it before anything else */
+      if (walletAddress !== addr){ continueBusy = false; continueStatus('Wallet switched mid-payment — your payment is saved and waits for its own wallet.'); return false; }
+      continueStatus('Payment sent — confirming on chain…');
+      return pollContinue(24);
+    })
+    .then(ok => { continueBusy = false; paintContinue(); return ok; })
+    .catch(err => {
+      continueBusy = false;
+      const msg = String((err && err.message) || err || '');
+      continueStatus((err && err.noPayMethod)
+        ? "This wallet app can't send the payment from its browser — the game charged nothing."
+        : /reject|denied|deny|cancel/i.test(msg)
+          ? 'Payment cancelled in ' + kitWalletPretty() + ' — nothing was sent.'
+          : kitWalletPretty() + ' could not send the payment' + (msg ? ': ' + msg.slice(0, 90) : '') + ' — the game charged nothing.');
+      return false;
+    });
+}
+/* the revive itself: back in the same run, from the same spot —
+   score, distance, level and the boss (with its damage) all stand.
+   Full hull, three seconds untouchable, the sky around the ship
+   cleared so the return is fair. */
+function reviveShip(){
+  if (state !== 'over' || continueUsed) return false;
+  continueUsed = true;
+  continueNote = '';
+  $('overScreen').style.display = 'none';
+  hull = hullMax;
+  invulnT = 3;
+  foeShots = [];
+  bossBullets = [];
+  tokens = tokens.filter(t => Math.hypot(t.x - ship.x, t.y - ship.y) > 150);
+  state = 'play';
+  popup(ship.x, ship.y - 64, '⚡ BACK IN THE FIGHT!', '#ffd76a');
+  tone(660, 990, 0.22, 'square', 0.05);
+  return true;
+}
+
 function shipIsNft(i){ return !!(SHIPS[i] && SHIPS[i].nftTier); }
 function shipSelectable(i){
   if (i < 0 || i >= SHIPS.length) return false;
@@ -3074,6 +3282,11 @@ function updateEvent(dt){
 function dropPower(kind, x, y){
   powerups.push({ kind, x, y, vy: 118, t: 0, dead: false });
 }
+/* Orbit's 'maybe' note (Oct 30): ~15% FEWER weapon/power-up drops.
+   Every rolled drop chance runs through this one multiplier —
+   gold's guaranteed drop and boss-kill drops are NOT rates and stay
+   guaranteed. One number to flip back: set it to 1. */
+const DROP_MUL = 0.85;
 function rollDropKind(){
   /* the pool adapts to the ship: no tier drops at max tier, no shield
      drops while shielded, no second wingman, no ring refill at full */
@@ -3184,19 +3397,24 @@ function nextKind(){
   if (endlessRun) return (bossCount + 1) % 2 === 1 ? 'vault' : 'whale';
   return level % 2 === 1 ? 'vault' : 'whale';
 }
+let whaleCount = 0;
 function makeBoss(kind){
-  const hp = BOSS_HP + BOSS_HP_STEP * (bossCount - 1);
+  /* each boss kind climbs its OWN ladder (Oct 30): the Nth Vault and
+     the Nth Whale both take BOSS_HP + STEP x (N-1) — every next boss
+     is a longer fight than the one before */
   if (kind === 'vault') vaultCount++;
-  /* the Vault alternates the team's two biggest ships (owner's
-     call): big ship #1 on odd levels, big ship #2 on even levels.
-     In endless the level stops advancing, so the same 1-2-1-2 runs
-     off the Vault count instead. The fan takes its ship's colour. */
-  const variant = kind === 'vault'
-    ? (endlessRun ? (vaultCount - 1) % 2 : (level % 2 === 1 ? 0 : 1)) : 0;
+  if (kind === 'whale') whaleCount++;
+  const n = kind === 'vault' ? vaultCount : whaleCount;
+  const hp = BOSS_HP + BOSS_HP_STEP * (n - 1);
+  /* EVERY VAULT A DIFFERENT SHIP (Orbit's notes, Oct 30): the hull
+     rotates through all seven by Vault met — never the same ship
+     twice in a row — and each hull brings its own weapon spec. */
+  const variant = kind === 'vault' ? (vaultCount - 1) % VAULT_HULLS.length : 0;
   const segs = [];
   if (kind === 'vault') for (let i = 0; i < BOSS_SEG; i++) segs.push({ hp: SEG_HP, maxHp: SEG_HP });
   return { kind, variant, x: W / 2, y: -BOSS_R - 30, hp, maxHp: hp, segs, t: 0, fireT: 1.6, phase: 0,
     mode: 'hover', modeT: 0, chargeT: 5, shedT: 3.5, vx: 0, vy: 0, tx: 0, ty: 0,
+    volleys: 0, burstLeft: 0, burstT: 0, streamT: 0, streamAcc: 0, streamAng: 0, countN: n,
     entered: false, dead: false };
 }
 function spawnBoss(){
@@ -3369,21 +3587,21 @@ function killToken(t, byRam){
   if (debris.length > 12) debris.splice(0, debris.length - 12);
   if (t.drop) dropPower(t.drop, t.x, t.y);
   else if (t.type === 'gold') dropPower(rollDropKind(), t.x, t.y);   /* gold always pays out a drop */
-  else if (t.type === 'armored' && rng() < 0.35)
+  else if (t.type === 'armored' && rng() < 0.35 * DROP_MUL)
     dropPower(rng() < 0.18 ? 'audit' : rollDropKind(), t.x, t.y);
-  else if (t.type === 'carrier' && rng() < 0.35)
+  else if (t.type === 'carrier' && rng() < 0.35 * DROP_MUL)
     dropPower(rollDropKind(), t.x, t.y);
-  else if (t.type === 'pfcarrier' && rng() < 0.5)
+  else if (t.type === 'pfcarrier' && rng() < 0.5 * DROP_MUL)
     dropPower(rollDropKind(), t.x, t.y);   /* the gold carrier pays out often */
-  else if (t.type === 'pfheavy' && rng() < 0.4)
+  else if (t.type === 'pfheavy' && rng() < 0.4 * DROP_MUL)
     dropPower(rollDropKind(), t.x, t.y);
-  else if (t.type === 'pforb' && rng() < 0.3)
+  else if (t.type === 'pforb' && rng() < 0.3 * DROP_MUL)
     dropPower(rollDropKind(), t.x, t.y);
-  else if (t.type === 'mine' && t.big && rng() < 0.35)
+  else if (t.type === 'mine' && t.big && rng() < 0.35 * DROP_MUL)
     dropPower(rollDropKind(), t.x, t.y);   /* the big orb ships pay out like carriers */
-  else if (t.type === 'ship' && t.tier === 'hero' && rng() < 0.4)
+  else if (t.type === 'ship' && t.tier === 'hero' && rng() < 0.4 * DROP_MUL)
     dropPower(rollDropKind(), t.x, t.y);   /* hero ships pay out like the heavy planes */
-  else if (t.type === 'ship' && t.tier === 'mid' && rng() < 0.25)
+  else if (t.type === 'ship' && t.tier === 'mid' && rng() < 0.25 * DROP_MUL)
     dropPower(rollDropKind(), t.x, t.y);
   /* a destroyed splitter bursts into three swift tokens */
   if (t.type === 'splitter'){
@@ -3684,6 +3902,7 @@ function gameOver(){
     '  ·  Vaults cracked ' + bossKills + '  ·  Pool leaks ' + leaks;
   $('overScreen').style.display = 'flex';
   fxIn($('overScreen'));
+  paintContinue();   /* the CONTINUE panel lives on this screen — one per run, paid + verified */
   /* leaderboard: post the run, then show the board — both best-effort,
      neither can block or break the game-over screen. The board shown
      is the one the run just posted to. */
@@ -4000,26 +4219,72 @@ function updateBoss(dt){
   if (boss.kind === 'whale'){ updateWhale(dt); return; }
   boss.x = W / 2 + Math.sin(boss.t * 0.7) * 108;
   boss.y = 118 + Math.sin(boss.t * 1.25) * 13;
-  boss.fireT -= dt;
-  if (boss.fireT <= 0 && boss.y > 60){
-    boss.fireT = 1.9 * clamp(1 - (level - 1) * 0.04, 0.66, 1);
-    /* fidelity pass 2 (owner's call, Oct 29): the old eight-shot
-       radial ring becomes a five-dart FAN in the Vault's gold —
-       the mothership fan from the team's combat art, reduced:
-       aimed at the Bot, dodgeable gaps between darts, and fired
-       through the one enemy-fire gate, so the Vault shares the
-       same live-projectile budget as every other gunner. A fan
-       that cannot fit fires partial (the gate refuses per dart)
-       or not at all. The Whale still never fires. */
-    const aim = Math.atan2(ship.y - boss.y, ship.x - boss.x);
-    let fired = false;
-    for (let i = 0; i < VAULT_FAN_N; i++){
-      const a = aim + (i - (VAULT_FAN_N - 1) / 2) * FAN_STEP * 1.6;
-      if (fireFoeShot(boss.x, boss.y + 24, Math.cos(a) * VAULT_FAN_SPEED,
-          Math.sin(a) * VAULT_FAN_SPEED, { color: VAULT_FAN_COLORS[boss.variant || 0], fan: true })) fired = true;
-      else break;
+  const spec = vaultSpec(boss), hull = vaultHull(boss);
+  /* trailing aimed singles (burst hulls): three quick shots walk in
+     behind each volley, aimed fresh each time */
+  if (boss.burstLeft > 0){
+    boss.burstT -= dt;
+    if (boss.burstT <= 0 && boss.y > 60){
+      boss.burstT = 0.17;
+      const ba = Math.atan2(ship.y - boss.y, ship.x - boss.x);
+      if (fireFoeShot(boss.x, boss.y + 24, Math.cos(ba) * VAULT_FAN_SPEED,
+          Math.sin(ba) * VAULT_FAN_SPEED, { color: hull.color })) boss.burstLeft--;
+      else boss.burstLeft = 0;   /* sky full — the gate said no; don't queue forever */
     }
-    if (fired) tone(190, 90, 0.16, 'sawtooth', 0.045);
+  }
+  /* spiral hull: a rotating dart stream instead of fan volleys —
+     2.2 s of stream, then a breather; every dart still rides the
+     one gate, so a full sky just thins the stream */
+  if (spec.spiral && boss.streamT > 0){
+    boss.streamT -= dt;
+    boss.streamAng += 2.7 * dt;
+    boss.streamAcc += dt;
+    while (boss.streamAcc >= 0.15){
+      boss.streamAcc -= 0.15;
+      fireFoeShot(boss.x, boss.y + 24, Math.cos(boss.streamAng) * VAULT_FAN_SPEED,
+        Math.sin(boss.streamAng) * VAULT_FAN_SPEED, { color: hull.color, fan: true });
+    }
+    if (boss.streamT <= 0) boss.fireT = 1.15 * spec.cadence;   /* breather, then stream again */
+  }
+  boss.fireT -= dt;
+  if (boss.fireT <= 0 && boss.y > 60 && !(spec.spiral && boss.streamT > 0)){
+    /* cadence: level trim x this hull's own trim x an endless trim
+       that keeps tightening past the seventh Vault */
+    const endlessTrim = boss.countN > VAULT_SPECS.length
+      ? Math.pow(0.94, boss.countN - VAULT_SPECS.length) : 1;
+    boss.fireT = 1.9 * clamp(1 - (level - 1) * 0.04, 0.66, 1) * spec.cadence * endlessTrim;
+    const aim = Math.atan2(ship.y - boss.y, ship.x - boss.x);
+    if (spec.spiral){
+      boss.streamT = 2.2;
+      boss.streamAng = aim - 1.35;   /* the stream sweeps across the Bot's line */
+      boss.streamAcc = 0;
+      tone(190, 90, 0.16, 'sawtooth', 0.045);
+    } else {
+      /* fan volley in this hull's own pattern: a single fan, or a
+         TWIN fan — two fans offset around the aim. Every dart is
+         fired through the one enemy-fire gate, so the Vault shares
+         the live-projectile budget with every other gunner; a fan
+         that cannot fit fires partial or not at all. */
+      let fired = false;
+      const centers = spec.twin ? [aim - 0.38, aim + 0.38] : [aim];
+      for (const c of centers){
+        for (let i = 0; i < spec.fan; i++){
+          const a = c + (i - (spec.fan - 1) / 2) * FAN_STEP * 1.6;
+          if (fireFoeShot(boss.x, boss.y + 24, Math.cos(a) * VAULT_FAN_SPEED,
+              Math.sin(a) * VAULT_FAN_SPEED, { color: hull.color, fan: true })) fired = true;
+          else break;
+        }
+      }
+      if (fired){
+        tone(190, 90, 0.16, 'sawtooth', 0.045);
+        boss.volleys++;
+        if (spec.burst) { boss.burstLeft = spec.burst; boss.burstT = 0.34; }
+        /* mine-shedding hulls drop an orb ship into the fight on
+           their Nth volley — it fights like any other orb ship */
+        if (spec.mines && boss.volleys % spec.mines === 0 && aliveTokens() < MAX_ALIVE)
+          tokens.push(makeToken('mine', boss.x, boss.y + 64, {}));
+      }
+    }
   }
 }
 /* THE RUG WHALE: hovers and sheds mini-rugs, then TELEGRAPHS a charge
@@ -4035,8 +4300,9 @@ function updateWhale(dt){
       b.tx = clamp(ship.x, 50, W - 50);
       b.ty = clamp(Math.min(ship.y, LH * 0.62), 140, LH * 0.75);
       const dx = b.tx - b.x, dy = b.ty - b.y, d = Math.hypot(dx, dy) || 1;
-      b.vx = dx / d * WHALE_CHARGE_SPEED;
-      b.vy = dy / d * WHALE_CHARGE_SPEED;
+      const cs = WHALE_CHARGE_SPEED * Math.min(1 + (b.countN - 1) * 0.05, 1.3);   /* later Whales lunge faster */
+      b.vx = dx / d * cs;
+      b.vy = dy / d * cs;
       sfxBoss();
     }
     return;
@@ -4050,7 +4316,7 @@ function updateWhale(dt){
   }
   if (b.mode === 'return'){
     const dx = W / 2 - b.x, dy = 118 - b.y, d = Math.hypot(dx, dy);
-    if (d < 10){ b.mode = 'hover'; b.chargeT = 5 + rng() * 1.5; }
+    if (d < 10){ b.mode = 'hover'; b.chargeT = (5 + rng() * 1.5) * clamp(1 - (b.countN - 1) * 0.09, 0.58, 1); }
     else { b.x += dx / d * 300 * dt; b.y += dy / d * 300 * dt; }
     return;
   }
@@ -4059,7 +4325,7 @@ function updateWhale(dt){
   b.y = 118 + Math.sin(b.t * 1.1) * 10;
   b.shedT -= dt;
   if (b.shedT <= 0){
-    b.shedT = 4;
+    b.shedT = 4 * clamp(1 - (b.countN - 1) * 0.09, 0.58, 1);   /* later Whales shed faster */
     if (aliveTokens() < MAX_ALIVE)
       tokens.push(makeToken('rug', clamp(b.x + (rng() < 0.5 ? -48 : 48), 24, W - 24), b.y + 54, { r: 13 }));
   }
@@ -4373,7 +4639,8 @@ function reset(){
   foeShots = []; blasts = [];
   parts = []; popups = [];
   blooms = []; pops = []; gridFlashT = 0;
-  boss = null; bossWarn = 0; bossCount = 0; bossKills = 0; vaultCount = 0;
+  boss = null; bossWarn = 0; bossCount = 0; bossKills = 0; vaultCount = 0; whaleCount = 0;
+  continueUsed = false; continueBusy = false; continueNote = '';   /* a fresh run earns a fresh continue offer */
   level = 1; levelStartPx = 0; levelCompleteT = 0; levelIntroT = 0;
   hullMax = 3 + curAdv().hullBonus;   /* NFT Lance+ frames start with extra hull */
   hull = hullMax; shieldUp = false;
@@ -5278,15 +5545,16 @@ function drawBoss(){
     ctx.stroke();
     ctx.restore();
   } else {
-    const vImg = VAULT_SPRITE_IMGS[b.variant || 0];
+    const vArt = vaultArt(b);
+    const vImg = vArt.img;
     if (vImg && imgReady(vImg)){
-      /* the Vault's body is the team's big flagship sprite for this
-         level (rotating by Vault met) — drawn unspun (it hovers on
-         its sway, as always); the shield ring, segments, hit sizes
-         and HP bar keep their exact geometry and behaviour */
-      const vw = BOSS_R * 2.46, vh = vw * VAULT_SPRITE_AR[b.variant || 0];
+      /* the Vault's body is this Vault's OWN hull (rotating by Vault
+         met through the seven-hull table) — drawn unspun (it hovers
+         on its sway, as always); the shield ring, segments, hit
+         sizes and HP bar keep their exact geometry and behaviour */
+      const vw = BOSS_R * 2.46, vh = vw * vArt.ar;
       ctx.save();
-      ctx.shadowColor = VAULT_FAN_COLORS[b.variant || 0]; ctx.shadowBlur = 22;
+      ctx.shadowColor = vArt.color; ctx.shadowBlur = 22;
       ctx.drawImage(vImg, b.x - vw / 2, b.y - vh / 2, vw, vh);
       ctx.restore();
       vaultSpriteDraws[b.variant || 0] = (vaultSpriteDraws[b.variant || 0] || 0) + 1;
@@ -6245,6 +6513,7 @@ $('upgradeBtn').onclick = () => {
   setTimeout(() => row.classList.remove('shopFlash'), 1600);
 };
 $('againBtn').onclick = () => { sfxTap(); startGame(); };
+$('continueBtn').onclick = () => { sfxTap(); startContinue(); };
 $('menuBtn').onclick = () => { sfxTap(); toMenu(); };
 $('boardBtn').onclick = () => openBoard();
 $('boardCloseBtn').onclick = () => closeBoard();
@@ -6375,6 +6644,16 @@ window.OD = {
   /* the stargate factory seam for the payment path: the suites
      stand in a recording client for the real SigningStargateClient */
   setSignerClientForTest(fn){ signerClientHook = fn || null; },
+  continueState(){
+    return { used: continueUsed, busy: continueBusy,
+      pending: !!continuePendingForWallet(),
+      available: state === 'over' && !continueUsed,
+      priceUluna: CONTINUE_PRICE_ULUNA, memo: CONTINUE_MEMO };
+  },
+  startContinue(){ return startContinue(); },
+  reviveNow(){ return reviveShip(); },
+  setContinueVerifierForTest(fn){ continueVerifyHook = fn || null; },
+  setContinuePollMsForTest(ms){ continuePollMs = Math.max(0, Number(ms) || 0); },
   setRewardsUrl(u){ NFT_CONFIG.rewardsUrl = String(u || ''); },
   /* TEST BUILD buy hooks: point the game at a (stub) buy service
      and drive the paid-buy flow without a DOM click */
@@ -6442,6 +6721,7 @@ window.OD = {
     if (!boss) return null;
     return { x: boss.x, y: boss.y, hp: boss.hp, maxHp: boss.maxHp, phase: boss.phase,
       kind: boss.kind, variant: boss.variant || 0, mode: boss.mode,
+      countN: boss.countN || 0, volleys: boss.volleys || 0,
       segAlive: boss.segs.filter(s => s.hp > 0).length,
       segHp: boss.segs.map(s => s.hp) };
   },
@@ -6480,7 +6760,8 @@ window.OD = {
       fx: { parts: parts.length, popups: popups.length, blooms: blooms.length, pops: pops.length, gridFlashT },
       follow: { held: pointerHeld, active: followActive, x: followX, y: followY, px: targetX, py: targetY, vx: shipVx, vy: shipVy, off: TOUCH_OFFSET_Y } };
   },
-  constants: { W, COLS, MAX_ALIVE, KILL_SCORE, TOKEN_R, TOKEN_HP, LEVEL_LEN, BOSS_HP,
+  constants: { W, COLS, MAX_ALIVE, KILL_SCORE, TOKEN_R, TOKEN_HP, LEVEL_LEN, BOSS_HP, BOSS_HP_STEP,
+    CONTINUE_PRICE_ULUNA, CONTINUE_MEMO,
     BOSS_R, MILE_EVERY, POWER_TIME, FIRE_INT, RAPID_INT, GUN_DX, GUN_DY,
     WEAPON_MAX, FEVER_TIME, DASH_CD, DASH_INVULN, EVENT_TIME, EVENT_RUG_CAP, SKINS, SHIPS, LEVELS,
     NFT_CONFIG, NFT_TIERS, BASE_ADV, LB_URL: LEADERBOARD_URL, LB_NFT_URL: LEADERBOARD_URL_NFT,
@@ -6491,6 +6772,7 @@ window.OD = {
     RAIDER_DIST_M, RAIDER_WAVE_P, RAIDER_FIRE_T, RAIDER_WINDUP_T, RAIDER_SHOT_SPEED,
     LUNC_SHOT_DIST_M, LUNC_SHOT_T, LUNC_SHOT_SPEED, MAX_FOE_SHOTS,
     RAIDER_FAN_T, RAIDER_FAN_N, FAN_STEP, VAULT_FAN_N, VAULT_FAN_SPEED, MUSIC_TRACKS,
+    VAULT_HULLS, VAULT_SPECS, DROP_MUL,
     PLANE_TYPES, PLANE_BADGES, PLANE_WAVE_MIN, PLANE_WAVE_MAX, PLANE_HOLD_T, PLANE_WINDUP_T,
     PLANE_FIRST_SHOT, PLANE_SPIN, PLANE_FAN_STEP, PLANE_FAN_SPEED, VAULT_FAN_COLORS,
     FX_PART_MAX, FX_POPUP_MAX, BLOOM_MAX, BLOOM_T, POP_MAX, POP_T, GRID_FLASH_T,
