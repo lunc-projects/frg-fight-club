@@ -1085,6 +1085,16 @@ var texRubber = (function () {
   }
   var t = canvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; return t;
 })();
+/* broken centre-line dash paint: one dash per texture tile,
+   laid on a narrow ribbon down the middle of the lap (the
+   ribbon's v runs one tile per 6 m — see buildWorld) */
+var texDash = (function () {
+  var c = makeCanvas(32, 128), x = c.getContext('2d');
+  x.clearRect(0, 0, 32, 128);
+  x.fillStyle = 'rgba(238,238,230,0.92)';
+  x.fillRect(0, 0, 32, 74);
+  var t = canvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; return t;
+})();
 var texBridgeWarn = (function () {
   var c = makeCanvas(256, 160), x = c.getContext('2d');
   x.fillStyle = '#e8b62a'; x.fillRect(0, 0, 256, 160);
@@ -1224,14 +1234,34 @@ var SKY_TEX_CACHE = {};
 function makeSkyTexture(top, hor) {
   var k = top + '_' + hor;
   if (SKY_TEX_CACHE[k]) return SKY_TEX_CACHE[k];
-  var c = makeCanvas(32, 256), x = c.getContext('2d');
+  var c = makeCanvas(512, 256), x = c.getContext('2d');
   var mid = new THREE.Color(top).lerp(new THREE.Color(hor), 0.45);
   var g = x.createLinearGradient(0, 0, 0, 256);
   g.addColorStop(0, '#' + new THREE.Color(top).getHexString());
   g.addColorStop(0.55, '#' + mid.getHexString());
   g.addColorStop(0.8, '#' + new THREE.Color(hor).getHexString());
   g.addColorStop(1, '#' + new THREE.Color(hor).getHexString());
-  x.fillStyle = g; x.fillRect(0, 0, 32, 256);
+  x.fillStyle = g; x.fillRect(0, 0, 512, 256);
+  /* streaky cloud bands (2026-10-30, the owner's video
+     reference): soft horizontal smears in the upper sky, their
+     strength scaled by how day-like the level's sky top is —
+     full streaks on the day circuits, faint wisps on the night
+     and dusk skies. Seeded off the level's own colors so a
+     circuit's sky is identical on every rebuild. */
+  var topC = new THREE.Color(top);
+  var lum = 0.299 * topC.r + 0.587 * topC.g + 0.114 * topC.b;
+  var cloudA = 0.05 + lum * 0.55;
+  var cSeed = ((top * 31 + hor) >>> 0) || 7;
+  var crnd = function () { cSeed = (cSeed * 1103515245 + 12345) & 0x7fffffff; return cSeed / 0x7fffffff; };
+  x.fillStyle = '#ffffff';
+  for (var ci = 0; ci < 30; ci++) {
+    var cw = 60 + crnd() * 190, chh = 3 + crnd() * 7, cx0 = crnd() * 512, cy0 = 55 + crnd() * 85;
+    x.globalAlpha = cloudA * (0.25 + crnd() * 0.75);
+    x.beginPath(); x.ellipse(cx0, cy0, cw / 2, chh / 2, 0, 0, Math.PI * 2); x.fill();
+    if (cx0 + cw / 2 > 512) { x.beginPath(); x.ellipse(cx0 - 512, cy0, cw / 2, chh / 2, 0, 0, Math.PI * 2); x.fill(); }
+    if (cx0 - cw / 2 < 0) { x.beginPath(); x.ellipse(cx0 + 512, cy0, cw / 2, chh / 2, 0, 0, Math.PI * 2); x.fill(); }
+  }
+  x.globalAlpha = 1;
   var t = canvasTexture(c); SKY_TEX_CACHE[k] = t; return t;
 }
 
@@ -1487,6 +1517,14 @@ function buildWorld(cfg) {
   var lineMat = new THREE.MeshBasicMaterial({ color: 0xd9d9ce });
   trackRibbon(-(ROAD_HALF - 0.32), 0.17, 0.045, lineMat, 26);
   trackRibbon(ROAD_HALF - 0.32, 0.17, 0.045, lineMat, 26);
+  /* broken centre-line dashes down the middle of the lap (the
+     reference circuits paint them between the edge lines); the
+     bridge span is skipped exactly like the rubber line */
+  var dashMat = new THREE.MeshBasicMaterial({ map: texDash, transparent: true, depthWrite: false });
+  var dashMesh = BRIDGE ? ribbonSpan(skipB, skipA + TRACK_LEN, 0, 0.22, 0.04, dashMat, 6)
+    : groundRibbon(0, 0.22, 0.04, dashMat, 6);
+  dashMesh.renderOrder = 2;
+  SCENERY.kit.dashLine = true;
   /* red/white kerbs at the road edge (the old neon glow strips are gone) */
   var kerbMat = new THREE.MeshStandardMaterial({ map: texKerb, roughness: 0.85 });
   trackRibbon(-(ROAD_HALF + 0.3), 0.6, 0.035, kerbMat, 3);
@@ -2063,12 +2101,18 @@ var GEO = {
   fin: GEO_FIN,
   cover: new THREE.SphereGeometry(0.5, 18, 12),
   halo: new THREE.TorusGeometry(0.335, 0.045, 8, 22, Math.PI * 1.3).rotateX(Math.PI / 2).rotateY(Math.PI * 0.85),
-  helmet: new THREE.SphereGeometry(0.205, 16, 12)
+  helmet: new THREE.SphereGeometry(0.205, 16, 12),
+  /* closed-canopy shell for the GT / prototype rival silhouettes
+     (2026-10-30): one shared sphere, scaled per car into a
+     teardrop — shared like every other shell, never disposed */
+  canopy: new THREE.SphereGeometry(0.5, 20, 14)
 };
 var MAT = {
   carbon: new THREE.MeshStandardMaterial({ color: 0x0b0c0f, roughness: 0.55, metalness: 0.45, envMapIntensity: 0.5 }),
   tire: new THREE.MeshStandardMaterial({ color: 0x0a0a0b, roughness: 0.95, metalness: 0.0 }),
   gold: new THREE.MeshStandardMaterial({ color: 0xd8b45a, roughness: 0.17, metalness: 0.95, envMapIntensity: 1.75 }),
+  silver: new THREE.MeshStandardMaterial({ color: 0xd7dde6, roughness: 0.2, metalness: 0.95, envMapIntensity: 1.6 }),
+  blackRim: new THREE.MeshStandardMaterial({ color: 0x17181d, roughness: 0.38, metalness: 0.75, envMapIntensity: 1.0 }),
   glass: new THREE.MeshStandardMaterial({ color: 0x0d1626, roughness: 0.12, metalness: 0.9, envMapIntensity: 1.6 }),
   dark: new THREE.MeshStandardMaterial({ color: 0x11141a, roughness: 0.9, metalness: 0.1, envMapIntensity: 0.5 }),
   suit: new THREE.MeshStandardMaterial({ color: 0x14161e, roughness: 0.85, metalness: 0.05 }),
@@ -2078,7 +2122,7 @@ var MAT = {
 var paintMats = {};
 function paintMat(hex) {
   if (!paintMats[hex]) paintMats[hex] = new THREE.MeshStandardMaterial({
-    color: hex, roughness: 0.15, metalness: 0.55, envMapIntensity: 1.4 });
+    color: hex, roughness: 0.13, metalness: 0.55, envMapIntensity: 1.55 });
   return paintMats[hex];
 }
 var texCoverDecal = (function () {
@@ -2116,23 +2160,24 @@ var texHelmet = (function () {
   return canvasTexture(c);
 })();
 
-function buildWheel(front, tireTex) {
+function buildWheel(front, tireTex, rimMat) {
+  rimMat = rimMat || MAT.gold;
   var pivot = new THREE.Group();
   var spin = new THREE.Group(); pivot.add(spin);
   var sideMat = new THREE.MeshStandardMaterial({ map: tireTex || tireSideTexture(null),
     roughness: 0.92, metalness: 0.05 });
   var tire = new THREE.Mesh(front ? GEO.tireF : GEO.tireR, [MAT.tire, sideMat, sideMat]); spin.add(tire);
-  var rim = new THREE.Mesh(front ? GEO.rimF : GEO.rimR, MAT.gold); spin.add(rim);
+  var rim = new THREE.Mesh(front ? GEO.rimF : GEO.rimR, rimMat); spin.add(rim);
   /* brake disc behind the spokes — its material glows under braking */
   var brakeMat = new THREE.MeshBasicMaterial({ color: 0x181a1e });
   var disc = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, (front ? 0.39 : 0.45), 14).rotateZ(Math.PI / 2), brakeMat);
   spin.add(disc);
   for (var i = 0; i < 5; i++) {
-    var sp = new THREE.Mesh(GEO.spoke, MAT.gold);
+    var sp = new THREE.Mesh(GEO.spoke, rimMat);
     sp.rotation.x = i * Math.PI * 2 / 5; spin.add(sp);
   }
   /* polished rim lip + the colored center-lock nut (reference detail) */
-  var lip = new THREE.Mesh(new THREE.TorusGeometry(front ? 0.185 : 0.2, 0.018, 6, 20).rotateY(Math.PI / 2), MAT.gold);
+  var lip = new THREE.Mesh(new THREE.TorusGeometry(front ? 0.185 : 0.2, 0.018, 6, 20).rotateY(Math.PI / 2), rimMat);
   spin.add(lip);
   var nut = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, (front ? 0.42 : 0.48), 6).rotateZ(Math.PI / 2),
     new THREE.MeshStandardMaterial({ color: 0xc22424, roughness: 0.35, metalness: 0.6 }));
@@ -2141,7 +2186,33 @@ function buildWheel(front, tireTex) {
   return { pivot: pivot, spin: spin, sideMats: [sideMat], brakeMats: [brakeMat] };
 }
 
-function buildCar(paintHex, isPlayer, livery) {
+/* RIVAL SILHOUETTES (2026-10-30 — the owner's video pass:
+   "different car selections as competitors driving next to
+   you"). The field used to be ONE car in eleven paints. Rival
+   cars now build with a variant spec that reshapes the parts a
+   player actually sees from behind and alongside — rear-wing
+   span and ride height, shark fin, airbox bulk, a closed glass
+   canopy on the GT and prototype shapes, rim finish. The
+   player's own car passes NO variant (and neither do the
+   ghost, the garage or the showroom) and builds exactly as
+   before. Assignment is deterministic by slot, so every grid
+   mixes the shapes from the start line. All variant parts use
+   the shared GEO shells / MAT set (canopy = GEO.canopy), so
+   disposeCarGroup frees a variant car exactly like a standard
+   one — no new per-car resources. fin/airbox: 0 = part absent,
+   otherwise a scale factor. */
+var CAR_VARIANTS = [
+  { key: 'gt',     canopy: true,  halo: false, fin: 0,    airbox: 0,    wingSpan: 1.28, wingDy: -0.10, coverY: 0.94, fwSpan: 1.00, rim: 'silver' },
+  { key: 'sprint', canopy: false, halo: true,  fin: 0,    airbox: 0.78, wingSpan: 0.82, wingDy: 0.07,  coverY: 1.00, fwSpan: 0.90, rim: 'black' },
+  { key: 'aero',   canopy: false, halo: true,  fin: 1.16, airbox: 1.12, wingSpan: 1.18, wingDy: 0.02,  coverY: 1.00, fwSpan: 1.06, rim: 'gold' },
+  { key: 'proto',  canopy: true,  halo: false, fin: 1.05, airbox: 0,    wingSpan: 1.10, wingDy: 0.05,  coverY: 0.97, fwSpan: 1.00, rim: 'black' }
+];
+function variantForSlot(slot) {
+  var n = (typeof slot === 'number' && isFinite(slot)) ? Math.floor(Math.abs(slot)) : 0;
+  return CAR_VARIANTS[n % CAR_VARIANTS.length];
+}
+
+function buildCar(paintHex, isPlayer, livery, variant) {
   var paint = paintMat(paintHex);
   /* dressed cars (the race field) carry a second tone + an accent:
      paint2 on the cover/airbox/fin/rear wing, the accent on the
@@ -2149,6 +2220,9 @@ function buildCar(paintHex, isPlayer, livery) {
      pass no livery and build exactly as before. */
   var paint2 = livery ? paintMat(livery.paint2) : null;
   var accentMat = livery ? paintMat(livery.accent) : null;
+  /* the rival silhouette spec (null = the standard sculpted car) */
+  var V = variant || null;
+  var rimMatV = !V ? null : (V.rim === 'silver' ? MAT.silver : (V.rim === 'black' ? MAT.blackRim : MAT.gold));
   var g = new THREE.Group();
   var body = new THREE.Group(); g.add(body);
   function add(geo, mat, x, y, z, sx, sy, sz, rx, ry, rz) {
@@ -2220,8 +2294,9 @@ function buildCar(paintHex, isPlayer, livery) {
      elements now have a rounded leading edge and tapered tail
      instead of a plank profile. The endplates stay: narrow
      painted plates with gold trim, not slabs. */
-  add(wingGeo(2.24, 0.60, 0.055, 0.92, 0.02, 0.0), MAT.carbon, 0, 0.10, 2.52);
-  add(wingGeo(2.05, 0.30, 0.040, 0.92, 0.02, 0.0), paint, 0, 0.175, 2.4, 1, 1, 1, -0.12);
+  var fwMainEl = add(wingGeo(2.24, 0.60, 0.055, 0.92, 0.02, 0.0), MAT.carbon, 0, 0.10, 2.52);
+  var fwFlapEl = add(wingGeo(2.05, 0.30, 0.040, 0.92, 0.02, 0.0), paint, 0, 0.175, 2.4, 1, 1, 1, -0.12);
+  if (V && V.fwSpan !== 1) { fwMainEl.scale.x = V.fwSpan; fwFlapEl.scale.x = V.fwSpan; }
   [-1, 1].forEach(function (s) {
     add(new B(0.05, 0.24, 0.66), paint, s * 1.1, 0.17, 2.5);
     add(new B(0.056, 0.03, 0.66), MAT.gold, s * 1.1, 0.30, 2.5);
@@ -2265,25 +2340,45 @@ function buildCar(paintHex, isPlayer, livery) {
   /* engine cover + airbox + fin: lofted cover tapering to the
      tail, a lofted airbox hump, and an extruded shark fin (was:
      a scaled sphere, a box, and a thin slab) */
-  add(GEO.engineCover, paint2 || paint, 0, 0, 0);
+  var coverLoft = add(GEO.engineCover, paint2 || paint, 0, 0, 0);
   var coverDecal = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 1.2),
     new THREE.MeshBasicMaterial({ map: texCoverDecal, transparent: true }));
   coverDecal.position.set(0, 0.892, -0.68); coverDecal.rotation.set(-Math.PI / 2, 0, Math.PI); body.add(coverDecal);
-  add(GEO.airbox, paint2 || paint, 0, 0, 0);
-  var abIn = add(new B(0.19, 0.14, 0.03), MAT.dark, 0, 1.01, -0.148); abIn.rotation.x = -0.1;
-  add(GEO.fin, paint2 || paint, 0, 0, 0);
+  /* variant engine covers sit lower (GT / prototype): the loft
+     scales down and its decal rides with the crown */
+  if (V && V.coverY !== 1) { coverLoft.scale.y = V.coverY; coverDecal.position.y = 0.88 * V.coverY + 0.012; }
+  var airboxMesh = null, finMesh = null;
+  if (!V || V.airbox) {
+    airboxMesh = add(GEO.airbox, paint2 || paint, 0, 0, 0);
+    var abIn = add(new B(0.19, 0.14, 0.03), MAT.dark, 0, 1.01, -0.148); abIn.rotation.x = -0.1;
+    if (V && V.airbox !== 1) {
+      airboxMesh.scale.set(V.airbox, V.airbox, V.airbox);
+      abIn.position.set(0, 1.01 * V.airbox, -0.148 * V.airbox);
+    }
+  }
+  if (!V || V.fin) {
+    finMesh = add(GEO.fin, paint2 || paint, 0, 0, 0);
+    if (V && V.fin !== 1) finMesh.scale.set(1, V.fin, V.fin);
+  }
   /* T-cam pods astride the airbox + the whip aerial (reference detail) */
-  add(new B(0.11, 0.05, 0.16), new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.4 }), -0.1, 1.17, -0.62);
-  add(new B(0.11, 0.05, 0.16), MAT.carbon, 0.1, 1.17, -0.62);
+  if (!V || V.airbox) {
+    var tcS = V ? V.airbox : 1;
+    add(new B(0.11, 0.05, 0.16), new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.4 }), -0.1 * tcS, 1.17 * tcS, -0.62);
+    add(new B(0.11, 0.05, 0.16), MAT.carbon, 0.1 * tcS, 1.17 * tcS, -0.62);
+  }
   var whip = add(new C(0.006, 0.006, 0.52, 5), MAT.carbon, 0.16, 1.05, -1.15); whip.rotation.x = 0.1;
   /* brake cooling ducts tucked behind the front wheels */
   [-1, 1].forEach(function (s) {
     add(new B(0.16, 0.2, 0.3), MAT.carbon, s * 0.74, 0.4, 1.18, 1, 1, 1, 0, s * 0.15, 0);
     add(new B(0.1, 0.13, 0.03), MAT.dark, s * 0.72, 0.4, 1.34);
   });
-  /* halo (gold on the player's car — the mockup's signature) */
-  var halo = add(GEO.halo, isPlayer ? MAT.gold : (accentMat || MAT.carbon), 0, 0.86, 0.42); halo.scale.set(1, 1, 1.35);
-  body.add(strut(new THREE.Vector3(0, 0.615, 1.03), new THREE.Vector3(0, 0.88, 0.58), 0.035, isPlayer ? MAT.gold : (accentMat || MAT.carbon)));
+  /* halo (gold on the player's car — the mockup's signature);
+     the closed-canopy variants wear glass instead of a halo */
+  var haloMesh = null;
+  if (!V || V.halo) {
+    haloMesh = add(GEO.halo, isPlayer ? MAT.gold : (accentMat || MAT.carbon), 0, 0.86, 0.42); haloMesh.scale.set(1, 1, 1.35);
+    body.add(strut(new THREE.Vector3(0, 0.615, 1.03), new THREE.Vector3(0, 0.88, 0.58), 0.035, isPlayer ? MAT.gold : (accentMat || MAT.carbon)));
+  }
   /* mirrors — body-colored shells on stalks, as in the references */
   [-1, 1].forEach(function (s) {
     body.add(strut(new THREE.Vector3(s * 0.4, 0.68, 0.82), new THREE.Vector3(s * 0.56, 0.78, 0.8), 0.016, MAT.carbon));
@@ -2294,6 +2389,12 @@ function buildCar(paintHex, isPlayer, livery) {
   [-1, 1].forEach(function (s) {
     add(new B(0.09, 0.16, 0.34), MAT.dark, s * 0.3, 0.72, 0.3);
   });
+  /* closed canopy (GT + prototype variants): a tinted-glass
+     teardrop over the cockpit — the silhouette the owner's
+     reference car wears. One shared shell (GEO.canopy) scaled
+     into place; the driver stays inside it. */
+  var canopyMesh = null;
+  if (V && V.canopy) canopyMesh = add(GEO.canopy, MAT.glass, 0, 0.72, 0.28, 0.82, 0.60, 1.80);
   /* rear wing (REWORKED 2026-10-29, owner's play-test): the old
      assembly — one 0.36-deep box plane, a box flap and solid box
      endplates — read from behind as a single black SLAB on
@@ -2315,6 +2416,13 @@ function buildCar(paintHex, isPlayer, livery) {
   var flapGeo = wingGeo(1.08, 0.21, 0.026, 0.85, 0.02, 0.03);
   flapGeo.translate(0, 0, -0.105);
   var drsFlap = add(flapGeo, MAT.carbon, 0, 1.155, -2.29, 1, 1, 1, 0.25);
+  /* variant rear wings: span + ride height are the silhouette
+     from behind — the view the player races against. The DRS
+     pivot is the flap's own origin, so scaling is safe. */
+  if (V && (V.wingSpan !== 1 || V.wingDy)) {
+    wingMain.scale.x = V.wingSpan; wingMain.position.y += V.wingDy;
+    drsFlap.scale.x = V.wingSpan; drsFlap.position.y += V.wingDy;
+  }
   var wingTex0 = (livery || isPlayer) ? carWingTexture(livery || FREE_CAR) : texWingText;
   var wingSideMatA = new THREE.MeshBasicMaterial({ map: wingTex0, side: THREE.DoubleSide });
   var wingSideMatB = new THREE.MeshBasicMaterial({ map: wingTex0, side: THREE.DoubleSide });
@@ -2327,7 +2435,7 @@ function buildCar(paintHex, isPlayer, livery) {
     normalizePlateUV(epGeo, -2.47, -2.04, 0.93, 1.285);
     if (s < 0) flipGeoU(epGeo);
     var ep = new THREE.Mesh(epGeo, [wsMat, accentMat || MAT.carbon]);
-    ep.position.set(s * 0.585, 0, 0);
+    ep.position.set(s * 0.585 * (V ? V.wingSpan : 1), 0, 0);
     if (s < 0) ep.scale.x = -1;
     body.add(ep);
   });
@@ -2355,7 +2463,7 @@ function buildCar(paintHex, isPlayer, livery) {
   var wpos = { fl: [-0.84, 0.355, 1.52], fr: [0.84, 0.355, 1.52], rl: [-0.86, 0.375, -1.58], rr: [0.86, 0.375, -1.58] };
   Object.keys(wpos).forEach(function (k) {
     var p = wpos[k], front = (k[0] === 'f');
-    var w = buildWheel(front, tireSideTexture(livery || (isPlayer ? FREE_CAR : null)));
+    var w = buildWheel(front, tireSideTexture(livery || (isPlayer ? FREE_CAR : null)), rimMatV);
     w.pivot.position.set(p[0], p[1], p[2]); g.add(w.pivot);
     wheels[k] = w;
     w.sideMats.forEach(function (sm) { tireSideMats.push(sm); });
@@ -2415,7 +2523,9 @@ function buildCar(paintHex, isPlayer, livery) {
     noseMeshes: [noseDecal], wingDecalMeshes: wingDecalMeshes, wingSideMats: wingSideMats,
     tireSideMats: tireSideMats, brakeMats: brakeMatsAll, drsFlap: drsFlap, rainLight: rainLight,
     floorMesh: floorMesh, diffuserMesh: diffuserMesh, spineMesh: spineMesh, strakes: strakeMeshes,
-    wingMain: wingMain, flamesIn: flamesIn, flameInMat: flameInMat, hubCarriers: hubCarriers };
+    wingMain: wingMain, flamesIn: flamesIn, flameInMat: flameInMat, hubCarriers: hubCarriers,
+    variantKey: V ? V.key : null, canopyMesh: canopyMesh, finMesh: finMesh, haloMesh: haloMesh,
+    airboxMesh: airboxMesh, rimHex: rimMatV ? rimMatV.color.getHex() : MAT.gold.color.getHex() };
   g.traverse(function (o) {
     if (o.isMesh) {
       if (o.material === paint) refs.paintMeshes.push(o);
@@ -2568,9 +2678,9 @@ var FIELD_LIVERIES = [
 
 function makeCar(slot, isPlayerCar, paintHex, pace, lane) {
   var liv = isPlayerCar ? null : (FIELD_LIVERIES[slot] || null);
-  var refs = buildCar(paintHex, isPlayerCar, liv);
+  var refs = buildCar(paintHex, isPlayerCar, liv, isPlayerCar ? null : variantForSlot(slot));
   if (liv) applyCarDecals(refs, liv);
-  return { refs: refs, isPlayer: isPlayerCar, slot: slot, livery: liv,
+  return { refs: refs, isPlayer: isPlayerCar, slot: slot, livery: liv, variant: refs.variantKey || null,
     s0: TRACK_LEN - 14 - slot * 7.5, dist: 0, lat: lane || 0, speed: 0,
     pace: pace || 0, laneBase: lane || 0, steerVis: 0, prevSpeed: 0, heading: 0,
     _sec: -1, _secT: 0, _lapT0: 0, lastLap: 0, brakeGlow: 0, drs: false, _drsV: 0,
@@ -5098,6 +5208,65 @@ window.MR_DIAMOND_3D_TEST = {
         coverDecalY: R.coverMesh ? +R.coverMesh.position.y.toFixed(3) : null
       };
     },
+    /* RIVAL SILHOUETTES probe (2026-10-30): per-car silhouette
+       signature — variant key, canopy / fin / halo / airbox
+       presence, measured rear-wing width (geometry width x the
+       span scale the variant applied), wing ride height and rim
+       finish — for the player and the whole AI field, plus the
+       variant table itself. The headless pins read distinctness
+       from THESE measured values, not from the spec table. */
+    variants: function () {
+      function sig(refs) {
+        if (!refs) return null;
+        var wingW = null;
+        if (refs.wingMain) {
+          var gm = refs.wingMain.geometry;
+          if (!gm.boundingBox) gm.computeBoundingBox();
+          wingW = +((gm.boundingBox.max.x - gm.boundingBox.min.x) * refs.wingMain.scale.x).toFixed(3);
+        }
+        return { variant: refs.variantKey || null, canopy: !!refs.canopyMesh, fin: !!refs.finMesh,
+          halo: !!refs.haloMesh, airbox: !!refs.airboxMesh, wingW: wingW,
+          wingY: refs.wingMain ? +refs.wingMain.position.y.toFixed(3) : null,
+          rimHex: typeof refs.rimHex === 'number' ? refs.rimHex : null };
+      }
+      return { player: sig(player && player.refs),
+        field: cars.filter(function (c) { return !c.isPlayer; }).map(function (c) {
+          var s = sig(c.refs); if (s) s.slot = c.slot; return s; }),
+        table: CAR_VARIANTS.map(function (v) { return { key: v.key, wingSpan: v.wingSpan, canopy: v.canopy }; }),
+        dashLine: !!(typeof SCENERY !== 'undefined' && SCENERY && SCENERY.kit && SCENERY.kit.dashLine) };
+    },
+    /* LEAK probe (2026-10-30, extends the Aw-Snap audit to the
+       variant cars): build and dispose two full variant grids
+       through the real factory + disposer, counting dispose()
+       calls via a temporary prototype wrap, and compare the
+       scene's live geometry / material sets before and after.
+       Baseline equality + a healthy dispose count = nothing a
+       variant car creates survives its teardown. */
+    leakTest: function () {
+      function liveCounts() {
+        var gs = {}, ms = {}, g = 0, m = 0;
+        scene.traverse(function (o) {
+          if ((o.isMesh || o.isSprite || o.isPoints) && o.geometry && !gs[o.geometry.uuid]) { gs[o.geometry.uuid] = 1; g++; }
+          if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(function (mm) {
+            if (mm && !ms[mm.uuid]) { ms[mm.uuid] = 1; m++; }
+          });
+        });
+        return { g: g, m: m };
+      }
+      var disG = 0, disM = 0;
+      var ogd = THREE.BufferGeometry.prototype.dispose, omd = THREE.Material.prototype.dispose;
+      THREE.BufferGeometry.prototype.dispose = function () { disG++; return ogd.call(this); };
+      THREE.Material.prototype.dispose = function () { disM++; return omd.call(this); };
+      var before = liveCounts();
+      for (var cyc = 0; cyc < 2; cyc++) {
+        var built = [];
+        for (var s = 0; s < 4; s++) built.push(buildCar(0xc22424 + s * 977, false, null, variantForSlot(s)));
+        for (var bi = 0; bi < built.length; bi++) { scene.remove(built[bi].group); disposeCarGroup(built[bi].group); }
+      }
+      var after = liveCounts();
+      THREE.BufferGeometry.prototype.dispose = ogd; THREE.Material.prototype.dispose = omd;
+      return { before: before, after: after, disG: disG, disM: disM };
+    },
     guardrail: function () {
       return { kit: SCENERY && SCENERY.kit ? SCENERY.kit.guardrailText || null : null,
         walls: GUARD_WALLS.map(function (w) {
@@ -5270,7 +5439,7 @@ window.MR_DIAMOND_3D_TEST = {
       wheelZ: player && player.refs && player.refs.steerWheel ? player.refs.steerWheel.rotation.z : null,
       field: cars.filter(function (c) { return !c.isPlayer; }).map(function (c) {
         var liv = c.livery || null;
-        return { slot: c.slot, livery: liv, stripeHexes: c.refs.stripeMats.map(function (mm) { return mm.color.getHex(); }),
+        return { slot: c.slot, variant: c.refs.variantKey || null, livery: liv, stripeHexes: c.refs.stripeMats.map(function (mm) { return mm.color.getHex(); }),
           sideOk: !!liv && c.refs.sideMeshes.length > 0 && c.refs.sideMeshes.every(function (mm) { return mm.material.map === carSideTexture(liv); }),
           coverOk: !!liv && !!c.refs.coverMesh && c.refs.coverMesh.material.map === carCoverTexture(liv),
           noseOk: !!liv && noseOk(c.refs, liv), tireOk: !!liv && tireOk(c.refs, liv), wingOk: !!liv && wingOk(c.refs, liv),
@@ -7884,7 +8053,9 @@ function buildRivalCars(m) {
 function buildOneRival(p, idx) {
   var d = p.car || {};
   var paint = (typeof d.paint === 'number') ? d.paint : 0x0d2150;
-  var refs = buildCar(paint, false);
+  /* live rivals wear a silhouette too — assigned by slot, so
+     every client renders the same mixed field */
+  var refs = buildCar(paint, false, null, variantForSlot(typeof p.slot === 'number' ? p.slot : idx));
   var car = (typeof d.itemId === 'string') ? (carByKey(d.itemId) || (d.itemId === 'free' ? FREE_CAR : null)) : null;
   if (car) applyCarDecals(refs, car);
   var mat = paintMatFinish(paint, (typeof d.finish === 'string') ? d.finish : 'gloss');
@@ -7931,7 +8102,7 @@ function disposeCarGroup(group) {
   Object.keys(paintMats).forEach(function (k) { sharedMats[paintMats[k].uuid] = true; });
   Object.keys(paintFinishCache).forEach(function (k) { sharedMats[paintFinishCache[k].uuid] = true; });
   [GEO.tireF, GEO.tireR, GEO.rimF, GEO.rimR, GEO.spoke, GEO.hub, GEO.chassis, GEO.podR, GEO.podL,
-   GEO.engineCover, GEO.airbox, GEO.fin, GEO.cover, GEO.halo, GEO.helmet].forEach(function (g) { sharedGeos[g.uuid] = true; });
+   GEO.engineCover, GEO.airbox, GEO.fin, GEO.cover, GEO.halo, GEO.helmet, GEO.canopy].forEach(function (g) { sharedGeos[g.uuid] = true; });
   group.traverse(function (o) {
     if (o.isSprite) {
       if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); }
