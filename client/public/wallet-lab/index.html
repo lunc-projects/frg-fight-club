@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>WALLET LAB — Luna Classic connect test</title>
+<link rel="icon" href="data:,">
 <style>
   :root{
     --bg:#0b0e1a; --panel:#141a2e; --panel2:#1a2140; --line:#2a3358;
@@ -333,7 +334,19 @@ function loadKit(){
          that cannot load gets an honest disabled button, never a
          silent hole in the picker */
       const extras = {};
-      for (const key of ['leap', 'cosmostation', 'trust']) extras[key] = await extraP[key];
+      for (const key of ['leap', 'cosmostation', 'trust']){
+        /* a package whose module graph STALLS (never resolves,
+           never rejects) must not hold the whole picker hostage:
+           after 30s it counts as not loaded for this visit and
+           gets the honest disabled button */
+        extras[key] = await Promise.race([
+          extraP[key],
+          new Promise(res => setTimeout(() => {
+            WL.log('⚠️ The ' + key + ' wallets are taking too long to load — their button will say so for now. Reload to try again.');
+            res(null);
+          }, 30000)),
+        ]);
+      }
       kitCache = { core, keplr, station, walletconnect, stargate, extras,
                    galaxy: galaxyKitFrom(walletconnect) };
       return kitCache;
@@ -426,9 +439,15 @@ function renderButtons(){
 function makeButton(name, pretty, logo, note){
   const b = document.createElement('button');
   b.type = 'button'; b.className = 'wbtn'; b.dataset.wallet = name;
-  if (logo){
+  /* some packages ship an OBJECT logo ({ major, minor } — Leap
+     Cosmos MetaMask does); only a string (or its .major) is a
+     usable img src — anything else stringifies into a junk
+     "[object Object]" request */
+  const logoSrc = typeof logo === 'string' ? logo
+    : (logo && typeof logo.major === 'string' ? logo.major : '');
+  if (logoSrc){
     const img = document.createElement('img');
-    img.alt = ''; img.src = logo;
+    img.alt = ''; img.src = logoSrc;
     img.onerror = () => { img.style.display = 'none'; };
     b.appendChild(img);
   }
@@ -478,22 +497,40 @@ function failLine(cw, pretty){
   return pretty + " couldn't connect" + (msg ? ': ' + msg.slice(0, 120) : '') + '. Tap its button to try again.';
 }
 
+let connectAttempt = 0, activeWatch = null;
 function connect(name, pretty, btn){
   if (connecting) { WL.log('Already connecting — one wallet at a time.'); return; }
   connecting = true;
+  const attempt = ++connectAttempt;
   if (btn) btn.classList.add('busy');
   WL.log('You tapped ' + pretty + ' (' + name + ') — connecting…');
+  /* a wallet that never answers (relay stalled, app never
+     opened) must not lock the picker forever: after 90s the
+     attempt is abandoned OUT LOUD, the pairing watch stops and
+     the picker frees up; a late answer from the abandoned
+     attempt is ignored */
+  const slowTimer = setTimeout(() => {
+    if (!connecting || connectAttempt !== attempt) return;
+    connectAttempt++;
+    connecting = false;
+    if (btn) btn.classList.remove('busy');
+    if (activeWatch){ activeWatch.stop(); activeWatch = null; }
+    WL.log('⚠️ ' + pretty + ' did not answer within 90 seconds. If its app never opened, check the connection and tap again — or pick a different wallet.');
+  }, 90000);
   ensureManager()
     .then(wm => {
       const cw = wm.getChainWallet(CHAIN_NAME, name);
       if (!cw) throw new Error('the ' + pretty + ' wallet is not registered in the manager');
       WL.log('Approve the connection in ' + pretty + ' — then come back to this page.');
       const watch = watchPairing(cw, pretty);
+      activeWatch = watch;
       return Promise.resolve().then(() => cw.connect())
-        .then(() => { watch.stop(); return cw; })
-        .catch(err => { watch.stop(); throw err; });
+        .then(() => { watch.stop(); if (activeWatch === watch) activeWatch = null; return cw; })
+        .catch(err => { watch.stop(); if (activeWatch === watch) activeWatch = null; throw err; });
     })
     .then(cw => {
+      if (connectAttempt !== attempt) return;   /* abandoned — ignore */
+      clearTimeout(slowTimer);
       connecting = false;
       if (btn) btn.classList.remove('busy');
       if (cw.isWalletConnected && cw.address && validTerraAddress(cw.address)){
@@ -511,6 +548,8 @@ function connect(name, pretty, btn){
       }
     })
     .catch(err => {
+      if (connectAttempt !== attempt) return;   /* abandoned — ignore */
+      clearTimeout(slowTimer);
       connecting = false;
       if (btn) btn.classList.remove('busy');
       WL.log('⚠️ ' + pretty + " couldn't connect: " + (err && err.message ? String(err.message).slice(0, 160) : err));
@@ -529,6 +568,16 @@ $('disconnectBtn').addEventListener('click', () => {
 });
 
 WL.log('Wallet code loaded ✓ — building your wallet list…');
+/* if the libraries stall outright, the list must not sit on
+   "Loading…" forever — say so; a late success still replaces
+   this message when it lands */
+setTimeout(() => {
+  const list = $('walletList');
+  if (list && !list.querySelector('.wbtn')){
+    list.innerHTML = '<p class="sub" style="margin:0">The wallet list is taking too long to load — check the connection and reload the page.</p>';
+    WL.log('⚠️ The wallet list is taking too long to load — check the connection and reload the page.');
+  }
+}, 120000);
 renderButtons();
 </script>
 </body>
