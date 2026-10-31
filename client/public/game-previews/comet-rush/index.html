@@ -482,6 +482,7 @@ cv.addEventListener('touchstart',e=>{e.preventDefault(); doJump();},{passive:fal
 cv.addEventListener('mousedown',()=>doJump());
 window.addEventListener('keydown',e=>{
   if(e.repeat) return;
+  if(e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')) return;
   if(e.code==='Space'||e.code==='ArrowUp'||e.code==='KeyW'){ e.preventDefault(); if(S.phase==='title'){ac();resetCampaign();} else doJump(); }
   else if(e.code==='ShiftLeft'||e.code==='ShiftRight'||e.code==='KeyD'||e.code==='ArrowRight') doDash();
   else if(e.code==='KeyP'||e.code==='Escape'){ if(S.phase==='playing')pauseGame(true); else if(S.phase==='paused')pauseGame(false); }
@@ -499,6 +500,7 @@ function update(dt){
   time+=dt;
   if(time>=effectiveLimit(st)){ failStage(); return; }
   P.invuln=Math.max(0,P.invuln-dt);
+  const prevX=P.x; // frame-start x: loop entry below is crossing-based, not a point window
 
   /* loop traversal */
   if(P.loop){
@@ -532,9 +534,9 @@ function update(dt){
   if(P.dashT>0){ parts.push({x:P.x-24,y:P.y+(Math.random()-.5)*20,vx:-P.vx*.4,vy:0,life:.4,t:0,col:Math.random()<.5?'#ff9a3c':'#2ef2d6',r:3+Math.random()*4}); }
 
   /* loop entry */
-  st.loops.forEach((L,i)=>{ if(!st.loopsDone.has(i)&&P.grounded&&Math.abs(P.x-L.x)<10){
+  st.loops.forEach((L,i)=>{ if(!st.loopsDone.has(i)&&P.grounded&&prevX<L.x&&P.x>=L.x){
     if(P.vx>=480){ P.loop=L; P.loopS=0; sDash(); toast('🌀 LOOP! Hold on, Zip!'); }
-    else { respawn('TOO SLOW FOR THE LOOP!'); }
+    else { respawn('TOO SLOW FOR THE LOOP!'); P.energy=Math.max(P.energy,50); /* retry always has a dash ready */ }
   }});
   if(S.phase!=='playing'||!P||P.loop) { updateFx(dt); return; }
 
@@ -602,7 +604,7 @@ function draw(){
   // parallax canyon mesas
   drawMesas(w,h,0.22,'#6e2b47',150,camX*.25);
   drawMesas(w,h,0.34,'#8a3a3c',210,camX*.45);
-  if(S.phase==='title'||!P){ drawTitleScene(w,h); return; }
+  if(S.phase==='title'||!P){ drawTitleScene(w,h); drawVignette(w,h); return; }
 
   ctx.save(); ctx.translate(-camX+shx,-camY+shy);
   const st=stages[stageIdx];
@@ -666,6 +668,12 @@ function draw(){
   // speed lines
   if(P&&P.vx>560){ ctx.strokeStyle='rgba(255,255,255,.35)'; ctx.lineWidth=2;
     for(let i=0;i<5;i++){ const yy=(i*149+((performance.now()/3)%160))%h; ctx.beginPath(); ctx.moveTo(w,yy); ctx.lineTo(w-50-Math.random()*70,yy); ctx.stroke(); } }
+  drawVignette(w,h);
+}
+function drawVignette(w,h){
+  const v=ctx.createRadialGradient(w/2,h/2,h*.36,w/2,h/2,h*.8);
+  v.addColorStop(0,'rgba(10,2,24,0)'); v.addColorStop(1,'rgba(10,2,24,.48)');
+  ctx.fillStyle=v; ctx.fillRect(0,0,w,h);
 }
 function drawMesas(w,h,base, col,ht,off){
   ctx.fillStyle=col; const yBase=h*(0.98-base*0.6);
@@ -735,6 +743,7 @@ function frame(now){
   let dt=Math.min(.033,(now-last)/1000); last=now;
   if(S.phase==='playing') update(dt);
   else if(P){ camX+=(P.x-VW()*.36-camX)*.1; camY+=(P.y-VH()*.58-camY)*.08; }
+  if(S.phase==='title'&&!P) camX+=dt*14; // idle title drift: mesas parallax scrolls slowly behind the overlay
   draw();
 }
 resize(); requestAnimationFrame(frame);
