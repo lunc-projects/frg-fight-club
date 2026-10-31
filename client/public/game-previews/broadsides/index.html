@@ -74,6 +74,13 @@
   .finalStats b{color:var(--gold2)}
   .newbest{color:var(--teal);font-weight:bold;text-align:center;margin-top:10px;font-size:15px;min-height:20px;font-family:Verdana,sans-serif}
   h2.pauseT{font-size:34px;letter-spacing:.16em;color:var(--gold2);text-shadow:0 3px 0 #000}
+  #ownerSettingsLine{font-size:13px;color:#dff6ff;text-align:center;font-family:Verdana,sans-serif}
+  #intensitySummary{margin-top:6px;font-size:13px;color:var(--gold2);text-align:center;font-family:Verdana,sans-serif}
+  #ownerBtn{display:block;margin:10px auto 0;padding:6px 16px;border-radius:8px;border:1px solid #2e6b84;background:#0a2b3d;color:#9fd8e8;font-size:11px;letter-spacing:.18em;font-family:Verdana,sans-serif;cursor:pointer}
+  #ownerPanel{margin-top:11px;border-top:1px dashed rgba(255,255,255,.15);padding-top:10px}
+  #ownerPanel label{display:flex;justify-content:space-between;align-items:center}
+  #ownerPanel label b{color:var(--gold2);font-size:14px}
+  #ownerPanel input[type=range]{width:100%;margin:3px 0 10px;accent-color:#f4b942}
 </style>
 </head>
 <body>
@@ -85,6 +92,7 @@
       <div class="stat"><div class="lab">Bounty 💰</div><div class="val" id="bountyVal">0</div></div>
       <div class="stat"><div class="lab">Chain</div><div class="val small"><span id="multTag">×1</span> <span id="chainVal" style="color:#9fd8e8"></span></div></div>
       <div class="stat"><div class="lab">Wave</div><div class="val small" id="waveVal">1</div></div>
+      <div class="stat"><div class="lab">Intensity</div><div class="val small" id="hudIntensity">INT 5 · HARD 5</div></div>
       <button id="pauseBtn" aria-label="Pause">⏸</button>
     </div>
     <div class="hudrow">
@@ -128,6 +136,17 @@
       <input id="nameInput" maxlength="16" placeholder="Captain…" autocomplete="off">
       <div class="bestline" id="bestLine">No voyages yet — make your mark!</div>
     </div>
+    <div class="card">
+      <div id="ownerSettingsLine">Owner settings: Intensity 5 · Hardness 5</div>
+      <div id="intensitySummary">Score multiplier: ×1.44</div>
+      <button id="ownerBtn" type="button">OWNER</button>
+      <div id="ownerPanel" class="hidden">
+        <label>Intensity <b id="intensityReadout">5</b></label>
+        <input type="range" id="intensityRange" min="1" step="1" max="10" value="5">
+        <label>Hardness <b id="hardnessReadout">5</b></label>
+        <input type="range" id="hardnessRange" min="1" step="1" max="10" value="5">
+      </div>
+    </div>
     <div class="card how">
       ⚓ <b>Drag</b> (or ◀ ▶ / arrow keys) to steer your galleon along the bottom.<br>
       🔥 <b>Hold FIRE</b> to charge — the aim angle swings — <b>release</b> to fire a 3-gun broadside.<br>
@@ -160,6 +179,66 @@
 <script>
 (function(){
 "use strict";
+var INTENSITY_FULL = true;
+/* ================= Owner intensity / hardness ================= */
+var LS_OWNER='broadsides-owner-settings-v1';
+var ownerMax=INTENSITY_FULL?10:3;
+var intensity=5, hardness=5;
+try{ var _os=JSON.parse(localStorage.getItem(LS_OWNER)||'null'); if(_os){ if(_os.i!=null)intensity=+_os.i; if(_os.h!=null)hardness=+_os.h; } }catch(e){}
+if(isNaN(intensity))intensity=5; if(isNaN(hardness))hardness=5;
+intensity=Math.max(1,Math.min(ownerMax,Math.round(intensity)));
+hardness=Math.max(1,Math.min(ownerMax,Math.round(hardness)));
+function scoreMultiplier(){ return 1+(((intensity+hardness)/2)-1)/9; }
+function scaledWaveTarget(wave){
+  var base=wave<=1?5:5+wave*2;
+  var scale=1+(intensity-5)*0.09;
+  return Math.max(2,Math.round(base*scale));
+}
+function intensityParams(){
+  var di=intensity-5, dh=hardness-5;
+  var fireScale=1-di*0.06;
+  return {
+    waveTargetScale:1+di*0.09,
+    wave1Target:scaledWaveTarget(1),
+    currentWaveTarget:(typeof S!=='undefined'&&S&&S.waveTarget!=null)?S.waveTarget:scaledWaveTarget(1),
+    spawnIntervalScale:1-di*0.05,
+    enemyHpScale:1+dh*0.07,
+    enemyFireIntervalScale:fireScale,
+    enemyFireIntervalBaseMin:2.6*fireScale,
+    enemyFireIntervalBaseMax:4.8*fireScale,
+    enemyAccuracySpread:0.22*(1-dh*0.07),
+    windMax:3*(1+dh*0.08),
+    windStep:0.5
+  };
+}
+function hudIntensityText(){ return 'INT '+intensity+' \u00B7 HARD '+hardness; }
+function renderOwnerControls(){
+  var ir=document.getElementById('intensityRange'), hr=document.getElementById('hardnessRange');
+  if(ir){ ir.max=ownerMax; ir.value=intensity; }
+  if(hr){ hr.max=ownerMax; hr.value=hardness; }
+  var iro=document.getElementById('intensityReadout'); if(iro)iro.textContent=''+intensity;
+  var hro=document.getElementById('hardnessReadout'); if(hro)hro.textContent=''+hardness;
+  var line=document.getElementById('ownerSettingsLine'); if(line)line.textContent='Owner settings: Intensity '+intensity+' \u00B7 Hardness '+hardness;
+  var sum=document.getElementById('intensitySummary'); if(sum)sum.textContent='Score multiplier: \u00D7'+scoreMultiplier().toFixed(2);
+  var hud=document.getElementById('hudIntensity'); if(hud)hud.textContent=hudIntensityText();
+}
+function saveOwnerSettings(){ try{ localStorage.setItem(LS_OWNER,JSON.stringify({i:intensity,h:hardness})); }catch(e){} }
+function setOwnerSettings(newI,newH){
+  intensity=Math.max(1,Math.min(ownerMax,Math.round(newI)||5));
+  hardness=Math.max(1,Math.min(ownerMax,Math.round(newH)||5));
+  saveOwnerSettings();
+  if(typeof S!=='undefined'&&S&&S.phase!=='playing')S.waveTarget=scaledWaveTarget(S.wave||1);
+  renderOwnerControls();
+  if(typeof updateHUD==='function'&&typeof S!=='undefined'&&S)updateHUD();
+}
+// Production builds place these two bars under the game's wallet-signed owner admin login; this preview uses a local demo gate (OWNER button, settings in localStorage).
+function wireOwnerPanel(){
+  var btn=document.getElementById('ownerBtn'), panel=document.getElementById('ownerPanel');
+  if(btn&&panel)btn.addEventListener('click',function(){ panel.classList.toggle('hidden'); });
+  var ir=document.getElementById('intensityRange'), hr=document.getElementById('hardnessRange');
+  if(ir)ir.addEventListener('input',function(){ setOwnerSettings(+ir.value,hardness); });
+  if(hr)hr.addEventListener('input',function(){ setOwnerSettings(intensity,+hr.value); });
+}
 /* ================= Setup ================= */
 var W=390,H=560;
 var cv=document.getElementById('cv'),ctx=cv.getContext('2d');
@@ -174,7 +253,7 @@ window.addEventListener('resize',fitCanvas);
 
 var LS_NAME='broadsides_name', LS_BEST='broadsides_best';
 var $=function(id){return document.getElementById(id)};
-var els={score:$('scoreVal'),bounty:$('bountyVal'),mult:$('multTag'),chain:$('chainVal'),wave:$('waveVal'),
+var els={score:$('scoreVal'),bounty:$('bountyVal'),mult:$('multTag'),chain:$('chainVal'),wave:$('waveVal'),hudIntensity:$('hudIntensity'),
   hullFill:$('hullFill'),hullNum:$('hullNum'),reloadFill:$('reloadFill'),wind:$('windVal'),acc:$('accVal'),
   pow:$('powFill'),angle:$('angleRead'),fire:$('fireBtn'),banner:$('banner'),bT:$('bannerTitle'),bS:$('bannerSub'),toast:$('toast')};
 
@@ -204,7 +283,7 @@ function sndWave(){beep(523,.12,'triangle',.08); setTimeout(function(){beep(784,
 var S=null;
 function freshState(phase){
   return { phase:phase||'title', paused:false, t:0, score:0, bounty:0, hull:100,
-    wave:1, waveTarget:5, waveSunk:0, spawnT:0.6, betweenWaves:0,
+    wave:1, waveTarget:scaledWaveTarget(1), waveSunk:0, spawnT:0.6, betweenWaves:0,
     enemies:[], balls:[], eBalls:[], parts:[], barrels:[], floats:[],
     player:{x:W/2,y:H-72,tx:W/2,ty:H-72,vx:0},
     reload:0, charging:false, chargeT:0, power:0, angleDeg:-90,
@@ -222,7 +301,7 @@ function showBanner(t,s,ms){ els.bT.textContent=t; els.bS.textContent=s; els.ban
 var toastT=null;
 function toast(msg){ els.toast.textContent=msg; els.toast.classList.add('show'); clearTimeout(toastT);
   toastT=setTimeout(function(){els.toast.classList.remove('show')},1600); }
-function newWind(){ var w=0; do{ w=Math.round(rand(-3,3)*2)/2; }while(w===0||w===S.wind); S.wind=w; }
+function newWind(){ var wm=intensityParams().windMax; var w=0; do{ w=Math.round(rand(-wm,wm)*2)/2; }while(w===0||w===S.wind); S.wind=w; }
 function accuracy(){ return S.shots? Math.round(100*S.hits/S.shots): null; }
 
 /* ================= Spawning ================= */
@@ -230,10 +309,12 @@ var LANES=[{y:.16,s:.60},{y:.30,s:.76},{y:.44,s:.90},{y:.57,s:1.03}];
 function spawnEnemy(){
   var lane=LANES[Math.floor(Math.random()*LANES.length)];
   var dir=Math.random()<.5?1:-1;
-  var hp=2+Math.floor(S.wave/2)+Math.floor(Math.random()*2)+(lane.s>0.95?1:0);
+  var IP=intensityParams();
+  var baseHp=2+Math.floor(S.wave/2)+Math.floor(Math.random()*2)+(lane.s>0.95?1:0);
+  var hp=Math.max(1,Math.round(baseHp*IP.enemyHpScale));
   var speed=(rand(20,36)+S.wave*4.5)*lane.s;
   S.enemies.push({ x:dir>0?-70:W+70, y:H*lane.y+rand(-8,8), dir:dir, s:lane.s,
-    vx:dir*speed, hp:hp, maxHp:hp, fireT:rand(2.4,5.2), bob:rand(0,6.28), sinking:0, hitFlash:0 });
+    vx:dir*speed, hp:hp, maxHp:hp, fireT:rand(2.4,5.2)*IP.enemyFireIntervalScale, bob:rand(0,6.28), sinking:0, hitFlash:0 });
 }
 function spawnBarrel(){
   S.barrels.push({x:rand(40,W-40), y:H*.14, vy:rand(16,26), bob:rand(0,6.28), r:13});
@@ -273,7 +354,7 @@ function resetRun(){
   S=freshState('playing'); S.name=name; S.best=best;
   S.player.x=W/2; S.player.tx=W/2; S.player.y=H-72; S.player.ty=H-72;
   newWind();
-  showBanner('WAVE 1','SINK 5 SHIPS',1600); sndWave();
+  showBanner('WAVE 1','SINK '+S.waveTarget+' SHIPS',1600); sndWave();
   updateHUD();
 }
 function startGame(){
@@ -346,16 +427,18 @@ function update(dt){
   /* spawning / waves */
   if(S.betweenWaves>0){
     S.betweenWaves-=dt;
-    if(S.betweenWaves<=0){ S.wave++; S.waveSunk=0; S.waveTarget=5+S.wave*2;
+    if(S.betweenWaves<=0){ S.wave++; S.waveSunk=0; S.waveTarget=scaledWaveTarget(S.wave);
       showBanner('WAVE '+S.wave,'SINK '+S.waveTarget+' SHIPS',1600); sndWave(); S.spawnT=.3; }
   } else {
     S.spawnT-=dt;
-    var maxOn=Math.min(2+Math.ceil(S.wave*.8),6);
+    var IP=intensityParams();
+    var baseMaxOn=Math.min(2+Math.ceil(S.wave*.8),6);
+    var maxOn=Math.max(1,Math.round(baseMaxOn*IP.waveTargetScale));
     if(S.spawnT<=0&&S.enemies.length<maxOn&&S.waveSunk+S.enemies.length<S.waveTarget+2){
-      spawnEnemy(); S.spawnT=Math.max(.7,2.1-S.wave*.16)*rand(.75,1.25);
+      spawnEnemy(); S.spawnT=Math.max(.7,2.1-S.wave*.16)*rand(.75,1.25)*IP.spawnIntervalScale;
     }
     if(S.waveSunk>=S.waveTarget&&S.enemies.length===0){ S.betweenWaves=2.2; showBanner('WAVE CLEARED!','+250 BONUS',1400);
-      S.score+=250; S.bounty+=250; }
+      var waveBonus=Math.round(250*scoreMultiplier()); S.score+=waveBonus; S.bounty+=waveBonus; }
   }
 
   /* enemies */
@@ -366,9 +449,10 @@ function update(dt){
     if(en.x<-90||en.x>W+90){ S.enemies.splice(j,1); continue; }
     en.fireT-=dt;
     if(en.fireT<=0&&S.phase==='playing'){
-      en.fireT=rand(2.6,4.8)-Math.min(1.1,S.wave*.1);
+      var EIP=intensityParams();
+      en.fireT=(rand(2.6,4.8)-Math.min(1.1,S.wave*.1))*EIP.enemyFireIntervalScale;
       var dx=p.x-en.x, dy=(p.y-10)-en.y, d=Math.max(60,Math.hypot(dx,dy)), esp=250;
-      var inacc=rand(-.22,.22)-S.wind*.012;
+      var inacc=rand(-EIP.enemyAccuracySpread,EIP.enemyAccuracySpread)-S.wind*.012;
       var vx=dx/d*esp, vy=dy/d*esp;
       var c=Math.cos(inacc),s=Math.sin(inacc);
       S.eBalls.push({x:en.x,y:en.y+8,vx:vx*c-vy*s,vy:vx*s+vy*c,r:4});
@@ -388,10 +472,11 @@ function update(dt){
         hit=true; t.hp--; t.hitFlash=.15; S.hits++;
         S.chain++; S.chainT=2.5;
         burst(b.x,b.y,12,'#ffb03a',160);
-        floatText(t.x,t.y-hh-6,'+'+(25*S.mult),'#ffd873');
-        S.score+=25*S.mult; sndHit();
+        var hitPts=Math.round(25*S.mult*scoreMultiplier());
+        floatText(t.x,t.y-hh-6,'+'+hitPts,'#ffd873');
+        S.score+=hitPts; sndHit();
         if(t.hp<=0){ t.sinking=.001; S.sunk++; S.waveSunk++;
-          var prize=(120+40*S.wave)*S.mult; S.bounty+=prize; S.score+=prize;
+          var prize=Math.round((120+40*S.wave)*S.mult*scoreMultiplier()); S.bounty+=prize; S.score+=prize;
           burst(t.x,t.y,30,'#43e8ff',210); burst(t.x,t.y,16,'#ffd873',170);
           floatText(t.x,t.y-30,'SUNK! +'+prize+' 💰','#7dffe9'); sndSink(); S.shake=Math.max(S.shake,5);
         }
@@ -440,6 +525,7 @@ function update(dt){
 }
 
 function updateHUD(){
+  if(els.hudIntensity)els.hudIntensity.textContent=hudIntensityText();
   els.score.textContent=S.score; els.bounty.textContent=S.bounty;
   els.mult.textContent='×'+S.mult; els.chain.textContent=S.chain>0?('('+S.chain+' chain)'):'';
   els.wave.textContent=S.wave+(S.phase==='playing'?' · '+Math.min(S.waveSunk,S.waveTarget)+'/'+S.waveTarget:'');
@@ -638,11 +724,15 @@ $('quitBtn').addEventListener('click',function(){ $('pauseOv').classList.add('hi
 
 /* ================= Init ================= */
 try{ $('nameInput').value=localStorage.getItem(LS_NAME)||''; }catch(e){}
+wireOwnerPanel();
+renderOwnerControls();
 fitCanvas(); refreshBestLine(); updateHUD();
+window.__intensityTest={ getState:function(){ return { intensity:intensity, hardness:hardness, intensityFull:INTENSITY_FULL, scoreMultiplier:scoreMultiplier(), params:intensityParams() }; } };
 window.__previewGame={ getState:function(){ return {
   phase:S.paused?'paused':S.phase, score:S.score, hull:Math.ceil(S.hull), bounty:S.bounty,
   ships:S.enemies.length, shipsSunk:S.sunk, wave:S.wave, multiplier:S.mult, chain:S.chain,
   wind:S.wind, accuracy:accuracy(), charging:S.charging, power:S.power, angle:Math.round(-S.angleDeg),
+  intensity:intensity, hardness:hardness, intensityFull:INTENSITY_FULL, scoreMultiplier:scoreMultiplier(), params:intensityParams(),
   name:S.name, best:S.best }; } };
 requestAnimationFrame(loop);
 })();

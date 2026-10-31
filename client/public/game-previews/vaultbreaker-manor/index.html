@@ -64,6 +64,13 @@ label{font-size:13px;color:#ffe9a8;letter-spacing:.08em}
 #endCard{max-width:400px;width:100%;text-align:center;background:linear-gradient(180deg,#221407,#0c2422);border:2px solid #d4af37;border-radius:16px;padding:20px}
 #endEmoji{font-size:64px}
 .scoreLine{display:flex;justify-content:space-between;font-size:14.5px;padding:5px 2px;border-bottom:1px dashed #ffffff33}
+#ownerSettingsLine{text-align:center;color:#cfe8dd;font-size:14px;margin:4px 0}
+#intensitySummary{text-align:center;color:#ffd977;font-size:14px;margin:4px 0 8px;min-height:18px}
+#ownerBtn{display:block;margin:6px auto;padding:6px 16px;font-size:12px;letter-spacing:.18em}
+#ownerPanel{margin:8px 0;padding:10px;border:1px dashed #8a6d2f;border-radius:10px;background:#00000055;text-align:left}
+#ownerPanel label{display:flex;justify-content:space-between;margin-top:6px}
+#ownerPanel label b{color:#ffd977}
+#ownerPanel input[type=range]{width:100%;accent-color:#14b8a6;margin:4px 0 8px}
 .foot{text-align:center;font-size:11px;color:#8fa79c;margin-top:12px;letter-spacing:.12em}
 </style></head><body>
 <div id="app">
@@ -76,6 +83,15 @@ label{font-size:13px;color:#ffe9a8;letter-spacing:.08em}
     <div class="panel">
       <label for="playerName">YOUR NAME, VAULTBREAKER</label>
       <input id="playerName" maxlength="18" placeholder="e.g. Tom" autocomplete="off">
+      <div id="ownerSettingsLine">Owner settings: Intensity 5 · Hardness 5</div>
+      <p id="intensitySummary">Score multiplier: ×1.44</p>
+      <button id="ownerBtn" type="button">OWNER</button>
+      <div id="ownerPanel" class="hidden">
+        <label for="intensityRange">⚡ INTENSITY <b id="intensityRangeVal">5</b></label>
+        <input type="range" id="intensityRange" min="1" step="1" max="10" value="5">
+        <label for="hardnessRange">🧱 HARDNESS <b id="hardnessRangeVal">5</b></label>
+        <input type="range" id="hardnessRange" min="1" step="1" max="10" value="5">
+      </div>
       <button id="startBtn" class="big">🗝️ ENTER THE MANOR</button>
       <p class="best" id="bestLine">No escapes yet — the manor awaits.</p>
     </div>
@@ -94,6 +110,7 @@ label{font-size:13px;color:#ffe9a8;letter-spacing:.08em}
       <div class="hudbox">⏱️ TIME<b id="hudTime">0:00</b></div>
       <div class="hudbox">💰 RELICS<b id="hudRelics">0</b></div>
       <div class="hudbox">🏆 SCORE<b id="hudScore">0</b></div>
+      <div class="hudbox">⚡ INTENSITY<b id="hudIntensity">INT 5 · HARD 5</b></div>
       <div class="hudbox">🏮 LANTERN<b id="hudLantern">3</b></div>
     </div>
     <div id="hauntWrap">👻 HAUNT <b id="hauntPct">0%</b>
@@ -139,7 +156,60 @@ label{font-size:13px;color:#ffe9a8;letter-spacing:.08em}
 <script>
 "use strict";
 const $=id=>document.getElementById(id);
-const LS_BEST="vaultbreaker-manor-best-v1", LS_NAME="vaultbreaker-manor-name-v1";
+const INTENSITY_FULL = true;
+const LS_BEST="vaultbreaker-manor-best-v1", LS_NAME="vaultbreaker-manor-name-v1", LS_OWNER="vaultbreaker-manor-owner-settings-v1";
+const MAX_INTENSITY = INTENSITY_FULL ? 10 : 3;
+let intensity = 5, hardness = 5;
+try{ const _os=JSON.parse(localStorage.getItem(LS_OWNER)||"null");
+  if(_os){ const _i=parseInt(_os.i,10); if(!isNaN(_i)) intensity=Math.min(MAX_INTENSITY,Math.max(1,_i));
+           const _h=parseInt(_os.h,10); if(!isNaN(_h)) hardness=Math.min(MAX_INTENSITY,Math.max(1,_h)); } }catch(e){}
+let scoreMultiplier = 1 + (((intensity+hardness)/2)-1)/9;
+function scoreMult(){ scoreMultiplier = 1 + (((intensity+hardness)/2)-1)/9; return scoreMultiplier; }
+function fmtAmt(n){ return Number.isInteger(n)?String(n):n.toFixed(2).replace(/0+$/,"").replace(/\.$/,""); }
+/* Difficulty knobs centred on 5/5 = original balance, split across two axes:
+   INTENSITY (pressure pace): ambient + search haunt gains scale by scaleI = 1 + (intensity-5)*0.15
+     -> I1 x0.40, I5 x1.00, I10 x1.75 (ambient interval stays 4s).
+   HARDNESS (mistakes cost, relief weakens): wrong-puzzle + whisper gains scale by
+     scaleH = 1 + (hardness-5)*0.15; lantern relief 20 - (hardness-5)*1.5 -> H1 26, H5 20, H10 12.5. */
+function difficultyParams(){
+  const scaleI = 1 + (intensity-5)*0.15;
+  const scaleH = 1 + (hardness-5)*0.15;
+  return {
+    ambientHauntGain: +(1*scaleI).toFixed(4),
+    ambientIntervalSec: 4,
+    searchHaunt: +(3*scaleI).toFixed(4),
+    wrongPuzzleHaunt: +(5*scaleH).toFixed(4),
+    whisperHaunt: +(8*scaleH).toFixed(4),
+    lanternHauntReduction: 20 - (hardness-5)*1.5,
+    lanternStartCharges: 3,
+    hauntGainScaleI: +scaleI.toFixed(4),
+    hauntGainScaleH: +scaleH.toFixed(4)
+  };
+}
+let params = difficultyParams();
+function saveOwnerSettings(){ try{ localStorage.setItem(LS_OWNER, JSON.stringify({i:intensity,h:hardness})); }catch(e){} }
+function renderOwnerSettings(){
+  params = difficultyParams(); scoreMult();
+  const line=$("ownerSettingsLine"); if(line) line.textContent="Owner settings: Intensity "+intensity+" · Hardness "+hardness;
+  const sum=$("intensitySummary"); if(sum) sum.textContent="Score multiplier: ×"+scoreMult().toFixed(2);
+  const hud=$("hudIntensity"); if(hud) hud.textContent="INT "+intensity+" · HARD "+hardness;
+  const ir=$("intensityRange"); if(ir){ ir.max=String(MAX_INTENSITY); ir.value=String(intensity); }
+  const hr=$("hardnessRange"); if(hr){ hr.max=String(MAX_INTENSITY); hr.value=String(hardness); }
+  const iv=$("intensityRangeVal"); if(iv) iv.textContent=String(intensity);
+  const hv=$("hardnessRangeVal"); if(hv) hv.textContent=String(hardness);
+}
+// Production builds place these two bars under the game's wallet-signed owner admin login; this preview uses a local demo gate (OWNER button, settings in localStorage).
+function wireOwnerPanel(){
+  const btn=$("ownerBtn"), panel=$("ownerPanel");
+  if(btn&&panel) btn.onclick=()=>{ panel.classList.toggle("hidden"); };
+  const ir=$("intensityRange");
+  if(ir) ir.oninput=()=>{ const v=parseInt(ir.value,10); if(!isNaN(v)) intensity=Math.min(MAX_INTENSITY,Math.max(1,v));
+    saveOwnerSettings(); renderOwnerSettings(); if(typeof S!=="undefined" && S && S.phase==="playing") render(); };
+  const hr=$("hardnessRange");
+  if(hr) hr.oninput=()=>{ const v=parseInt(hr.value,10); if(!isNaN(v)) hardness=Math.min(MAX_INTENSITY,Math.max(1,v));
+    saveOwnerSettings(); renderOwnerSettings(); if(typeof S!=="undefined" && S && S.phase==="playing") render(); };
+  renderOwnerSettings();
+}
 const shuffle=a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;};
 const rnd=(a,b)=>a+Math.floor(Math.random()*(b-a+1));
 
@@ -216,13 +286,13 @@ function newState(){
   if(rest[6]) contents[rest[6]]={kind:"oil"};
   if(rest[7]) contents[rest[7]]={kind:"whisper"};
   OBJECTS.forEach(o=>{ if(!contents[o.id]&&o.slot) contents[o.id]={kind:"empty"}; });
-  return { phase:"title", paused:false, name:"", room:"foyer", timeSec:0, haunt:0, lantern:3,
+  return { phase:"title", paused:false, name:"", room:"foyer", timeSec:0, haunt:0, lantern:difficultyParams().lanternStartCharges,
     keys:{brass:false,silver:false,vaultkey:false}, relics:[], relicValue:0, grand:false,
     searched:{}, contents, code, order, seq:[], dials:[1,1,1], portraitSolved:false, boltSolved:false,
     clues:{portrait:false,d1:false,d2:false,d3:false}, journal:[], score:0, warned50:false, warned80:false };
 }
 function fmt(t){return Math.floor(t/60)+":"+String(t%60).padStart(2,"0");}
-function calcScore(){ const tb=Math.max(0,600-S.timeSec)*2; return Math.max(0, S.relicValue + tb - Math.floor(S.haunt)*5); }
+function calcScore(){ const tb=Math.max(0,600-S.timeSec)*2; return Math.round(Math.max(0, S.relicValue + tb - Math.floor(S.haunt)*5) * scoreMult()); }
 function unlocked(r){
   if(r.id==="hall") return S.keys.brass;
   if(r.id==="study"||r.id==="ante") return S.keys.silver;
@@ -244,6 +314,8 @@ function render(){
   $("hudRelics").textContent=S.relics.length+(S.grand?" 👑":"");
   $("hudScore").textContent=(S.phase==="victory"||S.phase==="caught")?S.score:calcScore();
   $("hudLantern").textContent=S.lantern;
+  const hi=$("hudIntensity"); if(hi) hi.textContent="INT "+intensity+" · HARD "+hardness;
+  $("lanternBtn").textContent="🏮 Lantern (−"+fmtAmt(difficultyParams().lanternHauntReduction)+" Haunt)";
   $("hauntPct").textContent=Math.floor(S.haunt)+"%";
   $("hauntBar").style.width=Math.min(100,S.haunt)+"%";
   $("lanternBtn").disabled = S.lantern<=0 || S.haunt<=0 || S.paused || S.phase!=="playing";
@@ -270,7 +342,7 @@ function renderExtra(room){
   const ex=$("roomExtra"); let h="";
   if(room.id==="hall"){
     h+=`<div class="panel" style="margin:4px 0"><b style="color:#ffe9a8">🖼️ THE FOUR PORTRAITS</b>
-    <p style="font-size:13px;margin:5px 0">${S.portraitSolved?"✅ The compartment behind the Star Child stands open — the Silver Key is yours.":"Tap the portraits in the secret order. The Library journal knows it. A wrong order stirs the Haunt (+5)."}</p>
+    <p style="font-size:13px;margin:5px 0">${S.portraitSolved?"✅ The compartment behind the Star Child stands open — the Silver Key is yours.":"Tap the portraits in the secret order. The Library journal knows it. A wrong order stirs the Haunt (+${fmtAmt(difficultyParams().wrongPuzzleHaunt)})."}</p>
     <div id="seqDots">${S.portraitSolved?"🔓":(S.seq.length?S.seq.map(()=> "●").join(" "):"○ ○ ○ ○")}</div>
     <div class="portraits">${PORTRAITS.map((p,i)=>`<button class="pBtn" data-p="${i}" ${S.portraitSolved?"disabled":""}>${p[0]}<small>${p[1]}</small></button>`).join("")}</div>
     <button id="seqReset" style="width:100%;margin-top:7px" ${S.portraitSolved?"disabled":""}>↩️ Clear Sequence</button></div>`;
@@ -278,7 +350,7 @@ function renderExtra(room){
   if(room.id==="ante"){
     const known=[S.clues.d1?S.code[0]:"?",S.clues.d2?S.code[1]:"?",S.clues.d3?S.code[2]:"?"];
     h+=`<div class="panel" style="margin:4px 0"><b style="color:#ffe9a8">🔩 THE SLIDING BOLTS</b>
-    <p style="font-size:13px;margin:5px 0">${S.boltSolved?"✅ The bolts stand open. The Vault door awaits its key.":"Set the three bolts to the secret code. Clues: Cookbook (Kitchen) • Atlas (Library) • Ledger (Study). Known so far: <b style='color:#7ef0d4'>"+known.join(" – ")+"</b>. A wrong try stirs the Haunt (+5)."}</p>
+    <p style="font-size:13px;margin:5px 0">${S.boltSolved?"✅ The bolts stand open. The Vault door awaits its key.":"Set the three bolts to the secret code. Clues: Cookbook (Kitchen) • Atlas (Library) • Ledger (Study). Known so far: <b style='color:#7ef0d4'>"+known.join(" – ")+"</b>. A wrong try stirs the Haunt (+"+fmtAmt(difficultyParams().wrongPuzzleHaunt)+")."}</p>
     <div class="dials">${S.dials.map((d,i)=>`<button class="dial" data-dial="${i}" ${S.boltSolved?"disabled":""}>${d}</button>`).join("")}</div>
     <p style="text-align:center;font-size:12px;color:#b9a86f;margin:4px">Tap a bolt to cycle it 1–6</p>
     <button id="boltTry" class="big" ${S.boltSolved?"disabled":""}>🔩 SLIDE THE BOLTS</button></div>`;
@@ -319,7 +391,7 @@ function bumpHaunt(n){ S.haunt=Math.min(100,S.haunt+n); if(S.haunt>=50&&!S.warne
   if(S.haunt>=80&&!S.warned80){S.warned80=true;say("👻⚠️ The ghost is CLOSE. Lantern, quickly — or finish fast!");} }
 function searchObj(id){
   if(S.phase!=="playing"||S.paused||S.searched[id]) return;
-  const o=OBJECTS.find(x=>x.id===id); bumpHaunt(3);
+  const o=OBJECTS.find(x=>x.id===id); bumpHaunt(difficultyParams().searchHaunt);
   let short="", msg="";
   if(CLUES[id]){
     const kind=CLUES[id];
@@ -334,7 +406,7 @@ function searchObj(id){
     if(c.kind==="key"){ S.keys[c.key]=true; msg=`🗝️ <b>FOUND: ${c.label}!</b> A new door can now be opened — check the manor map.`; short=c.label; sKey(); }
     else if(c.kind==="relic"){ S.relics.push({label:c.label,value:c.value}); S.relicValue+=c.value; msg=`💰 You pocket the <b>${c.label}</b> (+${c.value} score). It glitters teal in the candlelight.`; short=c.label+" +"+c.value; sFind(); }
     else if(c.kind==="oil"){ S.lantern++; msg=`🏮 A vial of <b>lantern oil</b>! +1 lantern charge.`; short="Lantern oil +1"; sFind(); }
-    else if(c.kind==="whisper"){ bumpHaunt(8); msg=`👻 A portrait WHISPERS your name — <b>${S.name}</b>! The Haunt surges (+8).`; short="A whisper… +8 Haunt"; sGhost(); }
+    else if(c.kind==="whisper"){ const wh=difficultyParams().whisperHaunt; bumpHaunt(wh); msg=`👻 A portrait WHISPERS your name — <b>${S.name}</b>! The Haunt surges (+${fmtAmt(wh)}).`; short="A whisper… +"+fmtAmt(wh)+" Haunt"; sGhost(); }
     else { const dust=["Only dust and a cold draught.","Cobwebs. Something scuttles away.","Empty — but scratched initials read: L.C.","Nothing but moth-eaten velvet.","A dead candle and a long shadow."]; msg="🔍 "+dust[rnd(0,dust.length-1)]; short="Nothing"; sClick(); }
   }
   S.searched[id]={short};
@@ -346,14 +418,14 @@ function tapPortrait(i){
   if(S.seq.length===4){
     if(S.seq.join()===S.order.join()){ S.portraitSolved=true; S.keys.silver=true; sKey();
       say("🎉 <b>CLICK — WHIRR — CLICK!</b> The portraits align, a compartment springs open and the <b>Silver Key 🗝️</b> is yours! The Study and Antechamber are open."); }
-    else { S.seq=[]; bumpHaunt(5); sBad(); say("❌ The portraits shudder and reset. Wrong order (+5 Haunt). The Library journal holds the true order."); }
+    else { const wp=difficultyParams().wrongPuzzleHaunt; S.seq=[]; bumpHaunt(wp); sBad(); say("❌ The portraits shudder and reset. Wrong order (+"+fmtAmt(wp)+" Haunt). The Library journal holds the true order."); }
   }
   render(); checkCaught();
 }
 function tryBolt(){
   if(S.phase!=="playing"||S.paused||S.boltSolved||S.room!=="ante") return;
   if(S.dials.join()===S.code.join()){ S.boltSolved=true; sKey(); say("🎉 <b>CLUNK… CLUNK… CLUNK!</b> All three bolts slide home. The Vault door is unbolted — it only wants its key now."); }
-  else { bumpHaunt(5); sBad(); say("❌ The bolts grind and jam (+5 Haunt). The code hides in the Cookbook, the Atlas and the Ledger."); }
+  else { const wp=difficultyParams().wrongPuzzleHaunt; bumpHaunt(wp); sBad(); say("❌ The bolts grind and jam (+"+fmtAmt(wp)+" Haunt). The code hides in the Cookbook, the Atlas and the Ledger."); }
   render(); checkCaught();
 }
 function takeGrand(){
@@ -372,7 +444,7 @@ function startGame(){
   $("titleScreen").classList.add("hidden"); $("endOverlay").classList.add("hidden"); $("gameScreen").classList.remove("hidden");
   say(`Welcome, <b>${nm}</b>. Find the Brass Key — and mind the Haunt. 👻`);
   clearInterval(timerId);
-  timerId=setInterval(()=>{ if(!S||S.phase!=="playing"||S.paused) return; S.timeSec++; if(S.timeSec%4===0) bumpHaunt(1);
+  timerId=setInterval(()=>{ if(!S||S.phase!=="playing"||S.paused) return; S.timeSec++; const dp=difficultyParams(); if(S.timeSec%dp.ambientIntervalSec===0) bumpHaunt(dp.ambientHauntGain);
     $("hudTime").textContent=fmt(S.timeSec); $("hauntPct").textContent=Math.floor(S.haunt)+"%"; $("hauntBar").style.width=Math.min(100,S.haunt)+"%";
     $("hudScore").textContent=calcScore(); $("lanternBtn").disabled=S.lantern<=0||S.haunt<=0; checkCaught(); },1000);
   sClick(); render(); window.scrollTo(0,0);
@@ -380,7 +452,7 @@ function startGame(){
 function endGame(won){
   S.phase=won?"victory":"caught"; clearInterval(timerId);
   const tb=Math.max(0,600-S.timeSec)*2, hp=Math.floor(S.haunt)*5;
-  S.score=won?Math.max(0,S.relicValue+tb-hp):Math.max(0,Math.floor((S.relicValue-hp)/2));
+  S.score=won?Math.round(Math.max(0,S.relicValue+tb-hp)*scoreMult()):Math.round(Math.max(0,Math.floor((S.relicValue-hp)/2))*scoreMult());
   if(won) sFind(); else sGhost();
   let best=null; try{best=JSON.parse(localStorage.getItem(LS_BEST)||"null");}catch(e){}
   let newBest=false;
@@ -395,6 +467,7 @@ function endGame(won){
     `<div class="scoreLine"><span>💰 Relic value</span><b>${S.relicValue}</b></div>`+
     `<div class="scoreLine"><span>⏱️ Time (${fmt(S.timeSec)}) ${won?"bonus":""}</span><b>${won?tb:"—"}</b></div>`+
     `<div class="scoreLine"><span>👻 Haunt penalty (${Math.floor(S.haunt)}%)</span><b>−${hp}</b></div>`+
+    `<div class="scoreLine"><span>⚡ Intensity ${intensity} · Hardness ${hardness} score multiplier</span><b>×${scoreMult().toFixed(2)}</b></div>`+
     `<div class="scoreLine"><span>🏆 FINAL SCORE</span><b style="color:#ffd977">${S.score}</b></div>`;
   $("endBest").textContent=(newBest?"⭐ New local best! ":"Local best: ")+(best?best.bestScore+" pts"+(best.fastestSec?" • Fastest escape "+fmt(best.fastestSec):""):"");
   $("endOverlay").classList.remove("hidden"); renderBest(); window.scrollTo(0,0);
@@ -410,14 +483,16 @@ $("restartBtn").onclick=startGame;
 $("restartBtnHud").onclick=()=>{ if(confirm("Restart? The manor will reshuffle.")) startGame(); };
 $("homeBtn").onclick=()=>{ clearInterval(timerId); S=newState(); $("endOverlay").classList.add("hidden"); $("gameScreen").classList.add("hidden"); $("titleScreen").classList.remove("hidden"); renderBest(); };
 $("pauseBtn").onclick=()=>{ if(S.phase!=="playing")return; S.paused=!S.paused; sClick(); render(); say(S.paused?"⏸️ Paused — the Haunt waits with you.":"▶️ Resumed. The candles burn on…"); };
-$("lanternBtn").onclick=()=>{ if(S.phase!=="playing"||S.paused||S.lantern<=0||S.haunt<=0)return; S.lantern--; S.haunt=Math.max(0,S.haunt-20); tone(980,.2,"sine",.1);
-  say("🏮 You raise the lantern — warm gold light pushes the Haunt back by 20."); render(); };
+$("lanternBtn").onclick=()=>{ if(S.phase!=="playing"||S.paused||S.lantern<=0||S.haunt<=0)return; const red=difficultyParams().lanternHauntReduction; S.lantern--; S.haunt=Math.max(0,S.haunt-red); tone(980,.2,"sine",.1);
+  say("🏮 You raise the lantern — warm gold light pushes the Haunt back by "+fmtAmt(red)+"."); render(); };
 $("soundBtn").onclick=()=>{ muted=!muted; $("soundBtn").textContent=muted?"🔇 Muted":"🔊 Sound"; if(!muted)sClick(); };
 try{ const nm=localStorage.getItem(LS_NAME); if(nm) $("playerName").value=nm; }catch(e){}
-S=newState(); renderBest();
+S=newState(); renderBest(); wireOwnerPanel();
 
 window.__previewGame={ getState:()=>({ phase:S.paused?"paused":S.phase, paused:S.paused, score:(S.phase==="victory"||S.phase==="caught")?S.score:calcScore(),
+  intensity, hardness, intensityFull: INTENSITY_FULL, scoreMultiplier: scoreMult(), params: difficultyParams(),
   haunt:Math.floor(S.haunt), relics:S.relics.map(r=>r.label), relicCount:S.relics.length, relicValue:S.relicValue,
   keys:{...S.keys}, keyCount:Object.values(S.keys).filter(Boolean).length, room:S.room, timeSec:S.timeSec, lantern:S.lantern,
   portraitSolved:S.portraitSolved, boltSolved:S.boltSolved, grand:S.grand, name:S.name }) };
+window.__intensityTest = { getState: () => ({ intensity, hardness, intensityFull: INTENSITY_FULL, scoreMultiplier: scoreMult(), params: difficultyParams() }) };
 </script></body></html>

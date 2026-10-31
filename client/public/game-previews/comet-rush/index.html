@@ -51,6 +51,14 @@
   #nameInput{width:100%;background:#1c0f3a;border:1px solid rgba(255,255,255,.35);border-radius:9px;color:#fff;font-size:16px;padding:9px 10px;font-weight:700;outline:none}
   #nameInput:focus{border-color:var(--teal)}
   .bestline{font-size:12.5px;color:var(--sun);margin-top:7px;min-height:15px;font-weight:700}
+  #ownerBtn{background:#1c0f3a;border:1px solid rgba(255,255,255,.35);color:#fff;border-radius:8px;padding:6px 14px;font-size:11px;font-weight:900;letter-spacing:2px;cursor:pointer;font-family:inherit}
+  #ownerBtn:active{transform:scale(.96)}
+  #ownerSettingsLine{font-size:12.5px;color:#cfeeff;margin-top:7px;font-weight:700;text-align:left}
+  #ownerPanel{margin-top:9px;text-align:left}
+  #ownerPanel label{display:block;font-size:10px;letter-spacing:2px;color:var(--teal);font-weight:800;margin:7px 0 2px}
+  #ownerPanel label span{float:right;color:var(--sun);font-size:13px;letter-spacing:0}
+  #ownerPanel input[type=range]{width:100%;accent-color:#2ef2d6;cursor:pointer}
+  #intensitySummary{font-size:12.5px;color:var(--sun);margin-top:7px;font-weight:700;text-align:left}
   .bigbtn{pointer-events:auto;margin-top:13px;background:linear-gradient(180deg,#3ef5da,#0fbfa5);color:#05302a;border:none;font-size:21px;font-weight:900;letter-spacing:1px;padding:14px 44px;border-radius:99px;cursor:pointer;box-shadow:0 0 26px rgba(46,242,214,.65),0 5px 0 #087a68;font-family:inherit}
   .bigbtn:active{transform:translateY(3px);box-shadow:0 0 18px rgba(46,242,214,.6),0 2px 0 #087a68}
   .bigbtn.orange{background:linear-gradient(180deg,#ffc46b,#ff7b2e);color:#451c02;box-shadow:0 0 26px rgba(255,154,60,.6),0 5px 0 #a34a0e}
@@ -83,6 +91,7 @@
       <div class="chip"><span>SPEED</span><b id="hSpeed">0</b></div>
       <div class="chip"><span>◆ SHARDS</span><b id="hShards">0</b></div>
       <div class="chip"><span>SCORE</span><b id="hScore">0</b></div>
+      <div class="chip"><span>INT · HARD</span><b id="hudIntensity">INT 5 · HARD 5</b></div>
       <div id="btnCol">
         <button class="iconbtn" id="pauseBtn" aria-label="Pause">⏸</button>
         <button class="iconbtn" id="muteBtn" aria-label="Sound">🔊</button>
@@ -112,6 +121,17 @@
       <label for="nameInput">RACER NAME</label>
       <input id="nameInput" maxlength="14" placeholder="ZIP FAN" autocomplete="off">
       <div class="bestline" id="bestLine">No local best yet — set the first mark!</div>
+    </div>
+    <div class="panel">
+      <button id="ownerBtn" type="button">OWNER</button>
+      <div id="ownerSettingsLine">Owner settings: Intensity 5 · Hardness 5</div>
+      <div id="ownerPanel" hidden>
+        <label for="intensityRange">INTENSITY <span id="intensityVal">5</span></label>
+        <input type="range" id="intensityRange" min="1" step="1" max="10" value="5">
+        <label for="hardnessRange">HARDNESS <span id="hardnessVal">5</span></label>
+        <input type="range" id="hardnessRange" min="1" step="1" max="10" value="5">
+      </div>
+      <div id="intensitySummary">Score multiplier: ×1.44</div>
     </div>
     <button class="bigbtn" id="startBtn">▶ START RACE</button>
     <div class="howto">
@@ -170,6 +190,7 @@
 
 <script>
 "use strict";
+const INTENSITY_FULL = true;
 /* ================= COMET RUSH — Luna Classic ================= */
 const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
 const SCALE=0.8, W=()=>cv.clientWidth,H=()=>cv.clientHeight, VW=()=>cv.clientWidth/SCALE, VH=()=>cv.clientHeight/SCALE;
@@ -191,6 +212,54 @@ function showBest(){
 }
 showBest();
 
+/* ---------- owner settings: intensity + hardness (owner-set, never player-picked) ---------- */
+const LS_OWNER='comet-rush-owner-settings-v1';
+const INTENSITY_MAX=INTENSITY_FULL?10:3;
+let intensity=5, hardness=5;
+try{ const raw=localStorage.getItem(LS_OWNER); if(raw){ const o=JSON.parse(raw);
+  if(o){ const iv=parseInt(o.i,10), hv=parseInt(o.h,10);
+    if(Number.isFinite(iv)) intensity=iv; if(Number.isFinite(hv)) hardness=hv; } } }catch(e){}
+intensity=Math.max(1,Math.min(INTENSITY_MAX,intensity));
+hardness=Math.max(1,Math.min(INTENSITY_MAX,hardness));
+let scoreMultiplier=1+(((intensity+hardness)/2)-1)/9;
+function saveOwnerSettings(){ try{localStorage.setItem(LS_OWNER,JSON.stringify({i:intensity,h:hardness}));}catch(e){} }
+function intensityScales(){
+  const r=v=>Math.round(v*10000)/10000;
+  return {
+    /* HARDNESS axis (toughness of the run) */
+    timeLimitScale:r(1-(hardness-5)*0.03),        /* H1 1.12 · H5 1.00 · H10 0.85 */
+    gapWidthScale:r(1+(hardness-5)*0.04),         /* H1 0.84 · H5 1.00 · H10 1.20 */
+    /* INTENSITY axis (hazard volume / relief) */
+    hazardScale:r(1+(intensity-5)*0.10),          /* I1 0.60 · I5 1.00 · I10 1.50 */
+    checkpointBonusSec:intensity<5?(5-intensity)*1:0 /* I1 4s/checkpoint · I5 0 (original: no checkpoint bonus) · I10 0 */
+  };
+}
+function updateOwnerUI(){
+  scoreMultiplier=1+(((intensity+hardness)/2)-1)/9;
+  const sum=document.getElementById('intensitySummary');
+  if(sum) sum.textContent='Score multiplier: ×'+scoreMultiplier.toFixed(2);
+  const line=document.getElementById('ownerSettingsLine');
+  if(line) line.textContent='Owner settings: Intensity '+intensity+' · Hardness '+hardness;
+  const hud=document.getElementById('hudIntensity');
+  if(hud) hud.textContent='INT '+intensity+' · HARD '+hardness;
+  const ir=document.getElementById('intensityRange'); if(ir) ir.value=String(intensity);
+  const hr=document.getElementById('hardnessRange'); if(hr) hr.value=String(hardness);
+  const iv=document.getElementById('intensityVal'); if(iv) iv.textContent=String(intensity);
+  const hv=document.getElementById('hardnessVal'); if(hv) hv.textContent=String(hardness);
+}
+// Production builds place these two bars under the game's wallet-signed owner admin login; this preview uses a local demo gate (OWNER button, settings in localStorage).
+(function buildOwnerPanel(){
+  const panel=document.getElementById('ownerPanel'); if(!panel) return;
+  const btn=document.getElementById('ownerBtn');
+  if(btn) btn.addEventListener('click',()=>{ panel.hidden=!panel.hidden; });
+  const ir=document.getElementById('intensityRange'), hr=document.getElementById('hardnessRange');
+  if(ir){ ir.max=String(INTENSITY_MAX); ir.addEventListener('input',()=>{
+    intensity=Math.max(1,Math.min(INTENSITY_MAX,parseInt(ir.value,10)||5)); saveOwnerSettings(); updateOwnerUI(); }); }
+  if(hr){ hr.max=String(INTENSITY_MAX); hr.addEventListener('input',()=>{
+    hardness=Math.max(1,Math.min(INTENSITY_MAX,parseInt(hr.value,10)||5)); saveOwnerSettings(); updateOwnerUI(); }); }
+  updateOwnerUI();
+})();
+
 /* ---------- audio ---------- */
 let AC=null,muted=false;
 function ac(){ if(!AC){ try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){} } if(AC&&AC.state==='suspended')AC.resume(); return AC; }
@@ -208,10 +277,23 @@ const sJump=()=>beep(300,.16,'square',.05,660), sShard=()=>beep(1180,.09,'sine',
 
 /* ---------- stage definitions ---------- */
 const PATTERN=[0,0,-26,18,86,120,64,-18,-96,-148,-84,6,74,118,52,-34,-110,-60,22,88,40,-12];
+/* Extra spike placements used only above intensity 5 (checked clear of loops,
+   springs, checkpoints and widened gap ends). Order = order added as intensity rises. */
+const EXTRA_SPIKES=[[6000],[1000,5800],[800,3600,5600]];
 function buildStage(cfg){
   const pts=[]; const n=Math.ceil(cfg.length/cfg.spacing)+3;
   for(let i=0;i<n;i++){ const raw=PATTERN[i%PATTERN.length]*cfg.amp; pts.push(i<2?0:raw); }
-  const st=Object.assign({},cfg,{pts,
+  /* Owner-axis wiring (5/5 = exactly the original cfg values):
+     - HARDNESS scales stage time limit + gap widths;
+       INTENSITY scales spike count (below 5: a prefix of the original spikes;
+       above 5: originals + EXTRA_SPIKES) + checkpoint time bonus. */
+  const sc=intensityScales(), cfgIdx=STAGE_CFG.indexOf(cfg);
+  const limit=Math.round(cfg.limit*sc.timeLimitScale*100)/100;
+  const gaps=cfg.gaps.map(g=>({x:g.x,w:Math.round(g.w*sc.gapWidthScale)}));
+  const spikeTarget=Math.max(1,Math.round(cfg.spikes.length*sc.hazardScale));
+  const spikes=spikeTarget<=cfg.spikes.length ? cfg.spikes.slice(0,spikeTarget)
+    : cfg.spikes.concat((EXTRA_SPIKES[cfgIdx]||[]).slice(0,spikeTarget-cfg.spikes.length));
+  const st=Object.assign({},cfg,{pts,limit:limit,gaps:gaps,spikes:spikes,
     shards:[],loopsDone:new Set(),springsHit:new Set()});
   // shards line the fast route just above the track + arcs over gaps
   for(let x=420;x<cfg.length-200;x+=250){
@@ -260,12 +342,13 @@ function startStage(){
   stages[stageIdx]=buildStage(STAGE_CFG[stageIdx]);
   const st=stages[stageIdx];
   P=newPlayer(60); time=0; parts=[]; camX=0; camY=P.y-300; shake=0;
-  S.checkpoint=0; S.checkpointX=st.checkpoints[0]; S.stageShards=0; S.topSpeed=0; S.respawns=0;
+  S.checkpoint=0; S.checkpointX=st.checkpoints[0]; S.stageShards=0; S.topSpeed=0; S.respawns=0; S.checkpointBonusEarned=0;
   S.phase='playing';
   show('hud',true); show('touch',true);
   hideAllOverlays(); updateHUD();
   toast('STAGE '+(stageIdx+1)+' — '+st.name+' • PAR '+st.par+'s');
 }
+function effectiveLimit(st){ return st.limit+(S.checkpointBonusEarned||0); }
 function respawn(reason){
   const st=stages[stageIdx];
   S.respawns++; time+=5; P.invuln=2;
@@ -280,7 +363,10 @@ function finishStage(){
   const timeBonus=Math.max(0,Math.round((st.par-time)*20));
   const speedBonus=Math.max(0,Math.round(S.topSpeed-420));
   const shardBonus=S.stageShards*25;
-  const stageScore=400+timeBonus+speedBonus+shardBonus;
+  const rawStageScore=400+timeBonus+speedBonus+shardBonus;
+  /* Score multiplier applies ONLY here, to score points. Stage times, shard
+     counts, top-speed records and medal thresholds (total time) stay raw. */
+  const stageScore=Math.round(rawStageScore*scoreMultiplier);
   S.stageScores.push(stageScore); S.banked+=stageScore; S.score=S.banked;
   S.totalShards+=S.stageShards; S.totalTime+=time;
   sWin();
@@ -291,13 +377,14 @@ function finishStage(){
   document.getElementById('clearStats').innerHTML=
     row('⏱️ Time',time.toFixed(1)+'s  (par '+st.par+'s)')+row('⌛ Time bonus','+'+timeBonus)+
     row('◆ Shards',S.stageShards+'  (+'+shardBonus+')')+row('🚀 Top speed',Math.round(S.topSpeed)+'  (+'+speedBonus+')')+
-    row('💥 Stumbles',S.respawns)+'<div class="tot">'+row('STAGE SCORE',stageScore.toLocaleString())+row('CAMPAIGN TOTAL',S.banked.toLocaleString())+'</div>';
+    row('💥 Stumbles',S.respawns)+row('🔥 Owner settings','Intensity '+intensity+' · Hardness '+hardness+' · score ×'+scoreMultiplier.toFixed(2)+' (raw '+rawStageScore+')')+'<div class="tot">'+row('STAGE SCORE',stageScore.toLocaleString())+row('CAMPAIGN TOTAL',S.banked.toLocaleString())+'</div>';
   showOverlay('clearScreen'); show('touch',false);
 }
 function endCampaign(){
   S.phase='complete';
   const total=S.banked;
   let medal,mt;
+  /* Medals are decided on raw total time (performance), never on multiplied score. */
   if(S.totalTime<=STAGE_CFG.reduce((a,c)=>a+c.par,0)+12){medal='🥇';mt='GOLD COMET';}
   else if(S.totalTime<=STAGE_CFG.reduce((a,c)=>a+c.par,0)+48){medal='🥈';mt='SILVER COMET';}
   else {medal='🥉';mt='BRONZE COMET';}
@@ -317,7 +404,7 @@ function endCampaign(){
 function failStage(){
   S.phase='failed'; sBad();
   const st=stages[stageIdx];
-  document.getElementById('failSub').textContent=st.name+' — TIME LIMIT '+st.limit+'s REACHED';
+  document.getElementById('failSub').textContent=st.name+' — TIME LIMIT '+effectiveLimit(st)+'s REACHED';
   document.getElementById('failStats').innerHTML=
     row('📍 Progress',Math.min(100,Math.round(P.x/st.length*100))+'% of stage')+row('◆ Shards',S.stageShards)+
     row('💥 Stumbles',S.respawns)+row('🏦 Banked score',S.banked.toLocaleString());
@@ -377,7 +464,7 @@ function update(dt){
   if(S.phase!=='playing') return;
   const st=stages[stageIdx];
   time+=dt;
-  if(time>=st.limit){ failStage(); return; }
+  if(time>=effectiveLimit(st)){ failStage(); return; }
   P.invuln=Math.max(0,P.invuln-dt);
 
   /* loop traversal */
@@ -424,11 +511,16 @@ function update(dt){
   if(P.invuln<=0){ for(const sx of st.spikes){ if(Math.abs(P.x-sx)<20&&P.y+P.r>groundY(P.x)-24){ respawn('SPIKES! STUMBLE!'); break; } } }
   if(S.phase!=='playing') return;
   /* checkpoints */
-  st.checkpoints.forEach((cxp,i)=>{ if(P.x>=cxp&&i>S.checkpoint){ S.checkpoint=i; S.checkpointX=cxp; sCheck(); toast('🚩 CHECKPOINT '+(i+1)); } });
+  st.checkpoints.forEach((cxp,i)=>{ if(P.x>=cxp&&i>S.checkpoint){ S.checkpoint=i; S.checkpointX=cxp; sCheck();
+    /* Checkpoint time bonus: extends this stage's time limit only — elapsed time,
+       par, top speed and medal timing stay raw. 0 at intensity 5+ (original game had none). */
+    const cb=intensityScales().checkpointBonusSec;
+    if(cb>0){ S.checkpointBonusEarned=(S.checkpointBonusEarned||0)+cb; toast('🚩 CHECKPOINT '+(i+1)+'  +'+cb+'s TIME'); }
+    else toast('🚩 CHECKPOINT '+(i+1)); } });
   /* shards */
   for(const sh of st.shards){ if(!sh.got){ const px=P.x,py=P.y;
       if((px-sh.x)*(px-sh.x)+(py-sh.y)*(py-sh.y)<42*42){ sh.got=true; S.stageShards++; P.energy=Math.min(100,P.energy+8); sShard(); spark(sh.x,sh.y); } } }
-  S.score=S.banked+S.stageShards*25;
+  S.score=S.banked+Math.round(S.stageShards*25*scoreMultiplier); /* live score preview: shard points only, multiplied like the stage score */
   /* fall below track */
   if(P.y>groundY(P.x)+330){ respawn('OFF THE TRACK!'); }
   /* finish */
@@ -447,13 +539,14 @@ function updateHUD(){
   if(!P) return; const st=stages[stageIdx];
   document.getElementById('hStage').textContent=(stageIdx+1)+'/3';
   const ht=document.getElementById('hTime'); ht.textContent=time.toFixed(1)+' / '+st.par;
-  document.getElementById('timeChip').classList.toggle('warn',time>st.limit-15);
+  document.getElementById('timeChip').classList.toggle('warn',time>effectiveLimit(st)-15);
+  document.getElementById('hudIntensity').textContent='INT '+intensity+' · HARD '+hardness;
   document.getElementById('hSpeed').textContent=Math.round(P.vx);
   document.getElementById('hShards').textContent=S.stageShards;
   document.getElementById('hScore').textContent=S.score.toLocaleString();
   document.getElementById('ebar').style.width=P.energy+'%';
   document.getElementById('prog').style.width=Math.min(100,P.x/st.length*100)+'%';
-  document.getElementById('hCheck').textContent='CHECKPOINT '+(S.checkpoint+1)+' / '+st.checkpoints.length+' • '+st.name+' • ⏱ LIMIT '+st.limit+'s';
+  document.getElementById('hCheck').textContent='CHECKPOINT '+(S.checkpoint+1)+' / '+st.checkpoints.length+' • '+st.name+' • ⏱ LIMIT '+effectiveLimit(st)+'s';
 }
 
 /* ---------- drawing ---------- */
@@ -615,10 +708,33 @@ resize(); requestAnimationFrame(frame);
 setTimeout(resize,60);
 
 /* ---------- test / preview hook ---------- */
+function currentIntensityParams(){
+  const sc=intensityScales(), cfg=STAGE_CFG[stageIdx]||STAGE_CFG[0];
+  const built=(stages&&stages[stageIdx])?stages[stageIdx]:null;
+  const spikeTarget=Math.max(1,Math.round(cfg.spikes.length*sc.hazardScale));
+  return {
+    timeLimitScale:sc.timeLimitScale,
+    stageTimeLimit:built?built.limit:Math.round(cfg.limit*sc.timeLimitScale*100)/100,
+    effectiveTimeLimit:built?effectiveLimit(built):Math.round(cfg.limit*sc.timeLimitScale*100)/100,
+    stagePar:cfg.par,
+    gapWidthScale:sc.gapWidthScale,
+    firstGapWidth:built?built.gaps[0].w:Math.round(cfg.gaps[0].w*sc.gapWidthScale),
+    gapCount:built?built.gaps.length:cfg.gaps.length,
+    hazardScale:sc.hazardScale,
+    spikeCount:built?built.spikes.length:spikeTarget,
+    baseSpikeCount:cfg.spikes.length,
+    checkpointBonusSec:sc.checkpointBonusSec,
+    checkpointBonusEarned:S.checkpointBonusEarned||0,
+    checkpointCount:cfg.checkpoints.length
+  };
+}
+window.__intensityTest={ getState:()=>({ intensity:intensity, hardness:hardness, intensityFull:INTENSITY_FULL,
+  scoreMultiplier:scoreMultiplier, params:currentIntensityParams() }) };
 window.__previewGame={ getState:()=>({ phase:S.phase, score:S.score, speed:P?Math.round(P.vx):0,
   time:Math.round(time*10)/10, stage:stageIdx+1, shards:S.stageShards, totalShards:S.totalShards,
   energy:P?Math.round(P.energy):0, checkpoint:S.checkpoint?S.checkpoint+1:1, x:P?Math.round(P.x):0,
-  topSpeed:Math.round(S.topSpeed||0), name:racerName(), best:best }) };
+  topSpeed:Math.round(S.topSpeed||0), name:racerName(), best:best,
+  intensity:intensity, hardness:hardness, intensityFull:INTENSITY_FULL, scoreMultiplier:scoreMultiplier, params:currentIntensityParams() }) };
 </script>
 </body>
 </html>

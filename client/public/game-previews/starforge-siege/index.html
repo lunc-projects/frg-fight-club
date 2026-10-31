@@ -25,11 +25,19 @@ label{font-size:12px;letter-spacing:.14em;color:#9fb4d8;font-weight:800}
 #startBtn{width:100%;padding:16px;border-radius:13px;background:linear-gradient(180deg,#ffb02e,#ff6a00);color:#1c0d00;font-size:19px;font-weight:1000;letter-spacing:.06em;box-shadow:0 6px 0 #7a2b00,0 12px 28px #ff7a1a55}
 #startBtn:active{transform:translateY(3px);box-shadow:0 3px 0 #7a2b00}
 .best{margin:11px 0 0;text-align:center;color:#ffdf8a;font-weight:800;font-size:14px}
+#ownerSettingsLine{margin:2px 0 4px;color:#cfe9ff;font-weight:800;font-size:13px;text-align:center}
+#intensitySummary{margin:0 0 8px;color:#ffdf8a;font-weight:800;font-size:13px;text-align:center}
+#ownerBtn{display:block;margin:0 auto 10px;padding:6px 14px;border-radius:999px;background:#050816;border:1px solid #4a5488;color:#9fb4d8;font-weight:900;font-size:11px;letter-spacing:.18em}
+#ownerPanel{margin:0 0 12px;padding:10px;border-radius:11px;background:#050816;border:1px solid #4a5488}
+.ownerRow{display:flex;align-items:center;gap:9px;margin:6px 0}
+.ownerRow label{flex:0 0 78px}
+.ownerRow input[type=range]{flex:1;accent-color:#ff8a1e;min-width:0}
+.ownerVal{flex:0 0 22px;text-align:right;color:#ffdf8a;font-weight:1000;font-size:15px}
 .how{font-size:13px;line-height:1.55;color:#d7e4ff;margin-top:12px}
 .how b{color:#fff}
 /* GAME */
 #gameScreen{display:none;flex-direction:column;min-height:100dvh}
-.hud{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:6px;padding:8px 8px 6px;background:#0a0e22;border-bottom:2px solid #ff7a1a66}
+.hud{display:grid;grid-template-columns:1fr 1fr 1fr .8fr auto;gap:6px;padding:8px 8px 6px;background:#0a0e22;border-bottom:2px solid #ff7a1a66}
 .pill{background:#141a35;border:1px solid #333c6e;border-radius:10px;padding:6px 7px;text-align:center;min-width:0}
 .pill small{display:block;font-size:9px;letter-spacing:.13em;color:#93a7cf;font-weight:900}
 .pill strong{font-size:16px}
@@ -71,6 +79,13 @@ canvas{width:100%;height:auto;display:block;background:#050816;touch-action:none
   <div class="card">
     <label for="playerName">COMMANDER NAME</label>
     <input id="playerName" maxlength="18" placeholder="Your name" autocomplete="off">
+    <div id="ownerSettingsLine">Owner settings: Intensity 5 · Hardness 5</div>
+    <p id="intensitySummary">Score multiplier: ×1.44</p>
+    <button id="ownerBtn" type="button">OWNER</button>
+    <div id="ownerPanel" hidden>
+      <div class="ownerRow"><label for="intensityRange">INTENSITY</label><input type="range" id="intensityRange" min="1" step="1" value="5"><span class="ownerVal" id="intensityValue">5</span></div>
+      <div class="ownerRow"><label for="hardnessRange">HARDNESS</label><input type="range" id="hardnessRange" min="1" step="1" value="5"><span class="ownerVal" id="hardnessValue">5</span></div>
+    </div>
     <button id="startBtn">▶ &nbsp;START DEFENSE</button>
     <p class="best" id="bestLine">🏆 Local Best: 0</p>
     <div class="how">
@@ -86,6 +101,7 @@ canvas{width:100%;height:auto;display:block;background:#050816;touch-action:none
     <div class="pill"><small>SCORE</small><strong id="hudScore">0</strong></div>
     <div class="pill"><small>WAVE</small><strong id="hudWave">0</strong></div>
     <div class="pill"><small>⚙ METAL</small><strong id="hudMetal">80</strong></div>
+    <div class="pill"><small>LEVEL</small><strong id="hudIntensity">INT 5 · HARD 5</strong></div>
     <button id="pauseBtn" aria-label="Pause">⏸</button>
   </div>
   <div class="corebar"><div id="coreFill"></div><span id="coreText">CORE 100</span></div>
@@ -121,6 +137,34 @@ canvas{width:100%;height:auto;display:block;background:#050816;touch-action:none
 (() => {
 "use strict";
 const $=id=>document.getElementById(id);
+const INTENSITY_FULL = true;
+const LS_OWNER='starforge-siege-owner-settings-v1';
+function clampOwnerValue(v){const max=INTENSITY_FULL?10:3; v=parseInt(v,10); if(!Number.isFinite(v))v=5; return Math.min(max,Math.max(1,v));}
+let intensity=5, hardness=5;
+try{const saved=JSON.parse(localStorage.getItem(LS_OWNER)||'null'); if(saved){intensity=clampOwnerValue(saved.i); hardness=clampOwnerValue(saved.h);}}catch(e){}
+let scoreMultiplier=1+(((intensity+hardness)/2)-1)/9;
+function getIntensityParams(){const dI=intensity-5, dH=hardness-5; return {enemyCountMul:1+dI*0.1,enemyHpMul:1+dH*0.075,enemySpeedMul:1+dH*0.04,spawnIntervalMul:1-dI*0.07};}
+function saveOwnerSettings(){try{localStorage.setItem(LS_OWNER,JSON.stringify({i:intensity,h:hardness}));}catch(e){}}
+function renderOwnerSettings(){
+ const line=$('ownerSettingsLine'); if(line)line.textContent='Owner settings: Intensity '+intensity+' · Hardness '+hardness;
+ const sum=$('intensitySummary'); if(sum)sum.textContent='Score multiplier: ×'+scoreMultiplier.toFixed(2);
+ const hud=$('hudIntensity'); if(hud)hud.textContent='INT '+intensity+' · HARD '+hardness;
+ const ir=$('intensityRange'); if(ir)ir.value=String(intensity);
+ const hr=$('hardnessRange'); if(hr)hr.value=String(hardness);
+ const iv=$('intensityValue'); if(iv)iv.textContent=String(intensity);
+ const hv=$('hardnessValue'); if(hv)hv.textContent=String(hardness);
+}
+function setOwnerSettings(i,h){intensity=clampOwnerValue(i); hardness=clampOwnerValue(h); scoreMultiplier=1+(((intensity+hardness)/2)-1)/9; saveOwnerSettings(); renderOwnerSettings();}
+// Production builds place these two bars under the game's wallet-signed owner admin login; this preview uses a local demo gate (OWNER button, settings in localStorage).
+function initOwnerPanel(){
+ const max=INTENSITY_FULL?10:3;
+ const panel=$('ownerPanel'), btn=$('ownerBtn');
+ const ir=$('intensityRange'), hr=$('hardnessRange');
+ if(ir){ir.max=String(max); ir.addEventListener('input',()=>setOwnerSettings(ir.value,hardness));}
+ if(hr){hr.max=String(max); hr.addEventListener('input',()=>setOwnerSettings(intensity,hr.value));}
+ if(btn&&panel){btn.addEventListener('click',()=>{panel.hidden=!panel.hidden;});}
+ renderOwnerSettings();
+}
 const cv=$('cv'), ctx=cv.getContext('2d');
 const W=390,H=500;
 const LS_NAME='starforge-siege:name', LS_BEST='starforge-siege:best';
@@ -144,6 +188,7 @@ let nodeTimer=1.2, time=0, bannerTimer=0, shake=0;
 let best=parseInt(localStorage.getItem(LS_BEST)||'0',10)||0;
 $('playerName').value=localStorage.getItem(LS_NAME)||'';
 $('bestLine').textContent='🏆 Local Best: '+best.toLocaleString()+(best?'':' — be the first commander');
+initOwnerPanel();
 
 // AUDIO
 let AC=null; function beep(f=660,d=.07,type='square',v=.05){try{if(!AC)AC=new (window.AudioContext||window.webkitAudioContext)(); if(AC.state==='suspended')AC.resume(); const o=AC.createOscillator(),g=AC.createGain(); o.type=type;o.frequency.value=f;g.gain.setValueAtTime(v,AC.currentTime);g.gain.exponentialRampToValueAtTime(.001,AC.currentTime+d);o.connect(g);g.connect(AC.destination);o.start();o.stop(AC.currentTime+d);}catch(e){}}
@@ -178,7 +223,7 @@ function gameOver(){
 }
 function updateHUD(){
  $('hudScore').textContent=score.toLocaleString(); $('hudWave').textContent=wave;
- $('hudMetal').textContent=Math.floor(metal); $('coreFill').style.width=Math.max(0,core)+'%';
+ $('hudMetal').textContent=Math.floor(metal); const hi=$('hudIntensity'); if(hi)hi.textContent='INT '+intensity+' · HARD '+hardness; $('coreFill').style.width=Math.max(0,core)+'%';
  $('coreText').textContent='CORE '+Math.max(0,Math.ceil(core));
  const busy=!!forging||!!ready;
  ['forgePulse','forgeRail','forgeCryo'].forEach((id,i)=>{const k=['pulse','rail','cryo'][i]; $(id).disabled=busy||metal<TYPES[k].cost||phase!=='playing';});
@@ -209,7 +254,7 @@ $('forgeRail').onclick=()=>startForge('rail');
 $('forgeCryo').onclick=()=>startForge('cryo');
 // WAVES
 function waveComp(n){
- const kinds=[]; const add=(k,c)=>{for(let i=0;i<c;i++)kinds.push(k)};
+ const kinds=[]; const countMul=getIntensityParams().enemyCountMul; const add=(k,c)=>{const scaled=Math.max(1,Math.round(c*countMul)); for(let i=0;i<scaled;i++)kinds.push(k)};
  add('drone',5+n);
  if(n>=2)add('speeder',2+n);
  if(n>=3)add('armor',1+Math.floor(n*.8));
@@ -222,12 +267,12 @@ function waveComp(n){
 }
 $('nextWaveBtn').onclick=()=>{
  if(waveActive||phase!=='playing')return;
- wave++; waveKinds=waveComp(wave); toSpawn=waveKinds.length; spawnTimer=.3; spawnGap=Math.max(.45,1.15-wave*.06);
+ wave++; waveKinds=waveComp(wave); toSpawn=waveKinds.length; spawnTimer=.3; spawnGap=Math.max(.45,1.15-wave*.06)*getIntensityParams().spawnIntervalMul;
  waveActive=true; showBanner('⚔ WAVE '+wave+' INCOMING ⚔'); beep(440,.1); setTimeout(()=>beep(660,.12),110);
  setStatus('Wave '+wave+' — defend the core on the right!'); updateHUD();
 };
 function makeEnemy(kind,lane){
- const hpMul=1+(wave-1)*.32, spMul=1+(wave-1)*.045;
+ const ip=getIntensityParams(); const hpMul=(1+(wave-1)*.32)*ip.enemyHpMul, spMul=(1+(wave-1)*.045)*ip.enemySpeedMul;
  const base={
   drone:{hp:34,r:14,sp:26,armor:0,dmg:8,score:15,metal:4,color:'#ff7a5c'},
   speeder:{hp:20,r:11,sp:52,armor:0,dmg:6,score:20,metal:4,color:'#ffd23f'},
@@ -317,7 +362,7 @@ function update(dt){
  floaters.forEach(f=>{f.t+=dt;f.y-=22*dt;}); floaters=floaters.filter(f=>f.t<1.1);
  // wave clear
  if(waveActive&&toSpawn===0&&enemies.length===0){
-   waveActive=false; const mBonus=20+wave*5,sBonus=100*wave; metal+=mBonus; score+=sBonus;
+   waveActive=false; const mBonus=20+wave*5,sBonus=Math.round(100*wave*scoreMultiplier); metal+=mBonus; score+=sBonus;
    showBanner('✔ WAVE '+wave+' CLEARED  •  +'+mBonus+' METAL  •  +'+sBonus+' PTS');
    setStatus('Wave '+wave+' cleared! Harvest, forge / upgrade, then send wave '+(wave+1)+'.'); beep(740,.1); setTimeout(()=>beep(990,.12),110);
  }
@@ -328,8 +373,8 @@ function damage(en,s){
  if(en.armor){ dmg*= (s.type==='rail'?1:(1-en.armor)); }
  en.hp-=dmg;
  if(s.type==='cryo')en.slowT=1.6;
- if(en.hp<=0&&!en.dead){ en.dead=true; kills++; score+=en.score; metal+=en.metal;
-   floaters.push({x:en.x,y:en.y-16,txt:'+'+en.score,t:0,color:'#fff'});
+ if(en.hp<=0&&!en.dead){ en.dead=true; kills++; const pts=Math.round(en.score*scoreMultiplier); score+=pts; metal+=en.metal;
+   floaters.push({x:en.x,y:en.y-16,txt:'+'+pts,t:0,color:'#fff'});
    beep(500,.04,'triangle',.03);
    if(en.split){ for(let i=0;i<2;i++){const m=makeEnemy('mini',en.lane); m.x=en.x-8+i*14; m.y=LANES[en.lane]; enemies.push(m);} }
  }
@@ -413,7 +458,8 @@ function loop(now){ const dt=Math.min(.05,(now-last)/1000); last=now;
  requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
-window.__previewGame={getState:()=>({phase,score,wave,core,metal:Math.floor(metal),player,best,kills,paused,waveActive,enemies:enemies.length,turrets:PADS.filter(p=>p.turret).length,forging:forging?forging.type:null,ready})};
+window.__intensityTest={getState:()=>({intensity,hardness,intensityFull:INTENSITY_FULL,scoreMultiplier,params:{...getIntensityParams(),spawnGap}})};
+window.__previewGame={getState:()=>({phase,score,wave,core,metal:Math.floor(metal),player,best,kills,paused,waveActive,enemies:enemies.length,turrets:PADS.filter(p=>p.turret).length,forging:forging?forging.type:null,ready,intensity,hardness,intensityFull:INTENSITY_FULL,scoreMultiplier,params:{...getIntensityParams(),spawnGap}})};
 reset();
 })();
 </script></body></html>

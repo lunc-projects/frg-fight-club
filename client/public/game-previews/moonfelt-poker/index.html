@@ -28,6 +28,15 @@ h1{font-size:40px;margin:12px 0 2px;letter-spacing:.06em;color:#fff;text-shadow:
 .bigbtn:active{transform:scale(.98)}
 .rules{font-size:12.5px;color:#c9bdf5;line-height:1.5;text-align:left;background:rgba(255,255,255,.05);border-radius:12px;padding:10px 12px;margin-top:12px}
 .rules b{color:#fff}
+.intensity-box{background:rgba(255,255,255,.06);border:1px solid rgba(168,85,247,.5);border-radius:14px;padding:12px;margin:10px 0;text-align:left}
+.intensity-box label{font-size:13px;color:#d8ccff;display:block;margin:8px 0 4px}
+#ownerBtn{font-size:12px;font-weight:800;letter-spacing:.18em;padding:7px 14px;border-radius:9px;border:1px solid #a855f7;background:#150a30;color:#d8b4fe}
+#ownerBtn:active{transform:scale(.97)}
+#ownerSettingsLine{font-size:13.5px;color:#e9e2ff;margin-top:8px}
+#ownerPanel{margin-top:8px;border-top:1px solid rgba(168,85,247,.35);padding-top:4px}
+#ownerPanel input[type=range]{width:100%;accent-color:var(--violet);height:28px}
+#ownerPanel .oval{color:var(--gold);font-weight:800}
+#intensitySummary{font-size:13.5px;color:var(--gold);margin-top:8px}
 details{margin-top:10px;text-align:left;background:rgba(255,255,255,.05);border-radius:12px;padding:8px 12px;font-size:13px;color:#ddd2ff;line-height:1.55}
 summary{cursor:pointer;color:#fff;font-weight:700}
 /* GAME */
@@ -105,9 +114,20 @@ summary{cursor:pointer;color:#fff;font-weight:700}
       <input id="playerName" type="text" maxlength="14" placeholder="e.g. MoonFox" autocomplete="off">
       <div id="bestBox"></div>
     </div>
+    <div class="intensity-box">
+      <button id="ownerBtn" type="button">OWNER</button>
+      <div id="ownerSettingsLine">Owner settings: Intensity 5 · Hardness 5</div>
+      <div id="intensitySummary">Score multiplier: ×1.44</div>
+      <div id="ownerPanel" class="hidden">
+        <label for="intensityRange">Intensity <span class="oval" id="intensityVal">5</span></label>
+        <input type="range" id="intensityRange" min="1" step="1" max="10" value="5">
+        <label for="hardnessRange">Hardness <span class="oval" id="hardnessVal">5</span></label>
+        <input type="range" id="hardnessRange" min="1" step="1" max="10" value="5">
+      </div>
+    </div>
     <button id="startBtn" class="bigbtn">▶ &nbsp;START TOURNAMENT</button>
     <div class="rules">
-      <b>How it plays:</b> Real Texas Hold'em tournament vs 5 AI seats. Everyone starts with <b>1,000 points</b>. Blinds start at <b>10 / 20</b> and rise every 5 hands. Dealer rotates, real flop / turn / river, raises, all-ins, side pots &amp; split pots. Bust out and it's over — take every point at the table to be crowned <b>Moonfelt Champion</b>. You have 25 seconds per decision (auto-check if free, otherwise fold).
+      <b>How it plays:</b> Real Texas Hold'em tournament vs 5 AI seats. Everyone starts with <b>1,000 points</b>. Blinds start at <b>10 / 20</b> and rise through the tournament (pace depends on Intensity; <span id="rulesPace">at Intensity 5, every 5 hands</span>). Dealer rotates, real flop / turn / river, raises, all-ins, side pots &amp; split pots. Bust out and it's over — take every point at the table to be crowned <b>Moonfelt Champion</b>. You have 25 seconds per decision (auto-check if free, otherwise fold).
     </div>
     <details><summary>Hand rankings (strongest first)</summary>
       Royal / Straight Flush · Four of a Kind · Full House · Flush · Straight · Three of a Kind · Two Pair · One Pair · High Card. Best 5 cards out of your 7 (2 hole + 5 board) count. An Ace can be low in a 5-high straight (A-2-3-4-5).
@@ -122,6 +142,7 @@ summary{cursor:pointer;color:#fff;font-weight:700}
       <span>Blinds <b id="hudBlinds">10/20</b></span>
       <span>Street <b id="hudStreet">Preflop</b></span>
       <span>Score <b id="hudScore">1000</b></span>
+      <span id="hudIntensity">INT 5 · HARD 5</span>
       <button id="pauseBtn" aria-label="Pause or resume">⏸ Pause</button>
     </div>
     <div id="timerWrap"><div id="timerBar"></div></div>
@@ -177,11 +198,60 @@ summary{cursor:pointer;color:#fff;font-weight:700}
 <script>
 "use strict";
 /* ================= MOONFELT POKER — Texas Hold'em tournament ================= */
-var BEST_KEY="moonfelt-poker-best-v1", NAME_KEY="moonfelt-poker-name";
+var INTENSITY_FULL=true;
+var BEST_KEY="moonfelt-poker-best-v1", NAME_KEY="moonfelt-poker-name", OWNER_KEY="moonfelt-poker-owner-settings-v1";
 var BLINDS=[[10,20],[15,30],[25,50],[50,100],[75,150],[100,200],[150,300],[250,500],[400,800],[600,1200]];
 var SUITS=["♠","♥","♦","♣"], RLAB={11:"J",12:"Q",13:"K",14:"A"};
 function rlab(r){return r<=10?String(r):RLAB[r];}
-function blindFor(hand){var i=Math.min(BLINDS.length-1,Math.floor((hand-1)/5));return BLINDS[i];}
+/* ---------- owner settings: INTENSITY (pressure pace) + HARDNESS (AI skill) ---------- */
+var intensity=5, hardness=5, scoreMultiplier=1+(((5+5)/2)-1)/9;
+function intensityMax(){return INTENSITY_FULL?10:3;}
+function scoreMultiplierFor(iv,hv){return 1+(((iv+hv)/2)-1)/9;}
+function clampAxis(v){v=Math.round(+v);if(!isFinite(v))v=5;return Math.max(1,Math.min(intensityMax(),v));}
+function _r4(x){return Math.round(x*10000)/10000;}
+function intensityParams(){
+  var th=hardness-5;
+  var hands;
+  if(intensity<=5)hands=5+Math.round((5-intensity)*0.75);
+  else hands=5-Math.round((intensity-5)*0.4);
+  return{
+    evalNoise:_r4(hardness<=5?0.12+(5-hardness)*0.03:0.12-(hardness-5)*0.02),
+    callOffset:_r4(0.30+th*0.03),
+    looseScale:_r4(0.30+(5-hardness)*0.02),
+    raiseThreshBase:_r4(0.62-th*0.015),
+    raiseThreshAggrScale:0.22,
+    raiseStrengthThresh:_r4(0.74-th*0.01),
+    aggrRaiseBonus:_r4(0.25+th*0.03),
+    bluffMult:_r4(1+th*0.12),
+    bluffCheckScale:0.5,
+    bluffCallScale:0.4,
+    handsPerBlindLevel:hands
+  };
+}
+function loadOwnerSettings(){
+  try{var raw=localStorage.getItem(OWNER_KEY);if(raw){var o=JSON.parse(raw);if(o){intensity=clampAxis(o.i);hardness=clampAxis(o.h);}}}catch(e){}
+  intensity=clampAxis(intensity);hardness=clampAxis(hardness);scoreMultiplier=scoreMultiplierFor(intensity,hardness);
+}
+function saveOwnerSettings(){try{localStorage.setItem(OWNER_KEY,JSON.stringify({i:intensity,h:hardness}));}catch(e){}}
+function updateIntensityUI(){
+  var ir=document.getElementById("intensityRange"),hr=document.getElementById("hardnessRange");
+  if(ir){ir.max=intensityMax();ir.value=intensity;}
+  if(hr){hr.max=intensityMax();hr.value=hardness;}
+  var iv=document.getElementById("intensityVal");if(iv)iv.textContent=intensity;
+  var hv=document.getElementById("hardnessVal");if(hv)hv.textContent=hardness;
+  var line=document.getElementById("ownerSettingsLine");
+  if(line)line.textContent="Owner settings: Intensity "+intensity+" · Hardness "+hardness;
+  var sum=document.getElementById("intensitySummary");
+  if(sum)sum.textContent="Score multiplier: ×"+scoreMultiplier.toFixed(2);
+  var pace=document.getElementById("rulesPace");
+  if(pace)pace.textContent="at Intensity "+intensity+", every "+intensityParams().handsPerBlindLevel+" hands";
+  var hud=document.getElementById("hudIntensity");
+  if(hud)hud.textContent="INT "+intensity+" · HARD "+hardness;
+}
+function setIntensity(v){intensity=clampAxis(v);scoreMultiplier=scoreMultiplierFor(intensity,hardness);saveOwnerSettings();updateIntensityUI();if(typeof G!=="undefined"&&G)render();}
+function setHardness(v){hardness=clampAxis(v);scoreMultiplier=scoreMultiplierFor(intensity,hardness);saveOwnerSettings();updateIntensityUI();if(typeof G!=="undefined"&&G)render();}
+loadOwnerSettings();
+function blindFor(hand){var i=Math.min(BLINDS.length-1,Math.floor((hand-1)/intensityParams().handsPerBlindLevel));return BLINDS[i];}
 
 /* ---------- audio ---------- */
 var AC=null;
@@ -283,7 +353,7 @@ function human(){return G.players[0];}
 function potTotal(){return G.players.reduce(function(s,p){return s+p.betTotal},0);}
 function scoreNow(){return human().chips+potShareSoFar()+G.knockouts*250;}
 function potShareSoFar(){return 0;} // score during play = chips in stack + KO credit; final score uses final chips
-function finalScore(){return human().chips+G.knockouts*250;}
+function finalScore(){return Math.round((human().chips+G.knockouts*250)*scoreMultiplier);}
 function alivePlayers(){return G.players.filter(function(p){return p.chips>0||p.inHand&&p.betTotal>0});}
 function activeCount(){return G.players.filter(function(p){return !p.eliminated}).length;}
 function nextIdx(from,cond){for(var k=1;k<=6;k++){var i=(from+k)%6;if(cond(G.players[i],i))return i;}return -1;}
@@ -312,7 +382,7 @@ function startTournament(){
   document.getElementById("overScreen").classList.add("hidden");
   document.getElementById("gameScreen").classList.remove("hidden");
   document.getElementById("log").innerHTML="";
-  log("🌙 <b>"+escapeHtml(nm)+"</b> takes a seat in The Moon Room. 6 players · 1,000 points each · blinds 10/20, rising every 5 hands.");
+  log("🌙 <b>"+escapeHtml(nm)+"</b> takes a seat in The Moon Room. 6 players · 1,000 points each · blinds 10/20, rising every "+intensityParams().handsPerBlindLevel+" hands.");
   sfx("chip");
   startHand();
 }
@@ -337,7 +407,7 @@ function startHand(){
   for(var round=0;round<2;round++){var start=nextIdx(G.dealerIdx,function(p){return p.inHand});var idx=start;do{G.players[idx].hole.push(G.deck.pop());idx=nextIdx(idx,function(p){return p.inHand});}while(idx!==start&&idx!==-1);}
   postBlind(G.sbIdx,bl[0],"Small Blind");postBlind(G.bbIdx,bl[1],"Big Blind");
   G.currentBet=Math.max.apply(null,G.players.map(function(p){return p.betStreet}));
-  if(G.handNumber===1||(G.handNumber-1)%5===0)log("— Hand #"+G.handNumber+" · Blinds now <b>"+bl[0]+"/"+bl[1]+"</b> · Dealer: <b>"+G.players[G.dealerIdx].name+"</b> —");
+  if(G.handNumber===1||(G.handNumber-1)%intensityParams().handsPerBlindLevel===0)log("— Hand #"+G.handNumber+" · Blinds now <b>"+bl[0]+"/"+bl[1]+"</b> · Dealer: <b>"+G.players[G.dealerIdx].name+"</b> —");
   else log("— Hand #"+G.handNumber+" · Dealer: <b>"+G.players[G.dealerIdx].name+"</b> —");
   sfx("deal");
   // first actor preflop: heads-up dealer/SB first, else UTG (after BB)
@@ -507,27 +577,28 @@ function boardStrength(p){
 function aiAct(idx){
   if(G.phase!=="playing"||G.actorIdx!==idx)return;
   var p=G.players[idx],st=p.style||{loose:.5,aggr:.5,bluff:.05};
+  var prm=intensityParams();
   var s=(G.street==="preflop")?preflopStrength(p.hole):boardStrength(p);
-  s+=(Math.random()-0.5)*0.12;
+  s+=(Math.random()-0.5)*prm.evalNoise;
   var toCall=G.currentBet-p.betStreet;
   var pot=potTotal();
   var rnd=Math.random();
   if(toCall===0){
-    var raiseThresh=0.62-st.aggr*0.22;
-    if(s>raiseThresh||rnd<st.bluff*0.5){
+    var raiseThresh=prm.raiseThreshBase-st.aggr*prm.raiseThreshAggrScale;
+    if(s>raiseThresh||rnd<st.bluff*prm.bluffCheckScale*prm.bluffMult){
       var rt=raiseTarget(p,pot,s);
       if(rt>p.betStreet&&p.chips>0)return applyAction(idx,"raise",rt);
     }
     return applyAction(idx,"check");
   }
   var potOdds=toCall/Math.max(1,pot+toCall);
-  var threshold=potOdds+0.30-st.loose*0.30; // looser players call with weaker hands
+  var threshold=potOdds+prm.callOffset-st.loose*prm.looseScale; // looser players call with weaker hands
   var shortStack=p.chips<=toCall;
   if(s<threshold&&!(shortStack&&s>0.35)){
-    if(rnd<st.bluff*0.4){var rt2=raiseTarget(p,pot,0.8);if(rt2>G.currentBet)return applyAction(idx,"raise",rt2);}
+    if(rnd<st.bluff*prm.bluffCallScale*prm.bluffMult){var rt2=raiseTarget(p,pot,0.8);if(rt2>G.currentBet)return applyAction(idx,"raise",rt2);}
     return applyAction(idx,"fold");
   }
-  if(s>0.74&&rnd<st.aggr+0.25){
+  if(s>prm.raiseStrengthThresh&&rnd<st.aggr+prm.aggrRaiseBonus){
     var rt3=raiseTarget(p,pot,s);
     if(rt3>G.currentBet)return applyAction(idx,"raise",rt3);
   }
@@ -575,6 +646,7 @@ function render(){
   document.getElementById("hudBlinds").textContent=bl[0]+"/"+bl[1];
   document.getElementById("hudStreet").textContent=G.street==="showdown"?"Showdown":(G.street.charAt(0).toUpperCase()+G.street.slice(1));
   document.getElementById("hudScore").textContent=(human().chips+G.knockouts*250);
+  var hi=document.getElementById("hudIntensity");if(hi)hi.textContent="INT "+intensity+" · HARD "+hardness;
   document.getElementById("potVal").textContent=potTotal();
   // seats (AI only)
   var seatsEl=document.getElementById("seats");seatsEl.innerHTML="";
@@ -659,13 +731,22 @@ function refreshBestBox(){
   el.textContent=b?("⭐ Best tournament: "+b.score+" score · "+ordinal(b.placement||6)+" of 6 · "+(b.knockouts||0)+" KOs · "+(b.hands||0)+" hands"):"No tournament finished yet — your best result will be saved here.";
 }
 try{document.getElementById("playerName").value=localStorage.getItem(NAME_KEY)||"";}catch(e){}
-refreshBestBox();render();
+refreshBestBox();updateIntensityUI();render();
+
+/* ---------- owner panel wiring ---------- */
+// Production builds place these two bars under the game's wallet-signed owner admin login; this preview uses a local demo gate (OWNER button, settings in localStorage).
+document.getElementById("ownerBtn").addEventListener("click",function(){
+  document.getElementById("ownerPanel").classList.toggle("hidden");
+});
+document.getElementById("intensityRange").addEventListener("input",function(){setIntensity(+this.value);});
+document.getElementById("hardnessRange").addEventListener("input",function(){setHardness(+this.value);});
 
 /* ---------- test hook ---------- */
+window.__intensityTest={getState:function(){return{intensity:intensity,hardness:hardness,intensityFull:INTENSITY_FULL,scoreMultiplier:scoreMultiplier,params:intensityParams()};}};
 window.__previewGame={
-  getState:function(){return{phase:G.phase,score:G.phase==="gameover"?finalScore():(human().chips+G.knockouts*250),playerChips:human().chips,pot:potTotal(),street:G.street,currentActor:G.actorIdx>=0?G.players[G.actorIdx].name:null,currentActorIdx:G.actorIdx,handNumber:G.handNumber,knockouts:G.knockouts,currentBet:G.currentBet,boardCount:G.board.length,playersAlive:G.players.filter(function(p){return !p.eliminated}).length,dealerIdx:G.dealerIdx,paused:G.paused};},
+  getState:function(){return{phase:G.phase,score:G.phase==="gameover"?finalScore():(human().chips+G.knockouts*250),playerChips:human().chips,pot:potTotal(),street:G.street,currentActor:G.actorIdx>=0?G.players[G.actorIdx].name:null,currentActorIdx:G.actorIdx,handNumber:G.handNumber,knockouts:G.knockouts,currentBet:G.currentBet,boardCount:G.board.length,playersAlive:G.players.filter(function(p){return !p.eliminated}).length,dealerIdx:G.dealerIdx,paused:G.paused,intensity:intensity,hardness:hardness,intensityFull:INTENSITY_FULL,scoreMultiplier:scoreMultiplier,params:intensityParams()};},
   _evalBest:evalBest,_eval5:eval5,_cmp:cmpScore,_distribute:distributePots,_handName:handName,
-  _act:applyAction,_start:startTournament,_nextHand:startHand,_raw:function(){return G;}
+  _act:applyAction,_start:startTournament,_nextHand:startHand,_raw:function(){return G;},_setIntensity:setIntensity,_setHardness:setHardness,_blindFor:blindFor
 };
 </script>
 </body>

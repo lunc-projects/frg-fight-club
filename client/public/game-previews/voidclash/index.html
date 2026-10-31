@@ -22,6 +22,15 @@ input{font-family:inherit}
 label{font-size:11px;letter-spacing:.18em;color:#c9a7ff;font-weight:800}
 #nameInput{width:100%;padding:12px;border-radius:10px;border:1.5px solid #6d3bbd;background:#120722;color:#fff;font-size:17px;font-weight:700;text-transform:uppercase}
 #bestLine{text-align:center;color:var(--gold);font-weight:800;font-size:13.5px;min-height:18px}
+#ownerBtn{align-self:center;padding:7px 18px;border-radius:8px;background:#1d0b38;border:1.5px solid #5b2ea6;font-weight:900;font-size:12px;letter-spacing:.18em;color:#c9a7ff}
+#ownerPanel{display:none;flex-direction:column;gap:10px;background:var(--panel);border:1px solid #4b2585;border-radius:12px;padding:12px}
+#ownerPanel.show{display:flex}
+#ownerPanel .ownerRow{display:flex;flex-direction:column;gap:5px}
+#ownerPanel .ownerRow label{display:flex;justify-content:space-between}
+#ownerPanel input[type=range]{width:100%;accent-color:var(--vi)}
+#ownerSettingsLine{font-size:12px;color:#c9a7ff;font-weight:800;text-align:center}
+#intensitySummary{font-size:12px;color:var(--gold);font-weight:800;margin-top:5px;text-align:center}
+#hudIntensity{font-size:11px;font-weight:900;color:var(--cy);border:1.5px solid #5b2ea6;border-radius:7px;padding:4px 6px;background:#1d0b38;white-space:nowrap}
 #startBtn{background:linear-gradient(90deg,#7b1fff,#ff3fd4 55%,#00cfff);font-size:21px;font-weight:1000;letter-spacing:.08em;padding:16px;border-radius:12px;box-shadow:0 0 22px #b14bff88,0 5px 0 #3d0a66}
 #startBtn:active{transform:translateY(3px);box-shadow:0 0 12px #b14bff88,0 2px 0 #3d0a66}
 .ladderBox{background:var(--panel);border:1px solid #4b2585;border-radius:12px;padding:10px 12px}
@@ -83,6 +92,14 @@ canvas{width:100%;aspect-ratio:390/330;display:block;background:#0a0418;border:2
       <div><label for="nameInput">FIGHTER NAME</label>
       <input id="nameInput" maxlength="14" placeholder="CHALLENGER" autocomplete="off"></div>
       <div id="bestLine"></div>
+      <button id="ownerBtn" type="button">OWNER</button>
+      <div id="ownerPanel">
+        <div class="ownerRow"><label for="intensityRange">INTENSITY <span id="intensityRangeVal">5</span></label>
+        <input type="range" id="intensityRange" min="1" step="1" max="10"></div>
+        <div class="ownerRow"><label for="hardnessRange">HARDNESS <span id="hardnessRangeVal">5</span></label>
+        <input type="range" id="hardnessRange" min="1" step="1" max="10"></div>
+      </div>
+      <div><div id="ownerSettingsLine">Owner settings: Intensity 5 · Hardness 5</div><div id="intensitySummary">Score multiplier: ×1.44</div></div>
       <button id="startBtn">▶ &nbsp;ENTER THE CAGE</button>
       <div class="ladderBox"><h3>⚡ THE LADDER — BEAT ALL 5</h3>
         <div class="rung"><span>1 · RUST VIPER</span><span>street brawler · learning</span></div>
@@ -97,7 +114,7 @@ canvas{width:100%;aspect-ratio:390/330;display:block;background:#0a0418;border:2
   <!-- GAME -->
   <div id="gameScreen">
     <div class="topbar"><div class="logo">VOIDCLASH<small>LUNA CLASSIC</small></div>
-      <div id="scoreLine">SCORE 0</div>
+      <div id="scoreLine">SCORE 0</div><div id="hudIntensity">INT 5 · HARD 5</div>
       <div><button class="iconBtn" id="soundBtn" aria-label="Sound">🔊</button>
       <button class="iconBtn" id="pauseBtn">⏸</button></div></div>
     <div class="hud">
@@ -144,10 +161,19 @@ canvas{width:100%;aspect-ratio:390/330;display:block;background:#0a0418;border:2
 
 <script>
 "use strict";
+const INTENSITY_FULL = true;
 const $=id=>document.getElementById(id);
 const cv=$('cv'),ctx=cv.getContext('2d'),W=780,H=660,GROUND=560;
 const LS_BEST='voidclash_best_v1',LS_NAME='voidclash_name_v1',LS_LAD='voidclash_bestladder_v1';
 let best=+(localStorage.getItem(LS_BEST)||0),bestLad=+(localStorage.getItem(LS_LAD)||0);
+const LS_OWNER='voidclash-owner-settings-v1';
+const OWNER_MAX=INTENSITY_FULL?10:3;
+function clampOwnerAxis(v){const n=parseInt(v,10);if(!Number.isFinite(n))return Math.min(5,OWNER_MAX);return Math.max(1,Math.min(OWNER_MAX,n));}
+let intensity=clampOwnerAxis(5),hardness=clampOwnerAxis(5);
+try{const saved=JSON.parse(localStorage.getItem(LS_OWNER)||'null');if(saved&&typeof saved==='object'){intensity=clampOwnerAxis(saved.i);hardness=clampOwnerAxis(saved.h);}}catch(e){}
+let scoreMultiplier=1+(((intensity+hardness)/2)-1)/9;
+function updateIntensityDerived(){scoreMultiplier=1+(((intensity+hardness)/2)-1)/9;}
+function saveOwnerSettings(){try{localStorage.setItem(LS_OWNER,JSON.stringify({i:intensity,h:hardness}));}catch(e){}}
 $('nameInput').value=localStorage.getItem(LS_NAME)||'';
 function bestLine(){$('bestLine').textContent=best>0?('🏆 Local best: '+best+' pts'+(bestLad>0?' · ladder best: fight '+(bestLad+1>5?'CHAMPION':'#'+ (bestLad+1)) :'')):'No local best yet — set one tonight.';}
 bestLine();
@@ -167,6 +193,12 @@ const LADDER=[
  {name:'GLITCH WRAITH',main:'#2bffb0',glow:'#b14bff',hair:'#e8fff6',speed:3.4,aggr:.62,dmg:1.1,blockP:.38,specDelay:1.2,think:.24,hp:105},
  {name:'VOID SOVEREIGN',main:'#c86bff',glow:'#ffd84d',hair:'#f5e9ff',speed:3.9,aggr:.74,dmg:1.25,blockP:.32,specDelay:1.4,think:.2,hp:120},
 ];
+function intensityParams(){const L=LADDER[Math.min(Math.max(ladder||0,0),LADDER.length-1)];const dI=intensity-5,dH=hardness-5;
+ const speed=L.speed*(1+dH*0.07),think=L.think*(1-dI*0.07),blockP=Math.max(0.02,Math.min(0.75,L.blockP+dH*0.03)),
+ aggr=Math.max(0.05,Math.min(0.95,L.aggr+dH*0.04)),dmg=L.dmg*(1+dH*0.06),hp=Math.round(L.hp*(1+dH*0.05)),
+ specDelay=Math.max(0.5,L.specDelay*(1-dI*0.06));
+ return{speed,think,blockP,aggr,dmg,hp,specDelay,
+  aiSpeed:speed,aiThink:think,aiReaction:think,aiBlockP:blockP,aiBlockProbability:blockP,aiAggr:aggr,aiAggression:aggr,aiDmg:dmg,aiDamage:dmg,aiHp:hp,aiSpecDelay:specDelay};}
 const PLAYER_COL={main:'#19c8e8',glow:'#22e6ff',hair:'#20242c'};
 
 /* ---------- STATE ---------- */
@@ -175,17 +207,33 @@ let playerName='CHALLENGER',combo=0,comboT=0,comboBest=0,announce='',projectiles
 const keys={left:false,right:false,block:false};
 function mkFighter(x,isPlayer,col,maxHp){return{x,y:GROUND,vx:0,vy:0,face:isPlayer?1:-1,hp:maxHp,maxHp,meter:0,
  state:'idle',stateT:0,atk:null,atkHitDone:false,cool:0,hitT:0,onGround:true,isPlayer,col,aiT:0,aiMove:0,aiBlockT:0,specWait:0,flash:0};}
-let P=mkFighter(170,true,PLAYER_COL,100),E=mkFighter(610,false,LADDER[0],LADDER[0].hp);
+let P=mkFighter(170,true,PLAYER_COL,100),E=mkFighter(610,false,LADDER[0],intensityParams().hp);
 
-function getState(){return{phase,score,playerHealth:Math.max(0,Math.round(P.hp)),enemyHealth:Math.max(0,Math.round(E.hp)),
+function getState(){const params=intensityParams();return{phase,score,playerHealth:Math.max(0,Math.round(P.hp)),enemyHealth:Math.max(0,Math.round(E.hp)),
  round,ladder,ladderName:E?LADDER[Math.min(ladder,4)].name:'',playerRounds:pRounds,enemyRounds:eRounds,combo,meter:Math.round(P.meter),
- timer:Math.ceil(timer),playerName,best};}
+ timer:Math.ceil(timer),playerName,best,intensity,hardness,intensityFull:INTENSITY_FULL,scoreMultiplier,params};}
 window.__previewGame={getState};
+window.__intensityTest={getState:()=>({intensity,hardness,intensityFull:INTENSITY_FULL,scoreMultiplier,params:intensityParams()})};
 
+/* ---------- OWNER CONTROLS ---------- */
+// Production builds place these two bars under the game's wallet-signed owner admin login; this preview uses a local demo gate (OWNER button, settings in localStorage).
+function renderIntensity(){updateIntensityDerived();
+ const ir=$('intensityRange'),hr=$('hardnessRange');
+ if(ir){ir.max=String(OWNER_MAX);ir.value=String(intensity);}
+ if(hr){hr.max=String(OWNER_MAX);hr.value=String(hardness);}
+ const iv=$('intensityRangeVal');if(iv)iv.textContent=String(intensity);
+ const hv=$('hardnessRangeVal');if(hv)hv.textContent=String(hardness);
+ const line=$('ownerSettingsLine');if(line)line.textContent='Owner settings: Intensity '+intensity+' \u00b7 Hardness '+hardness;
+ const sm=$('intensitySummary');if(sm)sm.textContent='Score multiplier: \u00d7'+scoreMultiplier.toFixed(2);
+ const hud=$('hudIntensity');if(hud)hud.textContent='INT '+intensity+' \u00b7 HARD '+hardness;}
+(function initOwnerPanel(){const btn=$('ownerBtn'),panel=$('ownerPanel'),ir=$('intensityRange'),hr=$('hardnessRange');
+ if(ir){ir.max=String(OWNER_MAX);ir.value=String(intensity);ir.addEventListener('input',()=>{intensity=clampOwnerAxis(ir.value);updateIntensityDerived();saveOwnerSettings();renderIntensity();updateHUD();});}
+ if(hr){hr.max=String(OWNER_MAX);hr.value=String(hardness);hr.addEventListener('input',()=>{hardness=clampOwnerAxis(hr.value);updateIntensityDerived();saveOwnerSettings();renderIntensity();updateHUD();});}
+ if(btn&&panel)btn.addEventListener('click',()=>{panel.classList.toggle('show');});})();
 /* ---------- FLOW ---------- */
 function setBanner(t){$('banner').textContent=t;}
 function resetPositions(){const L=LADDER[ladder];
- P=mkFighter(170,true,PLAYER_COL,100);E=mkFighter(610,false,L,L.hp);projectiles=[];sparks=[];combo=0;comboT=0;}
+ P=mkFighter(170,true,PLAYER_COL,100);E=mkFighter(610,false,L,intensityParams().hp);projectiles=[];sparks=[];combo=0;comboT=0;}
 function startMatch(){resetPositions();round=1;pRounds=0;eRounds=0;startRound();}
 function startRound(){const L=LADDER[ladder];
  P.hp=P.maxHp;E.hp=E.maxHp;P.x=170;E.x=610;P.y=E.y=GROUND;P.vy=E.vy=0;P.meter=Math.min(P.meter,40);E.meter=0;
@@ -196,11 +244,11 @@ function startRun(){playerName=($('nameInput').value.trim()||'CHALLENGER').toUpp
  $('titleScreen').style.display='none';$('gameScreen').style.display='flex';$('endOverlay').classList.remove('show');
  $('pName').textContent=playerName;startMatch();}
 function endRound(playerWon,reason){phase='roundEnd';phaseT=0;
- if(playerWon){pRounds++;score+=250+Math.round(P.hp)*3;setBanner('🏆 '+reason+' — YOU TAKE ROUND '+round);} 
+ if(playerWon){pRounds++;score+=Math.round((250+Math.round(P.hp)*3)*scoreMultiplier);setBanner('🏆 '+reason+' — YOU TAKE ROUND '+round);} 
  else{eRounds++;setBanner('💀 '+reason+' — '+LADDER[ladder].name+' TAKES ROUND '+round);}
  if(playerWon&&P.hp<=0){} sKO();shake=14;updateHUD();}
 function finishMatch(){phase='matchEnd';phaseT=0;
- if(pRounds>=2){score+=500+ladder*250;setBanner('⚡ MATCH WON — '+(ladder>=4?'CHAMPION DOWN!':'CLIMBING THE LADDER'));}
+ if(pRounds>=2){score+=Math.round((500+ladder*250)*scoreMultiplier);setBanner('⚡ MATCH WON — '+(ladder>=4?'CHAMPION DOWN!':'CLIMBING THE LADDER'));}
  else setBanner('MATCH LOST');updateHUD();}
 function saveBest(){if(score>best){best=score;localStorage.setItem(LS_BEST,String(best));}
  bestLad=Math.max(bestLad,ladder);localStorage.setItem(LS_LAD,String(bestLad));}
@@ -240,7 +288,7 @@ function resolveHit(att,def,kind,dmg,range,knock){
  const dx=(def.x-att.x)*att.face, dy=Math.abs(def.y-att.y);
  if(dx<-14||dx>range||dy>95)return false;
  const blocking=def.blocking&&def.onGround&&def.state!=='attack';
- const dScale=att.isPlayer?1:(LADDER[ladder].dmg);
+ const dScale=att.isPlayer?1:(intensityParams().dmg);
  let d=Math.round(dmg*dScale);
  if(blocking){d=Math.max(1,Math.round(d*.12));def.hp-=d;def.vx=att.face*knock*.35;spawnSparks(def.x-att.face*30,def.y-115,'#9be9ff',7);sBlock();
    att.meter=Math.min(100,att.meter+4);def.meter=Math.min(100,def.meter+6);}
@@ -248,8 +296,8 @@ function resolveHit(att,def,kind,dmg,range,knock){
   spawnSparks(def.x-att.face*28,def.y-120,att.col.glow,kind==='heavy'?16:10);shake=Math.max(shake,kind==='heavy'?9:5);
   if(kind==='heavy')sHeavy();else sHit();
   att.meter=Math.min(100,att.meter+(kind==='heavy'?13:9));def.meter=Math.min(100,def.meter+7);
-  if(att.isPlayer){score+=d*10;combo++;comboT=1.25;comboBest=Math.max(comboBest,combo);
-    if(combo>0&&combo%5===0){score+=100;}}
+  if(att.isPlayer){score+=Math.round(d*10*scoreMultiplier);combo++;comboT=1.25;comboBest=Math.max(comboBest,combo);
+    if(combo>0&&combo%5===0){score+=Math.round(100*scoreMultiplier);}}
   else{combo=0;comboT=0;}}
  if(def.hp<=0){def.hp=0;def.state='ko';def.vx=att.face*380;def.vy=-260;}
  return true;}
@@ -257,7 +305,7 @@ function fireSpecial(att,def){const dir=att.face;
  projectiles.push({x:att.x+dir*46,y:att.y-118,vx:dir*620,owner:att,dmg:20,t:2});spawnSparks(att.x+dir*40,att.y-118,att.col.glow,12);}
 
 /* ---------- AI ---------- */
-function aiUpdate(dt){const L=LADDER[ladder],f=E,foe=P;
+function aiUpdate(dt){const L=intensityParams(),f=E,foe=P;
  f.specWait=Math.max(0,f.specWait-dt);
  if(f.meter<100)f.specWait=L.specDelay; // countdown only runs while meter is full, so the special fires after its readable delay
  f.aiT-=dt;f.aiBlockT=Math.max(0,f.aiBlockT-dt);
@@ -346,7 +394,7 @@ function updateHUD(){$('pBar').style.width=Math.max(0,P.hp/P.maxHp*100)+'%';$('e
  $('specialBtn').classList.toggle('ready',P.meter>=100);
  $('timerNum').textContent=Math.max(0,Math.ceil(timer));$('timerNum').style.color=timer<=10?'#ff5f7a':'#fff';
  $('roundLabel').textContent='ROUND '+round+' · FIGHT '+(ladder+1)+'/5';
- $('scoreLine').textContent='SCORE '+score;pips($('pPips'),pRounds);pips($('ePips'),eRounds);
+ $('scoreLine').textContent='SCORE '+score;const _hi=$('hudIntensity');if(_hi)_hi.textContent='INT '+intensity+' \u00b7 HARD '+hardness;pips($('pPips'),pRounds);pips($('ePips'),eRounds);
  $('comboLine').textContent=combo>=2?('🔥 '+combo+'-HIT COMBO'+(comboT>0?'':'')):(P.meter>=100?'⚡ SPECIAL READY — VOID BLAST!':'');}
 
 /* ---------- DRAW ---------- */
@@ -458,5 +506,5 @@ window.addEventListener('keydown',e=>{if(e.repeat)return;
  else if(e.code==='KeyP'||e.code==='Escape'){phase==='paused'?resumeGame():pauseGame();}});
 window.addEventListener('keyup',e=>{if(KEYMAP[e.code]!==undefined)keys[KEYMAP[e.code]]=false;});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)pauseGame();});
-updateHUD();
+renderIntensity();updateHUD();
 </script></body></html>

@@ -41,10 +41,19 @@ details{width:100%;text-align:left;background:#0a183caa;border:1px solid #2c5f9a
 .panel{background:#0a183cee;border:1px solid #45e8ff;border-radius:16px;padding:18px;width:100%;margin-top:12vh}
 .panel h2{color:#ffe94a;margin:4px 0}
 .kbd{color:#8ff7ff}
+#ownerSettingsLine{font-size:13px;color:#aee9ff;font-weight:700;margin:6px 0 0}
+#intensitySummary{font-size:13px;color:#ffe94a;font-weight:800;margin:2px 0}
+#ownerBtn{background:#12265c;color:#eaffff;border:1px solid #45e8ff;border-radius:999px;padding:6px 14px;font-weight:800;font-size:12px;letter-spacing:.14em;cursor:pointer;margin-top:6px}
+#ownerPanel{display:none;width:100%;background:#0a183caa;border:1px solid #2c5f9a;border-radius:12px;padding:10px 12px;margin-top:8px;text-align:left}
+#ownerPanel.visible{display:block}
+#ownerPanel label{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#aee9ff;font-weight:700;margin:4px 0}
+#ownerPanel input[type=range]{flex:1;margin:0 10px;padding:0;width:auto}
+#ownerPanel .val{color:#ffe94a;font-weight:900;min-width:22px;text-align:right}
+#hudIntensity{color:#ffe94a}
 </style></head>
 <body><div id="wrap">
 <header><b>⚽ NEON STRIKERS</b><span>LUNA CLASSIC</span></header>
-<div id="hud"><div id="youScore">YOU 0</div><div class="mid"><span id="roundLab">QUARTER-FINAL</span> · <span id="clock">00:00</span></div><div id="oppScore">0 CPU</div></div>
+<div id="hud"><div id="youScore">YOU 0</div><div class="mid"><span id="roundLab">QUARTER-FINAL</span> · <span id="clock">00:00</span> · <span id="hudIntensity">INT 5 · HARD 5</span></div><div id="oppScore">0 CPU</div></div>
 <div class="small" id="statusLine">Neon World Dome • You attack the TOP goal • First half</div>
 <div id="stage"><canvas id="cv" width="380" height="540"></canvas><div id="banner"></div>
 
@@ -55,6 +64,12 @@ details{width:100%;text-align:left;background:#0a183caa;border:1px solid #2c5f9a
 <label for="nameInput">Player name</label><input id="nameInput" maxlength="16" value="Tom" autocomplete="off">
 <label for="teamInput">Team name</label><input id="teamInput" maxlength="18" value="Neon Strikers" autocomplete="off">
 <div id="bestLine" style="font-size:13px;color:#ffe94a;font-weight:700"></div>
+<div id="ownerSettingsLine">Owner settings: Intensity 5 · Hardness 5</div><div id="intensitySummary">Score multiplier: ×1.44</div>
+<button id="ownerBtn" type="button">OWNER</button>
+<div id="ownerPanel">
+<label for="intensityRange">Intensity <span class="val" id="intensityVal">5</span></label><input type="range" id="intensityRange" min="1" step="1" max="10" value="5">
+<label for="hardnessRange">Hardness <span class="val" id="hardnessVal">5</span></label><input type="range" id="hardnessRange" min="1" step="1" max="10" value="5">
+</div>
 <button class="bigbtn" id="startBtn">▶ &nbsp;KICK OFF — QUARTER-FINAL</button>
 <details open><summary><b>How to Play — Arena Rules</b></summary>
 <p>🕹️ <b>Move:</b> left joystick / drag, or <span class="kbd">WASD / arrows</span>. The glowing ring is your active player — it switches to whoever has the ball or is closest on defence.</p>
@@ -91,6 +106,55 @@ let best={score:0,goals:0,result:'—'}; try{const b=JSON.parse(localStorage.get
 function showBest(){$('bestLine').textContent=best.score?('🏅 Local best: '+best.result+' • '+best.goals+' goals • '+best.score+' pts'): '🏅 No tournament finished yet — set the first record!';}
 showBest();
 
+// Owner settings (showcase build: full 1-10 unlocked when INTENSITY_FULL is true)
+const INTENSITY_FULL=true;
+const OWNER_LS='neon-strikers-owner-settings-v1';
+const OWNER_MAX=INTENSITY_FULL?10:3;
+const INTENSITY_MAX=OWNER_MAX;
+let intensity=5;
+let hardness=5;
+try{const o=JSON.parse(localStorage.getItem(OWNER_LS));if(o){const i=parseInt(o.i,10),h=parseInt(o.h,10);if(!isNaN(i))intensity=i;if(!isNaN(h))hardness=h;}}catch(e){}
+intensity=Math.max(1,Math.min(OWNER_MAX,intensity));
+hardness=Math.max(1,Math.min(OWNER_MAX,hardness));
+function computeScoreMultiplier(){return 1+(((intensity+hardness)/2)-1)/9;}
+let scoreMultiplier=computeScoreMultiplier();
+function clampN(v,a,b){return Math.max(a,Math.min(b,v));}
+function getIntensityParams(){
+ const r=(typeof ROUNDS!=='undefined'&&typeof round!=='undefined')?ROUNDS[round]:{ai:0.82,keeper:0.55};
+ const rnd=(typeof round!=='undefined')?round:0;
+ const dI=intensity-5;
+ const dH=hardness-5;
+ return{cpuSpeed:(150*r.ai+30)*(1+dH*0.07),cpuSpeedFactor:1+dH*0.07,cpuBaseSpeed:150*r.ai+30,cpuThinkScale:1-dI*0.09,cpuTackleRadius:26+dH*2,cpuTackleProb:clampN(0.38+rnd*0.07+dH*0.04,0.05,0.9),cpuTackleCooldown:0.9-dI*0.05,keeperDiveProb:clampN(r.keeper+0.25+dH*0.04,0.05,1),keeperBaseDiveProb:r.keeper+0.25,keeperReactionDist:120+dH*7,keeperDiveSpeed:340+dH*20,keeperSaveRadius:24+dH*1,cpuShotSpread:50-dH*3,cpuShotSpeed:300+r.ai*70,roundAi:r.ai,roundKeeper:r.keeper};
+}
+function saveOwnerSettings(){try{localStorage.setItem(OWNER_LS,JSON.stringify({i:intensity,h:hardness}));}catch(e){}}
+function updateIntensityUI(){
+ scoreMultiplier=computeScoreMultiplier();
+ const s=$('intensitySummary'); if(s)s.textContent='Score multiplier: ×'+scoreMultiplier.toFixed(2);
+ const o=$('ownerSettingsLine'); if(o)o.textContent='Owner settings: Intensity '+intensity+' · Hardness '+hardness;
+ const h=$('hudIntensity'); if(h)h.textContent='INT '+intensity+' · HARD '+hardness;
+ const ir=$('intensityRange'); if(ir)ir.value=String(intensity);
+ const hr=$('hardnessRange'); if(hr)hr.value=String(hardness);
+ const iv=$('intensityVal'); if(iv)iv.textContent=String(intensity);
+ const hv=$('hardnessVal'); if(hv)hv.textContent=String(hardness);
+}
+function setOwnerSettings(i,h,save){
+ if(i!=null)intensity=Math.max(1,Math.min(OWNER_MAX,parseInt(i,10)||intensity));
+ if(h!=null)hardness=Math.max(1,Math.min(OWNER_MAX,parseInt(h,10)||hardness));
+ if(save!==false)saveOwnerSettings();
+ updateIntensityUI();
+}
+// Production builds place these two bars under the game's wallet-signed owner admin login; this preview uses a local demo gate (OWNER button, settings in localStorage).
+(function initOwnerPanel(){
+ const btn=$('ownerBtn'),panel=$('ownerPanel'); if(!btn||!panel)return;
+ const ir=$('intensityRange'),hr=$('hardnessRange');
+ if(ir)ir.max=String(OWNER_MAX);
+ if(hr)hr.max=String(OWNER_MAX);
+ btn.addEventListener('click',()=>{panel.classList.toggle('visible');});
+ if(ir)ir.addEventListener('input',()=>setOwnerSettings(ir.value,null,true));
+ if(hr)hr.addEventListener('input',()=>setOwnerSettings(null,hr.value,true));
+ updateIntensityUI();
+})();
+
 // Audio
 let AC=null,muted=false;
 function beep(f,d=0.07,type='square',v=0.05){if(muted)return;try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();const o=AC.createOscillator(),g=AC.createGain();o.type=type;o.frequency.value=f;g.gain.value=v;o.connect(g);g.connect(AC.destination);o.start();g.gain.exponentialRampToValueAtTime(0.0001,AC.currentTime+d);o.stop(AC.currentTime+d);}catch(e){}}
@@ -124,7 +188,7 @@ let you=0,cpu=0,totalGoals=0,roundsWon=0,half=1,clockSec=0; const HALF_LEN=40;
 let matchClock=0; // display minutes 0..90
 let bannerT=0,tackleCD=0,cpuTackleCD=0,passCD=0;
 let score=0;
-function calcScore(){score=roundsWon*150+totalGoals*50; return score;}
+function calcScore(){score=Math.round((roundsWon*150+totalGoals*50)*scoreMultiplier); return score;}
 
 function mk(x,y,kit,role){return{x,y,vx:0,vy:0,homeX:x,homeY:y,kit,role,face:1,anim:Math.random()*6,active:false,dive:0,diveDir:0};}
 let P=[],C=[],YK,CK,ball,activeIdx=1;
@@ -217,7 +281,8 @@ function doShoot(){
  // keeper reaction handled in update via proximity
 }
 function cpuShoot(shooter){
- const gx=190+(Math.random()*50-25),dx=gx-shooter.x,dy=H-18-shooter.y,d=Math.hypot(dx,dy)||1,sp=300+ROUNDS[round].ai*70;
+ const _ip=getIntensityParams();
+ const gx=190+(Math.random()*_ip.cpuShotSpread-_ip.cpuShotSpread/2),dx=gx-shooter.x,dy=H-18-shooter.y,d=Math.hypot(dx,dy)||1,sp=_ip.cpuShotSpeed;
  ball.owner=null;ball.looseT=0.35;ball.vx=dx/d*sp;ball.vy=dy/d*sp;ball.shotBy='cpu';beep(140,0.09,'sawtooth',0.05);
 }
 function cpuPass(shooter){
@@ -244,7 +309,7 @@ function step(dt){
  else{let bd=1e9;P.forEach((p,i)=>{const d=Math.hypot(p.x-ball.x,p.y-ball.y);if(d<bd){bd=d;activeIdx=i;}});}
  P.forEach((p,i)=>p.active=(i===activeIdx));
 
- const aiSp=ROUNDS[round].ai;
+ const aiSp=ROUNDS[round].ai; const IP=getIntensityParams();
  // Player team
  P.forEach((p,i)=>{
    let tx=0,ty=0,sp=215;
@@ -263,19 +328,19 @@ function step(dt){
  });
  // CPU team
  C.forEach((p,i)=>{
-   let tx=0,ty=0;const sp=150*aiSp+30;
+   let tx=0,ty=0;const sp=IP.cpuSpeed;
    if(ball.owner===p){
      // dribble toward bottom goal, evade
      tx=(190-p.x)*0.8; ty=sp; if(activePlayer()&&Math.hypot(activePlayer().x-p.x,activePlayer().y-p.y)<55)tx+=(p.x<190?70:-70);
      const dd=Math.hypot(tx,ty)||1;tx=tx/dd*sp;ty=ty/dd*sp;
      p.think=(p.think||0)-dt;
      if(p.y>H-150&&Math.random()<0.02)cpuShoot(p);
-     else if(p.think<=0){p.think=1+Math.random()*1.4; if(Math.random()<0.35)cpuPass(p);}
+     else if(p.think<=0){p.think=(1+Math.random()*1.4)*IP.cpuThinkScale; if(Math.random()<0.35)cpuPass(p);}
    } else if(ball.owner&&C.includes(ball.owner)){tx=p.homeX-p.x+ (i-1)*20; ty=(Math.max(p.homeY,ball.y+70))-p.y; const dd=Math.hypot(tx,ty); if(dd>5){tx=tx/dd*sp*0.6;ty=ty/dd*sp*0.6;}else{tx=ty=0;}}
    else if(ball.owner&&P.includes(ball.owner)){
      if(i===1||Math.hypot(p.x-ball.x,p.y-ball.y)<170){tx=ball.x-p.x;ty=ball.y-p.y;const dd=Math.hypot(tx,ty)||1;tx=tx/dd*sp;ty=ty/dd*sp;
        // tackle
-       if(dd<26&&cpuTackleCD<=0){cpuTackleCD=0.9; if(Math.random()<0.38+round*0.07){ball.owner=p;beep(240,0.06);} }
+       if(dd<IP.cpuTackleRadius&&cpuTackleCD<=0){cpuTackleCD=IP.cpuTackleCooldown; if(Math.random()<IP.cpuTackleProb){ball.owner=p;beep(240,0.06);} }
      } else {tx=p.homeX-p.x;ty=p.homeY-p.y;const dd=Math.hypot(tx,ty);if(dd>5){tx=tx/dd*sp*0.5;ty=ty/dd*sp*0.5;}else tx=ty=0;}
    } else {tx=ball.x-p.x;ty=ball.y-p.y;const dd=Math.hypot(tx,ty);if(dd>30){tx=tx/dd*sp*0.7;ty=ty/dd*sp*0.7;}else tx=ty=0;}
    p.vx=tx;p.vy=ty;p.x+=tx*dt;p.y+=ty*dt;p.x=Math.max(16,Math.min(W-16,p.x));p.y=Math.max(34,Math.min(H-34,p.y));
@@ -287,14 +352,14 @@ function step(dt){
    let target=190+(ball.x-190)*0.55;
    if(ball.shotBy&&((side==='cpu'&&ball.vy<0)||(side==='you'&&ball.vy>0))){
      const dist=Math.abs(ball.y-gy);
-     if(dist<120&&k.dive===0){const reach=ROUNDS[round].keeper; if(side==='you'||Math.random()<reach+0.25){k.dive=0.55;k.diveDir=ball.x<k.x?-1:1; target=ball.x;}}
+     if(dist<(side==='cpu'?IP.keeperReactionDist:120)&&k.dive===0){ if(side==='you'||Math.random()<IP.keeperDiveProb){k.dive=0.55;k.diveDir=ball.x<k.x?-1:1; target=ball.x;}}
    }
    const ksp=side==='cpu'?260*aiSp:250;
-   if(k.dive>0){k.dive-=dt;k.x+=k.diveDir*340*dt;}
+   if(k.dive>0){k.dive-=dt;k.x+=k.diveDir*(side==='cpu'?IP.keeperDiveSpeed:340)*dt;}
    else{k.x+=(Math.max(GOAL_X0+12,Math.min(GOAL_X1-12,target))-k.x)*Math.min(1,dt*6);}
    k.x=Math.max(GOAL_X0-8,Math.min(GOAL_X1+8,k.x));k.anim+=dt*3;
    // save check
-   if(Math.hypot(ball.x-k.x,ball.y-k.y)<24&&ball.looseT<=0.1&&!ball.owner){
+   if(Math.hypot(ball.x-k.x,ball.y-k.y)<(side==='cpu'?IP.keeperSaveRadius:24)&&ball.looseT<=0.1&&!ball.owner){
      ball.vx=(ball.x<190?-1:1)*(120+Math.random()*120);ball.vy=(side==='cpu'?1:-1)*(160+Math.random()*100);ball.shotBy=null;ball.looseT=0.4;beep(420,0.06);showBanner(side==='cpu'?'SAVED BY KEEPER! 🧤':'YOUR KEEPER SAVES! 🧤','',0.7);setTimeout(hideBanner,700);
    }
  });
@@ -328,6 +393,7 @@ function step(dt){
    }
  }
  // HUD
+ const _hi=$('hudIntensity'); if(_hi)_hi.textContent='INT '+intensity+' · HARD '+hardness;
  $('youScore').textContent=($('teamInput').value||'YOU').toUpperCase().slice(0,10)+' '+you;
  $('oppScore').textContent=cpu+' '+ROUNDS[round].opp.toUpperCase().slice(0,10);
  const mm=String(Math.floor(matchClock)).padStart(2,'0');$('clock').textContent=mm+"' "+(half===1?'1st':'2nd');
@@ -399,6 +465,7 @@ $('quitBtn').addEventListener('click',()=>{phase='title';$('pauseScreen').classL
 $('muteBtn').addEventListener('click',()=>{muted=!muted;$('muteBtn').textContent=muted?'🔇 Muted':'🔊 Sound';});
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&phase==='playing')togglePause();});
 
-window.__previewGame={getState:()=>({phase,score:calcScore(),goals:totalGoals,matchGoals:you,cpuGoals:cpu,matchClock,clockSec,half,round:round+1,roundName:ROUNDS[round].name,ballOwner:ball.owner?(P.includes(ball.owner)?'you':'cpu'):'loose',activeIdx})};
+window.__previewGame={getState:()=>({phase,score:calcScore(),goals:totalGoals,matchGoals:you,cpuGoals:cpu,matchClock,clockSec,half,round:round+1,roundName:ROUNDS[round].name,ballOwner:ball.owner?(P.includes(ball.owner)?'you':'cpu'):'loose',activeIdx,intensity,hardness,intensityFull:INTENSITY_FULL,scoreMultiplier,params:getIntensityParams()})};
+window.__intensityTest={getState:()=>({intensity,hardness,intensityFull:INTENSITY_FULL,scoreMultiplier,params:getIntensityParams()})};
 draw();
 </script></body></html>

@@ -53,6 +53,14 @@
   .statgrid div{background:rgba(124,58,237,.16);border:1px solid rgba(45,212,238,.3);border-radius:9px;padding:7px;text-align:center;font-size:13px;color:#ddd6fe}
   .statgrid b{display:block;font-size:18px;color:#fff}
   .foot{margin-top:auto;padding-top:10px;font-size:11px;color:#a78bfa;text-align:center;line-height:1.5}
+  #ownerSettingsLine{font-size:13.5px;color:#e9d5ff;text-align:center;font-weight:700}
+  #intensitySummary{margin-top:6px;font-size:13px;color:#5eead4;text-align:center;font-weight:700}
+  #ownerBtn{display:block;margin:10px auto 0;padding:6px 16px;font-size:11px;font-weight:900;letter-spacing:.22em;color:#c4b5fd;border:1.5px solid rgba(168,85,247,.6);border-radius:8px;background:rgba(21,8,56,.8);cursor:pointer}
+  #ownerPanel{margin-top:10px;border-top:1px solid rgba(168,85,247,.35);padding-top:10px}
+  #ownerPanel label{display:flex;justify-content:space-between;align-items:center;margin-top:8px}
+  #ownerPanel label span{font-size:15px;color:#5eead4;font-weight:900;letter-spacing:0;text-transform:none}
+  #ownerPanel input[type=range]{width:100%;margin-top:5px;accent-color:#a855f7;cursor:pointer}
+  #hudIntensity{font-size:11.5px;letter-spacing:.02em}
 </style>
 </head>
 <body>
@@ -64,6 +72,7 @@
       <div class="stat"><b id="hDist">0m</b><span>Distance</span></div>
       <div class="stat mult"><b id="hMult">×1</b><span>Gate Mult</span></div>
       <div class="stat sh"><b id="hShields">🛡🛡🛡</b><span>Shields</span></div>
+      <div class="stat"><b id="hudIntensity">INT 5 · HARD 5</b><span>Intensity</span></div>
       <button id="muteBtn" aria-label="Sound on or off">🔊</button>
       <button id="pauseBtn" aria-label="Pause">⏸</button>
     </div>
@@ -86,6 +95,17 @@
         <label for="nameInput">Runner name</label>
         <input id="nameInput" maxlength="14" placeholder="e.g. Nova" autocomplete="off">
         <div class="bestline" id="bestLine">🏆 Local best: <b>—</b></div>
+      </div>
+      <div class="card">
+        <div id="ownerSettingsLine">Owner settings: Intensity 5 · Hardness 5</div>
+        <div id="intensitySummary">Score multiplier: ×1.44</div>
+        <button id="ownerBtn" type="button">OWNER</button>
+        <div id="ownerPanel" class="hidden">
+          <label for="intensityRange">Intensity <span id="intensityValue">5</span></label>
+          <input type="range" id="intensityRange" min="1" step="1" max="10">
+          <label for="hardnessRange">Hardness <span id="hardnessValue">5</span></label>
+          <input type="range" id="hardnessRange" min="1" step="1" max="10">
+        </div>
       </div>
       <div class="card howto">
         👆 <b>Tap / click / Space</b> — flip gravity (floor ⇄ ceiling)<br>
@@ -136,6 +156,36 @@ const $ = id => document.getElementById(id);
 const canvas = $("game"), ctx = canvas.getContext("2d");
 const stage = $("stage");
 const BEST_KEY = "flipfall_best_v1", NAME_KEY = "flipfall_player_v1";
+const INTENSITY_FULL = true;
+const OWNER_SETTINGS_KEY = "flipfall-owner-settings-v1";
+const OWNER_MAX = INTENSITY_FULL ? 10 : 3;
+let intensity = 5, hardness = 5;
+try{
+  const savedOwner = JSON.parse(localStorage.getItem(OWNER_SETTINGS_KEY)||"null");
+  if(savedOwner){ intensity = +savedOwner.i; hardness = +savedOwner.h; }
+}catch(e){}
+function clampOwnerValue(v){ v = Math.round(+v); if(!isFinite(v)) v = 5; return Math.max(1, Math.min(OWNER_MAX, v)); }
+intensity = clampOwnerValue(intensity); hardness = clampOwnerValue(hardness);
+let scoreMultiplier = 1 + (((intensity+hardness)/2)-1)/9;
+function computeIntensityParams(){
+  const io = intensity-5;   // INTENSITY axis: volume / pressure
+  const ho = hardness-5;    // HARDNESS axis: toughness
+  return {
+    speedFactor: 1 + ho*0.07,
+    baseSpeed: 265 * (1 + ho*0.07),
+    speedCap: 535 * (1 + ho*0.07),
+    spacingFactor: 1 - io*0.06,
+    spawnMin: 215 * (1 - io*0.06),
+    gateProb: 0.34 - io*0.025,
+    spikeProb: 0.26 + io*0.01,
+    gapProb: 0.20 + io*0.007,
+    comboProb: 0.20 + io*0.008,
+    gatePairProbBase: 0.30 + ho*0.02,
+    doubleSpikeProbBase: 0.25 + ho*0.025,
+    gapWidthFactor: 1 + ho*0.04
+  };
+}
+let curParams = computeIntensityParams();
 
 let W = 390, H = 560, DPR = 1;
 function resize(){
@@ -150,7 +200,7 @@ window.addEventListener("resize", resize);
 /* ---------------- State ---------------- */
 let phase = "title";            // title | playing | paused | over
 let score=0, distPx=0, shields=3, streak=0, multiplier=1, bestMult=1, cleanGates=0;
-let speed=265, timeMs=0, shake=0, flashA=0, flashColor="168,85,247";
+let speed=curParams.baseSpeed, timeMs=0, shake=0, flashA=0, flashColor="168,85,247";
 let best = 0; try{ best = +localStorage.getItem(BEST_KEY)||0; }catch(e){}
 let playerName = ""; try{ playerName = localStorage.getItem(NAME_KEY)||""; }catch(e){}
 
@@ -192,6 +242,44 @@ function updateBestLine(){ $("bestLine").innerHTML = best>0
   ? "🏆 Local best: <b>"+best.toLocaleString()+"</b>"+(playerName?" · "+escapeHtml(playerName):"")
   : "🏆 Local best: <b>— no run yet</b>"; }
 function escapeHtml(s){ return s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function refreshIntensity(){
+  scoreMultiplier = 1 + (((intensity+hardness)/2)-1)/9;
+  curParams = computeIntensityParams();
+  const summary = $("intensitySummary");
+  if(summary) summary.textContent = "Score multiplier: ×"+scoreMultiplier.toFixed(2);
+  const line = $("ownerSettingsLine");
+  if(line) line.textContent = "Owner settings: Intensity "+intensity+" · Hardness "+hardness;
+  const hud = $("hudIntensity");
+  if(hud) hud.textContent = "INT "+intensity+" · HARD "+hardness;
+  const iR = $("intensityRange"), hR = $("hardnessRange");
+  if(iR && +iR.value !== intensity) iR.value = String(intensity);
+  if(hR && +hR.value !== hardness) hR.value = String(hardness);
+  const iV = $("intensityValue"), hV = $("hardnessValue");
+  if(iV) iV.textContent = String(intensity);
+  if(hV) hV.textContent = String(hardness);
+  if(phase==="title") speed = curParams.baseSpeed;
+}
+function saveOwnerSettings(){
+  try{ localStorage.setItem(OWNER_SETTINGS_KEY, JSON.stringify({i:intensity, h:hardness})); }catch(e){}
+}
+// Production builds place these two bars under the game's wallet-signed owner admin login; this preview uses a local demo gate (OWNER button, settings in localStorage).
+function initOwnerPanel(){
+  const panel = $("ownerPanel"), btn = $("ownerBtn");
+  const iR = $("intensityRange"), hR = $("hardnessRange");
+  if(!panel || !btn || !iR || !hR) return;
+  iR.max = String(OWNER_MAX); hR.max = String(OWNER_MAX);
+  iR.value = String(intensity); hR.value = String(hardness);
+  btn.addEventListener("click", ()=>{ panel.classList.toggle("hidden"); });
+  iR.addEventListener("input", ()=>{
+    intensity = clampOwnerValue(iR.value);
+    saveOwnerSettings(); refreshIntensity();
+  });
+  hR.addEventListener("input", ()=>{
+    hardness = clampOwnerValue(hR.value);
+    saveOwnerSettings(); refreshIntensity();
+  });
+  refreshIntensity();
+}
 
 /* ---------------- Spawning ----------------
    side: 'floor' | 'ceil'. Objects scroll left with the world.
@@ -202,22 +290,25 @@ function spawnNext(){
   const diff = clamp(distPx/9000, 0, 1);             // 0 → 1 over ~180m
   const roll = Math.random();
   const baseX = W + 60;
-  if(roll < 0.34){                                     // ---- flip gate (sometimes a pair) ----
+  const gateEnd = curParams.gateProb;
+  const spikeEnd = gateEnd + curParams.spikeProb;
+  const gapEnd = spikeEnd + curParams.gapProb;
+  if(roll < gateEnd){                                  // ---- flip gate (sometimes a pair) ----
     const side = Math.random()<0.5 ? "floor":"ceil";
     objects.push({kind:"gate", x:baseX, w:16, side, resolved:false});
-    if(Math.random() < 0.30 + diff*0.25){              // double-flip pair: opposite side next
+    if(Math.random() < curParams.gatePairProbBase + diff*0.25){              // double-flip pair: opposite side next
       const gap = 258 + Math.random()*44;
       objects.push({kind:"gate", x:baseX+gap, w:16, side:(side==="floor"?"ceil":"floor"), resolved:false});
       spawnIn = gap + 300 + Math.random()*160 - diff*70;
     } else spawnIn = 330 + Math.random()*220 - diff*90;
-  } else if(roll < 0.60){                              // ---- spikes ----
+  } else if(roll < spikeEnd){                          // ---- spikes ----
     const side = Math.random()<0.5 ? "floor":"ceil";
-    const n = (Math.random() < 0.25+diff*0.3) ? 2 : 1;
+    const n = (Math.random() < curParams.doubleSpikeProbBase+diff*0.3) ? 2 : 1;
     objects.push({kind:"spike", x:baseX, w:26*n+8*(n-1), side, n, hitDone:false});
     spawnIn = 300 + Math.random()*200 - diff*70;
-  } else if(roll < 0.80){                              // ---- gap in one surface ----
+  } else if(roll < gapEnd){                            // ---- gap in one surface ----
     const side = Math.random()<0.5 ? "floor":"ceil";
-    const w = 92 + Math.random()*46;
+    const w = (92 + Math.random()*46) * curParams.gapWidthFactor;
     objects.push({kind:"gap", x:baseX, w, side});
     spawnIn = w + 300 + Math.random()*160 - diff*60;
   } else {                                             // ---- spike + far gate combo ----
@@ -226,7 +317,8 @@ function spawnNext(){
     objects.push({kind:"gate", x:baseX+330, w:16, side:(side==="floor"?"ceil":"floor"), resolved:false});
     spawnIn = 330 + 300 + Math.random()*160 - diff*70;
   }
-  spawnIn = Math.max(215, spawnIn);
+  spawnIn = spawnIn * curParams.spacingFactor;
+  spawnIn = Math.max(curParams.spawnMin, spawnIn);
 }
 function surfacePresentAt(side, px){
   for(const o of objects) if(o.kind==="gap" && o.side===side && px>o.x && px<o.x+o.w) return false;
@@ -236,7 +328,7 @@ function surfacePresentAt(side, px){
 /* ---------------- Game flow ---------------- */
 function reset(){
   score=0; distPx=0; shields=3; streak=0; multiplier=1; bestMult=1; cleanGates=0;
-  speed=265; objects=[]; particles=[]; rings=[]; spawnIn=520; shake=0; flashA=0;
+  speed=curParams.baseSpeed; objects=[]; particles=[]; rings=[]; spawnIn=520; shake=0; flashA=0;
   P.y=floorY()-P.r; P.vy=0; P.grav=1; P.grounded=true; P.angle=0; P.invuln=0; P.dead=false; P.fallSpin=0;
   updateHUD();
 }
@@ -304,7 +396,7 @@ function takeHit(why){
 function cleanGate(g){
   cleanGates++; streak++;
   multiplier = Math.min(8, 1 + Math.floor(streak/2)); bestMult=Math.max(bestMult,multiplier);
-  const pts = 50*multiplier; score += pts;
+  const pts = Math.round(50*multiplier*scoreMultiplier); score += pts;
   sGate(); rings.push({x:g.x+8,y:midY(),r:14,t:0,color:"#2dd4ee"});
   burst(g.x+8, P.y, "#5eead4", 12, 150);
   toast("🌀 CLEAN GATE +"+pts+(multiplier>1?"  ×"+multiplier:""), "#5eead4");
@@ -331,8 +423,8 @@ function update(dt){
 
   // difficulty: +speed & distance scoring
   distPx += speed*dt;
-  speed = Math.min(535, 265 + distPx/50 * 1.15);
-  score += speed*dt*0.055*multiplier;
+  speed = Math.min(curParams.speedCap, curParams.baseSpeed + distPx/50 * 1.15);
+  score += speed*dt*0.055*multiplier*scoreMultiplier;
 
   // spawn
   spawnIn -= speed*dt;
@@ -384,6 +476,7 @@ function update(dt){
   updateHUD();
 }
 function updateHUD(){
+  const hudI = $("hudIntensity"); if(hudI) hudI.textContent = "INT "+intensity+" · HARD "+hardness;
   $("hScore").textContent = Math.floor(score).toLocaleString();
   $("hDist").textContent = Math.floor(distPx/50)+"m";
   $("hMult").textContent = "×"+multiplier;
@@ -597,10 +690,14 @@ ni.addEventListener("input", ()=>{ playerName=ni.value.trim().slice(0,14); try{ 
 ni.addEventListener("keydown", e=>{ e.stopPropagation(); if(e.code==="Enter"){ e.preventDefault(); startGame(); } });
 
 /* ---------------- Boot / test hook ---------------- */
-resize(); reset(); updateBestLine();
+resize(); initOwnerPanel(); reset(); updateBestLine(); refreshIntensity();
+window.__intensityTest = {
+  getState(){ return { intensity, hardness, intensityFull: INTENSITY_FULL, scoreMultiplier, params: Object.assign({}, curParams) }; }
+};
 window.__previewGame = {
   getState(){ return { game:"flipfall", phase, score:Math.floor(score), distance:Math.floor(distPx/50),
     multiplier, shields, streak, cleanGates, speed:Math.round(speed),
+    intensity, hardness, intensityFull: INTENSITY_FULL, scoreMultiplier, params: Object.assign({}, curParams),
     player:{ y:Math.round(P.y), gravity:P.grav, grounded:P.grounded },
     objects: objects.map(o=>o.kind), best, playerName }; },
   start: startGame, flip, pause: pauseGame, resume: resumeGame

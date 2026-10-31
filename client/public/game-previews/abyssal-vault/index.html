@@ -35,6 +35,15 @@ input{width:100%;padding:13px;border-radius:12px;border:1px solid #7df9ff88;back
 .big{width:100%;font-size:19px;padding:16px;margin-top:8px}
 .how{font-size:12.5px;line-height:1.45;color:#d9fff7;background:#00161a99;border:1px solid #ffffff26;border-radius:12px;padding:9px 10px;margin-top:10px;text-align:left}
 .best{margin-top:8px;color:#ffe97a;font-weight:800;font-size:13px}
+#ownerBtn{padding:7px 14px;font-size:11px;letter-spacing:.12em;border-radius:999px;background:#ffffff22;color:#fff;border:1px solid #fff5;box-shadow:none;margin:8px 0 4px}
+#ownerPanel{background:#00161acc;border:1px solid #ffd94d66;border-radius:12px;padding:10px 12px;margin:4px 0;text-align:left}
+#ownerPanel[hidden]{display:none!important}
+#ownerPanel label{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;color:#d9fff7;margin:6px 0}
+#ownerPanel input[type=range]{flex:1;width:auto;padding:0;margin:0;accent-color:#ffd94d}
+#ownerPanel .ownerVal{min-width:22px;text-align:center;color:#ffe97a;font-size:14px}
+#ownerSettingsLine{font-size:12px;font-weight:800;color:#ffe97a;margin:2px 0 2px}
+#intensitySummary{font-size:12px;font-weight:800;color:#aef7e8;margin:2px 0 4px}
+#hudIntensity{text-align:center;font-size:10px;font-weight:900;letter-spacing:.1em;color:#ffe97a;margin-top:4px}
 .panel{background:#032b35f2;border:1px solid #ffd94d66;border-radius:20px;padding:20px;width:100%}
 .panel h2{margin:4px 0 8px;font-size:32px}
 .stats{font-size:15px;line-height:1.6;color:#d9fff7}
@@ -52,6 +61,7 @@ input{width:100%;padding:13px;border-radius:12px;border:1px solid #7df9ff88;back
     <div class="cell"><b id="diveEl">1</b><span>Dive</span></div>
   </div>
   <div id="oxyWrap"><div id="oxyBar"></div><div id="oxyTxt">OXYGEN 100</div></div>
+  <div id="hudIntensity">INT 5 · HARD 5</div>
 </div>
 
 <div id="modeBanner"></div>
@@ -71,6 +81,13 @@ input{width:100%;padding:13px;border-radius:12px;border:1px solid #7df9ff88;back
     <h1>ABYSSAL<br>VAULT</h1>
     <p class="sub">Dive the sunken temple trench. Grab gold relics, dodge guardian eels — then get back to the surface before your oxygen runs out.</p>
     <input id="playerName" maxlength="16" placeholder="Diver name" autocomplete="off">
+    <button id="ownerBtn" type="button">OWNER</button>
+    <div id="ownerPanel" hidden>
+      <label>Intensity <input type="range" id="intensityRange" min="1" max="10" step="1" value="5"> <span class="ownerVal" id="intensityValue">5</span></label>
+      <label>Hardness <input type="range" id="hardnessRange" min="1" max="10" step="1" value="5"> <span class="ownerVal" id="hardnessValue">5</span></label>
+    </div>
+    <div id="ownerSettingsLine">Owner settings: Intensity 5 · Hardness 5</div>
+    <div id="intensitySummary">Score multiplier: ×1.44</div>
     <button id="startBtn" class="big">🤿 START DIVE</button>
     <div class="best" id="bestEl">Best: 0</div>
     <div class="how"><b>How to play:</b> Drag (or use arrow / WASD keys) to swim. Deeper water drains oxygen faster. Gold relics build your haul — press <b>RETURN / SURFACE</b> and reach the top to bank it × your depth multiplier. If oxygen hits zero, unbanked haul is lost. 💡 Lamp Burst scares eels away. Bubbles &amp; tanks restore oxygen. Every surfacing starts a harder dive.</div>
@@ -95,9 +112,10 @@ input{width:100%;padding:13px;border-radius:12px;border:1px solid #7df9ff88;back
 </div>
 <script>
 "use strict";
+const INTENSITY_FULL=true;
 const $=id=>document.getElementById(id);
 const canvas=$('game'),ctx=canvas.getContext('2d');
-const BEST_KEY='abyssal-vault-best-v1',NAME_KEY='abyssal-vault-name-v1';
+const BEST_KEY='abyssal-vault-best-v1',NAME_KEY='abyssal-vault-name-v1',OWNER_SETTINGS_KEY='abyssal-vault-owner-settings-v1';
 let W=390,H=844,DPR=1;
 function resize(){DPR=Math.min(2,window.devicePixelRatio||1);const r=canvas.parentElement.getBoundingClientRect();W=r.width;H=r.height;canvas.width=W*DPR;canvas.height=H*DPR;ctx.setTransform(DPR,0,0,DPR,0,0);}
 window.addEventListener('resize',resize);resize();
@@ -116,6 +134,58 @@ let keys={};
 let best=parseInt(localStorage.getItem(BEST_KEY)||'0',10)||0;
 $('bestEl').textContent='Best: '+best.toLocaleString();
 $('playerName').value=localStorage.getItem(NAME_KEY)||'';
+
+// Owner settings (5/5 = original balance). Intensity = volume/pressure, Hardness = toughness.
+const OWNER_MAX=INTENSITY_FULL?10:3;
+function clampOwnerValue(v){v=parseInt(v,10);if(isNaN(v))v=INTENSITY_FULL?5:3;return Math.max(1,Math.min(OWNER_MAX,v));}
+function loadOwnerSettings(){
+  let saved={i:INTENSITY_FULL?5:3,h:INTENSITY_FULL?5:3};
+  try{const raw=localStorage.getItem(OWNER_SETTINGS_KEY);if(raw){const parsed=JSON.parse(raw);if(parsed&&typeof parsed==='object')saved=parsed;}}catch(e){}
+  return {intensity:clampOwnerValue(saved.i),hardness:clampOwnerValue(saved.h)};
+}
+const _ownerLoaded=loadOwnerSettings();
+let intensity=_ownerLoaded.intensity,hardness=_ownerLoaded.hardness;
+function computeScoreMultiplier(){return 1+(((intensity+hardness)/2)-1)/9;}
+let scoreMultiplier=computeScoreMultiplier();
+function saveOwnerSettings(){try{localStorage.setItem(OWNER_SETTINGS_KEY,JSON.stringify({i:intensity,h:hardness}));}catch(e){}}
+function difficultyParams(){
+  const dI=intensity-5,dH=hardness-5;
+  const oxygenDrainFactor=1+dI*0.08;
+  const spawnIntervalFactor=1-dI*0.07;
+  const eelChanceFactor=1+dI*0.11;
+  const eelSpeedFactor=1+dH*0.09;
+  return {
+    oxygenDrainFactor:+oxygenDrainFactor.toFixed(4),
+    oxygenDrainBase:+(1.35*oxygenDrainFactor).toFixed(4),
+    spawnIntervalFactor:+spawnIntervalFactor.toFixed(4),
+    spawnInterval:+Math.max(.32,(.62-(dive-1)*.05)*spawnIntervalFactor).toFixed(4),
+    eelChanceFactor:+eelChanceFactor.toFixed(4),
+    eelChance:+Math.min(.42,(.24+(dive-1)*.04)*eelChanceFactor).toFixed(4),
+    eelSpeedFactor:+eelSpeedFactor.toFixed(4),
+    eelSpeedMin:+(.10*eelSpeedFactor).toFixed(4),
+    eelSpeedMax:+((.18+dive*.015)*eelSpeedFactor).toFixed(4)
+  };
+}
+// Production builds place these two bars under the game's wallet-signed owner admin login; this preview uses a local demo gate (OWNER button, settings in localStorage).
+function renderOwnerSettings(){
+  scoreMultiplier=computeScoreMultiplier();
+  const ir=$('intensityRange'),hr=$('hardnessRange');
+  if(ir){ir.max=String(OWNER_MAX);ir.value=String(intensity);}
+  if(hr){hr.max=String(OWNER_MAX);hr.value=String(hardness);}
+  const iv=$('intensityValue');if(iv)iv.textContent=String(intensity);
+  const hv=$('hardnessValue');if(hv)hv.textContent=String(hardness);
+  const line=$('ownerSettingsLine');if(line)line.textContent='Owner settings: Intensity '+intensity+' · Hardness '+hardness;
+  $('intensitySummary').textContent='Score multiplier: ×'+scoreMultiplier.toFixed(2);
+  const hud=$('hudIntensity');if(hud)hud.textContent='INT '+intensity+' · HARD '+hardness;
+}
+(function initOwnerPanel(){
+  const btn=$('ownerBtn'),panel=$('ownerPanel');
+  if(btn&&panel)btn.addEventListener('click',()=>{panel.hidden=!panel.hidden;});
+  const ir=$('intensityRange'),hr=$('hardnessRange');
+  if(ir)ir.addEventListener('input',()=>{intensity=clampOwnerValue(ir.value);saveOwnerSettings();renderOwnerSettings();if(typeof updateHUD==='function')updateHUD();});
+  if(hr)hr.addEventListener('input',()=>{hardness=clampOwnerValue(hr.value);saveOwnerSettings();renderOwnerSettings();if(typeof updateHUD==='function')updateHUD();});
+})();
+renderOwnerSettings();
 
 function mult(){return 1+Math.floor(maxDepth/50)*0.5;}
 function showBanner(txt,secs=2){const b=$('modeBanner');b.textContent=txt;b.style.display='block';bannerT=secs;}
@@ -142,11 +212,11 @@ function gameOver(reason){
 }
 function escapeHtml(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function surfaceSuccess(){
-  const m=mult(),gained=Math.floor(haul*m);
+  const m=mult(),gained=Math.floor(haul*m*scoreMultiplier);
   score+=gained;banked+=haul;
   const wasHaul=haul,wasMax=Math.round(maxDepth);
   haul=0;dive++;depth=0;maxDepth=0;oxygen=100;mode='down';entities=[];invuln=2;player.ty=.42;
-  showBanner('✅ SURFACED! Banked '+wasHaul+' × '+m.toFixed(1)+' = +'+gained+' pts  •  DIVE '+dive+' — deeper, faster, more eels!',3);
+  showBanner('✅ SURFACED! Banked '+wasHaul+' × '+m.toFixed(1)+' × '+scoreMultiplier.toFixed(2)+' = +'+gained+' pts  •  DIVE '+dive+' — deeper, faster, more eels!',3);
   beep(660,.1,'sine',.06);setTimeout(()=>beep(880,.14,'sine',.06),110);
   burst(player.x*W,player.y*H,18,'#7df9ff');
   updateHUD();
@@ -165,8 +235,9 @@ function spawn(){
   const ahead = mode==='down' ? depth+rand(35,95) : depth-rand(30,80);
   if(mode==='up'&&ahead<4)return;
   const roll=Math.random();
-  const eelChance=Math.min(.42,.24+(dive-1)*.04);
-  if(roll<eelChance) entities.push({type:'eel',x:Math.random()<.5?-.08:1.08,depth:ahead,vx:(Math.random()<.5?1:-1)*rand(.10,.18+dive*.015),flee:0,ph:Math.random()*6.28,len:rand(46,70)});
+  const dp=difficultyParams();
+  const eelChance=dp.eelChance;
+  if(roll<eelChance) entities.push({type:'eel',x:Math.random()<.5?-.08:1.08,depth:ahead,vx:(Math.random()<.5?1:-1)*rand(dp.eelSpeedMin,dp.eelSpeedMax),flee:0,ph:Math.random()*6.28,len:rand(46,70)});
   else if(roll<.52) entities.push({type:'rock',x:rand(.06,.94),depth:ahead,r:rand(18,34),rot:Math.random()*6.28});
   else if(roll<.80){const kinds=['coin','chalice','gem','crown'];entities.push({type:'relic',kind:kinds[Math.floor(Math.random()*kinds.length)],x:rand(.1,.9),depth:ahead,val:[10,20,30,50][Math.floor(Math.random()*4)],ph:Math.random()*6.28});}
   else if(roll<.92) entities.push({type:'bubbles',x:rand(.1,.9),depth:ahead,amt:12,ph:Math.random()*6.28});
@@ -196,6 +267,7 @@ $('lampBtn').addEventListener('click',doLamp);
 function updateHUD(){
   $('scoreEl').textContent=score.toLocaleString();$('bankedEl').textContent=banked.toLocaleString();$('haulEl').textContent=haul.toLocaleString();
   $('depthEl').textContent=Math.max(0,Math.round(depth))+'m';$('multEl').textContent='×'+mult().toFixed(1);$('diveEl').textContent=dive;
+  const hi=$('hudIntensity');if(hi)hi.textContent='INT '+intensity+' · HARD '+hardness;
   const o=Math.max(0,Math.round(oxygen));$('oxyBar').style.width=o+'%';$('oxyTxt').textContent=(mode==='up'?'⬆ ASCENDING • ':'')+'OXYGEN '+o;
   $('oxyWrap').classList.toggle('low',oxygen<30);
   $('lampBtn').disabled=lampCD>0;$('lampBtn').textContent=lampCD>0?('💡 LAMP '+Math.ceil(lampCD)+'s'):'💡 LAMP BURST';
@@ -224,11 +296,11 @@ function update(dt){
     if(depth<=0){depth=0;surfaceSuccess();return;}
   }
   // oxygen
-  const drain=(1.35+Math.max(0,depth)/90)*(1+(dive-1)*.13)*(mode==='up'?0.85:1);
+  const drain=(1.35+Math.max(0,depth)/90)*(1+(dive-1)*.13)*(mode==='up'?0.85:1)*difficultyParams().oxygenDrainFactor;
   oxygen-=drain*dt;
   if(oxygen<=0){oxygen=0;updateHUD();gameOver('Out of Oxygen!');return;}
   // spawn
-  spawnT-=dt;const interval=Math.max(.32,.62-(dive-1)*.05);
+  spawnT-=dt;const interval=difficultyParams().spawnInterval;
   if(spawnT<=0){spawn();spawnT=interval;}
   // entities
   const px=player.x*W,py=player.y*H;
@@ -365,5 +437,6 @@ let last=performance.now();
 function loop(now){const dt=Math.min(.05,(now-last)/1000);last=now;update(dt);draw();requestAnimationFrame(loop);}
 updateHUD();requestAnimationFrame(loop);
 
-window.__previewGame={getState:()=>({phase,score,depth:Math.round(depth),oxygen:Math.round(oxygen),dive,haul,banked,mode,maxDepth:Math.round(maxDepth),multiplier:mult(),lampCooldown:+lampCD.toFixed(1),best,playerName:$('playerName').value})};
+window.__previewGame={getState:()=>({phase,score,depth:Math.round(depth),oxygen:Math.round(oxygen),dive,haul,banked,mode,maxDepth:Math.round(maxDepth),multiplier:mult(),lampCooldown:+lampCD.toFixed(1),best,playerName:$('playerName').value,intensity,hardness,intensityFull:INTENSITY_FULL,scoreMultiplier,params:difficultyParams()})};
+window.__intensityTest={getState:()=>({intensity,hardness,intensityFull:INTENSITY_FULL,scoreMultiplier,params:difficultyParams()})};
 </script></body></html>

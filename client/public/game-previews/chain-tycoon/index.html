@@ -28,6 +28,16 @@ label{font-size:12px;font-weight:800;letter-spacing:.08em;color:#bfefff}
 .bigBtn{width:100%;padding:15px;font-size:18px;background:linear-gradient(90deg,#0fd6bd,#ffd34d);color:#03202a;box-shadow:0 6px 20px rgba(25,240,216,.35);margin-top:10px}
 .ghostBtn{width:100%;padding:12px;background:#122a48;color:#dff8ff;border:1px solid #2a5d7a}
 .best{margin-top:8px;text-align:center;color:var(--gold);font-size:13px;font-weight:800;min-height:18px}
+#ownerBtn{margin-top:10px;padding:6px 14px;font-size:11px;letter-spacing:.14em;background:#122a48;color:#dff8ff;border:1px solid #2a5d7a;border-radius:999px}
+#ownerPanel{margin-top:8px;background:#061222;border:1px solid #2a6b7d;border-radius:12px;padding:10px}
+.ownerRow{margin-top:6px}.ownerRow:first-child{margin-top:0}
+.sliderRow{display:flex;align-items:center;gap:10px;margin-top:4px}
+.sliderRow input[type=range]{flex:1;accent-color:var(--teal)}
+.sliderRow b{font-size:15px;color:var(--gold);min-width:22px;text-align:center}
+#ownerSettingsLine{margin-top:9px;font-size:12.5px;font-weight:800;color:#bfefff}
+#intensitySummary{margin-top:4px;font-size:12.5px;font-weight:800;color:var(--gold)}
+#hudIntensity{font-size:11.5px;white-space:nowrap}
+#scoreLine{margin-top:8px;text-align:center;color:var(--teal);font-size:14px;font-weight:900;min-height:18px}
 .rules{font-size:11px;color:var(--mut);text-align:center;margin-top:8px;line-height:1.5}
 .topbar{display:flex;gap:6px;align-items:stretch}
 .pill{flex:1;background:#0c1d38;border:1px solid #214a6b;border-radius:12px;padding:7px 6px;text-align:center}
@@ -94,6 +104,13 @@ label{font-size:12px;font-weight:800;letter-spacing:.08em;color:#bfefff}
     <div class="card">
       <label for="nameInput">TYCOON NAME</label>
       <input id="nameInput" maxlength="14" placeholder="Your tycoon name" autocomplete="off">
+      <button id="ownerBtn" type="button" aria-expanded="false">OWNER</button>
+      <div id="ownerPanel" class="hidden">
+        <div class="ownerRow"><label for="intensityRange">INTENSITY — MARKET PRESSURE</label><div class="sliderRow"><input type="range" id="intensityRange" min="1" step="1" max="10" value="5"><b id="intensityRangeVal">5</b></div></div>
+        <div class="ownerRow"><label for="hardnessRange">HARDNESS — AI SKILL</label><div class="sliderRow"><input type="range" id="hardnessRange" min="1" step="1" max="10" value="5"><b id="hardnessRangeVal">5</b></div></div>
+      </div>
+      <div id="ownerSettingsLine">Owner settings: Intensity 5 · Hardness 5</div>
+      <div id="intensitySummary">Score multiplier: ×1.44</div>
       <button id="startBtn" class="bigBtn">▶ START — 10 ROUNDS</button>
       <div id="bestLine" class="best"></div>
       <p class="rules">Credits are <b>game points only</b> — no wallet, no real LUNC, no payments, no NFTs. Everyone starts with 1,500 credits. Passing Start Dock pays +200. One optional Bailout Loan per game: +500 now, 600 owed at the end.</p>
@@ -106,6 +123,7 @@ label{font-size:12px;font-weight:800;letter-spacing:.08em;color:#bfefff}
       <div class="pill"><small>ROUND</small><b id="roundOut">1 / 10</b></div>
       <div class="pill"><small>YOUR CASH</small><b id="cashOut">1,500</b></div>
       <div class="pill"><small>YOUR NET WORTH</small><b id="worthOut">1,500</b></div>
+      <div class="pill"><small>OWNER SETTINGS</small><b id="hudIntensity">INT 5 · HARD 5</b></div>
       <button id="speedBtn" title="Toggle game speed">⚡ Speed: Normal</button>
     </div>
 
@@ -146,6 +164,7 @@ label{font-size:12px;font-weight:800;letter-spacing:.08em;color:#bfefff}
     <p class="sub" style="text-align:center" id="overSub">Final standings after 10 rounds</p>
     <div class="card">
       <table class="stand"><thead><tr><th>#</th><th>Tycoon</th><th>Cash</th><th>Property</th><th>Debt</th><th>Net Worth</th></tr></thead><tbody id="standBody"></tbody></table>
+      <div id="scoreLine"></div>
       <div id="newBest" class="best"></div>
       <button id="restartBtn" class="bigBtn">↻ PLAY AGAIN</button>
     </div>
@@ -157,6 +176,34 @@ label{font-size:12px;font-weight:800;letter-spacing:.08em;color:#bfefff}
 (function(){
 "use strict";
 var $=function(id){return document.getElementById(id);};
+/* Intensity showcase build: full 1-10 range unlocked. */
+var INTENSITY_FULL=true;
+var intensity=5;
+var hardness=5;
+function clampAxis(v){var max=INTENSITY_FULL?10:3;v=parseInt(v,10);if(isNaN(v))v=5;if(v<1)v=1;if(v>max)v=max;return v;}
+function computeScoreMultiplier(i,h){return 1+(((i+h)/2)-1)/9;}
+var scoreMultiplier=computeScoreMultiplier(intensity,hardness);
+/* Difficulty knobs actually consulted by the AI / market code below, split by axis.
+   INTENSITY (market pressure): eventScale and its derived maintFee, bullSurgeAmount, marketCrashAmount.
+   HARDNESS (AI skill): aiBuyReserve, aiUpgradeReserve, aiMarketCashThreshold, aiOptimalChance.
+   Intensity 5 / Hardness 5 reproduces the original values exactly:
+   AI buy reserve 170, AI upgrade reserve 260, AI market cash threshold 450,
+   AI always follows its decision rule (chance 1.00), event scale 1.00 (pay 90 maintenance). */
+function computeParams(i,h){
+ var scale=Math.round((1+(i-5)*0.12)*100)/100;
+ return {
+  aiBuyReserve:Math.round(170+(5-h)*32),
+  aiUpgradeReserve:Math.round(260+(5-h)*44),
+  aiMarketCashThreshold:Math.round(450+(5-h)*30),
+  aiOptimalChance:h<=5?Math.round((0.40+0.15*(h-1))*100)/100:1,
+  eventScale:scale,
+  maintFee:Math.round(90*scale),
+  bullSurgeAmount:Math.round(180*scale),
+  marketCrashAmount:Math.round(-130*scale)
+ };
+}
+var params=computeParams(intensity,hardness);
+function aiFollowsRule(){return Math.random()<params.aiOptimalChance;}
 var ART_SPACES=[
  // idx: name, type, theme, price, fee, icon
  {n:"Start Dock",t:"start",icon:"🚀"},
@@ -183,17 +230,26 @@ var ART_SPACES=[
 // grid coords (row,col) clockwise from top-left
 var COORDS=[[1,1],[1,2],[1,3],[1,4],[1,5],[1,6],[2,6],[3,6],[4,6],[5,6],[6,6],[6,5],[6,4],[6,3],[6,2],[6,1],[5,1],[4,1],[3,1],[2,1]];
 var CARDS=[
- {t:"Bull Surge",d:"Momentum floods the metropolis. +180 credits.",fn:function(p){p.cash+=180;}},
- {t:"Innovation Grant",d:"A city grant funds your network. +150 credits.",fn:function(p){p.cash+=150;}},
- {t:"Chain Airdrop",d:"A surprise distribution lands. +120 credits.",fn:function(p){p.cash+=120;}},
- {t:"Fee Rebate",d:"Your nodes earn a rebate. +80 credits.",fn:function(p){p.cash+=80;}},
- {t:"Oracle Windfall",d:"A prediction payout hits. +140 credits.",fn:function(p){p.cash+=140;}},
- {t:"Market Crash",d:"Prices tumble across the city. −130 credits.",fn:function(p){p.cash-=130;}},
- {t:"Security Audit",d:"Auditors bill your operation. −90 credits.",fn:function(p){p.cash-=90;}},
- {t:"Repair Surge",d:"Emergency repairs on your rigs. −70 credits.",fn:function(p){p.cash-=70;}},
- {t:"Shield Protocol",d:"You gain a Fee Shield — the next fee you owe is blocked.",fn:function(p){p.shield=true;}},
- {t:"Vault Lockdown",d:"Sent to the Cooling Vault. You skip your next roll.",fn:function(p){p.pos=10;p.cooled=true;}}
+ {t:"Bull Surge",txt:"Momentum floods the metropolis.",amt:180},
+ {t:"Innovation Grant",txt:"A city grant funds your network.",amt:150},
+ {t:"Chain Airdrop",txt:"A surprise distribution lands.",amt:120},
+ {t:"Fee Rebate",txt:"Your nodes earn a rebate.",amt:80},
+ {t:"Oracle Windfall",txt:"A prediction payout hits.",amt:140},
+ {t:"Market Crash",txt:"Prices tumble across the city.",amt:-130},
+ {t:"Security Audit",txt:"Auditors bill your operation.",amt:-90},
+ {t:"Repair Surge",txt:"Emergency repairs on your rigs.",amt:-70},
+ {t:"Shield Protocol",txt:"You gain a Fee Shield — the next fee you owe is blocked.",fn:function(p){p.shield=true;}},
+ {t:"Vault Lockdown",txt:"Sent to the Cooling Vault. You skip your next roll.",fn:function(p){p.pos=10;p.cooled=true;}}
 ];
+function cardAmount(card){return Math.round(card.amt*params.eventScale);}
+function cardDesc(card){
+ if(typeof card.amt==="number"){var a=cardAmount(card);return card.txt+" "+(a>=0?"+":"−")+fmt(Math.abs(a))+" credits.";}
+ return card.txt;
+}
+function applyCard(card,p){
+ if(typeof card.amt==="number"){p.cash+=cardAmount(card);}
+ else if(card.fn){card.fn(p);}
+}
 var COLORS=["#ffd34d","#19f0d8","#ff8ac2","#9dff57"];
 var AI_NAMES=["Zara Volt","Milo Chain","Nova Reyes"];
 var S={phase:"title",round:1,current:0,speed:"normal",pending:null,loanUsed:false,moving:false,over:false};
@@ -228,7 +284,7 @@ function renderBoard(){
    var own=owners[i],lv=levels[i]||0;
    var ownHtml=own!==null&&own!==undefined?'<span class="own" style="color:'+COLORS[own]+'">●</span>':"";
    var lvHtml=s.t==="prop"&&own!==null&&own!==undefined&&lv>0?'<span class="lv">'+(lv===1?"▲ Node":"▲▲ DataCtr")+"</span>":"";
-   var priceHtml=s.t==="prop"?('<span class="pr">'+fmt(s.price)+' · fee '+feeOf(i)+'</span>'):(s.t==="maint"?'<span class="pr">pay 90</span>':(s.t==="start"?'<span class="pr">pass +200</span>':'<span class="pr">&nbsp;</span>'));
+   var priceHtml=s.t==="prop"?('<span class="pr">'+fmt(s.price)+' · fee '+feeOf(i)+'</span>'):(s.t==="maint"?'<span class="pr">pay '+params.maintFee+'</span>':(s.t==="start"?'<span class="pr">pass +200</span>':'<span class="pr">&nbsp;</span>'));
    var toks="";
    players.forEach(function(p){if(!p.out&&p.pos===i)toks+='<span class="tok" style="background:'+COLORS[p.id]+'">'+p.name.charAt(0)+'</span>';});
    c.innerHTML=ownHtml+'<span class="ic">'+s.icon+'</span><span class="nm">'+s.n+'</span>'+lvHtml+priceHtml+(toks?'<span class="tokens">'+toks+'</span>':"");
@@ -249,6 +305,7 @@ function renderPlayers(){
  });
  var h=players[0];
  if(h){$("cashOut").textContent=fmt(h.cash);$("worthOut").textContent=fmt(netWorth(h));}
+ var hud=$("hudIntensity");if(hud)hud.textContent="INT "+intensity+" · HARD "+hardness;
  $("roundOut").textContent=Math.min(S.round,10)+" / 10";
  $("turnBanner").textContent=S.over?"Game over":(players[S.current]?(players[S.current].ai?players[S.current].name+" is playing…":"Your move, "+players[0].name):"");
  $("rollBtn").disabled=!(S.phase==="playing"&&S.current===0&&!S.pending&&!S.moving&&!S.over);
@@ -327,19 +384,22 @@ function resolveLanding(p){
  log("<b>"+p.name+"</b> lands on <b>"+s.n+"</b>.");
  if(s.t==="start"){showEvent("🚀 <b>"+p.name+"</b> docked at Start Dock.");finishResolution(p);return;}
  if(s.t==="vault"){p.cooled=true;showEvent("❄️ <b>"+p.name+"</b> entered the <b>Cooling Vault</b> — they will skip their next roll.");log("❄️ <b>"+p.name+"</b> is cooled: next roll skipped.");finishResolution(p);return;}
- if(s.t==="maint"){payAmount(p,90,null,"Maintenance Bay");showEvent("🔧 Maintenance Bay: <b>"+p.name+"</b> pays <b>90</b>.");if(checkBankrupt(p))renderAll();finishResolution(p);return;}
+ if(s.t==="maint"){payAmount(p,params.maintFee,null,"Maintenance Bay");showEvent("🔧 Maintenance Bay: <b>"+p.name+"</b> pays <b>"+fmt(params.maintFee)+"</b>.");if(checkBankrupt(p))renderAll();finishResolution(p);return;}
  if(s.t==="signal"){
    var card=CARDS[Math.floor(Math.random()*CARDS.length)];
-   card.fn(p);
-   showEvent("📡 <b>SIGNAL — "+card.t+":</b> "+card.d+" <i>("+p.name+")</i>");
-   log("📡 Signal for <b>"+p.name+"</b>: <b>"+card.t+"</b> — "+card.d);
+   var cardText=cardDesc(card);
+   applyCard(card,p);
+   showEvent("📡 <b>SIGNAL — "+card.t+":</b> "+cardText+" <i>("+p.name+")</i>");
+   log("📡 Signal for <b>"+p.name+"</b>: <b>"+card.t+"</b> — "+cardText);
    beep(980,.07);
    if(checkBankrupt(p))renderAll();
    renderAll();finishResolution(p);return;
  }
  if(s.t==="market"){
    if(p.ai){
-     if(p.cash<450){p.cash+=160;log("🏪 <b>"+p.name+"</b> takes +160 credits at the Open Market.");showEvent("🏪 <b>"+p.name+"</b> took <b>+160 credits</b> at the Open Market.");}
+     var takeCash=p.cash<params.aiMarketCashThreshold;
+     if(!aiFollowsRule())takeCash=!takeCash;
+     if(takeCash){p.cash+=160;log("🏪 <b>"+p.name+"</b> takes +160 credits at the Open Market.");showEvent("🏪 <b>"+p.name+"</b> took <b>+160 credits</b> at the Open Market.");}
      else{p.shield=true;log("🏪 <b>"+p.name+"</b> takes a Fee Shield at the Open Market.");showEvent("🏪 <b>"+p.name+"</b> took a <b>Fee Shield</b> at the Open Market.");}
      finishResolution(p);return;
    }
@@ -352,7 +412,9 @@ function resolveLanding(p){
    if(own===null){
      if(p.cash>=s.price){
        if(p.ai){
-         if(p.cash-s.price>=170){buyProp(p);finishResolution(p);}
+         var shouldBuy=p.cash-s.price>=params.aiBuyReserve;
+         if(!aiFollowsRule())shouldBuy=!shouldBuy;
+         if(shouldBuy){buyProp(p);finishResolution(p);}
          else{log("<b>"+p.name+"</b> passes on "+s.n+" to keep a cash reserve.");finishResolution(p);}
          return;
        }
@@ -368,7 +430,9 @@ function resolveLanding(p){
      if(cost>0&&p.cash>=cost){
        var nextLv=(levels[p.pos]||0)+1;
        if(p.ai){
-         if(p.cash-cost>=260){doUpgrade(p);finishResolution(p);}
+         var shouldUpgrade=p.cash-cost>=params.aiUpgradeReserve;
+         if(!aiFollowsRule())shouldUpgrade=!shouldUpgrade;
+         if(shouldUpgrade){doUpgrade(p);finishResolution(p);}
          else{log("<b>"+p.name+"</b> holds off upgrading "+s.n+".");finishResolution(p);}
          return;
        }
@@ -440,6 +504,10 @@ function endGame(){
  var sorted=players.slice().sort(function(a,b){return netWorth(b)-netWorth(a);});
  var winner=sorted[0];
  var humanNW=netWorth(players[0]);
+ /* Score is a separate reported figure: raw final net worth x the combined
+    owner-settings (intensity + hardness) score multiplier.
+    Cash, fees, property values, standings and the net-worth best below stay raw. */
+ var finalScore=Math.round(humanNW*scoreMultiplier);
  var best=0;try{best=parseInt(localStorage.getItem("chain-tycoon-best")||"0",10)||0;}catch(e){}
  var isBest=humanNW>best;
  if(isBest){best=humanNW;try{localStorage.setItem("chain-tycoon-best",String(best));}catch(e){}}
@@ -452,6 +520,7 @@ function endGame(){
    tr.innerHTML="<td>"+(i+1)+"</td><td><b>"+p.name+"</b>"+(p.out?" 💀":"")+"</td><td>"+fmt(p.cash)+"</td><td>"+fmt(propValue(p))+"</td><td>"+fmt(p.debt||0)+"</td><td><b>"+fmt(netWorth(p))+"</b></td>";
    tb.appendChild(tr);
  });
+ $("scoreLine").textContent="Your Score: "+fmt(finalScore)+" · Net worth "+fmt(humanNW)+" × "+scoreMultiplier.toFixed(2)+" · Intensity "+intensity+" · Hardness "+hardness;
  $("newBest").textContent=isBest?"⭐ New personal best net worth: "+fmt(humanNW):"Your net worth: "+fmt(humanNW)+" · Best: "+fmt(best);
  beep(990,.15);
  renderPlayers();
@@ -479,9 +548,50 @@ function resolveDecision(action){
  S.pending=null;hideDecision();renderAll();finishResolution(p);
 }
 
+/* ---------- owner settings (title screen) ---------- */
+// Production builds place these two bars under the game's wallet-signed owner admin login; this preview uses a local demo gate (OWNER button, settings in localStorage).
+function updateIntensityUI(){
+ var line=$("ownerSettingsLine");if(line)line.textContent="Owner settings: Intensity "+intensity+" · Hardness "+hardness;
+ var sum=$("intensitySummary");if(sum)sum.textContent="Score multiplier: ×"+scoreMultiplier.toFixed(2);
+ var hud=$("hudIntensity");if(hud)hud.textContent="INT "+intensity+" · HARD "+hardness;
+ var ir=$("intensityRange");if(ir)ir.value=String(intensity);
+ var hr=$("hardnessRange");if(hr)hr.value=String(hardness);
+ var iv=$("intensityRangeVal");if(iv)iv.textContent=String(intensity);
+ var hv=$("hardnessRangeVal");if(hv)hv.textContent=String(hardness);
+}
+function saveOwnerSettings(){try{localStorage.setItem("chain-tycoon-owner-settings-v1",JSON.stringify({i:intensity,h:hardness}));}catch(e){}}
+function applyOwnerSettings(save){
+ intensity=clampAxis(intensity);
+ hardness=clampAxis(hardness);
+ scoreMultiplier=computeScoreMultiplier(intensity,hardness);
+ params=computeParams(intensity,hardness);
+ if(save)saveOwnerSettings();
+ updateIntensityUI();
+ if(cellEls.length)renderBoard();
+}
+function setIntensity(level,save){intensity=level;applyOwnerSettings(save);}
+function setHardness(level,save){hardness=level;applyOwnerSettings(save);}
+function loadOwnerSettings(){
+ var stored=null;try{stored=localStorage.getItem("chain-tycoon-owner-settings-v1");}catch(e){}
+ if(stored){try{var o=JSON.parse(stored);if(o){intensity=o.i;hardness=o.h;}}catch(e){}}
+ applyOwnerSettings(false);
+}
+function buildOwnerPanel(){
+ var max=INTENSITY_FULL?10:3;
+ var ir=$("intensityRange"),hr=$("hardnessRange");
+ if(ir){ir.max=String(max);ir.addEventListener("input",function(){setIntensity(parseInt(ir.value,10),true);});}
+ if(hr){hr.max=String(max);hr.addEventListener("input",function(){setHardness(parseInt(hr.value,10),true);});}
+ var btn=$("ownerBtn"),panel=$("ownerPanel");
+ if(btn&&panel){btn.addEventListener("click",function(){var nowHidden=panel.classList.toggle("hidden");btn.setAttribute("aria-expanded",nowHidden?"false":"true");});}
+ updateIntensityUI();
+}
+
 /* ---------- wiring ---------- */
 function init(){
+ loadOwnerSettings();
+ buildOwnerPanel();
  buildBoard();
+ updateIntensityUI();
  try{var saved=localStorage.getItem("chain-tycoon-name");if(saved)$("nameInput").value=saved;var b=localStorage.getItem("chain-tycoon-best");if(b)$("bestLine").textContent="⭐ Best net worth: "+fmt(parseInt(b,10)||0);}catch(e){}
  $("startBtn").addEventListener("click",startGame);
  $("restartBtn").addEventListener("click",function(){
@@ -508,7 +618,8 @@ function init(){
  $("marketShieldBtn").addEventListener("click",function(){resolveDecision("shield");});
  renderPlayers();
 }
-window.__previewGame={getState:function(){var h=players[0];return{phase:S.phase,score:h?netWorth(h):0,netWorth:h?netWorth(h):0,round:S.round,currentPlayer:S.current,pending:S.pending?S.pending.type:null,speed:S.speed,loanUsed:S.loanUsed,players:players.map(function(p){return{name:p.name,cash:p.cash,pos:p.pos,out:p.out,netWorth:netWorth(p)};})};}};
+window.__intensityTest={getState:function(){return{intensity:intensity,hardness:hardness,intensityFull:INTENSITY_FULL,scoreMultiplier:scoreMultiplier,params:Object.assign({},params)};}};
+window.__previewGame={getState:function(){var h=players[0];return{phase:S.phase,score:h?netWorth(h):0,netWorth:h?netWorth(h):0,round:S.round,currentPlayer:S.current,pending:S.pending?S.pending.type:null,speed:S.speed,loanUsed:S.loanUsed,intensity:intensity,hardness:hardness,intensityFull:INTENSITY_FULL,scoreMultiplier:scoreMultiplier,params:Object.assign({},params),players:players.map(function(p){return{name:p.name,cash:p.cash,pos:p.pos,out:p.out,netWorth:netWorth(p)};})};}};
 init();
 })();
 </script>

@@ -26,6 +26,16 @@
   .bigBtn{margin-top:14px;width:min(320px,88vw);min-height:56px;border:none;border-radius:14px;background:linear-gradient(90deg,#ff2bd6,#7a1cff 55%,#0fd6ff);color:#fff;font-size:21px;font-weight:1000;letter-spacing:.06em;cursor:pointer;box-shadow:0 6px 24px rgba(255,43,214,.45)}
   .bigBtn:active{transform:scale(.97)}
   .bestLine{margin-top:10px;font-size:14px;font-weight:800;color:#ffd94a}
+  #ownerSettingsLine{margin-top:12px;font-size:13px;font-weight:800;color:#8ff4ff;text-align:center}
+  #intensitySummary{margin-top:6px;font-size:13px;font-weight:800;color:#ffd94a;text-align:center}
+  #ownerBtn{margin-top:10px;padding:6px 14px;border-radius:999px;border:1.5px solid rgba(255,217,74,.7);background:rgba(4,12,26,.9);color:#ffd94a;font-size:11px;font-weight:900;letter-spacing:.18em;cursor:pointer}
+  #ownerBtn:active{transform:scale(.96)}
+  #ownerPanel{margin-top:8px;width:min(320px,88vw);background:rgba(5,14,30,.88);border:1px solid rgba(255,217,74,.55);border-radius:12px;padding:10px 13px}
+  .ownerRow{display:flex;align-items:center;gap:9px;margin-top:6px}
+  .ownerRow:first-child{margin-top:0}
+  .ownerRow label{flex:0 0 86px;font-size:11px;font-weight:800;letter-spacing:.12em;color:#8ff4ff;text-align:left}
+  .ownerRow input[type=range]{flex:1;min-width:0;accent-color:#ff2bd6}
+  .ownerVal{flex:0 0 22px;font-size:15px;font-weight:1000;color:#ffd94a;text-align:right}
   .how{margin-top:12px;background:rgba(5,14,30,.82);border:1px solid rgba(47,243,255,.45);border-radius:12px;padding:10px 13px;font-size:12.8px;line-height:1.55;color:#cfeeff;max-width:350px}
   .how b{color:#2ff3ff}.how .gold{color:#ffd94a}
   /* HUD */
@@ -59,6 +69,7 @@
       <div class="chip"><div class="k">SCORE</div><div class="v" id="hudScore">0</div></div>
       <div class="chip" id="comboChip"><div class="k">COMBO</div><div class="v" id="hudCombo">x1</div></div>
       <div class="chip"><div class="k">DIST</div><div class="v" id="hudDist">0m</div></div>
+      <div class="chip"><div class="k">LEVEL</div><div class="v" id="hudIntensity">INT 5</div></div>
       <div class="chip"><div class="k">RONIN</div><div class="v" id="hearts">❤️❤️❤️</div></div>
       <button id="pauseBtn" aria-label="Pause">⏸</button>
     </div>
@@ -74,6 +85,13 @@
     <p class="tag">Sprint the <b>neon-rain rooftops</b> of cyber-Tokyo. Read each enemy's arrow, then <b>swipe that exact way</b> as it crosses your blade line.</p>
     <label class="nameLab" for="playerName">RONIN NAME</label>
     <input id="playerName" maxlength="14" placeholder="Neon Ronin" autocomplete="off">
+    <div id="ownerSettingsLine">Owner settings: Intensity 5 · Hardness 5</div>
+    <div id="intensitySummary">Score multiplier: ×1.44</div>
+    <button id="ownerBtn" type="button">OWNER</button>
+    <div id="ownerPanel" class="hidden">
+      <div class="ownerRow"><label for="intensityRange">INTENSITY</label><input type="range" id="intensityRange" min="1" step="1" max="10" value="5"><span class="ownerVal" id="intensityRangeVal">5</span></div>
+      <div class="ownerRow"><label for="hardnessRange">HARDNESS</label><input type="range" id="hardnessRange" min="1" step="1" max="10" value="5"><span class="ownerVal" id="hardnessRangeVal">5</span></div>
+    </div>
     <button class="bigBtn" id="startBtn">▶ START THE RUN</button>
     <div class="bestLine" id="bestLine">🏆 Local Best: 0</div>
     <div class="how">
@@ -107,6 +125,50 @@
 const $=id=>document.getElementById(id);
 const canvas=$('game'), ctx=canvas.getContext('2d');
 const BEST_KEY='slashline-ronin-best', NAME_KEY='slashline-ronin-name';
+/* ---------- owner-set intensity / hardness ---------- */
+const INTENSITY_FULL=true;
+const OWNER_SETTINGS_KEY='slashline-ronin-owner-settings-v1';
+const MAX_INTENSITY=INTENSITY_FULL?10:3;
+function scoreMultFor(i,h){return 1+(((i+h)/2)-1)/9;}
+function clampLevel(v){v=parseInt(v,10);if(!isFinite(v))v=5;return Math.max(1,Math.min(MAX_INTENSITY,v));}
+let intensity=5,hardness=5;
+try{const saved=JSON.parse(localStorage.getItem(OWNER_SETTINGS_KEY)||'null');if(saved){intensity=clampLevel(saved.i);hardness=clampLevel(saved.h);}}catch(e){}
+let scoreMultiplier=scoreMultFor(intensity,hardness);
+function saveOwnerSettings(){try{localStorage.setItem(OWNER_SETTINGS_KEY,JSON.stringify({i:intensity,h:hardness}));}catch(e){}}
+/* Difficulty factors, split across two axes, each centred on 5 = original balance (factor 1).
+   INTENSITY (volume/pressure): spawn interval. HARDNESS (toughness): enemy speed + armored chance. */
+function spawnIntervalFactor(){return 1-(intensity-5)*0.07;}
+function enemySpeedFactor(){return 1+(hardness-5)*0.06;}
+function armoredFactor(){return 1+(hardness-5)*0.12;}
+/* Live runtime difficulty values actually used by gameplay (updated in reset/update/spawn). */
+let curSpawnInterval=1.45*spawnIntervalFactor();
+let curEnemySpeed=235*enemySpeedFactor();
+let curArmoredChance=0;
+function armoredChanceNow(){return runTime>14?Math.min(.5,Math.min(.32,.14+runTime/220)*armoredFactor()):0;}
+function difficultyParams(){return{spawnInterval:curSpawnInterval,enemySpeed:curEnemySpeed,armoredChance:curArmoredChance,spawnIntervalFactor:spawnIntervalFactor(),enemySpeedFactor:enemySpeedFactor(),armoredChanceFactor:armoredFactor()};}
+function renderOwnerSettings(){
+  const ir=$('intensityRange'),hr=$('hardnessRange');
+  if(ir){ir.max=String(MAX_INTENSITY);if(+ir.value!==intensity)ir.value=String(intensity);}
+  if(hr){hr.max=String(MAX_INTENSITY);if(+hr.value!==hardness)hr.value=String(hardness);}
+  const iv=$('intensityRangeVal');if(iv)iv.textContent=String(intensity);
+  const hv=$('hardnessRangeVal');if(hv)hv.textContent=String(hardness);
+  const line=$('ownerSettingsLine');if(line)line.textContent='Owner settings: Intensity '+intensity+' · Hardness '+hardness;
+  const sum=$('intensitySummary');if(sum)sum.textContent='Score multiplier: ×'+scoreMultiplier.toFixed(2);
+  const hud=$('hudIntensity');if(hud)hud.textContent='INT '+intensity+' · HARD '+hardness;
+}
+// Production builds place these two bars under the game's wallet-signed owner admin login; this preview uses a local demo gate (OWNER button, settings in localStorage).
+function initOwnerPanel(){
+  const btn=$('ownerBtn'),panel=$('ownerPanel'),ir=$('intensityRange'),hr=$('hardnessRange');
+  if(btn&&panel)btn.addEventListener('click',()=>panel.classList.toggle('hidden'));
+  if(ir)ir.addEventListener('input',()=>{intensity=clampLevel(ir.value);scoreMultiplier=scoreMultFor(intensity,hardness);saveOwnerSettings();refreshCurDifficulty();renderOwnerSettings();updateHUD();});
+  if(hr)hr.addEventListener('input',()=>{hardness=clampLevel(hr.value);scoreMultiplier=scoreMultFor(intensity,hardness);saveOwnerSettings();refreshCurDifficulty();renderOwnerSettings();updateHUD();});
+  renderOwnerSettings();
+}
+function refreshCurDifficulty(){
+  curSpawnInterval=Math.max(.62,1.45-runTime*.012)*spawnIntervalFactor();
+  curEnemySpeed=speed*enemySpeedFactor();
+  curArmoredChance=armoredChanceNow();
+}
 let W=390,H=844,DPR=1;
 function resize(){DPR=Math.min(2,window.devicePixelRatio||1);const r=$('app').getBoundingClientRect();W=r.width;H=r.height;canvas.width=W*DPR;canvas.height=H*DPR;ctx.setTransform(DPR,0,0,DPR,0,0);}
 window.addEventListener('resize',resize);
@@ -137,7 +199,7 @@ const playerNameEl=$('playerName');
 playerNameEl.value=localStorage.getItem(NAME_KEY)||'';
 function playerName(){return (playerNameEl.value||'').trim()||'Neon Ronin';}
 function saveBest(){if(score>best){best=Math.floor(score);localStorage.setItem(BEST_KEY,String(best));}localStorage.setItem(NAME_KEY,playerName());$('bestLine').textContent='🏆 Local Best: '+best+(localStorage.getItem(NAME_KEY)?' — '+localStorage.getItem(NAME_KEY):'');}
-saveBest();
+saveBest();initOwnerPanel();
 
 const DIRS=[
   {k:'right',a:0,arrow:'➡️',label:'RIGHT'},
@@ -156,6 +218,7 @@ function groundY(){return H*0.78;}
 
 function reset(){
   score=0;combo=0;mult=1;health=3;distance=0;speed=235;spawnT=0.7;runTime=0;shake=0;flash=0;
+  curSpawnInterval=1.45*spawnIntervalFactor();curEnemySpeed=235*enemySpeedFactor();curArmoredChance=0;
   enemies=[];particles=[];arcs=[];floaters=[];charge=0;charging=false;
   rain=[];for(let i=0;i<90;i++)rain.push({x:Math.random()*W,y:Math.random()*H,l:10+Math.random()*16,s:520+Math.random()*380});
   petals=[];for(let i=0;i<16;i++)petals.push({x:Math.random()*W,y:Math.random()*H,r:3+Math.random()*4,ph:Math.random()*7,vy:22+Math.random()*30});
@@ -182,6 +245,7 @@ function updateHUD(){
   mult=1+Math.min(7,Math.floor(combo/4));
   $('hudCombo').textContent='x'+mult+' · '+combo;
   $('hudDist').textContent=Math.floor(distance)+'m';
+  $('hudIntensity').textContent='INT '+intensity+' · HARD '+hardness;
   $('hearts').textContent='❤️'.repeat(Math.max(0,health))+'🖤'.repeat(Math.max(0,3-health));
   $('chargeBar').style.width=Math.round(charge*100)+'%';
   $('chargeWrap').classList.toggle('on',charging||charge>0.02);
@@ -191,7 +255,8 @@ function updateHUD(){
 
 /* ---------- enemies ---------- */
 function spawn(){
-  const armored=runTime>14 && Math.random()<Math.min(.32,.14+runTime/220);
+  curArmoredChance=armoredChanceNow();
+  const armored=Math.random()<curArmoredChance;
   const dir=DIRS[Math.floor(Math.random()*DIRS.length)];
   const hue=Math.random()<.5?'255,43,214':'25,220,255';
   enemies.push({x:W+60,y:groundY(),dir,armored,hp:armored?1:1,dead:false,hue,wob:Math.random()*7,scale:armored?1.22:1,hitFlash:0});
@@ -230,7 +295,7 @@ function doSlash(dir,chargedSlash){
 function kill(e,perfect){
   e.dead=true;
   combo++;mult=1+Math.min(7,Math.floor(combo/4));
-  const pts=(e.armored?250:(perfect?150:100))*mult;
+  const pts=Math.round((e.armored?250:(perfect?150:100))*mult*scoreMultiplier);
   score+=pts;
   burst(e.x,e.y-58,e.armored?'255,217,74':e.hue,perfect?30:20,perfect?340:260);
   arcs.push({a:e.dir.a,t:0,charged:e.armored});
@@ -447,10 +512,13 @@ function drawFX(dt,t){
 /* ---------- update ---------- */
 function update(dt,t){
   speed=235+Math.min(215,runTime*4.2);
-  distance+=speed*dt/26; score+=speed*dt/26*1.6; // distance adds score
+  curEnemySpeed=speed*enemySpeedFactor();
+  distance+=speed*dt/26; score+=speed*dt/26*1.6*scoreMultiplier; // distance adds score (multiplier on score only, not distance)
   groundOff+=speed*dt; runTime+=dt;
+  curArmoredChance=armoredChanceNow();
   spawnT-=dt;
-  const interval=Math.max(.62,1.45-runTime*.012);
+  curSpawnInterval=Math.max(.62,1.45-runTime*.012)*spawnIntervalFactor();
+  const interval=curSpawnInterval;
   if(spawnT<=0){spawn();spawnT=interval*(0.75+Math.random()*.55);}
   // charge build
   if(charging&&phase==='playing'){
@@ -458,7 +526,7 @@ function update(dt,t){
     if(charge>=1&&!chargeFullPlayed){chargeFullPlayed=true;SFX.charge();}
   }
   for(const e of enemies){
-    e.x-=speed*dt;
+    e.x-=curEnemySpeed*dt;
     if(!e.dead&&e.x<roninX()-34){e.dead=true;e.missed=true;hurt(e.armored?'🛡️ ARMORED THROUGH! -1 ❤️':'💥 IT GOT YOU! -1 ❤️');if(phase!=='playing')return;}
   }
   enemies=enemies.filter(e=>e.x>-80&&!(e.dead&&e.missed));
@@ -505,7 +573,8 @@ $('quitBtn').addEventListener('click',()=>{phase='title';$('pauseScreen').classL
 $('overTitleBtn').addEventListener('click',()=>{phase='title';$('overScreen').classList.add('hidden');$('titleScreen').classList.remove('hidden');saveBest();});
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&phase==='playing')pauseGame(true);});
 
-window.__previewGame={getState:()=>({phase,score:Math.floor(score),combo,health,distance:Math.floor(distance),multiplier:mult,charge:Math.round(charge*100)/100,enemies:enemies.filter(e=>!e.dead).length,player:playerName(),best})};
+window.__previewGame={getState:()=>({phase,score:Math.floor(score),combo,health,distance:Math.floor(distance),multiplier:mult,charge:Math.round(charge*100)/100,enemies:enemies.filter(e=>!e.dead).length,player:playerName(),best,intensity,hardness,intensityFull:INTENSITY_FULL,scoreMultiplier,params:difficultyParams()})};
+window.__intensityTest={getState:()=>({intensity,hardness,intensityFull:INTENSITY_FULL,scoreMultiplier,params:difficultyParams()})};
 
 resize();reset();phase='title';requestAnimationFrame(frame);
 </script>
