@@ -540,6 +540,21 @@
     opacity:.85; margin:0; text-align:center; line-height:1.7; }
   .nftline a { color:#4ced4b; text-decoration:underline; letter-spacing:0;
     font-size:11px; overflow-wrap:anywhere; }
+  /* the owner admin entry: a quiet text button under the
+     collection line — the owner's door, not a nav item */
+  .adminline { text-align:center; margin:2px 0 0; }
+  #adminBtn { background:none; border:none; font:inherit; font-size:11px;
+    font-weight:700; letter-spacing:.22em; color:#8ff5b1; opacity:.55;
+    cursor:pointer; padding:4px 10px; }
+  #adminBtn:hover { opacity:.9; }
+  /* the admin books: rows reuse the board chrome; links and
+     full addresses wrap, never truncate */
+  #adminTotals { width:min(430px,92vw); font-size:13px; line-height:1.8;
+    color:#eafff1; text-align:left; }
+  .arow { font-size:12px; line-height:1.65; color:#eafff1;
+    overflow-wrap:anywhere; }
+  .arow a { color:#4ced4b; }
+  .arow .akind { font-weight:800; letter-spacing:.08em; color:#ffd76a; }
   /* the same chrome on the overlay screens */
   .boardList { border-radius:0;
     background:linear-gradient(180deg, rgba(9,36,20,.92), rgba(3,16,9,.95));
@@ -928,6 +943,7 @@
   <p class="credits">ORBIT DEFENDER · BUILT FOR ORBITWIRE</p>
   <p class="credits">Created by LUNC Dev Studio</p>
   <p class="nftline">NFT COLLECTION (ODNFT):<br><a href="https://finder.terraclassic.community/mainnet/address/terra1xhykrgdr58m6gplv7umv9pet25eah4psca7qjrn98xphlr0tra7qwgffax" target="_blank" rel="noopener">terra1xhykrgdr58m6gplv7umv9pet25eah4psca7qjrn98xphlr0tra7qwgffax</a></p>
+  <p class="adminline"><button id="adminBtn" type="button">🔐 OWNER ADMIN</button></p>
   <div id="walletPicker" role="dialog" aria-modal="true" aria-label="Select your wallet">
     <div id="walletPanel">
       <div id="walletPanelHead">
@@ -988,6 +1004,29 @@
   <h1>🏆 WEEKLY REWARDS</h1>
   <div id="rewardsBody"><div class="boardList" id="rewardsList"></div><div class="rewardsMine" id="rewardsMine"></div></div>
   <button class="play alt" id="rewardsCloseBtn">CLOSE</button>
+</div>
+
+<div class="screen" id="adminScreen">
+  <div class="small">ORBIT DEFENDER</div>
+  <h1>🔐 OWNER ADMIN</h1>
+  <p class="intro">The project books — NFT sales and game-wallet activity, read live from the mint service. Sign-in is a wallet signature: no password, and the signature moves no funds.</p>
+  <p id="adminStatus"></p>
+  <div id="adminSigninBox">
+    <button class="play" id="adminSigninBtn" type="button">SIGN IN</button>
+    <button class="play alt" id="adminConnectBtn" type="button">🔗 CONNECT WALLET</button>
+  </div>
+  <div id="adminBody" style="display:none">
+    <div id="adminTotals"></div>
+    <p class="small">NFT SALES</p>
+    <div class="boardList" id="adminSales"></div>
+    <p class="small">WALLET ACTIVITY</p>
+    <div class="boardList" id="adminEntries"></div>
+    <div class="btnRow">
+      <button class="play alt" id="adminDlBtn" type="button">⬇ STATEMENT</button>
+      <button class="play alt" id="adminOutBtn" type="button">SIGN OUT</button>
+    </div>
+  </div>
+  <button class="play alt" id="adminCloseBtn" type="button">CLOSE</button>
 </div>
 
 <div class="screen" id="howScreen">
@@ -1537,11 +1576,15 @@ const KIND_COLOR = { tier: '#ffd76a', rapid: '#7df9ff', shield: '#9be8ff', wingm
    the game queries the chain (public LCD) and lights up the NFT
    fighters the connected address actually holds. Fails soft —
    offline or a dead LCD just leaves the free fleet flying. The
-   ONE signature this game ever asks for is the purchase: a plain
-   LUNC send from the player's own wallet (CosmosKit — Keplr,
-   Galaxy Station or Station) to the game wallet (see the buy
-   section below) — the read, the connect and everything else
-   sign nothing. */
+   ONE transaction signature this game ever asks for is the
+   purchase: a plain LUNC send from the player's own wallet
+   (CosmosKit — Keplr, Galaxy Station or Station) to the game
+   wallet (see the buy section below) — the read, the connect
+   and everything else sign nothing. The single exception is
+   not a transaction at all: the OWNER ADMIN view (bottom of
+   this screen) asks the owner's wallet to sign a one-time
+   login MESSAGE (ADR-036) — it moves no funds and authorizes
+   nothing on-chain; see the admin section below. */
 const NFT_CONFIG = {
   collection: 'terra1xhykrgdr58m6gplv7umv9pet25eah4psca7qjrn98xphlr0tra7qwgffax',   /* ODNFT — the real "Orbit Defender" collection */
   rewardsUrl: '',   /* the weekly rewards service base URL — '' = not set up yet */
@@ -3200,6 +3243,217 @@ const levelProgM = () => (distPx - levelStartPx) / PX_PER_M;
 const STARS = [];
 for (let i = 0; i < 90; i++)
   STARS.push({ x: mr() * W, y: mr() * 1200, f: 0.25 + mr() * 0.75, s: mr() < 0.85 ? 1.4 : 2.4 });
+
+/* ================= OWNER ADMIN — the project books =================
+   The sales books live on the mint service (NFT_CONFIG.mintUrl):
+   the sales ledger, the game wallet's activity, and the
+   accountant statement. The door is a WALLET SIGNATURE, never a
+   password: the service issues a one-time challenge message,
+   the connected wallet signs it (Keplr signArbitrary, ADR-036 —
+   a message signature that moves no funds and authorizes
+   nothing on-chain), and the service answers with a 2-hour
+   session token, held in sessionStorage ONLY (a memory variable
+   backs it where sessionStorage is missing or throws, as some
+   webviews do). The whitelist lives server-side
+   (ADMIN_VIEWER_WALLETS): a wallet that is not on it gets a
+   plain refusal. No admin call of any kind is made until this
+   panel is opened. */
+const ADMIN_TOKEN_KEY = 'orbitDefenderAdminToken';
+let adminTokenMem = '';
+let adminBusy = false;
+let adminSignHook = null;   /* TEST BUILD seam: stands in for the wallet's arbitrary-sign (mirrors the other test hooks) */
+function adminTokenGet(){
+  try { return sessionStorage.getItem(ADMIN_TOKEN_KEY) || adminTokenMem || ''; }
+  catch (e) { return adminTokenMem; }
+}
+function adminTokenSet(t){
+  adminTokenMem = t || '';
+  try {
+    if (t) sessionStorage.setItem(ADMIN_TOKEN_KEY, t);
+    else sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+  } catch (e) {}
+}
+function adminNote(msg){ const s = $('adminStatus'); if (s) s.textContent = msg || ''; }
+function adminFetch(path, opts){ return lbFetch(NFT_CONFIG.mintUrl + path, opts || {}, 8000); }
+
+function openAdmin(){
+  sfxTap();
+  $('adminScreen').style.display = 'flex';
+  fxIn($('adminScreen'));
+  paintAdmin();
+  if (adminTokenGet()) loadAdminView();
+}
+function closeAdmin(){
+  sfxTap();
+  $('adminScreen').style.display = 'none';
+}
+/* the signed-out face of the panel: which step the owner is on
+   (no wallet / read-only wallet / ready to sign) */
+function paintAdmin(){
+  const signed = !!adminTokenGet();
+  const box = $('adminSigninBox'), body = $('adminBody');
+  if (box) box.style.display = signed ? 'none' : '';
+  if (body) body.style.display = signed ? '' : 'none';
+  if (signed) return;
+  const cb = $('adminConnectBtn'), sb = $('adminSigninBtn');
+  if (!walletAddress){
+    adminNote('Connect the owner wallet to sign in.');
+    if (cb) cb.style.display = '';
+    if (sb) sb.style.display = 'none';
+  } else if (walletMode !== 'kit'){
+    adminNote('Wallet ' + walletAddress + ' is connected read-only — connect with Keplr or Galaxy Station to sign in.');
+    if (cb) cb.style.display = '';
+    if (sb) sb.style.display = 'none';
+  } else {
+    adminNote('Wallet ' + walletAddress + ' connected. Sign the message to open the books — it moves no funds.');
+    if (cb) cb.style.display = 'none';
+    if (sb) sb.style.display = '';
+  }
+}
+/* the connected wallet's arbitrary-sign, wherever it lives:
+   the CosmosKit client's signArbitrary, the chain wallet's own,
+   or an injected Keplr. Resolves with the wallet's StdSignature
+   ({ pub_key: { value }, signature } — base64 both), or returns
+   null when this connection offers no message signing at all. */
+function adminSignMessage(message){
+  if (adminSignHook) return Promise.resolve(adminSignHook(message, walletAddress));
+  try {
+    const cw = kitChainWallet;
+    const client = cw && cw.client;
+    if (client && typeof client.signArbitrary === 'function')
+      return Promise.resolve(client.signArbitrary(TEST_CHAIN_ID, walletAddress, message));
+    if (cw && typeof cw.signArbitrary === 'function')
+      return Promise.resolve(cw.signArbitrary(TEST_CHAIN_ID, walletAddress, message));
+    const k = injectedKeplr();
+    if (k && typeof k.signArbitrary === 'function')
+      return Promise.resolve(k.signArbitrary(TEST_CHAIN_ID, walletAddress, message));
+  } catch (e) {}
+  return null;
+}
+async function adminSignIn(){
+  if (adminBusy) return;
+  if (!walletAddress || walletMode !== 'kit'){ paintAdmin(); return; }
+  adminBusy = true;
+  try {
+    adminNote('Asking the service for a sign-in message…');
+    const r = await adminFetch('/admin/challenge?address=' + encodeURIComponent(walletAddress), { method: 'GET' });
+    if (r && r.status === 403){ adminNote('This wallet is not on the owner list for this page.'); return; }
+    if (!r || !r.ok) throw new Error('challenge refused');
+    const data = await r.json();
+    const message = data && data.message;
+    if (!message) throw new Error('no challenge message');
+    const signing = adminSignMessage(message);
+    if (!signing){ adminNote('This wallet cannot sign in — try Keplr.'); return; }
+    adminNote('Approve the signature in your wallet — it moves no funds.');
+    const res = await signing;
+    const sig = res && res.signature, pub = res && res.pub_key && res.pub_key.value;
+    if (!sig || !pub) throw new Error('the wallet returned no signature');
+    const lr = await adminFetch('/admin/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address: walletAddress, signatureBase64: sig, pubKeyBase64: pub }),
+    });
+    if (!lr || !lr.ok) throw new Error('login refused');
+    const ld = await lr.json();
+    if (!ld || !ld.token) throw new Error('no session token');
+    adminTokenSet(ld.token);
+    paintAdmin();
+    await loadAdminView();
+  } catch (e) {
+    adminNote('Sign-in failed — the service could not be reached or the signature was refused. Try again.');
+  } finally {
+    adminBusy = false;
+  }
+}
+async function loadAdminView(){
+  const token = adminTokenGet();
+  if (!token){ paintAdmin(); return; }
+  adminNote('Loading the books…');
+  try {
+    const r = await adminFetch('/admin/view', { method: 'GET', headers: { Authorization: 'Bearer ' + token } });
+    if (r && r.status === 401){
+      adminTokenSet('');
+      paintAdmin();
+      adminNote('Session expired — sign in again.');
+      return;
+    }
+    if (!r || !r.ok) throw new Error('view refused');
+    renderAdmin(await r.json());
+    adminNote('');
+  } catch (e) {
+    adminNote('The books could not be loaded — connection? Try again in a moment.');
+  }
+}
+const ADMIN_KIND_LABEL = { sale: 'NFT SALE', continue: 'CONTINUE', test: 'TEST — NOT INCOME', funding: 'FUNDING', other: 'OTHER' };
+function renderAdmin(d){
+  d = d || {};
+  const t = d.totals || {};
+  const ns = t.nft_sales || {}, ci = t.continue_income || {}, fu = t.funding || {}, ot = t.other || {};
+  const totalsEl = $('adminTotals');
+  if (totalsEl){
+    totalsEl.innerHTML =
+      '<div>🛩 NFT SALES: <b>' + (ns.count || 0) + '</b> · ' + escapeHtml(ns.total_lunc || '0') + ' LUNC · ' +
+        (typeof ns.total_usd === 'number' ? '$' + ns.total_usd.toFixed(2) : 'USD unavailable') +
+        (ns.usd_unavailable_count ? ' (' + ns.usd_unavailable_count + ' without a USD rate)' : '') + '</div>' +
+      '<div>⚡ CONTINUE INCOME: ' + escapeHtml(ci.total_lunc || '0') + ' LUNC · ' + (ci.count || 0) +
+        ' payment' + (ci.count === 1 ? '' : 's') + '</div>' +
+      '<div>💰 FUNDING: ' + escapeHtml(fu.total_lunc || '0') + ' LUNC · OTHER: ' + escapeHtml(ot.total_lunc || '0') + ' LUNC</div>';
+  }
+  const salesEl = $('adminSales');
+  if (salesEl){
+    const sales = Array.isArray(d.sales) ? d.sales : [];
+    salesEl.innerHTML = sales.length ? sales.map(s =>
+      '<div class="arow"><span class="akind">#' + s.seq + ' ' + escapeHtml(s.tier_name || ('Tier ' + s.tier)) + '</span> · ' +
+      escapeHtml(s.amount_lunc || '') + ' LUNC' +
+      (typeof s.usd_value === 'number' ? ' · $' + s.usd_value.toFixed(2) : ' · USD unavailable') + '<br>' +
+      'Buyer: ' + escapeHtml(s.buyer || '') + '<br>' +
+      escapeHtml(new Date(s.time).toUTCString()) + '<br>' +
+      '<a href="' + escapeHtml(s.payment_link || '') + '" target="_blank" rel="noopener">Payment ↗</a> · ' +
+      '<a href="' + escapeHtml(s.mint_link || '') + '" target="_blank" rel="noopener">Mint ↗</a></div>'
+    ).join('') : '<div class="arow">No NFT sales yet.</div>';
+  }
+  const entEl = $('adminEntries');
+  if (entEl){
+    const entries = Array.isArray(d.wallet_entries) ? d.wallet_entries : [];
+    entEl.innerHTML = entries.length ? entries.map(en =>
+      '<div class="arow"><span class="akind">' + escapeHtml(ADMIN_KIND_LABEL[en.kind] || 'OTHER') + '</span> · ' +
+      escapeHtml(en.amount_lunc || '') + ' LUNC<br>' +
+      'From: ' + escapeHtml(en.from || '') + '<br>' +
+      (en.memo ? 'Memo: ' + escapeHtml(en.memo) + '<br>' : '') +
+      escapeHtml(new Date(en.time).toUTCString()) + ' · <a href="' + escapeHtml(en.link || '') + '" target="_blank" rel="noopener">View tx ↗</a></div>'
+    ).join('') : '<div class="arow">No wallet activity recorded yet.</div>';
+  }
+}
+async function adminDownload(){
+  const token = adminTokenGet();
+  if (!token){ paintAdmin(); return; }
+  try {
+    adminNote('Preparing your statement…');
+    const r = await adminFetch('/admin/view-statement', { method: 'GET', headers: { Authorization: 'Bearer ' + token } });
+    if (r && r.status === 401){ adminTokenSet(''); paintAdmin(); adminNote('Session expired — sign in again.'); return; }
+    if (!r || !r.ok) throw new Error('statement refused');
+    const text = await r.text();
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'orbit-defender-statement.txt';
+    if (document.body && document.body.appendChild) document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { try { URL.revokeObjectURL(url); } catch (e) {} }, 4000);
+    adminNote('Statement downloaded.');
+  } catch (e) {
+    adminNote('The statement could not be downloaded — try again in a moment.');
+  }
+}
+function adminSignOut(){
+  adminTokenSet('');
+  const s = $('adminSales'), en = $('adminEntries'), tt = $('adminTotals');
+  if (s) s.innerHTML = '';
+  if (en) en.innerHTML = '';
+  if (tt) tt.innerHTML = '';
+  paintAdmin();
+  adminNote('Signed out.');
+}
 
 /* ================= fx ================= */
 function popup(x, y, text, color){
@@ -7021,6 +7275,12 @@ $('hangarBtn').onclick = () => { sfxTap(); openHangar(); };
 $('hangarCloseBtn').onclick = () => { sfxTap(); closeHangar(); };
 $('rewardsBtn').onclick = () => openRewards();
 $('rewardsCloseBtn').onclick = () => closeRewards();
+$('adminBtn').onclick = () => openAdmin();
+$('adminCloseBtn').onclick = () => closeAdmin();
+$('adminSigninBtn').onclick = () => { adminSignIn(); };
+$('adminConnectBtn').onclick = () => { closeAdmin(); showPicker(); };
+$('adminOutBtn').onclick = () => { sfxTap(); adminSignOut(); };
+$('adminDlBtn').onclick = () => { adminDownload(); };
 $('walletBtn').onclick = () => {
   sfxTap();
   if (walletAddress){ clearWallet(); return; }
@@ -7186,6 +7446,21 @@ window.OD = {
   /* shrink the post-buy ownership watch so the suites can watch
      it land / expire in milliseconds instead of ~90 s */
   setBuyWatchForTest(everyMs, forMs){ if (everyMs > 0) buyWatchEveryMs = everyMs; if (forMs > 0) buyWatchForMs = forMs; },
+  /* TEST BUILD owner-admin hooks: open the panel, drive the
+     sign-in (the fetch layer is the suite's stub; the wallet's
+     arbitrary-sign is stood in for via setAdminSignerForTest),
+     and read the rendered books back */
+  openAdminPanel(){ openAdmin(); },
+  closeAdminPanel(){ closeAdmin(); },
+  adminSignIn(){ return adminSignIn(); },
+  adminSignOut(){ adminSignOut(); },
+  setAdminSignerForTest(fn){ adminSignHook = fn || null; },
+  adminState(){ return { signedIn: !!adminTokenGet(), busy: adminBusy,
+    screen: !!($('adminScreen') && $('adminScreen').style.display === 'flex'),
+    status: ($('adminStatus') || {}).textContent || '',
+    totals: ($('adminTotals') || {}).innerHTML || '',
+    sales: ($('adminSales') || {}).innerHTML || '',
+    entries: ($('adminEntries') || {}).innerHTML || '' }; },
   setBoardTab(t){ setBoardTab(t); },
   showRewards(){ openRewards(); },
   setShip(x, y){ ship.x = x; ship.y = y; targetX = x; targetY = y; shipVx = 0; shipVy = 0; followX = x; followY = y; },
