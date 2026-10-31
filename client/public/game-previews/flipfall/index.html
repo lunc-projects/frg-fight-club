@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>FLIPFALL — Luna Classic · Mirror Lab</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  :root{--purple:#a855f7;--violet:#7c3aed;--teal:#2dd4ee;--cyan:#22d3ee;--pink:#f0abfc;--orange:#fb7c1e;--ink:#0b0620;--panel:rgba(20,10,48,.92)}
+  html,body{height:100%}
+  body{background:#050214;color:#f3efff;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden;display:flex;justify-content:center}
+  #app{position:relative;width:100%;max-width:430px;height:100dvh;display:flex;flex-direction:column;background:radial-gradient(120% 60% at 50% 0%,#2a1060 0%,#0b0620 55%)}
+  /* ---------- HUD ---------- */
+  #hud{display:none;padding:calc(6px + env(safe-area-inset-top)) 10px 6px;background:linear-gradient(180deg,rgba(38,16,86,.95),rgba(16,7,40,.9));border-bottom:2px solid rgba(168,85,247,.55);z-index:5}
+  #hud.on{display:block}
+  .hudrow{display:flex;gap:6px;align-items:stretch;justify-content:space-between}
+  .stat{flex:1;background:rgba(124,58,237,.16);border:1px solid rgba(45,212,238,.35);border-radius:9px;padding:4px 2px;text-align:center;min-width:0}
+  .stat b{display:block;font-size:16px;line-height:1.05;color:#fff;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .stat span{font-size:9px;letter-spacing:.12em;color:#c4b5fd;text-transform:uppercase}
+  .stat.mult b{color:#5eead4}.stat.sh b{color:#fdba74;letter-spacing:2px;font-size:14px}
+  #pauseBtn,#muteBtn{flex:0 0 40px;border:1px solid rgba(45,212,238,.45);background:rgba(124,58,237,.25);color:#fff;border-radius:9px;font-size:17px;cursor:pointer}
+  #streakBar{height:5px;border-radius:3px;background:rgba(255,255,255,.12);margin-top:6px;overflow:hidden}
+  #streakFill{height:100%;width:0%;background:linear-gradient(90deg,var(--teal),var(--purple),var(--pink));transition:width .2s}
+  /* ---------- Stage ---------- */
+  #stage{position:relative;flex:1;min-height:0}
+  canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;background:#0a0522}
+  #flipBtn{position:absolute;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));z-index:6;display:none;width:84px;height:84px;border-radius:50%;border:3px solid var(--teal);background:radial-gradient(circle at 35% 30%,rgba(168,85,247,.9),rgba(76,29,149,.92));color:#fff;font-weight:900;font-size:15px;letter-spacing:.06em;box-shadow:0 0 22px rgba(45,212,238,.65),inset 0 0 14px rgba(45,212,238,.5);cursor:pointer}
+  #flipBtn.on{display:block}
+  #flipBtn:active{transform:scale(.93)}
+  #toast{position:absolute;left:50%;top:16%;transform:translateX(-50%);z-index:6;pointer-events:none;font-weight:900;font-size:20px;letter-spacing:.04em;color:#5eead4;text-shadow:0 0 14px rgba(45,212,238,.9),0 2px 0 #000;opacity:0;transition:opacity .15s;text-align:center;white-space:nowrap}
+  /* ---------- Overlays ---------- */
+  .overlay{position:absolute;inset:0;z-index:10;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;overflow-y:auto;padding:14px 16px calc(16px + env(safe-area-inset-bottom));background:linear-gradient(180deg,rgba(7,3,24,.32),rgba(7,3,24,.88) 78%)}
+  .hidden{display:none!important}
+  .hero{width:100%;max-height:38dvh;object-fit:cover;object-position:50% 32%;border-radius:16px;border:2px solid rgba(168,85,247,.75);box-shadow:0 0 28px rgba(124,58,237,.55),0 0 12px rgba(45,212,238,.4)}
+  .brand{margin-top:10px;font-size:12px;font-weight:800;letter-spacing:.42em;color:var(--teal);text-shadow:0 0 10px rgba(45,212,238,.8)}
+  h1{font-size:52px;line-height:.95;font-weight:1000;letter-spacing:.02em;text-align:center;background:linear-gradient(180deg,#fff 15%,#c4b5fd 48%,#a855f7 72%,#2dd4ee 105%);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 3px 0 rgba(76,29,149,.9)) drop-shadow(0 0 16px rgba(168,85,247,.45))}
+  .tag{margin-top:5px;text-align:center;color:#ddd6fe;font-size:13.5px;line-height:1.45;max-width:330px}
+  .tag b{color:#5eead4}
+  .card{margin-top:12px;width:100%;max-width:340px;background:var(--panel);border:1px solid rgba(168,85,247,.55);border-radius:14px;padding:12px 14px;box-shadow:inset 0 0 18px rgba(124,58,237,.18)}
+  .card label{font-size:10.5px;letter-spacing:.18em;color:#c4b5fd;text-transform:uppercase;font-weight:700}
+  #nameInput{margin-top:6px;width:100%;padding:11px 12px;font-size:16px;border-radius:10px;border:1.5px solid rgba(45,212,238,.55);background:#150838;color:#fff;outline:none}
+  #nameInput:focus{border-color:var(--teal);box-shadow:0 0 10px rgba(45,212,238,.5)}
+  .bestline{margin-top:9px;font-size:13.5px;color:#e9d5ff;text-align:center}
+  .bestline b{color:#fbbf24}
+  .howto{font-size:13px;line-height:1.65;color:#e7e2ff}
+  .howto b{color:#5eead4}.howto .bad{color:#fda4af}.howto .gold{color:#fdba74}
+  .bigbtn{margin-top:14px;width:100%;max-width:340px;padding:16px;font-size:20px;font-weight:1000;letter-spacing:.08em;color:#fff;border:none;border-radius:14px;cursor:pointer;background:linear-gradient(90deg,#7c3aed,#a855f7 45%,#0891b2);box-shadow:0 0 22px rgba(168,85,247,.65),0 5px 0 #3b1470}
+  .bigbtn:active{transform:translateY(3px);box-shadow:0 0 22px rgba(168,85,247,.65),0 2px 0 #3b1470}
+  .ghostbtn{margin-top:9px;width:100%;max-width:340px;padding:12px;font-size:15px;font-weight:800;color:#e9d5ff;border:1.5px solid rgba(45,212,238,.55);border-radius:12px;background:rgba(21,8,56,.8);cursor:pointer}
+  .finalscore{font-size:44px;font-weight:1000;color:#fff;text-shadow:0 0 18px rgba(168,85,247,.8);line-height:1}
+  .newbest{display:none;margin-top:6px;color:#fbbf24;font-weight:900;letter-spacing:.1em;font-size:14px}
+  .statgrid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:6px}
+  .statgrid div{background:rgba(124,58,237,.16);border:1px solid rgba(45,212,238,.3);border-radius:9px;padding:7px;text-align:center;font-size:13px;color:#ddd6fe}
+  .statgrid b{display:block;font-size:18px;color:#fff}
+  .foot{margin-top:auto;padding-top:10px;font-size:11px;color:#a78bfa;text-align:center;line-height:1.5}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- HUD -->
+  <div id="hud">
+    <div class="hudrow">
+      <div class="stat"><b id="hScore">0</b><span>Score</span></div>
+      <div class="stat"><b id="hDist">0m</b><span>Distance</span></div>
+      <div class="stat mult"><b id="hMult">×1</b><span>Gate Mult</span></div>
+      <div class="stat sh"><b id="hShields">🛡🛡🛡</b><span>Shields</span></div>
+      <button id="muteBtn" aria-label="Sound on or off">🔊</button>
+      <button id="pauseBtn" aria-label="Pause">⏸</button>
+    </div>
+    <div id="streakBar"><div id="streakFill"></div></div>
+  </div>
+
+  <!-- Stage -->
+  <div id="stage">
+    <canvas id="game"></canvas>
+    <div id="toast"></div>
+    <button id="flipBtn" aria-label="Flip gravity">FLIP<br>⇅</button>
+
+    <!-- TITLE -->
+    <div class="overlay" id="titleScreen">
+      <img class="hero" src="art.webp" alt="Flipfall — an orange-suited runner flipping between the mirrored floor and ceiling of a neon Mirror Lab">
+      <div class="brand">◆ LUNA CLASSIC ◆</div>
+      <h1>FLIPFALL</h1>
+      <p class="tag">The <b>Mirror Lab</b> has two floors — and gravity is yours to flip. Run the ceiling. Thread the gates. Don't kiss the spikes.</p>
+      <div class="card">
+        <label for="nameInput">Runner name</label>
+        <input id="nameInput" maxlength="14" placeholder="e.g. Nova" autocomplete="off">
+        <div class="bestline" id="bestLine">🏆 Local best: <b>—</b></div>
+      </div>
+      <div class="card howto">
+        👆 <b>Tap / click / Space</b> — flip gravity (floor ⇄ ceiling)<br>
+        🌀 <b>Flip gates:</b> cross on the glowing open side — clean gates raise your <b>multiplier</b><br>
+        ⚡ Some gates come in <b>pairs</b> — flip, then flip right back!<br>
+        🔺 <span class="bad">Spikes</span> &amp; missed gates break your streak and cost a <span class="gold">shield (3 total)</span><br>
+        🕳️ <span class="bad">Gaps:</span> no floor under you = falling. Flip before you drop!
+      </div>
+      <button class="bigbtn" id="startBtn">▶ &nbsp;START RUN</button>
+      <div class="foot">Free preview · plays offline · best score saved on this device only<br>LUNA CLASSIC · MIRROR LAB</div>
+    </div>
+
+    <!-- PAUSE -->
+    <div class="overlay hidden" id="pauseScreen" style="justify-content:center;background:rgba(7,3,24,.82)">
+      <h1 style="font-size:40px">PAUSED</h1>
+      <p class="tag">Gravity is holding its breath.</p>
+      <button class="bigbtn" id="resumeBtn">▶ &nbsp;RESUME</button>
+      <button class="ghostbtn" id="pauseRestartBtn">↻ &nbsp;RESTART RUN</button>
+      <button class="ghostbtn" id="quitBtn">✕ &nbsp;QUIT TO TITLE</button>
+    </div>
+
+    <!-- GAME OVER -->
+    <div class="overlay hidden" id="overScreen" style="justify-content:center;background:rgba(7,3,24,.8)">
+      <div class="brand">◆ LUNA CLASSIC ◆</div>
+      <h1 style="font-size:42px">RUN&nbsp;OVER</h1>
+      <p class="tag" id="overReason">The lab reclaims another runner.</p>
+      <div class="card" style="text-align:center">
+        <div class="finalscore" id="finalScore">0</div>
+        <div class="newbest" id="newBest">★ NEW LOCAL BEST! ★</div>
+        <div class="statgrid">
+          <div><b id="finalDist">0m</b>Distance</div>
+          <div><b id="finalGates">0</b>Clean gates</div>
+          <div><b id="finalMult">×1</b>Best multiplier</div>
+          <div><b id="finalBest">0</b>Local best</div>
+        </div>
+      </div>
+      <button class="bigbtn" id="restartBtn">↻ &nbsp;RUN AGAIN</button>
+      <button class="ghostbtn" id="overTitleBtn">TITLE SCREEN</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+"use strict";
+/* ================= FLIPFALL — gravity-flip endless runner ================= */
+const $ = id => document.getElementById(id);
+const canvas = $("game"), ctx = canvas.getContext("2d");
+const stage = $("stage");
+const BEST_KEY = "flipfall_best_v1", NAME_KEY = "flipfall_player_v1";
+
+let W = 390, H = 560, DPR = 1;
+function resize(){
+  const r = stage.getBoundingClientRect();
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  W = Math.max(280, r.width); H = Math.max(320, r.height);
+  canvas.width = Math.round(W*DPR); canvas.height = Math.round(H*DPR);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+window.addEventListener("resize", resize);
+
+/* ---------------- State ---------------- */
+let phase = "title";            // title | playing | paused | over
+let score=0, distPx=0, shields=3, streak=0, multiplier=1, bestMult=1, cleanGates=0;
+let speed=265, timeMs=0, shake=0, flashA=0, flashColor="168,85,247";
+let best = 0; try{ best = +localStorage.getItem(BEST_KEY)||0; }catch(e){}
+let playerName = ""; try{ playerName = localStorage.getItem(NAME_KEY)||""; }catch(e){}
+
+const P = { x:96, y:0, vy:0, r:17, grav:1, grounded:true, angle:0, invuln:0, runPhase:0, dead:false, fallSpin:0 };
+let objects = [];   // {kind:'spike'|'gap'|'gate', x,w,side,...}
+let particles = [], rings = [];
+let spawnIn = 300;  // px until next spawn
+let bgScroll = 0, lastTs = 0;
+
+const floorY = () => H*0.815;
+const ceilY  = () => H*0.185;
+const midY   = () => H*0.5;
+
+/* ---------------- Audio (WebAudio bleeps, silent-safe) ---------------- */
+let AC=null, muted=false;
+function audio(){ if(!AC){ try{ AC = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ AC=null; } }
+  if(AC && AC.state==="suspended") AC.resume(); return AC; }
+function beep(f0,f1,dur,type,vol,when){
+  if(muted) return; const ac=audio(); if(!ac) return;
+  const t=ac.currentTime+(when||0), o=ac.createOscillator(), g=ac.createGain();
+  o.type=type||"square"; o.frequency.setValueAtTime(f0,t); o.frequency.exponentialRampToValueAtTime(Math.max(30,f1),t+dur);
+  g.gain.setValueAtTime(vol||.12,t); g.gain.exponentialRampToValueAtTime(.001,t+dur);
+  o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t+dur+.02);
+}
+const sFlip =()=>beep(300,880,.14,"square",.10);
+const sGate =()=>{ beep(660,660,.07,"square",.10); beep(880,880,.07,"square",.10,.07); beep(1320,1320,.11,"square",.10,.14); };
+const sHit  =()=>{ beep(220,55,.28,"sawtooth",.16); beep(140,40,.3,"square",.10,.02); };
+const sMiss =()=>beep(520,180,.2,"triangle",.12);
+const sStart=()=>{ beep(523,523,.08,"square",.1); beep(784,784,.08,"square",.1,.08); beep(1046,1046,.14,"square",.1,.16); };
+const sOver =()=>{ beep(660,660,.12,"sawtooth",.12); beep(440,440,.12,"sawtooth",.12,.13); beep(220,110,.35,"sawtooth",.13,.26); };
+
+/* ---------------- Helpers ---------------- */
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+function toast(txt,color){ const t=$("toast"); t.textContent=txt; if(color)t.style.color=color; t.style.opacity=1;
+  clearTimeout(toast._h); toast._h=setTimeout(()=>t.style.opacity=0,850); }
+function burst(x,y,color,n,spd){ for(let i=0;i<(n||12);i++){ const a=Math.random()*6.283, s=(0.3+Math.random()*0.7)*(spd||160);
+  particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:.5+Math.random()*.3,t:0,color,sz:2+Math.random()*3}); } }
+function updateBestLine(){ $("bestLine").innerHTML = best>0
+  ? "🏆 Local best: <b>"+best.toLocaleString()+"</b>"+(playerName?" · "+escapeHtml(playerName):"")
+  : "🏆 Local best: <b>— no run yet</b>"; }
+function escapeHtml(s){ return s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+/* ---------------- Spawning ----------------
+   side: 'floor' | 'ceil'. Objects scroll left with the world.
+   Fairness rules: >=250px between hazard groups (scaled with speed),
+   gate pairs are 250-300px apart (a full flip-crossing takes ~0.42s),
+   gaps never spawn on both sides at once, first 500px are always safe. */
+function spawnNext(){
+  const diff = clamp(distPx/9000, 0, 1);             // 0 → 1 over ~180m
+  const roll = Math.random();
+  const baseX = W + 60;
+  if(roll < 0.34){                                     // ---- flip gate (sometimes a pair) ----
+    const side = Math.random()<0.5 ? "floor":"ceil";
+    objects.push({kind:"gate", x:baseX, w:16, side, resolved:false});
+    if(Math.random() < 0.30 + diff*0.25){              // double-flip pair: opposite side next
+      const gap = 258 + Math.random()*44;
+      objects.push({kind:"gate", x:baseX+gap, w:16, side:(side==="floor"?"ceil":"floor"), resolved:false});
+      spawnIn = gap + 300 + Math.random()*160 - diff*70;
+    } else spawnIn = 330 + Math.random()*220 - diff*90;
+  } else if(roll < 0.60){                              // ---- spikes ----
+    const side = Math.random()<0.5 ? "floor":"ceil";
+    const n = (Math.random() < 0.25+diff*0.3) ? 2 : 1;
+    objects.push({kind:"spike", x:baseX, w:26*n+8*(n-1), side, n, hitDone:false});
+    spawnIn = 300 + Math.random()*200 - diff*70;
+  } else if(roll < 0.80){                              // ---- gap in one surface ----
+    const side = Math.random()<0.5 ? "floor":"ceil";
+    const w = 92 + Math.random()*46;
+    objects.push({kind:"gap", x:baseX, w, side});
+    spawnIn = w + 300 + Math.random()*160 - diff*60;
+  } else {                                             // ---- spike + far gate combo ----
+    const side = Math.random()<0.5 ? "floor":"ceil";
+    objects.push({kind:"spike", x:baseX, w:34, side, n:1, hitDone:false});
+    objects.push({kind:"gate", x:baseX+330, w:16, side:(side==="floor"?"ceil":"floor"), resolved:false});
+    spawnIn = 330 + 300 + Math.random()*160 - diff*70;
+  }
+  spawnIn = Math.max(215, spawnIn);
+}
+function surfacePresentAt(side, px){
+  for(const o of objects) if(o.kind==="gap" && o.side===side && px>o.x && px<o.x+o.w) return false;
+  return true;
+}
+
+/* ---------------- Game flow ---------------- */
+function reset(){
+  score=0; distPx=0; shields=3; streak=0; multiplier=1; bestMult=1; cleanGates=0;
+  speed=265; objects=[]; particles=[]; rings=[]; spawnIn=520; shake=0; flashA=0;
+  P.y=floorY()-P.r; P.vy=0; P.grav=1; P.grounded=true; P.angle=0; P.invuln=0; P.dead=false; P.fallSpin=0;
+  updateHUD();
+}
+function startGame(){
+  playerName = $("nameInput").value.trim().slice(0,14);
+  try{ localStorage.setItem(NAME_KEY, playerName); }catch(e){}
+  reset();
+  phase="playing";
+  $("titleScreen").classList.add("hidden"); $("overScreen").classList.add("hidden"); $("pauseScreen").classList.add("hidden");
+  $("hud").classList.add("on"); $("flipBtn").classList.add("on");
+  audio(); sStart(); updateBestLine();
+}
+function gameOver(reason){
+  if(phase!=="playing") return;
+  phase="over"; P.dead=true; sOver();
+  burst(P.x, P.y, "#fb7c1e", 26, 240); burst(P.x, P.y, "#2dd4ee", 16, 180);
+  const final = Math.floor(score);
+  const isBest = final>best;
+  if(isBest){ best=final; try{ localStorage.setItem(BEST_KEY,String(best)); }catch(e){} }
+  $("overReason").textContent = reason;
+  $("finalScore").textContent = final.toLocaleString();
+  $("newBest").style.display = isBest ? "block":"none";
+  $("finalDist").textContent = Math.floor(distPx/50)+"m";
+  $("finalGates").textContent = cleanGates;
+  $("finalMult").textContent = "×"+bestMult;
+  $("finalBest").textContent = best.toLocaleString();
+  $("hud").classList.remove("on"); $("flipBtn").classList.remove("on");
+  $("overScreen").classList.remove("hidden");
+  updateBestLine();
+}
+function pauseGame(){
+  if(phase!=="playing") return;
+  phase="paused"; $("pauseScreen").classList.remove("hidden"); $("flipBtn").classList.remove("on");
+}
+function resumeGame(){
+  if(phase!=="paused") return;
+  phase="playing"; $("pauseScreen").classList.add("hidden"); $("flipBtn").classList.add("on"); audio();
+}
+function toTitle(){
+  phase="title";
+  $("pauseScreen").classList.add("hidden"); $("overScreen").classList.add("hidden");
+  $("hud").classList.remove("on"); $("flipBtn").classList.remove("on");
+  $("titleScreen").classList.remove("hidden"); reset(); updateBestLine();
+}
+
+/* ---------------- Core action ---------------- */
+function flip(){
+  if(phase!=="playing" || P.dead) return;
+  P.grav *= -1; P.grounded=false;
+  // a small pop toward the new gravity side so the flip reads instantly;
+  // gravity acceleration does the rest of the crossing
+  P.vy = P.grav * 160;
+  sFlip();
+  rings.push({x:P.x, y:P.y, r:8, t:0, color: P.grav===1 ? "#2dd4ee" : "#a855f7"});
+  burst(P.x, P.y + (P.grav===1?-1:1)*P.r, "#f0abfc", 5, 90);
+}
+function takeHit(why){
+  if(P.invuln>0) return;
+  shields--; streak=0; multiplier=1; P.invuln=1.25; shake=10; flashA=.45; flashColor="244,63,94";
+  sHit(); burst(P.x,P.y,"#fb7185",18,210);
+  updateHUD();
+  if(shields<=0){ gameOver(why+" — and that was your last shield."); }
+  else toast("💥 SHIELD DOWN — "+shields+" left","#fda4af");
+}
+function cleanGate(g){
+  cleanGates++; streak++;
+  multiplier = Math.min(8, 1 + Math.floor(streak/2)); bestMult=Math.max(bestMult,multiplier);
+  const pts = 50*multiplier; score += pts;
+  sGate(); rings.push({x:g.x+8,y:midY(),r:14,t:0,color:"#2dd4ee"});
+  burst(g.x+8, P.y, "#5eead4", 12, 150);
+  toast("🌀 CLEAN GATE +"+pts+(multiplier>1?"  ×"+multiplier:""), "#5eead4");
+  updateHUD();
+}
+function missGate(g){
+  if(P.invuln>0){ return; }
+  streak=0; multiplier=1; shake=6; flashA=.3; flashColor="168,85,247"; sMiss();
+  toast("✖ GATE MISSED — streak lost","#f0abfc"); updateHUD();
+}
+
+/* ---------------- Update ---------------- */
+function update(dt){
+  timeMs += dt*1000;
+  bgScroll += (phase==="playing" ? speed : 26)*dt;
+  // particles & rings always animate (nice behind overlays too)
+  for(const p of particles){ p.t+=dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=300*dt; }
+  particles = particles.filter(p=>p.t<p.life);
+  for(const r of rings) r.t+=dt, r.r+=190*dt;
+  rings = rings.filter(r=>r.t<.45);
+  if(shake>0) shake=Math.max(0,shake-dt*26);
+  if(flashA>0) flashA=Math.max(0,flashA-dt*1.4);
+  if(phase!=="playing") return;
+
+  // difficulty: +speed & distance scoring
+  distPx += speed*dt;
+  speed = Math.min(535, 265 + distPx/50 * 1.15);
+  score += speed*dt*0.055*multiplier;
+
+  // spawn
+  spawnIn -= speed*dt;
+  if(spawnIn<=0) spawnNext();
+
+  // scroll objects
+  for(const o of objects) o.x -= speed*dt;
+  objects = objects.filter(o=>o.x+o.w > -70);
+
+  // --- player physics ---
+  if(P.invuln>0) P.invuln-=dt;
+  const G = 2500;
+  P.vy += G*P.grav*dt; P.vy = clamp(P.vy, -980, 980);
+  P.y += P.vy*dt; P.runPhase += dt*(speed/26);
+  const surfY = P.grav===1 ? floorY() : ceilY();
+  const restY = P.grav===1 ? surfY-P.r : surfY+P.r;
+  const onSurface = surfacePresentAt(P.grav===1?"floor":"ceil", P.x);
+  if(P.grav===1){
+    if(onSurface && P.y>=restY && P.vy>=0){ P.y=restY; P.vy=0; P.grounded=true; }
+    else P.grounded=false;
+    if(P.y > H+46){ gameOver("You fell through a gap in the floor. Flip sooner next time!"); return; }
+  } else {
+    if(onSurface && P.y<=restY && P.vy<=0){ P.y=restY; P.vy=0; P.grounded=true; }
+    else P.grounded=false;
+    if(P.y < -46){ gameOver("You fell up through a gap in the ceiling. Flip sooner next time!"); return; }
+  }
+  // rotation: upright on floor (0), upside-down on ceiling (PI)
+  const target = P.grav===1 ? 0 : Math.PI;
+  let dA = target - P.angle;
+  while(dA> Math.PI) dA-=2*Math.PI; while(dA<-Math.PI) dA+=2*Math.PI;
+  P.angle += dA * Math.min(1, dt*13);
+
+  // --- collisions / gates ---
+  for(const o of objects){
+    if(o.kind==="spike" && !o.hitDone){
+      const sy = o.side==="floor" ? floorY() : ceilY();
+      const sameSide = (o.side==="floor" && P.grav===1 && P.y > midY()) || (o.side==="ceil" && P.grav===-1 && P.y < midY());
+      if(sameSide && P.x+P.r-7 > o.x+3 && P.x-P.r+P.r*0.6 < o.x+o.w-3){
+        const nearSurf = o.side==="floor" ? (P.y+P.r > sy-30) : (P.y-P.r < sy+30);
+        if(nearSurf && P.invuln<=0){ o.hitDone=true; takeHit("You clipped the "+(o.side==="floor"?"floor":"ceiling")+" spikes"); if(phase!=="playing") return; }
+      }
+    }
+    if(o.kind==="gate" && !o.resolved && P.x > o.x+o.w){
+      o.resolved=true;
+      const playerSide = P.y < midY() ? "ceil" : "floor";
+      if(playerSide===o.side) cleanGate(o); else missGate(o);
+    }
+  }
+  updateHUD();
+}
+function updateHUD(){
+  $("hScore").textContent = Math.floor(score).toLocaleString();
+  $("hDist").textContent = Math.floor(distPx/50)+"m";
+  $("hMult").textContent = "×"+multiplier;
+  $("hShields").textContent = shields>0 ? "🛡".repeat(shields) : "—";
+  // streak bar fills toward the next multiplier step (every 2 clean gates)
+  $("streakFill").style.width = (streak===0 ? 0 : (streak%2===0 ? 100 : 50))+"%";
+}
+
+/* ---------------- Drawing ---------------- */
+function drawHex(x,y,r,stroke,fill,lw){
+  ctx.beginPath();
+  for(let i=0;i<6;i++){ const a=Math.PI/3*i+Math.PI/6; const px=x+Math.cos(a)*r, py=y+Math.sin(a)*r; i?ctx.lineTo(px,py):ctx.moveTo(px,py); }
+  ctx.closePath(); if(fill){ctx.fillStyle=fill;ctx.fill();} if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=lw||1.5;ctx.stroke();}
+}
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  ctx.save();
+  if(shake>0) ctx.translate((Math.random()-.5)*shake,(Math.random()-.5)*shake);
+  const fy=floorY(), cy=ceilY(), my=midY();
+  // ---- lab body: pristine dark panels, purple/teal neon geometry ----
+  const bg=ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,"#170a3d"); bg.addColorStop(.5,"#0d0630"); bg.addColorStop(1,"#170a3d");
+  ctx.fillStyle=bg; ctx.fillRect(-14,-14,W+28,H+28);
+  // parallax geometry: hexes + diamonds drifting between the surfaces
+  const par = bgScroll*0.35;
+  ctx.globalAlpha=.5;
+  for(let i=0;i<7;i++){
+    const hx = ((i*173 - par) % (W+120) + W+120) % (W+120) - 60;
+    const hy = cy + 46 + (i%3)*((fy-cy-92)/2) + Math.sin(timeMs/900+i)*5;
+    drawHex(hx,hy, 15+(i%3)*7, i%2? "rgba(45,212,238,.55)":"rgba(168,85,247,.6)", "rgba(124,58,237,.07)");
+  }
+  for(let i=0;i<5;i++){
+    const dx = ((i*211 - par*1.4) % (W+80) + W+80) % (W+80) - 40;
+    const dy = my + Math.sin(i*2.1)*((fy-cy)/3.4);
+    ctx.save(); ctx.translate(dx,dy); ctx.rotate(Math.PI/4);
+    ctx.strokeStyle="rgba(240,171,252,.5)"; ctx.lineWidth=1.5; ctx.strokeRect(-8,-8,16,16); ctx.restore();
+  }
+  ctx.globalAlpha=1;
+  // mirrored centre line — the Mirror Lab seam
+  ctx.strokeStyle="rgba(45,212,238,.28)"; ctx.lineWidth=1; ctx.setLineDash([10,14]); ctx.lineDashOffset=-bgScroll*0.6;
+  ctx.beginPath(); ctx.moveTo(0,my); ctx.lineTo(W,my); ctx.stroke(); ctx.setLineDash([]);
+  // wall panels scrolling (behind the slabs)
+  ctx.fillStyle="rgba(124,58,237,.10)";
+  for(let x=-(bgScroll%92); x<W; x+=92){ ctx.fillRect(x, cy-58, 62, 34); ctx.fillRect(x, fy+24, 62, 34); }
+  // ---- ceiling slab ----
+  drawSlab(0, cy, true);
+  drawSlab(fy, H, false);
+  // gaps drawn as voids in the slabs (cut + warning chevrons)
+  for(const o of objects) if(o.kind==="gap") drawGap(o, fy, cy);
+  // ---- objects ----
+  for(const o of objects){
+    if(o.kind==="spike") drawSpikes(o, fy, cy);
+    if(o.kind==="gate") drawGate(o, fy, cy);
+  }
+  // ---- rings / particles ----
+  for(const r of rings){ ctx.globalAlpha=1-r.t/.45; ctx.strokeStyle=r.color; ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.arc(r.x,r.y,r.r,0,6.283); ctx.stroke(); }
+  ctx.globalAlpha=1;
+  for(const p of particles){ ctx.globalAlpha=1-p.t/p.life; ctx.fillStyle=p.color; ctx.fillRect(p.x-p.sz/2,p.y-p.sz/2,p.sz,p.sz); }
+  ctx.globalAlpha=1;
+  // ---- player (hidden on title: title shows hero art) ----
+  if(phase!=="title") drawPlayer();
+  // hit / miss flash
+  if(flashA>0){ ctx.fillStyle="rgba("+flashColor+","+flashA*.5+")"; ctx.fillRect(-14,-14,W+28,H+28); }
+  ctx.restore();
+  // vignette
+  const v=ctx.createRadialGradient(W/2,H/2,H*.34,W/2,H/2,H*.78);
+  v.addColorStop(0,"rgba(0,0,0,0)"); v.addColorStop(1,"rgba(3,0,14,.5)");
+  ctx.fillStyle=v; ctx.fillRect(0,0,W,H);
+}
+function drawSlab(topY, botY, isCeil){
+  const fy=floorY(), cy=ceilY();
+  const y0 = isCeil? 0 : fy, y1 = isCeil? cy : H;
+  const g=ctx.createLinearGradient(0,y0,0,y1);
+  g.addColorStop(0, isCeil? "#241055":"#1c0b46"); g.addColorStop(1, isCeil? "#1c0b46":"#241055");
+  ctx.fillStyle=g; ctx.fillRect(0,y0,W,y1-y0);
+  // panel ticks
+  ctx.fillStyle="rgba(168,85,247,.20)";
+  for(let x=-(bgScroll%56); x<W; x+=56) ctx.fillRect(x, isCeil? y1-13 : y0+4, 30, 5);
+  // neon edge
+  const ey = isCeil? cy : fy;
+  ctx.strokeStyle="#2dd4ee"; ctx.lineWidth=3; ctx.shadowColor="#22d3ee"; ctx.shadowBlur=10;
+  ctx.beginPath(); ctx.moveTo(0,ey); ctx.lineTo(W,ey); ctx.stroke();
+  ctx.strokeStyle="#a855f7"; ctx.lineWidth=1.4; ctx.shadowColor="#a855f7";
+  ctx.beginPath(); ctx.moveTo(0,ey+(isCeil?-6:6)); ctx.lineTo(W,ey+(isCeil?-6:6)); ctx.stroke();
+  ctx.shadowBlur=0;
+}
+function drawGap(o, fy, cy){
+  const isFloor = o.side==="floor";
+  const ySurf = isFloor? fy : cy;
+  // punch the void: cover slab+edge with dark, add broken edges
+  ctx.fillStyle="#05021a";
+  if(isFloor) ctx.fillRect(o.x, fy-2, o.w, H-fy+2); else ctx.fillRect(o.x, 0, o.w, cy+2);
+  ctx.fillStyle="rgba(88,28,135,.35)";
+  if(isFloor) ctx.fillRect(o.x, fy+14, o.w, 4); else ctx.fillRect(o.x, cy-18, o.w, 4);
+  // jagged broken neon ends
+  ctx.strokeStyle="#f0abfc"; ctx.lineWidth=2; ctx.shadowColor="#e879f9"; ctx.shadowBlur=7;
+  ctx.beginPath();
+  ctx.moveTo(o.x, ySurf); ctx.lineTo(o.x+5, ySurf+(isFloor?7:-7)); ctx.lineTo(o.x+10, ySurf);
+  ctx.moveTo(o.x+o.w-10, ySurf); ctx.lineTo(o.x+o.w-5, ySurf+(isFloor?7:-7)); ctx.lineTo(o.x+o.w, ySurf);
+  ctx.stroke(); ctx.shadowBlur=0;
+  // warning chevrons inside the void
+  ctx.fillStyle="rgba(251,113,133,.85)";
+  const dir = isFloor? 1 : -1;
+  for(let i=0;i<3;i++){ const cxp=o.x+o.w/2, cyp=ySurf+dir*(14+i*13);
+    ctx.beginPath(); ctx.moveTo(cxp-8,cyp); ctx.lineTo(cxp+8,cyp); ctx.lineTo(cxp,cyp+dir*7); ctx.closePath(); ctx.fill(); }
+}
+function drawSpikes(o, fy, cy){
+  const isFloor=o.side==="floor", baseY=isFloor? fy:cy, h=27, wEach=o.w/o.n;
+  ctx.fillStyle="#2a0f4d"; ctx.strokeStyle="#f472b6"; ctx.lineWidth=1.8; ctx.shadowColor="#ec4899"; ctx.shadowBlur=8;
+  for(let i=0;i<o.n;i++){
+    const x0=o.x+i*wEach;
+    ctx.beginPath();
+    ctx.moveTo(x0+2, baseY);
+    ctx.lineTo(x0+wEach/2, baseY + (isFloor? -h : h));
+    ctx.lineTo(x0+wEach-2, baseY);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  ctx.shadowBlur=0;
+}
+function drawGate(o, fy, cy){
+  const x=o.x+o.w/2, my=midY();
+  const openIsFloor = o.side==="floor";
+  // blocked half: laser bars from the opposite surface to the middle
+  const blockFrom = openIsFloor? cy : my, blockTo = openIsFloor? my : fy;
+  ctx.fillStyle="rgba(190,24,93,.30)"; ctx.fillRect(o.x-7, Math.min(blockFrom,blockTo), 30, Math.abs(blockTo-blockFrom));
+  ctx.strokeStyle="#fb7185"; ctx.lineWidth=2; ctx.shadowColor="#f43f5e"; ctx.shadowBlur=7;
+  for(let y=Math.min(blockFrom,blockTo)+10; y<Math.max(blockFrom,blockTo)-4; y+=15){
+    ctx.beginPath(); ctx.moveTo(o.x-7,y); ctx.lineTo(o.x+23,y); ctx.stroke();
+  }
+  // open half: teal bracket frame + pulsing chevron toward the opening
+  const oFrom = openIsFloor? my : cy, oTo = openIsFloor? fy : my;
+  ctx.strokeStyle="#2dd4ee"; ctx.lineWidth=3; ctx.shadowColor="#22d3ee"; ctx.shadowBlur=11;
+  ctx.strokeRect(o.x-7, Math.min(oFrom,oTo)+3, 30, Math.abs(oTo-oFrom)-6);
+  ctx.shadowBlur=0;
+  const pulse = 0.6+0.4*Math.sin(timeMs/130);
+  ctx.fillStyle="rgba(94,234,212,"+pulse+")";
+  const ay=(oFrom+oTo)/2, dir=openIsFloor?1:-1;
+  ctx.beginPath(); ctx.moveTo(x-9, ay-dir*8); ctx.lineTo(x+9, ay-dir*8); ctx.lineTo(x, ay+dir*9); ctx.closePath(); ctx.fill();
+  // top/bottom caps
+  ctx.fillStyle="#a855f7"; ctx.fillRect(o.x-10, cy-4, 36, 8); ctx.fillRect(o.x-10, fy-4, 36, 8);
+}
+function drawPlayer(){
+  const blink = P.invuln>0 && Math.floor(timeMs/90)%2===0;
+  ctx.save(); ctx.translate(P.x,P.y); ctx.rotate(P.angle);
+  if(blink) ctx.globalAlpha=.35;
+  // speed trail
+  ctx.fillStyle="rgba(251,124,30,.28)";
+  ctx.beginPath(); ctx.moveTo(-P.r-16,-6); ctx.lineTo(-P.r-2,0); ctx.lineTo(-P.r-16,6); ctx.closePath(); ctx.fill();
+  // legs (running cycle)
+  const lp=Math.sin(P.runPhase*2)* (P.grounded?6:2), r=P.r;
+  ctx.strokeStyle="#c2410c"; ctx.lineWidth=5.5; ctx.lineCap="round";
+  ctx.beginPath(); ctx.moveTo(-3,r-6); ctx.lineTo(-3+lp, r+3); ctx.moveTo(5,r-6); ctx.lineTo(5-lp, r+3); ctx.stroke();
+  // orange suit body
+  ctx.fillStyle="#fb7c1e"; ctx.strokeStyle="#7c2d12"; ctx.lineWidth=1.6;
+  ctx.beginPath(); ctx.roundRect(-10,-4,20,15,6); ctx.fill(); ctx.stroke();
+  ctx.fillStyle="#fbbf24"; ctx.fillRect(-3,1,6,6); // chest light
+  // backpack
+  ctx.fillStyle="#9a3412"; ctx.fillRect(-15,-2,5,11);
+  // arms
+  ctx.strokeStyle="#ea580c"; ctx.lineWidth=5;
+  ctx.beginPath(); ctx.moveTo(-8,2); ctx.lineTo(-13,8-Math.sin(P.runPhase*2)*3); ctx.moveTo(9,2); ctx.lineTo(14,8+Math.sin(P.runPhase*2)*3); ctx.stroke();
+  // fluffy cream hood + face (matches key art)
+  ctx.fillStyle="#fef3e0"; ctx.strokeStyle="#e7cfa5"; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.arc(0,-13,12.5,0,6.283); ctx.fill(); ctx.stroke();
+  ctx.fillStyle="#2b2118";
+  ctx.beginPath(); ctx.arc(-4.5,-13,1.7,0,6.283); ctx.arc(4.5,-13,1.7,0,6.283); ctx.fill();
+  ctx.strokeStyle="#2b2118"; ctx.lineWidth=1.3;
+  ctx.beginPath(); ctx.arc(0,-9.5,2.6,Math.PI*1.15,Math.PI*1.85); ctx.stroke();
+  ctx.fillStyle="rgba(251,146,160,.55)";
+  ctx.beginPath(); ctx.arc(-8,-10.5,2.4,0,6.283); ctx.arc(8,-10.5,2.4,0,6.283); ctx.fill();
+  ctx.restore();
+}
+
+/* ---------------- Loop ---------------- */
+function frame(ts){
+  requestAnimationFrame(frame);
+  if(!lastTs) lastTs=ts;
+  let dt=(ts-lastTs)/1000; lastTs=ts;
+  dt=Math.min(dt,.033);
+  if(phase!=="paused") update(dt);
+  draw();
+}
+requestAnimationFrame(frame);
+
+/* ---------------- Input ---------------- */
+function pressFlip(e){ if(e) e.preventDefault(); if(phase==="playing") flip(); }
+canvas.addEventListener("pointerdown", pressFlip);
+$("flipBtn").addEventListener("pointerdown", pressFlip);
+window.addEventListener("keydown", e=>{
+  if(e.repeat) return;
+  if(e.code==="Space"||e.code==="ArrowUp"||e.code==="ArrowDown"||e.code==="KeyW"){ e.preventDefault(); if(phase==="playing") flip(); }
+  else if(e.code==="KeyP"||e.code==="Escape"){ if(phase==="playing") pauseGame(); else if(phase==="paused") resumeGame(); }
+  else if(e.code==="Enter"){ if(phase==="title") startGame(); else if(phase==="over") startGame(); }
+});
+$("startBtn").addEventListener("click", startGame);
+$("restartBtn").addEventListener("click", startGame);
+$("pauseRestartBtn").addEventListener("click", startGame);
+$("resumeBtn").addEventListener("click", resumeGame);
+$("quitBtn").addEventListener("click", toTitle);
+$("overTitleBtn").addEventListener("click", toTitle);
+$("pauseBtn").addEventListener("click", ()=>{ if(phase==="playing") pauseGame(); });
+$("muteBtn").addEventListener("click", ()=>{ muted=!muted; $("muteBtn").textContent = muted?"🔇":"🔊"; if(!muted) audio(); });
+document.addEventListener("visibilitychange", ()=>{ if(document.hidden) pauseGame(); });
+// prevent double-tap zoom / scroll on the stage
+stage.addEventListener("touchmove", e=>e.preventDefault(), {passive:false});
+
+/* name field persistence */
+const ni=$("nameInput"); ni.value=playerName;
+ni.addEventListener("input", ()=>{ playerName=ni.value.trim().slice(0,14); try{ localStorage.setItem(NAME_KEY,playerName); }catch(e){} updateBestLine(); });
+ni.addEventListener("keydown", e=>{ e.stopPropagation(); if(e.code==="Enter"){ e.preventDefault(); startGame(); } });
+
+/* ---------------- Boot / test hook ---------------- */
+resize(); reset(); updateBestLine();
+window.__previewGame = {
+  getState(){ return { game:"flipfall", phase, score:Math.floor(score), distance:Math.floor(distPx/50),
+    multiplier, shields, streak, cleanGates, speed:Math.round(speed),
+    player:{ y:Math.round(P.y), gravity:P.grav, grounded:P.grounded },
+    objects: objects.map(o=>o.kind), best, playerName }; },
+  start: startGame, flip, pause: pauseGame, resume: resumeGame
+};
+})();
+</script>
+</body>
+</html>
