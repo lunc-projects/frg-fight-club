@@ -468,7 +468,7 @@
     return 'The transaction failed: ' + m.slice(0, 220) +
       ' — nothing was changed. Tell Tom (the assistant) this exact text if it keeps happening.';
   }
-  function doSend(k, label, msgs, verify){
+  function doSend(k, label, msgs, verify, gas){
     var P = state.pools[k], res = $('res-' + k);
     if (P.sending || !state.connected || !P.codeOk) return;
     if (!window.EXIT.sendExecute){
@@ -481,7 +481,7 @@
       '… check the transaction carefully in the wallet app before approving: it must be an <b>Execute Contract</b> on ' +
       (msgs.length > 1 ? 'these contracts' : 'this contract') + ' carrying exactly this message' +
       (msgs.length > 1 ? 's' : '') + ':<br><span class="mono">' + shown + '</span></div>';
-    window.EXIT.sendExecute({ sender: state.connected, msgs: msgs })
+    window.EXIT.sendExecute({ sender: state.connected, msgs: msgs, gas: gas })
       .then(function(hash){
         res.innerHTML = '<div>✅ <b>Transaction sent.</b><br>Tx hash: <span class="mono">' + hash + '</span><br>' +
           '<a href="' + FINDER + '/tx/' + hash + '" target="_blank" rel="noopener">View the transaction on Finder ↗</a></div>' +
@@ -528,7 +528,7 @@
           escapeHtml(sym) + ' is in the pending list below with its release date.';
       }
       return null;
-    });
+    }, '600000');
   }
   function doClaim(k){
     var P = state.pools[k];
@@ -912,7 +912,7 @@ function noPayMethodError(){
   e.noPayMethod = true;
   return e;
 }
-window.EXIT.sendExecute = async function({ sender, msgs }){
+window.EXIT.sendExecute = async function({ sender, msgs, gas }){
   const cw = connectedCw;
   if (!cw) throw new Error('no wallet is connected');
   const kit = await loadKit();
@@ -935,8 +935,14 @@ window.EXIT.sendExecute = async function({ sender, msgs }){
       funds: [],
     },
   }));
-  /* FIXED fee — never "auto": gas 300,000 x 28.325 uluna = 8,497,500 uluna. */
-  const fee = { amount: [{ denom: 'uluna', amount: '8497500' }], gas: '300000' };
+  /* FIXED fee — never "auto": gas price 28.325 uluna per gas.
+     Unstake is the two-message tx (fee-token increase_allowance + unstake);
+     a live run measured gas_used 460,540, so unstake sends carry gas 600,000
+     (fee 16,995,000 uluna). Claim ({"withdraw":{}}) measured 237,675 and
+     redeem 221,260, so those sends keep gas 300,000 (fee 8,497,500 uluna). */
+  const fee = gas === '600000'
+    ? { amount: [{ denom: 'uluna', amount: '16995000' }], gas: '600000' }
+    : { amount: [{ denom: 'uluna', amount: '8497500' }], gas: '300000' };
   window.__lastTxPreview = { msgs: objs.map((o, i) => ({ typeUrl: o.typeUrl, contract: objs[i].value.contract, msgJson: msgs[i].msgJson })), fee: fee };
   const result = await client.signAndBroadcast(sender, objs, fee, 'Garuda pool exit');
   if (result && typeof result.code === 'number' && result.code !== 0){
