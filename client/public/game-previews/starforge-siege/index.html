@@ -69,6 +69,24 @@ canvas{width:100%;height:auto;display:block;background:#050816;touch-action:none
 #restartBtn{width:100%;padding:16px;border-radius:13px;background:linear-gradient(180deg,#ffb02e,#ff6a00);color:#1c0d00;font-size:18px;font-weight:1000;box-shadow:0 6px 0 #7a2b00}
 .stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0}.stats div{background:#141a35;border:1px solid #333c6e;border-radius:12px;padding:12px}.stats b{font-size:22px;display:block}.stats span{font-size:11px;color:#9fb4d8;letter-spacing:.12em;font-weight:800}
 .foot{font-size:11px;color:#8092b8;text-align:center;padding:4px 12px 10px;line-height:1.4}
+/* LEADERBOARD (shared Luna board) */
+.sfBtn{width:100%;margin-top:10px;padding:14px;border-radius:13px;background:linear-gradient(180deg,#38e1ff,#1b7fa8);color:#03202a;font-size:16px;font-weight:1000;letter-spacing:.05em;box-shadow:0 5px 0 #0d4a63}
+.sfBtn:active{transform:translateY(3px);box-shadow:0 2px 0 #0d4a63}
+.sfBtn:disabled{opacity:.5}
+.sfBtnAlt{width:100%;margin-top:10px;padding:13px;border-radius:13px;background:#141a35;border:1px solid #4a5488;color:#cfe9ff;font-size:15px;font-weight:1000;letter-spacing:.05em}
+#sfSubmitStatus{min-height:20px;margin:10px 0 0;color:#ffdf8a;font-weight:800;font-size:14px;text-align:center}
+#sfBoardScreen{display:none;position:fixed;inset:0;z-index:60;background:rgba(2,3,12,.94);flex-direction:column;align-items:center;padding:26px 16px;overflow-y:auto}
+#sfBoardScreen .sfSmall{font-size:12px;letter-spacing:.22em;color:#ffc233;font-weight:900}
+#sfBoardScreen h2{font-size:32px;margin:8px 0 2px;color:#ffcf5a;letter-spacing:.04em}
+.sfTabs{display:flex;gap:8px;margin-top:12px;width:min(430px,94vw)}
+.sfTabBtn{flex:1;padding:11px;border-radius:11px;background:#141a35;border:1px solid #4a5488;color:#cfe9ff;font-weight:1000;font-size:13px;letter-spacing:.08em;cursor:pointer}
+.sfTabBtn.sfTabOn{background:linear-gradient(180deg,#ffb02e,#ff6a00);color:#1c0d00;border-color:#ffc233}
+#sfBoardList{width:min(430px,94vw);max-height:52vh;overflow-y:auto;text-align:left;font-size:15px;background:#0d1124;border:1px solid #39406b;border-radius:14px;margin-top:12px}
+#sfBoardList .row{display:flex;justify-content:space-between;gap:10px;padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.09)}
+#sfBoardList .row .rk{opacity:.65;width:34px;flex:0 0 auto}
+#sfBoardList .row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#sfBoardList .row .sc{font-weight:900;color:#ffcf5a}
+#sfBoardClose{width:min(430px,94vw)}
 </style></head>
 <body><main class="app">
 <!-- TITLE -->
@@ -88,6 +106,7 @@ canvas{width:100%;height:auto;display:block;background:#050816;touch-action:none
     </div>
     <button id="startBtn">▶ &nbsp;START DEFENSE</button>
     <p class="best" id="bestLine">🏆 Local Best: 0</p>
+    <button id="sfTitleBoardBtn" class="sfBtnAlt" type="button">🏆 LEADERBOARD</button>
     <div class="how">
       <b>How to play:</b> Tap glowing <b>star-metal nodes</b> drifting on the field to harvest metal. Forge a turret below — it takes a few seconds — then tap a glowing <b>pad</b> to place it. Tap a placed turret to <b>Upgrade</b> or <b>Scrap</b> it. Press <b>Send Next Wave</b> when ready. If drones reach the core on the right, it takes damage. Core at zero = game over.
     </div>
@@ -128,9 +147,24 @@ canvas{width:100%;height:auto;display:block;background:#050816;touch-action:none
   <h2>CORE LOST</h2>
   <p style="color:#cfe0ff;margin:0">The forge went dark, <b id="overName">Commander</b>. The swarm took the core — but the star-metal remembers your stand.</p>
   <div class="stats"><div><b id="finalScore">0</b><span>FINAL SCORE</span></div><div><b id="finalWave">0</b><span>WAVE REACHED</span></div><div><b id="finalKills">0</b><span>KILLS</span></div><div><b id="overBest">0</b><span>LOCAL BEST</span></div></div>
+  <button id="sfSubmitBtn" class="sfBtn" type="button">🏆 SUBMIT SCORE</button>
+  <p id="sfSubmitStatus"></p>
+  <button id="sfOverBoardBtn" class="sfBtnAlt" type="button">🏆 LEADERBOARD</button>
   <button id="restartBtn">↻ &nbsp;FORGE AGAIN — RESTART</button>
   <p class="foot">★ LUNA CLASSIC ★ • Starforge Siege</p>
 </section>
+
+<!-- LEADERBOARD -->
+<div id="sfBoardScreen">
+  <div class="sfSmall">★ STARFORGE SIEGE ★</div>
+  <h2>LEADERBOARD</h2>
+  <div class="sfTabs">
+    <button id="sfTabAll" class="sfTabBtn sfTabOn" type="button">ALL-TIME</button>
+    <button id="sfTabWeek" class="sfTabBtn" type="button">THIS WEEK</button>
+  </div>
+  <div id="sfBoardList"><p style="text-align:center; opacity:.8">Loading…</p></div>
+  <button id="sfBoardClose" class="sfBtnAlt" type="button">✕ CLOSE</button>
+</div>
 </main>
 
 <script>
@@ -461,5 +495,83 @@ requestAnimationFrame(loop);
 window.__intensityTest={getState:()=>({intensity,hardness,intensityFull:INTENSITY_FULL,scoreMultiplier,params:{...getIntensityParams(),spawnGap}})};
 window.__previewGame={getState:()=>({phase,score,wave,core,metal:Math.floor(metal),player,best,kills,paused,waveActive,enemies:enemies.length,turrets:PADS.filter(p=>p.turret).length,forging:forging?forging.type:null,ready,intensity,hardness,intensityFull:INTENSITY_FULL,scoreMultiplier,params:{...getIntensityParams(),spawnGap}})};
 reset();
+})();
+</script>
+<script>
+/* ================= leaderboard (STARFORGE SIEGE) ================= */
+(() => {
+"use strict";
+const SF_TG = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+let sfInitData = '';
+try { if (SF_TG){ SF_TG.ready(); SF_TG.expand(); sfInitData = SF_TG.initData || ''; } } catch (e) {}
+const sfUrl = '/api/luna-games?game=starforge-siege';
+let sfStartTs = Date.now();
+const sfStartBtn = document.getElementById('startBtn');
+if (sfStartBtn) sfStartBtn.addEventListener('click', () => { sfStartTs = Date.now(); });
+const sfRestartBtn = document.getElementById('restartBtn');
+if (sfRestartBtn) sfRestartBtn.addEventListener('click', () => { sfStartTs = Date.now(); });
+let sfBoardCache = null, sfBoardTab = 'all';
+function sfRenderBoard(){
+  const list = document.getElementById('sfBoardList');
+  const rows = (sfBoardCache && sfBoardCache[sfBoardTab]) || [];
+  document.getElementById('sfTabAll').className = 'sfTabBtn' + (sfBoardTab === 'all' ? ' sfTabOn' : '');
+  document.getElementById('sfTabWeek').className = 'sfTabBtn' + (sfBoardTab === 'week' ? ' sfTabOn' : '');
+  if (!rows.length){ list.innerHTML = '<p style="text-align:center; opacity:.8">No scores yet — be the first 🏆</p>'; return; }
+  list.innerHTML = rows.map((r, i) =>
+    `<div class="row"><span class="rk">${i+1}.</span><span class="nm"></span><span class="sc">${r.score}</span></div>`).join('');
+  [...list.querySelectorAll('.nm')].forEach((el, i) => el.textContent = rows[i].name);
+}
+async function sfOpenBoard(){
+  document.getElementById('sfBoardScreen').style.display = 'flex';
+  const list = document.getElementById('sfBoardList');
+  list.innerHTML = '<p style="text-align:center; opacity:.8">Loading…</p>';
+  try {
+    const r = await fetch(sfUrl);
+    if (!r.ok) throw new Error(r.status);
+    sfBoardCache = await r.json();
+  } catch (e) {
+    sfBoardCache = null;
+    list.innerHTML = '<p style="text-align:center; opacity:.8">Leaderboard unavailable right now.</p>';
+    return;
+  }
+  sfRenderBoard();
+}
+document.getElementById('sfTitleBoardBtn').addEventListener('click', sfOpenBoard);
+document.getElementById('sfOverBoardBtn').addEventListener('click', sfOpenBoard);
+document.getElementById('sfBoardClose').addEventListener('click', () => document.getElementById('sfBoardScreen').style.display = 'none');
+document.getElementById('sfTabAll').addEventListener('click', () => { sfBoardTab = 'all'; sfRenderBoard(); });
+document.getElementById('sfTabWeek').addEventListener('click', () => { sfBoardTab = 'week'; sfRenderBoard(); });
+document.getElementById('sfSubmitBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('sfSubmitBtn'), status = document.getElementById('sfSubmitStatus');
+  let name = '';
+  try { name = (document.getElementById('playerName').value || '').trim(); } catch (e) {}
+  if (name.length < 2) { try { name = (localStorage.getItem('starforge-siege:name') || '').trim(); } catch (e) {} }
+  if (name.length < 2) name = 'Guest';
+  name = name.slice(0, 20);
+  let sfScore = 0;
+  try {
+    const st = window.__previewGame && window.__previewGame.getState ? window.__previewGame.getState() : null;
+    if (st && isFinite(st.score)) sfScore = Math.floor(st.score);
+  } catch (e) {}
+  if (!sfScore) {
+    try { sfScore = parseInt((document.getElementById('finalScore').textContent || '0').replace(/[^0-9]/g, ''), 10) || 0; } catch (e) {}
+  }
+  const seconds = Math.min(7200, Math.max(10, Math.round((Date.now() - sfStartTs) / 1000)));
+  btn.disabled = true; status.textContent = 'Submitting…';
+  try {
+    const r = await fetch(sfUrl, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData: sfInitData, name, score: sfScore, seconds })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || r.status);
+    status.textContent = d.rank ? "🏆 You're #" + d.rank + " all-time!" : '🏆 Score submitted!';
+    sfBoardTab = 'all';
+    setTimeout(sfOpenBoard, 650);
+  } catch (e) {
+    status.textContent = 'Could not submit — try again.';
+    btn.disabled = false;
+  }
+});
 })();
 </script></body></html>

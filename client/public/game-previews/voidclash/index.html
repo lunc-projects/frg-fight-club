@@ -82,6 +82,19 @@ canvas{width:100%;aspect-ratio:390/330;display:block;background:#0a0418;border:2
 .bigBtn{background:linear-gradient(90deg,#7b1fff,#ff3fd4 55%,#00cfff);font-size:18px;font-weight:1000;padding:14px 18px;border-radius:11px;width:100%;margin-top:6px;box-shadow:0 4px 0 #3d0a66}
 .ghostBtn{background:#241040;border:1.5px solid #6d3bbd;font-size:15px;font-weight:800;padding:12px;border-radius:11px;width:100%;margin-top:8px}
 #finalStats{color:var(--gold);font-weight:900;font-size:16px;line-height:1.6}
+/* LEADERBOARD */
+#vcSubmitStatus{min-height:20px;color:var(--gold);font-weight:800}
+#vcBoardScreen{z-index:40}
+.vcBoardCard{max-height:88dvh;display:flex;flex-direction:column}
+.vcBoardKicker{font-size:11px;letter-spacing:.22em;color:var(--cy);font-weight:800}
+.vcTabs{display:flex;gap:8px;margin:4px 0 10px}
+.vcTabBtn{flex:1;background:#241040;border:1.5px solid #6d3bbd;font-size:13px;font-weight:900;letter-spacing:.06em;padding:10px 6px;border-radius:10px;color:#e2d2ff}
+.vcTabBtn.vcTabOn{background:linear-gradient(90deg,#7b1fff,#ff3fd4 55%,#00cfff);border-color:transparent;color:#fff}
+#vcBoardList{width:100%;max-height:46vh;overflow-y:auto;text-align:left;font-size:15px}
+#vcBoardList .row{display:flex;justify-content:space-between;gap:10px;padding:7px 12px;border-bottom:1px solid #4b258566}
+#vcBoardList .row .rk{opacity:.65;width:34px;flex:0 0 auto}
+#vcBoardList .row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#vcBoardList .row .sc{font-weight:900;color:var(--gold)}
 </style></head><body>
 <div id="app">
   <!-- TITLE -->
@@ -101,6 +114,7 @@ canvas{width:100%;aspect-ratio:390/330;display:block;background:#0a0418;border:2
       </div>
       <div><div id="ownerSettingsLine">Owner settings: Intensity 5 · Hardness 5</div><div id="intensitySummary">Score multiplier: ×1.44</div></div>
       <button id="startBtn">▶ &nbsp;ENTER THE CAGE</button>
+      <button id="vcTitleBoardBtn" class="ghostBtn" type="button">🏆 LEADERBOARD</button>
       <div class="ladderBox"><h3>⚡ THE LADDER — BEAT ALL 5</h3>
         <div class="rung"><span>1 · RUST VIPER</span><span>street brawler · learning</span></div>
         <div class="rung"><span>2 · NEON MIRA</span><span>fast jabs · darting</span></div>
@@ -155,8 +169,21 @@ canvas{width:100%;aspect-ratio:390/330;display:block;background:#0a0418;border:2
   <!-- END -->
   <div class="overlay" id="endOverlay"><div class="card"><h2 id="endTitle">VICTORY</h2>
     <p id="endText"></p><div id="finalStats"></div>
+    <button class="bigBtn" id="vcSubmitBtn" type="button">🏆 SUBMIT SCORE</button>
+    <p id="vcSubmitStatus"></p>
+    <button class="ghostBtn" id="vcEndBoardBtn" type="button">🏆 LEADERBOARD</button>
     <button class="bigBtn" id="restartBtn">↻ &nbsp;FIGHT AGAIN</button>
     <button class="ghostBtn" id="endTitleBtn">TITLE SCREEN</button></div></div>
+
+  <!-- LEADERBOARD -->
+  <div class="overlay" id="vcBoardScreen"><div class="card vcBoardCard">
+    <div class="vcBoardKicker">⚔️ VOIDCLASH</div><h2>LEADERBOARD</h2>
+    <div class="vcTabs">
+      <button id="vcTabAll" class="vcTabBtn vcTabOn" type="button">ALL-TIME</button>
+      <button id="vcTabWeek" class="vcTabBtn" type="button">THIS WEEK</button>
+    </div>
+    <div id="vcBoardList"><p style="text-align:center;opacity:.8">Loading…</p></div>
+    <button class="ghostBtn" id="vcBoardClose" type="button">✕ CLOSE</button></div></div>
 </div>
 
 <script>
@@ -507,4 +534,70 @@ window.addEventListener('keydown',e=>{if(e.repeat)return;
 window.addEventListener('keyup',e=>{if(KEYMAP[e.code]!==undefined)keys[KEYMAP[e.code]]=false;});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)pauseGame();});
 renderIntensity();updateHUD();
+</script>
+<script>
+/* ================= leaderboard (VOIDCLASH) ================= */
+const TG_VC = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+let vcInitData = '';
+try { if (TG_VC){ TG_VC.ready(); TG_VC.expand(); vcInitData = TG_VC.initData || ''; } } catch (e) {}
+const vcNameInput = document.getElementById('nameInput');
+let vcStartTs = Date.now();
+function vcResetSubmit(){ vcStartTs = Date.now();
+  const b = document.getElementById('vcSubmitBtn'); if (b) b.disabled = false;
+  const s = document.getElementById('vcSubmitStatus'); if (s) s.textContent = ''; }
+document.getElementById('startBtn').addEventListener('click', vcResetSubmit);
+document.getElementById('restartBtn').addEventListener('click', vcResetSubmit);
+let vcBoardCache = null, vcBoardTab = 'all';
+function vcRenderBoard(){
+  const list = document.getElementById('vcBoardList');
+  const rows = (vcBoardCache && vcBoardCache[vcBoardTab]) || [];
+  document.getElementById('vcTabAll').className = vcBoardTab === 'all' ? 'vcTabBtn vcTabOn' : 'vcTabBtn';
+  document.getElementById('vcTabWeek').className = vcBoardTab === 'week' ? 'vcTabBtn vcTabOn' : 'vcTabBtn';
+  if (!rows.length){ list.innerHTML = '<p style="text-align:center; opacity:.8">No scores yet — be the first 🏆</p>'; return; }
+  list.innerHTML = rows.map((r, i) =>
+    `<div class="row"><span class="rk">${i+1}.</span><span class="nm"></span><span class="sc">${r.score}</span></div>`).join('');
+  [...list.querySelectorAll('.nm')].forEach((el, i) => el.textContent = rows[i].name);
+}
+async function vcOpenBoard(){
+  document.getElementById('vcBoardScreen').classList.add('show');
+  document.getElementById('vcBoardList').innerHTML = '<p style="text-align:center; opacity:.8">Loading…</p>';
+  try {
+    const r = await fetch('/api/luna-games?game=voidclash');
+    if (!r.ok) throw new Error(r.status);
+    vcBoardCache = await r.json();
+  } catch (e) {
+    vcBoardCache = null;
+    document.getElementById('vcBoardList').innerHTML = '<p style="text-align:center; opacity:.8">Leaderboard unavailable right now.</p>';
+    return;
+  }
+  vcRenderBoard();
+}
+document.getElementById('vcTitleBoardBtn').addEventListener('click', vcOpenBoard);
+document.getElementById('vcEndBoardBtn').addEventListener('click', vcOpenBoard);
+document.getElementById('vcBoardClose').addEventListener('click', () => document.getElementById('vcBoardScreen').classList.remove('show'));
+document.getElementById('vcTabAll').addEventListener('click', () => { vcBoardTab = 'all'; vcRenderBoard(); });
+document.getElementById('vcTabWeek').addEventListener('click', () => { vcBoardTab = 'week'; vcRenderBoard(); });
+document.getElementById('vcSubmitBtn').addEventListener('click', async () => {
+  let name = vcNameInput.value.trim();
+  if (name.length < 2) { name = 'Guest'; }
+  const btn = document.getElementById('vcSubmitBtn'), status = document.getElementById('vcSubmitStatus');
+  let vcScore = 0;
+  try { vcScore = Math.floor(window.__previewGame.getState().score || 0); } catch (e) {}
+  const seconds = Math.min(3600, Math.max(5, Math.round((Date.now() - vcStartTs) / 1000)));
+  btn.disabled = true; status.textContent = 'Submitting…';
+  try {
+    const r = await fetch('/api/luna-games?game=voidclash', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData: vcInitData, name, score: vcScore, seconds })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || r.status);
+    status.textContent = d.rank ? "🏆 You're #" + d.rank + " all-time!" : '🏆 Score submitted!';
+    vcBoardTab = 'all';
+    setTimeout(vcOpenBoard, 650);
+  } catch (e) {
+    status.textContent = 'Could not submit — try again.';
+    btn.disabled = false;
+  }
+});
 </script></body></html>

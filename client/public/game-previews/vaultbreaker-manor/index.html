@@ -72,6 +72,18 @@ label{font-size:13px;color:#ffe9a8;letter-spacing:.08em}
 #ownerPanel label b{color:#ffd977}
 #ownerPanel input[type=range]{width:100%;accent-color:#14b8a6;margin:4px 0 8px}
 .foot{text-align:center;font-size:11px;color:#8fa79c;margin-top:12px;letter-spacing:.12em}
+/* leaderboard (vaultbreaker) */
+#vmSubmitStatus{min-height:20px;font-size:14px;color:#ffe9a8;text-align:center;margin:6px 0}
+#vmBoardScreen{position:fixed;inset:0;background:#030a0af2;z-index:40;display:flex;align-items:center;justify-content:center;padding:18px}
+#vmBoardCard{max-width:400px;width:100%;text-align:center;background:linear-gradient(180deg,#221407,#0c2422);border:2px solid #d4af37;border-radius:16px;padding:20px}
+#vmBoardList{max-height:46vh;overflow-y:auto;text-align:left;font-size:15px}
+#vmBoardList .row{display:flex;justify-content:space-between;gap:10px;padding:7px 12px;border-bottom:1px solid #ffffff17}
+#vmBoardList .row>*{flex:none}
+#vmBoardList .row .rk{opacity:.65;width:34px;flex:0 0 auto}
+#vmBoardList .row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#vmBoardList .row .sc{font-weight:900;color:#ffd977}
+.vmTabs{display:flex;gap:8px;margin:8px 0}
+.vmTabs>*{flex:1}
 </style></head><body>
 <div id="app">
   <!-- TITLE -->
@@ -93,6 +105,7 @@ label{font-size:13px;color:#ffe9a8;letter-spacing:.08em}
         <input type="range" id="hardnessRange" min="1" step="1" max="10" value="5">
       </div>
       <button id="startBtn" class="big">🗝️ ENTER THE MANOR</button>
+      <button id="vmBoardBtn" style="width:100%;margin-top:7px">🏆 LEADERBOARD</button>
       <p class="best" id="bestLine">No escapes yet — the manor awaits.</p>
     </div>
     <div class="panel how">🏚️ <b>How to play:</b> Tap rooms on the manor map, search furniture and portraits to find
@@ -149,8 +162,23 @@ label{font-size:13px;color:#ffe9a8;letter-spacing:.08em}
   <p id="endText" class="sub"></p>
   <div id="endScores"></div>
   <p class="best" id="endBest"></p>
+  <button id="vmSubmitBtn" class="big">🏆 SUBMIT SCORE</button>
+  <p id="vmSubmitStatus"></p>
+  <button id="vmOverBoardBtn" style="width:100%;margin-top:7px">🏆 LEADERBOARD</button>
   <button id="restartBtn" class="big">↺ PLAY AGAIN — RESHUFFLE THE MANOR</button>
   <button id="homeBtn" style="width:100%;margin-top:7px">🏠 Back to Title</button>
+</div></div>
+
+<!-- LEADERBOARD -->
+<div id="vmBoardScreen" class="hidden"><div id="vmBoardCard">
+  <div class="badge">🌙 LUNA CLASSIC — VAULTBREAKER MANOR</div>
+  <h1 style="font-size:27px">LEADERBOARD</h1>
+  <div class="vmTabs">
+    <button id="vmTabAll" type="button">ALL-TIME</button>
+    <button id="vmTabWeek" type="button">THIS WEEK</button>
+  </div>
+  <div id="vmBoardList"><p style="text-align:center;opacity:.8">Loading…</p></div>
+  <button id="vmBoardClose" style="width:100%;margin-top:10px">✕ CLOSE</button>
 </div></div>
 
 <script>
@@ -495,4 +523,67 @@ window.__previewGame={ getState:()=>({ phase:S.paused?"paused":S.phase, paused:S
   keys:{...S.keys}, keyCount:Object.values(S.keys).filter(Boolean).length, room:S.room, timeSec:S.timeSec, lantern:S.lantern,
   portraitSolved:S.portraitSolved, boltSolved:S.boltSolved, grand:S.grand, name:S.name }) };
 window.__intensityTest = { getState: () => ({ intensity, hardness, intensityFull: INTENSITY_FULL, scoreMultiplier: scoreMult(), params: difficultyParams() }) };
+</script>
+<script>
+/* ================= leaderboard (VAULTBREAKER MANOR) ================= */
+const vmTG = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+let vmInitData = '';
+try { if (vmTG){ vmTG.ready(); vmTG.expand(); vmInitData = vmTG.initData || ''; } } catch (e) {}
+let vmStartTs = Date.now();
+document.getElementById('startBtn').addEventListener('click', () => { vmStartTs = Date.now(); });
+document.getElementById('restartBtn').addEventListener('click', () => { vmStartTs = Date.now(); });
+let vmBoardCache = null, vmBoardTab = 'all';
+function vmRenderBoard(){
+  const list = document.getElementById('vmBoardList');
+  const rows = (vmBoardCache && vmBoardCache[vmBoardTab]) || [];
+  document.getElementById('vmTabAll').style.opacity = vmBoardTab === 'all' ? '1' : '.55';
+  document.getElementById('vmTabWeek').style.opacity = vmBoardTab === 'week' ? '1' : '.55';
+  if (!rows.length){ list.innerHTML = '<p style="text-align:center; opacity:.8">No scores yet — be the first 🏆</p>'; return; }
+  list.innerHTML = rows.map((r, i) =>
+    `<div class="row"><span class="rk">${i+1}.</span><span class="nm"></span><span class="sc">${r.score}</span></div>`).join('');
+  [...list.querySelectorAll('.nm')].forEach((el, i) => el.textContent = rows[i].name);
+}
+async function vmOpenBoard(){
+  document.getElementById('vmBoardScreen').classList.remove('hidden');
+  document.getElementById('vmBoardList').innerHTML = '<p style="text-align:center; opacity:.8">Loading…</p>';
+  try {
+    const r = await fetch('/api/luna-games?game=vaultbreaker-manor');
+    if (!r.ok) throw new Error(r.status);
+    vmBoardCache = await r.json();
+  } catch (e) {
+    vmBoardCache = null;
+    document.getElementById('vmBoardList').innerHTML = '<p style="text-align:center; opacity:.8">Leaderboard unavailable right now.</p>';
+    return;
+  }
+  vmRenderBoard();
+}
+document.getElementById('vmBoardBtn').addEventListener('click', vmOpenBoard);
+document.getElementById('vmOverBoardBtn').addEventListener('click', vmOpenBoard);
+document.getElementById('vmBoardClose').addEventListener('click', () => document.getElementById('vmBoardScreen').classList.add('hidden'));
+document.getElementById('vmTabAll').addEventListener('click', () => { vmBoardTab = 'all'; vmRenderBoard(); });
+document.getElementById('vmTabWeek').addEventListener('click', () => { vmBoardTab = 'week'; vmRenderBoard(); });
+document.getElementById('vmSubmitBtn').addEventListener('click', async () => {
+  const vmNameEl = document.getElementById('playerName');
+  let vmName = vmNameEl ? vmNameEl.value.trim() : '';
+  if (vmName.length < 2) { vmName = 'Guest'; }
+  const vmBtn = document.getElementById('vmSubmitBtn'), vmStatus = document.getElementById('vmSubmitStatus');
+  const vmSeconds = Math.min(7200, Math.max(10, Math.round((Date.now() - vmStartTs) / 1000)));
+  let vmScore = 0;
+  try { vmScore = Math.floor(window.__previewGame.getState().score); } catch (e) {}
+  vmBtn.disabled = true; vmStatus.textContent = 'Submitting…';
+  try {
+    const r = await fetch('/api/luna-games?game=vaultbreaker-manor', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData: vmInitData, name: vmName, score: vmScore, seconds: vmSeconds })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || r.status);
+    vmStatus.textContent = d.rank ? "🏆 You're #" + d.rank + " all-time!" : '🏆 Score submitted!';
+    vmBoardTab = 'all';
+    setTimeout(vmOpenBoard, 650);
+  } catch (e) {
+    vmStatus.textContent = 'Could not submit — try again.';
+    vmBtn.disabled = false;
+  }
+});
 </script></body></html>

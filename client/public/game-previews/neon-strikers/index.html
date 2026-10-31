@@ -50,6 +50,17 @@ details{width:100%;text-align:left;background:#0a183caa;border:1px solid #2c5f9a
 #ownerPanel input[type=range]{flex:1;margin:0 10px;padding:0;width:auto}
 #ownerPanel .val{color:#ffe94a;font-weight:900;min-width:22px;text-align:right}
 #hudIntensity{color:#ffe94a}
+#boardScreen .panel{margin-top:3vh;max-height:94%;overflow-y:auto}
+.nsTabs{display:flex;gap:8px;justify-content:center;margin:8px 0}
+.nsTab{background:#12265c;color:#eaffff;border:1px solid #45e8ff;border-radius:999px;padding:8px 14px;font-weight:800;cursor:pointer}
+.nsTabOn{background:linear-gradient(90deg,#00e5ff,#37f06a);color:#02101c}
+#nsBoardList{text-align:left;margin:6px 0}
+#nsBoardList .row{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid #2c5f9a;font-weight:700;color:#eaffff}
+#nsBoardList .rk{color:#ffe94a;font-weight:900;min-width:30px}
+#nsBoardList .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#nsBoardList .sc{color:#6ff7ff;font-weight:900}
+.nsBoardMsg{color:#aee9ff;text-align:center;padding:12px;font-weight:700}
+#nsSubmitBtn:disabled{opacity:.55}
 </style></head>
 <body><div id="wrap">
 <header><b>⚽ NEON STRIKERS</b><span>LUNA CLASSIC</span></header>
@@ -71,6 +82,7 @@ details{width:100%;text-align:left;background:#0a183caa;border:1px solid #2c5f9a
 <label for="hardnessRange">Hardness <span class="val" id="hardnessVal">5</span></label><input type="range" id="hardnessRange" min="1" step="1" max="10" value="5">
 </div>
 <button class="bigbtn" id="startBtn">▶ &nbsp;KICK OFF — QUARTER-FINAL</button>
+<button class="bigbtn" id="nsBoardBtnTitle" type="button" style="background:linear-gradient(90deg,#12265c,#24307a);color:#eaffff;border:1px solid #45e8ff">🏆 LEADERBOARD</button>
 <details open><summary><b>How to Play — Arena Rules</b></summary>
 <p>🕹️ <b>Move:</b> left joystick / drag, or <span class="kbd">WASD / arrows</span>. The glowing ring is your active player — it switches to whoever has the ball or is closest on defence.</p>
 <p>🟢 <b>PASS / TACKLE:</b> PASS button or <span class="kbd">J</span>. With the ball it passes to a team-mate; without it, your active player lunges / tackles.</p>
@@ -82,11 +94,16 @@ details{width:100%;text-align:left;background:#0a183caa;border:1px solid #2c5f9a
 
 <section class="screen hidden" id="resultScreen">
 <div class="panel"><div style="font-size:44px" id="resEmoji">🏆</div><h2 id="resTitle">FULL TIME</h2><p id="resText" style="line-height:1.55"></p><p id="resBest" style="color:#ffe94a;font-weight:800"></p>
+<button class="bigbtn" id="nsSubmitBtn" type="button">📤 SUBMIT SCORE</button>
+<p id="nsSubmitStatus" style="font-size:13px;color:#aee9ff;font-weight:700;min-height:16px;margin:6px 0 0"></p>
+<button class="bigbtn" id="nsBoardBtnResult" type="button" style="background:linear-gradient(90deg,#12265c,#24307a);color:#eaffff;border:1px solid #45e8ff">🏆 LEADERBOARD</button>
 <button class="bigbtn" id="nextBtn">NEXT MATCH ▶</button>
 <button class="bigbtn" id="restartBtn" style="background:linear-gradient(90deg,#ffe94a,#ff9d2e)">↻ &nbsp;NEW TOURNAMENT</button></div>
 </section>
 
 <section class="screen hidden" id="pauseScreen"><div class="panel"><h2>⏸ PAUSED</h2><p id="pauseText"></p><button class="bigbtn" id="resumeBtn">▶ RESUME</button><button class="bigbtn" id="quitBtn" style="background:#334">QUIT TO TITLE</button></div></section>
+
+<section class="screen hidden" id="boardScreen"><div class="panel"><h2>🏆 LEADERBOARD</h2><div class="sub">NEON STRIKERS</div><div class="nsTabs"><button id="nsTabAll" class="nsTab nsTabOn" type="button">ALL-TIME</button><button id="nsTabWeek" class="nsTab" type="button">THIS WEEK</button></div><div id="nsBoardList"></div><button class="bigbtn" id="nsBoardClose" type="button">CLOSE</button></div></section>
 </div>
 
 <div id="controls">
@@ -468,4 +485,22 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden&&phase==='p
 window.__previewGame={getState:()=>({phase,score:calcScore(),goals:totalGoals,matchGoals:you,cpuGoals:cpu,matchClock,clockSec,half,round:round+1,roundName:ROUNDS[round].name,ballOwner:ball.owner?(P.includes(ball.owner)?'you':'cpu'):'loose',activeIdx,intensity,hardness,intensityFull:INTENSITY_FULL,scoreMultiplier,params:getIntensityParams()})};
 window.__intensityTest={getState:()=>({intensity,hardness,intensityFull:INTENSITY_FULL,scoreMultiplier,params:getIntensityParams()})};
 draw();
+</script>
+<script>
+"use strict";
+var nsApi='/api/luna-games?game=neon-strikers';
+var nsStartTs=0,nsTab='all',nsBoardData=null,nsSubmitting=false,nsInitData='';
+try{if(window.Telegram&&window.Telegram.WebApp){nsInitData=window.Telegram.WebApp.initData||'';try{window.Telegram.WebApp.ready();}catch(e){}}}catch(e){}
+function nsEl(id){return document.getElementById(id);}
+function nsSeconds(){if(!nsStartTs)return 10;var s=Math.round((Date.now()-nsStartTs)/1000);return Math.max(10,Math.min(7200,s));}
+function nsMarkStart(){nsStartTs=Date.now();var b=nsEl('nsSubmitBtn');if(b)b.disabled=false;var st=nsEl('nsSubmitStatus');if(st)st.textContent='';}
+['startBtn','restartBtn'].forEach(function(id){var b=nsEl(id);if(b)b.addEventListener('click',nsMarkStart);});
+function nsCurrentName(){var v='';try{v=(nsEl('nameInput').value||'').trim();}catch(e){}if(v.length<2)v='Guest';return v.slice(0,20);}
+function nsOpenBoard(){var s=nsEl('boardScreen');if(s)s.classList.remove('hidden');nsLoadBoard();}
+function nsCloseBoard(){var s=nsEl('boardScreen');if(s)s.classList.add('hidden');}
+function nsRenderBoard(){var list=nsEl('nsBoardList');if(!list)return;list.innerHTML='';var rows=(nsBoardData&&nsBoardData[nsTab])||[];if(!rows.length){var d=document.createElement('div');d.className='nsBoardMsg';d.textContent='No scores yet — be the first!';list.appendChild(d);return;}rows.slice(0,20).forEach(function(r,i){var row=document.createElement('div');row.className='row';var rk=document.createElement('span');rk.className='rk';rk.textContent='#'+(i+1);var nm=document.createElement('span');nm.className='nm';nm.textContent=r.name||'';var sc=document.createElement('span');sc.className='sc';sc.textContent=String(r.score);row.appendChild(rk);row.appendChild(nm);row.appendChild(sc);list.appendChild(row);});}
+function nsLoadBoard(){var list=nsEl('nsBoardList');if(list){list.innerHTML='';var d=document.createElement('div');d.className='nsBoardMsg';d.textContent='Loading…';list.appendChild(d);}fetch(nsApi,{method:'GET'}).then(function(r){return r.json();}).then(function(d){nsBoardData=d;nsRenderBoard();}).catch(function(){if(list){list.innerHTML='';var d2=document.createElement('div');d2.className='nsBoardMsg';d2.textContent='Leaderboard unavailable right now.';list.appendChild(d2);}});}
+function nsSetTab(t){nsTab=t;var a=nsEl('nsTabAll'),w=nsEl('nsTabWeek');if(a)a.classList.toggle('nsTabOn',t==='all');if(w)w.classList.toggle('nsTabOn',t==='week');if(nsBoardData)nsRenderBoard();else nsLoadBoard();}
+function nsSubmit(){if(nsSubmitting)return;var btn=nsEl('nsSubmitBtn'),st=nsEl('nsSubmitStatus');var score=0;try{score=calcScore();}catch(e){score=0;}var payload={initData:nsInitData,name:nsCurrentName(),score:score,seconds:nsSeconds()};nsSubmitting=true;if(btn)btn.disabled=true;if(st)st.textContent='Submitting…';fetch(nsApi,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json();}).then(function(d){nsSubmitting=false;if(d&&d.ok){if(st)st.textContent=d.rank?("🏆 You're #"+d.rank+" all-time!"):'🏆 Score submitted!';setTimeout(nsOpenBoard,650);}else{if(st)st.textContent='Could not submit — try again.';if(btn)btn.disabled=false;}}).catch(function(){nsSubmitting=false;if(st)st.textContent='Could not submit — try again.';if(btn)btn.disabled=false;});}
+(function(){var sb=nsEl('nsSubmitBtn');if(sb)sb.addEventListener('click',nsSubmit);var bt=nsEl('nsBoardBtnTitle');if(bt)bt.addEventListener('click',nsOpenBoard);var br=nsEl('nsBoardBtnResult');if(br)br.addEventListener('click',nsOpenBoard);var cl=nsEl('nsBoardClose');if(cl)cl.addEventListener('click',nsCloseBoard);var ta=nsEl('nsTabAll');if(ta)ta.addEventListener('click',function(){nsSetTab('all');});var tw=nsEl('nsTabWeek');if(tw)tw.addEventListener('click',function(){nsSetTab('week');});})();
 </script></body></html>

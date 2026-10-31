@@ -58,6 +58,17 @@
   .overlay p{margin-top:10px;font-size:16px;line-height:1.55;color:#d7f6ff}
   .overlay .scoreBig{font-size:30px;color:#ffd94a;font-weight:1000;margin-top:6px}
   .ghostBtn{margin-top:12px;width:min(300px,84vw);min-height:50px;border-radius:12px;border:2px solid #19e8ff;background:rgba(6,20,36,.9);color:#bffbff;font-size:16px;font-weight:900;cursor:pointer}
+  /* LEADERBOARD (shared luna-games board) */
+  #srSubmitStatus{min-height:20px;margin-top:8px;font-size:14px;font-weight:800;color:#ffd94a}
+  #srBoardScreen{background:rgba(3,2,14,.92);justify-content:flex-start;padding-top:26px}
+  #srBoardList{width:min(430px,92vw);max-height:52dvh;overflow-y:auto;text-align:left;font-size:15px;margin-top:12px;background:rgba(5,14,30,.82);border:1px solid rgba(47,243,255,.45);border-radius:12px}
+  #srBoardList .row{display:flex;justify-content:space-between;gap:10px;padding:7px 12px;border-bottom:1px solid rgba(255,255,255,.09)}
+  #srBoardList .row .rk{opacity:.65;width:34px;flex:0 0 auto}
+  #srBoardList .row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #srBoardList .row .sc{font-weight:900;color:#ffd94a}
+  .srTabs{display:flex;gap:8px;margin-top:12px}
+  .srTabs .ghostBtn{width:auto;min-height:40px;margin-top:0;padding:8px 16px;font-size:13px;letter-spacing:.06em}
+  .srTabs .ghostBtn.srTabOn{border-color:#ffd94a;color:#ffd94a;background:rgba(50,36,4,.9)}
 </style>
 </head>
 <body>
@@ -93,6 +104,7 @@
       <div class="ownerRow"><label for="hardnessRange">HARDNESS</label><input type="range" id="hardnessRange" min="1" step="1" max="10" value="5"><span class="ownerVal" id="hardnessRangeVal">5</span></div>
     </div>
     <button class="bigBtn" id="startBtn">▶ START THE RUN</button>
+    <button class="ghostBtn" id="srTitleBoardBtn" type="button">🏆 LEADERBOARD</button>
     <div class="bestLine" id="bestLine">🏆 Local Best: 0</div>
     <div class="how">
       👆 <b>Swipe / drag-release</b> in the arrow's direction (diagonals count!) inside the glowing zone.<br>
@@ -115,8 +127,22 @@
     <h2>💀 RONIN DOWN</h2>
     <p id="overStats">Score 0</p>
     <div class="scoreBig" id="overBest">Best: 0</div>
+    <button class="bigBtn" id="srSubmitBtn" type="button">🏆 SUBMIT SCORE</button>
+    <p id="srSubmitStatus"></p>
+    <button class="ghostBtn" id="srOverBoardBtn" type="button">🏆 LEADERBOARD</button>
     <button class="bigBtn" id="restartBtn">↻ RUN AGAIN</button>
     <button class="ghostBtn" id="overTitleBtn">🏠 Back to Title</button>
+  </section>
+
+  <!-- LEADERBOARD -->
+  <section class="overlay hidden" id="srBoardScreen">
+    <h2>🏆 LEADERBOARD</h2>
+    <div class="srTabs">
+      <button id="srTabAll" class="ghostBtn srTabOn" type="button">ALL-TIME</button>
+      <button id="srTabWeek" class="ghostBtn" type="button">THIS WEEK</button>
+    </div>
+    <div id="srBoardList"><p style="text-align:center; opacity:.8">Loading…</p></div>
+    <button class="ghostBtn" id="srBoardClose" type="button">✕ CLOSE</button>
   </section>
 </div>
 
@@ -577,6 +603,75 @@ window.__previewGame={getState:()=>({phase,score:Math.floor(score),combo,health,
 window.__intensityTest={getState:()=>({intensity,hardness,intensityFull:INTENSITY_FULL,scoreMultiplier,params:difficultyParams()})};
 
 resize();reset();phase='title';requestAnimationFrame(frame);
+</script>
+<script>
+/* ================= leaderboard (SLASHLINE RONIN — shared luna-games board) ================= */
+const srTG = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+let srInitData = '';
+try { if (srTG){ srTG.ready(); srTG.expand(); srInitData = srTG.initData || ''; } } catch (e) {}
+let srStartTs = Date.now();
+function srResetSubmit(){
+  srStartTs = Date.now();
+  const srBtn = document.getElementById('srSubmitBtn'), srStatus = document.getElementById('srSubmitStatus');
+  if (srBtn) srBtn.disabled = false;
+  if (srStatus) srStatus.textContent = '';
+}
+document.getElementById('startBtn').addEventListener('click', srResetSubmit);
+document.getElementById('restartBtn').addEventListener('click', srResetSubmit);
+let srBoardCache = null, srBoardTab = 'all';
+function srRenderBoard(){
+  const srList = document.getElementById('srBoardList');
+  const srRows = (srBoardCache && srBoardCache[srBoardTab]) || [];
+  document.getElementById('srTabAll').classList.toggle('srTabOn', srBoardTab === 'all');
+  document.getElementById('srTabWeek').classList.toggle('srTabOn', srBoardTab === 'week');
+  if (!srRows.length){ srList.innerHTML = '<p style="text-align:center; opacity:.8">No scores yet — be the first 🏆</p>'; return; }
+  srList.innerHTML = srRows.map((r, i) =>
+    `<div class="row"><span class="rk">${i+1}.</span><span class="nm"></span><span class="sc">${r.score}</span></div>`).join('');
+  [...srList.querySelectorAll('.nm')].forEach((el, i) => el.textContent = srRows[i].name);
+}
+async function srOpenBoard(){
+  document.getElementById('srBoardScreen').classList.remove('hidden');
+  document.getElementById('srBoardList').innerHTML = '<p style="text-align:center; opacity:.8">Loading…</p>';
+  try {
+    const srR = await fetch('/api/luna-games?game=slashline-ronin');
+    if (!srR.ok) throw new Error(srR.status);
+    srBoardCache = await srR.json();
+  } catch (e) {
+    srBoardCache = null;
+    document.getElementById('srBoardList').innerHTML = '<p style="text-align:center; opacity:.8">Leaderboard unavailable right now.</p>';
+    return;
+  }
+  srRenderBoard();
+}
+document.getElementById('srTitleBoardBtn').addEventListener('click', srOpenBoard);
+document.getElementById('srOverBoardBtn').addEventListener('click', srOpenBoard);
+document.getElementById('srBoardClose').addEventListener('click', () => document.getElementById('srBoardScreen').classList.add('hidden'));
+document.getElementById('srTabAll').addEventListener('click', () => { srBoardTab = 'all'; srRenderBoard(); });
+document.getElementById('srTabWeek').addEventListener('click', () => { srBoardTab = 'week'; srRenderBoard(); });
+document.getElementById('srSubmitBtn').addEventListener('click', async () => {
+  const srBtn = document.getElementById('srSubmitBtn'), srStatus = document.getElementById('srSubmitStatus');
+  let srName = '';
+  try { srName = (document.getElementById('playerName').value || '').trim(); } catch (e) {}
+  if (srName.length < 2) srName = 'Guest';
+  let srScore = 0;
+  try { srScore = Math.floor(window.__previewGame.getState().score); } catch (e) {}
+  const srSeconds = Math.min(3600, Math.max(5, Math.round((Date.now() - srStartTs) / 1000)));
+  srBtn.disabled = true; srStatus.textContent = 'Submitting…';
+  try {
+    const srR = await fetch('/api/luna-games?game=slashline-ronin', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData: srInitData, name: srName, score: srScore, seconds: srSeconds })
+    });
+    const srD = await srR.json().catch(() => ({}));
+    if (!srR.ok) throw new Error(srD.error || srR.status);
+    srStatus.textContent = srD.rank ? "🏆 You're #" + srD.rank + " all-time!" : '🏆 Score submitted!';
+    srBoardTab = 'all';
+    setTimeout(srOpenBoard, 650);
+  } catch (e) {
+    srStatus.textContent = 'Could not submit — try again.';
+    srBtn.disabled = false;
+  }
+});
 </script>
 </body>
 </html>

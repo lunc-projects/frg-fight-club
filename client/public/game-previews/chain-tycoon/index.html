@@ -86,6 +86,18 @@ label{font-size:12px;font-weight:800;letter-spacing:.08em;color:#bfefff}
 .stand{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px}
 .stand th,.stand td{padding:7px 5px;border-bottom:1px solid #214a6b;text-align:left}.stand th{color:var(--mut);font-size:10px;letter-spacing:.06em}
 .winner{font-size:20px;text-align:center;margin:8px 0 2px}.trophy{font-size:46px;text-align:center}
+/* shared leaderboard (chain-tycoon) */
+#ctSubmitStatus{min-height:18px;text-align:center;color:var(--teal);font-size:14px;font-weight:800;margin-top:8px}
+#ctBoardScreen{position:fixed;inset:0;z-index:50;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:22px;background:rgba(3,8,20,.9)}
+#ctBoardScreen h2{font-size:30px;letter-spacing:.06em;color:#fff;text-shadow:0 0 16px rgba(25,240,216,.6)}
+#ctBoardList{width:min(430px,92vw);max-height:46vh;overflow-y:auto;text-align:left;font-size:15px;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid #214a6b;border-radius:16px;padding:6px}
+#ctBoardList .row{display:flex;justify-content:space-between;gap:10px;padding:7px 12px;border-bottom:1px solid rgba(255,255,255,.09)}
+#ctBoardList .row .rk{opacity:.65;width:34px;flex:0 0 auto}
+#ctBoardList .row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#ctBoardList .row .sc{font-weight:900;color:var(--gold)}
+.ctTabs{display:flex;gap:8px}
+.ctTabBtn{padding:12px 22px;font-size:14px;background:#122a48;color:#dff8ff;border:1px solid #2a5d7a}
+.ctTabBtn.ctOn{background:linear-gradient(90deg,#0fd6bd,#ffd34d);color:#03202a;border:none}
 .note{font-size:11px;color:var(--mut);line-height:1.5;margin-top:7px;text-align:center}
 </style>
 </head>
@@ -112,6 +124,7 @@ label{font-size:12px;font-weight:800;letter-spacing:.08em;color:#bfefff}
       <div id="ownerSettingsLine">Owner settings: Intensity 5 · Hardness 5</div>
       <div id="intensitySummary">Score multiplier: ×1.44</div>
       <button id="startBtn" class="bigBtn">▶ START — 10 ROUNDS</button>
+      <button id="ctBoardBtn" class="ghostBtn" style="margin-top:8px">🏆 LEADERBOARD</button>
       <div id="bestLine" class="best"></div>
       <p class="rules">Credits are <b>game points only</b> — no wallet, no real LUNC, no payments, no NFTs. Everyone starts with 1,500 credits. Passing Start Dock pays +200. One optional Bailout Loan per game: +500 now, 600 owed at the end.</p>
     </div>
@@ -166,10 +179,25 @@ label{font-size:12px;font-weight:800;letter-spacing:.08em;color:#bfefff}
       <table class="stand"><thead><tr><th>#</th><th>Tycoon</th><th>Cash</th><th>Property</th><th>Debt</th><th>Net Worth</th></tr></thead><tbody id="standBody"></tbody></table>
       <div id="scoreLine"></div>
       <div id="newBest" class="best"></div>
+      <button id="ctSubmitBtn" class="bigBtn">🏆 SUBMIT SCORE</button>
+      <p id="ctSubmitStatus"></p>
+      <button id="ctOverBoardBtn" class="ghostBtn" style="margin-top:8px">🏆 LEADERBOARD</button>
       <button id="restartBtn" class="bigBtn">↻ PLAY AGAIN</button>
     </div>
     <p class="note">Net worth = cash + property resale (80%) + upgrade value (80%) − debt. Game points only.</p>
   </section>
+</div>
+
+<!-- SHARED LEADERBOARD OVERLAY -->
+<div id="ctBoardScreen">
+  <span class="badge">LUNA CLASSIC</span>
+  <h2>🏆 LEADERBOARD</h2>
+  <div class="ctTabs">
+    <button id="ctTabAll" class="ctTabBtn ctOn">ALL-TIME</button>
+    <button id="ctTabWeek" class="ctTabBtn">THIS WEEK</button>
+  </div>
+  <div id="ctBoardList"><p style="text-align:center;opacity:.8;padding:10px">Loading…</p></div>
+  <button id="ctBoardClose" class="ghostBtn" style="width:min(430px,92vw)">✕ CLOSE</button>
 </div>
 
 <script>
@@ -621,6 +649,91 @@ function init(){
 window.__intensityTest={getState:function(){return{intensity:intensity,hardness:hardness,intensityFull:INTENSITY_FULL,scoreMultiplier:scoreMultiplier,params:Object.assign({},params)};}};
 window.__previewGame={getState:function(){var h=players[0];return{phase:S.phase,score:h?netWorth(h):0,netWorth:h?netWorth(h):0,round:S.round,currentPlayer:S.current,pending:S.pending?S.pending.type:null,speed:S.speed,loanUsed:S.loanUsed,intensity:intensity,hardness:hardness,intensityFull:INTENSITY_FULL,scoreMultiplier:scoreMultiplier,params:Object.assign({},params),players:players.map(function(p){return{name:p.name,cash:p.cash,pos:p.pos,out:p.out,netWorth:netWorth(p)};})};}};
 init();
+})();
+</script>
+<script>
+/* ================= leaderboard (CHAIN TYCOON) ================= */
+(function(){
+"use strict";
+var TG_CT = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+var ctInitData = '';
+try { if (TG_CT){ TG_CT.ready(); TG_CT.expand(); ctInitData = TG_CT.initData || ''; } } catch (e) {}
+var ctNameInput = document.getElementById('nameInput');
+var ctStartTs = Date.now();
+document.getElementById('startBtn').addEventListener('click', function(){ ctStartTs = Date.now(); });
+document.getElementById('restartBtn').addEventListener('click', function(){ ctStartTs = Date.now(); });
+function ctScore(){
+  /* The board figure is the end screen's displayed "Your Score" — the raw
+     final net worth with the score multiplier applied (see #scoreLine) —
+     NOT the raw net worth used for standings / local best. */
+  var line = document.getElementById('scoreLine');
+  var txt = line ? (line.textContent || '') : '';
+  var m = txt.match(/Your Score:\s*([\d,]+)/);
+  if (m) return parseInt(m[1].replace(/,/g, ''), 10) || 0;
+  try {
+    var st = window.__previewGame && window.__previewGame.getState();
+    if (st) return Math.round(st.netWorth * st.scoreMultiplier);
+  } catch (e) {}
+  return 0;
+}
+var ctBoardCache = null, ctBoardTab = 'all';
+function ctRenderBoard(){
+  var list = document.getElementById('ctBoardList');
+  var rows = (ctBoardCache && ctBoardCache[ctBoardTab]) || [];
+  document.getElementById('ctTabAll').className = ctBoardTab === 'all' ? 'ctTabBtn ctOn' : 'ctTabBtn';
+  document.getElementById('ctTabWeek').className = ctBoardTab === 'week' ? 'ctTabBtn ctOn' : 'ctTabBtn';
+  if (!rows.length){ list.innerHTML = '<p style="text-align:center;opacity:.8;padding:10px">No scores yet — be the first 🏆</p>'; return; }
+  list.innerHTML = '';
+  rows.forEach(function(r, i){
+    var row = document.createElement('div'); row.className = 'row';
+    var rk = document.createElement('span'); rk.className = 'rk'; rk.textContent = (i + 1) + '.';
+    var nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = r.name;
+    var sc = document.createElement('span'); sc.className = 'sc'; sc.textContent = r.score;
+    row.appendChild(rk); row.appendChild(nm); row.appendChild(sc);
+    list.appendChild(row);
+  });
+}
+async function ctOpenBoard(){
+  document.getElementById('ctBoardScreen').style.display = 'flex';
+  document.getElementById('ctBoardList').innerHTML = '<p style="text-align:center;opacity:.8;padding:10px">Loading…</p>';
+  try {
+    var r = await fetch('/api/luna-games?game=chain-tycoon');
+    if (!r.ok) throw new Error(r.status);
+    ctBoardCache = await r.json();
+  } catch (e) {
+    ctBoardCache = null;
+    document.getElementById('ctBoardList').innerHTML = '<p style="text-align:center;opacity:.8;padding:10px">Leaderboard unavailable right now.</p>';
+    return;
+  }
+  ctRenderBoard();
+}
+document.getElementById('ctBoardBtn').addEventListener('click', ctOpenBoard);
+document.getElementById('ctOverBoardBtn').addEventListener('click', ctOpenBoard);
+document.getElementById('ctBoardClose').addEventListener('click', function(){ document.getElementById('ctBoardScreen').style.display = 'none'; });
+document.getElementById('ctTabAll').addEventListener('click', function(){ ctBoardTab = 'all'; ctRenderBoard(); });
+document.getElementById('ctTabWeek').addEventListener('click', function(){ ctBoardTab = 'week'; ctRenderBoard(); });
+document.getElementById('ctSubmitBtn').addEventListener('click', async function(){
+  var name = (ctNameInput.value || '').trim();
+  if (name.length < 2) name = 'Guest';
+  var btn = document.getElementById('ctSubmitBtn'), status = document.getElementById('ctSubmitStatus');
+  var seconds = Math.min(14400, Math.max(30, Math.round((Date.now() - ctStartTs) / 1000)));
+  var score = ctScore();
+  btn.disabled = true; status.textContent = 'Submitting…';
+  try {
+    var r = await fetch('/api/luna-games?game=chain-tycoon', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData: ctInitData, name: name, score: Math.floor(score), seconds: seconds })
+    });
+    var d = await r.json().catch(function(){ return {}; });
+    if (!r.ok) throw new Error(d.error || r.status);
+    status.textContent = d.rank ? "🏆 You're #" + d.rank + " all-time!" : '🏆 Score submitted!';
+    ctBoardTab = 'all';
+    setTimeout(ctOpenBoard, 650);
+  } catch (e) {
+    status.textContent = 'Could not submit — try again.';
+    btn.disabled = false;
+  }
+});
 })();
 </script>
 </body>

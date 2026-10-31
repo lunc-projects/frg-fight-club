@@ -66,9 +66,9 @@ const GAMES = {
      one board each under their slug. Caps are generous first-pass rails
      sized from each game's scoring code — never reject a real run. */
   'abyssal-vault': { prefix: 'abyss', maxScore: 500000, minSec: 10, maxSec: 7200, rateMul: 300, rateBase: 2500 },
-  'slashline-ronin': { prefix: 'ronin', maxScore: 200000, minSec: 5, maxSec: 3600, rateMul: 200, rateBase: 1000 },
+  'slashline-ronin': { prefix: 'ronin', maxScore: 200000, minSec: 5, maxSec: 3600, rateMul: 2000, rateBase: 2000 },
   flipfall: { prefix: 'flip', maxScore: 200000, minSec: 5, maxSec: 3600, rateMul: 200, rateBase: 1000 },
-  'vaultbreaker-manor': { prefix: 'vmanor', maxScore: 100000, minSec: 10, maxSec: 7200, rateMul: 100, rateBase: 1000 },
+  'vaultbreaker-manor': { prefix: 'vmanor', maxScore: 100000, minSec: 10, maxSec: 7200, rateMul: 200, rateBase: 1000 },
   'starforge-siege': { prefix: 'sforge', maxScore: 500000, minSec: 10, maxSec: 7200, rateMul: 200, rateBase: 2000 },
   broadsides: { prefix: 'broad', maxScore: 500000, minSec: 10, maxSec: 7200, rateMul: 200, rateBase: 2000 },
   'chain-tycoon': { prefix: 'tycoon', maxScore: 10000000, minSec: 30, maxSec: 14400, rateMul: 10000, rateBase: 100000 },
@@ -76,9 +76,6 @@ const GAMES = {
   voidclash: { prefix: 'vclash', maxScore: 200000, minSec: 5, maxSec: 3600, rateMul: 300, rateBase: 1000 },
   'moonfelt-poker': { prefix: 'mpoker', maxScore: 10000000, minSec: 10, maxSec: 14400, rateMul: 10000, rateBase: 100000 },
   'comet-rush': { prefix: 'comet', maxScore: 200000, minSec: 5, maxSec: 7200, rateMul: 200, rateBase: 2000 },
-  /* Disposable verification board — used only to prove the submit/board
-     mechanism without touching the real boards; removed after checks. */
-  zzverify: { prefix: 'zzv', maxScore: 100000000, minSec: 1, maxSec: 86400, rateMul: 100000000, rateBase: 100000000 },
 };
 
 function weekKey(d = new Date()) {

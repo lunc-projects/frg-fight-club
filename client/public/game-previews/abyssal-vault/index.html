@@ -47,6 +47,18 @@ input{width:100%;padding:13px;border-radius:12px;border:1px solid #7df9ff88;back
 .panel{background:#032b35f2;border:1px solid #ffd94d66;border-radius:20px;padding:20px;width:100%}
 .panel h2{margin:4px 0 8px;font-size:32px}
 .stats{font-size:15px;line-height:1.6;color:#d9fff7}
+/* leaderboard (shared Luna board) */
+#avSubmitStatus{min-height:18px;font-size:14px;margin:6px 0 0;color:#ffe97a;font-weight:700}
+#boardScreen{justify-content:center;background:#02181df2;z-index:20}
+#boardScreen .panel{max-height:92dvh;overflow-y:auto}
+#avBoardList{width:100%;max-height:46vh;overflow-y:auto;text-align:left;font-size:15px;margin:10px 0}
+#avBoardList .row{display:flex;justify-content:space-between;gap:10px;padding:7px 12px;border-bottom:1px solid #ffffff1a}
+#avBoardList .row .rk{opacity:.65;width:34px;flex:0 0 auto;color:#aef7e8}
+#avBoardList .row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#avBoardList .row .sc{font-weight:900;color:#ffd94d}
+.avTabs{display:flex;gap:8px}
+.avTabs button{flex:1}
+.avTabs button.avTabOff{background:#ffffff22;color:#fff;border:1px solid #fff5;box-shadow:none}
 </style></head>
 <body><div id="app">
 <canvas id="game"></canvas>
@@ -89,6 +101,7 @@ input{width:100%;padding:13px;border-radius:12px;border:1px solid #7df9ff88;back
     <div id="ownerSettingsLine">Owner settings: Intensity 5 · Hardness 5</div>
     <div id="intensitySummary">Score multiplier: ×1.44</div>
     <button id="startBtn" class="big">🤿 START DIVE</button>
+    <button id="avBoardBtnTitle" class="big secondary">🏆 LEADERBOARD</button>
     <div class="best" id="bestEl">Best: 0</div>
     <div class="how"><b>How to play:</b> Drag (or use arrow / WASD keys) to swim. Deeper water drains oxygen faster. Gold relics build your haul — press <b>RETURN / SURFACE</b> and reach the top to bank it × your depth multiplier. If oxygen hits zero, unbanked haul is lost. 💡 Lamp Burst scares eels away. Bubbles &amp; tanks restore oxygen. Every surfacing starts a harder dive.</div>
   </div>
@@ -105,8 +118,22 @@ input{width:100%;padding:13px;border-radius:12px;border:1px solid #7df9ff88;back
 <div id="overScreen" class="overlay hidden">
   <div class="panel"><span class="badge">🌙 LUNA CLASSIC</span><h2 id="overTitle">Out of Oxygen!</h2>
   <p class="stats" id="overStats"></p>
+  <button id="avSubmitBtn" class="big">🏆 SUBMIT SCORE</button>
+  <p id="avSubmitStatus"></p>
+  <button id="avBoardBtnOver" class="big secondary">🏆 LEADERBOARD</button>
   <button id="restartBtn" class="big">🤿 DIVE AGAIN</button>
   <button id="menuBtn" class="big secondary">TITLE SCREEN</button></div>
+</div>
+
+<!-- LEADERBOARD -->
+<div id="boardScreen" class="overlay hidden">
+  <div class="panel"><span class="badge">🌙 LUNA CLASSIC</span><h2>🏆 Leaderboard</h2>
+  <div class="avTabs">
+    <button id="avTabAll" type="button">ALL-TIME</button>
+    <button id="avTabWeek" type="button" class="avTabOff">THIS WEEK</button>
+  </div>
+  <div id="avBoardList"><p style="text-align:center;opacity:.8">Loading…</p></div>
+  <button id="avBoardClose" class="big secondary">✕ CLOSE</button></div>
 </div>
 
 </div>
@@ -439,4 +466,73 @@ updateHUD();requestAnimationFrame(loop);
 
 window.__previewGame={getState:()=>({phase,score,depth:Math.round(depth),oxygen:Math.round(oxygen),dive,haul,banked,mode,maxDepth:Math.round(maxDepth),multiplier:mult(),lampCooldown:+lampCD.toFixed(1),best,playerName:$('playerName').value,intensity,hardness,intensityFull:INTENSITY_FULL,scoreMultiplier,params:difficultyParams()})};
 window.__intensityTest={getState:()=>({intensity,hardness,intensityFull:INTENSITY_FULL,scoreMultiplier,params:difficultyParams()})};
+</script>
+<script>
+/* ================= leaderboard (ABYSSAL VAULT) ================= */
+"use strict";
+const avTG = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+let avInitData = '';
+try { if (avTG){ avTG.ready(); avTG.expand(); avInitData = avTG.initData || ''; } } catch (e) {}
+let avStartTs = Date.now();
+function avResetSubmit(){
+  const b=document.getElementById('avSubmitBtn'); if(b) b.disabled=false;
+  const s=document.getElementById('avSubmitStatus'); if(s) s.textContent='';
+}
+['startBtn','restartBtn','pauseRestartBtn'].forEach(function(id){
+  const el=document.getElementById(id);
+  if(el) el.addEventListener('click', function(){ avStartTs = Date.now(); avResetSubmit(); });
+});
+let avBoardCache = null, avBoardTab = 'all';
+function avRenderBoard(){
+  const list = document.getElementById('avBoardList');
+  const rows = (avBoardCache && avBoardCache[avBoardTab]) || [];
+  document.getElementById('avTabAll').className = avBoardTab === 'all' ? '' : 'avTabOff';
+  document.getElementById('avTabWeek').className = avBoardTab === 'week' ? '' : 'avTabOff';
+  if (!rows.length){ list.innerHTML = '<p style="text-align:center; opacity:.8">No scores yet — be the first 🏆</p>'; return; }
+  list.innerHTML = rows.map((r, i) =>
+    `<div class="row"><span class="rk">${i+1}.</span><span class="nm"></span><span class="sc">${r.score}</span></div>`).join('');
+  [...list.querySelectorAll('.nm')].forEach((el, i) => el.textContent = rows[i].name);
+}
+async function avOpenBoard(){
+  const bs=document.getElementById('boardScreen');
+  bs.classList.remove('hidden');
+  document.getElementById('avBoardList').innerHTML = '<p style="text-align:center; opacity:.8">Loading…</p>';
+  try {
+    const r = await fetch('/api/luna-games?game=abyssal-vault');
+    if (!r.ok) throw new Error(r.status);
+    avBoardCache = await r.json();
+  } catch (e) {
+    avBoardCache = null;
+    document.getElementById('avBoardList').innerHTML = '<p style="text-align:center; opacity:.8">Leaderboard unavailable right now.</p>';
+    return;
+  }
+  avRenderBoard();
+}
+document.getElementById('avBoardBtnTitle').addEventListener('click', avOpenBoard);
+document.getElementById('avBoardBtnOver').addEventListener('click', avOpenBoard);
+document.getElementById('avBoardClose').addEventListener('click', () => document.getElementById('boardScreen').classList.add('hidden'));
+document.getElementById('avTabAll').addEventListener('click', () => { avBoardTab = 'all'; avRenderBoard(); });
+document.getElementById('avTabWeek').addEventListener('click', () => { avBoardTab = 'week'; avRenderBoard(); });
+document.getElementById('avSubmitBtn').addEventListener('click', async () => {
+  let avName = (document.getElementById('playerName').value || '').trim();
+  if (avName.length < 2) avName = 'Guest';
+  const avBtn = document.getElementById('avSubmitBtn'), avStatus = document.getElementById('avSubmitStatus');
+  const avSeconds = Math.min(7200, Math.max(10, Math.round((Date.now() - avStartTs) / 1000)));
+  const avScore = Math.floor(score);
+  avBtn.disabled = true; avStatus.textContent = 'Submitting…';
+  try {
+    const r = await fetch('/api/luna-games?game=abyssal-vault', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData: avInitData, name: avName, score: avScore, seconds: avSeconds })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || r.status);
+    avStatus.textContent = d.rank ? "🏆 You're #"+d.rank+" all-time!" : "🏆 Score submitted!";
+    avBoardTab = 'all';
+    setTimeout(avOpenBoard, 650);
+  } catch (e) {
+    avStatus.textContent = 'Could not submit — try again.';
+    avBtn.disabled = false;
+  }
+});
 </script></body></html>

@@ -96,6 +96,22 @@ summary{cursor:pointer;color:#fff;font-weight:700}
 #overStats{background:rgba(255,255,255,.06);border:1px solid rgba(168,85,247,.5);border-radius:14px;padding:14px;font-size:16px;line-height:1.8;margin:12px 0}
 #overStats b{color:var(--gold)}
 .foot{font-size:11.5px;color:#9d8fd0;text-align:center;margin-top:14px;line-height:1.5}
+/* LEADERBOARD (points) */
+.mpAltBtn{width:100%;font-size:16px;font-weight:700;padding:12px;border-radius:12px;border:1.5px solid #d8b4fe;color:#fff;background:linear-gradient(180deg,#5b21b6,#3b1470);margin-top:8px}
+.mpAltBtn:active{transform:scale(.98)}
+#mpSubmitStatus{min-height:20px;font-size:14.5px;color:#bbf7d0;margin:8px 0 0}
+#mpBoardScreen{position:fixed;inset:0;z-index:50;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:22px;background:rgba(7,3,19,.94)}
+#mpBoardScreen h2{margin:0;font-size:30px;letter-spacing:.06em;color:#fff;text-shadow:0 0 16px rgba(168,85,247,.9)}
+#mpBoardScreen .mpsmall{font-size:12px;letter-spacing:.22em;color:#c9bdf5;font-weight:700}
+#mpBoardList{width:min(430px,92vw);max-height:46vh;overflow-y:auto;text-align:left;font-size:15px;background:rgba(255,255,255,.06);border:1px solid rgba(168,85,247,.5);border-radius:14px;padding:6px 4px;color:#f3efff}
+#mpBoardList .row{display:flex;justify-content:space-between;gap:10px;padding:7px 12px;border-bottom:1px solid rgba(255,255,255,.09)}
+#mpBoardList .row .rk{opacity:.65;width:34px;flex:0 0 auto}
+#mpBoardList .row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#mpBoardList .row .sc{font-weight:900;color:var(--gold)}
+.mpTabs{display:flex;gap:8px}
+.mpTab{cursor:pointer;font-size:14px;font-weight:800;letter-spacing:.05em;padding:10px 18px;border-radius:11px;border:1.5px solid #d8b4fe;color:#fff;background:linear-gradient(180deg,#9333ea,#6d28d9)}
+.mpTab.mpOff{background:linear-gradient(180deg,#5b21b6,#3b1470);opacity:.75}
+.mpCloseBtn{cursor:pointer;font-size:15px;font-weight:800;padding:11px 26px;border-radius:11px;border:1.5px solid #d8b4fe;color:#fff;background:linear-gradient(180deg,#5b21b6,#3b1470)}
 </style>
 </head>
 <body>
@@ -126,6 +142,7 @@ summary{cursor:pointer;color:#fff;font-weight:700}
       </div>
     </div>
     <button id="startBtn" class="bigbtn">▶ &nbsp;START TOURNAMENT</button>
+    <button id="mpBoardBtnTitle" class="mpAltBtn" type="button">🏆 POINTS LEADERBOARD</button>
     <div class="rules">
       <b>How it plays:</b> Real Texas Hold'em tournament vs 5 AI seats. Everyone starts with <b>1,000 points</b>. Blinds start at <b>10 / 20</b> and rise through the tournament (pace depends on Intensity; <span id="rulesPace">at Intensity 5, every 5 hands</span>). Dealer rotates, real flop / turn / river, raises, all-ins, side pots &amp; split pots. Bust out and it's over — take every point at the table to be crowned <b>Moonfelt Champion</b>. You have 25 seconds per decision (auto-check if free, otherwise fold).
     </div>
@@ -190,11 +207,26 @@ summary{cursor:pointer;color:#fff;font-weight:700}
     <span class="badge">LUNA CLASSIC</span>
     <div id="overStats"></div>
     <div id="overBest" style="color:var(--gold);font-size:14px;min-height:20px"></div>
+    <button id="mpSubmitBtn" class="bigbtn" type="button">🏆 SUBMIT POINTS SCORE</button>
+    <p id="mpSubmitStatus"></p>
+    <button id="mpBoardBtnOver" class="mpAltBtn" type="button">🏆 POINTS LEADERBOARD</button>
     <button id="restartBtn" class="bigbtn">↻ &nbsp;PLAY AGAIN</button>
     <div class="foot">Points only — not money, not tokens, no payouts.</div>
   </section>
 
 </div>
+
+  <!-- ============ POINTS LEADERBOARD ============ -->
+  <div id="mpBoardScreen">
+    <div class="mpsmall">☾ MOONFELT POKER · POINTS ONLY</div>
+    <h2>🏆 POINTS LEADERBOARD</h2>
+    <div class="mpTabs">
+      <button id="mpTabAll" class="mpTab" type="button">ALL-TIME</button>
+      <button id="mpTabWeek" class="mpTab mpOff" type="button">THIS WEEK</button>
+    </div>
+    <div id="mpBoardList"><p style="text-align:center;opacity:.8">Loading…</p></div>
+    <button id="mpBoardClose" class="mpCloseBtn" type="button">✕ CLOSE</button>
+  </div>
 <script>
 "use strict";
 /* ================= MOONFELT POKER — Texas Hold'em tournament ================= */
@@ -748,6 +780,100 @@ window.__previewGame={
   _evalBest:evalBest,_eval5:eval5,_cmp:cmpScore,_distribute:distributePots,_handName:handName,
   _act:applyAction,_start:startTournament,_nextHand:startHand,_raw:function(){return G;},_setIntensity:setIntensity,_setHardness:setHardness,_blindFor:blindFor
 };
+</script>
+<script>
+/* ================= shared leaderboard (MOONFELT POKER — points only) ================= */
+(function(){
+"use strict";
+var mpTG = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+var mpInitData = "";
+try { if (mpTG){ mpTG.ready(); mpTG.expand(); mpInitData = mpTG.initData || ""; } } catch (e) {}
+var mpStartTs = Date.now();
+function mpStamp(){ mpStartTs = Date.now(); }
+var mpStartBtn = document.getElementById("startBtn"); if (mpStartBtn) mpStartBtn.addEventListener("click", mpStamp);
+var mpAgainBtn = document.getElementById("restartBtn"); if (mpAgainBtn) mpAgainBtn.addEventListener("click", mpStamp);
+var mpBoardCache = null, mpBoardTab = "all";
+function mpRenderBoard(){
+  var list = document.getElementById("mpBoardList");
+  var rows = (mpBoardCache && mpBoardCache[mpBoardTab]) || [];
+  document.getElementById("mpTabAll").className = mpBoardTab === "all" ? "mpTab" : "mpTab mpOff";
+  document.getElementById("mpTabWeek").className = mpBoardTab === "week" ? "mpTab" : "mpTab mpOff";
+  if (!rows.length){ list.innerHTML = '<p style="text-align:center;opacity:.8">No points scores yet — be the first 🏆</p>'; return; }
+  list.innerHTML = "";
+  rows.forEach(function(r, i){
+    var row = document.createElement("div"); row.className = "row";
+    var rk = document.createElement("span"); rk.className = "rk"; rk.textContent = (i + 1) + ".";
+    var nm = document.createElement("span"); nm.className = "nm"; nm.textContent = r.name;
+    var sc = document.createElement("span"); sc.className = "sc"; sc.textContent = r.score;
+    row.appendChild(rk); row.appendChild(nm); row.appendChild(sc);
+    list.appendChild(row);
+  });
+}
+async function mpOpenBoard(){
+  var screen = document.getElementById("mpBoardScreen");
+  screen.style.display = "flex";
+  document.getElementById("mpBoardList").innerHTML = '<p style="text-align:center;opacity:.8">Loading…</p>';
+  try {
+    var r = await fetch("/api/luna-games?game=moonfelt-poker");
+    if (!r.ok) throw new Error(r.status);
+    mpBoardCache = await r.json();
+  } catch (e) {
+    mpBoardCache = null;
+    document.getElementById("mpBoardList").innerHTML = '<p style="text-align:center;opacity:.8">Leaderboard unavailable right now.</p>';
+    return;
+  }
+  mpRenderBoard();
+}
+var mpBt = document.getElementById("mpBoardBtnTitle"); if (mpBt) mpBt.addEventListener("click", mpOpenBoard);
+var mpBo = document.getElementById("mpBoardBtnOver"); if (mpBo) mpBo.addEventListener("click", mpOpenBoard);
+document.getElementById("mpBoardClose").addEventListener("click", function(){ document.getElementById("mpBoardScreen").style.display = "none"; });
+document.getElementById("mpTabAll").addEventListener("click", function(){ mpBoardTab = "all"; mpRenderBoard(); });
+document.getElementById("mpTabWeek").addEventListener("click", function(){ mpBoardTab = "week"; mpRenderBoard(); });
+function mpCurrentName(){
+  var n = "";
+  var inp = document.getElementById("playerName");
+  if (inp) n = (inp.value || "").trim();
+  if (!n){ try { n = (localStorage.getItem("moonfelt-poker-name") || "").trim(); } catch (e) {} }
+  if (n.length < 2) n = "Guest";
+  return n;
+}
+function mpCurrentScore(){
+  try {
+    var st = window.__previewGame && window.__previewGame.getState ? window.__previewGame.getState() : null;
+    if (st && st.phase === "gameover" && isFinite(st.score)) return Math.floor(st.score);
+  } catch (e) {}
+  var el = document.getElementById("overStats");
+  var m = el ? el.textContent.match(/FINAL SCORE:\s*(\d+)/) : null;
+  if (m) return parseInt(m[1], 10);
+  try {
+    var b = JSON.parse(localStorage.getItem("moonfelt-poker-best-v1") || "null");
+    if (b && isFinite(b.score)) return Math.floor(b.score);
+  } catch (e) {}
+  return 0;
+}
+var mpSubmitBtn = document.getElementById("mpSubmitBtn");
+if (mpSubmitBtn) mpSubmitBtn.addEventListener("click", async function(){
+  var btn = document.getElementById("mpSubmitBtn"), status = document.getElementById("mpSubmitStatus");
+  var name = mpCurrentName();
+  var score = mpCurrentScore();
+  var seconds = Math.min(14400, Math.max(10, Math.round((Date.now() - mpStartTs) / 1000)));
+  btn.disabled = true; status.textContent = "Submitting…";
+  try {
+    var r = await fetch("/api/luna-games?game=moonfelt-poker", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData: mpInitData, name: name, score: score, seconds: seconds })
+    });
+    var d = await r.json().catch(function(){ return {}; });
+    if (!r.ok) throw new Error(d.error || r.status);
+    status.textContent = d.rank ? ("🏆 You're #" + d.rank + " all-time!") : "🏆 Score submitted!";
+    mpBoardTab = "all";
+    setTimeout(mpOpenBoard, 650);
+  } catch (e) {
+    status.textContent = "Could not submit — try again.";
+    btn.disabled = false;
+  }
+});
+})();
 </script>
 </body>
 </html>

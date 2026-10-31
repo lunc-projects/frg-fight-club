@@ -81,6 +81,17 @@
   #ownerPanel label{display:flex;justify-content:space-between;align-items:center}
   #ownerPanel label b{color:var(--gold2);font-size:14px}
   #ownerPanel input[type=range]{width:100%;margin:3px 0 10px;accent-color:#f4b942}
+  /* ---------- Leaderboard (shared Luna games board) ---------- */
+  #bsSubmitStatus{min-height:20px;font-size:14px;margin-top:10px;color:var(--gold2);text-align:center;font-family:Verdana,sans-serif;width:88%}
+  #bsBoardScreen{z-index:30}
+  #bsBoardList{width:88%;max-height:46vh;overflow-y:auto;text-align:left;font-size:15px;font-family:Verdana,sans-serif;background:var(--panel);border:1px solid rgba(244,185,66,.5);border-radius:14px;margin-top:13px;color:#d9f2fb}
+  #bsBoardList .row{display:flex;justify-content:space-between;gap:10px;padding:7px 12px;border-bottom:1px solid rgba(255,255,255,.09)}
+  #bsBoardList .row .rk{opacity:.65;width:34px;flex:0 0 auto}
+  #bsBoardList .row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #bsBoardList .row .sc{font-weight:900;color:var(--gold2)}
+  .bsTabs{display:flex;gap:8px;width:88%;margin-top:13px}
+  .bsTabs .bsTab{width:auto;flex:1;margin-top:0;padding:10px}
+  .bsTabs .bsTab.bsActive{border-color:var(--gold);color:var(--gold2);background:#123c52}
 </style>
 </head>
 <body>
@@ -154,6 +165,7 @@
       🛢️ Sail into a <b>repair barrel</b> to patch your hull. Don't let enemy fire sink you!
     </div>
     <button class="bigbtn" id="startBtn">⚔️ SET SAIL</button>
+    <button class="ghostbtn" id="bsBoardBtn">🏆 LEADERBOARD</button>
     <div class="foot">A free Luna Classic arcade preview. Local best score only — no wallet, no payments, just cannon fire under a huge moon.</div>
   </div>
 
@@ -163,6 +175,9 @@
     <div class="sub" id="overName">Captain</div>
     <div class="finalStats" id="finalStats"></div>
     <div class="newbest" id="newBest"></div>
+    <button class="bigbtn" id="bsSubmitBtn">🏆 SUBMIT SCORE</button>
+    <p id="bsSubmitStatus"></p>
+    <button class="ghostbtn" id="bsOverBoardBtn">🏆 LEADERBOARD</button>
     <button class="bigbtn" id="restartBtn">🔄 SAIL AGAIN</button>
     <button class="ghostbtn" id="titleBtn">Return to Title</button>
   </div>
@@ -173,6 +188,18 @@
     <div class="sub">The fleet waits…</div>
     <button class="bigbtn" id="resumeBtn">▶ RESUME</button>
     <button class="ghostbtn" id="quitBtn">Abandon Ship (Title)</button>
+  </div>
+
+  <!-- LEADERBOARD -->
+  <div class="overlay centerOv hidden" id="bsBoardScreen">
+    <div class="sub">⚓ BROADSIDES</div>
+    <h2 class="pauseT">LEADERBOARD</h2>
+    <div class="bsTabs">
+      <button id="bsTabAll" class="ghostbtn bsTab bsActive">ALL-TIME</button>
+      <button id="bsTabWeek" class="ghostbtn bsTab">THIS WEEK</button>
+    </div>
+    <div id="bsBoardList"><p style="text-align:center; opacity:.8">Loading…</p></div>
+    <button id="bsBoardClose" class="ghostbtn">✕ CLOSE</button>
   </div>
 </div>
 
@@ -736,6 +763,80 @@ window.__previewGame={ getState:function(){ return {
   name:S.name, best:S.best }; } };
 requestAnimationFrame(loop);
 })();
+</script>
+<script>
+/* ================= leaderboard (BROADSIDES) ================= */
+var bsTG = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+var bsInitData = '';
+try { if (bsTG){ bsTG.ready(); bsTG.expand(); bsInitData = bsTG.initData || ''; } } catch (e) {}
+var bsStartTs = Date.now();
+function bsResetSubmit(){
+  var bsBtn = document.getElementById('bsSubmitBtn'), bsStatus = document.getElementById('bsSubmitStatus');
+  if (bsBtn) bsBtn.disabled = false;
+  if (bsStatus) bsStatus.textContent = '';
+}
+document.getElementById('startBtn').addEventListener('click', function(){ bsStartTs = Date.now(); bsResetSubmit(); });
+document.getElementById('restartBtn').addEventListener('click', function(){ bsStartTs = Date.now(); bsResetSubmit(); });
+var bsBoardCache = null, bsBoardTab = 'all';
+function bsRenderBoard(){
+  var bsList = document.getElementById('bsBoardList');
+  var bsRows = (bsBoardCache && bsBoardCache[bsBoardTab]) || [];
+  document.getElementById('bsTabAll').className = bsBoardTab === 'all' ? 'ghostbtn bsTab bsActive' : 'ghostbtn bsTab';
+  document.getElementById('bsTabWeek').className = bsBoardTab === 'week' ? 'ghostbtn bsTab bsActive' : 'ghostbtn bsTab';
+  if (!bsRows.length){ bsList.innerHTML = '<p style="text-align:center; opacity:.8">No scores yet — be the first 🏆</p>'; return; }
+  bsList.innerHTML = bsRows.map(function(bsR, bsI){
+    return '<div class="row"><span class="rk">' + (bsI + 1) + '.</span><span class="nm"></span><span class="sc">' + bsR.score + '</span></div>';
+  }).join('');
+  var bsNms = bsList.querySelectorAll('.nm');
+  for (var bsI2 = 0; bsI2 < bsNms.length; bsI2++) bsNms[bsI2].textContent = bsRows[bsI2].name;
+}
+async function bsOpenBoard(){
+  document.getElementById('bsBoardScreen').classList.remove('hidden');
+  document.getElementById('bsBoardList').innerHTML = '<p style="text-align:center; opacity:.8">Loading…</p>';
+  try {
+    var bsR = await fetch('/api/luna-games?game=broadsides');
+    if (!bsR.ok) throw new Error(bsR.status);
+    bsBoardCache = await bsR.json();
+  } catch (e) {
+    bsBoardCache = null;
+    document.getElementById('bsBoardList').innerHTML = '<p style="text-align:center; opacity:.8">Leaderboard unavailable right now.</p>';
+    return;
+  }
+  bsRenderBoard();
+}
+document.getElementById('bsBoardBtn').addEventListener('click', bsOpenBoard);
+document.getElementById('bsOverBoardBtn').addEventListener('click', bsOpenBoard);
+document.getElementById('bsBoardClose').addEventListener('click', function(){ document.getElementById('bsBoardScreen').classList.add('hidden'); });
+document.getElementById('bsTabAll').addEventListener('click', function(){ bsBoardTab = 'all'; bsRenderBoard(); });
+document.getElementById('bsTabWeek').addEventListener('click', function(){ bsBoardTab = 'week'; bsRenderBoard(); });
+document.getElementById('bsSubmitBtn').addEventListener('click', async function(){
+  var bsNameEl = document.getElementById('nameInput');
+  var bsName = bsNameEl ? bsNameEl.value.trim() : '';
+  if (bsName.length < 2) bsName = 'Guest';
+  var bsScore = 0;
+  try {
+    var bsSt = window.__previewGame && window.__previewGame.getState ? window.__previewGame.getState() : null;
+    if (bsSt && typeof bsSt.score === 'number') bsScore = Math.floor(bsSt.score);
+    else bsScore = Math.floor(+document.getElementById('scoreVal').textContent) || 0;
+  } catch (e) {}
+  var bsBtn = document.getElementById('bsSubmitBtn'), bsStatus = document.getElementById('bsSubmitStatus');
+  var bsSeconds = Math.min(7200, Math.max(10, Math.round((Date.now() - bsStartTs) / 1000)));
+  bsBtn.disabled = true; bsStatus.textContent = 'Submitting…';
+  try {
+    var bsR = await fetch('/api/luna-games?game=broadsides', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData: bsInitData, name: bsName, score: Math.floor(bsScore), seconds: bsSeconds })
+    });
+    var bsD = await bsR.json().catch(function(){ return {}; });
+    if (!bsR.ok) throw new Error(bsD.error || bsR.status);
+    bsStatus.textContent = bsD.rank ? "🏆 You're #" + bsD.rank + " all-time!" : '🏆 Score submitted!';
+    bsBoardTab = 'all';
+    setTimeout(bsOpenBoard, 650);
+  } catch (e) {
+    bsStatus.textContent = 'Could not submit — try again.';
+    bsBtn.disabled = false;
+  }
+});
 </script>
 </body>
 </html>

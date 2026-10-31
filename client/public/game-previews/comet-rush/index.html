@@ -77,6 +77,20 @@
   #pauseOverlay{background:rgba(8,3,20,.86);justify-content:center;z-index:12}
   #pauseOverlay h2{font-size:36px;font-style:italic;color:#fff}
   .rowbtns{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+  /* leaderboard (shared Luna games board) */
+  .crBtn{font-size:16px;padding:11px 26px;margin-top:10px}
+  .crStatus{min-height:18px;font-size:14px;color:var(--sun);font-weight:700;margin-top:9px;width:92%}
+  #crBoardScreen{position:absolute;inset:0;z-index:30;display:none;flex-direction:column;align-items:center;text-align:center;overflow-y:auto;background:rgba(8,3,20,.94);padding:26px 18px;justify-content:center}
+  #crBoardScreen h2{font-size:32px;font-style:italic;font-weight:900;color:var(--sun);text-shadow:0 3px 0 #5b1660,0 0 18px rgba(255,154,60,.5)}
+  #crBoardScreen .crSmall{font-size:11px;font-weight:900;letter-spacing:5px;color:var(--teal)}
+  #crBoardList{width:min(430px,92vw);max-height:46vh;overflow-y:auto;text-align:left;font-size:15px;margin-top:12px;background:rgba(0,0,0,.35);border:1px solid rgba(46,242,214,.4);border-radius:13px}
+  #crBoardList .row{display:flex;justify-content:space-between;gap:10px;padding:7px 12px;border-bottom:1px solid rgba(255,255,255,.09)}
+  #crBoardList .row .rk{opacity:.65;width:34px;flex:0 0 auto}
+  #crBoardList .row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #crBoardList .row .sc{font-weight:900;color:var(--sun)}
+  .crTabs{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;justify-content:center}
+  .crTab{font-size:14px;padding:10px 20px;margin-top:0}
+  .crTabAlt{background:linear-gradient(180deg,#8d99c9,#5a6699);color:#fff;box-shadow:0 0 18px rgba(57,200,255,.35),0 5px 0 #39406b}
 </style>
 </head>
 <body>
@@ -134,6 +148,7 @@
       <div id="intensitySummary">Score multiplier: ×1.44</div>
     </div>
     <button class="bigbtn" id="startBtn">▶ START RACE</button>
+    <button class="bigbtn orange crBtn" id="crBoardBtnTitle" type="button">🏆 LEADERBOARD</button>
     <div class="howto">
       🏜️ <b>Roll:</b> Zip auto-rolls. Downhills speed you up, uphills eat momentum.<br>
       👆 <b>Jump:</b> tap screen / JUMP button / <b>Space</b> — clear gaps &amp; spikes.<br>
@@ -161,7 +176,10 @@
     <div class="stats" id="endStats"></div>
     <div class="rowbtns">
       <button class="bigbtn" id="againBtn">↺ RACE AGAIN</button>
+      <button class="bigbtn orange crBtn" id="crSubmitBtn" type="button">🏆 SUBMIT SCORE</button>
+      <button class="bigbtn pink crBtn" id="crBoardBtnEnd" type="button">🏆 LEADERBOARD</button>
     </div>
+    <p class="crStatus" id="crSubmitStatus"></p>
     <p class="note" id="endNote"></p>
   </div>
 
@@ -173,7 +191,10 @@
     <div class="rowbtns">
       <button class="bigbtn pink" id="retryBtn">↻ RETRY STAGE</button>
       <button class="bigbtn" id="failHomeBtn">TITLE</button>
+      <button class="bigbtn orange crBtn" id="crSubmitBtnFail" type="button">🏆 SUBMIT SCORE</button>
+      <button class="bigbtn pink crBtn" id="crBoardBtnFail" type="button">🏆 LEADERBOARD</button>
     </div>
+    <p class="crStatus" id="crSubmitStatusFail"></p>
     <p class="note">Tip: dash on the flats before a loop, jump late over gaps, and let the long downhills do the work — braking is not a thing Zip believes in.</p>
   </div>
 
@@ -185,6 +206,18 @@
       <button class="bigbtn orange" id="pauseRestartBtn">↺ RESTART</button>
     </div>
     <button class="bigbtn pink" id="pauseHomeBtn" style="margin-top:12px">TITLE</button>
+  </div>
+
+  <!-- LEADERBOARD (shared Luna games board) -->
+  <div id="crBoardScreen">
+    <div class="crSmall">★ LUNA CLASSIC ★</div>
+    <h2>🏆 LEADERBOARD</h2>
+    <div class="crTabs">
+      <button id="crTabAll" class="bigbtn crTab" type="button">ALL-TIME</button>
+      <button id="crTabWeek" class="bigbtn crTab crTabAlt" type="button">THIS WEEK</button>
+    </div>
+    <div id="crBoardList"><p style="text-align:center;opacity:.8;padding:10px">Loading…</p></div>
+    <button id="crBoardClose" class="bigbtn crBtn" type="button">✕ CLOSE</button>
   </div>
 </div>
 
@@ -735,6 +768,78 @@ window.__previewGame={ getState:()=>({ phase:S.phase, score:S.score, speed:P?Mat
   energy:P?Math.round(P.energy):0, checkpoint:S.checkpoint?S.checkpoint+1:1, x:P?Math.round(P.x):0,
   topSpeed:Math.round(S.topSpeed||0), name:racerName(), best:best,
   intensity:intensity, hardness:hardness, intensityFull:INTENSITY_FULL, scoreMultiplier:scoreMultiplier, params:currentIntensityParams() }) };
+</script>
+<script>
+/* ================= leaderboard (COMET RUSH — shared Luna games board) ================= */
+"use strict";
+const TG_CR = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+let crInitData = '';
+try { if (TG_CR){ TG_CR.ready(); TG_CR.expand(); crInitData = TG_CR.initData || ''; } } catch (e) {}
+let crStartTs = Date.now();
+['startBtn','againBtn','restartBtn','pauseRestartBtn'].forEach(function(crId){
+  const crEl = document.getElementById(crId);
+  if (crEl) crEl.addEventListener('click', () => { crStartTs = Date.now(); });
+});
+let crBoardCache = null, crBoardTab = 'all';
+function crRenderBoard(){
+  const list = document.getElementById('crBoardList');
+  const rows = (crBoardCache && crBoardCache[crBoardTab]) || [];
+  document.getElementById('crTabAll').className = crBoardTab === 'all' ? 'bigbtn crTab' : 'bigbtn crTab crTabAlt';
+  document.getElementById('crTabWeek').className = crBoardTab === 'week' ? 'bigbtn crTab' : 'bigbtn crTab crTabAlt';
+  if (!rows.length){ list.innerHTML = '<p style="text-align:center; opacity:.8; padding:10px">No scores yet — be the first 🏆</p>'; return; }
+  list.innerHTML = rows.map((r, i) =>
+    '<div class="row"><span class="rk">' + (i+1) + '.</span><span class="nm"></span><span class="sc">' + r.score + '</span></div>').join('');
+  [...list.querySelectorAll('.nm')].forEach((el, i) => el.textContent = rows[i].name);
+}
+async function crOpenBoard(){
+  document.getElementById('crBoardScreen').style.display = 'flex';
+  document.getElementById('crBoardList').innerHTML = '<p style="text-align:center; opacity:.8; padding:10px">Loading…</p>';
+  try {
+    const r = await fetch('/api/luna-games?game=comet-rush');
+    if (!r.ok) throw new Error(r.status);
+    crBoardCache = await r.json();
+  } catch (e) {
+    crBoardCache = null;
+    document.getElementById('crBoardList').innerHTML = '<p style="text-align:center; opacity:.8; padding:10px">Leaderboard unavailable right now.</p>';
+    return;
+  }
+  crRenderBoard();
+}
+document.getElementById('crBoardBtnTitle').addEventListener('click', crOpenBoard);
+document.getElementById('crBoardBtnEnd').addEventListener('click', crOpenBoard);
+document.getElementById('crBoardBtnFail').addEventListener('click', crOpenBoard);
+document.getElementById('crBoardClose').addEventListener('click', () => document.getElementById('crBoardScreen').style.display = 'none');
+document.getElementById('crTabAll').addEventListener('click', () => { crBoardTab = 'all'; crRenderBoard(); });
+document.getElementById('crTabWeek').addEventListener('click', () => { crBoardTab = 'week'; crRenderBoard(); });
+function crFinalScore(){
+  try { return Math.max(0, Math.floor(S.score || 0)); } catch (e) { return 0; }
+}
+async function crSubmitScore(btn, status){
+  let name = '';
+  try { name = (racerName() || '').trim(); } catch (e) {}
+  if (name.length < 2) name = 'Guest';
+  try { localStorage.setItem(LS_NAME, name); } catch (e) {}
+  const score = crFinalScore();
+  const seconds = Math.min(7200, Math.max(5, Math.round((Date.now() - crStartTs) / 1000)));
+  window.__crLastSubmit = { name: name, score: score, seconds: seconds };
+  btn.disabled = true; status.textContent = 'Submitting…';
+  try {
+    const r = await fetch('/api/luna-games?game=comet-rush', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData: crInitData, name: name, score: score, seconds: seconds })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || r.status);
+    status.textContent = d.rank ? "🏆 You're #" + d.rank + " all-time!" : '🏆 Score submitted!';
+    crBoardTab = 'all';
+    setTimeout(crOpenBoard, 650);
+  } catch (e) {
+    status.textContent = 'Could not submit — try again.';
+    btn.disabled = false;
+  }
+}
+document.getElementById('crSubmitBtn').addEventListener('click', function(){ crSubmitScore(this, document.getElementById('crSubmitStatus')); });
+document.getElementById('crSubmitBtnFail').addEventListener('click', function(){ crSubmitScore(this, document.getElementById('crSubmitStatusFail')); });
 </script>
 </body>
 </html>
