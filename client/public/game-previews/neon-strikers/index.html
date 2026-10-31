@@ -15,6 +15,7 @@ header span{font-size:11px;color:#c9b8ff;letter-spacing:.18em}
 .small{font-size:11px;color:#aee9ff;font-weight:600;text-align:center;padding:0 8px 4px;min-height:16px}
 #stage{position:relative;flex:1;min-height:0;margin:0 8px;border-radius:16px;overflow:hidden;border:2px solid #2de2ff;box-shadow:0 0 22px #00d5ff55,inset 0 0 30px #0008}
 canvas{width:100%;height:100%;display:block;touch-action:none;background:#0a5c2e}
+#stage::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:1;background:radial-gradient(115% 90% at 50% 42%,transparent 58%,rgba(1,4,20,.5) 100%)}
 #banner{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);background:#050b24e8;border:2px solid #ffe94a;border-radius:14px;padding:14px 18px;text-align:center;font-weight:900;font-size:22px;color:#ffe94a;text-shadow:0 0 12px #ffbf00;display:none;z-index:5;pointer-events:none;max-width:88%}
 #banner small{display:block;font-size:13px;color:#eaffff;margin-top:6px;font-weight:700}
 #controls{display:flex;justify-content:space-between;align-items:flex-end;padding:8px 12px 10px;gap:8px}
@@ -194,8 +195,10 @@ cv.addEventListener('pointerdown',e=>{dragId=e.pointerId;dragStart={x:e.clientX,
 cv.addEventListener('pointermove',e=>{if(dragId===e.pointerId&&dragStart){joy.x=Math.max(-1,Math.min(1,(e.clientX-dragStart.x)/45));joy.y=Math.max(-1,Math.min(1,(e.clientY-dragStart.y)/45));}});
 cv.addEventListener('pointerup',()=>{dragId=null;dragStart=null;if(!joy.active){joy.x=joy.y=0;}});
 $('passBtn').addEventListener('pointerdown',e=>{e.preventDefault();doPass();});
-$('shootBtn').addEventListener('pointerdown',e=>{e.preventDefault();charging=true;});
-addEventListener('pointerup',()=>{if(charging){doShoot();}charging=false;});
+let shootPid=null; // pointer that started the charge; only ITS release fires (multi-touch: lifting the joystick finger must not shoot)
+$('shootBtn').addEventListener('pointerdown',e=>{e.preventDefault();charging=true;shootPid=e.pointerId;});
+addEventListener('pointerup',e=>{if(charging&&(shootPid===null||e.pointerId===shootPid)){doShoot();charging=false;shootPid=null;}});
+addEventListener('pointercancel',e=>{if(e.pointerId===shootPid){charging=false;shootPid=null;chargeT=0;$('chargeFill').style.width='0%';}});
 
 // Game state
 let phase='title'; // title, playing, goal, half, paused, fulltime, tournamentEnd
@@ -289,10 +292,10 @@ function doPass(){
 }
 function doShoot(){
  if(phase!=='playing')return;
- const owner=ball.owner; const power=0.45+Math.min(1,chargeT)*0.85; chargeT=0;$('chargeFill').style.width='0%';
+ const owner=ball.owner; const ct=Math.min(1,chargeT); const power=0.45+ct*0.85; chargeT=0;$('chargeFill').style.width='0%';
  if(!(owner&&P.includes(owner)))return;
- // aim at top goal, spread by charge & input
- const gx=190+(joy.x*36)+(Math.random()*30-15)*(chargeT+0.4);
+ // aim at top goal, spread by charge & input (use charge captured BEFORE it was reset above)
+ const gx=190+(joy.x*36)+(Math.random()*30-15)*(ct+0.4);
  const dx=gx-owner.x,dy=18-owner.y,d=Math.hypot(dx,dy)||1,sp=330*power+180;
  ball.owner=null;ball.looseT=0.35;ball.vx=dx/d*sp;ball.vy=dy/d*sp;ball.shotBy='you';beep(150,0.1,'sawtooth',0.07);
  // keeper reaction handled in update via proximity
@@ -431,7 +434,8 @@ function drawPlayer(p,isKeeper){
  const col=p.kit==='cyan'?'#12e6ff':p.kit==='violet'?'#b45cff':p.kit==='gold'?'#ffd22e':'#ff4ad8';
  const alt=p.kit==='cyan'?'#20f070':p.kit==='violet'?'#5c2eff':'#222';
  ctx.fillStyle=alt;ctx.fillRect(-5,2,10,7); // shorts
- ctx.fillStyle=col;ctx.beginPath();ctx.roundRect(-6,-10,12,13,4);ctx.fill();
+ const kitG=ctx.createLinearGradient(0,-10,0,3);kitG.addColorStop(0,col);kitG.addColorStop(1,alt);ctx.fillStyle=kitG;ctx.beginPath();ctx.roundRect(-6,-10,12,13,4);ctx.fill();
+ ctx.fillStyle='#ffffff38';ctx.fillRect(-6,-10,4,13); // key-light stripe
  ctx.strokeStyle=col;ctx.lineWidth=3.5;ctx.beginPath();ctx.moveTo(0,-6);ctx.lineTo(p.face*(6+run*0.4),2);ctx.stroke(); // arm
  ctx.fillStyle='#ffd9b0';ctx.beginPath();ctx.arc(p.face*1.5,-15,5.5,0,7);ctx.fill();
  ctx.fillStyle='#182038';ctx.beginPath();ctx.arc(p.face*1.5,-17.5,5.5,Math.PI,0);ctx.fill(); // hair cap

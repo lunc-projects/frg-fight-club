@@ -230,7 +230,7 @@ const PLAYER_COL={main:'#19c8e8',glow:'#22e6ff',hair:'#20242c'};
 
 /* ---------- STATE ---------- */
 let phase='title',prevPhase='fight',phaseT=0,score=0,ladder=0,round=1,pRounds=0,eRounds=0,timer=60,shake=0,time=0;
-let playerName='CHALLENGER',combo=0,comboT=0,comboBest=0,announce='',projectiles=[],sparks=[];
+let playerName='CHALLENGER',combo=0,comboT=0,comboBest=0,announce='',projectiles=[],sparks=[],floaters=[];
 const keys={left:false,right:false,block:false};
 function mkFighter(x,isPlayer,col,maxHp){return{x,y:GROUND,vx:0,vy:0,face:isPlayer?1:-1,hp:maxHp,maxHp,meter:0,
  state:'idle',stateT:0,atk:null,atkHitDone:false,cool:0,hitT:0,onGround:true,isPlayer,col,aiT:0,aiMove:0,aiBlockT:0,specWait:0,flash:0};}
@@ -260,7 +260,7 @@ function renderIntensity(){updateIntensityDerived();
 /* ---------- FLOW ---------- */
 function setBanner(t){$('banner').textContent=t;}
 function resetPositions(){const L=LADDER[ladder];
- P=mkFighter(170,true,PLAYER_COL,100);E=mkFighter(610,false,L,intensityParams().hp);projectiles=[];sparks=[];combo=0;comboT=0;}
+ P=mkFighter(170,true,PLAYER_COL,100);E=mkFighter(610,false,L,intensityParams().hp);projectiles=[];sparks=[];floaters=[];combo=0;comboT=0;}
 function startMatch(){resetPositions();round=1;pRounds=0;eRounds=0;startRound();}
 function startRound(){const L=LADDER[ladder];
  P.hp=P.maxHp;E.hp=E.maxHp;P.x=170;E.x=610;P.y=E.y=GROUND;P.vy=E.vy=0;P.meter=Math.min(P.meter,40);E.meter=0;
@@ -321,6 +321,7 @@ function resolveHit(att,def,kind,dmg,range,knock){
    att.meter=Math.min(100,att.meter+4);def.meter=Math.min(100,def.meter+6);}
  else{def.hp-=d;def.hitT=kind==='heavy'?.42:.26;def.state='hit';def.atk=null;def.vx=att.face*knock;if(!def.onGround)def.vy=-160;
   spawnSparks(def.x-att.face*28,def.y-120,att.col.glow,kind==='heavy'?16:10);shake=Math.max(shake,kind==='heavy'?9:5);
+  floaters.push({x:def.x,y:def.y-198,txt:'-'+d+(kind==='heavy'?'!':''),t:.8,col:att.isPlayer?'#ffe45e':'#ff8fa3',size:kind==='heavy'?26:19});
   if(kind==='heavy')sHeavy();else sHit();
   att.meter=Math.min(100,att.meter+(kind==='heavy'?13:9));def.meter=Math.min(100,def.meter+7);
   if(att.isPlayer){score+=Math.round(d*10*scoreMultiplier);combo++;comboT=1.25;comboBest=Math.max(comboBest,combo);
@@ -408,6 +409,8 @@ function update(dt){time+=dt;
    else showEnd(false);}}
  for(const s of sparks){s.t-=dt;s.x+=s.vx*dt;s.y+=s.vy*dt;s.vy+=500*dt;}
  sparks=sparks.filter(s=>s.t>0);
+ for(const f of floaters){f.t-=dt;f.y-=46*dt;}
+ floaters=floaters.filter(f=>f.t>0);
  shake=Math.max(0,shake-40*dt);
  updateHUD();}
 
@@ -494,7 +497,11 @@ function draw(){ctx.clearRect(0,0,W,H);ctx.save();
    ctx.beginPath();ctx.arc(pr.x,pr.y,15+Math.sin(time*30)*3,0,7);ctx.fill();ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(pr.x,pr.y,6,0,7);ctx.fill();ctx.restore();}
  // sparks
  for(const s of sparks){ctx.globalAlpha=Math.max(0,s.t*2.4);ctx.fillStyle=s.col;ctx.fillRect(s.x-3,s.y-3,6,6);}ctx.globalAlpha=1;
+ // damage floaters (hit feedback: every landed hit shows its number)
+ for(const f of floaters){ctx.globalAlpha=Math.max(0,Math.min(1,f.t*1.8));ctx.fillStyle=f.col;ctx.font='1000 '+f.size+'px system-ui';ctx.textAlign='center';ctx.shadowColor='#000';ctx.shadowBlur=5;ctx.fillText(f.txt,f.x,f.y);ctx.shadowBlur=0;}ctx.globalAlpha=1;
  ctx.restore();
+ // vignette (house polish standard): cage edges fall off, fighters stay the focal point
+ const vg=ctx.createRadialGradient(W/2,H*.44,240,W/2,H*.5,560);vg.addColorStop(0,'rgba(2,0,10,0)');vg.addColorStop(1,'rgba(2,0,12,.55)');ctx.fillStyle=vg;ctx.fillRect(0,0,W,H);
  if(phase==='paused'){ctx.fillStyle='#05010baa';ctx.fillRect(0,0,W,H);}}
 
 /* ---------- MAIN LOOP ---------- */
@@ -523,6 +530,10 @@ let swX=null,swY=null;
 cv.addEventListener('touchstart',e=>{const t=e.changedTouches[0];swX=t.clientX;swY=t.clientY;},{passive:true});
 cv.addEventListener('touchend',e=>{if(swX===null)return;const t=e.changedTouches[0],dx=t.clientX-swX,dy=t.clientY-swY;
  if(Math.hypot(dx,dy)>48)pressAttack('special');swX=null;},{passive:true});
+// mouse swipe on the arena = special too (desktop parity with the touch swipe)
+cv.addEventListener('pointerdown',e=>{if(e.pointerType!=='mouse')return;swX=e.clientX;swY=e.clientY;});
+cv.addEventListener('pointerup',e=>{if(e.pointerType!=='mouse'||swX===null)return;const dx=e.clientX-swX,dy=e.clientY-swY;
+ if(Math.hypot(dx,dy)>48)pressAttack('special');swX=null;});
 const KEYMAP={KeyA:'left',ArrowLeft:'left',KeyD:'right',ArrowRight:'right',KeyS:'block',ArrowDown:'block'};
 window.addEventListener('keydown',e=>{if(e.repeat)return;
  if(KEYMAP[e.code]!==undefined){keys[KEYMAP[e.code]]=true;e.preventDefault();}
