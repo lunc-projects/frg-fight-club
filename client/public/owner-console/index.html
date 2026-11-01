@@ -143,6 +143,77 @@
   .install b{color:var(--green)}
   footer{margin-top:18px; text-align:center; color:var(--dim); font-size:12.5px; line-height:1.6}
   [hidden]{display:none !important}
+  /* ── Navigation: tab panels + bottom tab bar ──────────
+     The app is five short screens, not one endless scroll.
+     Only the active panel shows; the bar is thumb-reach and
+     fixed, with the iOS/Android safe area respected. */
+  .tabpanel{display:none}
+  .tabpanel.active{display:block}
+  #appView{padding-bottom:104px}
+  #tabBar{
+    position:fixed; left:50%; transform:translateX(-50%); bottom:0;
+    width:100%; max-width:560px; z-index:60;
+    display:flex; flex-direction:row; gap:2px; margin-top:0;
+    background:#0a120d; border-top:1px solid var(--line);
+    padding:6px 6px calc(6px + env(safe-area-inset-bottom));
+  }
+  .tabbtn{
+    flex:1 1 0; appearance:none; background:none; border:none; cursor:pointer;
+    color:var(--dim); font-family:inherit; border-radius:12px; min-height:54px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+    padding:6px 2px 4px;
+  }
+  .tabbtn .tabicon{font-size:21px; line-height:1}
+  .tabbtn .tablabel{font-size:11px; font-weight:700; letter-spacing:.3px}
+  .tabbtn.active{color:var(--green); background:#12241a}
+  /* ── Project map ─────────────────────────────────────── */
+  .mapgrid{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+  .mapblock{
+    appearance:none; text-align:left; cursor:pointer; font-family:inherit;
+    background:#0a120d; border:1px solid var(--line); border-radius:14px;
+    padding:12px; color:var(--ink); min-height:88px;
+    display:flex; flex-direction:column; gap:3px;
+  }
+  .mapblock:active{border-color:var(--green); background:#12241a}
+  .mapemoji{font-size:24px; line-height:1}
+  .mapname{font-size:15px; font-weight:700; line-height:1.3}
+  .mapstate{font-size:12px; color:var(--dim); line-height:1.35}
+  /* ── Jump search ─────────────────────────────────────── */
+  #jumpWrap{margin-top:14px}
+  .jump-item{
+    appearance:none; width:100%; text-align:left; cursor:pointer; font-family:inherit;
+    background:var(--card); border:1px solid var(--line); border-radius:12px;
+    color:var(--ink); font-size:14.5px; font-weight:600; line-height:1.4;
+    padding:12px 14px; margin-top:8px; min-height:48px;
+  }
+  .jump-item:active{border-color:var(--green); background:#12241a}
+  .jump-item .jump-tab{color:var(--dim); font-size:12px; font-weight:700; display:block; margin-top:2px}
+  /* ── Pins ────────────────────────────────────────────── */
+  .pinbtn{
+    appearance:none; background:none; border:1px solid var(--line); border-radius:999px;
+    font-size:15px; line-height:1; padding:6px 11px; cursor:pointer; color:var(--ink);
+    flex:0 0 auto;
+  }
+  .pinbtn:active{border-color:var(--gold)}
+  .pinrow{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px}
+  .pinchip{
+    display:flex; align-items:center; background:var(--card);
+    border:1px solid var(--gold); border-radius:999px; padding:3px 4px 3px 3px;
+  }
+  .pinchip-go{
+    appearance:none; background:none; border:none; cursor:pointer; font-family:inherit;
+    color:var(--ink); font-size:13.5px; font-weight:700; padding:7px 4px 7px 9px; text-align:left;
+  }
+  .pinchip-x{
+    appearance:none; background:none; border:none; cursor:pointer;
+    color:var(--dim); font-size:13px; padding:7px 7px;
+  }
+  /* ── Jump flash ──────────────────────────────────────── */
+  .flash{animation:flashOutline .55s ease-in-out 3}
+  @keyframes flashOutline{
+    0%,100%{box-shadow:0 0 0 0 rgba(255,215,106,0)}
+    50%{box-shadow:0 0 0 3px var(--gold)}
+  }
 </style>
 </head>
 <body>
@@ -196,66 +267,131 @@
       Everything you do is recorded as the helper's work, where the owner can see it.</p>
   </div>
 
-  <h2>🚨 Problems <span class="count zero" id="problemsCount">…</span></h2>
+  <div id="jumpWrap">
+    <input class="fld" id="jumpInput" type="search" autocomplete="off"
+      placeholder="🔍 Jump to… try “refund”, “validator”, “token”, “helper”"
+      aria-label="Jump to a board, tool or action">
+    <div id="jumpResults"></div>
+  </div>
+
+<section class="tabpanel active" id="panel-home">
+
+  <h2>🗺️ The project map</h2>
+  <div class="card" id="projectMap">
+    <div class="mapgrid">
+      <button class="mapblock" id="mapSiteBtn">
+        <span class="mapemoji">🌐</span>
+        <span class="mapname">Public site</span>
+        <span class="mapstate" id="mapSiteState">tap to open</span>
+      </button>
+      <button class="mapblock" id="mapLabBtn">
+        <span class="mapemoji">🧪</span>
+        <span class="mapname">Lab</span>
+        <span class="mapstate">private working copy</span>
+      </button>
+      <button class="mapblock" id="mapIntakeBtn">
+        <span class="mapemoji">🖥</span>
+        <span class="mapname">Intake server</span>
+        <span class="mapstate" id="mapIntakeState">checking…</span>
+      </button>
+      <button class="mapblock" id="mapFactoryBtn">
+        <span class="mapemoji">🏭</span>
+        <span class="mapname">Token Factory</span>
+        <span class="mapstate">ready — not switched on</span>
+      </button>
+      <button class="mapblock" id="mapAppBtn">
+        <span class="mapemoji">📱</span>
+        <span class="mapname">This app</span>
+        <span class="mapstate">you're here</span>
+      </button>
+      <button class="mapblock" id="mapValidatorBtn">
+        <span class="mapemoji">🏛</span>
+        <span class="mapname">LUNC Kickback validator</span>
+        <span class="mapstate">live board — More tab</span>
+      </button>
+    </div>
+    <p class="small" style="margin:10px 0 0">The whole Studio system on one card — tap a block to go straight there.</p>
+  </div>
+
+  <h2>⭐ Your pins</h2>
+  <div id="pinsStrip"></div>
+
+  <h2 data-nav="Problems — fix a broken payment, receipt or delivery">🚨 Problems <span class="count zero" id="problemsCount">…</span></h2>
   <div id="problemsList"></div>
 
-  <h2>💬 Website Help <span class="count zero" id="helpCount">…</span></h2>
+  <h2 data-nav="Actions — one-click buttons">⚡ Actions — one click does it</h2>
+  <p class="small" style="margin-top:-4px">Everything Muse does for you, as buttons.
+    Each one is labeled by how it runs — nothing pretends to be instant that isn't.</p>
+
+  <h3 class="cat" data-nav="Instant actions — health check, get the Everything Book, validator status">⚡ Instant — runs right now, no signature</h3>
+  <div id="instantList"></div>
+
+  <h3 class="cat" data-nav="Request — ask your assistant to run a chain check, prepare a signing page, build or fix">🙋 Request — your assistant does it</h3>
+  <p class="small" style="margin-top:-2px">Jobs only Muse can do. Tap one, add a line if you
+    like — the ask lands in chat and gets picked up there.</p>
+  <div id="requestList"></div>
+
+  <h2 data-nav="Studio status — intake server health">📊 Studio status</h2>
+  <div class="card" id="healthBody"><span class="small">Loading…</span></div>
+
+  <h2 data-nav="Latest activity — receipts, orders, deliveries">🔔 Latest activity</h2>
+  <div class="card feed" id="activityBody"><span class="small">Loading…</span></div>
+
+</section>
+
+<section class="tabpanel" id="panel-tools">
+
+  <h2 data-nav="Tools — build something: deploy, run the tests, screenshot check, signing-page builder">🛠 Tools — build something</h2>
+  <p class="small" style="margin-top:-4px">Your builder shelf — the Studio's own tools, in your
+    no-charge owner lane. Fill the few fields, tap once, and it's started:
+    the work runs on Muse's side and the verified result comes back in chat.</p>
+  <div id="toolPresets"></div>
+  <div id="signBuilder"></div>
+  <h3 class="cat" data-nav="Build catalog — every build tool: token factory, games, bots, websites, staking">📚 The build catalog — tap a tool to open its form</h3>
+  <div id="toolCatalog"></div>
+  <div id="toolRecent"></div>
+
+  <div id="signSection">
+  <h3 class="cat" data-nav="Sign — signing pages prepared for your signature">✍️ Sign — prepared for your signature</h3>
+  <p class="small" style="margin-top:-2px">Ready pages with everything put together for you —
+    open one and your only step is signing in your wallet. This app never holds your keys.</p>
+  <div id="signList"></div>
+  </div>
+
+  <h2 data-nav="Frontier — what's pending, the launch-day list">🧭 Frontier — what's pending</h2>
+  <div id="frontierList"></div>
+
+</section>
+
+<section class="tabpanel" id="panel-orders">
+
+  <h2 data-nav="Orders — reverse an order, refund a customer, take a project back">📥 Orders</h2>
+  <div class="card" id="ordersSummary"><span class="small">Loading…</span></div>
+  <div id="ordersList"></div>
+
+  <div id="switchesSection">
+  <h2 data-nav="Emergency switches — close new requests or close payments">🛑 Emergency switches</h2>
+  <div id="controlsBody"></div>
+  </div>
+
+  <div id="automationSection">
+  <h2 data-nav="Automation — the fulfillment engine, armed or disarmed">🤖 Automation</h2>
+  <div class="card" id="automationBody"><span class="small">Loading automation state…</span></div>
+  </div>
+
+</section>
+
+<section class="tabpanel" id="panel-help">
+
+  <h2 data-nav="Website Help — customer questions from the website, reply in the thread">💬 Website Help <span class="count zero" id="helpCount">…</span></h2>
   <p class="small" style="margin-top:-4px">Questions asked in the help chat on your website —
     the same threads your Telegram pings point at. Reply right here and the customer
     reads your answer on the site, inside their thread, under their reference code.</p>
   <div id="helpList"></div>
   <a class="act" href="https://luncdevstudio.com/#/help" target="_blank" rel="noopener">🌐 Open the website help chat (customer view)</a>
 
-  <h2>🛠 Tools — build something</h2>
-  <p class="small" style="margin-top:-4px">Your builder shelf — the Studio's own tools, in your
-    no-charge owner lane. Fill the few fields, tap once, and it's started:
-    the work runs on Muse's side and the verified result comes back in chat.</p>
-  <div id="toolPresets"></div>
-  <div id="signBuilder"></div>
-  <h3 class="cat">📚 The build catalog — tap a tool to open its form</h3>
-  <div id="toolCatalog"></div>
-  <div id="toolRecent"></div>
-
-  <h2>⚡ Actions — one click does it</h2>
-  <p class="small" style="margin-top:-4px">Everything Muse does for you, as buttons.
-    Each one is labeled by how it runs — nothing pretends to be instant that isn't.</p>
-
-  <h3 class="cat">⚡ Instant — runs right now, no signature</h3>
-  <div id="instantList"></div>
-
-  <div id="signSection">
-  <h3 class="cat">✍️ Sign — prepared for your signature</h3>
-  <p class="small" style="margin-top:-2px">Ready pages with everything put together for you —
-    open one and your only step is signing in your wallet. This app never holds your keys.</p>
-  <div id="signList"></div>
-  </div>
-
-  <h3 class="cat">🙋 Request — your assistant does it</h3>
-  <p class="small" style="margin-top:-2px">Jobs only Muse can do. Tap one, add a line if you
-    like — the ask lands in chat and gets picked up there.</p>
-  <div id="requestList"></div>
-
-  <h2>📥 Orders</h2>
-  <div class="card" id="ordersSummary"><span class="small">Loading…</span></div>
-  <div id="ordersList"></div>
-
-  <div id="switchesSection">
-  <h2>🛑 Emergency switches</h2>
-  <div id="controlsBody"></div>
-  </div>
-
-  <h2>📊 Studio status</h2>
-  <div class="card" id="healthBody"><span class="small">Loading…</span></div>
-  <div class="card" id="automationBody"><span class="small">Loading automation state…</span></div>
-
-  <h2>🛰 Pages health</h2>
-  <div class="card" id="pagesBody"><span class="small">Checking your pages…</span></div>
-
-  <h2>🔔 Latest activity</h2>
-  <div class="card feed" id="activityBody"><span class="small">Loading…</span></div>
-
   <div id="bookSection">
-  <h2>📖 The Everything Book</h2>
+  <h2 data-nav="The Everything Book — get the book, it arrives in chat">📖 The Everything Book</h2>
   <div class="card" id="bookBody">
     <p class="small" style="margin-top:0">One tap notes a book request — the current
       Everything Book then arrives in your chat, as always. The book is never
@@ -265,45 +401,49 @@
   </div>
   </div>
 
-  <h2>🧭 Frontier — what's pending</h2>
-  <div id="frontierList"></div>
+</section>
 
-  <h2>🏛 LUNC Kickback validator</h2>
+<section class="tabpanel" id="panel-more">
+
+  <h2 data-nav="Pages health — are your pages up">🛰 Pages health</h2>
+  <div class="card" id="pagesBody"><span class="small">Checking your pages…</span></div>
+
+  <h2 data-nav="LUNC Kickback validator — bonded status, missed blocks, Hexxagon hosting">🏛 LUNC Kickback validator</h2>
   <div class="card" id="validatorBody"><span class="small">Reading the chain…</span></div>
 
-  <h2>🔗 Quick links</h2>
+  <h2 data-nav="Quick links">🔗 Quick links</h2>
   <nav>
-    <a class="btn" href="https://frg-fight-club.vercel.app/dev-studio-lab-ev6rbmjybhmx/" target="_blank" rel="noopener">
+    <a class="btn" data-nav="Dev Studio Lab — the private working copy" href="https://frg-fight-club.vercel.app/dev-studio-lab-ev6rbmjybhmx/" target="_blank" rel="noopener">
       <span class="emoji">🛠️</span>
       <span><span class="lbl">Dev Studio Lab</span>
       <span class="note">Private working copy — build &amp; test here</span></span>
       <span class="arrow">›</span>
     </a>
-    <a class="btn" href="https://intake-production-a98b.up.railway.app/admin" target="_blank" rel="noopener">
+    <a class="btn" data-nav="Studio Orders / Admin — the full admin page" href="https://intake-production-a98b.up.railway.app/admin" target="_blank" rel="noopener">
       <span class="emoji">📥</span>
       <span><span class="lbl">Studio Orders / Admin</span>
       <span class="note">The full admin page — opens with your Master Creator Key</span></span>
       <span class="arrow">›</span>
     </a>
-    <a class="btn" href="https://luncdevstudio.com" target="_blank" rel="noopener">
+    <a class="btn" data-nav="Public Studio Site — what customers see" href="https://luncdevstudio.com" target="_blank" rel="noopener">
       <span class="emoji">🌐</span>
       <span><span class="lbl">Public Studio Site</span>
       <span class="note">What customers see</span></span>
       <span class="arrow">›</span>
     </a>
-    <a class="btn" href="https://dashboard.hexxagon.io/login" target="_blank" rel="noopener">
+    <a class="btn" data-nav="Hexxagon Dashboard — validator hosting" href="https://dashboard.hexxagon.io/login" target="_blank" rel="noopener">
       <span class="emoji">🏛️</span>
       <span><span class="lbl">Hexxagon Dashboard</span>
       <span class="note">Validator hosting</span></span>
       <span class="arrow">›</span>
     </a>
-    <a class="btn" href="https://finder.terraclassic.community" target="_blank" rel="noopener">
+    <a class="btn" data-nav="Terra Classic Explorer — Finder, check any wallet or transaction" href="https://finder.terraclassic.community" target="_blank" rel="noopener">
       <span class="emoji">🔎</span>
       <span><span class="lbl">Terra Classic Explorer</span>
       <span class="note">Finder — check any wallet or transaction</span></span>
       <span class="arrow">›</span>
     </a>
-    <a class="btn" id="railwayLink" href="https://railway.app/dashboard" target="_blank" rel="noopener">
+    <a class="btn" id="railwayLink" data-nav="Bots &amp; services — the Railway dashboard" href="https://railway.app/dashboard" target="_blank" rel="noopener">
       <span class="emoji">🚂</span>
       <span><span class="lbl">Bots &amp; services — Railway</span>
       <span class="note">Opens Railway — the bots have no control panel of their own</span></span>
@@ -311,7 +451,7 @@
     </a>
   </nav>
 
-  <h2>ℹ️ About &amp; helper access</h2>
+  <h2 data-nav="About &amp; helper access — Helper Key, Master Creator Key, revoke a helper">ℹ️ About &amp; helper access</h2>
   <div class="card">
     <p class="small" style="margin-top:0">This app runs on <b>two keys</b>. The <b>🔑 Master Creator Key</b>
       is the owner's — it opens everything, and it never leaves the owner.</p>
@@ -338,6 +478,16 @@
     This console holds no keys, no seeds and no funds, and it never will.<br>
     Control here means switches, statuses and fixes — signing is always yours.
   </footer>
+
+</section>
+
+  <nav id="tabBar" aria-label="App sections">
+    <button class="tabbtn active" id="tabbtn-home"><span class="tabicon">🏠</span><span class="tablabel">Home</span></button>
+    <button class="tabbtn" id="tabbtn-tools"><span class="tabicon">🛠</span><span class="tablabel">Tools</span></button>
+    <button class="tabbtn" id="tabbtn-orders"><span class="tabicon">📥</span><span class="tablabel">Orders</span></button>
+    <button class="tabbtn" id="tabbtn-help"><span class="tabicon">💬</span><span class="tablabel">Help</span></button>
+    <button class="tabbtn" id="tabbtn-more"><span class="tabicon">⋯</span><span class="tablabel">More</span></button>
+  </nav>
 </main>
 
 <script>
@@ -477,7 +627,11 @@ function tryUnlock(candidate, silent) {
         $('unlockView').hidden = true;
         $('appView').hidden = false;
         applyRole();
-        loadAll();
+        // Open on the tab he left open (persisted on the
+        // device); its boards load now, the rest load lazily
+        // on first open. loadAll remains the fallback for a
+        // page whose nav script somehow didn't run.
+        if (typeof showTab === 'function') showTab(activeTab, true); else loadAll();
         return true;
       });
     })
@@ -499,6 +653,7 @@ function applyRole() {
   $('switchesSection').hidden = helper;
   $('bookSection').hidden = helper;
   $('automationBody').hidden = helper;
+  $('automationSection').hidden = helper;
   var rw = $('railwayLink');
   if (rw) rw.hidden = helper;
 }
@@ -514,6 +669,10 @@ $('refreshBtn').addEventListener('click', loadAll);
 
 /* ── Loaders ────────────────────────────────────────── */
 function loadAll() {
+  // "Refresh all" means ALL — every tab's boards, even the
+  // ones not on screen right now. Each tab is stamped fresh
+  // so opening it doesn't immediately reload it again.
+  TABS.forEach(function (t) { tabStamp[t] = Date.now(); });
   loadProblems();
   loadHelp();
   buildTools();
@@ -525,6 +684,8 @@ function loadAll() {
   loadActivity();
   loadFrontier();
   loadValidator();
+  loadMapStates();
+  renderPins();
   // Owner-only boards: not even fetched under a Helper Key
   // (their sections are out of the page entirely).
   if (!isHelper()) {
@@ -758,6 +919,7 @@ function buildActions() {
 }
 function actionCard(icon, title, note) {
   var c = el('div', 'card');
+  c.setAttribute('data-nav', title);
   var head = el('div', 'row');
   head.appendChild(el('span', 'emoji', icon));
   head.appendChild(el('span', 'ttl grow', title));
@@ -818,12 +980,12 @@ function buildInstant() {
   }
 
   var val = actionCard('🏛', 'Validator status',
-    'Re-reads LUNC Kickback live from the chain — the validator board below refreshes.');
+    'Re-reads LUNC Kickback live from the chain — the validator board (More tab) refreshes.');
   var vBtn = el('button', 'act', '🏛 Refresh validator status');
   var vRes = el('p', 'result');
   vBtn.addEventListener('click', function () {
     loadValidator();
-    showResult(vRes, true, '↻ Refreshed just now — see the validator board below for the numbers.');
+    showResult(vRes, true, '↻ Refreshed just now — the numbers live on the validator board (More tab).');
   });
   val.appendChild(vBtn);
   val.appendChild(vRes);
@@ -856,10 +1018,14 @@ var PUBLIC_SIGN = [
 ];
 function signCard(p) {
   var c = el('div', 'card');
+  c.setAttribute('data-pinid', 'sign:' + p.id);
+  c.setAttribute('data-nav', p.name + ' — signing page');
+  registerPinTitle('sign:' + p.id, p.name);
   var head = el('div', 'row');
   head.appendChild(el('span', 'ttl grow', p.name));
   if (p.priv) head.appendChild(el('span', 'pill closed', '🔒 PRIVATE'));
   head.appendChild(el('span', 'pill open', 'READY'));
+  head.appendChild(pinToggle('sign:' + p.id));
   c.appendChild(head);
   c.appendChild(el('p', 'detail', p.detail));
   var a = el('a', 'act', '✍️ Open — sign in your wallet');
@@ -883,6 +1049,9 @@ function loadSignPackages() {
         id: p.id, name: p.name, detail: p.detail, url: p.url, priv: Boolean(p.private),
       }));
     });
+    // Server packages are pinnable too — refresh the Home
+    // pins strip now that their titles are registered.
+    if (typeof renderPins === 'function') renderPins();
   }).catch(function (e) {
     if (e.status === 404) {
       var c = el('div', 'card');
@@ -1785,9 +1954,13 @@ function toolFieldInput(f) {
 }
 function toolCard(tool) {
   var c = el('div', 'card');
+  c.setAttribute('data-pinid', 'tool:' + tool.key);
+  c.setAttribute('data-nav', tool.name);
+  registerPinTitle('tool:' + tool.key, tool.icon + ' ' + tool.name);
   var head = el('div', 'row');
   head.appendChild(el('span', 'emoji', tool.icon));
   head.appendChild(el('span', 'ttl grow', tool.name));
+  head.appendChild(pinToggle('tool:' + tool.key));
   c.appendChild(head);
   c.appendChild(el('p', 'small', tool.line));
   var form = el('div', 'tool-form');
@@ -1915,6 +2088,287 @@ if ('serviceWorker' in navigator) {
   });
 }
 if (secret) tryUnlock(secret, true);
+</script>
+<script>
+'use strict';
+/* ── 🧭 Navigation — tabs, project map, pins, jump search ──
+   The console is five short screens (tab panels) instead of
+   one endless scroll. Boards load lazily: a tab's boards run
+   on first open, and again when the tab is opened more than
+   60 s after its last load. "Refresh all" still loads
+   everything (loadAll stamps every tab fresh). The last-open
+   tab and the pins live on this device only (localStorage) —
+   nothing about navigation ever leaves the phone. */
+
+/* ── Tabs ─────────────────────────────────────────────── */
+var TABS = ['home', 'tools', 'orders', 'help', 'more'];
+var TAB_LABELS = { home: 'Home', tools: 'Tools', orders: 'Orders', help: 'Help', more: 'More' };
+var activeTab = 'home';
+try {
+  var savedTab = window.localStorage.getItem('oc_last_tab');
+  if (TABS.indexOf(savedTab) !== -1) activeTab = savedTab;
+} catch (e) {}
+var tabStamp = {};
+var TAB_GROUP_LOADERS = {
+  home: function () { loadProblems(); buildActions(); loadHealth(); loadActivity(); loadMapStates(); renderPins(); },
+  tools: function () { buildTools(); loadToolRecent(); loadFrontier(); if (!isHelper()) loadSignPackages(); },
+  orders: function () { loadOrders(); if (!isHelper()) { loadControls(); loadAutomation(); } },
+  help: function () { loadHelp(); },
+  more: function () { loadPages(); loadValidator(); },
+};
+function runTabLoaders(tab) {
+  tabStamp[tab] = Date.now();
+  TAB_GROUP_LOADERS[tab]();
+}
+function showTab(tab, force) {
+  if (TABS.indexOf(tab) === -1) tab = 'home';
+  activeTab = tab;
+  try { window.localStorage.setItem('oc_last_tab', tab); } catch (e) {}
+  TABS.forEach(function (t) {
+    var panel = $('panel-' + t);
+    if (panel) panel.classList.toggle('active', t === tab);
+    var btn = $('tabbtn-' + t);
+    if (btn) btn.classList.toggle('active', t === tab);
+  });
+  if (force || !tabStamp[tab] || Date.now() - tabStamp[tab] > 60000) runTabLoaders(tab);
+  window.scrollTo(0, 0);
+}
+TABS.forEach(function (t) {
+  var btn = $('tabbtn-' + t);
+  if (btn) btn.addEventListener('click', function () { showTab(t); });
+});
+
+/* ── Jump helpers ─────────────────────────────────────── */
+function flashEl(elm) {
+  if (!elm) return;
+  elm.classList.remove('flash');
+  void elm.offsetWidth; // restart the animation if re-flashed
+  elm.classList.add('flash');
+  setTimeout(function () { elm.classList.remove('flash'); }, 1900);
+}
+function scrollFlash(elm) {
+  if (!elm) return;
+  elm.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  flashEl(elm);
+}
+// Switch to the element's tab (if it lives in one), then
+// scroll + flash it once the panel is on screen.
+function jumpToEl(elm) {
+  if (!elm) return;
+  var panel = elm.closest ? elm.closest('.tabpanel') : null;
+  if (panel && panel.id.indexOf('panel-') === 0) showTab(panel.id.slice(6));
+  setTimeout(function () { scrollFlash(elm); }, 150);
+}
+
+/* ── 🗺 Project map ───────────────────────────────────────
+   Studio-system surfaces ONLY — the owner's boundary rule:
+   Garuda and everything else stay separate and are not part
+   of this system, so they get no block here. States are
+   honest: the intake and the public site are checked live;
+   the factory's word is its standing fact (built ready, not
+   switched on — flipping it is the owner's launch-day step);
+   the rest are directions, not invented statuses. */
+function loadMapStates() {
+  var intake = $('mapIntakeState');
+  if (intake) {
+    intake.textContent = 'checking…';
+    fetch(API + '/health').then(function (r) { return r.json(); }).then(function (h) {
+      intake.textContent = h && h.ok ? '🟢 up — tap for its status board' : '🔴 answered, not healthy';
+    }).catch(function () { intake.textContent = '🔴 no answer — tap for its status board'; });
+  }
+  var site = $('mapSiteState');
+  if (site) {
+    site.textContent = 'checking…';
+    probe('https://luncdevstudio.com').then(function (up) {
+      site.textContent = up ? '🟢 up — tap to open' : '🔴 unreachable just now';
+    });
+  }
+}
+function wireMap() {
+  var site = $('mapSiteBtn');
+  if (site) site.addEventListener('click', function () { window.open('https://luncdevstudio.com', '_blank', 'noopener'); });
+  var lab = $('mapLabBtn');
+  if (lab) lab.addEventListener('click', function () { window.open('https://frg-fight-club.vercel.app/dev-studio-lab-ev6rbmjybhmx/', '_blank', 'noopener'); });
+  var intake = $('mapIntakeBtn');
+  if (intake) intake.addEventListener('click', function () { jumpToEl($('healthBody')); });
+  var factory = $('mapFactoryBtn');
+  if (factory) factory.addEventListener('click', function () {
+    showTab('tools');
+    setTimeout(function () {
+      var card = document.querySelector('[data-pinid="tool:factory"]');
+      if (card) scrollFlash(card);
+    }, 200);
+  });
+  var app = $('mapAppBtn');
+  if (app) app.addEventListener('click', function () { showTab('home'); window.scrollTo(0, 0); });
+  var val = $('mapValidatorBtn');
+  if (val) val.addEventListener('click', function () { jumpToEl($('validatorBody')); });
+}
+wireMap();
+
+/* ── ⭐ Pins ───────────────────────────────────────────────
+   Every tool card and sign package carries a ☆ toggle.
+   Pinned items collect in the strip at the top of Home.
+   Stored on this device only; no pins are seeded — an empty
+   strip says how pinning works instead of faking content. */
+var PIN_TITLES = {};
+function registerPinTitle(id, title) { PIN_TITLES[id] = title; }
+TOOL_BUILDS.forEach(function (t) { registerPinTitle('tool:' + t.key, t.icon + ' ' + t.name); });
+var PIN_STORE_KEY = 'oc_pins';
+function getPins() {
+  try {
+    var p = JSON.parse(window.localStorage.getItem(PIN_STORE_KEY) || '[]');
+    return Array.isArray(p) ? p : [];
+  } catch (e) { return []; }
+}
+function setPins(p) {
+  try { window.localStorage.setItem(PIN_STORE_KEY, JSON.stringify(p)); } catch (e) {}
+}
+function isPinned(id) { return getPins().indexOf(id) !== -1; }
+function togglePin(id) {
+  var pins = getPins();
+  var i = pins.indexOf(id);
+  if (i === -1) pins.push(id); else pins.splice(i, 1);
+  setPins(pins);
+  renderPins();
+}
+function pinToggle(id) {
+  var b = el('button', 'pinbtn', isPinned(id) ? '⭐' : '☆');
+  b.setAttribute('aria-label', 'Pin this to the top of Home');
+  b.addEventListener('click', function () {
+    togglePin(id);
+    b.textContent = isPinned(id) ? '⭐' : '☆';
+  });
+  return b;
+}
+function renderPins() {
+  var strip = $('pinsStrip');
+  if (!strip) return;
+  strip.innerHTML = '';
+  // A helper's strip never carries sign pins — the Sign
+  // board is owner-only, so those chips could only dead-end.
+  var pins = getPins().filter(function (id) {
+    return !(isHelper() && id.indexOf('sign:') === 0);
+  });
+  if (!pins.length) {
+    strip.appendChild(el('p', 'small', 'Nothing pinned yet — tap the ☆ on any tool or signing page and it will live here, one tap away.'));
+    return;
+  }
+  var row = el('div', 'pinrow');
+  pins.forEach(function (id) {
+    var chip = el('div', 'pinchip');
+    var go = el('button', 'pinchip-go', '⭐ ' + (PIN_TITLES[id] || id));
+    go.addEventListener('click', function () { jumpToPin(id); });
+    var x = el('button', 'pinchip-x', '✕');
+    x.setAttribute('aria-label', 'Unpin ' + (PIN_TITLES[id] || id));
+    x.addEventListener('click', function () {
+      togglePin(id);
+      var card = document.querySelector('[data-pinid="' + id + '"]');
+      if (card) {
+        var btns = card.querySelectorAll('.pinbtn');
+        for (var i = 0; i < btns.length; i++) btns[i].textContent = '☆';
+      }
+    });
+    chip.appendChild(go);
+    chip.appendChild(x);
+    row.appendChild(chip);
+  });
+  strip.appendChild(row);
+}
+function jumpToPin(id) {
+  var card = document.querySelector('[data-pinid="' + id + '"]');
+  if (card) { jumpToEl(card); return; }
+  // Sign packages render when the Tools tab loads — go
+  // there and look again once they've had a moment.
+  showTab('tools');
+  setTimeout(function () {
+    var c2 = document.querySelector('[data-pinid="' + id + '"]');
+    if (c2) scrollFlash(c2);
+    else if ($('signSection')) scrollFlash($('signSection'));
+  }, 750);
+}
+
+/* ── 🔍 Jump search ────────────────────────────────────────
+   The index is whatever is actually in the DOM right now —
+   boards, tools, actions, links — so it can only offer what
+   exists, and it is role-filtered naturally: anything inside
+   a section the server role hid ([hidden]) is skipped. */
+function collectNavItems() {
+  var out = [];
+  var nodes = document.querySelectorAll('#appView [data-nav]');
+  for (var i = 0; i < nodes.length; i++) {
+    var n = nodes[i];
+    var p = n, roleHidden = false;
+    while (p && p.id !== 'appView') {
+      if (p.hidden) { roleHidden = true; break; }
+      p = p.parentElement;
+    }
+    if (roleHidden) continue;
+    var panel = n.closest ? n.closest('.tabpanel') : null;
+    var tab = panel ? panel.id.slice(6) : 'home';
+    out.push({
+      text: n.getAttribute('data-nav'),
+      pinId: n.getAttribute('data-pinid'),
+      tab: tab,
+      tabLabel: TAB_LABELS[tab] || tab,
+      node: n,
+    });
+  }
+  return out;
+}
+function jumpToItem(it) {
+  showTab(it.tab);
+  setTimeout(function () {
+    var target = it.node;
+    if (!target || !target.isConnected) {
+      // The tab's boards re-rendered since the search — find
+      // the same item again in the fresh DOM.
+      target = null;
+      if (it.pinId) target = document.querySelector('[data-pinid="' + it.pinId + '"]');
+      if (!target) {
+        var all = document.querySelectorAll('#appView [data-nav]');
+        for (var i = 0; i < all.length; i++) {
+          if (all[i].getAttribute('data-nav') === it.text) { target = all[i]; break; }
+        }
+      }
+    }
+    if (target) scrollFlash(target);
+  }, 180);
+}
+function renderJumpResults(q) {
+  var box = $('jumpResults');
+  if (!box) return;
+  box.innerHTML = '';
+  if (!q || q.length < 2) return;
+  var needle = q.toLowerCase();
+  var hits = collectNavItems().filter(function (it) {
+    return it.text.toLowerCase().indexOf(needle) !== -1;
+  }).slice(0, 8);
+  if (!hits.length) {
+    box.appendChild(el('p', 'small', 'Nothing in the app matches “' + q + '” — try a shorter word.'));
+    return;
+  }
+  hits.forEach(function (it) {
+    var b = el('button', 'jump-item');
+    b.appendChild(document.createTextNode(it.text));
+    b.appendChild(el('span', 'jump-tab', 'on the ' + it.tabLabel + ' tab ›'));
+    b.addEventListener('click', function () {
+      var input = $('jumpInput');
+      if (input) input.value = '';
+      box.innerHTML = '';
+      jumpToItem(it);
+    });
+    box.appendChild(b);
+  });
+}
+(function wireJump() {
+  var input = $('jumpInput');
+  if (!input) return;
+  input.addEventListener('input', function () { renderJumpResults(input.value.trim()); });
+  input.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape') { input.value = ''; renderJumpResults(''); }
+  });
+})();
 </script>
 </body>
 </html>
