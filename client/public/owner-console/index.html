@@ -73,6 +73,15 @@
     width:100%; padding:12px 14px; font-size:15px; border-radius:12px; margin-top:10px;
     border:1px solid var(--line); background:#0a120d; color:var(--ink);
   }
+  textarea.reply-field{
+    width:100%; padding:12px 14px; font-size:15px; border-radius:12px; margin-top:10px;
+    border:1px solid var(--line); background:#0a120d; color:var(--ink);
+    min-height:84px; resize:vertical; font-family:inherit; line-height:1.5;
+  }
+  .ownreply{
+    margin-top:10px; border-left:3px solid var(--line); padding:4px 0 4px 10px;
+    font-size:14px; line-height:1.5; overflow-wrap:anywhere;
+  }
   button.act.confirm{border-color:var(--gold); color:var(--gold)}
   button.act.danger{border-color:var(--red); background:#2a1210}
   button.act.danger.confirm{background:#3d1713; color:#ffb3ab}
@@ -151,6 +160,13 @@
 
   <h2>🚨 Problems <span class="count zero" id="problemsCount">…</span></h2>
   <div id="problemsList"></div>
+
+  <h2>💬 Website Help <span class="count zero" id="helpCount">…</span></h2>
+  <p class="small" style="margin-top:-4px">Questions asked in the help chat on your website —
+    the same threads your Telegram pings point at. Reply right here and the customer
+    reads your answer on the site, inside their thread, under their reference code.</p>
+  <div id="helpList"></div>
+  <a class="act" href="https://luncdevstudio.com/#/help" target="_blank" rel="noopener">🌐 Open the website help chat (customer view)</a>
 
   <h2>⚡ Actions — one click does it</h2>
   <p class="small" style="margin-top:-4px">Everything Muse does for you, as buttons.
@@ -370,6 +386,7 @@ $('refreshBtn').addEventListener('click', loadAll);
 /* ── Loaders ────────────────────────────────────────── */
 function loadAll() {
   loadProblems();
+  loadHelp();
   buildActions();
   loadSignPackages();
   loadOrders();
@@ -449,6 +466,113 @@ function problemCard(p) {
     });
   });
   c.appendChild(btn);
+  c.appendChild(result);
+  return c;
+}
+
+/* ── Website Help board ─────────────────────────────────
+   The website's help threads, worked from the app. Rides
+   the intake's long-standing help surface: GET /admin/help
+   lists the threads, POST /admin/help/reply writes the
+   reply the customer reads back on the site under their
+   reference code (GET /help/:ref), POST /admin/help/resolve
+   closes a thread. The same reply slot the Telegram
+   reply-to path writes — one thread, one current reply. */
+function loadHelp() {
+  var list = $('helpList'), count = $('helpCount');
+  list.innerHTML = '';
+  list.appendChild(el('div', 'card')).appendChild(el('span', 'small', 'Loading website help…'));
+  api('/admin/help?limit=100').then(function (r) {
+    var all = (r.messages || []).filter(function (m) { return m.status !== 'resolved'; });
+    var open = all.filter(function (m) { return m.status === 'open'; });
+    count.textContent = String(open.length);
+    count.className = 'count' + (open.length ? '' : ' zero');
+    list.innerHTML = '';
+    if (!all.length) {
+      var c = el('div', 'card');
+      c.appendChild(el('div', 'ttl', '✅ No open help threads'));
+      c.appendChild(el('p', 'small', 'When a customer asks something in the website help chat, it lands here — and in your Telegram. You can answer from either place.'));
+      list.appendChild(c);
+      return;
+    }
+    all.forEach(function (m) { list.appendChild(helpCard(m)); });
+  }).catch(function (e) {
+    count.textContent = '…';
+    count.className = 'count zero';
+    list.innerHTML = '';
+    if (e.status === 404) list.appendChild(awaitingUpdate('The Website Help board'));
+    else {
+      var c = el('div', 'card');
+      c.appendChild(el('p', 'small', '⚠️ Website Help couldn\'t load (HTTP ' + (e.status || 'network') + '). Tap Refresh to retry.'));
+      list.appendChild(c);
+    }
+  });
+}
+function helpCard(m) {
+  var isOpen = m.status === 'open';
+  var c = el('div', 'card' + (isOpen ? ' red' : ''));
+  var head = el('div', 'row');
+  head.appendChild(el('span', 'ttl grow', '💬 ' + m.ref));
+  head.appendChild(el('span', 'pill ' + (isOpen ? 'open' : 'gold'), isOpen ? 'NEEDS REPLY' : 'ANSWERED'));
+  c.appendChild(head);
+  var meta = [fmtTime(m.created_at)];
+  if (m.build) meta.push('build: ' + m.build);
+  if (m.page) meta.push('page: ' + m.page);
+  if (m.contact) meta.push('contact: ' + m.contact + (m.contactKind ? ' (' + m.contactKind + ')' : ''));
+  c.appendChild(el('p', 'small', meta.join(' · ')));
+  var q = String(m.question || '');
+  if (q.length > 500) q = q.slice(0, 500) + '…';
+  c.appendChild(el('p', 'detail', q));
+  if (m.reply) {
+    var wrap = el('div', 'ownreply');
+    wrap.appendChild(el('div', 'small', 'Your reply' + (m.replied_at ? ' · ' + fmtTime(m.replied_at) : '') + ' — the customer sees it in their thread on the website:'));
+    var rt = String(m.reply);
+    if (rt.length > 400) rt = rt.slice(0, 400) + '…';
+    wrap.appendChild(el('div', null, rt));
+    c.appendChild(wrap);
+  }
+  var result = el('p', 'result');
+  var ta = el('textarea', 'reply-field');
+  ta.placeholder = m.reply
+    ? 'Write a NEW reply — it replaces the one above in the customer\'s thread'
+    : 'Reply to the customer — they read it on the website, in this thread';
+  ta.maxLength = 4000;
+  ta.setAttribute('aria-label', 'Reply to help thread ' + m.ref);
+  c.appendChild(ta);
+  var sendBtn = el('button', 'act', m.reply ? '📨 Send new reply' : '📨 Send reply');
+  var sendLabel = sendBtn.textContent;
+  sendBtn.addEventListener('click', function () {
+    var text = ta.value.trim();
+    if (!text) { showResult(result, false, 'Write the reply first — an empty reply sends nothing.'); return; }
+    sendBtn.disabled = true;
+    sendBtn.textContent = 'Sending…';
+    api('/admin/help/reply', { method: 'POST', body: { ref: m.ref, reply: text } }).then(function () {
+      showResult(result, true, '✅ Reply sent — it\'s now in the customer\'s thread on the website, under ' + m.ref + '.');
+      setTimeout(loadHelp, 1200);
+      setTimeout(loadActivity, 1500);
+    }).catch(function (e) {
+      showResult(result, false, '⚠️ The reply couldn\'t send (HTTP ' + (e.status || 'network') + ') — it was NOT delivered. Try again.');
+      sendBtn.disabled = false;
+      sendBtn.textContent = sendLabel;
+    });
+  });
+  c.appendChild(sendBtn);
+  var resBtn = el('button', 'act', '✅ Mark resolved');
+  confirmify(resBtn, function () {
+    resBtn.disabled = true;
+    resBtn.textContent = 'Working…';
+    api('/admin/help/resolve', { method: 'POST', body: { ref: m.ref, resolution: 'Resolved from the Dev Studio Creator app' } }).then(function () {
+      showResult(result, true, '✅ ' + m.ref + ' marked resolved — the thread is closed.');
+      setTimeout(loadHelp, 1000);
+      setTimeout(loadProblems, 1000);
+      setTimeout(loadActivity, 1300);
+    }).catch(function (e) {
+      showResult(result, false, '⚠️ Couldn\'t resolve it (HTTP ' + (e.status || 'network') + ').');
+      resBtn.disabled = false;
+      resBtn.textContent = '✅ Mark resolved';
+    });
+  });
+  c.appendChild(resBtn);
   c.appendChild(result);
   return c;
 }
