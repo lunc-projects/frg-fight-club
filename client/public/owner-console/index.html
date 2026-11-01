@@ -405,7 +405,7 @@
 
 <section class="tabpanel" id="panel-more">
 
-  <h2 data-nav="Pages health — are your pages up">🛰 Pages health</h2>
+  <h2 data-nav="Pages health — Studio site, lab and intake server">🛰 Pages health — Studio</h2>
   <div class="card" id="pagesBody"><span class="small">Checking your pages…</span></div>
 
   <h2 data-nav="LUNC Kickback validator — bonded status, missed blocks, Hexxagon hosting">🏛 LUNC Kickback validator</h2>
@@ -991,31 +991,17 @@ function buildInstant() {
   val.appendChild(vRes);
   list.appendChild(val);
 
-  var doCard = actionCard('🏆', 'DO Top Holders',
-    'Your DO bot\'s holder rankings live in Telegram — this opens your chat with it.');
-  var dLink = el('a', 'act', '💬 Open the DO bot — send /topholders');
-  dLink.href = 'https://t.me/Dochainassistancebot';
-  dLink.target = '_blank';
-  dLink.rel = 'noopener';
-  doCard.appendChild(dLink);
-  doCard.appendChild(el('p', 'small', 'Labeled honestly: this one opens Telegram — the ranking itself is the bot\'s job.'));
-  list.appendChild(doCard);
 }
 
-/* ✍️ Sign — public packages print here; PRIVATE ones come
-   only from the auth-gated /admin/sign-packages endpoint
-   after unlock. Their links are never in this page. */
-var PUBLIC_SIGN = [
-  { id: 'garuda-exit-all', name: 'Garuda community exit — all pools',
-    detail: 'Exit page for all 61 Garuda staking pools — any staker unstakes here. Shareable community page.',
-    url: 'https://chainpages-7xk.github.io/site/garuda-exit-all/', priv: false },
-  { id: 'garuda-pool-cuts', name: 'Garuda pool cuts — your pools',
-    detail: 'Owner page: set APR and unstake terms on the Garuda pools you own — signed by the pool-owner wallet.',
-    url: 'https://chainpages-7xk.github.io/site/garuda-pool-cuts/', priv: false },
-  { id: 'garuda-recover', name: 'Garuda recover — contract admin actions',
-    detail: 'Owner recovery page: admin actions on any contract (update admin, renounce) — signed by your wallet.',
-    url: 'https://chainpages-7xk.github.io/site/garuda-recover/', priv: false },
-];
+/* ✍️ Sign — Studio signing pages only. Customer projects are
+   not part of this system and get no packages here (owner's
+   ruling, 2026-11-01). Public Studio packages would print
+   here; PRIVATE ones come only from the auth-gated
+   /admin/sign-packages endpoint after unlock — their links
+   are never in this page. Server entries hosted on the old
+   customer-pages host are refused defensively below, so a
+   stale server catalog can never re-add them. */
+var PUBLIC_SIGN = [];
 function signCard(p) {
   var c = el('div', 'card');
   c.setAttribute('data-pinid', 'sign:' + p.id);
@@ -1035,30 +1021,61 @@ function signCard(p) {
   c.appendChild(a);
   return c;
 }
+function signNote(text) {
+  var c = el('div', 'card');
+  var p = el('p', 'small', text);
+  p.style.margin = '0';
+  c.appendChild(p);
+  return c;
+}
+// Pins can outlive the packages they pointed at (device-local
+// storage). Once the Sign board has rendered, drop any sign
+// pin whose card no longer exists, so the Home strip never
+// carries dead entries.
+function pruneSignPins() {
+  var pins = getPins();
+  var kept = pins.filter(function (id) {
+    if (id.indexOf('sign:') !== 0) return true;
+    return !!document.querySelector('[data-pinid="' + id + '"]');
+  });
+  if (kept.length !== pins.length) setPins(kept);
+}
 function loadSignPackages() {
   if (isHelper()) return; // owner-only — the server 403s a helper regardless
   var list = $('signList');
   list.innerHTML = '';
   var seen = {};
-  PUBLIC_SIGN.forEach(function (p) { seen[p.id] = true; list.appendChild(signCard(p)); });
+  var rendered = 0;
+  PUBLIC_SIGN.forEach(function (p) { seen[p.id] = true; rendered++; list.appendChild(signCard(p)); });
   api('/admin/sign-packages').then(function (r) {
     (r.packages || []).forEach(function (p) {
       if (seen[p.id]) return;
+      // Defensive: customer-project pages live on their own
+      // host and are not part of this system — never render
+      // them here, whatever a stale catalog still carries.
+      if (String(p.url || '').indexOf('chainpages-7xk.github.io') !== -1) return;
       seen[p.id] = true;
+      rendered++;
       list.appendChild(signCard({
         id: p.id, name: p.name, detail: p.detail, url: p.url, priv: Boolean(p.private),
       }));
     });
+    if (!rendered) {
+      list.appendChild(signNote('✍️ No signing pages are waiting right now. When a Studio page is prepared for your signature, it lands here — ready, with your signature as the only step.'));
+    }
+    pruneSignPins();
     // Server packages are pinnable too — refresh the Home
     // pins strip now that their titles are registered.
     if (typeof renderPins === 'function') renderPins();
   }).catch(function (e) {
     if (e.status === 404) {
-      var c = el('div', 'card');
-      var p = el('p', 'small', '🔒 Your private signing packages (like your LP exit page) go live when the new intake server files are uploaded — their links are never printed in this page, on purpose.');
-      p.style.margin = '0';
-      c.appendChild(p);
-      list.appendChild(c);
+      list.appendChild(signNote('🔒 Your private signing packages appear here once the intake answers — their links are never printed in this page, on purpose.'));
+      pruneSignPins();
+      if (typeof renderPins === 'function') renderPins();
+    } else if (!rendered) {
+      list.appendChild(signNote('✍️ No signing pages are waiting right now. When a Studio page is prepared for your signature, it lands here — ready, with your signature as the only step.'));
+      pruneSignPins();
+      if (typeof renderPins === 'function') renderPins();
     }
   });
 }
@@ -1066,7 +1083,7 @@ function loadSignPackages() {
 /* 🙋 Request — recorded server-side, picked up in chat. */
 var REQUEST_PRESETS = [
   { kind: 'chain_check', icon: '🔍', title: 'Run a full chain check',
-    ph: 'What should I check? e.g. Garuda pools + the validator' },
+    ph: 'What should I check? e.g. the validator + the lab page' },
   { kind: 'signing_page', icon: '✍️', title: 'Prepare a signing page for me',
     ph: 'What should it do? e.g. unstake my position in…' },
   { kind: 'build_fix', icon: '🛠️', title: 'Build / fix something on a project',
@@ -1457,7 +1474,7 @@ function loadPages() {
   var checks = [
     ['🌐 Studio public site', 'https://luncdevstudio.com'],
     ['🛠️ Studio lab (private copy)', 'https://frg-fight-club.vercel.app/dev-studio-lab-ev6rbmjybhmx/'],
-    ['🦅 Garuda community pages (host)', 'https://chainpages-7xk.github.io/site/'],
+    ['🖥 Intake server (orders & payments)', 'https://intake-production-a98b.up.railway.app/health'],
   ];
   body.innerHTML = '';
   var holder = el('div');
@@ -1469,7 +1486,7 @@ function loadPages() {
       row.querySelector('b').textContent = up ? '🟢 Up' : '🔴 Down / unreachable';
     });
   });
-  var t = el('p', 'small', '🛡 Garuda page tamper-watch: runs on the home computer against a sealed baseline and checks every ~10 minutes. Its live state isn\'t served to this page — a change alerts you in Telegram, and the sealed pages themselves are checked above.');
+  var t = el('p', 'small', 'Studio surfaces only: the public site customers see, the private lab copy, and the intake server that takes orders and payments.');
   t.style.marginBottom = '0';
   body.appendChild(t);
 }
@@ -1723,7 +1740,7 @@ function submitAction(o) {
 
 /* Preset tool buttons — one tap, no form (or one picker). */
 var TEST_OPTS = [['all', 'All suites'], ['intake', 'Intake'], ['factory', 'Token Factory'], ['generators', 'Generators']];
-var SHOT_OPTS = [['lab', 'Studio Lab'], ['public', 'Public Studio site'], ['console', 'This app — Dev Studio Creator'], ['garuda_exit', 'Garuda community exit page']];
+var SHOT_OPTS = [['lab', 'Studio Lab'], ['public', 'Public Studio site'], ['console', 'This app — Dev Studio Creator']];
 function optLabel(opts, v) {
   for (var i = 0; i < opts.length; i++) if (opts[i][0] === v) return opts[i][1];
   return v;
@@ -2162,8 +2179,9 @@ function jumpToEl(elm) {
 
 /* ── 🗺 Project map ───────────────────────────────────────
    Studio-system surfaces ONLY — the owner's boundary rule:
-   Garuda and everything else stay separate and are not part
-   of this system, so they get no block here. States are
+   customer projects and everything else stay separate and
+   are not part of this system, so they get no block here.
+   States are
    honest: the intake and the public site are checked live;
    the factory's word is its standing fact (built ready, not
    switched on — flipping it is the owner's launch-day step);
@@ -2257,10 +2275,13 @@ function renderPins() {
   var row = el('div', 'pinrow');
   pins.forEach(function (id) {
     var chip = el('div', 'pinchip');
-    var go = el('button', 'pinchip-go', '⭐ ' + (PIN_TITLES[id] || id));
+    // A sign pin whose package is gone falls back to a plain
+    // label — never the raw stored id.
+    var label = PIN_TITLES[id] || (id.indexOf('sign:') === 0 ? '✍️ Signing page' : id);
+    var go = el('button', 'pinchip-go', '⭐ ' + label);
     go.addEventListener('click', function () { jumpToPin(id); });
     var x = el('button', 'pinchip-x', '✕');
-    x.setAttribute('aria-label', 'Unpin ' + (PIN_TITLES[id] || id));
+    x.setAttribute('aria-label', 'Unpin ' + label);
     x.addEventListener('click', function () {
       togglePin(id);
       var card = document.querySelector('[data-pinid="' + id + '"]');
