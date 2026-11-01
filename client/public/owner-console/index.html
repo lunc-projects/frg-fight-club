@@ -155,21 +155,22 @@
 </header>
 
 <!-- Unlock gate: fail closed. Nothing but this renders until
-     the studio admin secret checks out against the intake
-     server itself. The secret lives only in this page's
-     session storage on this phone. -->
+     the Master Creator Key (the intake admin secret) checks
+     out against the intake server itself. The key lives only
+     in this page's session storage on this phone. -->
 <section id="unlockView">
   <div class="card">
-    <div class="ttl">🔒 Owner unlock</div>
-    <p class="small">Type your Studio admin secret to open the controls.
-      It's checked against the studio server — a wrong secret opens nothing.</p>
+    <div class="ttl">🔑 Master Creator Key</div>
+    <p class="small">One key unlocks everything in Dev Studio Creator.
+      Type your Master Creator Key to open the controls — it's checked
+      against the studio server, and a wrong key opens nothing.</p>
     <input class="secret" id="secretInput" type="password" autocomplete="off"
-      placeholder="Studio admin secret" aria-label="Studio admin secret">
-    <button class="act" id="unlockBtn">Unlock the console</button>
+      placeholder="Master Creator Key" aria-label="Master Creator Key">
+    <button class="act" id="unlockBtn">Unlock Dev Studio Creator</button>
     <p class="err" id="unlockErr"></p>
-    <p class="small" style="margin-top:10px">The secret stays on this phone (this tab's
-      session only) and is sent only to your own studio server. This console
-      holds no keys, no seeds and no funds — it never can.</p>
+    <p class="small" style="margin-top:10px">Your Master Creator Key stays on this phone
+      (this tab's session only) and is sent only to your own studio server.
+      This app holds no wallet keys, no seeds and no funds — it never can.</p>
   </div>
 </section>
 
@@ -189,6 +190,16 @@
     reads your answer on the site, inside their thread, under their reference code.</p>
   <div id="helpList"></div>
   <a class="act" href="https://luncdevstudio.com/#/help" target="_blank" rel="noopener">🌐 Open the website help chat (customer view)</a>
+
+  <h2>🛠 Tools — build something</h2>
+  <p class="small" style="margin-top:-4px">Your builder shelf — the Studio's own tools, in your
+    no-charge owner lane. Fill the few fields, tap once, and it's started:
+    the work runs on Muse's side and the verified result comes back in chat.</p>
+  <div id="toolPresets"></div>
+  <div id="signBuilder"></div>
+  <h3 class="cat">📚 The build catalog — tap a tool to open its form</h3>
+  <div id="toolCatalog"></div>
+  <div id="toolRecent"></div>
 
   <h2>⚡ Actions — one click does it</h2>
   <p class="small" style="margin-top:-4px">Everything Muse does for you, as buttons.
@@ -250,7 +261,7 @@
     <a class="btn" href="https://intake-production-a98b.up.railway.app/admin" target="_blank" rel="noopener">
       <span class="emoji">📥</span>
       <span><span class="lbl">Studio Orders / Admin</span>
-      <span class="note">The full admin page — opens with your admin secret</span></span>
+      <span class="note">The full admin page — opens with your Master Creator Key</span></span>
       <span class="arrow">›</span>
     </a>
     <a class="btn" href="https://luncdevstudio.com" target="_blank" rel="noopener">
@@ -374,13 +385,13 @@ function unlockError(msg) {
 }
 function tryUnlock(candidate, silent) {
   var s = (candidate || '').trim();
-  if (!s) { if (!silent) unlockError('Type the admin secret first.'); return Promise.resolve(false); }
+  if (!s) { if (!silent) unlockError('Type your Master Creator Key first.'); return Promise.resolve(false); }
   return fetch(API + '/admin?limit=1', { headers: { 'x-admin-secret': s } })
     .then(function (res) {
       if (res.status === 401 || res.status === 503) {
         if (!silent) unlockError(res.status === 503
-          ? 'The server has no admin secret configured — the admin surface is closed.'
-          : 'That secret didn\'t open it — check it and try again.');
+          ? 'The studio server has no Master Creator Key set up yet — the admin surface is closed.'
+          : 'That key didn\'t open it — check it and try again.');
         return false;
       }
       if (!res.ok) { if (!silent) unlockError('The studio server answered HTTP ' + res.status + ' — try again in a moment.'); return false; }
@@ -409,6 +420,8 @@ $('refreshBtn').addEventListener('click', loadAll);
 function loadAll() {
   loadProblems();
   loadHelp();
+  buildTools();
+  loadToolRecent();
   buildActions();
   loadSignPackages();
   loadOrders();
@@ -1237,6 +1250,413 @@ function loadValidator() {
       body.appendChild(el('p', 'small', '⚠️ The chain read didn\'t answer just now — the validator view is read-only public data; tap Refresh to retry.'));
       body.appendChild(line('Hexxagon hosting', 'Next payment Dec 1 · $100'));
     });
+}
+
+/* ── 🛠 Tools board ─────────────────────────────────────
+   The builder shelf. Every tool records ONE ask on the
+   intake's action-request endpoint. Tool kinds (build /
+   deploy / test_run / screenshot) carry a structured
+   payload the server validates; until that server update
+   lands, the same ask is recorded ONCE through the 🙋 lane
+   (kind build_fix, the note prefixed [TOOL:<name>] with the
+   fields as plain lines) — the fallback fires only on the
+   server's 400 for an unknown kind, never on a network
+   error, so one tap can never double-submit. Owner builds
+   are their own lane: no charge, never the customer order
+   flow. */
+var toolsBuilt = false;
+function buildTools() {
+  if (toolsBuilt) return;
+  toolsBuilt = true;
+  buildToolPresets();
+  buildSignBuilder();
+  buildToolCatalog();
+}
+
+function submitAction(o) {
+  var btn = o.btn, res = o.res;
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  function succeed(r, viaFallback) {
+    showResult(res, true, '✅ ' + o.okText
+      + (r && r.pinged ? ' (Your Telegram was pinged too.)' : '')
+      + (viaFallback ? ' Recorded through the request lane — the one-tap tool kinds go live with the intake server update; nothing was lost.' : ''));
+    btn.textContent = '✓ Sent';
+    setTimeout(loadToolRecent, 900);
+    setTimeout(loadActivity, 1400);
+    setTimeout(loadControls, 1400);
+  }
+  function fail(e) {
+    showResult(res, false, '⚠️ It couldn\'t be recorded (HTTP ' + (e.status || 'network') + '). Nothing was sent — ask in chat instead.');
+    btn.disabled = false;
+    btn.textContent = o.btnLabel;
+  }
+  var body = { kind: o.kind, note: o.note || '' };
+  if (o.payload) body.payload = o.payload;
+  api('/admin/action-request', { method: 'POST', body: body })
+    .then(function (r) { succeed(r, false); })
+    .catch(function (e) {
+      if (e.status === 400 && o.fallbackNote) {
+        api('/admin/action-request', { method: 'POST', body: { kind: 'build_fix', note: o.fallbackNote } })
+          .then(function (r) { succeed(r, true); })
+          .catch(fail);
+      } else { fail(e); }
+    });
+}
+
+/* Preset tool buttons — one tap, no form (or one picker). */
+var TEST_OPTS = [['all', 'All suites'], ['intake', 'Intake'], ['factory', 'Token Factory'], ['generators', 'Generators']];
+var SHOT_OPTS = [['lab', 'Studio Lab'], ['public', 'Public Studio site'], ['console', 'This app — Dev Studio Creator'], ['garuda_exit', 'Garuda community exit page']];
+function optLabel(opts, v) {
+  for (var i = 0; i < opts.length; i++) if (opts[i][0] === v) return opts[i][1];
+  return v;
+}
+function picker(opts, label) {
+  var s = el('select', 'fld');
+  s.setAttribute('aria-label', label);
+  opts.forEach(function (pair) {
+    var op = document.createElement('option');
+    op.value = pair[0];
+    op.textContent = pair[1];
+    s.appendChild(op);
+  });
+  return s;
+}
+function buildToolPresets() {
+  var list = $('toolPresets');
+
+  function deployCard(title, target, targetLabel) {
+    var c = actionCard('🚀', title,
+      'Pushes ' + targetLabel + ' live and verifies the live bytes match, md5 for md5.');
+    var btn = el('button', 'act', '🚀 Deploy it');
+    var res = el('p', 'result');
+    btn.addEventListener('click', function () {
+      submitAction({
+        kind: 'deploy', payload: { target: target },
+        note: 'Deploy ' + targetLabel + ' and verify the live bytes.',
+        fallbackNote: '[TOOL:' + title + ']\nTarget: ' + targetLabel + '\nDeploy it and verify the live bytes match.',
+        btn: btn, res: res, btnLabel: '🚀 Deploy it',
+        okText: 'Deploy started — the verified result comes back in chat.',
+      });
+    });
+    c.appendChild(btn);
+    c.appendChild(res);
+    return c;
+  }
+  list.appendChild(deployCard('Deploy the Lab', 'lab', 'the Dev Studio Lab'));
+  list.appendChild(deployCard('Deploy the Studio page', 'studio_page', 'the public Studio site'));
+
+  var tests = actionCard('🧪', 'Run the tests',
+    'Runs a test suite on Muse\'s side — the pass/fail counts come back in chat.');
+  var suiteSel = picker(TEST_OPTS, 'Which test suite');
+  tests.appendChild(el('div', 'fld-label', 'Which suite?'));
+  tests.appendChild(suiteSel);
+  var tBtn = el('button', 'act', '🧪 Run the tests');
+  var tRes = el('p', 'result');
+  tBtn.addEventListener('click', function () {
+    var suite = suiteSel.value;
+    submitAction({
+      kind: 'test_run', payload: { suite: suite },
+      note: 'Run the tests — suite: ' + optLabel(TEST_OPTS, suite) + '.',
+      fallbackNote: '[TOOL:Run the tests]\nSuite: ' + optLabel(TEST_OPTS, suite),
+      btn: tBtn, res: tRes, btnLabel: '🧪 Run the tests',
+      okText: 'Tests started — the counts come back in chat.',
+    });
+  });
+  tests.appendChild(tBtn);
+  tests.appendChild(tRes);
+  list.appendChild(tests);
+
+  var shot = actionCard('📸', 'Screenshot check',
+    'Renders a page at phone size so you can SEE it before it\'s called done. The picture comes back in chat.');
+  var pageSel = picker(SHOT_OPTS, 'Which page to screenshot');
+  shot.appendChild(el('div', 'fld-label', 'Which page?'));
+  shot.appendChild(pageSel);
+  var sBtn = el('button', 'act', '📸 Take the screenshot');
+  var sRes = el('p', 'result');
+  sBtn.addEventListener('click', function () {
+    var page = pageSel.value;
+    submitAction({
+      kind: 'screenshot', payload: { page: page },
+      note: 'Screenshot check — page: ' + optLabel(SHOT_OPTS, page) + ' (390×844).',
+      fallbackNote: '[TOOL:Screenshot check]\nPage: ' + optLabel(SHOT_OPTS, page) + '\nRender it at 390×844 and send the picture in chat.',
+      btn: sBtn, res: sRes, btnLabel: '📸 Take the screenshot',
+      okText: 'Screenshot started — the picture comes back in chat.',
+    });
+  });
+  shot.appendChild(sBtn);
+  shot.appendChild(sRes);
+  list.appendChild(shot);
+
+  var note = el('p', 'small', 'One tap — the work runs on Muse\'s side and the result comes back in chat (and shows in the activity feed below).');
+  note.style.margin = '2px 0 10px';
+  list.appendChild(note);
+}
+
+/* ✍️ Signing-page builder — rides the live signing_page
+   kind; the note carries the job in plain lines. */
+function buildSignBuilder() {
+  var wrap = $('signBuilder');
+  var c = actionCard('✍️', 'Signing-page builder',
+    'Name the signing job — Muse puts the page together with everything pre-filled; your only step is the signature. When it\'s ready, it lands in chat and joins the ✍️ Sign board below.');
+  var contract = el('input', 'fld');
+  contract.type = 'text';
+  contract.placeholder = 'terra1… — the contract address';
+  contract.setAttribute('aria-label', 'Contract address');
+  c.appendChild(el('div', 'fld-label', 'Contract address'));
+  c.appendChild(contract);
+  var action = el('select', 'fld');
+  action.setAttribute('aria-label', 'Signing action');
+  ['Config change', 'Renounce admin', 'Custom message'].forEach(function (a) {
+    var op = document.createElement('option');
+    op.value = a;
+    op.textContent = a;
+    action.appendChild(op);
+  });
+  c.appendChild(el('div', 'fld-label', 'The action'));
+  c.appendChild(action);
+  var details = el('input', 'fld');
+  details.type = 'text';
+  details.placeholder = 'e.g. set the fee to 1,000 LUNC — or the new admin address';
+  details.setAttribute('aria-label', 'Signing job details');
+  c.appendChild(el('div', 'fld-label', 'Details (what exactly should it do?)'));
+  c.appendChild(details);
+  var btn = el('button', 'act', '✍️ Put it together');
+  var res = el('p', 'result');
+  btn.addEventListener('click', function () {
+    var addr = contract.value.trim();
+    if (!addr) { showResult(res, false, 'Paste the contract address first — the page is built around it.'); return; }
+    var lines = ['Contract: ' + addr, 'Action: ' + action.value];
+    if (details.value.trim()) lines.push('Details: ' + details.value.trim());
+    submitAction({
+      kind: 'signing_page', note: lines.join('\n'),
+      btn: btn, res: res, btnLabel: '✍️ Put it together',
+      okText: 'Requested — the signing page is being put together; it lands in chat and joins the Sign board when ready.',
+    });
+  });
+  c.appendChild(btn);
+  c.appendChild(res);
+  wrap.appendChild(c);
+}
+
+/* 📚 The build catalog — the Studio page's real builds and
+   field sets, in the owner's no-charge lane. */
+var TOOL_BUILDS = [
+  { key: 'doneforyou', icon: '🪄', name: 'Done-For-You — We Build Everything', line: 'The whole project, handled — design, art, setup, build, testing, handover.', fields: [
+    { k: 'idea', label: 'What do you want built?', type: 'textarea', ph: 'Describe the idea in your own words…' },
+    { k: 'references', label: 'References / idea notes (optional)', type: 'textarea', ph: 'Templates, example links or notes that show the direction' },
+    { k: 'artSize', label: 'Art size', type: 'select', options: ['Small', 'Medium', 'Large', 'Not sure'] } ] },
+  { key: 'nft', icon: '🖼', name: 'NFT Collection + Mint Shop', line: 'A CW721 collection with a mint shop that verifies payment on-chain.', fields: [
+    { k: 'tiers', label: 'Number of tiers / items', type: 'number', ph: 'e.g. 6' },
+    { k: 'startPrice', label: 'Starting price (LUNC)', type: 'number', ph: 'e.g. 20000' } ] },
+  { key: 'factory', icon: '🏭', name: 'TOKEN FACTORY', line: 'Your own token — named by you, minted straight to the wallet.', fields: [
+    { k: 'tokName', label: 'Token name', type: 'text', ph: 'e.g. Moon Pets' },
+    { k: 'tokSymbol', label: 'Token symbol', type: 'text', ph: 'e.g. MPET' },
+    { k: 'supply', label: 'Total supply', type: 'number', ph: 'e.g. 1000000000' },
+    { k: 'decimals', label: 'Decimals', type: 'number', ph: 'e.g. 6' } ] },
+  { key: 'validator', icon: '🏛', name: 'Validator Launch Kit', line: 'Your own Luna Classic validator, launched and hosted through Hexxagon.', fields: [
+    { k: 'hosting', label: 'Hexxagon hosting', type: 'select', options: ['Order new Hexxagon hosting for the launch', 'I already have Hexxagon hosting', 'Not decided yet'] },
+    { k: 'moniker', label: 'Validator name (moniker)', type: 'text', ph: 'e.g. My Project Validator' },
+    { k: 'selfAmount', label: 'Self-delegation to start (LUNC)', type: 'text', ph: 'e.g. 100000' },
+    { k: 'rate', label: 'Commission rate (%)', type: 'text', ph: 'e.g. 5 — the chain minimum is 2.5%' } ] },
+  { key: 'stats', icon: '📊', name: 'Project Stats Page', line: 'A live stats page for a token — supply, holders, minter status, read from the chain.', fields: [
+    { k: 'contract', label: 'Token contract address', type: 'text', ph: 'terra1… (the 64-character contract address)' } ] },
+  { key: 'burn', icon: '🔥', name: 'Burn Campaign Kit', line: 'A public burn page with a live counter, measured honestly from the supply.', fields: [
+    { k: 'contract', label: 'Token contract address', type: 'text', ph: 'terra1… (the 64-character contract address)' },
+    { k: 'burnAddress', label: 'Burn wallet address (optional)', type: 'text', ph: 'terra1… — where burned tokens are sent' } ] },
+  { key: 'checkup', icon: '🩺', name: 'Safety Checkup', line: 'An on-chain report for any contract or wallet: who holds the admin, who can mint, what code it runs.', fields: [
+    { k: 'address', label: 'Contract or wallet address', type: 'text', ph: 'terra1…' } ] },
+  { key: 'game', icon: '🎮', name: 'Branded Game', line: 'A web / Telegram game in your token\'s branding, with leaderboards.', fields: [
+    { k: 'style', label: 'Game style', type: 'select', options: ['Racer', 'Shooter', 'Arcade', 'Puzzle'] },
+    { k: 'nftInteg', label: 'NFT integration (owned NFTs appear in-game)', type: 'toggle' } ] },
+  { key: 'hold', icon: '💰', name: 'Hold & Earn Rewards', line: 'Holders earn simply by holding — no staking contract at all.', fields: [
+    { k: 'rewardToken', label: 'Reward token', type: 'select', options: ['USTC', 'LUNC', 'Other (note below)'] },
+    { k: 'funding', label: 'Funding source note', type: 'text', ph: 'e.g. funded weekly from validator commission' } ] },
+  { key: 'stake', icon: '🥩', name: 'Token Staking', line: 'Stake-and-earn on contract code already proven on-chain.', fields: [
+    { k: 'minStake', label: 'Minimum stake (tokens)', type: 'number', ph: 'e.g. 10000' },
+    { k: 'rateNote', label: 'Reward rate note', type: 'text', ph: 'e.g. rate set at launch, adjustable by admin' } ] },
+  { key: 'nftstake', icon: '🎴', name: 'NFT Staking + Bonuses', line: 'NFT holders earn daily bonuses by rarity tier, paid from a pool you fund.', fields: [
+    { k: 'rateDefault', label: 'Default (Bonus) rate — tokens per NFT per day', type: 'number', ph: 'e.g. 4' },
+    { k: 'rateCommon', label: 'Common rate — tokens per NFT per day', type: 'number', ph: 'e.g. 50' },
+    { k: 'rateUncommon', label: 'Uncommon rate — tokens per NFT per day', type: 'number', ph: 'e.g. 100' } ] },
+  { key: 'bot', icon: '🤖', name: 'Assistant Bot + Security Watch', line: 'A Telegram assistant for your community, plus a watchdog on your contracts.', fields: [
+    { k: 'botName', label: 'Bot display name', type: 'text', ph: 'e.g. Moon Pets Assistant' },
+    { k: 'aiQa', label: 'AI Q&A (daily-capped)', type: 'toggle' } ] },
+  { key: 'website', icon: '🌐', name: 'Project Website', line: 'A fast one-page site — links, token info, and buttons straight into your apps.', fields: [
+    { k: 'siteType', label: 'Site type', type: 'select', options: ['Project landing page', 'Token info page', 'App hub — links + buttons'] },
+    { k: 'domain', label: 'Domain — already have one?', type: 'text', ph: 'e.g. myproject.com — or "need one"' },
+    { k: 'cta', label: 'Main call-to-action', type: 'text', ph: 'e.g. Stake now / Play the game' } ] },
+  { key: 'leaderboard', icon: '🏆', name: 'Leaderboard + Tournament Pack', line: 'Season boards, score audits and prize tracking for a game you already run.', fields: [
+    { k: 'boards', label: 'Number of boards', type: 'number', ph: 'e.g. 1' },
+    { k: 'season', label: 'Season length', type: 'select', options: ['7 days', '14 days', '30 days', 'Custom'] },
+    { k: 'prizeNote', label: 'Prize note', type: 'text', ph: 'e.g. Top 3 split 4,500 tokens' } ] },
+  { key: 'airdrop', icon: '🪂', name: 'Airdrop / Distribution Tool', line: 'Bulk payouts prepared and tracked — you sign them from your own wallet.', fields: [
+    { k: 'distToken', label: 'Token to distribute', type: 'text', ph: 'e.g. MPET — or LUNC / USTC' },
+    { k: 'wallets', label: 'Recipient wallets (estimate)', type: 'number', ph: 'e.g. 250' },
+    { k: 'mode', label: 'Payout style', type: 'select', options: ['Equal split', 'Amounts from my list'] } ] },
+  { key: 'bundle', icon: '🧩', name: 'Mini-Game Bundle', line: 'Two or three branded mini games in one pack, sharing one leaderboard.', fields: [
+    { k: 'games', label: 'Bundle size', type: 'select', options: ['2 games', '3 games'] },
+    { k: 'mix', label: 'Game mix', type: 'select', options: ['Mixed arcade', 'Racer', 'Shooter', 'Puzzle'] },
+    { k: 'sharedBoard', label: 'Shared leaderboard across the bundle', type: 'toggle' } ] },
+  { key: 'appstore', icon: '📱', name: 'App Store Pack', line: 'Your game or site wrapped for Google Play and the Apple App Store — the studio is proving this route with its own apps first.', fields: [
+    { k: 'source', label: 'What are we packaging?', type: 'select', options: ['A game built by this studio', 'My website / web app', 'A Telegram mini app / bot game'] },
+    { k: 'stores', label: 'Which stores?', type: 'select', options: ['Google Play + Apple App Store', 'Google Play only', 'Apple App Store only'] },
+    { k: 'hasDevAccount', label: 'I already have a Google Play / Apple developer account', type: 'toggle' } ] },
+  { key: 'tradingbot', icon: '📈', name: 'Trading Bot Pack', line: 'Automated buy/sell at thresholds you set — tested first with small numbers.', fields: [
+    { k: 'market', label: 'Market / pair', type: 'text', ph: 'e.g. LUNC/USDT' },
+    { k: 'rules', label: 'Your threshold idea', type: 'textarea', ph: 'e.g. Buy below X, sell above Y — your rules, your caps' } ] },
+  { key: 'custom', icon: '🧱', name: 'Custom Contract — Governance Route', line: 'New contract code, built by the studio and packaged with your governance proposal.', fields: [
+    { k: 'building', label: 'What are you building?', type: 'textarea', ph: 'Describe the project in a few sentences…' },
+    { k: 'purpose', label: 'Contract purpose', type: 'text', ph: 'e.g. A vault that splits revenue between stakers and a treasury' },
+    { k: 'whyNew', label: 'Why does it need new code?', type: 'textarea', ph: 'Why can\'t existing on-chain templates do this job?' } ] },
+  { key: 'fix', icon: '🔧', name: 'Fix My Project', line: 'Something broken or unfinished? Send the links — an honest review and a plan.', fields: [] },
+];
+function toolFieldInput(f) {
+  var node;
+  if (f.type === 'select' || f.type === 'toggle') {
+    node = el('select', 'fld');
+    var opts = f.type === 'toggle' ? ['No', 'Yes'] : f.options;
+    opts.forEach(function (o) {
+      var op = document.createElement('option');
+      op.value = o;
+      op.textContent = o;
+      node.appendChild(op);
+    });
+  } else if (f.type === 'textarea') {
+    node = el('textarea', 'fld');
+    node.placeholder = f.ph || '';
+    node.rows = 3;
+  } else {
+    node = el('input', 'fld');
+    node.type = 'text';
+    if (f.type === 'number') node.inputMode = 'decimal';
+    node.placeholder = f.ph || '';
+  }
+  node.setAttribute('aria-label', f.label);
+  return node;
+}
+function toolCard(tool) {
+  var c = el('div', 'card');
+  var head = el('div', 'row');
+  head.appendChild(el('span', 'emoji', tool.icon));
+  head.appendChild(el('span', 'ttl grow', tool.name));
+  c.appendChild(head);
+  c.appendChild(el('p', 'small', tool.line));
+  var form = el('div', 'tool-form');
+  form.hidden = true;
+  var inputs = [];
+  var project = el('input', 'fld');
+  project.type = 'text';
+  project.placeholder = 'e.g. Moon Pets';
+  project.setAttribute('aria-label', 'Project name');
+  form.appendChild(el('div', 'fld-label', 'Project name'));
+  form.appendChild(project);
+  tool.fields.forEach(function (f) {
+    var node = toolFieldInput(f);
+    form.appendChild(el('div', 'fld-label', f.label));
+    form.appendChild(node);
+    inputs.push({ f: f, node: node });
+  });
+  var details = el('textarea', 'fld');
+  details.rows = 2;
+  var detailsLabel = tool.key === 'fix'
+    ? 'Project links + what is broken or unfinished'
+    : 'Anything else? (optional)';
+  details.placeholder = tool.key === 'fix' ? 'Your project links, and what is broken…' : 'Anything Muse should know first…';
+  details.setAttribute('aria-label', detailsLabel);
+  form.appendChild(el('div', 'fld-label', detailsLabel));
+  form.appendChild(details);
+  var res = el('p', 'result');
+  var startBtn = el('button', 'act', '🚀 Start this build');
+  startBtn.addEventListener('click', function () {
+    var fields = {};
+    var lines = ['Owner build — no charge (owner/test lane): ' + tool.name];
+    var proj = project.value.trim();
+    if (proj) lines.push('Project: ' + proj);
+    inputs.forEach(function (pair) {
+      var f = pair.f, v;
+      if (f.type === 'toggle') {
+        v = pair.node.value === 'Yes';
+        fields[f.k] = v;
+        lines.push(f.label + ': ' + (v ? 'Yes' : 'No'));
+      } else {
+        v = pair.node.value.trim();
+        if (v) { fields[f.k] = v; lines.push(f.label + ': ' + v); }
+      }
+    });
+    if (details.value.trim()) lines.push('Details: ' + details.value.trim());
+    var payload = { build: tool.key, fields: fields };
+    if (proj) payload.project = proj;
+    submitAction({
+      kind: 'build', payload: payload,
+      note: lines.join('\n'),
+      fallbackNote: '[TOOL:' + tool.name + ']\n' + lines.join('\n'),
+      btn: startBtn, res: res, btnLabel: '🚀 Start this build',
+      okText: 'Started — ' + tool.name + ' is in the works. Automated tools run themselves once the launch switch is on; the rest Tom (the assistant) builds in chat and reports back.',
+    });
+  });
+  form.appendChild(startBtn);
+  form.appendChild(res);
+  var openBtn = el('button', 'act', '🛠 Build it');
+  openBtn.addEventListener('click', function () {
+    form.hidden = !form.hidden;
+    openBtn.textContent = form.hidden ? '🛠 Build it' : 'Close the form';
+  });
+  c.appendChild(openBtn);
+  c.appendChild(form);
+  return c;
+}
+function buildToolCatalog() {
+  var list = $('toolCatalog');
+  TOOL_BUILDS.forEach(function (tool) { list.appendChild(toolCard(tool)); });
+}
+
+/* 🕘 Recent tool requests — from the action-requests list;
+   skipped silently until the endpoint answers. */
+var TOOL_KIND_LABEL = {
+  build: ['🛠', 'Owner build'], deploy: ['🚀', 'Deploy'], test_run: ['🧪', 'Run the tests'],
+  screenshot: ['📸', 'Screenshot check'], signing_page: ['✍️', 'Signing page'],
+  chain_check: ['🔍', 'Chain check'], build_fix: ['🛠️', 'Build / fix'],
+};
+function toolBuildName(key) {
+  for (var i = 0; i < TOOL_BUILDS.length; i++) if (TOOL_BUILDS[i].key === key) return TOOL_BUILDS[i].name;
+  return key;
+}
+function toolRecentSummary(r) {
+  var p = r.payload;
+  if (p && r.kind === 'build') return toolBuildName(p.build) + (p.project ? ' — ' + p.project : '');
+  if (p && r.kind === 'deploy') return 'Target: ' + optLabel([['lab', 'Dev Studio Lab'], ['studio_page', 'Public Studio site']], p.target);
+  if (p && r.kind === 'test_run') return 'Suite: ' + optLabel(TEST_OPTS, p.suite);
+  if (p && r.kind === 'screenshot') return 'Page: ' + optLabel(SHOT_OPTS, p.page);
+  var first = String(r.note || '').split('\n')[0] || '';
+  return first.length > 90 ? first.slice(0, 90) + '…' : first;
+}
+function isToolish(r) {
+  if (r.kind === 'build' || r.kind === 'deploy' || r.kind === 'test_run'
+    || r.kind === 'screenshot' || r.kind === 'signing_page') return true;
+  return typeof r.note === 'string' && r.note.indexOf('[TOOL:') === 0;
+}
+function loadToolRecent() {
+  var wrap = $('toolRecent');
+  if (!wrap) return;
+  api('/admin/action-requests?limit=10').then(function (r) {
+    var items = (r.requests || []).filter(isToolish).slice(0, 5);
+    wrap.innerHTML = '';
+    if (!items.length) return;
+    var c = el('div', 'card');
+    c.appendChild(el('div', 'ttl', '🕘 Your recent tool requests'));
+    items.forEach(function (it) {
+      var meta = TOOL_KIND_LABEL[it.kind] || ['🙋', it.kind];
+      var d = el('div', 'recent-item');
+      var top = el('div', 'row');
+      top.appendChild(el('span', 'grow', meta[0] + ' ' + meta[1] + ' — ' + toolRecentSummary(it)));
+      top.appendChild(el('span', 'pill ' + (it.acked_at ? '' : 'open'), it.acked_at ? 'PICKED UP' : 'OPEN'));
+      d.appendChild(top);
+      d.appendChild(el('div', 'small', fmtTime(it.created_at)));
+      c.appendChild(d);
+    });
+    wrap.appendChild(c);
+  }).catch(function () { wrap.innerHTML = ''; });
 }
 
 /* ── Boot ───────────────────────────────────────────── */
