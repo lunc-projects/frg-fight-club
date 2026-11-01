@@ -317,8 +317,9 @@
       is the owner's — it opens everything, and it never leaves the owner.</p>
     <p class="small">A <b>🧑‍🔧 Helper Key</b> opens the day-to-day controls only: problems and their
       fixes, website help, orders, the tools, and status. It can never touch the emergency
-      switches, the signing pages (above all the private ones), the Everything Book, or the
-      money records — the server refuses, not just this page. Work done with a Helper Key is
+      switches, the signing pages (above all the private ones), the Everything Book, the
+      money records, or the ↩️ Reverse key (taking a project back and refunding it) — the
+      server refuses, not just this page. Work done with a Helper Key is
       recorded as the helper's, so the owner can see exactly what was done.</p>
     <p class="small" style="margin-bottom:0"><b>Owner — giving or taking away access:</b> a helper's
       key is the <b>HELPER_SECRET</b> value on the studio server (Railway → the intake service →
@@ -374,6 +375,11 @@ function fmtLuncMinor(minor) {
   var frac = s.slice(-6).replace(/0+$/, '');
   return whole + (frac ? '.' + frac : '');
 }
+// A books amount in its own currency (both denoms are
+// 6-decimal micro units — the same formatter serves both).
+function fmtMoney(minor, denom) {
+  return fmtLuncMinor(minor) + (denom === 'uusd' ? ' USTC' : ' LUNC');
+}
 function api(path, opts) {
   opts = opts || {};
   var headers = { 'x-admin-secret': secret };
@@ -401,6 +407,28 @@ function confirmify(btn, action) {
       timer = setTimeout(function () {
         armed = false; btn.classList.remove('confirm'); btn.textContent = label;
       }, 4500);
+      return;
+    }
+    clearTimeout(timer);
+    armed = false; btn.classList.remove('confirm'); btn.textContent = label;
+    action();
+  });
+}
+// Two-tap confirm whose ARMED state speaks the
+// consequences in plain words, so the second tap is never
+// a guess — used by the Reverse key, where the tap takes a
+// project back and prepares a customer's refund.
+function confirmifyText(btn, armText, action) {
+  var armed = false, timer = null;
+  var label = btn.textContent;
+  btn.addEventListener('click', function () {
+    if (!armed) {
+      armed = true;
+      btn.classList.add('confirm');
+      btn.textContent = armText;
+      timer = setTimeout(function () {
+        armed = false; btn.classList.remove('confirm'); btn.textContent = label;
+      }, 9000);
       return;
     }
     clearTimeout(timer);
@@ -923,8 +951,18 @@ function loadOrders() {
   Promise.all([
     api('/admin?limit=30'),
     api('/admin/totals').catch(function () { return null; }),
+    api('/admin/receipts').catch(function () { return null; }),
+    // ↩️ Reversals are owner-only — a helper never even asks
+    // (the endpoint would 403; the board simply doesn't
+    // carry refund state in the helper view).
+    (isHelper() ? Promise.resolve(null)
+      : api('/admin/reversals').catch(function () { return null; })),
   ]).then(function (rs) {
     var admin = rs[0], totals = rs[1];
+    var receiptsByRef = {};
+    if (rs[2] && rs[2].receipts) rs[2].receipts.forEach(function (rc) { receiptsByRef[rc.ref] = rc; });
+    var reversalsByRef = {};
+    if (rs[3] && rs[3].reversals) rs[3].reversals.forEach(function (rv) { reversalsByRef[rv.ref] = rv; });
     var counts = admin.counts || {};
     var total = Object.keys(counts).reduce(function (a, k) { return a + (counts[k] || 0); }, 0);
     var rows = admin.requests || [];
@@ -947,7 +985,9 @@ function loadOrders() {
       .map(function (k) { return k + ' ' + counts[k]; }).join(' · ');
     if (byStatus) summary.appendChild(line('By status', byStatus));
     list.innerHTML = '';
-    rows.slice(0, 15).forEach(function (r) { list.appendChild(orderCard(r)); });
+    rows.slice(0, 15).forEach(function (r) {
+      list.appendChild(orderCard(r, receiptsByRef[r.ref] || null, reversalsByRef[r.ref] || null));
+    });
     if (!rows.length) {
       var c = el('div', 'card');
       c.appendChild(el('p', 'small', 'No orders yet.'));
@@ -964,12 +1004,18 @@ function line(k, v) {
   d.appendChild(el('b', null, v));
   return d;
 }
-function orderCard(r) {
+function orderCard(r, receipt, reversal) {
   var c = el('div', 'card');
   var head = el('div', 'row');
   head.appendChild(el('span', 'ttl grow', r.project || r.ref));
-  if (r.paid) head.appendChild(el('span', 'pill open', 'PAID'));
-  head.appendChild(el('span', 'pill', (r.status || '').toUpperCase()));
+  if (r.status === 'refunded') {
+    head.appendChild(el('span', 'pill gold', '↩️ REFUNDED'));
+  } else if (r.status === 'reversed') {
+    head.appendChild(el('span', 'pill closed', '↩️ REVERSED'));
+  } else {
+    if (r.paid) head.appendChild(el('span', 'pill open', 'PAID'));
+    head.appendChild(el('span', 'pill', (r.status || '').toUpperCase()));
+  }
   c.appendChild(head);
   var bits = [r.ref, fmtTime(r.created_at)];
   if (r.builds && r.builds.length) bits.push(r.builds.join(' + '));
@@ -998,7 +1044,121 @@ function orderCard(r) {
     c.appendChild(btn);
     c.appendChild(result);
   }
+  // ↩️ The Reverse key lives under every order card —
+  // owner-only rendering (the server refuses a helper on
+  // every reversal endpoint regardless).
+  if (!isHelper()) {
+    var rev = reverseSection(r, receipt, reversal);
+    if (rev) c.appendChild(rev);
+  }
   return c;
+}
+
+/* ── ↩️ Reverse key (owner only) ────────────────────────
+   One action takes a project back: the server closes the
+   order (status reversed, pack link revoked, the
+   customer's open help threads resolved) and PREPARES the
+   refund — the exact amount paid, owed to the exact wallet
+   that paid. The refund itself is always the owner's own
+   signature: either on the one-time refund page (opened by
+   the sign button) or from any wallet + a pasted hash that
+   the server verifies on-chain before anything settles.
+   The states show plainly: PREPARED (awaiting signature) /
+   REFUNDED (with the tx link) — never in between silently. */
+function reverseSection(r, receipt, reversal) {
+  var wrap = el('div');
+  var result = el('p', 'result');
+  if (reversal && reversal.state === 'settled') {
+    wrap.appendChild(el('p', 'detail',
+      '✅ REFUNDED — ' + fmtMoney(reversal.amount_minor, reversal.denom)
+      + ' sent back to the customer wallet. The credit note is in the books.'));
+    if (reversal.refund_txhash) {
+      var tx = el('a', 'small', 'See the refund transaction ›');
+      tx.href = 'https://finder.terraclassic.community/mainnet/tx/' + reversal.refund_txhash;
+      tx.target = '_blank';
+      tx.rel = 'noopener';
+      wrap.appendChild(tx);
+    }
+    return wrap;
+  }
+  if (reversal && reversal.state === 'prepared') {
+    wrap.appendChild(el('p', 'detail',
+      '↩️ REVERSED — a refund of ' + fmtMoney(reversal.amount_minor, reversal.denom)
+      + ' to ' + reversal.to_wallet + ' is PREPARED, awaiting your signature.'));
+    var sign = el('a', 'act', '↩️ Refund prepared — tap to sign');
+    sign.href = API + reversal.refund_path;
+    sign.target = '_blank';
+    sign.rel = 'noopener';
+    wrap.appendChild(sign);
+    wrap.appendChild(el('p', 'small',
+      'The page is filled in for you — connect the studio wallet, check it, sign. '
+      + 'Or send the refund from any wallet yourself, then paste its transaction hash here:'));
+    var hash = el('input', 'note-field');
+    hash.type = 'text';
+    hash.placeholder = 'Refund transaction hash (64 hex characters)';
+    hash.setAttribute('aria-label', 'Refund transaction hash for ' + r.ref);
+    wrap.appendChild(hash);
+    var vbtn = el('button', 'act', 'Verify the refund');
+    vbtn.addEventListener('click', function () {
+      var h = hash.value.trim();
+      if (!h) { showResult(result, false, 'Paste the refund transaction hash first — the check runs against the chain.'); return; }
+      vbtn.disabled = true;
+      vbtn.textContent = 'Checking the chain…';
+      api('/admin/refund-verify', { method: 'POST', body: { ref: r.ref, txHash: h } }).then(function (resp) {
+        if (resp.settled) {
+          showResult(result, true, '✅ Refund verified on-chain — ' + r.ref + ' is REFUNDED and the credit note is in the books.');
+          setTimeout(loadOrders, 1200);
+          setTimeout(loadActivity, 1500);
+        } else {
+          showResult(result, false, '⚠️ Not settled — ' + (resp.reason || 'the refund didn\'t verify.') + ' The obligation stays open.');
+          vbtn.disabled = false;
+          vbtn.textContent = 'Verify the refund';
+        }
+      }).catch(function (e) {
+        showResult(result, false, e.status === 404
+          ? '⏳ Refund verification goes live when the new intake server files are uploaded (listed in Muse\'s report).'
+          : '⚠️ The check couldn\'t run (HTTP ' + (e.status || 'network') + ').');
+        vbtn.disabled = false;
+        vbtn.textContent = 'Verify the refund';
+      });
+    });
+    wrap.appendChild(vbtn);
+    wrap.appendChild(result);
+    return wrap;
+  }
+  if (reversal) return wrap; // an unknown state — show nothing rather than guess
+  if (!r.paid || r.status === 'reversed' || r.status === 'refunded') return null;
+  var amt = receipt ? fmtMoney(receipt.amount_uluna, receipt.denom) : null;
+  var to = receipt ? ((receipt.confirm && receipt.confirm.sender) || receipt.buyer_wallet || '') : '';
+  var btn = el('button', 'act danger', '↩️ Reverse — take back & refund');
+  var armText = 'This takes back ' + (r.project || r.ref)
+    + ', closes its information, and prepares a refund'
+    + (amt ? ' of ' + amt : '')
+    + (to ? ' to ' + to : '')
+    + '. Tap again to reverse.';
+  confirmifyText(btn, armText, function () {
+    btn.disabled = true;
+    btn.textContent = 'Reversing…';
+    api('/admin/reverse', { method: 'POST', body: { ref: r.ref } }).then(function (resp) {
+      showResult(result, true, '↩️ Reversed — a refund of '
+        + fmtMoney(resp.reversal.amount_minor, resp.reversal.denom)
+        + ' to ' + resp.reversal.to_wallet
+        + ' is prepared. Sign it from the refund block on this card.');
+      setTimeout(loadOrders, 1200);
+      setTimeout(loadProblems, 1200);
+      setTimeout(loadActivity, 1500);
+    }).catch(function (e) {
+      var detail = (e.json && (e.json.detail || e.json.error)) || '';
+      showResult(result, false, e.status === 404
+        ? '⏳ The Reverse key goes live when the new intake server files are uploaded (listed in Muse\'s report).'
+        : '⚠️ Couldn\'t reverse — ' + (detail || ('HTTP ' + (e.status || 'network'))) + '.');
+      btn.disabled = false;
+      btn.textContent = '↩️ Reverse — take back & refund';
+    });
+  });
+  wrap.appendChild(btn);
+  wrap.appendChild(result);
+  return wrap;
 }
 
 /* ── Emergency switches + book state ────────────────── */
