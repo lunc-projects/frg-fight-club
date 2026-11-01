@@ -2782,25 +2782,46 @@ renderAll();
   }
 
 
-  /* ---------- ITEMS PURCHASED — the front-screen card ----------
-     The very top of Home. Renders purely from the stored pay
-     state — the same healed store the ownership card uses —
-     so after a purchase, ANY later visit or refresh shows the
-     buyer's items, their remembered wallet and the project
-     links immediately: no reconnect, no digging. No store (or
-     no paid purchase in it) → no card, the pay panel's own
-     rule. Status is only what the store actually knows: Paid,
-     or Delivered once the heal/confirm path has seen it. */
-  function renderMyProject(){
-    const slot = byId('myProjectSlot');
-    if (!slot) return;
-    if (!PAY_ON) { slot.innerHTML = ''; return; }
-    const st = payStore();
-    if (!st || !st.paid || !st.ref) { slot.innerHTML = ''; return; }
+  /* ---------- ITEMS PURCHASED — the front-screen cards ----------
+     The very top of Home. One card per PAID project the buyer
+     owns. The local pay store only ever holds the LATEST
+     purchase (every new request overwrites it), so on its own
+     it shows one project and silently drops the rest — the
+     list therefore comes from the intake service (GET
+     /my-purchases for the buyer's wallet, the same source as
+     the My Purchases view): every paid row renders as its own
+     card. The stored record still paints instantly, stands as
+     the fallback when the service can't be reached, and a
+     stored paid ref the service doesn't list yet (index lag)
+     is appended from the store so a fresh purchase never
+     vanishes. Status is only what the source actually knows:
+     Paid, or Delivered once a delivery has been seen. */
+  let mypServer = { wallet: '', rows: null, fetching: false };
+  function myProjectWallet(st){
+    if (st && (st.wallet || st.address)) return st.wallet || st.address;
+    try { return (window.LDSW && window.LDSW.connected && window.LDSW.connected.address) || ''; } catch(e) { return ''; }
+  }
+  function fetchMyProjects(wallet){
+    if (!wallet || !CFG.apiUrl || mypServer.fetching || mypServer.wallet === wallet) return;
+    mypServer.wallet = wallet; mypServer.fetching = true;
+    fetch(CFG.apiUrl.replace(/\/$/, '') + '/my-purchases?wallet=' + encodeURIComponent(wallet))
+      .then(res => res.json().catch(() => null).then(data => ({ res, data })))
+      .then(({ res, data }) => {
+        mypServer.fetching = false;
+        if (res.ok && data && data.ok && Array.isArray(data.purchases)) {
+          mypServer.rows = data.purchases;
+          renderMyProject();
+        }
+      })
+      .catch(() => { mypServer.fetching = false; });
+  }
+  function localProjectCard(st, first, wallet){
     const L = ownPriceLines(st);
     let h = '<div class="myp-card">';
-    h += '<div class="myp-congrats">' + T('mp_congrats') + '</div>';
-    h += '<h3>' + T('mp_h') + '</h3>';
+    if (first) {
+      h += '<div class="myp-congrats">' + T('mp_congrats') + '</div>';
+      h += '<h3>' + T('mp_h') + '</h3>';
+    }
     if (st.project) h += '<div class="myp-row"><b>' + T('own_project') + ':</b> ' + escS(st.project) + '</div>';
     h += '<div class="myp-row"><b>' + T('own_ref') + ':</b> ' + escS(st.ref) + '</div>';
     h += '<div class="myp-row">' + (st.receiptNumber ? T('own_receipt', { n: escS(String(st.receiptNumber)) }) : T('own_receipt_pending')) + '</div>';
@@ -2808,8 +2829,7 @@ renderAll();
     h += '<ul class="myp-items">';
     for (const r of L.rows) h += '<li>' + escS(r.label) + (r.price ? ' &mdash; ' + escS(r.price) : '') + '</li>';
     h += '</ul>';
-    const wallet = st.wallet || st.address || '';
-    if (wallet) h += '<div class="myp-row"><b>' + T('mp_wallet') + ':</b><br><span class="myp-wallet">' + escS(wallet) + '</span></div>';
+    if (first && wallet) h += '<div class="myp-row"><b>' + T('mp_wallet') + ':</b><br><span class="myp-wallet">' + escS(wallet) + '</span></div>';
     if (st.packUrl) {
       h += '<a class="myp-btn" href="' + escS(packFullUrl(st)) + '" target="_blank" rel="noopener">' + T('mp_page_btn') + '</a>';
       h += '<a class="myp-btn secondary" href="' + escS(packFullUrl(st)) + '" target="_blank" rel="noopener">' + T('own_bill') + '</a>';
@@ -2817,8 +2837,58 @@ renderAll();
       h += '<button class="myp-btn secondary" id="mypBillBtn" type="button">' + T('own_bill') + '</button>';
     }
     h += '</div>';
-    slot.innerHTML = h;
-    if (!st.packUrl) {
+    return h;
+  }
+  function serverProjectCard(p, first, wallet){
+    let h = '<div class="myp-card">';
+    if (first) {
+      h += '<div class="myp-congrats">' + T('mp_congrats') + '</div>';
+      h += '<h3>' + T('mp_h') + '</h3>';
+    }
+    h += '<div class="myp-row"><b>' + T('own_project') + ':</b> ' + escS(p.project || p.ref) + '</div>';
+    h += '<div class="myp-row"><b>' + T('own_ref') + ':</b> ' + escS(p.ref) + '</div>';
+    h += '<div class="myp-row">' + (p.receipt_number ? T('own_receipt', { n: escS(String(p.receipt_number)) }) : T('own_receipt_pending')) + '</div>';
+    h += '<div class="myp-row"><b>' + T('mp_status') + ':</b> ' + (p.status === 'delivered' ? T('mp_delivered') : T('mp_paid')) + '</div>';
+    h += '<ul class="myp-items">';
+    for (const b of (p.builds || [])) h += '<li>' + escS(b.name || b.key) + '</li>';
+    for (const x of (p.extras || [])) h += '<li>' + escS(x.name || x.key) + '</li>';
+    h += '</ul>';
+    if (first && wallet) h += '<div class="myp-row"><b>' + T('mp_wallet') + ':</b><br><span class="myp-wallet">' + escS(wallet) + '</span></div>';
+    if (p.pack_url) {
+      const url = CFG.apiUrl.replace(/\/$/, '') + p.pack_url;
+      h += '<a class="myp-btn" href="' + escS(url) + '" target="_blank" rel="noopener">' + T('mp_page_btn') + '</a>';
+      h += '<a class="myp-btn secondary" href="' + escS(url) + '" target="_blank" rel="noopener">' + T('own_bill') + '</a>';
+    }
+    h += '</div>';
+    return h;
+  }
+  function renderMyProject(){
+    const slot = byId('myProjectSlot');
+    if (!slot) return;
+    if (!PAY_ON) { slot.innerHTML = ''; return; }
+    const st = payStore();
+    const wallet = myProjectWallet(st);
+    fetchMyProjects(wallet);
+    let usedLocalNoPack = false;
+    const paidRows = (mypServer.rows && wallet && mypServer.wallet === wallet)
+      ? mypServer.rows.filter(p => p && p.paid) : null;
+    if (paidRows) {
+      const seen = new Set(paidRows.map(p => p.ref));
+      let h = '';
+      paidRows.forEach((p, i) => { h += serverProjectCard(p, i === 0, wallet); });
+      if (st && st.paid && st.ref && !seen.has(st.ref)) {
+        h += localProjectCard(st, paidRows.length === 0, wallet);
+        if (!st.packUrl) usedLocalNoPack = true;
+      }
+      slot.innerHTML = h;
+    } else if (!st || !st.paid || !st.ref) {
+      slot.innerHTML = '';
+      return;
+    } else {
+      slot.innerHTML = localProjectCard(st, true, wallet);
+      if (!st.packUrl) usedLocalNoPack = true;
+    }
+    if (usedLocalNoPack) {
       const bb = byId('mypBillBtn');
       if (bb) bb.addEventListener('click', () => downloadProjectPack(st));
     }
