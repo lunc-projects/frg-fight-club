@@ -78,10 +78,32 @@
     border:1px solid var(--line); background:#0a120d; color:var(--ink);
     min-height:84px; resize:vertical; font-family:inherit; line-height:1.5;
   }
+  /* Tools board mini-forms: same field language as the
+     note field, for inputs, selects and textareas alike. */
+  input.fld, select.fld, textarea.fld{
+    width:100%; padding:12px 14px; font-size:15px; border-radius:12px; margin-top:6px;
+    border:1px solid var(--line); background:#0a120d; color:var(--ink);
+    font-family:inherit; line-height:1.5;
+  }
+  textarea.fld{min-height:72px; resize:vertical}
+  .fld-label{font-size:13px; color:var(--dim); margin-top:12px; line-height:1.4}
+  .tool-form{margin-top:4px}
+  .recent-item{padding:8px 0; border-bottom:1px dashed #173c25; font-size:14px; line-height:1.45}
+  .recent-item:last-child{border-bottom:none}
   .ownreply{
     margin-top:10px; border-left:3px solid var(--line); padding:4px 0 4px 10px;
     font-size:14px; line-height:1.5; overflow-wrap:anywhere;
   }
+  .hist{margin-top:6px}
+  .hist .hmsg{
+    padding:7px 0; border-bottom:1px dashed #173c25;
+    font-size:14px; line-height:1.5; overflow-wrap:anywhere;
+  }
+  .hist .hmsg:last-child{border-bottom:none}
+  .hist .hwho{font-weight:700; font-size:12.5px; letter-spacing:.3px}
+  .hist .hwho.cust{color:var(--gold)}
+  .hist .hwho.own{color:var(--green)}
+  .hist .htime2{color:var(--dim); font-size:12px}
   button.act.confirm{border-color:var(--gold); color:var(--gold)}
   button.act.danger{border-color:var(--red); background:#2a1210}
   button.act.danger.confirm{background:#3d1713; color:#ffb3ab}
@@ -472,19 +494,44 @@ function problemCard(p) {
 
 /* ── Website Help board ─────────────────────────────────
    The website's help threads, worked from the app. Rides
-   the intake's long-standing help surface: GET /admin/help
-   lists the threads, POST /admin/help/reply writes the
-   reply the customer reads back on the site under their
-   reference code (GET /help/:ref), POST /admin/help/resolve
-   closes a thread. The same reply slot the Telegram
-   reply-to path writes — one thread, one current reply. */
+   the intake's help surface: GET /admin/help lists the
+   threads WITH their full conversation history,
+   POST /admin/help/reply APPENDS a reply to the
+   conversation the customer reads back on the site under
+   their reference code (GET /help/:ref),
+   POST /admin/help/resolve closes a thread. The Telegram
+   reply-to path appends to the same history.
+   Servers that predate the history upgrade return only
+   question + the latest reply per thread — threadMessages()
+   folds that shape into the same short history, so the
+   board renders correctly before AND after the upgrade. */
+function threadMessages(m) {
+  if (Array.isArray(m.messages) && m.messages.length) {
+    return m.messages.map(function (x) {
+      return {
+        who: x.author === 'owner' ? 'owner' : 'customer',
+        text: String(x.text || ''), ts: x.created_at || m.created_at,
+      };
+    });
+  }
+  var out = [{ who: 'customer', text: String(m.question || ''), ts: m.created_at }];
+  if (m.reply) out.push({ who: 'owner', text: String(m.reply), ts: m.replied_at || m.created_at });
+  return out;
+}
+// The ball is with the owner when the LAST word in the
+// conversation is the customer's — that's what NEEDS REPLY
+// means, whatever the thread's status label says.
+function threadNeedsReply(m) {
+  var msgs = threadMessages(m);
+  return msgs.length > 0 && msgs[msgs.length - 1].who === 'customer';
+}
 function loadHelp() {
   var list = $('helpList'), count = $('helpCount');
   list.innerHTML = '';
   list.appendChild(el('div', 'card')).appendChild(el('span', 'small', 'Loading website help…'));
   api('/admin/help?limit=100').then(function (r) {
     var all = (r.messages || []).filter(function (m) { return m.status !== 'resolved'; });
-    var open = all.filter(function (m) { return m.status === 'open'; });
+    var open = all.filter(threadNeedsReply);
     count.textContent = String(open.length);
     count.className = 'count' + (open.length ? '' : ' zero');
     list.innerHTML = '';
@@ -495,7 +542,11 @@ function loadHelp() {
       list.appendChild(c);
       return;
     }
-    all.forEach(function (m) { list.appendChild(helpCard(m)); });
+    // Needs-reply threads first; the server's order holds
+    // inside each group (Array.sort is stable).
+    all.slice().sort(function (a, b) {
+      return (threadNeedsReply(b) ? 1 : 0) - (threadNeedsReply(a) ? 1 : 0);
+    }).forEach(function (m) { list.appendChild(helpCard(m)); });
   }).catch(function (e) {
     count.textContent = '…';
     count.className = 'count zero';
@@ -509,7 +560,7 @@ function loadHelp() {
   });
 }
 function helpCard(m) {
-  var isOpen = m.status === 'open';
+  var isOpen = threadNeedsReply(m);
   var c = el('div', 'card' + (isOpen ? ' red' : ''));
   var head = el('div', 'row');
   head.appendChild(el('span', 'ttl grow', '💬 ' + m.ref));
@@ -520,26 +571,29 @@ function helpCard(m) {
   if (m.page) meta.push('page: ' + m.page);
   if (m.contact) meta.push('contact: ' + m.contact + (m.contactKind ? ' (' + m.contactKind + ')' : ''));
   c.appendChild(el('p', 'small', meta.join(' · ')));
-  var q = String(m.question || '');
-  if (q.length > 500) q = q.slice(0, 500) + '…';
-  c.appendChild(el('p', 'detail', q));
-  if (m.reply) {
-    var wrap = el('div', 'ownreply');
-    wrap.appendChild(el('div', 'small', 'Your reply' + (m.replied_at ? ' · ' + fmtTime(m.replied_at) : '') + ' — the customer sees it in their thread on the website:'));
-    var rt = String(m.reply);
-    if (rt.length > 400) rt = rt.slice(0, 400) + '…';
-    wrap.appendChild(el('div', null, rt));
-    c.appendChild(wrap);
-  }
+  // The whole conversation, oldest first — compact lines:
+  // who · when, then the text. A thread can run for days;
+  // nothing here replaces anything.
+  var hist = el('div', 'hist');
+  threadMessages(m).forEach(function (msg) {
+    var line = el('div', 'hmsg');
+    var who = el('span', 'hwho ' + (msg.who === 'owner' ? 'own' : 'cust'),
+      msg.who === 'owner' ? '🟢 YOU' : '🧑 CUSTOMER');
+    line.appendChild(who);
+    line.appendChild(el('span', 'htime2', ' · ' + fmtTime(msg.ts)));
+    var text = String(msg.text || '');
+    if (text.length > 600) text = text.slice(0, 600) + '…';
+    line.appendChild(el('div', null, text));
+    hist.appendChild(line);
+  });
+  c.appendChild(hist);
   var result = el('p', 'result');
   var ta = el('textarea', 'reply-field');
-  ta.placeholder = m.reply
-    ? 'Write a NEW reply — it replaces the one above in the customer\'s thread'
-    : 'Reply to the customer — they read it on the website, in this thread';
+  ta.placeholder = 'Reply to the customer — it joins the conversation above; they read the whole thread on the website';
   ta.maxLength = 4000;
   ta.setAttribute('aria-label', 'Reply to help thread ' + m.ref);
   c.appendChild(ta);
-  var sendBtn = el('button', 'act', m.reply ? '📨 Send new reply' : '📨 Send reply');
+  var sendBtn = el('button', 'act', '📨 Send reply');
   var sendLabel = sendBtn.textContent;
   sendBtn.addEventListener('click', function () {
     var text = ta.value.trim();
@@ -547,7 +601,7 @@ function helpCard(m) {
     sendBtn.disabled = true;
     sendBtn.textContent = 'Sending…';
     api('/admin/help/reply', { method: 'POST', body: { ref: m.ref, reply: text } }).then(function () {
-      showResult(result, true, '✅ Reply sent — it\'s now in the customer\'s thread on the website, under ' + m.ref + '.');
+      showResult(result, true, '✅ Reply sent — it\'s in the conversation now; the customer reads the whole thread on the website, under ' + m.ref + '.');
       setTimeout(loadHelp, 1200);
       setTimeout(loadActivity, 1500);
     }).catch(function (e) {
