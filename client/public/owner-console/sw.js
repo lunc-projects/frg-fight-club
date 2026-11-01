@@ -4,7 +4,7 @@
    any API or admin response. */
 'use strict';
 
-var CACHE = 'owner-console-v6';
+var CACHE = 'owner-console-v7';
 var SHELL = [
   './',
   './index.html',
