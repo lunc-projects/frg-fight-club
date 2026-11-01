@@ -1,10 +1,10 @@
-/* Owner Console service worker — TEST build.
+/* Dev Studio Creator service worker — TEST build.
    Caches ONLY the app shell (this page, manifest, icons).
    It never intercepts cross-origin pages and never caches
    any API or admin response. */
 'use strict';
 
-var CACHE = 'owner-console-v2';
+var CACHE = 'owner-console-v3';
 var SHELL = [
   './',
   './index.html',

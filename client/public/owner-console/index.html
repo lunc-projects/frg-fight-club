@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Tom's Builder Console</title>
-<meta name="description" content="Tom's private owner console — control panel for the LUNC Dev Studio: problems & fixes, orders, emergency switches, status.">
+<title>Dev Studio Creator</title>
+<meta name="description" content="Dev Studio Creator — Tom's private owner app: one-click actions, problems & fixes, orders and emergency switches for everything he's building.">
 <meta name="theme-color" content="#070b09">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Builder">
+<meta name="apple-mobile-web-app-title" content="Creator">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
@@ -61,12 +61,18 @@
   .pill.open{color:var(--green); border-color:var(--green)}
   .pill.closed{color:var(--red); border-color:var(--red)}
   .pill.gold{color:var(--gold); border-color:var(--gold)}
-  button.act{
+  button.act, a.act{
     appearance:none; border:1px solid var(--green); background:#12241a; color:var(--ink);
     font-size:15.5px; font-weight:700; border-radius:12px; padding:12px 16px;
     min-height:50px; cursor:pointer; width:100%; margin-top:10px;
   }
-  button.act:active{background:#1a3624}
+  a.act{display:block; text-align:center; text-decoration:none; line-height:26px}
+  button.act:active, a.act:active{background:#1a3624}
+  h3.cat{font-size:16.5px; margin:20px 0 8px}
+  input.note-field{
+    width:100%; padding:12px 14px; font-size:15px; border-radius:12px; margin-top:10px;
+    border:1px solid var(--line); background:#0a120d; color:var(--ink);
+  }
   button.act.confirm{border-color:var(--gold); color:var(--gold)}
   button.act.danger{border-color:var(--red); background:#2a1210}
   button.act.danger.confirm{background:#3d1713; color:#ffb3ab}
@@ -111,8 +117,8 @@
 <body>
 <header>
   <img src="icon-192.png" alt="LUNC Dev Studio">
-  <h1>Tom's Builder Console</h1>
-  <p class="sub">Control panel — problems, orders &amp; switches for everything you're building.</p>
+  <h1>Dev Studio Creator</h1>
+  <p class="sub">One app for everything you're building — actions, problems, orders &amp; switches.</p>
   <div><span class="test-badge">TEST</span></div>
   <p class="test-note">Test build — for trying the app on your phone.</p>
 </header>
@@ -145,6 +151,23 @@
 
   <h2>🚨 Problems <span class="count zero" id="problemsCount">…</span></h2>
   <div id="problemsList"></div>
+
+  <h2>⚡ Actions — one click does it</h2>
+  <p class="small" style="margin-top:-4px">Everything Muse does for you, as buttons.
+    Each one is labeled by how it runs — nothing pretends to be instant that isn't.</p>
+
+  <h3 class="cat">⚡ Instant — runs right now, no signature</h3>
+  <div id="instantList"></div>
+
+  <h3 class="cat">✍️ Sign — prepared for your signature</h3>
+  <p class="small" style="margin-top:-2px">Ready pages with everything put together for you —
+    open one and your only step is signing in your wallet. This app never holds your keys.</p>
+  <div id="signList"></div>
+
+  <h3 class="cat">🙋 Request — your assistant does it</h3>
+  <p class="small" style="margin-top:-2px">Jobs only Muse can do. Tap one, add a line if you
+    like — the ask lands in chat and gets picked up there.</p>
+  <div id="requestList"></div>
 
   <h2>📥 Orders</h2>
   <div class="card" id="ordersSummary"><span class="small">Loading…</span></div>
@@ -347,6 +370,8 @@ $('refreshBtn').addEventListener('click', loadAll);
 /* ── Loaders ────────────────────────────────────────── */
 function loadAll() {
   loadProblems();
+  buildActions();
+  loadSignPackages();
   loadOrders();
   loadControls();
   loadHealth();
@@ -426,6 +451,190 @@ function problemCard(p) {
   c.appendChild(btn);
   c.appendChild(result);
   return c;
+}
+
+/* ── Actions board (Dev Studio Creator) ─────────────── */
+var actionsBuilt = false;
+function buildActions() {
+  if (actionsBuilt) return;
+  actionsBuilt = true;
+  buildInstant();
+  buildRequests();
+}
+function actionCard(icon, title, note) {
+  var c = el('div', 'card');
+  var head = el('div', 'row');
+  head.appendChild(el('span', 'emoji', icon));
+  head.appendChild(el('span', 'ttl grow', title));
+  c.appendChild(head);
+  if (note) c.appendChild(el('p', 'small', note));
+  return c;
+}
+
+/* ⚡ Instant — backed by live endpoints, runs on the tap. */
+function buildInstant() {
+  var list = $('instantList');
+
+  var health = actionCard('🩺', 'Studio health check',
+    'Asks the studio server how it is, right now — the full status board below refreshes too.');
+  var hBtn = el('button', 'act', '🩺 Check the studio now');
+  var hRes = el('p', 'result');
+  hBtn.addEventListener('click', function () {
+    hBtn.disabled = true;
+    hBtn.textContent = 'Checking…';
+    fetch(API + '/health').then(function (r) { return r.json(); }).then(function (h) {
+      showResult(hRes, Boolean(h.ok), h.ok
+        ? '🟢 Studio is up — requests ' + (h.requests_open ? 'open' : 'CLOSED') + ', payments ' + (h.payments_open ? 'open' : 'closed') + '.'
+        : '🔴 The studio answered, but not healthy.');
+      loadHealth();
+    }).catch(function () {
+      showResult(hRes, false, '🔴 The intake service didn\'t answer — it may be down.');
+    }).then(function () { hBtn.disabled = false; hBtn.textContent = '🩺 Check the studio now'; });
+  });
+  health.appendChild(hBtn);
+  health.appendChild(hRes);
+  list.appendChild(health);
+
+  var book = actionCard('📖', 'Get the Everything Book',
+    'Notes a book request — the current book then arrives in your chat. Never hosted, no link to leak.');
+  var bBtn = el('button', 'act', '📖 Get the book');
+  var bRes = el('p', 'result');
+  confirmify(bBtn, function () {
+    bBtn.disabled = true;
+    bBtn.textContent = 'Noting it…';
+    api('/admin/book-request', { method: 'POST', body: {} }).then(function (r) {
+      showResult(bRes, true, '✅ ' + (r.detail || 'Book request noted — it arrives in chat.') + (r.pinged ? ' (Your Telegram was pinged too.)' : ''));
+      bBtn.textContent = '📖 Request noted';
+      setTimeout(loadControls, 800);
+    }).catch(function (e) {
+      showResult(bRes, false, e.status === 404
+        ? '⏳ This goes live with an intake update — meanwhile just ask in chat: “send me the book.”'
+        : '⚠️ The request couldn\'t be noted (HTTP ' + (e.status || 'network') + '). Ask in chat: “send me the book.”');
+      bBtn.disabled = false;
+      bBtn.textContent = '📖 Get the book';
+    });
+  });
+  book.appendChild(bBtn);
+  book.appendChild(bRes);
+  list.appendChild(book);
+
+  var val = actionCard('🏛', 'Validator status',
+    'Re-reads LUNC Kickback live from the chain — the validator board below refreshes.');
+  var vBtn = el('button', 'act', '🏛 Refresh validator status');
+  var vRes = el('p', 'result');
+  vBtn.addEventListener('click', function () {
+    loadValidator();
+    showResult(vRes, true, '↻ Refreshed just now — see the validator board below for the numbers.');
+  });
+  val.appendChild(vBtn);
+  val.appendChild(vRes);
+  list.appendChild(val);
+
+  var doCard = actionCard('🏆', 'DO Top Holders',
+    'Your DO bot\'s holder rankings live in Telegram — this opens your chat with it.');
+  var dLink = el('a', 'act', '💬 Open the DO bot — send /topholders');
+  dLink.href = 'https://t.me/Dochainassistancebot';
+  dLink.target = '_blank';
+  dLink.rel = 'noopener';
+  doCard.appendChild(dLink);
+  doCard.appendChild(el('p', 'small', 'Labeled honestly: this one opens Telegram — the ranking itself is the bot\'s job.'));
+  list.appendChild(doCard);
+}
+
+/* ✍️ Sign — public packages print here; PRIVATE ones come
+   only from the auth-gated /admin/sign-packages endpoint
+   after unlock. Their links are never in this page. */
+var PUBLIC_SIGN = [
+  { id: 'garuda-exit-all', name: 'Garuda community exit — all pools',
+    detail: 'Exit page for all 61 Garuda staking pools — any staker unstakes here. Shareable community page.',
+    url: 'https://chainpages-7xk.github.io/site/garuda-exit-all/', priv: false },
+  { id: 'garuda-pool-cuts', name: 'Garuda pool cuts — your pools',
+    detail: 'Owner page: set APR and unstake terms on the Garuda pools you own — signed by the pool-owner wallet.',
+    url: 'https://chainpages-7xk.github.io/site/garuda-pool-cuts/', priv: false },
+  { id: 'garuda-recover', name: 'Garuda recover — contract admin actions',
+    detail: 'Owner recovery page: admin actions on any contract (update admin, renounce) — signed by your wallet.',
+    url: 'https://chainpages-7xk.github.io/site/garuda-recover/', priv: false },
+];
+function signCard(p) {
+  var c = el('div', 'card');
+  var head = el('div', 'row');
+  head.appendChild(el('span', 'ttl grow', p.name));
+  if (p.priv) head.appendChild(el('span', 'pill closed', '🔒 PRIVATE'));
+  head.appendChild(el('span', 'pill open', 'READY'));
+  c.appendChild(head);
+  c.appendChild(el('p', 'detail', p.detail));
+  var a = el('a', 'act', '✍️ Open — sign in your wallet');
+  a.href = p.url;
+  a.target = '_blank';
+  a.rel = 'noopener';
+  c.appendChild(a);
+  return c;
+}
+function loadSignPackages() {
+  var list = $('signList');
+  list.innerHTML = '';
+  var seen = {};
+  PUBLIC_SIGN.forEach(function (p) { seen[p.id] = true; list.appendChild(signCard(p)); });
+  api('/admin/sign-packages').then(function (r) {
+    (r.packages || []).forEach(function (p) {
+      if (seen[p.id]) return;
+      seen[p.id] = true;
+      list.appendChild(signCard({
+        id: p.id, name: p.name, detail: p.detail, url: p.url, priv: Boolean(p.private),
+      }));
+    });
+  }).catch(function (e) {
+    if (e.status === 404) {
+      var c = el('div', 'card');
+      var p = el('p', 'small', '🔒 Your private signing packages (like your LP exit page) go live when the new intake server files are uploaded — their links are never printed in this page, on purpose.');
+      p.style.margin = '0';
+      c.appendChild(p);
+      list.appendChild(c);
+    }
+  });
+}
+
+/* 🙋 Request — recorded server-side, picked up in chat. */
+var REQUEST_PRESETS = [
+  { kind: 'chain_check', icon: '🔍', title: 'Run a full chain check',
+    ph: 'What should I check? e.g. Garuda pools + the validator' },
+  { kind: 'signing_page', icon: '✍️', title: 'Prepare a signing page for me',
+    ph: 'What should it do? e.g. unstake my position in…' },
+  { kind: 'build_fix', icon: '🛠️', title: 'Build / fix something on a project',
+    ph: 'Which project — and what needs doing?' },
+];
+function buildRequests() {
+  var list = $('requestList');
+  REQUEST_PRESETS.forEach(function (preset) {
+    var c = actionCard(preset.icon, preset.title, null);
+    var input = el('input', 'note-field');
+    input.type = 'text';
+    input.placeholder = preset.ph;
+    input.setAttribute('aria-label', preset.title + ' — details');
+    c.appendChild(input);
+    var btn = el('button', 'act', '🙋 Request it');
+    var res = el('p', 'result');
+    btn.addEventListener('click', function () {
+      btn.disabled = true;
+      btn.textContent = 'Sending…';
+      api('/admin/action-request', {
+        method: 'POST',
+        body: { kind: preset.kind, note: input.value || '' },
+      }).then(function (r) {
+        showResult(res, true, '✅ ' + (r.detail || 'Requested — Tom (the assistant) picks this up in chat.') + (r.pinged ? ' (Your Telegram was pinged too.)' : ''));
+        btn.textContent = '🙋 Requested ✓';
+      }).catch(function (e) {
+        showResult(res, false, e.status === 404
+          ? '⏳ Request buttons go live with the intake server update (listed in Muse\'s report) — meanwhile just ask in chat.'
+          : '⚠️ The request couldn\'t be recorded (HTTP ' + (e.status || 'network') + '). Ask in chat instead.');
+        btn.disabled = false;
+        btn.textContent = '🙋 Request it';
+      });
+    });
+    c.appendChild(btn);
+    c.appendChild(res);
+    list.appendChild(c);
+  });
 }
 
 /* ── Orders ─────────────────────────────────────────── */
