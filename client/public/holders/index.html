@@ -1,0 +1,1489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Community Wallet — by LUNC Dev Studio</title>
+<meta name="description" content="Community Wallet by LUNC Dev Studio — read-only wallet lookup for Terra Classic and DO Chain. Type an address — no wallet connection, no signing — and see balances, tokens, staking, rewards, NFTs and recent transactions, verified on-chain.">
+<style>
+  :root{
+    --bg:#070b09; --card:#101812; --card2:#0d140f; --line:#1e2f23; --line2:#2a4232; --green:#3ddc84; --green-hi:#4ced4b;
+    --gold:#ffd76a; --red:#ff6b6b; --ink:#e8f2ea; --dim:#9db8a6; --blue:#7cc4ff;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0; padding:0}
+  body{background:var(--bg); color:var(--ink); font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    padding:max(16px, env(safe-area-inset-top)) 14px calc(30px + env(safe-area-inset-bottom)); max-width:640px; margin:0 auto}
+  header{text-align:center; margin:6px 0 4px}
+  h1{font-size:23px; margin:6px 0 4px}
+  .sub{color:var(--dim); font-size:13.5px; line-height:1.5; margin:0}
+  .safe{color:var(--green); font-size:13.5px; margin:10px 0 0; line-height:1.5}
+  .toggle{display:flex; gap:10px; margin:16px 0 10px}
+  .toggle button{flex:1; appearance:none; border:1px solid var(--line); background:var(--card); color:var(--dim);
+    font-size:16px; font-weight:700; border-radius:12px; padding:13px 8px; min-height:52px; cursor:pointer}
+  .toggle button.on{border-color:var(--green); color:var(--ink); background:#12241a}
+  .lookup{display:flex; gap:8px}
+  .lookup input{flex:1; min-width:0; padding:14px; font-size:15px; border-radius:12px; border:1px solid var(--line);
+    background:#0a120d; color:var(--ink)}
+  .lookup button{appearance:none; border:1px solid var(--green); background:#12241a; color:var(--ink);
+    font-size:16px; font-weight:700; border-radius:12px; padding:12px 18px; min-height:52px; cursor:pointer}
+  .err{color:var(--red); font-size:14px; margin-top:10px; display:none; line-height:1.5}
+  .addrbar{margin:16px 0 0; font-size:13px; line-height:1.6; overflow-wrap:anywhere}
+  .addrbar a{color:var(--blue)}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 16px; margin:12px 0}
+  .card h2{font-size:18px; margin:0 0 8px}
+  .card h3{font-size:15.5px; margin:14px 0 6px}
+  .big{font-size:30px; font-weight:800; letter-spacing:.2px}
+  #valueTotal{color:var(--gold)}
+  .byline{color:var(--gold); font-size:12px; font-weight:700; letter-spacing:.18em; text-transform:uppercase; margin:2px 0 6px}
+  .small{font-size:13px; color:var(--dim); line-height:1.55}
+  .row{display:flex; justify-content:space-between; gap:12px; padding:8px 0; border-bottom:1px dashed #173c25; font-size:14.5px}
+  .row:last-child{border-bottom:none}
+  .row .k{min-width:0; overflow-wrap:anywhere}
+  .row .v{font-weight:700; text-align:right; white-space:nowrap}
+  .row .v small{display:block; color:var(--dim); font-weight:400; font-size:12px}
+  a{color:var(--blue); overflow-wrap:anywhere}
+  details.card{padding:0}
+  details.card summary{list-style:none; cursor:pointer; padding:14px 16px; font-size:18px; font-weight:700; min-height:52px}
+  details.card summary::-webkit-details-marker{display:none}
+  details.card summary .cnt{color:var(--dim); font-size:13.5px; font-weight:400}
+  details.card .inner{padding:0 16px 14px}
+  .tx{padding:10px 0; border-bottom:1px dashed #173c25; font-size:14px; line-height:1.55}
+  .tx:last-child{border-bottom:none}
+  .tx .meta{color:var(--dim); font-size:12.5px}
+  .tx .fail{color:var(--red); font-weight:700}
+  .tx .ok{color:var(--green); font-weight:700}
+  .pill{display:inline-block; padding:2px 9px; border-radius:999px; font-size:11.5px; font-weight:800; border:1px solid var(--line); color:var(--dim)}
+  .pill.g{color:var(--green); border-color:var(--green)}
+  .pill.gold{color:var(--gold); border-color:var(--gold)}
+  .nftgrid{display:grid; grid-template-columns:repeat(auto-fill,minmax(100px,1fr)); gap:10px; margin-top:8px}
+  .nft{background:var(--card2); border:1px solid #173c25; border-radius:12px; padding:8px; text-align:center}
+  .nft img{width:100%; aspect-ratio:1; object-fit:cover; border-radius:8px; background:#0a120d}
+  .nft .ph{width:100%; aspect-ratio:1; border-radius:8px; background:#0a120d; color:var(--dim);
+    display:flex; align-items:center; justify-content:center; font-size:11px; padding:6px; line-height:1.4}
+  .nft .nm{font-size:12px; margin-top:6px; overflow-wrap:anywhere; line-height:1.4}
+  .nft .id{font-size:11px; color:var(--dim)}
+  .donutwrap{display:flex; gap:16px; align-items:center; flex-wrap:wrap}
+  .legend{font-size:13.5px; line-height:1.9}
+  .dot{display:inline-block; width:11px; height:11px; border-radius:3px; margin-right:7px; vertical-align:-1px}
+  .counts{display:flex; flex-wrap:wrap; gap:8px; margin-top:10px}
+  .counts .pill{font-size:12.5px; padding:5px 11px}
+  .spin{color:var(--dim); font-size:14px}
+  .fineprint{font-size:12px; color:var(--dim); line-height:1.6; margin-top:18px}
+  .tag{background:#3a2d5a;border-radius:8px;padding:1px 7px;font-size:11px}
+.cov{font-size:12.5px; color:var(--gold); line-height:1.55; margin-top:8px}
+  button.mini{appearance:none; border:1px solid var(--line); background:#12241a; color:var(--ink);
+    font-size:13.5px; font-weight:700; border-radius:10px; padding:9px 13px; min-height:44px; cursor:pointer; margin-top:8px}
+  [hidden]{display:none !important}
+</style>
+</head>
+<body>
+<header>
+  <h1>👛 Community Wallet</h1>
+  <p class="byline">by LUNC Dev Studio</p>
+  <p class="sub">A wallet <b>replica dashboard</b> — everything in a wallet, on one screen:
+    balances, tokens, staking, claimable rewards, staking-platform positions, NFTs and recent transactions.</p>
+  <p class="safe">🔒 <b>Read-only lookup.</b> Type or paste an address — this page <b>never</b> asks you to connect a wallet,
+    sign anything, or enter a seed phrase. It only reads public on-chain data.</p>
+</header>
+
+<div class="toggle" role="tablist" aria-label="Chain">
+  <button id="tabTerra" class="on" onclick="setChain('terra')">🌕 Terra Classic</button>
+  <button id="tabDo" onclick="setChain('do')">🟣 DO Chain</button>
+</div>
+<div class="lookup">
+  <input id="addrInput" type="text" autocomplete="off" autocapitalize="none" spellcheck="false"
+    placeholder="Paste a terra1… address" aria-label="Wallet address">
+  <button id="goBtn" onclick="lookup()">Look up</button>
+</div>
+<p class="err" id="errBox"></p>
+<div class="addrbar" id="addrBar" hidden></div>
+
+<main id="dash" hidden>
+  <!-- Total value -->
+  <section class="card" id="valueCard">
+    <h2>💵 Total value <span class="pill" id="valueAsOf"></span></h2>
+    <div class="big" id="valueTotal">…</div>
+    <div id="valueSplit" class="small" style="margin-top:6px"></div>
+    <p class="small" id="valueNote"></p>
+  </section>
+
+  <!-- Gauges -->
+  <section class="card" id="gaugeCard">
+    <h2>📊 Portfolio split</h2>
+    <div class="donutwrap">
+      <div id="donut"></div>
+      <div class="legend" id="donutLegend"></div>
+    </div>
+    <div class="counts" id="countStrip"></div>
+    <p class="small" id="gaugeNote"></p>
+  </section>
+
+  <!-- Claimable rewards -->
+  <section class="card" id="claimCard">
+    <h2>🎁 Claimable rewards</h2>
+    <div id="claimBody"><span class="spin">Reading the chain…</span></div>
+  </section>
+
+  <!-- Balances -->
+  <details class="card" id="secBalances" open>
+    <summary>💰 Balances <span class="cnt" id="balCnt"></span></summary>
+    <div class="inner" id="balBody"><span class="spin">Reading the chain…</span></div>
+  </details>
+
+  <!-- Tokens -->
+  <details class="card" id="secTokens" open>
+    <summary>🪙 Tokens (CW20) <span class="cnt" id="tokCnt"></span></summary>
+    <div class="inner" id="tokBody"><span class="spin">Discovering tokens…</span></div>
+  </details>
+
+  <!-- Native staking -->
+  <details class="card" id="secStaking" open>
+    <summary>🏦 Staking <span class="cnt" id="stkCnt"></span></summary>
+    <div class="inner" id="stkBody"><span class="spin">Reading the chain…</span></div>
+  </details>
+
+  <!-- Staking platforms -->
+  <details class="card" id="secPlatforms" open>
+    <summary>🥩 Staking platforms <span class="cnt" id="pltCnt"></span></summary>
+    <div class="inner" id="pltBody"><span class="spin">Checking staking contracts…</span></div>
+  </details>
+
+  <!-- Wallet security -->
+  <details class="card" id="secSecurity" open>
+    <summary>🔒 Wallet Security <span class="cnt" id="secCnt"></span></summary>
+    <div class="inner" id="secBody"><span class="spin">Checking permissions…</span></div>
+  </details>
+
+  <!-- NFTs -->
+  <details class="card" id="secNfts" open>
+    <summary>🎨 NFTs <span class="cnt" id="nftCnt"></span></summary>
+    <div class="inner" id="nftBody"><span class="spin">Scanning collections…</span></div>
+  </details>
+
+  <!-- Transactions -->
+  <details class="card" id="secTxs" open>
+    <summary>📜 Recent transactions <span class="cnt" id="txCnt"></span></summary>
+    <div class="inner" id="txBody"><span class="spin">Loading history…</span></div>
+  </details>
+</main>
+
+<p class="fineprint" id="finePrint"></p>
+
+<script>
+'use strict';
+/* ── Endpoints (all public, read-only) ─────────────────────────── */
+var LCD_T = 'https://terra-classic-lcd.publicnode.com';
+var FCD_T = 'https://terra-classic-fcd.publicnode.com';
+var SCAN  = 'https://luncscan.com/api';
+var LCD_DO= 'https://do-chain.com/lcd';
+var FINDER= 'https://finder.terraclassic.community/mainnet';
+var DO_PORTAL = 'https://do-chain.com';
+var IPFS_GW = 'https://ipfs.io/ipfs/';
+
+/* Garuda regular staking pools (61) — per-wallet stake query answers on the
+   contracts that still run their original code; migrated ones refuse reads. */
+var GARUDA_POOLS = ["terra10e4yfx3384ra50pgnmfv0cgam802hvf5h4p9xqna9s0x077aqumsxdt5mk", "terra13074c53ns8ecsgfjn9rmnmmkwul05svugek77ayaxff5fs0v7vkq4rk4mq", "terra14zrdqwta2yny3xpnjaz4ed8lpjjk7f60j72zt5w8hx4squfhax5qzkdtpj", "terra167az9nn26afp3ve4xkc7cdr54n3pgh4zhdrlaplffhstzfzg386q6vkzp5", "terra16dfrlvyxdscudl7lphzdp7yqj0zgglqmzhesx6av28uqk0nf000qj2jjkl", "terra173aruunt787qwt44ljg0deryuj807pldm22vdk2rrmrze9kpwtmsaq2nn3", "terra17avs3pllpjheny9ajge5rrq6cr4hw4j4yrlgu47lt2ys33gls8uqlllua0", "terra17pwxwpxju6e4lyvxwwtwygxr0tqu3hjy84vxcquxg6fw43eyyqnsrzzqtj", "terra18sv6s39ddjkfypfazcfez2jl3srk32zgmlc7v3qxdczyyggftyksrlnm5n", "terra18tth5k9ycj300krlk20y264jmqepar32kwdf8wank0wx5r5434xsqancsk", "terra18wcz09yn2fxlc9g8q5fsdyj900gdsyqmmmtt5yyl95ptznz7cw4qatrtaq", "terra18xhghdltu2w2jfxdjfc0a73n3x4k44a3lz3xh9sqgk3tus6mqcysuwdjaz", "terra18zqvk5kt9gz7zak7954uuw5uy3au8j85w728kukwmwyfwlatkv4qpfsaf7", "terra1aqlmctg3xxzkdjr6wdymnw3aquw06lstkcu9frkdlk7qcqwupu2qyvq4cs", "terra1av2rm3vrt7qn4tfmk02vde746lt2f8mh8gudmyhq6qvrrz6am9hskv4q0d", "terra1awdyvmnnrrv8vhjty3pqqrq0vthmdpja4etza2lpslzzcs0mt2ys63erx2", "terra1c4n0pp82u8x8lyp470uxtg9ff5qy3x42zaf2277jjd02hrg76zjsu0fdxt", "terra1c7nef2lwmylrqj4zd8kaqcay599g4dnke7rhqkukpf2h45c8m4kq6d5mj2", "terra1carxa7kcsxg3gpgwp02m6g60fvetu2wl3xmhkjc6axjgsrqdfttssv8fdq", "terra1czyzgyyhep3v78f3mflt827hs6kxuy70guwhmdzg035guc8wamds62et72", "terra1dmqek2y6k03cqp69tvntcwucqdqjrysv6lfqj34p0240332452kqrp3767", "terra1dn75gndrcd3tlnn3dq2t7t5dm74fqwuxp7f3su3k0ddxtret7a7ss59vzy", "terra1fx439sdlax9pznc6cg2lr5hle3s7l97lrvjjs7t67smhk8vm6hvs6r6t7j", "terra1g0lt2f0fpeepnfmh24f7fywhl9yrxy3wmwjxzshasupy5c4lcses2pwwk2", "terra1gh7nwdvuvvffxl4zs78qcz2sp9sus5m27shdu0zvvq2c5j5935hqsz9pzd", "terra1hdvjrnk75e00rucwd08c8h4afqnpmds5kjrmpsj337880hwr79eqsxclcc", "terra1jgw6vxadgxlqat6x5y6rqlpewme6j42h9788zsdumgu2nc2pkp0snupe9s", "terra1jr46teqmmvmwqqfjrmtw46p20afslgaxrlc3g8gk4ut4m7kfwdsseyrgu5", "terra1k24c7ls5nvagucz3e706cd953ax427zjax4fj5gvgcpdywpj8cuqkm7ajf", "terra1k2s84ha9aa623z9ekxz49mz2mkm6ckvqlv2qnqerus2y8a4kuuzs0xyvwd", "terra1k70jvr5gdjk9wy2dxxpztlpcg36nj32kpnaxu59ge2uy8n20vatq8jjn0s", "terra1kaqxa7zcs3h0sd4nuu7znfuw8fkschwud5qe7s7z5af9td5wge6qnc6nv5", "terra1lfttgkdq9wysjrryrxq282jflk9ns607yd4fhvtw9ytvs26vwgns2jldun", "terra1m4h42w2zgmnal8zej6wv3p6swtwk7cdzy7ca76msgsxwaf0t30cscha8gg", "terra1mwlz4q65mf2pdzrxkjqxw8n2s9pq3rhwwrjzvgh5ek6zlw7qdceskwdt3j", "terra1mxuknyzr7s5u668zj9tla2u4z9fpk6ug7sshly52gmglgf7ylgsskxx7xa", "terra1n4f0nt89pv6lrqs33urhkwvchy0xg9r3lfv4w75caeujd8vv982q88vcft", "terra1nkc6r2tlu099wpymxyqnaw8vrlvn086252fh53e0ek5gza4htvcqcphwh8", "terra1nngx763e4f3fv0gmc8hdmj75kmjsa2uawutr6a4dnwcwkjplacyqhsz3hh", "terra1p06x57ft0chgrjeqxem389d79pewvu7z6wcnunu0ccj4tgjy6r6sxqvdyk", "terra1pa6sf55g6y892k9z046r6ytn39ds4nlp42dh37lpx3vgx858csjqk40q8q", "terra1pccpsy6f5mrgvxtjlsn6trz0k7gzfccjcnlzgwjxauy5zcvgwlwsfp59eg", "terra1phumlea6qx3dngfd3f0d2rm73pdhelqjptdsv068sdv45cmngltse6uuv6", "terra1ptdyve07wpm7weryhp3thtdn4cu47l0z94xfc3qpdppj4wnm2x7qdf53mr", "terra1qje40t8lp0klk0jyd42t33acwch2kuszpuuewvquu062pam3fyqqjd2va8", "terra1qjpakr9hf3lshsjnh6d3p4jzd0jnqy4ep7vlh498t93g2h7gjlasn6a6nk", "terra1qm9pdfwn64hhxprncfaeshpp2clkjq0v62cmjatk76le3rsr5tyq6vtqek", "terra1qttxawzjph3253cmer4ypepzh75elv82pz79w32k9g3e53gum4fsl7esa3", "terra1saq633ak6jqwpyje8sh8gnf72ruztekj3udmlccpyhr2ejptlzzqe4fkx3", "terra1tdspuqafqsl64dtfhqs7w3dtk5gwj45z42uvukgwddjnq7u5x32qr5xwse", "terra1tpy57h2jv6904tfycrmskyg54f5xzu30arn5m3v89tz7pyw8qlgsvvgww5", "terra1tu88u5kzdq6rx6z8hrv5a3nr0ashaee80r7u98zed3ufegj0un7qgtfr25", "terra1up3xhkv8mj8lznlgkn2qams06fuyh8kzcldmhesum53wap2pdxlq4v7xy2", "terra1v3up7v4fk6ln3ep3w5kfua0lfx75para4l0r7g35gwkdc9valz9qnvqxkl", "terra1v7swj9wst9mk6trkwtk29p5gl49kk3mfn9ry0v48gqxhf69y7cqqth5pxw", "terra1vtclwndv7ts95cw60gw7m0ylg73u7j4cs4p3ru8hedl3g6a79ngq0ufjmh", "terra1wnmfwqu2g7j365nazshu2x9sdvte483ev680drvdw62vfw44e7xq3j7qwq", "terra1xszgz28vem5g2mwuwtxmeq3x6llfu34pwcdls6d0pxyc9pnl9l0saf9jp3", "terra1xvjwd55c4z932xu04npl296g8mmjhlzxy8rlvrkgwgnxve53w88q2mer37", "terra1y52tjsu3vy9kred20vh7ge53hh38ahsagjlfnfhufwdppma9w2as63kcxh", "terra1y56h8lk5s2md6yjvllefph4ca70yk4r0qtvt6uyh27m2fjypuyyspgrr6q"];
+
+/* Well-known contracts in the owner's ecosystem, always checked. */
+var FRG_STAKING_V1 = 'terra1nw40wau5yc9xtq0h85e6267vjzgs7a0aycge275r3gy95zkfswjsp4qk79';
+var FRG_STAKING_V2 = 'terra10tn5tpx35kvhsnhxt3l4eyupxmykxyl3u0553et9mf57de7s0dvqgquufh';
+var FRG_NFT_STAKING= 'terra1yh2l98exfye989spn2ytuk6asmzeym9dr6j3jlpnlnku2ywehupqeu9f50';
+var KNOWN_NFT_COLLECTIONS = [
+  'terra1s2uv06mywsulpvljt7hszuhmnagk0sxfusscjz3fhmwx7muc2qtqva5er9', /* LUNC Grand Prix */
+  'terra1xhykrgdr58m6gplv7umv9pet25eah4psca7qjrn98xphlr0tra7',     /* Orbit Defender */
+  'terra1qhnugpekln5lzlxq83g8ecu0j47r5tga7yryprjuhwaugaamelusgtg0af'  /* FRG Rewards */
+];
+
+var chain = 'terra', ADDR = '', RUN = 0;
+var priceCache = {};   // key -> {usd, src} | null (no price)
+var tokenInfoCache = {};
+var state = {};        // filled as sections complete; drives value + gauges
+
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function b64(o){ return btoa(unescape(encodeURIComponent(JSON.stringify(o)))); }
+
+function getJSON(url, timeoutMs){
+  var ctl = ('AbortController' in window) ? new AbortController() : null;
+  var t = ctl ? setTimeout(function(){ ctl.abort(); }, timeoutMs || 20000) : null;
+  return fetch(url, ctl ? {signal: ctl.signal} : {}).then(function(r){
+    if (t) clearTimeout(t);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }).catch(function(e){ if (t) clearTimeout(t); throw e; });
+}
+/* run fn over items with limited concurrency */
+function mapLimit(items, limit, fn){
+  var out = new Array(items.length), i = 0;
+  function next(){
+    if (i >= items.length) return Promise.resolve();
+    var idx = i++;
+    return Promise.resolve().then(function(){ return fn(items[idx], idx); })
+      .then(function(v){ out[idx] = v; return next(); }, function(){ out[idx] = null; return next(); });
+  }
+  var workers = [];
+  for (var k = 0; k < Math.min(limit, items.length); k++) workers.push(next());
+  return Promise.all(workers).then(function(){ return out; });
+}
+/* exact decimal formatting from a raw integer string */
+function fmtAmt(raw, dec){
+  raw = String(raw == null ? '0' : raw).replace(/[^0-9]/g, '') || '0';
+  var neg = false;
+  var s = raw.replace(/^0+(?=\d)/, '');
+  var padded = s.padStart(dec + 1, '0');
+  var intPart = dec ? padded.slice(0, -dec) : padded;
+  var fracPart = dec ? padded.slice(-dec) : '';
+  intPart = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  fracPart = fracPart.replace(/0+$/, '');
+  if (fracPart.length > 6) fracPart = fracPart.slice(0, 6).replace(/0+$/, '');
+  return fracPart ? intPart + '.' + fracPart : intPart;
+}
+function fmtUSD(v){
+  if (v == null || !isFinite(v)) return '—';
+  if (v >= 1000) return '$' + v.toLocaleString('en-US', {maximumFractionDigits: 2});
+  if (v >= 1) return '$' + v.toFixed(2);
+  if (v >= 0.01) return '$' + v.toFixed(4);
+  return '$' + v.toPrecision(3);
+}
+function rawNum(raw){ var n = Number(raw); return isFinite(n) ? n : 0; }
+function amtNum(raw, dec){ return rawNum(raw) / Math.pow(10, dec); }
+
+var FIAT = { uluna:['LUNC','Luna Classic'], uusd:['USTC','TerraClassic USD'], ukrw:['KRT',''], uaud:['AUT',''],
+  ucad:['CAT',''], uchf:['CHT',''], ucny:['CNT',''], udkk:['DKT',''], ueur:['EUT',''], ugbp:['GBT',''],
+  uhkd:['HKT',''], uidr:['IDRT',''], uinr:['INT',''], ujpy:['JPT',''], umnt:['MNT',''], umyr:['MYT',''],
+  unok:['NOT',''], uphp:['PHT',''], usdr:['SDT',''], usek:['SET',''], uthb:['THT',''] };
+function denomLabel(denom){
+  if (FIAT[denom]) return FIAT[denom][0];
+  if (denom === 'udo') return 'DO';
+  if (denom === 'udodx') return 'DODx';
+  return denom;
+}
+function denomDecimals(denom){ return 6; } /* classic bank denoms + DO denoms are 6 */
+
+/* ── Prices — only from named public sources ───────────────────── */
+function priceLuncScanToken(contract){
+  var key = 'ls:' + contract;
+  if (key in priceCache) return Promise.resolve(priceCache[key]);
+  return getJSON(SCAN + '/tokens/price/' + contract, 15000).then(function(r){
+    var arr = (r && r.data) || [];
+    var last = arr[arr.length - 1];
+    var p = last ? Number(last.price) : NaN;
+    priceCache[key] = (isFinite(p) && p > 0) ? { usd: p, src: 'LuncScan price history ' + (last.sdate || '') } : null;
+    return priceCache[key];
+  }).catch(function(){ priceCache[key] = null; return null; });
+}
+function pricePaprika(id, key){
+  if (key in priceCache) return Promise.resolve(priceCache[key]);
+  return getJSON('https://api.coinpaprika.com/v1/tickers/' + id, 15000).then(function(r){
+    var p = r && r.quotes && r.quotes.USD ? Number(r.quotes.USD.price) : NaN;
+    priceCache[key] = (isFinite(p) && p > 0) ? { usd: p, src: 'CoinPaprika' } : null;
+    return priceCache[key];
+  }).catch(function(){ priceCache[key] = null; return null; });
+}
+function priceCoinGecko(id, key){
+  if (key in priceCache) return Promise.resolve(priceCache[key]);
+  return getJSON('https://api.coingecko.com/api/v3/simple/price?ids=' + id + '&vs_currencies=usd', 15000).then(function(r){
+    var p = r && r[id] ? Number(r[id].usd) : NaN;
+    priceCache[key] = (isFinite(p) && p > 0) ? { usd: p, src: 'CoinGecko' } : null;
+    return priceCache[key];
+  }).catch(function(){ priceCache[key] = null; return null; });
+}
+function priceNative(denom){
+  if (denom === 'uluna') return priceCoinGecko('terra-luna', 'LUNC');
+  if (denom === 'udo') return priceCoinGecko('lunc-cookie-do-coin', 'DO');
+  return Promise.resolve(null); /* USTC + others: priced below via pool if possible, else no price */
+}
+/* USTC: implied from the Terraswap USTC/LUNC pool × the LUNC price. */
+var terraswapFactory = 'terra1jkndu9w5attpz09ut02sgey5dd3e8sq5watzm0';
+function priceUstc(run){
+  if ('USTC' in priceCache) return Promise.resolve(priceCache.USTC);
+  return priceNative('uluna').then(function(lp){
+    if (!lp) { priceCache.USTC = null; return null; }
+    /* find the uluna/uusd pair on the Terraswap factory */
+    function scanPairs(after){
+      var q = { pairs: { limit: 30 } };
+      if (after) q.pairs.start_after = after;
+      return smart(terraswapFactory, q).then(function(r){
+        var pairs = (r && r.pairs) || [];
+        for (var i = 0; i < pairs.length; i++){
+          var infos = pairs[i].asset_infos || [];
+          var denoms = infos.map(function(x){ return x.native_token ? x.native_token.denom : ''; }).sort().join('|');
+          if (denoms === 'uluna|uusd') return pairs[i].contract_addr;
+        }
+        if (pairs.length === 30){
+          var last = pairs[pairs.length - 1].asset_infos;
+          return scanPairs(last);
+        }
+        return null;
+      });
+    }
+    return scanPairs(null).then(function(pair){
+      if (!pair) { priceCache.USTC = null; return null; }
+      return smart(pair, { pool: {} }).then(function(pool){
+        var a = pool.assets || [];
+        var lunc = 0, ustc = 0;
+        a.forEach(function(x){
+          if (x.info.native_token && x.info.native_token.denom === 'uluna') lunc = rawNum(x.amount);
+          if (x.info.native_token && x.info.native_token.denom === 'uusd') ustc = rawNum(x.amount);
+        });
+        if (!lunc || !ustc) { priceCache.USTC = null; return null; }
+        var p = (lunc / ustc) * lp.usd;
+        priceCache.USTC = { usd: p, src: 'Terraswap USTC/LUNC pool × CoinGecko LUNC' };
+        return priceCache.USTC;
+      });
+    });
+  }).catch(function(){ priceCache.USTC = null; return null; });
+}
+
+/* ── LCD helpers ───────────────────────────────────────────────── */
+function lcdBase(){ return chain === 'do' ? LCD_DO : LCD_T; }
+function smart(contract, msg){
+  return getJSON(lcdBase() + '/cosmwasm/wasm/v1/contract/' + contract + '/smart/' + encodeURIComponent(b64(msg)), 20000)
+    .then(function(r){ return r.data; });
+}
+function smartLoose(contract, msg){
+  var ctl = ('AbortController' in window) ? new AbortController() : null;
+  var t = ctl ? setTimeout(function(){ ctl.abort(); }, 20000) : null;
+  return fetch(lcdBase() + '/cosmwasm/wasm/v1/contract/' + contract + '/smart/' + encodeURIComponent(b64(msg)), ctl ? {signal: ctl.signal} : {})
+    .then(function(r){ return r.text().then(function(txt){
+      if (t) clearTimeout(t);
+      try { var j = JSON.parse(txt);
+        if (r.ok && j && j.data !== undefined) return { ok: true, data: j.data, err: '' };
+        return { ok: false, data: null, err: (j && j.message) || txt };
+      } catch(e){ return { ok: false, data: null, err: txt }; }
+    }); })
+    .catch(function(e){ if (t) clearTimeout(t); return { ok: false, data: null, err: String((e && e.message) || e) }; });
+}
+function tokenInfo(contract){
+  if (tokenInfoCache[contract]) return Promise.resolve(tokenInfoCache[contract]);
+  return smart(contract, { token_info: {} }).then(function(d){
+    tokenInfoCache[contract] = d; return d;
+  }).catch(function(){ return null; });
+}
+function allBalances(addr){
+  var out = [];
+  function page(key){
+    var url = lcdBase() + '/cosmos/bank/v1beta1/balances/' + addr + '?pagination.limit=100' +
+      (key ? '&pagination.key=' + encodeURIComponent(key) : '');
+    return getJSON(url, 20000).then(function(r){
+      out = out.concat(r.balances || []);
+      var nk = r.pagination && r.pagination.next_key;
+      return nk ? page(nk) : out;
+    });
+  }
+  return page(null);
+}
+function finderAddr(a){ return FINDER + '/account/' + a; }
+function finderTx(h){ return FINDER + '/tx/' + h; }
+function addrLink(a, label){
+  if (chain === 'do') return '<a href="' + DO_PORTAL + '/wallet/' + esc(a) + '" target="_blank" rel="noopener">' + esc(label || a) + '</a>';
+  return '<a href="' + finderAddr(a) + '" target="_blank" rel="noopener">' + esc(label || a) + '</a>';
+}
+
+/* ── Lookup orchestration ──────────────────────────────────────── */
+function setChain(c){
+  chain = c;
+  $('tabTerra').className = c === 'terra' ? 'on' : '';
+  $('tabDo').className = c === 'do' ? 'on' : '';
+  $('addrInput').placeholder = c === 'terra' ? 'Paste a terra1… address' : 'Paste a do1… address';
+}
+function showErr(msg){
+  var e = $('errBox');
+  if (!msg){ e.style.display = 'none'; e.textContent = ''; return; }
+  e.textContent = msg; e.style.display = 'block';
+}
+function validAddr(a){
+  if (chain === 'terra') return /^terra1[a-z0-9]{38}$/.test(a);
+  return /^do1[a-z0-9]{38,}$/.test(a);
+}
+function lookup(){
+  var a = $('addrInput').value.trim().toLowerCase();
+  if (!validAddr(a)){
+    showErr(chain === 'terra'
+      ? 'That does not look like a Terra Classic address (terra1… — 45 characters). Check it and try again.'
+      : 'That does not look like a DO Chain address (do1…). Check it and try again.');
+    return;
+  }
+  showErr('');
+  ADDR = a; RUN++;
+  var run = RUN;
+  state = { native: [], tokens: [], delegations: [], unbonding: 0, rewards: null,
+            platforms: [], nfts: [], nftStaked: [], txCount: 0, discovery: '', poolsReadable: 0, poolsChecked: 0 };
+  priceCache = {}; tokenInfoCache = {};
+  $('dash').hidden = false;
+  $('addrBar').hidden = false;
+  $('addrBar').innerHTML = 'Wallet: ' + addrLink(a) +
+    (chain === 'terra' ? '' : ' <span class="small">(DO Chain)</span>');
+  ['balBody','tokBody','stkBody','pltBody','nftBody','txBody','claimBody','secBody'].forEach(function(id){
+    $(id).innerHTML = '<span class="spin">Reading the chain…</span>';
+  });
+  $('valueTotal').textContent = '…'; $('valueSplit').innerHTML = ''; $('valueNote').textContent = '';
+  $('donut').innerHTML = ''; $('donutLegend').innerHTML = ''; $('countStrip').innerHTML = ''; $('gaugeNote').textContent = '';
+  // sync URL for sharing / QA
+  try {
+    var u = new URL(window.location.href);
+    u.searchParams.set('addr', a); u.searchParams.set('chain', chain);
+    window.history.replaceState(null, '', u.toString());
+  } catch (e) {}
+  loadBalances(run);
+  loadStaking(run);
+  loadSecurity(run);
+  if (chain === 'terra'){
+    $('secTokens').hidden = false; $('secPlatforms').hidden = false; $('secNfts').hidden = false; $('secTxs').hidden = false;
+    loadTokens(run); loadPlatforms(run); loadNfts(run); loadTxs(run);
+  } else {
+    $('secTokens').hidden = true; $('secPlatforms').hidden = true; $('secNfts').hidden = true; $('secTxs').hidden = true;
+    $('tokCnt').textContent = ''; $('pltCnt').textContent = ''; $('nftCnt').textContent = ''; $('txCnt').textContent = '';
+    finishValue(run);
+  }
+  renderFinePrint();
+}
+function alive(run){ return run === RUN; }
+
+/* ── Section: native balances ──────────────────────────────────── */
+function loadBalances(run){
+  return allBalances(ADDR).then(function(bals){
+    if (!alive(run)) return;
+    state.native = bals;
+    var pricedJobs = bals.map(function(b){
+      var label = denomLabel(b.denom);
+      var job = (b.denom === 'uusd' && chain === 'terra') ? priceUstc(run)
+        : priceNative(b.denom);
+      return job.then(function(p){ return { b: b, label: label, price: p }; });
+    });
+    return Promise.all(pricedJobs).then(function(rows){
+      if (!alive(run)) return;
+      state.nativePriced = rows;
+      var html = '';
+      if (!rows.length) html = '<p class="small">No native balances found on-chain for this wallet.</p>';
+      rows.forEach(function(r){
+        var usd = r.price ? amtNum(r.b.amount, 6) * r.price.usd : null;
+        html += '<div class="row"><span class="k">' + esc(r.label) +
+          (r.label !== r.b.denom ? ' <span class="small">' + esc(r.b.denom) + '</span>' : '') +
+          '</span><span class="v">' + fmtAmt(r.b.amount, 6) +
+          (usd != null ? '<small>' + fmtUSD(usd) + '</small>' : '<small>no market price</small>') + '</span></div>';
+      });
+      $('balBody').innerHTML = html;
+      $('balCnt').textContent = rows.length ? '· ' + rows.length + ' denom' + (rows.length > 1 ? 's' : '') : '';
+      finishValue(run);
+    });
+  }).catch(function(){
+    if (!alive(run)) return;
+    $('balBody').innerHTML = '<p class="small">⚠️ The chain balances could not be read just now — try again in a moment.</p>';
+    finishValue(run);
+  });
+}
+
+/* ── Section: CW20 tokens (discovery + on-chain verification) ──── */
+function fcdCandidates(addr){
+  return getJSON(FCD_T + '/v1/txs?account=' + addr + '&limit=100', 25000).then(function(r){
+    var set = {};
+    (r.txs || []).forEach(function(tx){
+      var logs = tx.logs || [];
+      logs.forEach(function(l){
+        (l.events || []).forEach(function(ev){
+          if (ev.type !== 'wasm') return;
+          (ev.attributes || []).forEach(function(at){
+            if (at.key === '_contract_address' && /^terra1[a-z0-9]{58}$/.test(at.value)) set[at.value] = true;
+          });
+        });
+      });
+    });
+    return Object.keys(set);
+  }).catch(function(){ return []; });
+}
+function loadTokens(run){
+  var fromScan = getJSON(SCAN + '/address/portfolio/' + ADDR, 25000)
+    .then(function(r){ return ((r && r.data) || []).map(function(x){ return x.token_address; }); })
+    .catch(function(){ return null; });
+  fromScan.then(function(scanList){
+    if (!alive(run)) return;
+    var srcPromise, srcName;
+    if (scanList){
+      srcPromise = Promise.resolve(scanList); srcName = 'LuncScan index';
+    } else {
+      srcPromise = fcdCandidates(ADDR); srcName = 'recent on-chain history (FCD)';
+    }
+    return srcPromise.then(function(cands){
+      if (!alive(run)) return;
+      var uniq = {};
+      cands.forEach(function(c){ if (/^terra1[a-z0-9]{58}$/.test(c)) uniq[c] = true; });
+      var list = Object.keys(uniq);
+      state.discovery = srcName;
+      return mapLimit(list, 6, function(contract){
+        return Promise.all([
+          tokenInfo(contract),
+          smart(contract, { balance: { address: ADDR } }).catch(function(){ return null; })
+        ]).then(function(res){
+          var info = res[0], bal = res[1];
+          if (!info || !bal || !bal.balance || bal.balance === '0') return null;
+          return { contract: contract, name: info.name, symbol: info.symbol,
+                   decimals: Number(info.decimals) || 0, balance: bal.balance };
+        });
+      }).then(function(found){
+        if (!alive(run)) return;
+        var toks = found.filter(Boolean);
+        return mapLimit(toks, 6, function(t){
+          return priceLuncScanToken(t.contract).then(function(p){ t.price = p; return t; });
+        }).then(function(priced){
+          if (!alive(run)) return;
+          state.tokens = priced;
+          var html = '';
+          if (!priced.length){
+            html = '<p class="small">No CW20 token balances verified on-chain for this wallet.</p>';
+          }
+          priced.forEach(function(t){
+            var usd = t.price ? amtNum(t.balance, t.decimals) * t.price.usd : null;
+            var lpTag = /\bLP\b|liquidity/i.test((t.name || '') + ' ' + (t.symbol || '')) ? ' <span class="tag">🏦 LP token</span>' : '';
+            html += '<div class="row"><span class="k">' + esc(t.name || t.symbol) + ' (' + esc(t.symbol) + ')' + lpTag + '<br>' +
+              '<span class="small">' + addrLink(t.contract) + '</span></span>' +
+              '<span class="v">' + fmtAmt(t.balance, t.decimals) +
+              (usd != null ? '<small>' + fmtUSD(usd) + '</small>' : '<small>no market price</small>') + '</span></div>';
+          });
+          html += '<p class="cov">How this list is built: token contracts are discovered via the ' + esc(srcName) +
+            ', then <b>every balance is re-verified by a direct on-chain query</b> — only verified balances over zero are shown. ' +
+            priced.length + ' token' + (priced.length === 1 ? '' : 's') + ' verified.</p>';
+          $('tokBody').innerHTML = html;
+          $('tokCnt').textContent = priced.length ? '· ' + priced.length + ' verified' : '';
+          finishValue(run);
+        });
+      });
+    });
+  }).catch(function(){
+    if (!alive(run)) return;
+    $('tokBody').innerHTML = '<p class="small">⚠️ Token discovery failed just now — balances and staking above still stand. Try again in a moment.</p>';
+    finishValue(run);
+  });
+}
+
+/* ── Section: native staking + distribution rewards ────────────── */
+var valInfo = {};
+function resolveValidator(vop){
+  if (valInfo[vop]) return Promise.resolve(valInfo[vop]);
+  return getJSON(lcdBase() + '/cosmos/staking/v1beta1/validators/' + vop, 15000).then(function(r){
+    var v = r.validator || {};
+    valInfo[vop] = { name: (v.description && v.description.moniker) || vop, jailed: !!v.jailed, status: v.status || '' };
+    return valInfo[vop];
+  }).catch(function(){
+    valInfo[vop] = { name: vop, jailed: false, status: '' };
+    return valInfo[vop];
+  });
+}
+var valNames = {};
+function loadValNames(){
+  if (valNames.done) return Promise.resolve();
+  var url = lcdBase() + '/cosmos/staking/v1beta1/validators?pagination.limit=300';
+  return getJSON(url, 20000).then(function(r){
+    (r.validators || []).forEach(function(v){
+      valNames[v.operator_address] = (v.description && v.description.moniker) || v.operator_address;
+    });
+    valNames.done = true;
+  }).catch(function(){ valNames.done = true; });
+}
+function loadStaking(run){
+  var base = lcdBase();
+  var pDel = getJSON(base + '/cosmos/staking/v1beta1/delegations/' + ADDR + '?pagination.limit=100', 20000).catch(function(){ return null; });
+  var pUnb = getJSON(base + '/cosmos/staking/v1beta1/delegators/' + ADDR + '/unbonding_delegations', 20000).catch(function(){ return null; });
+  var pRew = getJSON(base + '/cosmos/distribution/v1beta1/delegators/' + ADDR + '/rewards', 20000).catch(function(){ return null; });
+  return Promise.all([loadValNames(), pDel, pUnb, pRew]).then(async function(res){
+    if (!alive(run)) return;
+    var del = res[1], unb = res[2], rew = res[3];
+    var stakeDenom = chain === 'do' ? 'udo' : 'uluna';
+    var rows = [], totalStaked = 0;
+    if (del && del.delegation_responses){
+      del.delegation_responses.forEach(function(d){
+        var amt = d.balance && d.balance.denom === stakeDenom ? d.balance.amount : '0';
+        totalStaked += rawNum(amt);
+        rows.push({ val: d.delegation.validator_address, amount: amt });
+      });
+    }
+    state.delegations = rows; state.totalStakedRaw = totalStaked;
+    var unbTotal = 0, unbRows = [];
+    if (unb && unb.unbonding_responses){
+      unb.unbonding_responses.forEach(function(u){
+        (u.entries || []).forEach(function(e){
+          unbTotal += rawNum(e.balance);
+          unbRows.push({ val: u.validator_address, amount: e.balance, done: e.completion_time });
+        });
+      });
+    }
+    state.unbonding = unbTotal; state.unbondingRows = unbRows;
+    state.rewards = rew;
+    var vops = {};
+    rows.forEach(function(r){ vops[r.val] = true; });
+    unbRows.forEach(function(r){ vops[r.val] = true; });
+    if (rew && rew.rewards) rew.rewards.forEach(function(rv){ vops[rv.validator_address] = true; });
+    await Promise.all(Object.keys(vops).map(resolveValidator));
+    if (!alive(run)) return;
+    Object.keys(valInfo).forEach(function(k){ valNames[k] = valInfo[k].name; });
+    var html = '';
+    if (!rows.length && !unbRows.length){
+      html = '<p class="small">No native staking found for this wallet.</p>';
+    }
+    if (rows.length){
+      html += '<div class="row"><span class="k"><b>Total staked</b></span><span class="v">' +
+        fmtAmt(String(totalStaked), 6) + ' ' + (chain === 'do' ? 'DO' : 'LUNC') + '</span></div>';
+      rows.forEach(function(r){
+        var nm = valNames[r.val];
+        var jail = (valInfo[r.val] && valInfo[r.val].jailed) ? '<br><span style="color:#ff8080;font-weight:700">🔴 This validator is JAILED — it is not signing blocks; consider redelegating to an active validator.</span>' : '';
+        html += '<div class="row"><span class="k">' + esc(nm || r.val) + '<br><span class="small">' +
+          addrLink(r.val) + '</span>' + jail + '</span><span class="v">' + fmtAmt(r.amount, 6) + '</span></div>';
+      });
+    }
+    if (unbRows.length){
+      html += '<h3>⏳ Unbonding</h3><div class="row"><span class="k"><b>Total unbonding</b></span><span class="v">' +
+        fmtAmt(String(unbTotal), 6) + '</span></div>';
+      unbRows.forEach(function(r){
+        html += '<div class="row"><span class="k">' + esc(valNames[r.val] || r.val) +
+          '<br><span class="small">completes ' + esc(String(r.done || '').slice(0, 10)) + '</span></span>' +
+          '<span class="v">' + fmtAmt(r.amount, 6) + '</span></div>';
+      });
+    }
+    $('stkBody').innerHTML = html;
+    $('stkCnt').textContent = rows.length ? '· ' + fmtAmt(String(totalStaked), 6) + ' ' + (chain === 'do' ? 'DO' : 'LUNC') : '';
+    renderClaimable(run);
+    finishValue(run);
+  });
+}
+function rewardTotals(rew){
+  var byDenom = {};
+  if (rew && rew.total) rew.total.forEach(function(c){
+    byDenom[c.denom] = (byDenom[c.denom] || 0) + Number(c.amount);
+  });
+  return byDenom;
+}
+function renderClaimable(run){
+  var rew = state.rewards;
+  var html = '';
+  var totals = rewardTotals(rew);
+  var mainDenom = chain === 'do' ? 'udo' : 'uluna';
+  var mainAmt = totals[mainDenom] || 0;
+  html += '<div class="big" style="font-size:24px">🎁 ' + fmtAmt(String(Math.floor(mainAmt)), 6) + ' ' +
+    (chain === 'do' ? 'DO' : 'LUNC') + '</div>';
+  html += '<p class="small">Native staking rewards waiting to be claimed (exact on-chain figure at read time — it grows every block).</p>';
+  if (rew && rew.rewards && rew.rewards.length){
+    html += '<h3>Per validator</h3>';
+    rew.rewards.forEach(function(rv){
+      var cs = (rv.reward || []).filter(function(c){ return Number(c.amount) >= 1000000; })
+        .sort(function(a,b){ return Number(b.amount) - Number(a.amount); });
+      var parts = cs.slice(0, 3).map(function(c){ return fmtAmt(String(Math.floor(Number(c.amount))), 6) + ' ' + denomLabel(c.denom); });
+      if (cs.length > 3) parts.push('+' + (cs.length - 3) + ' more');
+      html += '<div class="row"><span class="k">' + esc(valNames[rv.validator_address] || rv.validator_address) +
+        '</span><span class="v">' + (parts.length ? esc(parts.join(' · ')) : 'dust only') + '</span></div>';
+    });
+  }
+  var other = Object.keys(totals).filter(function(d){ return d !== mainDenom && totals[d] >= 1; });
+  if (other.length){
+    html += '<p class="small">Also claimable in other denoms: ' +
+      other.map(function(d){ return fmtAmt(String(Math.floor(totals[d])), 6) + ' ' + denomLabel(d); }).join(' · ') + '</p>';
+  }
+  state.claimNative = totals;
+  $('claimBody').innerHTML = html;
+}
+
+/* ── Section: staking platforms ────────────────────────────────── */
+function platformRow(name, contract, lines, rewardsLine){
+  var html = '<div class="row"><span class="k"><b>' + esc(name) + '</b><br><span class="small">' +
+    addrLink(contract) + '</span>' +
+    (lines.length ? '<br><span class="small">' + lines.map(esc).join('<br>') + '</span>' : '') +
+    '</span><span class="v">' + (rewardsLine || '') + '</span></div>';
+  return html;
+}
+function loadPlatforms(run){
+  var jobs = [];
+  var found = [];   // {name, contract, lines, rewardsLine, symbol, stakedRaw, stakedDec, rewardRaw}
+  state.platformsDone = false;
+
+  /* FRG Staking v1 (cw20_staking) */
+  jobs.push(Promise.all([
+    smart(FRG_STAKING_V1, { get_config: {} }).catch(function(){ return null; }),
+    smart(FRG_STAKING_V1, { get_user_info: { address: ADDR } }).catch(function(){ return null; }),
+    smart(FRG_STAKING_V1, { get_rewards: { address: ADDR } }).catch(function(){ return null; }),
+    smart(FRG_STAKING_V1, { get_untie_requests: { address: ADDR } }).catch(function(){ return null; })
+  ]).then(function(res){
+    var cfg = res[0], ui = res[1], rw = res[2], un = res[3];
+    if (!ui || !cfg) return;
+    var tied = rawNum(ui.tied_amount);
+    var untie = (un && un.requests || []).reduce(function(s, r){ return s + rawNum(r.amount); }, 0);
+    if (!tied && !untie) return;
+    return tokenInfo(cfg.token_addr).then(function(info){
+      var sym = info ? info.symbol : 'FRG', dec = info ? Number(info.decimals) : 6;
+      var lines = [];
+      if (tied) lines.push('Staked: ' + fmtAmt(ui.tied_amount, dec) + ' ' + sym + (ui.level ? ' · level: ' + (ui.level.name || ui.level.id) : ''));
+      if (untie) lines.push('Untying: ' + fmtAmt(String(untie), dec) + ' ' + sym);
+      var rwd = (rw && rw.rewards || []).filter(function(r){ return rawNum(r.amount) > 0; });
+      var rTxt = '';
+      var first = null;
+      return mapLimit(rwd, 3, function(r){
+        return tokenInfo(r.token).then(function(ti){
+          var s2 = ti ? ti.symbol : '???', d2 = ti ? Number(ti.decimals) : 6;
+          if (!first) first = { raw: r.amount, dec: d2, symbol: s2, contract: r.token };
+          return fmtAmt(r.amount, d2) + ' ' + s2;
+        });
+      }).then(function(parts){
+        parts = parts.filter(Boolean);
+        if (parts.length) rTxt = '🎁 ' + parts.join('<br>🎁 ');
+        found.push({ name: 'FRG Staking', contract: FRG_STAKING_V1, lines: lines, rewardsLine: rTxt,
+                     symbol: sym, stakedRaw: ui.tied_amount, stakedDec: dec,
+                     reward: first ? { raw: first.raw, dec: first.dec, symbol: first.symbol, contract: first.contract } : null });
+      });
+    });
+  }).catch(function(){}).then(function(){
+    state.poolsChecked = (state.poolsChecked || 0) + 1;
+  }));
+
+  /* FRG Staking v2 (frg_staking_v2) — token stakes by owner */
+  jobs.push(Promise.all([
+    smart(FRG_STAKING_V2, { stakes: { owner: ADDR } }).catch(function(){ return null; }),
+    smart(FRG_STAKING_V2, { token_stakes: { owner: ADDR } }).catch(function(){ return null; })
+  ]).then(function(res){
+    var pools = {};
+    [res[0], res[1]].forEach(function(r){
+      if (!r) return;
+      var arr = r.stakes || r.token_stakes || (Array.isArray(r) ? r : []);
+      arr.forEach(function(s){
+        var tok = s.token_address || s.token || s.contract_address || '';
+        var amt = s.amount || s.staked_amount || s.balance || '0';
+        if (tok && rawNum(amt) > 0) pools[tok] = String(rawNum(pools[tok] || '0') + rawNum(amt));
+      });
+    });
+    var toks = Object.keys(pools);
+    if (!toks.length) return null;
+    return mapLimit(toks, 3, function(tok){
+      return tokenInfo(tok).then(function(info){
+        var sym = info ? info.symbol : '???', dec = info ? Number(info.decimals) : 6;
+        found.push({ name: 'FRG Staking v2', contract: FRG_STAKING_V2,
+          lines: ['Staked: ' + fmtAmt(pools[tok], dec) + ' ' + sym], rewardsLine: '',
+          symbol: sym, stakedRaw: pools[tok], stakedDec: dec, reward: null });
+      });
+    });
+  }).catch(function(){}).then(function(){
+    state.poolsChecked = (state.poolsChecked || 0) + 1;
+  }));
+
+  /* FRG NFT Staking — staked NFTs + their pending rewards */
+  jobs.push(smart(FRG_NFT_STAKING, { staked_nft: { owner: ADDR, limit: 100 } }).then(function(r){
+    var nfts = (r && r.nfts) || [];
+    if (!nfts.length) return null;
+    state.nftStaked = nfts;
+    return smart(FRG_NFT_STAKING, { collections: {} }).catch(function(){ return null; }).then(function(cols){
+      var rewardTokByCol = {};
+      ((cols && cols.collections) || []).forEach(function(c){
+        var rt = c.reward_type && c.reward_type.cw20 ? c.reward_type.cw20.contract : null;
+        if (rt) rewardTokByCol[c.nft_contract] = rt;
+      });
+      return mapLimit(nfts, 5, function(n){
+        return smart(FRG_NFT_STAKING, { reward: { nft_contract: n.nft_contract, token_id: n.token_id } })
+          .catch(function(){ return null; })
+          .then(function(rw){
+            n.pendingRaw = rw && rw.reward ? rw.reward : '0';
+            n.rewardContract = rewardTokByCol[n.nft_contract] || null;
+            return n;
+          });
+      }).then(function(){
+        var byCol = {};
+        nfts.forEach(function(n){ (byCol[n.nft_contract] = byCol[n.nft_contract] || []).push(n); });
+        var colAddrs = Object.keys(byCol);
+        return mapLimit(colAddrs, 3, function(col){
+          var list = byCol[col];
+          var rTok = list[0].rewardContract;
+          var sumRaw = list.reduce(function(s, n){ return s + rawNum(n.pendingRaw); }, 0);
+          var base = { name: 'FRG NFT Staking', contract: FRG_NFT_STAKING,
+            lines: [list.length + ' NFT' + (list.length > 1 ? 's' : '') + ' staked · IDs: ' +
+              list.slice(0, 12).map(function(n){ return '#' + n.token_id; }).join(', ') + (list.length > 12 ? '…' : '')],
+            rewardsLine: '', symbol: 'NFT', stakedRaw: '0', stakedDec: 0, reward: null, nftCount: list.length };
+          if (!rTok || !sumRaw) { found.push(base); return null; }
+          return tokenInfo(rTok).then(function(ti){
+            var sym = ti ? ti.symbol : '???', dec = ti ? Number(ti.decimals) : 6;
+            base.rewardsLine = '🎁 ' + fmtAmt(String(sumRaw), dec) + ' ' + sym;
+            base.reward = { raw: String(sumRaw), dec: dec, symbol: sym, contract: rTok };
+            found.push(base);
+            return null;
+          });
+        });
+      });
+    });
+  }).catch(function(){}).then(function(){
+    state.poolsChecked = (state.poolsChecked || 0) + 1;
+  }));
+
+  /* Garuda regular pools (61) — stake query per pool */
+  jobs.push(mapLimit(GARUDA_POOLS, 8, function(pool){
+    state.poolsChecked = (state.poolsChecked || 0) + 1;
+    return smartLoose(pool, { stake: { staker: ADDR } }).then(function(res){
+      /* a contract error like "Stake data not found" still proves the pool's code answers read queries */
+      if (res.ok || /not found/i.test(res.err || '')) state.poolsReadable = (state.poolsReadable || 0) + 1;
+      var r = res.ok ? res.data : null;
+      if (!r) return null;
+      /* entries shape: list of stakes, or a single stake object */
+      var entries = r.stakes || r.entries || (Array.isArray(r) ? r : [r]);
+      var total = 0, ids = [];
+      entries.forEach(function(e){
+        var a = e.amount || e.staked_amount || e.balance || (e.stake && e.stake.amount) || '0';
+        total += rawNum(a);
+        if (e.id != null) ids.push(e.id);
+      });
+      if (!total) return null;
+      return Promise.all([
+        smart(pool, { config: {} }).catch(function(){ return null; }),
+        smart(pool, { reward: { staker: ADDR } }).catch(function(){ return null; })
+      ]).then(function(res2){
+        var cfg = res2[0] && res2[0].config ? res2[0].config : null;
+        var tokAddr = cfg ? cfg.token_contract : null;
+        var finish = function(sym, dec, rSym, rDec, rRaw){
+          found.push({ name: 'Garuda pool — ' + sym, contract: pool,
+            lines: ['Staked: ' + fmtAmt(String(total), dec) + ' ' + sym +
+              (ids.length ? ' · ' + entries.length + ' stake entr' + (entries.length > 1 ? 'ies' : 'y') : '')],
+            rewardsLine: rRaw ? '🎁 ' + fmtAmt(rRaw, rDec) + ' ' + rSym : '',
+            symbol: sym, stakedRaw: String(total), stakedDec: dec,
+            reward: rRaw ? { raw: rRaw, dec: rDec, symbol: rSym, contract: tokAddr } : null });
+        };
+        if (!tokAddr){ finish('???', 6, null, 6, null); return null; }
+        return tokenInfo(tokAddr).then(function(ti){
+          var sym = ti ? ti.symbol : '???', dec = ti ? Number(ti.decimals) : 6;
+          var rw = res2[1];
+          var rRaw = null;
+          if (rw){
+            var cand = rw.reward || rw.amount || rw.pending_reward || rw.rewards;
+            if (typeof cand === 'string' && rawNum(cand) > 0) rRaw = cand;
+            else if (Array.isArray(cand) && cand.length && rawNum(cand[0].amount) > 0) rRaw = cand[0].amount;
+          }
+          finish(sym, dec, sym, dec, rRaw);
+          return null;
+        });
+      });
+    }).catch(function(){ return null; /* migrated / unreadable pool — counted in coverage */ });
+  }));
+
+  Promise.all(jobs).then(function(){
+    if (!alive(run)) return;
+    state.platforms = found;
+    state.platformsDone = true;
+    var html = '';
+    if (!found.length){
+      html = '<p class="small">No positions found in the staking platforms checked for this wallet.</p>';
+    } else {
+      found.forEach(function(f){ html += platformRow(f.name, f.contract, f.lines, f.rewardsLine); });
+    }
+    var checked = 3 + GARUDA_POOLS.length;
+    html += '<p class="cov">Coverage: checked ' + checked + ' staking contracts (FRG Staking, FRG Staking v2, FRG NFT Staking + ' +
+      GARUDA_POOLS.length + ' Garuda pools). ' + (state.poolsReadable || 0) + ' of the Garuda pools answered — the rest run migrated code that refuses read queries, so a position inside one of those cannot be seen here.</p>';
+    $('pltBody').innerHTML = html;
+    $('pltCnt').textContent = found.length ? '· ' + found.length + ' position' + (found.length > 1 ? 's' : '') : '';
+    finishValue(run);
+    renderClaimablePlatforms(run);
+  });
+}
+function renderClaimablePlatforms(run){
+  /* append platform pending rewards under the native claimable card */
+  var plats = state.platforms || [];
+  var lines = [];
+  plats.forEach(function(f){
+    if (f.reward && rawNum(f.reward.raw) > 0)
+      lines.push('<div class="row"><span class="k">' + esc(f.name) + '</span><span class="v">🎁 ' +
+        fmtAmt(f.reward.raw, f.reward.dec) + ' ' + esc(f.reward.symbol) + '</span></div>');
+  });
+  if (!lines.length) return;
+  var body = $('claimBody');
+  if (body && state.rewards !== undefined)
+    body.innerHTML += '<h3>From staking platforms</h3>' + lines.join('') +
+      '<p class="small">Platform rewards are read from each staking contract — claim them in that platform\'s own app.</p>';
+}
+
+/* ── Section: NFTs in the wallet ───────────────────────────────── */
+function ipfsFix(u){
+  if (!u) return '';
+  if (u.indexOf('ipfs://') === 0) return IPFS_GW + u.slice(7);
+  return u;
+}
+function loadNfts(run){
+  var colsPromise = smart(FRG_NFT_STAKING, { collections: {} }).then(function(r){
+    return ((r && r.collections) || []).map(function(c){ return c.nft_contract; });
+  }).catch(function(){ return []; });
+  colsPromise.then(function(fromStaking){
+    if (!alive(run)) return;
+    var set = {};
+    KNOWN_NFT_COLLECTIONS.concat(fromStaking || []).forEach(function(c){ set[c] = true; });
+    var cols = Object.keys(set);
+    state.nftCollectionsChecked = cols.length;
+    return mapLimit(cols, 5, function(col){
+      return smart(col, { balance: { address: ADDR } }).then(function(b){
+        var n = b && b.balance != null ? Number(b.balance) : 0;
+        if (!n) return null;
+        return smart(col, { tokens: { owner: ADDR, limit: 100 } }).then(function(t){
+          return { contract: col, ids: (t && t.tokens) || [], count: n };
+        }).catch(function(){ return { contract: col, ids: [], count: n }; });
+      }).catch(function(){ return null; });
+    }).then(function(foundCols){
+      if (!alive(run)) return;
+      var held = foundCols.filter(Boolean);
+      var jobs2 = [];
+      held.forEach(function(hc){
+        hc.ids.forEach(function(id){ jobs2.push({ contract: hc.contract, id: id }); });
+      });
+      return mapLimit(jobs2, 5, function(job){
+        return smart(job.contract, { nft_info: { token_id: job.id } }).then(function(info){
+          job.uri = info ? info.token_uri : '';
+          job.meta = null;
+          if (!job.uri) return job;
+          return getJSON(ipfsFix(job.uri), 12000).then(function(m){
+            job.meta = m; return job;
+          }).catch(function(){ return job; });
+        }).catch(function(){ job.uri = ''; job.meta = null; return job; });
+      }).then(function(items){
+        if (!alive(run)) return;
+        state.nfts = items;
+        var html = '';
+        if (!items.length){
+          html = '<p class="small">No NFTs found in the collections scanned for this wallet.</p>';
+        } else {
+          var byCol = {};
+          items.forEach(function(it){ (byCol[it.contract] = byCol[it.contract] || []).push(it); });
+          Object.keys(byCol).forEach(function(col){
+            html += '<h3>' + addrLink(col) + '</h3><div class="nftgrid">';
+            byCol[col].forEach(function(it){
+              var name = it.meta && it.meta.name ? it.meta.name : ('#' + it.id);
+              var img = it.meta && it.meta.image ? ipfsFix(it.meta.image) : '';
+              html += '<div class="nft">' +
+                (img ? '<img src="' + esc(img) + '" alt="" loading="lazy" onerror="this.outerHTML=\'<div class=&quot;ph&quot;>image unavailable</div>\'">'
+                     : '<div class="ph">no image in metadata</div>') +
+                '<div class="nm">' + esc(name) + '</div><div class="id">#' + esc(it.id) + '</div></div>';
+            });
+            html += '</div>';
+          });
+        }
+        if (state.nftStaked && state.nftStaked.length){
+          html += '<p class="small" style="margin-top:10px">🎨 ' + state.nftStaked.length +
+            ' NFT' + (state.nftStaked.length > 1 ? 's are' : ' is') +
+            ' currently inside FRG NFT Staking — see the Staking platforms section for IDs and pending rewards.</p>';
+        }
+        html += '<p class="cov">NFT scan checks ' + cols.length + ' known collections (incl. every collection registered in FRG NFT Staking). ' +
+          'A brand-new collection that is not registered anywhere yet may not appear — that is a discovery limit, stated honestly.</p>';
+        $('nftBody').innerHTML = html;
+        var total = items.length + (state.nftStaked ? state.nftStaked.length : 0);
+        $('nftCnt').textContent = total ? '· ' + total + ' found' : '';
+        finishValue(run);
+      });
+    });
+  }).catch(function(){
+    if (!alive(run)) return;
+    $('nftBody').innerHTML = '<p class="small">⚠️ The NFT scan could not finish just now — try again in a moment.</p>';
+    finishValue(run);
+  });
+}
+
+/* ── Section: transactions (FCD, decoded client-side) ──────────── */
+function msgSummary(m, addr){
+  var t = m.type || '', v = m.value || {};
+  function coins(arr){ return (arr || []).map(function(c){ return fmtAmt(c.amount, 6) + ' ' + denomLabel(c.denom); }).join(' + '); }
+  switch (t){
+    case 'bank/MsgSend':
+      return (v.from_address === addr ? '📤 Sent ' : '📥 Received ') + coins(v.amount) +
+        (v.from_address === addr ? ' → ' + (v.to_address || '') : ' ← ' + (v.from_address || ''));
+    case 'bank/MsgMultiSend': return '📤 Multi-send (several recipients)';
+    case 'wasm/MsgExecuteContract': {
+      var keys = '';
+      try { var em = typeof v.msg === 'string' ? JSON.parse(v.msg) : v.msg;
+        if (em) keys = Object.keys(em).join(', '); } catch (e) {}
+      return '⚙️ Contract call on ' + (v.contract || '') + (keys ? ' (' + keys + ')' : '') +
+        (v.funds && v.funds.length ? ' · with ' + coins(v.funds) : '');
+    }
+    case 'wasm/MsgInstantiateContract': return '🆕 Instantiated a contract' + (v.label ? ' — ' + v.label : '');
+    case 'wasm/MsgMigrateContract': return '🔀 Migrated contract ' + (v.contract || '');
+    case 'staking/MsgDelegate': return '🏦 Delegated ' + (v.amount ? fmtAmt(v.amount.amount, 6) + ' LUNC' : '') + ' to ' + (valNames[v.validator_address] || v.validator_address || '');
+    case 'staking/MsgUndelegate': return '🏦 Undelegated ' + (v.amount ? fmtAmt(v.amount.amount, 6) + ' LUNC' : '') + ' from ' + (valNames[v.validator_address] || v.validator_address || '');
+    case 'staking/MsgBeginRedelegate': return '🔁 Redelegated ' + (v.amount ? fmtAmt(v.amount.amount, 6) + ' LUNC' : '');
+    case 'distribution/MsgWithdrawDelegatorReward': return '🎁 Claimed staking rewards from ' + (valNames[v.validator_address] || v.validator_address || '');
+    case 'distribution/MsgWithdrawValidatorCommission': return '🎁 Claimed validator commission';
+    case 'gov/MsgVote': return '🗳️ Voted on proposal ' + (v.proposal_id || '');
+    case 'gov/MsgSubmitProposal': return '📜 Submitted a governance proposal';
+    case 'authz/MsgExec': return '🔑 Executed via authorization grant';
+    case 'authz/MsgGrant': return '🔑 Granted an authorization';
+    case 'authz/MsgRevoke': return '🔑 Revoked an authorization';
+    default:
+      if (t.indexOf('ibc') === 0) return '🌉 IBC transfer (' + t.split('/')[1] + ')';
+      return t.replace(/^[a-z]+\//, '') || 'Transaction';
+  }
+}
+function loadTxs(run){
+  getJSON(FCD_T + '/v1/txs?account=' + ADDR + '&limit=100', 25000).then(function(r){
+    if (!alive(run)) return;
+    var txs = (r.txs || []).slice(0, 25);
+    state.txCount = txs.length;
+    var html = '';
+    if (!txs.length) html = '<p class="small">No recent transactions found for this wallet.</p>';
+    txs.forEach(function(tx){
+      var msgs = (tx.tx && tx.tx.value && tx.tx.value.msg) || [];
+      var ok = tx.code == null || tx.code === 0;
+      var when = tx.timestamp ? tx.timestamp.replace('T', ' ').slice(0, 16) + ' UTC' : '';
+      html += '<div class="tx"><span class="' + (ok ? 'ok' : 'fail') + '">' + (ok ? '✅' : '❌ Failed') + '</span> ' +
+        msgs.map(function(m){ return esc(msgSummary(m, ADDR)); }).join('<br>') +
+        '<div class="meta">' + esc(when) + ' · block ' + esc(tx.height || '') + ' · ' +
+        '<a href="' + finderTx(tx.txhash) + '" target="_blank" rel="noopener">view on Finder ↗</a></div></div>';
+    });
+    if (txs.length) html += '<p class="small">Showing the latest ' + txs.length + ' of the last 100 transactions. Tap “view on Finder” for the full on-chain record of any transaction.</p>';
+    $('txBody').innerHTML = html;
+    $('txCnt').textContent = txs.length ? '· latest ' + txs.length : '';
+    finishValue(run);
+  }).catch(function(){
+    if (!alive(run)) return;
+    $('txBody').innerHTML = '<p class="small">⚠️ Transaction history could not be loaded just now (FCD index) — the on-chain balances above are unaffected.</p>';
+    finishValue(run);
+  });
+}
+
+/* ── Total value + gauges ──────────────────────────────────────── */
+var valueParts = {};
+function finishValue(run){
+  if (!alive(run)) return;
+  /* recompute from whatever has landed so far; called after each section */
+  var liquid = 0, stakedNat = 0, platform = 0, rewardsUsd = 0, excluded = 0, pricedItems = 0;
+  var priceOf = { LUNC: null, USTC: null, DO: null };
+  if (state.nativePriced){
+    state.nativePriced.forEach(function(r){
+      if (r.price){ liquid += amtNum(r.b.amount, 6) * r.price.usd; pricedItems++; }
+      else if (rawNum(r.b.amount) > 0) excluded++;
+    });
+  }
+  (state.tokens || []).forEach(function(t){
+    if (t.price){ liquid += amtNum(t.balance, t.decimals) * t.price.usd; pricedItems++; }
+    else excluded++;
+  });
+  var pLunc = priceCache.LUNC, pDo = priceCache.DO;
+  if (state.totalStakedRaw != null){
+    var pp = chain === 'do' ? pDo : pLunc;
+    if (pp) { stakedNat = amtNum(String(state.totalStakedRaw), 6) * pp.usd; pricedItems++; }
+    if (state.unbonding && pp) stakedNat += amtNum(String(state.unbonding), 6) * pp.usd;
+  }
+  (state.platforms || []).forEach(function(f){
+    var tp = f.reward && f.reward.contract ? priceCache['ls:' + f.reward.contract] : null;
+    var sp = f.stakedRaw && rawNum(f.stakedRaw) > 0 ? findTokenPrice(f) : null;
+    if (sp) platform += amtNum(f.stakedRaw, f.stakedDec) * sp;
+    if (f.reward && rawNum(f.reward.raw) > 0){
+      var rp = findTokenPriceBySymbol(f.reward);
+      if (rp) rewardsUsd += amtNum(f.reward.raw, f.reward.dec) * rp;
+    }
+  });
+  if (state.claimNative){
+    var tot = state.claimNative;
+    if (tot.uluna && pLunc) rewardsUsd += (tot.uluna / 1e6) * pLunc.usd;
+    if (tot.uusd && priceCache.USTC) rewardsUsd += (tot.uusd / 1e6) * priceCache.USTC.usd;
+    if (tot.udo && pDo) rewardsUsd += (tot.udo / 1e6) * pDo.usd;
+  }
+  var total = liquid + stakedNat + platform + rewardsUsd;
+  state._value = { liquid: liquid, stakedNat: stakedNat, platform: platform, rewards: rewardsUsd, total: total, excluded: excluded };
+  if (pricedItems === 0 && total === 0){
+    $('valueTotal').textContent = 'No priced items yet';
+  } else {
+    $('valueTotal').textContent = fmtUSD(total);
+  }
+  $('valueAsOf').textContent = new Date().toUTCString().slice(17, 25) + ' UTC';
+  $('valueSplit').innerHTML =
+    'Liquid: <b>' + fmtUSD(liquid) + '</b> · Staked (native): <b>' + fmtUSD(stakedNat) + '</b>' +
+    ' · In staking platforms: <b>' + fmtUSD(platform) + '</b> · Claimable rewards: <b>' + fmtUSD(rewardsUsd) + '</b>';
+  $('valueNote').innerHTML = 'Total counts only items with a real public price (' + pricedItems + ' priced). <b>' +
+    excluded + ' item' + (excluded === 1 ? '' : 's') + ' with no market price are excluded</b> — they are still listed in their sections below. ' +
+    'Prices: LUNC & DO via CoinGecko, tokens via LuncScan price history, USTC via its Terraswap pool against the LUNC price. An estimate of market value — not a promise of what a sale would fetch.';
+  renderGauges(run);
+}
+function findTokenPrice(f){
+  /* price for a platform position's staked token, matched from verified wallet tokens */
+  var hit = (state.tokens || []).filter(function(t){ return t.symbol === f.symbol && t.price; })[0];
+  if (hit) return hit.price.usd;
+  var c = priceCache['ls:'];
+  return null;
+}
+function findTokenPriceBySymbol(r){
+  var hit = (state.tokens || []).filter(function(t){ return t.symbol === r.symbol && t.price; })[0];
+  if (hit) return hit.price.usd;
+  var pc = r.contract ? priceCache['ls:' + r.contract] : null;
+  return pc ? pc.usd : null;
+}
+function renderGauges(run){
+  var v = state._value;
+  if (!v) return;
+  var parts = [
+    { label: 'Liquid', val: v.liquid, color: '#4ced4b' },
+    { label: 'Staked (native)', val: v.stakedNat, color: '#ffd76a' },
+    { label: 'Staking platforms', val: v.platform, color: '#7cc4ff' },
+    { label: 'Claimable rewards', val: v.rewards, color: '#ff9df5' }
+  ];
+  var tot = parts.reduce(function(s, p){ return s + p.val; }, 0);
+  var donutHtml = '', legendHtml = '';
+  if (tot > 0){
+    var R = 52, C = 2 * Math.PI * R, off = 0;
+    var segs = '';
+    parts.forEach(function(p){
+      if (p.val <= 0) return;
+      var frac = p.val / tot;
+      segs += '<circle cx="70" cy="70" r="' + R + '" fill="none" stroke="' + p.color + '" stroke-width="20" ' +
+        'stroke-dasharray="' + (frac * C).toFixed(1) + ' ' + C.toFixed(1) + '" stroke-dashoffset="' + (-off).toFixed(1) +
+        '" transform="rotate(-90 70 70)"/>';
+      off += frac * C;
+      legendHtml += '<div><span class="dot" style="background:' + p.color + '"></span>' + p.label + ' — ' +
+        fmtUSD(p.val) + ' (' + (frac * 100).toFixed(1) + '%)</div>';
+    });
+    donutHtml = '<svg width="140" height="140" viewBox="0 0 140 140">' + segs +
+      '<text x="70" y="66" text-anchor="middle" fill="#e8f5ec" font-size="13" font-weight="700">' + fmtUSD(tot) + '</text>' +
+      '<text x="70" y="84" text-anchor="middle" fill="#9db8a6" font-size="10">priced total</text></svg>';
+    $('gaugeNote').textContent = 'Split by US-dollar value of priced items only.';
+  } else {
+    donutHtml = '<p class="small">No priced items yet — the split appears once prices load.</p>';
+    $('gaugeNote').textContent = '';
+  }
+  $('donut').innerHTML = donutHtml;
+  $('donutLegend').innerHTML = legendHtml;
+  var counts = [];
+  if (state.native) counts.push('💰 ' + state.native.length + ' native');
+  if (state.tokens) counts.push('🪙 ' + state.tokens.length + ' tokens');
+  if (state.delegations) counts.push('🏦 ' + state.delegations.length + ' delegations');
+  if (state.platforms) counts.push('🥩 ' + state.platforms.length + ' platform positions');
+  var nftTotal = (state.nfts ? state.nfts.length : 0) + (state.nftStaked ? state.nftStaked.length : 0);
+  counts.push('🎨 ' + nftTotal + ' NFTs');
+  if (state.txCount) counts.push('📜 ' + state.txCount + ' recent txs');
+  $('countStrip').innerHTML = counts.map(function(c){ return '<span class="pill g">' + esc(c) + '</span>'; }).join('');
+}
+
+/* ── Fine print ────────────────────────────────────────────────── */
+
+/* ── Section: wallet security ──────────────────────────────────── */
+var FRG_TOKEN_C = 'terra14rfnhc2aru7jp304lht3yf903necsnrt4cxd464cftsfcksw0rtsgundnt';
+var MSG_FRIENDLY = {
+  '/cosmwasm.wasm.v1.MsgMigrateContract': ['can MIGRATE contracts — move contracts you control onto new code', 'high'],
+  '/cosmwasm.wasm.v1.MsgExecuteContract': ['can run contract actions in your name', 'high'],
+  '/cosmos.bank.v1beta1.MsgSend': ['can send your coins', 'high'],
+  '/cosmos.authz.v1beta1.MsgGrant': ['can hand out new permissions in your name', 'high'],
+  '/cosmos.authz.v1beta1.MsgRevoke': ['can revoke permissions', 'low'],
+  '/cosmos.staking.v1beta1.MsgDelegate': ['can delegate your stake', 'mid'],
+  '/cosmos.staking.v1beta1.MsgUndelegate': ['can undelegate your stake', 'mid'],
+  '/cosmos.staking.v1beta1.MsgBeginRedelegate': ['can redelegate your stake', 'mid'],
+  '/cosmos.distribution.v1beta1.MsgWithdrawDelegatorReward': ['can claim your staking rewards', 'mid'],
+  '/cosmos.gov.v1beta1.MsgVote': ['can vote in governance as you', 'mid'],
+  '/cosmos.feegrant.v1beta1.MsgGrantAllowance': ['can grant fee allowances in your name', 'mid']
+};
+function friendlyGrant(g){
+  var a = g.authorization || {}; var t = a['@type'] || '';
+  if (t === '/cosmos.authz.v1beta1.GenericAuthorization'){
+    var m = MSG_FRIENDLY[a.msg] || ['can act in your name (' + String(a.msg || '').split('.').pop() + ')', 'high'];
+    return { text: 'This wallet ' + m[0] + '.', risk: m[1] };
+  }
+  if (t === '/cosmos.staking.v1beta1.StakeAuthorization'){
+    return { text: 'This wallet can stake, undelegate and redelegate for you' +
+      (a.max_tokens ? ' up to ' + fmtAmt(a.max_tokens.amount, 6) + ' ' + denomLabel(a.max_tokens.denom) : '') + '.', risk: 'mid' };
+  }
+  if (t === '/cosmos.bank.v1beta1.SendAuthorization'){
+    var lim = (a.spend_limit || []).map(function(c){ return fmtAmt(c.amount, 6) + ' ' + denomLabel(c.denom); }).join(' · ');
+    return { text: 'This wallet can send your coins' + (lim ? ' up to ' + lim : '') + '.', risk: 'high' };
+  }
+  return { text: 'This wallet holds a permission over your wallet (' + (t.split('.').pop() || 'unknown type') + ').', risk: 'mid' };
+}
+function grantsList(kind, addr){
+  var out = [];
+  function page(k){
+    var url = lcdBase() + '/cosmos/authz/v1beta1/grants/' + kind + '/' + addr + '?pagination.limit=100' +
+      (k ? '&pagination.key=' + encodeURIComponent(k) : '');
+    return getJSON(url, 20000).then(function(r){
+      out = out.concat(r.grants || []);
+      var nk = r.pagination && r.pagination.next_key;
+      return nk ? page(nk) : out;
+    });
+  }
+  return page(null);
+}
+function loadSecurity(run){
+  var parts = { given: '', fee: '', health: '', contracts: '', allow: '', received: '' };
+  var counts = { given: -1, noexp: 0, fee: 0, jailed: 0, contracts: 0 };
+  function paint(){
+    if (!alive(run)) return;
+    var head = '<div class="row"><span class="k"><b>Security summary</b></span><span class="v">' +
+      (counts.given < 0 ? '…' :
+        counts.given + ' open permission' + (counts.given === 1 ? '' : 's') + ' given' +
+        (counts.noexp ? '<br><small style="color:#ff8080;font-weight:700">' + counts.noexp + ' never expire' + (counts.noexp === 1 ? 's' : '') + '</small>' : '')) +
+      '</span></div>' +
+      '<p class="small">Fee allowances given: ' + counts.fee + ' · Delegations with jailed validators: ' + counts.jailed +
+      ' · Contracts this wallet controls (known set): ' + counts.contracts + '.</p>' +
+      '<p class="small">Watch this section like a smoke alarm: any permission here works until it expires or you revoke it — revoking always needs your signature in your wallet app (Keplr / LUNCDash). This page only reads; it can never revoke or change anything.</p>';
+    $('secBody').innerHTML = head + parts.given + parts.fee + parts.health + parts.contracts + parts.allow + parts.received;
+    $('secCnt').textContent = counts.given >= 0
+      ? '· ' + (counts.given + counts.fee) + ' open' + ((counts.noexp || counts.jailed) ? ' · ⚠️ check below' : '')
+      : '';
+  }
+  parts.given = '<h3>🔑 Permissions you have given away</h3><p class="small"><span class="spin">Reading permissions…</span></p>';
+  parts.fee = '<h3>⛽ Fee allowances you have given</h3><p class="small"><span class="spin">Reading fee allowances…</span></p>';
+  parts.health = '<h3>🩺 Delegation health</h3><p class="small"><span class="spin">Checking validators…</span></p>';
+  parts.contracts = chain === 'terra' ? '<h3>🎛️ Contracts you control</h3><p class="small"><span class="spin">Checking the known contract set…</span></p>' : '';
+  parts.received = '<h3>📥 Permissions given to you</h3><p class="small"><span class="spin">Reading…</span></p>';
+  paint();
+
+  /* 1) authz grants GIVEN */
+  grantsList('granter', ADDR).then(function(grants){
+    if (!alive(run)) return;
+    counts.given = grants.length;
+    counts.noexp = grants.filter(function(g){ return !g.expiration; }).length;
+    var h = '<h3>🔑 Permissions you have given away</h3>';
+    if (!grants.length){
+      h += '<p class="small">✅ None — this wallet has not authorized any other wallet to act for it.</p>';
+    } else {
+      grants.forEach(function(g){
+        var f = friendlyGrant(g);
+        var noexp = !g.expiration;
+        h += '<div class="row"' + (noexp ? ' style="border:1px solid #b03a3a;border-radius:10px;padding:6px 8px"' : '') +
+          '><span class="k">' + esc(f.text) + '<br><span class="small">Given to: ' + addrLink(g.grantee) + '</span>' +
+          (noexp ? '<br><span style="color:#ff8080;font-weight:700">🔴 NO EXPIRY — this permission works forever until you revoke it.</span>'
+                 : '<br><span class="small">Expires: ' + esc(String(g.expiration).slice(0, 10)) + '</span>') +
+          '</span><span class="v">' + (f.risk === 'high' ? '🔴 high risk' : f.risk === 'mid' ? '🟠 check it' : '🟢 low') + '</span></div>';
+      });
+      h += '<p class="small"><b>How to fix:</b> open your wallet app (Keplr or LUNCDash), find its AuthZ / permissions screen, and revoke anything you do not recognize. A revoke needs your signature in the app — this page can never do it for you.</p>';
+    }
+    parts.given = h; paint();
+  }).catch(function(){
+    if (!alive(run)) return;
+    counts.given = 0;
+    parts.given = '<h3>🔑 Permissions you have given away</h3><p class="small">⚠️ The permissions list could not be read just now — try again in a moment.</p>';
+    paint();
+  });
+
+  /* 2) feegrants GIVEN */
+  getJSON(lcdBase() + '/cosmos/feegrant/v1beta1/allowances/' + ADDR, 20000).then(function(r){
+    if (!alive(run)) return;
+    var list = r.allowances || [];
+    counts.fee = list.length;
+    var h = '<h3>⛽ Fee allowances you have given</h3>';
+    if (!list.length){
+      h += '<p class="small">✅ None — nobody can pay transaction fees from this wallet.</p>';
+    } else {
+      list.forEach(function(a){
+        var al = a.allowance || {}; var t = al['@type'] || '';
+        var what = 'a fee allowance';
+        if (t.indexOf('BasicAllowance') >= 0 && al.spend_limit && al.spend_limit.length)
+          what = 'fees up to ' + al.spend_limit.map(function(c){ return fmtAmt(c.amount, 6) + ' ' + denomLabel(c.denom); }).join(' · ');
+        if (t.indexOf('PeriodicAllowance') >= 0) what = 'a repeating (periodic) fee allowance';
+        h += '<div class="row"><span class="k">This wallet can spend ' + esc(what) + ' from your wallet.<br><span class="small">Given to: ' +
+          addrLink(a.grantee) + '</span>' +
+          (al.expiration ? '<br><span class="small">Expires: ' + esc(String(al.expiration).slice(0, 10)) + '</span>' : '') +
+          '</span><span class="v">🟠 check it</span></div>';
+      });
+      h += '<p class="small"><b>How to fix:</b> revoke fee allowances from the same permissions area of your wallet app — it needs your signature there.</p>';
+    }
+    parts.fee = h; paint();
+  }).catch(function(){
+    if (!alive(run)) return;
+    parts.fee = '<h3>⛽ Fee allowances you have given</h3><p class="small">⚠️ Fee allowances could not be read just now.</p>';
+    paint();
+  });
+
+  /* 3) delegation health (own reads; reuses validator info cache) */
+  Promise.all([
+    getJSON(lcdBase() + '/cosmos/staking/v1beta1/delegations/' + ADDR + '?pagination.limit=100', 20000).catch(function(){ return null; }),
+    getJSON(lcdBase() + '/cosmos/staking/v1beta1/delegators/' + ADDR + '/unbonding_delegations', 20000).catch(function(){ return null; })
+  ]).then(function(res){
+    var dels = (res[0] && res[0].delegation_responses) || [];
+    var unbs = (res[1] && res[1].unbonding_responses) || [];
+    var vops = {};
+    dels.forEach(function(d){ vops[d.delegation.validator_address] = true; });
+    unbs.forEach(function(u){ vops[u.validator_address] = true; });
+    return Promise.all(Object.keys(vops).map(resolveValidator)).then(function(){
+      if (!alive(run)) return;
+      var h = '<h3>🩺 Delegation health</h3>';
+      var lines = [];
+      dels.forEach(function(d){
+        var vi = valInfo[d.delegation.validator_address];
+        if (vi && vi.jailed){
+          counts.jailed++;
+          lines.push('<div class="row"><span class="k"><span style="color:#ff8080;font-weight:700">🔴 JAILED validator</span> — ' +
+            esc(vi.name) + '<br><span class="small">' + addrLink(d.delegation.validator_address) +
+            '</span><br><span class="small">Your stake there earns nothing while it is jailed. Most people redelegate to an active validator — that is done with your signature in your wallet app.</span></span>' +
+            '<span class="v">' + fmtAmt(d.balance.amount, 6) + ' ' + (chain === 'do' ? 'DO' : 'LUNC') + '</span></div>');
+        }
+      });
+      unbs.forEach(function(u){
+        (u.entries || []).forEach(function(e){
+          var vi = valInfo[u.validator_address];
+          lines.push('<div class="row"><span class="k">⏳ Unbonding from ' + esc(vi ? vi.name : u.validator_address) +
+            '<br><span class="small">completes ' + esc(String(e.completion_time || '').slice(0, 10)) + '</span></span>' +
+            '<span class="v">' + fmtAmt(e.balance, 6) + ' ' + (chain === 'do' ? 'DO' : 'LUNC') + '</span></div>');
+        });
+      });
+      h += lines.length ? lines.join('') : '<p class="small">✅ Healthy — no jailed validators, nothing unbonding.</p>';
+      parts.health = h; paint();
+    });
+  }).catch(function(){
+    if (!alive(run)) return;
+    parts.health = '<h3>🩺 Delegation health</h3><p class="small">⚠️ Could not be read just now.</p>';
+    paint();
+  });
+
+  /* 4) contracts you control — known set only (Terra) */
+  if (chain === 'terra'){
+    var named = {};
+    named[FRG_TOKEN_C] = 'FRG token';
+    named[FRG_STAKING_V1] = 'FRG Staking';
+    named[FRG_STAKING_V2] = 'FRG Staking v2';
+    named[FRG_NFT_STAKING] = 'FRG NFT Staking';
+    var hits = {};
+    function note(contract, role){ if (!hits[contract]) hits[contract] = []; if (hits[contract].indexOf(role) < 0) hits[contract].push(role); }
+    var adminChecks = [FRG_TOKEN_C, FRG_STAKING_V1, FRG_STAKING_V2, FRG_NFT_STAKING].map(function(c){
+      return getJSON(lcdBase() + '/cosmwasm/wasm/v1/contract/' + c, 15000).then(function(r){
+        if (r.contract_info && r.contract_info.admin === ADDR) note(c, 'contract admin');
+      }).catch(function(){});
+    });
+    var cfgChecks = [
+      smart(FRG_STAKING_V1, { get_config: {} }).then(function(d){ if (d && d.owner === ADDR) note(FRG_STAKING_V1, 'owner (config)'); }).catch(function(){}),
+      smart(FRG_STAKING_V2, { config: {} }).then(function(d){ if (d && (d.admin === ADDR || d.owner === ADDR)) note(FRG_STAKING_V2, 'owner (config)'); }).catch(function(){})
+    ];
+    var poolChecks = mapLimit(GARUDA_POOLS, 8, function(pool){
+      return smartLoose(pool, { config: {} }).then(function(res){
+        if (res.ok && res.data && res.data.config && res.data.config.owner === ADDR){
+          note(pool, 'pool owner (config)');
+          var tc = res.data.config.token_contract;
+          if (tc && !named[pool]) return tokenInfo(tc).then(function(ti){ if (ti) named[pool] = 'Garuda pool — ' + ti.symbol; });
+        }
+        return null;
+      });
+    });
+    Promise.all(adminChecks.concat(cfgChecks).concat([poolChecks])).then(function(){
+      if (!alive(run)) return;
+      var keys = Object.keys(hits);
+      counts.contracts = keys.length;
+      var h = '<h3>🎛️ Contracts you control</h3>';
+      if (!keys.length){
+        h += '<p class="small">No matches — this wallet is not the admin/owner of any contract in the checked set.</p>';
+      } else {
+        keys.forEach(function(c){
+          h += '<div class="row"><span class="k"><b>' + esc(named[c] || 'Garuda pool') + '</b> — ' + esc(hits[c].join(' · ')) +
+            '<br><span class="small">' + addrLink(c) + '</span></span><span class="v">🎛️ controls</span></div>';
+        });
+        h += '<p class="small" style="color:#ffb0b0"><b>Keep this wallet\'s key extra safe:</b> anyone holding its seed can change these contracts\' settings. If you no longer need the power, the contract owner can hand admin to a safer wallet or renounce it — always with your own signature, from a page you trust.</p>';
+      }
+      h += '<p class="cov">Checked ' + (4 + GARUDA_POOLS.length) + ' known contracts (the FRG set + ' + GARUDA_POOLS.length +
+        ' Garuda pools), reading each contract\'s admin and config owner live from the chain. Contracts outside this known set are not scanned — this is a known-set check, not a chain-wide one.</p>';
+      parts.contracts = h; paint();
+    }).catch(function(){
+      if (!alive(run)) return;
+      parts.contracts = '<h3>🎛️ Contracts you control</h3><p class="small">⚠️ The contract check could not finish just now.</p>';
+      paint();
+    });
+  } else {
+    parts.contracts = '';
+  }
+
+  /* 5) CW20 allowances — FCD history scan, every candidate re-verified live */
+  if (chain === 'terra' && SHOW_ALLOW){
+    parts.allow = '<h3>🪙 Token allowances (CW20 approvals)</h3><p class="small"><span class="spin">Scanning history and verifying on-chain…</span></p>';
+    getJSON(FCD_T + '/v1/txs?account=' + ADDR + '&limit=100', 25000).then(function(r){
+      var cand = {};
+      function scanMsg(contract, sender, em){
+        if (!contract || sender !== ADDR || !em) return;
+        ['approve', 'increase_allowance'].forEach(function(k){
+          if (em[k] && em[k].spender) cand[contract + '|' + em[k].spender] = { contract: contract, spender: em[k].spender };
+        });
+      }
+      (r.txs || []).forEach(function(tx){
+        var msgs = [];
+        if (tx.tx && tx.tx.body && tx.tx.body.messages) msgs = tx.tx.body.messages;
+        else if (tx.tx && tx.tx.value && tx.tx.value.msg) msgs = tx.tx.value.msg.map(function(m){ return m.value || {}; });
+        msgs.forEach(function(m){
+          var em = m.execute_msg != null ? m.execute_msg : (m.msg && typeof m.msg === 'object' ? m.msg : null);
+          if (typeof em === 'string'){ try { em = JSON.parse(em); } catch(e){ em = null; } }
+          scanMsg(m.contract_address || m.contract, m.sender, em);
+        });
+      });
+      var list = Object.keys(cand).map(function(k){ return cand[k]; });
+      if (!list.length){
+        if (!alive(run)) return;
+        parts.allow = '<h3>🪙 Token allowances (CW20 approvals)</h3><p class="small">No allowances found in this wallet\'s recent transaction history.</p>' +
+          '<p class="cov">Coverage: scanned the last 100 transactions and re-verified every candidate live on-chain. An allowance granted long ago with no recent activity in that window may not appear here.</p>';
+        paint(); return;
+      }
+      return mapLimit(list, 6, function(c){
+        return smart(c.contract, { allowance: { owner: ADDR, spender: c.spender } }).then(function(a){
+          if (!a || !a.allowance || a.allowance === '0') return null;
+          return tokenInfo(c.contract).then(function(ti){
+            return { contract: c.contract, spender: c.spender, raw: a.allowance,
+                     sym: ti ? ti.symbol : '???', dec: ti ? Number(ti.decimals) : 6,
+                     expires: a.expires && a.expires.at_time ? new Date(Number(a.expires.at_time) / 1e6).toISOString().slice(0, 10) : null };
+          });
+        }).catch(function(){ return null; });
+      }).then(function(foundA){
+        if (!alive(run)) return;
+        var rows = foundA.filter(Boolean);
+        var h = '<h3>🪙 Token allowances (CW20 approvals)</h3>';
+        if (!rows.length){
+          h += '<p class="small">✅ None active — approvals seen in the history all read zero on-chain now (spent or revoked).</p>';
+        } else {
+          rows.forEach(function(x){
+            var huge = String(x.raw).length > 24;
+            h += '<div class="row"><span class="k">' + esc(x.sym) + ' allowance<br><span class="small">Spender: ' + addrLink(x.spender) +
+              '</span><br><span class="small">Token: ' + addrLink(x.contract) + '</span>' +
+              (x.expires ? '<br><span class="small">Expires: ' + esc(x.expires) + '</span>' : '<br><span class="small">No on-chain expiry set on this allowance.</span>') +
+              '</span><span class="v">' + (huge ? 'effectively unlimited' : fmtAmt(x.raw, x.dec) + ' ' + esc(x.sym)) + '</span></div>';
+          });
+          h += '<p class="small"><b>How to fix:</b> an allowance lets that spender move your tokens up to the amount shown. To cut one to zero, approve 0 to the same spender from your wallet app or the token\'s own app — it needs your signature.</p>';
+        }
+        h += '<p class="cov">Coverage: found by scanning the last 100 transactions, then re-verified one by one with a live on-chain allowance query just now — only allowances that still read above zero are shown. An allowance granted long ago with no recent activity in that window may not appear here.</p>';
+        parts.allow = h; paint();
+      });
+    }).catch(function(){
+      if (!alive(run)) return;
+      parts.allow = '<h3>🪙 Token allowances (CW20 approvals)</h3><p class="small">⚠️ The allowance scan could not run just now.</p>';
+      paint();
+    });
+  }
+
+  /* 6) permissions RECEIVED */
+  grantsList('grantee', ADDR).then(function(grants){
+    if (!alive(run)) return;
+    var h = '<h3>📥 Permissions given to you</h3>';
+    if (!grants.length){
+      h += '<p class="small">None — no other wallet has given this wallet power to act for them.</p>';
+    } else {
+      grants.forEach(function(g){
+        var f = friendlyGrant(g);
+        h += '<div class="row"><span class="k">' + esc(f.text.replace('This wallet', 'You').replace(/your/g, 'their')) + '<br><span class="small">Given by: ' +
+          addrLink(g.granter) + '</span>' +
+          (g.expiration ? '<br><span class="small">Expires: ' + esc(String(g.expiration).slice(0, 10)) + '</span>' : '<br><span class="small">No expiry set.</span>') +
+          '</span><span class="v">info</span></div>';
+      });
+    }
+    h += '<p class="small">Fee allowances other wallets gave you can\'t be listed here — this chain\'s public API doesn\'t offer that lookup.</p>';
+    parts.received = h; paint();
+  }).catch(function(){
+    if (!alive(run)) return;
+    parts.received = '<h3>📥 Permissions given to you</h3><p class="small">⚠️ Could not be read just now.</p>';
+    paint();
+  });
+}
+var SHOW_ALLOW = true;
+
+function renderFinePrint(){
+  $('finePrint').innerHTML =
+    '<b>How to read this page:</b> everything shown is read live from public chain data when you tap “Look up”. ' +
+    'Native balances, staking and rewards come straight from the chain (LCD). Token balances are discovered via an explorer index and then ' +
+    '<b>re-verified one by one with direct on-chain queries</b> — only verified balances are shown. Prices come only from the named public sources on the value card; ' +
+    'anything without a real price is listed with “no market price” and left out of the total.<br><br>' +
+    'Not shown yet in this version: NFTs held inside other staking contracts besides FRG NFT Staking, Garuda cross-staking / NFT-factory positions, and LP positions. ' +
+    'Sections state their own coverage where it is partial.<br><br>' +
+    '👛 <b>Community Wallet</b> is a free community tool built by <a href="https://luncdevstudio.com" target="_blank" rel="noopener" style="color:var(--gold)">LUNC Dev Studio</a>.<br><br>' +
+    'Unofficial community tool — not affiliated with Terra, LuncScan, or any project shown. Provided free, as-is, for information only; not financial advice. ' +
+    'This page never holds keys or funds, never asks you to connect a wallet or sign anything, and stores nothing you type. Always verify important numbers in your own wallet.';
+}
+
+/* ── Init ──────────────────────────────────────────────────────── */
+$('addrInput').addEventListener('keydown', function(ev){ if (ev.key === 'Enter') lookup(); });
+(function(){
+  renderFinePrint();
+  try {
+    var u = new URL(window.location.href);
+    var a = u.searchParams.get('addr'), c = u.searchParams.get('chain');
+    if (c === 'do' || c === 'terra') setChain(c);
+    if (a){ $('addrInput').value = a; lookup(); }
+    if (u.searchParams.get('open') === '1'){
+      document.querySelectorAll('details.card').forEach(function(d){ d.open = true; });
+    }
+  } catch (e) {}
+})();
+</script>
+</body>
+</html>
