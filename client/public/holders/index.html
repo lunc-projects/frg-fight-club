@@ -263,16 +263,119 @@ function denomLabel(denom){
 function denomDecimals(denom){ return 6; } /* classic bank denoms + DO denoms are 6 */
 
 /* ── Prices — only from named public sources ───────────────────── */
-function priceLuncScanToken(contract){
-  var key = 'ls:' + contract;
+/* Token prices come from LIVE POOL SPOT only: for each CW20, find its
+   LUNC pairs on Terraswap, Terraport (Vyntrex) and Garuda, read the
+   reserves live from the chain, and take the DEEPEST pool (most LUNC in
+   reserve). Spot = reserve ratio x the CoinGecko LUNC/USD price. If a
+   second pool's spot disagrees with the deepest by more than 25%, the
+   token has NO reliable price and is excluded from the total.
+   LuncScan is used for token discovery only - never for prices. */
+var TS_FACTORY = 'terra1jkndu9w5attpz09ut02sgey5dd3e8sq5watzm0';
+var TP_FACTORY = 'terra1n75fgfc8clsssrm2k0fswgtzsvstdaah7la6sfu96szdu22xta0q57rqqr';
+var GARUDA_TOKEN_PAIRS = {"terra1ldxkxrtpd85wyfstenjzt8vgyv8vdjgd3t0nwu38sqh4wx6h2wksh9ule8":["terra12q9ae4lp3c30gnvyyx9zepgde7qplz57m84saseq0sua9psus8aqthhs6y"],"terra122eam0kf6mnhptpjx2ur8wxcyk527nfw57hwshwac45vr8eeeneqhsgk5p":["terra12rr28v7nfvldlk3ymrhhykkuarpsjcqmy3kma74y0ypzalmm6npq266p3x"],"terra1zra7m9w59sxwxqy8lqs3yeqleedrvtgg2qf938nk2wf8pq2ejkqsn0heln":["terra12xzuds30s5pjl2rw0cxm5x2pz04l7td9w0za7ns5pdmfjs8ufkrsmjt35h"],"terra1t9s9y7jurjjcaxu8jf64cv709d5pld0ktq7km798jz7cvpagdf4q2edsgz":["terra13akzeap8jfslyy6elgfzlr20upwg0etr9lhg5y54xhhs5nlzkrast7jhvn"],"terra1wh02gp5f57kgtvnt8hv595xcmqcgg79sm38v6wz8ve7zarwge2vq3e8z8d":["terra18s5fdvzcshnr0dw2fm2zcm8pp3hr0mxz76makrrr5gp4jm4nampsdqwnvl"],"terra15gjgmln8xj72rf69tx2zlrtcjzzvkcrdvrvfnmxja6kacz07pg0ssflecz":["terra162hq9hpj3mawrhxpzchtpm32hfss7ynv6pgynu8m7kj4lyjqp8aqzf3ptr"],"terra1zmsv8khmsrz2xj8zuhu7r7yruf5dfsyhtqyqf5lf92f2uvz6lf9sx5sr79":["terra1636sv2zfzz20wtevuuqj7zfnk4uuqhj74ahm6sh89dtwlad8eq5q9r98yz"],"terra1rdxr2nhqlhw7jq0ved7srvwwuvk98g28e97s5c0seyrcel4364rsrdapge":["terra16e043q2mns73e6rk9szxjvh8m89ylj72k2lq72jp2clm9ec7ay9sxmn2s5"],"terra1le9l8gpwl2f48xluphnwkqrnhwxqt27xhducfzqvncmsh9swavlqjpy7c9":["terra17w4q8g2jgf3rm5n2eanp2xsyzvgn96sxqner4urtdrkd7cv5u2yqqwg9nf"],"terra1ctvrh09s3q2tgxm88vt6zexle8wcf22qwhxe5qa2wchc9e2ynw3qhvksyl":["terra174euun47r0xhwkslza67avnm5r4gtxnckfeeuud39c0ahtu5hryq57vel3"],"terra15p8su45k45axng8ue59rl6zph4at27s49u3agr6uqrx3dhcxpg3qt0ekdt":["terra1cf0fxnvhcmsqnw8levj3vrhrq3nxgfmc86w9d6pxyeghqyrkgj2spgqarl"],"terra19fufgpaec6c85nrw9j2a40rshdgcm9rhn6hlj2zmx03utpqkh2ls8jnxkz":["terra1ckeru77z5tpfndkhkmjpe07uru6rlrzllmga5aerfa9kyunx7a5s4zszfe"],"terra1kgx73l7akz83755ex76m90mlsphle6y5yd7f7xmee34lr8zc57mqm29esv":["terra1ceu39929df0pu3cz086ynsw0xlvxq2nsrehfnr5m73anqc0r4fuqfgwg98"],"terra1hadtla8984k9arfnjf5yf2zghn3h593tcn5auvdvk6ymm65wtd0sxmyah0":["terra1edrsemq90ve40hxnv5afpw5yydpwnxykhn4yus7ytghzv3m3m9ysgwzsqc"],"terra1uqc9evnugyewtuaztmg40muzp6e2f5vludjs8y3xxl8qljwktz3szal6yu":["terra1ay4s6k2dmn07qwqjaymstm7hnvgv2ajjxkl7q4n5v3wa8g9pz5fs2hhkav"],"terra14rfnhc2aru7jp304lht3yf903necsnrt4cxd464cftsfcksw0rtsgundnt":["terra1aw97xvkkg8snucj5nukhmkgg78e86xuvlp4z262txdkxc8rtzd3sa6g3sj"],"terra1mm8tdp40r2slzwqxk8jsz66ayc4zp69muxeateq37x2xquttzsaqy7275a":["terra1a7vjhp0nf3nnspu6m92asr64zmtjyagwx7anv76yephzuncs980s4gvfsm"],"terra1rc4ef7s6pzuf9pkg8ymnw29pjz2yfm3tjg0kleu4348c2e6upkxqdfdj5u":["terra1gd8gk9u5n69hg7j7t9vzdrn340cv0dgck6csssme25k23wznaq4qakj9l9"],"terra1lz6lnuk64hrcx8t2qgs2ktyzqaxyd4vl76ga47c9fhd6w4erv4cqrjafjl":["terra1fv03h0r2ze2ukhp99audckt432tgqc7yszyxhvu7g3lxshuw8u0snrd55f"],"terra1vhgq25vwuhdhn9xjll0rhl2s67jzw78a4g2t78y5kz89q9lsdskq2pxcj2":["terra1f6pxjjtemwhrypv8y52yv2j98d8j0jlwkp455q0fu8qenlctpy8qh6h74l"],"terra15ut7fz0xu8x5crj6tx7p23pz0ejdlt3vnc2h4evqhj5vj8rlelhsvez6p6":["terra1f7pyutdhhgw2u7r8jqsca20ud8vu5590zjuthxmtu0hjsmqkwdjsxt9jql"],"terra1e4lxe4fq6k9652pyu7fyrexsns3r8tlqrdky3z03ky2ptejzdajsh0xvzt":["terra1j2ag3rgjnjnp7fwdxs8ugxx73j0prq86e4rgnaj45n5l8l4pr6kqh9aq3d"],"terra14nfst294yvtdhrt4hk0njyszyh08q7e0g8rwknht7gyvw24ceyeqw42npg":["terra1hrvvsern58gwnsphz0nrypng8r89ukd39la4ts2s8le8y5sfgl3qtkeh82"],"terra1m58hc296srr6xygrrfyu6u0e32pl8d459nfs55pmegke8zlv94rqsjz882":["terra1h7s7sykdxlcxmqgmwefjx7yzjsd42wrpqtvrjjdqxqt3sen9p8ns0clnhu"],"terra1acyudc64qy06d42kkrh2z7v5333y0c2svs24ntxy7xazhamkykdswes2g7":["terra1jwxm2ussa7rhccwzlhsggx07dtqq056dnfmva587yhy8pmy5vmzsjtxwh2"],"terra1h3xd7qd5w4ne43ddtdnun050yp45eahk0a7wcx0gc3flhuq0m53s3ngtnk":["terra1jnk55gcch3q969637u7mm35szjsfhgjvdtp82awlkmwp50ck5tcqhtjsjl"],"terra1a8rmymsc58p9jg45p8ghy2ueqhmmhsxgd2tvuxma0pxa3g40tw8s0tjg82":["terra1l9yfq5rtxylm9z8ghe6uk4su26hqalm067mqf5zska9nvca4n0zsnu4g59"],"terra1wwrg00jczxf4czy4jr4wc2nvgpl4un4g8fjvm2zy54neel7ygqgsmlhhvp":["terra1lv87fcs5hy75aeul0mp66eu6ns63fmz9utsvkxun6p5dzaazzw3qqqyv3l"],"terra1genyaw32qah4544m0sfgmchegf7emft77u7hug63cc6a72mvpntsfupzmd":["terra1l0sny96yzkwx6lyympccasn7xt7jfwkwegrvr48ey9zpypsl0nusvg5sxg"],"terra12f3f5fzfzxckc0qlv3rmwwkjfhzevpwmx77345n0zuu2678vxf0sm6vvcw":["terra1lhpvlec34lda370cwnf78fyapud7d4f8hjwuzjgljf4dt5vt2m5q4qzw7t"],"terra15juucad3k2npsj53crl6qhra9f65s9jkas9nzpqypj38en4ht32qczde4a":["terra1lc4t00z4kgpjtny0q2asxy8gfqwvjkjcwuzz54thnxsj2n9hla8qg2kamm"],"terra192dmx27220vvw2e90vcpseu90evgpu90z0l730hy4xjh60ctx9sqe9cm9m":["terra1la65ytnfm6z35ankaa658em3ndrrtv0stcq7mad3ndz3nre6agwq0vgsye"],"terra16hl9mwp67l8xjy8hlhasmzldlmdpw963gmpj6e2em0g7xy4el2ys6kwtlt":["terra1q4fndxdyz7tkuqkc2u2yy8urfp5c395d5fknxu4pgzwte3zef7cqn3yvdt"],"terra1jk858n7t29llucje6c8dhwslrz9x424u2l6mw3hxjfljt65pcf3s9q2vzm":["terra1qhzhgwqea45e92ltzjua3rhx3zsrs0tqh6pr8x2ts2kmu2qvnwds2qszmg"],"terra1f6z0ylpshz9j0ytjcqlmyl3fmf8v7uwa7k7ar6craz247lum3wwq6jwh3u":["terra1pz3zf7a0jwnly739z02y88njw7at4xg69na693fph4uj7zvpee2qhuygnx"],"terra1pkhx09w725qw0tyzgd0f7chmqd036vkylrknx2g3yjdkg7ddyxgsd8f7v2":["terra1pn54qfes4usf4q9z2gtu2tt2ku47trq2qkgvh8hcwnf0lvkkxcds6dhzuy"],"terra1wx48f5g06l9qxw8k4gn3200lmseu85vkgangwyn9xdu66mtfsfxq60hkdt":["terra1pej3dypfcujcguqja24yu0kv4guc3ma7xne6cqaqwcr9fxt42l6qu2tknu"],"terra12ckccpalj2y9h54syyst4lpqp79duc9cpxfsyvne409rjw93s8qs2eneh3":["terra1r4prhs84y9mzkcfdaaaum49jvyhh3q80lp7djfeja7x3q2ssfsss4cwna8"],"terra10svrvgrj6jsumvyj039unkmrr7mhx7mqcdhf344mdxxj2s3sfa9qd4nyn5":["terra1mhm0z8hu0m6qt7j2qy8zsawmznvxwh0shu56hvjh4tkrsq3rnu5qeh4cug"],"terra1ljyvgw50u67r3ep7pp7qexgnsgy96fl57q0suut325ehed7eal8qwdtdq4":["terra1mml68fp36vcap75d4dat9fglsh9ars4r88fy98lgk37zsqlt5skqa2rkkh"],"terra1x2w89mnpzpy072azpf0g8muccnvahlewdpq0kkpf4qdhx3c6y9qqeppwyd":["terra1psmjwthenna0ezp3gknmlgsejwk9v9kqpjr5zmpptmeaskdcy30sshvpf9"],"terra1sjs7rvuj0h7uk40vv3wlhdn0we5mhx0957z4g5900shn7865vwcsh7medu":["terra106ssxefutyz8hghsxdx5zsunk203r9q3nludja6m9ztq7mwdp8hqkswluc"],"terra16hzl7lge3jjnlazvut2ypt7upk68z5dycc9rwy608fah8q0y3fuslkenzc":["terra13nk3znj8s74ugzycaqsaxtdex54fnxmeazsv8nnk9rycjg7peykq7s3hud"],"terra1ftp7z26px8l7tf4c02g54ekpnzsgtt8dl7tx2dy4072plzqemjvqtlkq3l":["terra1jkkm7gvt82vgmxlqpvlu5jnqcrnpy62lxp6ed0509jcmg7376p3szppd7j"],"terra1ps34wcgyjjp93hf2wvmt3t7v9ky9xm43yhzf6anq8kyp777egsdq0eua67":["terra1hlx999lvueha9tclgtw7t5pfsc25kyanccu82vujrs0sp9vp7lvsjftxaq"]};
+var pairIndexPromise = null;
+var poolPricePending = {};
+function factoryLuncPairs(factory, venue){
+  var out = [];
+  function page(after){
+    var q = { pairs: { limit: 30 } };
+    if (after) q.pairs.start_after = after;
+    return smart(factory, q).then(function(r){
+      var pairs = (r && r.pairs) || [];
+      pairs.forEach(function(p){
+        var infos = p.asset_infos || [];
+        if (infos.length !== 2) return;
+        var tok = null, isLunc = false;
+        infos.forEach(function(x){
+          if (x.token && x.token.contract_addr) tok = x.token.contract_addr;
+          if (x.native_token && x.native_token.denom === 'uluna') isLunc = true;
+        });
+        if (tok && isLunc) out.push({ token: tok, pair: p.contract_addr, venue: venue });
+      });
+      if (pairs.length === 30) return page(pairs[pairs.length - 1].asset_infos);
+      return out;
+    }).catch(function(){ return out; });
+  }
+  return page(null);
+}
+function buildPairIndex(){
+  if (pairIndexPromise) return pairIndexPromise;
+  pairIndexPromise = Promise.all([
+    factoryLuncPairs(TS_FACTORY, 'Terraswap'),
+    factoryLuncPairs(TP_FACTORY, 'Terraport')
+  ]).then(function(res){
+    var idx = {};
+    res[0].concat(res[1]).forEach(function(e){
+      (idx[e.token] = idx[e.token] || []).push(e);
+    });
+    Object.keys(GARUDA_TOKEN_PAIRS).forEach(function(tok){
+      GARUDA_TOKEN_PAIRS[tok].forEach(function(pair){
+        (idx[tok] = idx[tok] || []).push({ token: tok, pair: pair, venue: 'Garuda' });
+      });
+    });
+    return idx;
+  });
+  return pairIndexPromise;
+}
+function poolSides(pair){
+  return smart(pair, { pool: {} }).then(function(d){
+    if (!d) return null;
+    var out = [];
+    if (d.assets){
+      d.assets.forEach(function(a){
+        if (!a || !a.info) return;
+        if (a.info.native_token) out.push({ kind: 'native', id: a.info.native_token.denom, amount: a.amount });
+        else if (a.info.token) out.push({ kind: 'cw20', id: a.info.token.contract_addr, amount: a.amount });
+      });
+    } else if (d.asset1 && d.asset2){
+      [['asset1', 'reserve1'], ['asset2', 'reserve2']].forEach(function(kr){
+        var a = d[kr[0]];
+        if (a && a.native) out.push({ kind: 'native', id: a.native, amount: d[kr[1]] });
+        else if (a && a.cw20) out.push({ kind: 'cw20', id: a.cw20, amount: d[kr[1]] });
+      });
+    }
+    return out.length ? out : null;
+  }).catch(function(){ return null; });
+}
+function pricePoolToken(contract, dec){
+  var key = 'pool:' + contract;
   if (key in priceCache) return Promise.resolve(priceCache[key]);
-  return getJSON(SCAN + '/tokens/price/' + contract, 15000).then(function(r){
-    var arr = (r && r.data) || [];
-    var last = arr[arr.length - 1];
-    var p = last ? Number(last.price) : NaN;
-    priceCache[key] = (isFinite(p) && p > 0) ? { usd: p, src: 'LuncScan price history ' + (last.sdate || '') } : null;
-    return priceCache[key];
-  }).catch(function(){ priceCache[key] = null; return null; });
+  if (poolPricePending[key]) return poolPricePending[key];
+  poolPricePending[key] = priceNative('uluna').then(function(lp){
+    if (!lp) return null;
+    return buildPairIndex().then(function(idx){
+      var cands = idx[contract] || [];
+      if (!cands.length) return null;
+      return mapLimit(cands, 4, function(c){
+        return poolSides(c.pair).then(function(sides){
+          if (!sides) return null;
+          var lunc = 0, tok = 0;
+          sides.forEach(function(sd){
+            if (sd.kind === 'native' && sd.id === 'uluna') lunc = rawNum(sd.amount);
+            if (sd.kind === 'cw20' && sd.id === contract) tok = rawNum(sd.amount);
+          });
+          if (!lunc || !tok) return null;
+          return { venue: c.venue, pair: c.pair, luncWhole: lunc / 1e6,
+                   usd: (lunc / 1e6) / (tok / Math.pow(10, dec || 6)) * lp.usd };
+        });
+      }).then(function(spots){
+        spots = spots.filter(Boolean);
+        if (!spots.length) return null;
+        spots.sort(function(a, b){ return b.luncWhole - a.luncWhole; });
+        var deep = spots[0];
+        for (var i = 1; i < spots.length; i++){
+          if (Math.abs(spots[i].usd - deep.usd) / deep.usd > 0.25) return null; /* pools disagree - no reliable price */
+        }
+        return { usd: deep.usd, src: deep.venue + ' pool spot x CoinGecko LUNC',
+                 pools: spots.length, verified: spots.length >= 2, pair: deep.pair };
+      });
+    });
+  }).then(function(p){
+    priceCache[key] = p; delete poolPricePending[key]; return p;
+  }).catch(function(){
+    priceCache[key] = null; delete poolPricePending[key]; return null;
+  });
+  return poolPricePending[key];
 }
 function pricePaprika(id, key){
   if (key in priceCache) return Promise.resolve(priceCache[key]);
@@ -411,7 +514,7 @@ function lookup(){
   var run = RUN;
   state = { native: [], tokens: [], delegations: [], unbonding: 0, rewards: null,
             platforms: [], nfts: [], nftStaked: [], txCount: 0, discovery: '', poolsReadable: 0, poolsChecked: 0 };
-  priceCache = {}; tokenInfoCache = {};
+  priceCache = {}; tokenInfoCache = {}; poolPricePending = {};
   $('dash').hidden = false;
   $('addrBar').hidden = false;
   $('addrBar').innerHTML = 'Wallet: ' + addrLink(a) +
@@ -526,7 +629,7 @@ function loadTokens(run){
         if (!alive(run)) return;
         var toks = found.filter(Boolean);
         return mapLimit(toks, 6, function(t){
-          return priceLuncScanToken(t.contract).then(function(p){ t.price = p; return t; });
+          return pricePoolToken(t.contract, t.decimals).then(function(p){ t.price = p; return t; });
         }).then(function(priced){
           if (!alive(run)) return;
           state.tokens = priced;
@@ -535,12 +638,14 @@ function loadTokens(run){
             html = '<p class="small">No CW20 token balances verified on-chain for this wallet.</p>';
           }
           priced.forEach(function(t){
-            var usd = t.price ? amtNum(t.balance, t.decimals) * t.price.usd : null;
+            var domEx = state._domExcluded && state._domExcluded === t.contract;
+            var usd = (t.price && !domEx) ? amtNum(t.balance, t.decimals) * t.price.usd : null;
             var lpTag = /\bLP\b|liquidity/i.test((t.name || '') + ' ' + (t.symbol || '')) ? ' <span class="tag">🏦 LP token</span>' : '';
             html += '<div class="row"><span class="k">' + esc(t.name || t.symbol) + ' (' + esc(t.symbol) + ')' + lpTag + '<br>' +
               '<span class="small">' + addrLink(t.contract) + '</span></span>' +
               '<span class="v">' + fmtAmt(t.balance, t.decimals) +
-              (usd != null ? '<small>' + fmtUSD(usd) + '</small>' : '<small>no market price</small>') + '</span></div>';
+              (usd != null ? '<small id="pu-' + t.contract + '">' + fmtUSD(usd) + '</small>'
+                : '<small id="pu-' + t.contract + '">' + (domEx ? 'excluded - price not verified' : 'no market price') + '</small>') + '</span></div>';
           });
           html += '<p class="cov">How this list is built: token contracts are discovered via the ' + esc(srcName) +
             ', then <b>every balance is re-verified by a direct on-chain query</b> — only verified balances over zero are shown. ' +
@@ -726,7 +831,7 @@ function loadPlatforms(run){
         parts = parts.filter(Boolean);
         if (parts.length) rTxt = '🎁 ' + parts.join('<br>🎁 ');
         found.push({ name: 'FRG Staking', contract: FRG_STAKING_V1, lines: lines, rewardsLine: rTxt,
-                     symbol: sym, stakedRaw: ui.tied_amount, stakedDec: dec,
+                     symbol: sym, tokenContract: cfg.token_addr, stakedRaw: String(tied + untie), stakedDec: dec,
                      reward: first ? { raw: first.raw, dec: first.dec, symbol: first.symbol, contract: first.contract } : null });
       });
     });
@@ -756,7 +861,7 @@ function loadPlatforms(run){
         var sym = info ? info.symbol : '???', dec = info ? Number(info.decimals) : 6;
         found.push({ name: 'FRG Staking v2', contract: FRG_STAKING_V2,
           lines: ['Staked: ' + fmtAmt(pools[tok], dec) + ' ' + sym], rewardsLine: '',
-          symbol: sym, stakedRaw: pools[tok], stakedDec: dec, reward: null });
+          symbol: sym, tokenContract: tok, stakedRaw: pools[tok], stakedDec: dec, reward: null });
       });
     });
   }).catch(function(){}).then(function(){
@@ -833,7 +938,7 @@ function loadPlatforms(run){
         var cfg = res2[0] && res2[0].config ? res2[0].config : null;
         var tokAddr = cfg ? cfg.token_contract : null;
         var finish = function(sym, dec, rSym, rDec, rRaw){
-          found.push({ name: 'Garuda pool — ' + sym, contract: pool,
+          found.push({ name: 'Garuda pool — ' + sym, contract: pool, tokenContract: tokAddr,
             lines: ['Staked: ' + fmtAmt(String(total), dec) + ' ' + sym +
               (ids.length ? ' · ' + entries.length + ' stake entr' + (entries.length > 1 ? 'ies' : 'y') : '')],
             rewardsLine: rRaw ? '🎁 ' + fmtAmt(rRaw, rDec) + ' ' + rSym : '',
@@ -1039,40 +1144,20 @@ var valueParts = {};
 function finishValue(run){
   if (!alive(run)) return;
   /* recompute from whatever has landed so far; called after each section */
-  var liquid = 0, stakedNat = 0, platform = 0, rewardsUsd = 0, excluded = 0, pricedItems = 0;
-  var priceOf = { LUNC: null, USTC: null, DO: null };
-  if (state.nativePriced){
-    state.nativePriced.forEach(function(r){
-      if (r.price){ liquid += amtNum(r.b.amount, 6) * r.price.usd; pricedItems++; }
-      else if (rawNum(r.b.amount) > 0) excluded++;
-    });
+  var r = computeValue(run);
+  /* Dominance guard: a single pool-priced token worth over half the total
+     must have its price re-verified against a second pool before it is
+     counted. If it cannot be re-verified, it is excluded and labeled. */
+  if (r.domCandidate && !state._domExcluded){
+    state._domExcluded = r.domCandidate.contract;
+    state._domExcludedSymbol = r.domCandidate.symbol;
+    var el = document.getElementById('pu-' + r.domCandidate.contract);
+    if (el) el.textContent = 'excluded - price not verified';
+    r = computeValue(run);
   }
-  (state.tokens || []).forEach(function(t){
-    if (t.price){ liquid += amtNum(t.balance, t.decimals) * t.price.usd; pricedItems++; }
-    else excluded++;
-  });
-  var pLunc = priceCache.LUNC, pDo = priceCache.DO;
-  if (state.totalStakedRaw != null){
-    var pp = chain === 'do' ? pDo : pLunc;
-    if (pp) { stakedNat = amtNum(String(state.totalStakedRaw), 6) * pp.usd; pricedItems++; }
-    if (state.unbonding && pp) stakedNat += amtNum(String(state.unbonding), 6) * pp.usd;
-  }
-  (state.platforms || []).forEach(function(f){
-    var tp = f.reward && f.reward.contract ? priceCache['ls:' + f.reward.contract] : null;
-    var sp = f.stakedRaw && rawNum(f.stakedRaw) > 0 ? findTokenPrice(f) : null;
-    if (sp) platform += amtNum(f.stakedRaw, f.stakedDec) * sp;
-    if (f.reward && rawNum(f.reward.raw) > 0){
-      var rp = findTokenPriceBySymbol(f.reward);
-      if (rp) rewardsUsd += amtNum(f.reward.raw, f.reward.dec) * rp;
-    }
-  });
-  if (state.claimNative){
-    var tot = state.claimNative;
-    if (tot.uluna && pLunc) rewardsUsd += (tot.uluna / 1e6) * pLunc.usd;
-    if (tot.uusd && priceCache.USTC) rewardsUsd += (tot.uusd / 1e6) * priceCache.USTC.usd;
-    if (tot.udo && pDo) rewardsUsd += (tot.udo / 1e6) * pDo.usd;
-  }
-  var total = liquid + stakedNat + platform + rewardsUsd;
+  var liquid = r.liquid, stakedNat = r.stakedNat, platform = r.platform,
+      rewardsUsd = r.rewardsUsd, excluded = r.excluded, pricedItems = r.pricedItems,
+      total = r.total;
   state._value = { liquid: liquid, stakedNat: stakedNat, platform: platform, rewards: rewardsUsd, total: total, excluded: excluded };
   if (pricedItems === 0 && total === 0){
     $('valueTotal').textContent = 'No priced items yet';
@@ -1084,22 +1169,76 @@ function finishValue(run){
     'Liquid: <b>' + fmtUSD(liquid) + '</b> · Staked (native): <b>' + fmtUSD(stakedNat) + '</b>' +
     ' · In staking platforms: <b>' + fmtUSD(platform) + '</b> · Claimable rewards: <b>' + fmtUSD(rewardsUsd) + '</b>';
   $('valueNote').innerHTML = 'Total counts only items with a real public price (' + pricedItems + ' priced). <b>' +
-    excluded + ' item' + (excluded === 1 ? '' : 's') + ' with no market price are excluded</b> — they are still listed in their sections below. ' +
-    'Prices: LUNC & DO via CoinGecko, tokens via LuncScan price history, USTC via its Terraswap pool against the LUNC price. An estimate of market value — not a promise of what a sale would fetch.';
+    excluded + ' item' + (excluded === 1 ? '' : 's') + ' with no market price are excluded</b> - they are still listed in their sections below. ' +
+    'Prices: LUNC & DO via CoinGecko; every other token is priced live from its deepest LUNC pool (Terraswap / Terraport-Vyntrex / Garuda) at the pool spot rate x the CoinGecko LUNC price; USTC via its Terraswap pool against the LUNC price. ' +
+    'A token whose pools disagree on price, or that has no LUNC pool, counts as no market price. An estimate of market value - not a promise of what a sale would fetch.' +
+    (state._domExcluded ? ' <b>' + esc(state._domExcludedSymbol || 'One item') + ' is excluded: it would make up over half the total and its price could not be re-verified against a second pool.</b>' : '');
   renderGauges(run);
 }
-function findTokenPrice(f){
-  /* price for a platform position's staked token, matched from verified wallet tokens */
-  var hit = (state.tokens || []).filter(function(t){ return t.symbol === f.symbol && t.price; })[0];
-  if (hit) return hit.price.usd;
-  var c = priceCache['ls:'];
+function computeValue(run){
+  var liquid = 0, stakedNat = 0, platform = 0, rewardsUsd = 0, excluded = 0, pricedItems = 0;
+  var domCandidate = null, domVal = 0;
+  if (state.nativePriced){
+    state.nativePriced.forEach(function(r){
+      if (r.price){ liquid += amtNum(r.b.amount, 6) * r.price.usd; pricedItems++; }
+      else if (rawNum(r.b.amount) > 0) excluded++;
+    });
+  }
+  (state.tokens || []).forEach(function(t){
+    if (state._domExcluded && t.contract === state._domExcluded){ excluded++; return; }
+    if (t.price){
+      var v = amtNum(t.balance, t.decimals) * t.price.usd;
+      liquid += v; pricedItems++;
+      if (!t.price.verified && v > domVal){ domVal = v; domCandidate = t; }
+    }
+    else excluded++;
+  });
+  var pLunc = priceCache.LUNC, pDo = priceCache.DO;
+  if (state.totalStakedRaw != null){
+    var pp = chain === 'do' ? pDo : pLunc;
+    if (pp) { stakedNat = amtNum(String(state.totalStakedRaw), 6) * pp.usd; pricedItems++; }
+    if (state.unbonding && pp) stakedNat += amtNum(String(state.unbonding), 6) * pp.usd;
+  }
+  (state.platforms || []).forEach(function(f){
+    var sp = f.stakedRaw && rawNum(f.stakedRaw) > 0 ? findTokenPrice(f, run) : null;
+    if (sp) platform += amtNum(f.stakedRaw, f.stakedDec) * sp;
+    if (f.reward && rawNum(f.reward.raw) > 0){
+      var rp = findTokenPriceBySymbol(f.reward, run);
+      if (rp) rewardsUsd += amtNum(f.reward.raw, f.reward.dec) * rp;
+    }
+  });
+  if (state.claimNative){
+    var tot = state.claimNative;
+    if (tot.uluna && pLunc) rewardsUsd += (tot.uluna / 1e6) * pLunc.usd;
+    if (tot.uusd && priceCache.USTC) rewardsUsd += (tot.uusd / 1e6) * priceCache.USTC.usd;
+    if (tot.udo && pDo) rewardsUsd += (tot.udo / 1e6) * pDo.usd;
+  }
+  var total = liquid + stakedNat + platform + rewardsUsd;
+  if (domCandidate && domVal <= total / 2) domCandidate = null;
+  return { liquid: liquid, stakedNat: stakedNat, platform: platform, rewardsUsd: rewardsUsd,
+           excluded: excluded, pricedItems: pricedItems, total: total, domCandidate: domCandidate };
+}
+/* Price a token by contract through the pool-spot path - works even when
+   the wallet holds no liquid balance of it (platform positions, rewards).
+   Triggers the async price fetch, then re-runs the totals when it lands. */
+function priceByContract(contract, dec, run){
+  if (!contract || chain !== 'terra') return null;
+  if (state._domExcluded && contract === state._domExcluded) return null;
+  var key = 'pool:' + contract;
+  if (key in priceCache){ var pc = priceCache[key]; return pc ? pc.usd : null; }
+  pricePoolToken(contract, dec || 6).then(function(){ finishValue(run); });
   return null;
 }
-function findTokenPriceBySymbol(r){
-  var hit = (state.tokens || []).filter(function(t){ return t.symbol === r.symbol && t.price; })[0];
-  if (hit) return hit.price.usd;
-  var pc = r.contract ? priceCache['ls:' + r.contract] : null;
-  return pc ? pc.usd : null;
+function findTokenPrice(f, run){
+  /* price for a platform position's staked token, by contract first */
+  if (f.tokenContract) return priceByContract(f.tokenContract, f.stakedDec, run);
+  var hit = (state.tokens || []).filter(function(t){ return t.symbol === f.symbol && t.price && t.contract !== state._domExcluded; })[0];
+  return hit ? hit.price.usd : null;
+}
+function findTokenPriceBySymbol(r, run){
+  if (r.contract) return priceByContract(r.contract, r.dec, run);
+  var hit = (state.tokens || []).filter(function(t){ return t.symbol === r.symbol && t.price && t.contract !== state._domExcluded; })[0];
+  return hit ? hit.price.usd : null;
 }
 function renderGauges(run){
   var v = state._value;
