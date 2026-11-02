@@ -63,9 +63,12 @@
     display:flex; align-items:center; justify-content:center; font-size:11px; padding:6px; line-height:1.4}
   .nft .nm{font-size:12px; margin-top:6px; overflow-wrap:anywhere; line-height:1.4}
   .nft .id{font-size:11px; color:var(--dim)}
-  .donutwrap{display:flex; gap:16px; align-items:center; flex-wrap:wrap}
-  .legend{font-size:13.5px; line-height:1.9}
   .dot{display:inline-block; width:11px; height:11px; border-radius:3px; margin-right:7px; vertical-align:-1px}
+  .gauges{display:flex; flex-wrap:wrap; gap:16px 12px; margin-top:8px}
+  .gauge{width:98px; text-align:center}
+  .gauge svg{display:block; margin:0 auto; width:98px; height:98px}
+  .gauge .gl{font-size:12.5px; color:var(--dim); margin-top:5px; line-height:1.45}
+  .gauge .gl b{color:var(--ink); font-size:13px}
   .counts{display:flex; flex-wrap:wrap; gap:8px; margin-top:10px}
   .counts .pill{font-size:12.5px; padding:5px 11px}
   .spin{color:var(--dim); font-size:14px}
@@ -111,10 +114,7 @@
   <!-- Gauges -->
   <section class="card" id="gaugeCard">
     <h2>📊 Portfolio split</h2>
-    <div class="donutwrap">
-      <div id="donut"></div>
-      <div class="legend" id="donutLegend"></div>
-    </div>
+    <div class="gauges" id="gauges"></div>
     <div class="counts" id="countStrip"></div>
     <p class="small" id="gaugeNote"></p>
   </section>
@@ -263,6 +263,12 @@ function fmtUSD(v){
   if (v >= 0.01) return '$' + v.toFixed(4);
   return '$' + v.toPrecision(3);
 }
+function fmtUSDShort(v){
+  if (v == null || !isFinite(v)) return '—';
+  if (v >= 10000) return '$' + (v / 1000).toFixed(1) + 'k';
+  if (v >= 1000) return '$' + (v / 1000).toFixed(2) + 'k';
+  return fmtUSD(v);
+}
 function rawNum(raw){ var n = Number(raw); return isFinite(n) ? n : 0; }
 function amtNum(raw, dec){ return rawNum(raw) / Math.pow(10, dec); }
 
@@ -270,11 +276,55 @@ var FIAT = { uluna:['LUNC','Luna Classic'], uusd:['USTC','TerraClassic USD'], uk
   ucad:['CAT',''], uchf:['CHT',''], ucny:['CNT',''], udkk:['DKT',''], ueur:['EUT',''], ugbp:['GBT',''],
   uhkd:['HKT',''], uidr:['IDRT',''], uinr:['INT',''], ujpy:['JPT',''], umnt:['MNT',''], umyr:['MYT',''],
   unok:['NOT',''], uphp:['PHT',''], usdr:['SDT',''], usek:['SET',''], uthb:['THT',''] };
+/* IBC denom labels. Resolved from the Skip chain asset index for
+   columbus-5 (the same source the Garuda DEX pages use for USDC.inj /
+   USDC.n / SLAYER) plus three traces computed directly from this chain's
+   own channel list: SCRT = transfer/channel-125/uscrt, ATOM =
+   transfer/channel-129/uatom, DGN = transfer/channel-130/udgn (hashes
+   verified by construction). A hash with no known label shows compactly
+   (ibc/0471F1…D817B) and the full denom stays in title text. */
+var IBC_LABELS = {
+  'ibc/0471F1C4E7AFD3F07702BEF6DC365268D64570F7C1FDC98EA6098DD6DE59817B': 'OSMO',
+  'ibc/03FB4E4D1043755015ABF1A84773EA334B2726EF464CF90D926C888ECE2D64FD': 'sqOSMO',
+  'ibc/0BB9D8513E8E8E9AE6A9D211D9136E6DA42288DDE6CFAA453A150A4566054DC5': 'USDC.n',
+  'ibc/2E13104D0924DDB574E98CF01E1FD2D8913779BCB5B514B6468C6EC6037A15DC': 'allBTC',
+  'ibc/386A4031D68DE6370B85F9FF7E89CEF8DE7CDE01CC193CBD87BD3ED60F6662CE': 'USDT.axl',
+  'ibc/45368D217CE1F76A1214FA6F1F31493B5F127793E6AB4873B39A81A8CE21A18E': 'WMATIC.axl',
+  'ibc/4DE2B38E2E2F84CD4A8E86DE954B6093BDB3A83477271083C1D4CB0A464C62F7': 'AXL',
+  'ibc/5D80D31FFB77E3BF4C77FDE0FE559CD8902504D4D817EF94271DC1D59D3F84B5': 'SLAYER',
+  'ibc/8ACFBDDF77DA174672D246AA2083FC83067F2FB669D9F6BB00632A3F635EBAF9': 'sqATOM',
+  'ibc/8BB061D8382A5F66690942819BC6F58C9008B95FDE59F0C37F66EAB12755A7B8': 'allSOL',
+  'ibc/911B721F15A40ABB29636CBF8AE630076DDF62841ACE7E6D879405CA8870CEA2': 'WBTC.axl',
+  'ibc/9B68CC79EFF12D25AF712EB805C5062B8F97B2CCE5F3FE55B107EE03095514A3': 'WETH.axl',
+  'ibc/A55C0D073DE3824B017A43C34DFDB3B20608B9687D6884C2E506C8BC3F5EF1EB': 'SCRT',
+  'ibc/CA24259425AF30865098E84FA22D9DC0CA804A72AC4E088B2604D013E22B7B3D': 'wstETH.axl',
+  'ibc/CC70B48B130875FCDFD7B21FAF638AB52F857BA6F9624915BB8217D303DB8925': 'YieldETH.axl',
+  'ibc/CF57A83CED6CEC7D706631B5DC53ABC21B7EDA7DF7490732B4361E6D5DD19C73': 'WBTC.osmo',
+  'ibc/D7B7D0835B5CAACA52109939CEB064D81EBC098B4E2C3FD71106FEFFC06CC308': 'allETH',
+  'ibc/D8402D9479F739A4C87BDC043AF920B82358EBE1D1B724233DB46E18D8D13921': 'INJ',
+  'ibc/DE84A40AD7B33ECB31BE257CA51198E83224A3AF087945783524650D826C891A': 'DGN',
+  'ibc/E1E3674A0E4E1EF9C69646F9AF8D9497173821826074622D831BAB73CCB99A2D': 'USDC.axl',
+  'ibc/E6773A970EA824CA7E62467098506762DAD69083BB71CB1603337D9F1A8CF123': 'ARB.axl',
+  'ibc/EC029D782B5E87EF523FF6716DEF58CACD1D207602E510B6B9D0DABA21057DFB': 'ATOM',
+  'ibc/F4B1551A3470D93A725460F109FB57990702B703790D8A21C7DC66AEF3BACBF4': 'WBNB.axl',
+  'ibc/F52112392095A6D6D1B17EF1FE19BE0B39B2A79B8A2B2F55CD721FC7DBF5081F': 'USDC.inj'
+};
+function ibcShort(denom){
+  var h = denom.slice(4);
+  return 'ibc/' + h.slice(0, 6) + '…' + h.slice(-5);
+}
 function denomLabel(denom){
   if (FIAT[denom]) return FIAT[denom][0];
   if (denom === 'udo') return 'DO';
   if (denom === 'udodx') return 'DODx';
+  if (denom.indexOf('ibc/') === 0) return IBC_LABELS[denom] || ibcShort(denom);
   return denom;
+}
+/* denom as HTML: IBC denoms keep the full hash in the title attribute */
+function denomHtml(denom){
+  if (denom.indexOf('ibc/') === 0)
+    return '<span title="' + esc(denom) + '">' + esc(denomLabel(denom)) + '</span>';
+  return esc(denomLabel(denom));
 }
 function denomDecimals(denom){ return 6; } /* classic bank denoms + DO denoms are 6 */
 
@@ -487,7 +537,8 @@ function lookup(){
   ADDR = a; RUN++;
   var run = RUN;
   state = { native: [], tokens: [], delegations: [], unbonding: 0, rewards: null,
-            platforms: [], nfts: [], nftStaked: [], txCount: 0, discovery: '', poolsReadable: 0, poolsChecked: 0 };
+            platforms: [], nfts: [], nftStaked: [], txCount: 0, discovery: '', poolsReadable: 0, poolsChecked: 0,
+            nftScanDone: false, nftPriced: false, nftValueUsd: null, nftFloorSource: '' };
   priceCache = {}; tokenInfoCache = {}; poolPricePending = {};
   $('dash').hidden = false;
   $('addrBar').hidden = false;
@@ -497,7 +548,7 @@ function lookup(){
     $(id).innerHTML = '<span class="spin">Reading the chain…</span>';
   });
   $('valueTotal').textContent = '…'; $('valueSplit').innerHTML = ''; $('valueNote').textContent = '';
-  $('donut').innerHTML = ''; $('donutLegend').innerHTML = ''; $('countStrip').innerHTML = ''; $('gaugeNote').textContent = '';
+  $('gauges').innerHTML = ''; $('countStrip').innerHTML = ''; $('gaugeNote').textContent = '';
   // sync URL for sharing / QA
   try {
     var u = new URL(window.location.href);
@@ -537,8 +588,10 @@ function loadBalances(run){
       if (!rows.length) html = '<p class="small">No native balances found on-chain for this wallet.</p>';
       rows.forEach(function(r){
         var usd = r.price ? amtNum(r.b.amount, 6) * r.price.usd : null;
-        html += '<div class="row"><span class="k">' + esc(r.label) +
-          (r.label !== r.b.denom ? ' <span class="small">' + esc(r.b.denom) + '</span>' : '') +
+        var isIbc = r.b.denom.indexOf('ibc/') === 0;
+        html += '<div class="row"><span class="k">' +
+          (isIbc ? '<span title="' + esc(r.b.denom) + '">' + esc(r.label) + '</span>'
+                 : esc(r.label) + (r.label !== r.b.denom ? ' <span class="small">' + esc(r.b.denom) + '</span>' : '')) +
           '</span><span class="v">' + fmtAmt(r.b.amount, 6) +
           (usd != null ? '<small>' + fmtUSD(usd) + '</small>' : '<small>no market price</small>') + '</span></div>';
       });
@@ -747,16 +800,16 @@ function renderClaimable(run){
     rew.rewards.forEach(function(rv){
       var cs = (rv.reward || []).filter(function(c){ return Number(c.amount) >= 1000000; })
         .sort(function(a,b){ return Number(b.amount) - Number(a.amount); });
-      var parts = cs.slice(0, 3).map(function(c){ return fmtAmt(String(Math.floor(Number(c.amount))), 6) + ' ' + denomLabel(c.denom); });
+      var parts = cs.slice(0, 3).map(function(c){ return fmtAmt(String(Math.floor(Number(c.amount))), 6) + ' ' + denomHtml(c.denom); });
       if (cs.length > 3) parts.push('+' + (cs.length - 3) + ' more');
       html += '<div class="row"><span class="k">' + esc(valNames[rv.validator_address] || rv.validator_address) +
-        '</span><span class="v">' + (parts.length ? esc(parts.join(' · ')) : 'dust only') + '</span></div>';
+        '</span><span class="v">' + (parts.length ? parts.join(' · ') : 'dust only') + '</span></div>';
     });
   }
   var other = Object.keys(totals).filter(function(d){ return d !== mainDenom && totals[d] >= 1; });
   if (other.length){
     html += '<p class="small">Also claimable in other denoms: ' +
-      other.map(function(d){ return fmtAmt(String(Math.floor(totals[d])), 6) + ' ' + denomLabel(d); }).join(' · ') + '</p>';
+      other.map(function(d){ return fmtAmt(String(Math.floor(totals[d])), 6) + ' ' + denomHtml(d); }).join(' · ') + '</p>';
   }
   state.claimNative = totals;
   $('claimBody').innerHTML = html;
@@ -994,6 +1047,13 @@ function loadNfts(run){
         return smart(col, { tokens: { owner: ADDR, limit: 100 } }).then(function(t){
           return { contract: col, ids: (t && t.tokens) || [], count: n };
         }).catch(function(){ return { contract: col, ids: [], count: n }; });
+      }, function(){
+        /* some collections (e.g. LUNC Grand Prix) do not implement the
+           CW721 balance query at all - fall back to the owner's token list */
+        return smart(col, { tokens: { owner: ADDR, limit: 100 } }).then(function(t){
+          var ids = (t && t.tokens) || [];
+          return ids.length ? { contract: col, ids: ids, count: ids.length } : null;
+        }).catch(function(){ return null; });
       }).catch(function(){ return null; });
     }).then(function(foundCols){
       if (!alive(run)) return;
@@ -1014,6 +1074,7 @@ function loadNfts(run){
       }).then(function(items){
         if (!alive(run)) return;
         state.nfts = items;
+        state.nftScanDone = true;
         var html = '';
         if (!items.length){
           html = '<p class="small">No NFTs found in the collections scanned for this wallet.</p>';
@@ -1038,6 +1099,10 @@ function loadNfts(run){
             ' NFT' + (state.nftStaked.length > 1 ? 's are' : ' is') +
             ' currently inside FRG NFT Staking — see the Staking platforms section for IDs and pending rewards.</p>';
         }
+        html += '<p class="small" style="margin-top:10px">💲 <b>NFT values are not priced.</b> ' +
+          'There is no live marketplace floor data for Terra Classic collections that this page can verify ' +
+          '(the old Classic marketplaces — Knowhere, Luart, MIATA — are gone), so NFTs appear in the ' +
+          'gauge cluster as a count, never as invented dollars, and they are not part of the total value.</p>';
         html += '<p class="cov">NFT scan checks ' + cols.length + ' known collections (incl. every collection registered in FRG NFT Staking). ' +
           'A brand-new collection that is not registered anywhere yet may not appear — that is a discovery limit, stated honestly.</p>';
         $('nftBody').innerHTML = html;
@@ -1048,6 +1113,7 @@ function loadNfts(run){
     });
   }).catch(function(){
     if (!alive(run)) return;
+    state.nftScanDone = true;
     $('nftBody').innerHTML = '<p class="small">⚠️ The NFT scan could not finish just now — try again in a moment.</p>';
     finishValue(run);
   });
@@ -1132,7 +1198,7 @@ function finishValue(run){
   var liquid = r.liquid, stakedNat = r.stakedNat, platform = r.platform,
       rewardsUsd = r.rewardsUsd, excluded = r.excluded, pricedItems = r.pricedItems,
       total = r.total;
-  state._value = { liquid: liquid, stakedNat: stakedNat, platform: platform, rewards: rewardsUsd, total: total, excluded: excluded };
+  state._value = { liquid: liquid, stakedNat: stakedNat, platform: platform, rewards: rewardsUsd, nfts: r.nfts, total: total, excluded: excluded, pricedItems: pricedItems };
   if (pricedItems === 0 && total === 0){
     $('valueTotal').textContent = 'No priced items yet';
   } else {
@@ -1141,13 +1207,19 @@ function finishValue(run){
   $('valueAsOf').textContent = new Date().toUTCString().slice(17, 25) + ' UTC';
   $('valueSplit').innerHTML =
     'Liquid: <b>' + fmtUSD(liquid) + '</b> · Staked (native): <b>' + fmtUSD(stakedNat) + '</b>' +
-    ' · In staking platforms: <b>' + fmtUSD(platform) + '</b> · Claimable rewards: <b>' + fmtUSD(rewardsUsd) + '</b>';
+    ' · Staked tokens (platforms): <b>' + fmtUSD(platform) + '</b> · Claimable rewards: <b>' + fmtUSD(rewardsUsd) + '</b>' +
+    (chain === 'terra' ? ' · NFTs: <b>' + (state.nftPriced ? fmtUSD(r.nfts) + ' (floor estimate)' : 'not priced') + '</b>' : '');
   $('valueNote').innerHTML = 'Total counts only items with a real public price (' + pricedItems + ' priced). <b>' +
     excluded + ' item' + (excluded === 1 ? '' : 's') + ' with no market price are excluded</b> - they are still listed in their sections below. ' +
     'Prices: LUNC & DO via CoinGecko; every other token is priced live from its deepest LUNC pool (Terraswap / Terraport-Vyntrex / Garuda) at the pool spot rate x the CoinGecko LUNC price; USTC via its Terraswap pool against the LUNC price. ' +
     'Pair index as of Nov 1, 2026 \u2014 prices are read live from the pools; tokens launched after the snapshot may show no market price. ' +
     'A token whose pools disagree on price, or that has no LUNC pool, counts as no market price. An estimate of market value - not a promise of what a sale would fetch.' +
-    (state._domExcluded ? ' <b>' + esc(state._domExcludedSymbol || 'One item') + ' is excluded: it would make up over half the total and its price could not be re-verified against a second pool.</b>' : '');
+    (state._domExcluded ? ' <b>' + esc(state._domExcludedSymbol || 'One item') + ' is excluded: it would make up over half the total and its price could not be re-verified against a second pool.</b>' : '') +
+    ((chain === 'terra' && state.nftScanDone)
+      ? (state.nftPriced
+          ? ' <b>NFTs are included</b> at an estimate of floor prices from ' + esc(state.nftFloorSource || 'a live marketplace') + ' — an estimate, not a sale price.'
+          : ' <b>NFTs are not included in this total</b> — no reliable live floor price exists for Terra Classic NFT collections, so NFTs are counted in the gauge cluster but never given an invented dollar value.')
+      : '');
   renderGauges(run);
 }
 function computeValue(run){
@@ -1188,9 +1260,13 @@ function computeValue(run){
     if (tot.uusd && priceCache.USTC) rewardsUsd += (tot.uusd / 1e6) * priceCache.USTC.usd;
     if (tot.udo && pDo) rewardsUsd += (tot.udo / 1e6) * pDo.usd;
   }
-  var total = liquid + stakedNat + platform + rewardsUsd;
+  /* NFTs join the total ONLY when a verifiable live floor price exists.
+     None does today (see the NFT section note), so nftUsd stays 0 and the
+     gauge cluster shows the NFT count as "not priced". */
+  var nftUsd = (state.nftPriced && state.nftValueUsd != null) ? state.nftValueUsd : 0;
+  var total = liquid + stakedNat + platform + rewardsUsd + nftUsd;
   if (domCandidate && domVal <= total / 2) domCandidate = null;
-  return { liquid: liquid, stakedNat: stakedNat, platform: platform, rewardsUsd: rewardsUsd,
+  return { liquid: liquid, stakedNat: stakedNat, platform: platform, rewardsUsd: rewardsUsd, nfts: nftUsd,
            excluded: excluded, pricedItems: pricedItems, total: total, domCandidate: domCandidate };
 }
 /* Price a token by contract through the pool-spot path - works even when
@@ -1218,44 +1294,50 @@ function findTokenPriceBySymbol(r, run){
 function renderGauges(run){
   var v = state._value;
   if (!v) return;
+  var nftCount = (state.nfts ? state.nfts.length : 0) + (state.nftStaked ? state.nftStaked.length : 0);
   var parts = [
-    { label: 'Liquid', val: v.liquid, color: '#4ced4b' },
-    { label: 'Staked (native)', val: v.stakedNat, color: '#ffd76a' },
-    { label: 'Staking platforms', val: v.platform, color: '#7cc4ff' },
-    { label: 'Claimable rewards', val: v.rewards, color: '#ff9df5' }
+    { label: 'Liquid', val: v.liquid, color: '#2ee66b' },
+    { label: 'Staked (native)', val: v.stakedNat, color: '#ffb62e' },
+    { label: 'Staked tokens', val: v.platform, color: '#33b5ff' },
+    { label: 'Claimable rewards', val: v.rewards, color: '#ff5da2' },
+    { label: 'NFTs', val: v.nfts, color: '#a06bff', nft: true }
   ];
-  var tot = parts.reduce(function(s, p){ return s + p.val; }, 0);
-  var donutHtml = '', legendHtml = '';
+  var tot = v.total;
+  var R = 42, C = 2 * Math.PI * R;
+  var html = '';
+  parts.forEach(function(p){
+    var frac = tot > 0 ? Math.max(0, Math.min(1, p.val / tot)) : 0;
+    var center, sub;
+    if (p.nft && !state.nftPriced){
+      center = String(nftCount);
+      sub = '<b>NFTs</b><br>not priced';
+    } else {
+      center = fmtUSDShort(p.val);
+      sub = '<b>' + p.label + '</b><br>' + fmtUSD(p.val) +
+        (tot > 0 && p.val > 0 ? ' · ' + (frac * 100).toFixed(1) + '%' : '');
+    }
+    html += '<div class="gauge"><svg width="104" height="104" viewBox="0 0 104 104" role="img" aria-label="' + p.label + '">' +
+      '<circle cx="52" cy="52" r="' + R + '" fill="none" stroke="#173c25" stroke-width="11"/>' +
+      (frac > 0 ? '<circle cx="52" cy="52" r="' + R + '" fill="none" stroke="' + p.color + '" stroke-width="11" ' +
+        'stroke-linecap="round" stroke-dasharray="' + (frac * C).toFixed(1) + ' ' + C.toFixed(1) +
+        '" transform="rotate(-90 52 52)"/>' : '') +
+      '<text x="52" y="57" text-anchor="middle" fill="#e8f5ec" font-size="' + (center.length > 7 ? 12 : 14) +
+        '" font-weight="800">' + esc(center) + '</text></svg>' +
+      '<div class="gl">' + sub + '</div></div>';
+  });
+  $('gauges').innerHTML = html;
   if (tot > 0){
-    var R = 52, C = 2 * Math.PI * R, off = 0;
-    var segs = '';
-    parts.forEach(function(p){
-      if (p.val <= 0) return;
-      var frac = p.val / tot;
-      segs += '<circle cx="70" cy="70" r="' + R + '" fill="none" stroke="' + p.color + '" stroke-width="20" ' +
-        'stroke-dasharray="' + (frac * C).toFixed(1) + ' ' + C.toFixed(1) + '" stroke-dashoffset="' + (-off).toFixed(1) +
-        '" transform="rotate(-90 70 70)"/>';
-      off += frac * C;
-      legendHtml += '<div><span class="dot" style="background:' + p.color + '"></span>' + p.label + ' — ' +
-        fmtUSD(p.val) + ' (' + (frac * 100).toFixed(1) + '%)</div>';
-    });
-    donutHtml = '<svg width="140" height="140" viewBox="0 0 140 140">' + segs +
-      '<text x="70" y="66" text-anchor="middle" fill="#e8f5ec" font-size="13" font-weight="700">' + fmtUSD(tot) + '</text>' +
-      '<text x="70" y="84" text-anchor="middle" fill="#9db8a6" font-size="10">priced total</text></svg>';
-    $('gaugeNote').textContent = 'Split by US-dollar value of priced items only.';
+    $('gaugeNote').textContent = 'Split by US-dollar value of priced items only.' +
+      (chain === 'terra' && !state.nftPriced ? ' NFTs are counted, not priced — no live market source (see the Total value note).' : '');
   } else {
-    donutHtml = '<p class="small">No priced items yet — the split appears once prices load.</p>';
-    $('gaugeNote').textContent = '';
+    $('gaugeNote').textContent = 'No priced items yet — the gauges fill in once prices load.';
   }
-  $('donut').innerHTML = donutHtml;
-  $('donutLegend').innerHTML = legendHtml;
   var counts = [];
   if (state.native) counts.push('💰 ' + state.native.length + ' native');
   if (state.tokens) counts.push('🪙 ' + state.tokens.length + ' tokens');
   if (state.delegations) counts.push('🏦 ' + state.delegations.length + ' delegations');
   if (state.platforms) counts.push('🥩 ' + state.platforms.length + ' platform positions');
-  var nftTotal = (state.nfts ? state.nfts.length : 0) + (state.nftStaked ? state.nftStaked.length : 0);
-  counts.push('🎨 ' + nftTotal + ' NFTs');
+  counts.push('🎨 ' + nftCount + ' NFTs');
   if (state.txCount) counts.push('📜 ' + state.txCount + ' recent txs');
   $('countStrip').innerHTML = counts.map(function(c){ return '<span class="pill g">' + esc(c) + '</span>'; }).join('');
 }
