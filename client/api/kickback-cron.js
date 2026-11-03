@@ -1,4 +1,4 @@
-// LUNC Kickback bot — daily delegation-difference cron (Vercel Cron Jobs).
+// LUNC Dev Studio bot (formerly LUNC Kickback) — daily delegation-difference cron (Vercel Cron Jobs).
 // vercel.json schedules a daily GET here. Vercel attaches
 // "Authorization: Bearer <CRON_SECRET>" automatically when the CRON_SECRET
 // env var is set on the project; anything else is rejected.
@@ -15,7 +15,7 @@
 // KICKBACK_OWNER_CHAT_ID, KICKBACK_UPSTASH_URL, KICKBACK_UPSTASH_TOKEN.
 
 const LCD_BASE = 'https://terra-classic-lcd.publicnode.com';
-const VALIDATOR_OPER = 'terravaloper13gwu230jrnvalsu3w2cfu5syt4w5rwuca6nhj7';
+const VALIDATOR_OPER = 'terravaloper1a6t063l4858ezr8c82yffx7j0c690v8rwyy9ye';
 const VALIDATOR_URL = `${LCD_BASE}/cosmos/staking/v1beta1/validators/${VALIDATOR_OPER}`;
 const DELEGATIONS_URL = `${VALIDATOR_URL}/delegations?pagination.count_total=true`;
 const BASELINE_KEY = 'kickback:baseline';
@@ -60,7 +60,7 @@ function buildDiffText(label, base, now) {
   const dBonded = BigInt(now.bonded_uluna) - BigInt(base.bonded_uluna);
   const dDeleg = now.delegators - base.delegators;
   return [
-    `📊 LUNC Kickback — ${label}`,
+    `📊 LUNC Dev Studio — ${label}`,
     `Bonded: ${fmtLunc(now.bonded_uluna)} LUNC (${fmtSignedLunc(dBonded)} / ${fmtPct(dBonded, base.bonded_uluna)})`,
     `Delegators: ${Number(now.delegators).toLocaleString('en-US')} (${fmtSignedInt(dDeleg)})`,
     SITE_URL,
@@ -122,7 +122,7 @@ async function readBaseline() {
   if (!raw) return null;
   try {
     const b = JSON.parse(raw);
-    if (b && b.bonded_uluna != null && b.delegators != null && b.ts) return b;
+    if (b && b.bonded_uluna != null && b.delegators != null && b.ts && (!b.validator || b.validator === VALIDATOR_OPER)) return b;
   } catch (e) { /* fall through: corrupt baseline behaves like none */ }
   return null;
 }
@@ -131,6 +131,7 @@ async function writeBaseline(state) {
   await upstashSet(BASELINE_KEY, JSON.stringify({
     bonded_uluna: state.bonded_uluna,
     delegators: state.delegators,
+    validator: VALIDATOR_OPER,
     ts: Date.now(),
   }));
 }
@@ -231,7 +232,7 @@ export default async function handler(req, res) {
       return;
     }
     await sendDm(
-      '📊 LUNC Kickback delegation tracking started. ' +
+      '📊 LUNC Dev Studio delegation tracking started. ' +
       `Baseline: ${fmtLunc(now.bonded_uluna)} LUNC bonded, ${Number(now.delegators).toLocaleString('en-US')} delegators. ` +
       'Your first 24h difference lands tomorrow.'
     );

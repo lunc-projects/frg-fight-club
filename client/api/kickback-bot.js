@@ -1,4 +1,4 @@
-// LUNC Kickback bot — Telegram webhook handler (Vercel serverless function).
+// LUNC Dev Studio bot (formerly LUNC Kickback) — Telegram webhook handler (Vercel serverless function).
 // Telegram POSTs each update here; we answer /start in private chats with the
 // welcome message + Open App button. Two owner-only admin commands:
 // /delegations, which replies (to the owner only) with the delegation
@@ -12,7 +12,7 @@
 const APP_URL = process.env.KICKBACK_APP_URL || 'https://frg-fight-club.vercel.app/kickback/';
 
 const LCD_BASE = 'https://terra-classic-lcd.publicnode.com';
-const VALIDATOR_OPER = 'terravaloper13gwu230jrnvalsu3w2cfu5syt4w5rwuca6nhj7';
+const VALIDATOR_OPER = 'terravaloper1a6t063l4858ezr8c82yffx7j0c690v8rwyy9ye';
 const VALIDATOR_URL = `${LCD_BASE}/cosmos/staking/v1beta1/validators/${VALIDATOR_OPER}`;
 const DELEGATIONS_URL = `${VALIDATOR_URL}/delegations?pagination.count_total=true`;
 const BASELINE_KEY = 'kickback:baseline';
@@ -56,7 +56,7 @@ function buildDiffText(label, base, now) {
   const dBonded = BigInt(now.bonded_uluna) - BigInt(base.bonded_uluna);
   const dDeleg = now.delegators - base.delegators;
   return [
-    `📊 LUNC Kickback — ${label}`,
+    `📊 LUNC Dev Studio — ${label}`,
     `Bonded: ${fmtLunc(now.bonded_uluna)} LUNC (${fmtSignedLunc(dBonded)} / ${fmtPct(dBonded, base.bonded_uluna)})`,
     `Delegators: ${Number(now.delegators).toLocaleString('en-US')} (${fmtSignedInt(dDeleg)})`,
     SITE_URL,
@@ -113,7 +113,7 @@ async function readBaseline() {
   if (!j.result) return null;
   try {
     const b = JSON.parse(j.result);
-    if (b && b.bonded_uluna != null && b.delegators != null && b.ts) return b;
+    if (b && b.bonded_uluna != null && b.delegators != null && b.ts && (!b.validator || b.validator === VALIDATOR_OPER)) return b;
   } catch (e) { /* fall through: corrupt baseline behaves like none */ }
   return null;
 }
@@ -247,7 +247,7 @@ async function handleUpdates(token, msg) {
       return;
     }
     await reply(
-      '✅ Registered — the daily LUNC Kickback delegation update will post here as well as in the owner\u2019s DM. ' +
+      '✅ Registered — the daily LUNC Dev Studio delegation update will post here as well as in the owner\u2019s DM. ' +
       'Send /updates off to stop it.');
     return;
   }
@@ -290,7 +290,7 @@ export default async function handler(req, res) {
           body: JSON.stringify({
             chat_id: msg.chat.id,
             text:
-              '🥇 LUNC Kickback\n\nStake LUNC with the validator that shares its commission back. ' +
+              '🥇 LUNC Dev Studio\n\nStake LUNC with the validator that shares its commission back. ' +
               'Check the live reward pool, see the top delegators, and find your kickback share.',
             reply_markup: { inline_keyboard: [[{ text: 'Open App', web_app: { url: APP_URL } }]] },
           }),
