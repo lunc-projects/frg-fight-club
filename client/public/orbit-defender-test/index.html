@@ -3099,7 +3099,8 @@ let blasts = [];               /* Upgrade #2: mine explosion rings (fx) */
 let parts = [], popups = [];
 let blooms = [], pops = [];    /* fx pass: radial bloom flashes + kill-pop ghosts */
 let gridFlashT = 0;            /* fx pass: grid flash timer after a big event */
-let boss = null, bossWarn = 0, bossCount = 0, bossKills = 0, vaultCount = 0;
+let boss = null, bosses = [], bossWarn = 0, bossCount = 0, bossKills = 0, vaultCount = 0;
+let bossUidSeq = 1;   /* every boss gets a uid so piercing bolts can mark each one hit once */
 let level = 1, levelStartPx = 0, levelCompleteT = 0, levelIntroT = 0;
 let milestones = 0, nextMile = MILE_EVERY;
 let animT = 0, shakeT = 0, shakeMag = 0, dyingT = 0, trailT = 0, ambientT = 0;
@@ -4148,7 +4149,16 @@ function updateWingman(dt){
     const d2 = (t.x - wingman.x) * (t.x - wingman.x) + (t.y - wingman.y) * (t.y - wingman.y);
     if (d2 < bd){ bd = d2; tgt = t; }
   }
-  if (!tgt && boss && !boss.dead) tgt = boss;
+  if (!tgt){
+    /* no token in reach: engage the NEAREST live boss — in a paired
+       fight the wingman picks whichever threat is closer */
+    let bb = Infinity;
+    for (const t of bosses){
+      if (t.dead) continue;
+      const d2 = (t.x - wingman.x) * (t.x - wingman.x) + (t.y - wingman.y) * (t.y - wingman.y);
+      if (d2 < bb){ bb = d2; tgt = t; }
+    }
+  }
   if (tgt){
     wingman.fireT = 0.28;
     /* lead the target by its fall: a token drops (vy + scroll) every
@@ -4170,7 +4180,8 @@ function nextKind(){
   return level % 2 === 1 ? 'vault' : 'whale';
 }
 let whaleCount = 0;
-function makeBoss(kind){
+function makeBoss(kind, opts){
+  opts = opts || {};
   /* each boss kind climbs its OWN ladder (Oct 30): the Nth Vault and
      the Nth Whale both take BOSS_HP + STEP x (N-1) — every next boss
      is a longer fight than the one before */
@@ -4179,28 +4190,47 @@ function makeBoss(kind){
   const n = kind === 'vault' ? vaultCount : whaleCount;
   /* Oct 31 (owner): Vault energy DOUBLED — Vaults died too easily.
      The Whale keeps the shared ladder exactly as it was. */
-  const hp = Math.round((kind === 'vault' ? (BOSS_HP + BOSS_HP_STEP * (n - 1)) * 2
+  let hp = Math.round((kind === 'vault' ? (BOSS_HP + BOSS_HP_STEP * (n - 1)) * 2
     : BOSS_HP + BOSS_HP_STEP * (n - 1)) * foeHpFactor());   /* game admin HARDNESS scales boss hull too (x1 at the default 5) */
+  if (opts.hpMul) hp = Math.round(hp * opts.hpMul);   /* paired-fight Whale: hull x1.5 (owner, Nov 3) */
   /* EVERY VAULT A DIFFERENT SHIP (Orbit's notes, Oct 30): the hull
      rotates through all seven by Vault met — never the same ship
      twice in a row — and each hull brings its own weapon spec. */
   const variant = kind === 'vault' ? (vaultCount - 1) % VAULT_HULLS.length : 0;
   const segs = [];
   if (kind === 'vault'){ const segHp = Math.max(1, Math.round(SEG_HP * foeHpFactor())); for (let i = 0; i < BOSS_SEG; i++) segs.push({ hp: segHp, maxHp: segHp }); }
-  return { kind, variant, x: W / 2, y: -BOSS_R - 30, hp, maxHp: hp, segs, t: 0, fireT: 1.6, phase: 0,
+  const homeX = opts.x !== undefined ? opts.x : W / 2;
+  return { kind, variant, x: homeX, homeX, uid: bossUidSeq++, y: -BOSS_R - 30, hp, maxHp: hp, segs, t: 0, fireT: 1.6, phase: 0,
+    enraged: false, fireMul: 1,
     mode: 'hover', modeT: 0, chargeT: 5, shedT: 3.5, vx: 0, vy: 0, tx: 0, ty: 0,
     volleys: 0, burstLeft: 0, burstT: 0, streamT: 0, streamAcc: 0, streamAng: 0, countN: n,
     entered: false, dead: false };
 }
-function spawnBoss(){
-  const kind = nextKind();   /* read BEFORE the count moves — it names THIS boss */
+function spawnBoss(forcedKind){
+  const kind = forcedKind || nextKind();   /* read BEFORE the count moves — it names THIS boss */
   bossCount++;
-  boss = makeBoss(kind);
+  bosses = [];
+  boss = null;
+  if (kind === 'whale'){
+    /* PAIRED FIGHT (owner, Nov 3): on Whale levels a VAULT rides in
+       beside her — two separate bosses, two kills to clear the
+       level, and the survivor enrages (see killBoss). The Whale's
+       hull runs x1.5 its solo ladder; her partner fights at its own
+       normal ladder. They enter on opposite wings so the fight
+       opens split and the player must cover the whole sky. */
+    bosses.push(makeBoss('whale', { x: Math.round(W * 0.30), hpMul: 1.5 }));
+    bosses.push(makeBoss('vault', { x: Math.round(W * 0.70) }));
+    showToast('⚠ WHALE + VAULT — DOWN THEM BOTH! ⚠');
+  } else {
+    bosses.push(makeBoss(kind));
+  }
+  boss = bosses[0];   /* invariant: `boss` always mirrors the first live boss (or null) */
 }
 /* Vault 2.0 phases: at 66% and 33% core HP the Vault restores ALL four
    shield segments and sheds two rug tokens. Triggered from every core
    damage path so no route skips a phase. */
-function afterBossHpChange(){
+function afterBossHpChange(b){
+  const boss = b;
   if (!boss || boss.dead || boss.hp <= 0 || boss.kind !== 'vault') return;
   const frac = boss.hp / boss.maxHp;
   const want = frac <= 1 / 3 ? 2 : (frac <= 2 / 3 ? 1 : 0);
@@ -4220,6 +4250,16 @@ function segAngleAt(i, t){
   return t * 0.85 + i * span;      /* segment i covers [a, a + span*0.62] */
 }
 function damageBossBullet(b){
+  /* returns true when the bullet is consumed — every live boss gets
+     its chance at the bolt (a bolt can only sit inside one boss's
+     ring at a time, so the first hit settles it) */
+  for (const t of bosses){
+    if (t.dead) continue;
+    if (damageBossBulletAt(b, t)) return true;
+  }
+  return false;
+}
+function damageBossBulletAt(b, boss){
   /* returns true when the bullet is consumed */
   const dx = b.x - boss.x, dy = b.y - boss.y;
   const d = Math.hypot(dx, dy);
@@ -4229,7 +4269,7 @@ function damageBossBullet(b){
       boss.hp -= (b.dmg || 1);
       burst(b.x, b.y, 3, RED_HI, 120);
       sparks(b.x, b.y, 3, RED_HI);
-      if (boss.hp <= 0) killBoss();
+      if (boss.hp <= 0) killBoss(boss);
       return true;
     }
     return false;
@@ -4256,16 +4296,17 @@ function damageBossBullet(b){
     boss.hp -= (b.dmg || 1);
     burst(b.x, b.y, 3, GREEN_HI, 120);
     sparks(b.x, b.y, 3, GREEN_HI);
-    afterBossHpChange();
-    if (boss.hp <= 0) killBoss();
+    afterBossHpChange(boss);
+    if (boss.hp <= 0) killBoss(boss);
     return true;
   }
   return false;
 }
-function killBoss(){
-  if (!boss || boss.dead) return;
-  boss.dead = true;
-  const kind = boss.kind, bx = boss.x, by = boss.y;
+function killBoss(victim){
+  const b = victim || boss;   /* local alias — the global `boss` is only re-pointed below */
+  if (!b || b.dead) return;
+  b.dead = true;
+  const kind = b.kind, bx = b.x, by = b.y;
   const bossPts = (kind === 'whale' ? KILL_SCORE.whale : KILL_SCORE.boss) * (feverT > 0 ? 2 : 1);
   killScore += bossPts;
   kills++;
@@ -4285,6 +4326,19 @@ function killBoss(){
   /* the boss's drop is richer than most: one time in four it is the
      rare AUDIT BLAST (armored tokens are the only other source) */
   dropPower(rng() < 0.25 ? 'audit' : rollDropKind(), bx, by + 10);
+  bosses = bosses.filter(x => x !== b);
+  if (bosses.length){
+    /* one of the pair still fights: the survivor flies into a rage
+       — its fire cycle (and the Whale's shed/charge cycle) runs at
+       fireMul 0.6, i.e. half again as fast — and the level is NOT
+       done: no field sweep, no stars, no breather. The kill above
+       already paid its own score and drop. */
+    boss = bosses[0];
+    for (const s of bosses){ s.enraged = true; s.fireMul = 0.6; }
+    popup(boss.x, boss.y - BOSS_R - 20, '⚠ THE OTHER ONE IS FURIOUS!', '#ff9d5c');
+    showToast(kind === 'whale' ? '🐋 WHALE DOWN — THE VAULT RAGES ON!' : '🏆 VAULT CRACKED — THE WHALE RAGES ON!');
+    return;
+  }
   boss = null;
   /* the field is swept either way — in endless the run simply rolls on
      to the next boss 1,800 m later; in campaign the kill COMPLETES THE
@@ -4991,7 +5045,11 @@ function updateBoss(dt){
     if (bossWarn <= 0) spawnBoss();
     return;
   }
-  if (!boss) return;
+  if (!bosses.length) return;
+  for (const b of bosses) updateOneBoss(b, dt);
+}
+function updateOneBoss(b, dt){
+  const boss = b;   /* the whole solo-fight body below runs per boss, unchanged */
   boss.t += dt;
   if (!boss.entered){
     /* entry descent, both bosses — a flag, not a y test, because the
@@ -5000,8 +5058,8 @@ function updateBoss(dt){
     if (boss.y >= 118){ boss.y = 118; boss.entered = true; }
     return;
   }
-  if (boss.kind === 'whale'){ updateWhale(dt); return; }
-  boss.x = W / 2 + Math.sin(boss.t * 0.7) * 108;
+  if (boss.kind === 'whale'){ updateWhale(boss, dt); return; }
+  boss.x = boss.homeX + Math.sin(boss.t * 0.7) * (bosses.length > 1 ? 62 : 108);
   boss.y = 118 + Math.sin(boss.t * 1.25) * 13;
   const spec = vaultSpec(boss), hull = vaultHull(boss);
   /* trailing aimed singles (burst hulls): three quick shots walk in
@@ -5028,7 +5086,7 @@ function updateBoss(dt){
       fireFoeShot(boss.x, boss.y + 24, Math.cos(boss.streamAng) * VAULT_FAN_SPEED,
         Math.sin(boss.streamAng) * VAULT_FAN_SPEED, { color: hull.color, fan: true });
     }
-    if (boss.streamT <= 0) boss.fireT = 1.15 * spec.cadence * foeFireFactor();   /* breather, then stream again (foeFireFactor: game admin INTENSITY) */
+    if (boss.streamT <= 0) boss.fireT = 1.15 * spec.cadence * foeFireFactor() * boss.fireMul;   /* breather, then stream again (foeFireFactor: game admin INTENSITY; fireMul: pair-survivor enrage) */
   }
   boss.fireT -= dt;
   if (boss.fireT <= 0 && boss.y > 60 && !(spec.spiral && boss.streamT > 0)){
@@ -5036,7 +5094,7 @@ function updateBoss(dt){
        that keeps tightening past the seventh Vault */
     const endlessTrim = boss.countN > VAULT_SPECS.length
       ? Math.pow(0.94, boss.countN - VAULT_SPECS.length) : 1;
-    boss.fireT = 1.9 * clamp(1 - (level - 1) * 0.04, 0.66, 1) * spec.cadence * endlessTrim * foeFireFactor();
+    boss.fireT = 1.9 * clamp(1 - (level - 1) * 0.04, 0.66, 1) * spec.cadence * endlessTrim * foeFireFactor() * boss.fireMul;
     const aim = Math.atan2(ship.y - boss.y, ship.x - boss.x);
     if (spec.spiral){
       boss.streamT = 2.2;
@@ -5075,8 +5133,7 @@ function updateBoss(dt){
    (0.8 s windup, popup + shake) before lunging at the point the Bot
    occupied when the charge locked. It never fires — its body and its
    children are the threat. */
-function updateWhale(dt){
-  const b = boss;
+function updateWhale(b, dt){
   if (b.mode === 'windup'){
     b.modeT -= dt;
     if (b.modeT <= 0){
@@ -5099,17 +5156,17 @@ function updateWhale(dt){
     return;
   }
   if (b.mode === 'return'){
-    const dx = W / 2 - b.x, dy = 118 - b.y, d = Math.hypot(dx, dy);
-    if (d < 10){ b.mode = 'hover'; b.chargeT = (5 + rng() * 1.5) * clamp(1 - (b.countN - 1) * 0.09, 0.58, 1); }
+    const dx = b.homeX - b.x, dy = 118 - b.y, d = Math.hypot(dx, dy);
+    if (d < 10){ b.mode = 'hover'; b.chargeT = (5 + rng() * 1.5) * clamp(1 - (b.countN - 1) * 0.09, 0.58, 1) * b.fireMul; }
     else { b.x += dx / d * 300 * dt; b.y += dy / d * 300 * dt; }
     return;
   }
-  /* hover */
-  b.x = W / 2 + Math.sin(b.t * 0.55) * 96;
+  /* hover — around her own wing anchor (centre when she flies solo) */
+  b.x = b.homeX + Math.sin(b.t * 0.55) * (bosses.length > 1 ? 58 : 96);
   b.y = 118 + Math.sin(b.t * 1.1) * 10;
   b.shedT -= dt;
   if (b.shedT <= 0){
-    b.shedT = 4 * clamp(1 - (b.countN - 1) * 0.09, 0.58, 1);   /* later Whales shed faster */
+    b.shedT = 4 * clamp(1 - (b.countN - 1) * 0.09, 0.58, 1) * b.fireMul;   /* later Whales shed faster; an enraged survivor faster still */
     if (aliveTokens() < MAX_ALIVE)
       tokens.push(makeToken('rug', clamp(b.x + (rng() < 0.5 ? -48 : 48), 24, W - 24), b.y + 54, { r: 13 }));
   }
@@ -5159,10 +5216,14 @@ function collide(){
   /* bullets vs tokens / debris / boss */
   for (const b of bullets){
     if (b.dead) continue;
-    if (boss && !boss.dead){
+    if (bosses.length){
       if (b.pierce){
-        /* a charge blast strikes the boss once and flies on */
-        if (!b.bossHit && damageBossBullet(b)) b.bossHit = true;
+        /* a charge blast strikes EACH boss once and flies on */
+        if (!b.bossHits) b.bossHits = new Set();
+        for (const t of bosses){
+          if (t.dead || b.bossHits.has(t.uid)) continue;
+          if (damageBossBulletAt(b, t)) b.bossHits.add(t.uid);
+        }
       }
       else if (damageBossBullet(b)){ b.dead = true; continue; }
     }
@@ -5274,9 +5335,14 @@ function collide(){
         }
       }
     }
-    if (state === 'play' && boss && !boss.dead){
-      if (Math.hypot(boss.x - ship.x, boss.y - ship.y) < BOSS_R + SHIP_R - 4)
-        hitPlayer(boss.kind === 'whale' ? 'WHALE BREACH' : 'VAULT BREACH');
+    if (state === 'play'){
+      for (const t of bosses){
+        if (t.dead) continue;
+        if (Math.hypot(t.x - ship.x, t.y - ship.y) < BOSS_R + SHIP_R - 4){
+          hitPlayer(t.kind === 'whale' ? 'WHALE BREACH' : 'VAULT BREACH');
+          break;
+        }
+      }
     }
   }
 }
@@ -5292,7 +5358,15 @@ function updateBullets(dt){
         const d2 = (t.x - b.x) * (t.x - b.x) + (t.y - b.y) * (t.y - b.y);
         if (d2 < bd){ bd = d2; tx = t.x; ty = t.y; }
       }
-      if (tx === null && boss && !boss.dead){ tx = boss.x; ty = boss.y; }
+      if (tx === null){
+        /* no token to chase: steer at the NEAREST live boss */
+        let bb = Infinity;
+        for (const t of bosses){
+          if (t.dead) continue;
+          const d2 = (t.x - b.x) * (t.x - b.x) + (t.y - b.y) * (t.y - b.y);
+          if (d2 < bb){ bb = d2; tx = t.x; ty = t.y; }
+        }
+      }
       if (tx !== null){
         const want = Math.atan2(ty - b.y, tx - b.x);
         let diff = want - Math.atan2(b.vy, b.vx);
@@ -5423,7 +5497,7 @@ function reset(){
   foeShots = []; blasts = [];
   parts = []; popups = [];
   blooms = []; pops = []; gridFlashT = 0;
-  boss = null; bossWarn = 0; bossCount = 0; bossKills = 0; vaultCount = 0; whaleCount = 0;
+  boss = null; bosses = []; bossWarn = 0; bossCount = 0; bossKills = 0; vaultCount = 0; whaleCount = 0;
   continueUsed = false; continueBusy = false; continueNote = '';   /* a fresh run earns a fresh continue offer */
   level = 1; levelStartPx = 0; levelCompleteT = 0; levelIntroT = 0;
   hullMax = 3 + curAdv().hullBonus;   /* NFT Lance+ frames start with extra hull */
@@ -6570,8 +6644,11 @@ function drawToken(t){
   if (t.type === 'armored' || t.type === 'carrier') drawHpTag(t, t.r * 0.38);
 }
 function drawBoss(){
-  if (!boss) return;
-  const b = boss;
+  /* one draw (and one HP bar) per live boss — a paired fight shows
+     both bars, each riding over its own boss */
+  for (const b of bosses) drawOneBoss(b);
+}
+function drawOneBoss(b){
   if (b.kind === 'whale'){
     /* THE RUG WHALE — a vast dark-red rug token with a dorsal fin and
        gill arcs; it flashes white through its windup so the charge is
@@ -6661,7 +6738,7 @@ function drawBoss(){
   ctx.fillRect(bx, by, bw * clamp(b.hp / b.maxHp, 0, 1), 9);
   ctx.fillStyle = '#fff'; ctx.font = '900 11px system-ui, sans-serif';
   ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-  ctx.fillText(b.kind === 'whale' ? 'THE RUG WHALE' : 'THE VAULT', b.x, by - 1);
+  ctx.fillText((b.kind === 'whale' ? 'THE RUG WHALE' : 'THE VAULT') + (b.enraged ? ' 🔥ENRAGED' : ''), b.x, by - 1);
   ctx.restore();
 }
 /* ================= the starfighter (player ship) =================
@@ -7695,8 +7772,9 @@ window.OD = {
     powerups.push(p);
     return p;
   },
-  spawnBossNow(kind){ if (!boss && bossWarn <= 0){ const k = kind === 'whale' ? 'whale' : kind === 'vault' ? 'vault' : nextKind(); bossCount++; boss = makeBoss(k); boss.y = 118; boss.entered = true; boss.fireT = 2.5; } },
-  hurtBoss(n){ if (boss){ boss.hp -= n; afterBossHpChange(); if (boss.hp <= 0) killBoss(); } },
+  spawnBossNow(kind){ if (!boss && bossWarn <= 0){ const k = kind === 'whale' ? 'whale' : kind === 'vault' ? 'vault' : nextKind(); spawnBoss(k); for (const b of bosses){ b.y = 118; b.entered = true; b.fireT = 2.5; } } },
+  hurtBoss(n){ if (boss){ boss.hp -= n; afterBossHpChange(boss); if (boss.hp <= 0) killBoss(boss); } },
+  hurtBossAt(i, n){ const b = bosses[i]; if (b){ b.hp -= n; afterBossHpChange(b); if (b.hp <= 0) killBoss(b); } },
   hurtSeg(i, n){ if (boss && boss.segs[i]) boss.segs[i].hp = Math.max(0, boss.segs[i].hp - (n || 1)); },
   setHull(n){ hull = n; },
   setShield(b){ shieldUp = !!b; },
@@ -7815,7 +7893,7 @@ window.OD = {
   setLevel(n){
     level = Math.max(1, Math.floor(n) || 1);
     bossCount = level - 1;
-    boss = null; bossWarn = 0;
+    boss = null; bosses = []; bossWarn = 0;
     levelStartPx = distPx;
     levelCompleteT = 0;
   },
@@ -7858,7 +7936,10 @@ window.OD = {
       kind: boss.kind, variant: boss.variant || 0, mode: boss.mode,
       countN: boss.countN || 0, volleys: boss.volleys || 0,
       segAlive: boss.segs.filter(s => s.hp > 0).length,
-      segHp: boss.segs.map(s => s.hp) };
+      segHp: boss.segs.map(s => s.hp),
+      pair: bosses.length,
+      all: bosses.map(x => ({ kind: x.kind, x: x.x, y: x.y, hp: x.hp, maxHp: x.maxHp,
+        enraged: !!x.enraged, segAlive: x.segs.filter(s => s.hp > 0).length })) };
   },
   state(){
     return { state, score: score(), killScore, hull, shield: shieldUp,
