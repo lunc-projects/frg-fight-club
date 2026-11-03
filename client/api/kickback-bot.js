@@ -17,7 +17,7 @@ const VALIDATOR_URL = `${LCD_BASE}/cosmos/staking/v1beta1/validators/${VALIDATOR
 const DELEGATIONS_URL = `${VALIDATOR_URL}/delegations?pagination.count_total=true`;
 const BASELINE_KEY = 'kickback:baseline';
 const UPDATES_CHAT_KEY = 'kb:updates_chat';
-const SITE_URL = 'https://www.luncback.com';
+const SITE_URL = 'https://luncdevstudio.com';
 
 // ---------- formatting (same report format as the daily cron DM) ----------
 
@@ -113,7 +113,7 @@ async function readBaseline() {
   if (!j.result) return null;
   try {
     const b = JSON.parse(j.result);
-    if (b && b.bonded_uluna != null && b.delegators != null && b.ts && (!b.validator || b.validator === VALIDATOR_OPER)) return b;
+    if (b && b.bonded_uluna != null && b.delegators != null && b.ts && b.validator === VALIDATOR_OPER) return b;
   } catch (e) { /* fall through: corrupt baseline behaves like none */ }
   return null;
 }

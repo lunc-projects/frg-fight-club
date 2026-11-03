@@ -20,8 +20,9 @@ const VALIDATOR_URL = `${LCD_BASE}/cosmos/staking/v1beta1/validators/${VALIDATOR
 const DELEGATIONS_URL = `${VALIDATOR_URL}/delegations?pagination.count_total=true`;
 const BASELINE_KEY = 'kickback:baseline';
 const UPDATES_CHAT_KEY = 'kb:updates_chat';
-const SITE_URL = 'https://www.luncback.com';
+const SITE_URL = 'https://luncdevstudio.com';
 const VALIDATOR_PAGE = 'https://validator.info/terra-classic/terravaloper1a6t063l4858ezr8c82yffx7j0c690v8rwyy9ye';
+const LOGO_URL = 'https://frg-fight-club.vercel.app/kickback-logo.png';
 
 // ---------- formatting ----------
 
@@ -124,7 +125,7 @@ async function readBaseline() {
   if (!raw) return null;
   try {
     const b = JSON.parse(raw);
-    if (b && b.bonded_uluna != null && b.delegators != null && b.ts && (!b.validator || b.validator === VALIDATOR_OPER)) return b;
+    if (b && b.bonded_uluna != null && b.delegators != null && b.ts && b.validator === VALIDATOR_OPER) return b;
   } catch (e) { /* fall through: corrupt baseline behaves like none */ }
   return null;
 }
@@ -193,6 +194,43 @@ async function sendToChat(chatId, text, threadId) {
   }
 }
 
+// Photo post: the studio logo with the report text as caption — the same
+// treatment the delegation-event posts use (sendPhotoToChat in
+// kickback-events.js), so the daily report carries the DS logo instead of
+// the link-preview card of the site the report text links to.
+async function sendPhotoToChat(chatId, text, threadId) {
+  const token = process.env.KICKBACK_BOT_TOKEN;
+  if (!token) return false;
+  const body = { chat_id: chatId, photo: LOGO_URL, caption: text };
+  if (threadId != null) body.message_thread_id = threadId;
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return r.ok;
+  } catch (e) {
+    console.error('sendPhoto failed', e && e.message);
+    return false;
+  }
+}
+
+// A report counts as posted if EITHER the photo post or the plain-text
+// fallback landed (same rule as sendEventPost in kickback-events.js).
+async function sendReportPost(chatId, text, threadId) {
+  if (await sendPhotoToChat(chatId, text, threadId)) return true;
+  return sendToChat(chatId, text, threadId);
+}
+
+// The report DM to the owner: photo post first, plain text as fallback.
+// (The seed DM and the group-failure warning stay plain text via sendDm.)
+async function sendReportDm(text) {
+  const owner = process.env.KICKBACK_OWNER_CHAT_ID;
+  if (owner && await sendPhotoToChat(owner, text, null)) return true;
+  return sendDm(text);
+}
+
 // ---------- handler ----------
 
 export default async function handler(req, res) {
@@ -244,7 +282,7 @@ export default async function handler(req, res) {
   }
 
   const report = buildDiffText('last 24h', base, now);
-  await sendDm(report);
+  await sendReportDm(report);
   // Mirror the report to the registered updates group, if one exists. Any
   // failure here — unreadable registration, bot removed from the group —
   // must not fail the cron or block the baseline advance below; a failed
@@ -256,7 +294,7 @@ export default async function handler(req, res) {
     console.error('updates group read failed', e && e.message);
   }
   if (updatesChat) {
-    const posted = await sendToChat(updatesChat.chat_id, report,
+    const posted = await sendReportPost(updatesChat.chat_id, report,
       updatesChat.thread_id != null ? updatesChat.thread_id : null);
     if (!posted) {
       await sendDm('⚠️ Couldn\u2019t post the update to the registered group (the bot may have been removed).');
