@@ -49,6 +49,7 @@ const UPDATES_CHAT_KEY = 'kb:updates_chat';
 const SEEN_CAP = 100;
 const POST_CAP = 10;
 const FINDER_TX = 'https://finder.terraclassic.community/mainnet/tx/';
+const VALIDATOR_PAGE = 'https://validator.info/terra-classic/terravaloper1a6t063l4858ezr8c82yffx7j0c690v8rwyy9ye';
 const LOGO_URL = 'https://frg-fight-club.vercel.app/kickback-logo.png';
 
 // ---------- formatting ----------
@@ -198,17 +199,17 @@ async function buildEventText(ev) {
   const amount = fmtLunc(ev.amountUluna);
   const link = `${FINDER_TX}${ev.txhash}`;
   if (ev.kind === 'delegate') {
-    return `🟢 New delegation\n${amount} LUNC → LUNC Dev Studio\nFrom: ${ev.delegator}\n${link}`;
+    return `🟢 New delegation\n${amount} LUNC → LUNC Dev Studio\nFrom: ${ev.delegator}\n${link}\nValidator: ${VALIDATOR_PAGE}`;
   }
   if (ev.kind === 'redelegate_in') {
     const was = await validatorLabel(ev.otherValidator);
-    return `🔁 Redelegated IN\n${amount} LUNC → LUNC Dev Studio\nFrom: ${ev.delegator} (was: ${was})\n${link}`;
+    return `🔁 Redelegated IN\n${amount} LUNC → LUNC Dev Studio\nFrom: ${ev.delegator} (was: ${was})\n${link}\nValidator: ${VALIDATOR_PAGE}`;
   }
   if (ev.kind === 'redelegate_out') {
     const dest = await validatorLabel(ev.otherValidator);
-    return `🟠 Redelegated OUT\n${amount} LUNC left LUNC Dev Studio\nFrom: ${ev.delegator} → ${dest}\n${link}`;
+    return `🟠 Redelegated OUT\n${amount} LUNC left LUNC Dev Studio\nFrom: ${ev.delegator} → ${dest}\n${link}\nValidator: ${VALIDATOR_PAGE}`;
   }
-  return `🔴 Undelegated\n${amount} LUNC from LUNC Dev Studio\nFrom: ${ev.delegator}\n${link}`;
+  return `🔴 Undelegated\n${amount} LUNC from LUNC Dev Studio\nFrom: ${ev.delegator}\n${link}\nValidator: ${VALIDATOR_PAGE}`;
 }
 
 // ---------- storage (Upstash Redis REST, same pattern as kickback-cron.js) ----------

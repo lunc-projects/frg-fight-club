@@ -21,6 +21,7 @@ const DELEGATIONS_URL = `${VALIDATOR_URL}/delegations?pagination.count_total=tru
 const BASELINE_KEY = 'kickback:baseline';
 const UPDATES_CHAT_KEY = 'kb:updates_chat';
 const SITE_URL = 'https://www.luncback.com';
+const VALIDATOR_PAGE = 'https://validator.info/terra-classic/terravaloper1a6t063l4858ezr8c82yffx7j0c690v8rwyy9ye';
 
 // ---------- formatting ----------
 
@@ -64,6 +65,7 @@ function buildDiffText(label, base, now) {
     `Bonded: ${fmtLunc(now.bonded_uluna)} LUNC (${fmtSignedLunc(dBonded)} / ${fmtPct(dBonded, base.bonded_uluna)})`,
     `Delegators: ${Number(now.delegators).toLocaleString('en-US')} (${fmtSignedInt(dDeleg)})`,
     SITE_URL,
+    `Validator: ${VALIDATOR_PAGE}`,
   ].join('\n');
 }
 
@@ -234,7 +236,8 @@ export default async function handler(req, res) {
     await sendDm(
       '📊 LUNC Dev Studio delegation tracking started. ' +
       `Baseline: ${fmtLunc(now.bonded_uluna)} LUNC bonded, ${Number(now.delegators).toLocaleString('en-US')} delegators. ` +
-      'Your first 24h difference lands tomorrow.'
+      'Your first 24h difference lands tomorrow.' +
+      `\nValidator: ${VALIDATOR_PAGE}`
     );
     res.status(200).json({ ok: true, seeded: true });
     return;
