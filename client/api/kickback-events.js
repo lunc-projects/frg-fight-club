@@ -6,6 +6,10 @@
 // daily report DM stays as it is.
 // Trigger: an external timer (parent wires a 5-minute caller) with
 // "Authorization: Bearer <CRON_SECRET>" or "Bearer <KICKBACK_EVENTS_SECRET>".
+// Each event post is a PHOTO post: the LUNC Dev Studio logo (served from
+// this same deployment at /kickback-logo.png) with the event text as the
+// caption. If the photo send fails for any reason, the plain text post is
+// sent instead so no event is ever lost.
 //
 // Detection sources (union, deduped by txhash):
 // 1. FCD account history for the validator OPERATOR account. The operator
@@ -45,6 +49,7 @@ const UPDATES_CHAT_KEY = 'kb:updates_chat';
 const SEEN_CAP = 100;
 const POST_CAP = 10;
 const FINDER_TX = 'https://finder.terraclassic.community/mainnet/tx/';
+const LOGO_URL = 'https://frg-fight-club.vercel.app/kickback-logo.png';
 
 // ---------- formatting ----------
 
@@ -276,6 +281,32 @@ async function sendToChat(chatId, text, threadId) {
   }
 }
 
+// Photo post: the studio logo with the event text as caption.
+async function sendPhotoToChat(chatId, text, threadId) {
+  const token = process.env.KICKBACK_BOT_TOKEN;
+  if (!token) return false;
+  const body = { chat_id: chatId, photo: LOGO_URL, caption: text };
+  if (threadId != null) body.message_thread_id = threadId;
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return r.ok;
+  } catch (e) {
+    console.error('group sendPhoto failed', e && e.message);
+    return false;
+  }
+}
+
+// An event counts as posted if EITHER the photo post or the plain-text
+// fallback landed.
+async function sendEventPost(chatId, text, threadId) {
+  if (await sendPhotoToChat(chatId, text, threadId)) return true;
+  return sendToChat(chatId, text, threadId);
+}
+
 // ---------- handler ----------
 
 export default async function handler(req, res) {
@@ -384,7 +415,7 @@ export default async function handler(req, res) {
 
   for (const ev of toPost) {
     const text = await buildEventText(ev);
-    const okSend = await sendToChat(updatesChat.chat_id, text, threadId);
+    const okSend = await sendEventPost(updatesChat.chat_id, text, threadId);
     if (!okSend) { sendFailed = true; break; }
     posted++;
     if (!postedHashes.includes(ev.txhash)) postedHashes.push(ev.txhash);
