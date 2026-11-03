@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>LUNC Dev Wallet Scope — Sponsored by LUNC Dev Studio</title>
-<meta name="description" content="LUNC Dev Wallet Scope, sponsored by LUNC Dev Studio — read-only wallet lookup for Terra Classic and DO Chain. Type an address — no wallet connection, no signing — and see balances, tokens, staking, rewards, NFTs and recent transactions, verified on-chain.">
+<meta name="description" content="LUNC Dev Wallet Scope, sponsored by LUNC Dev Studio — read-only wallet lookup for Terra Classic, DO Chain, Cosmos Hub and Osmosis. Type an address — no wallet connection, no signing — and see balances, tokens, staking, rewards, NFTs and recent transactions, verified on-chain.">
 <style>
   :root{
     --bg:#070b09; --card:#101812; --card2:#0d140f; --line:#1e2f23; --line2:#2a4232; --green:#3ddc84; --green-hi:#4ced4b;
@@ -114,10 +114,7 @@
   <span class="ss-arr">→</span>
 </a>
 
-<div class="toggle" role="tablist" aria-label="Chain">
-  <button id="tabTerra" class="on" onclick="setChain('terra')">🌕 Terra Classic</button>
-  <button id="tabDo" onclick="setChain('do')">🟣 DO Chain</button>
-</div>
+<div class="toggle" role="tablist" aria-label="Chain" id="chainTabs"></div>
 <div class="lookup">
   <input id="addrInput" type="text" autocomplete="off" autocapitalize="none" spellcheck="false"
     placeholder="Paste a terra1… address" aria-label="Wallet address">
@@ -204,6 +201,34 @@ var LCD_DO= 'https://do-chain.com/lcd';
 var FINDER= 'https://finder.terraclassic.community/mainnet';
 var DO_PORTAL = 'https://do-chain.com';
 var IPFS_GW = 'https://ipfs.io/ipfs/';
+
+/* ── Chains (config-driven) ──────────────────────────────────────
+   Every chain the Scope can read is one row here; adding another
+   Cosmos SDK chain is a new row, not new code. Terra Classic carries
+   the full section set (CW20 discovery, staking platforms, NFTs, FCD
+   history); the generic SDK chains get the SDK-native sections only
+   (balances, staking, claimable rewards, wallet security) and the
+   Terra-only sections simply do not render for them. LCD endpoints
+   verified live (balances / staking / distribution / authz /
+   feegrant, CORS open) on 2026-11-03. */
+var CHAINS = {
+  terra: { name: 'Terra Classic', icon: '🌕', prefix: 'terra1', lcd: LCD_T,
+    addrRe: /^terra1[a-z0-9]{38}$/, stakeDenom: 'uluna', nativeSymbol: 'LUNC', priceKey: 'LUNC',
+    sections: { tokens: true, platforms: true, nfts: true, txs: true } },
+  do: { name: 'DO Chain', icon: '🟣', prefix: 'do1', lcd: LCD_DO,
+    addrRe: /^do1[a-z0-9]{38,}$/, stakeDenom: 'udo', nativeSymbol: 'DO', priceKey: 'DO',
+    sections: { tokens: false, platforms: false, nfts: false, txs: false } },
+  cosmos: { name: 'Cosmos Hub', icon: '⚛️', prefix: 'cosmos1', lcd: 'https://cosmos-rest.publicnode.com',
+    addrRe: /^cosmos1[a-z0-9]{38}$/, stakeDenom: 'uatom', nativeSymbol: 'ATOM', priceKey: 'ATOM',
+    generic: true, explorer: 'https://www.mintscan.io/cosmos/account/',
+    sections: { tokens: false, platforms: false, nfts: false, txs: false } },
+  osmosis: { name: 'Osmosis', icon: '🧪', prefix: 'osmo1', lcd: 'https://lcd.osmosis.zone',
+    addrRe: /^osmo1[a-z0-9]{38}$/, stakeDenom: 'uosmo', nativeSymbol: 'OSMO', priceKey: 'OSMO',
+    generic: true, explorer: 'https://www.mintscan.io/osmosis/account/',
+    sections: { tokens: false, platforms: false, nfts: false, txs: false } }
+};
+var CHAIN_ORDER = ['terra', 'do', 'cosmos', 'osmosis'];
+function cfg(){ return CHAINS[chain] || CHAINS.terra; }
 
 /* Garuda regular staking pools (61) — per-wallet stake query answers on the
    contracts that still run their original code; migrated ones refuse reads. */
@@ -299,7 +324,7 @@ function amtNum(raw, dec){ return rawNum(raw) / Math.pow(10, dec); }
 var FIAT = { uluna:['LUNC','Luna Classic'], uusd:['USTC','TerraClassic USD'], ukrw:['KRT',''], uaud:['AUT',''],
   ucad:['CAT',''], uchf:['CHT',''], ucny:['CNT',''], udkk:['DKT',''], ueur:['EUT',''], ugbp:['GBT',''],
   uhkd:['HKT',''], uidr:['IDRT',''], uinr:['INT',''], ujpy:['JPT',''], umnt:['MNT',''], umyr:['MYT',''],
-  unok:['NOT',''], uphp:['PHT',''], usdr:['SDT',''], usek:['SET',''], uthb:['THT',''] };
+  unok:['NOT',''], uphp:['PHT',''], usdr:['SDT',''], usek:['SET',''], uthb:['THT',''], uatom:['ATOM','Cosmos Hub'], uosmo:['OSMO','Osmosis'] };
 /* IBC denom labels. Resolved from the Skip chain asset index for
    columbus-5 (the same source the Garuda DEX pages use for USDC.inj /
    USDC.n / SLAYER) plus three traces computed directly from this chain's
@@ -456,9 +481,22 @@ function priceCoinGecko(id, key){
     return priceCache[key];
   }).catch(function(){ priceCache[key] = null; return null; });
 }
+/* Major-coin spot price: CoinPaprika first, CoinGecko as fallback;
+   whichever answers sets the cached price (and names itself in src). */
+function priceMajor(papId, geckoId, key){
+  if (key in priceCache) return Promise.resolve(priceCache[key]);
+  return pricePaprika(papId, key + '#pap').then(function(p){
+    if (p){ priceCache[key] = p; return p; }
+    return priceCoinGecko(geckoId, key + '#gecko').then(function(g){
+      priceCache[key] = g; return g;
+    });
+  });
+}
 function priceNative(denom){
   if (denom === 'uluna') return priceCoinGecko('terra-luna', 'LUNC');
   if (denom === 'udo') return priceCoinGecko('lunc-cookie-do-coin', 'DO');
+  if (denom === 'uatom') return priceMajor('atom-cosmos', 'cosmos', 'ATOM');
+  if (denom === 'uosmo') return priceMajor('osmo-osmosis', 'osmosis', 'OSMO');
   return Promise.resolve(null); /* USTC + others: priced below via pool if possible, else no price */
 }
 /* USTC: implied from the Terraswap USTC/LUNC pool × the LUNC price. */
@@ -486,7 +524,7 @@ function priceUstc(run){
 }
 
 /* ── LCD helpers ───────────────────────────────────────────────── */
-function lcdBase(){ return chain === 'do' ? LCD_DO : LCD_T; }
+function lcdBase(){ return cfg().lcd; }
 function smart(contract, msg){
   return getJSON(lcdBase() + '/cosmwasm/wasm/v1/contract/' + contract + '/smart/' + encodeURIComponent(b64(msg)), 20000)
     .then(function(r){ return r.data; });
@@ -529,6 +567,7 @@ function allBalances(addr){
 function finderAddr(a){ return FINDER + '/account/' + a; }
 function finderTx(h){ return FINDER + '/tx/' + h; }
 function addrLink(a, label){
+  if (cfg().explorer) return '<a href="' + cfg().explorer + esc(a) + '" target="_blank" rel="noopener">' + esc(label || a) + '</a>';
   if (chain === 'do') return '<a href="' + DO_PORTAL + '/wallet/' + esc(a) + '" target="_blank" rel="noopener">' + esc(label || a) + '</a>';
   return '<a href="' + finderAddr(a) + '" target="_blank" rel="noopener">' + esc(label || a) + '</a>';
 }
@@ -563,6 +602,9 @@ var I18N = { en: {
   wallet_label: 'Wallet:',
   err_addr_terra: 'That does not look like a Terra Classic address (terra1… — 45 characters). Check it and try again.',
   err_addr_do: 'That does not look like a DO Chain address (do1…). Check it and try again.',
+  placeholder_chain: 'Paste a {p}… address',
+  err_addr_chain: 'That does not look like a {name} address ({p}…). Check it and try again.',
+  note_prices_major: 'Prices: {sym} spot price from CoinPaprika / CoinGecko (whichever answers first); every other denom is shown with no market price and left out of the total. An estimate of market value — not a promise of what a sale would fetch. ',
   no_native: 'No native balances found on-chain for this wallet.', no_price: 'no market price',
   cnt_denom: '· {n} denom', cnt_denoms: '· {n} denoms',
   err_balances: '⚠️ The chain balances could not be read just now — try again in a moment.',
@@ -653,11 +695,13 @@ var I18N = { en: {
   never_expire_one: '{n} never expires', never_expire_many: '{n} never expire',
   sec_counts_line: 'Fee allowances given: {fee} · Delegations with jailed validators: {jailed} · Contracts this wallet controls (known set): {contracts}.',
   sec_smoke: 'Watch this section like a smoke alarm: any permission here works until it expires or you revoke it — revoking always needs your signature in your wallet app (Keplr / LUNCDash). This page only reads; it can never revoke or change anything.',
+  sec_smoke_keplr: 'Watch this section like a smoke alarm: any permission here works until it expires or you revoke it — revoking always needs your signature in your wallet app (Keplr). This page only reads; it can never revoke or change anything.',
   cnt_open: '· {n} open', check_below: ' · ⚠️ check below',
   given_title: '🔑 Permissions you have given away', given_none: '✅ None — this wallet has not authorized any other wallet to act for it.',
   given_to: 'Given to: ', no_expiry: '🔴 NO EXPIRY — this permission works forever until you revoke it.', expires: 'Expires: {date}',
   risk_high: '🔴 high risk', risk_mid: '🟠 check it', risk_low: '🟢 low',
   given_fix: '<b>How to fix:</b> open your wallet app (Keplr or LUNCDash), find its AuthZ / permissions screen, and revoke anything you do not recognize. A revoke needs your signature in the app — this page can never do it for you.',
+  given_fix_keplr: '<b>How to fix:</b> open your wallet app (Keplr), find its AuthZ / permissions screen, and revoke anything you do not recognize. A revoke needs your signature in the app — this page can never do it for you.',
   err_given: '⚠️ The permissions list could not be read just now — try again in a moment.',
   fee_title: '⛽ Fee allowances you have given', fee_none: '✅ None — nobody can pay transaction fees from this wallet.',
   fee_spend: 'This wallet can spend {what} from your wallet.', fee_what_plain: 'a fee allowance',
@@ -685,6 +729,7 @@ var I18N = { en: {
   received_title: '📥 Permissions given to you', received_none: 'None — no other wallet has given this wallet power to act for them.',
   given_by: 'Given by: ', no_expiry_set: 'No expiry set.', info_word: 'info',
   received_fee_note: 'Fee allowances other wallets gave you can\'t be listed here — this chain\'s public API doesn\'t offer that lookup.',
+  fee_not_offered: 'Fee allowances you have given can\'t be listed here — this chain\'s public API doesn\'t offer that lookup.',
   fp_how: '<b>How to read this page:</b> everything shown is read live from public chain data when you tap “{lookup}”. Native balances, staking and rewards come straight from the chain (LCD). Token balances are discovered via an explorer index and then <b>re-verified one by one with direct on-chain queries</b> — only verified balances are shown. Prices come only from the named public sources on the value card; anything without a real price is listed with “{no_price}” and left out of the total.',
   fp_not_shown: 'Not shown yet in this version: NFTs held inside other staking contracts besides FRG NFT Staking, Garuda cross-staking / NFT-factory positions, and LP positions. Sections state their own coverage where it is partial.',
   fp_free_tool: 'is a free community tool.',
@@ -749,6 +794,9 @@ I18N.es = {
   wallet_label: 'Billetera:',
   err_addr_terra: 'Eso no parece una dirección de Terra Classic (terra1… — 45 caracteres). Revísala e inténtalo de nuevo.',
   err_addr_do: 'Eso no parece una dirección de DO Chain (do1…). Revísala e inténtalo de nuevo.',
+  placeholder_chain: 'Pega una dirección {p}…',
+  err_addr_chain: 'Eso no parece una dirección de {name} ({p}…). Revísala e inténtalo de nuevo.',
+  note_prices_major: 'Precios: precio spot de {sym} de CoinPaprika / CoinGecko (el que responda primero); cualquier otra denom se muestra sin precio de mercado y queda fuera del total. Una estimación del valor de mercado, no una promesa de lo que daría una venta. ',
   no_native: 'No se encontraron saldos nativos en la cadena para esta billetera.', no_price: 'sin precio de mercado',
   cnt_denom: '· {n} denominación', cnt_denoms: '· {n} denominaciones',
   err_balances: '⚠️ Los saldos de la cadena no pudieron leerse ahora — inténtalo de nuevo en un momento.',
@@ -839,11 +887,13 @@ I18N.es = {
   never_expire_one: '{n} nunca caduca', never_expire_many: '{n} nunca caducan',
   sec_counts_line: 'Asignaciones de comisiones concedidas: {fee} · Delegaciones con validadores en la cárcel: {jailed} · Contratos que controla esta billetera (conjunto conocido): {contracts}.',
   sec_smoke: 'Vigila esta sección como una alarma de humo: cualquier permiso aquí funciona hasta que caduca o lo revocas — revocarlo siempre necesita tu firma en tu app de billetera (Keplr / LUNCDash). Esta página solo lee; nunca puede revocar ni cambiar nada.',
+  sec_smoke_keplr: 'Vigila esta sección como una alarma de humo: cualquier permiso aquí funciona hasta que caduca o lo revocas — revocarlo siempre necesita tu firma en tu app de billetera (Keplr). Esta página solo lee; nunca puede revocar ni cambiar nada.',
   cnt_open: '· {n} abiertos', check_below: ' · ⚠️ revisa abajo',
   given_title: '🔑 Permisos que has concedido', given_none: '✅ Ninguno — esta billetera no ha autorizado a ninguna otra billetera a actuar por ella.',
   given_to: 'Concedido a: ', no_expiry: '🔴 SIN CADUCIDAD — este permiso funciona para siempre hasta que lo revoques.', expires: 'Caduca: {date}',
   risk_high: '🔴 riesgo alto', risk_mid: '🟠 revísalo', risk_low: '🟢 bajo',
   given_fix: '<b>Cómo solucionarlo:</b> abre tu app de billetera (Keplr o LUNCDash), busca su pantalla de AuthZ / permisos y revoca todo lo que no reconozcas. Revocar necesita tu firma en la app — esta página nunca puede hacerlo por ti.',
+  given_fix_keplr: '<b>Cómo solucionarlo:</b> abre tu app de billetera (Keplr), busca su pantalla de AuthZ / permisos y revoca todo lo que no reconozcas. Revocar necesita tu firma en la app — esta página nunca puede hacerlo por ti.',
   err_given: '⚠️ La lista de permisos no pudo leerse ahora — inténtalo de nuevo en un momento.',
   fee_title: '⛽ Asignaciones de comisiones que has concedido', fee_none: '✅ Ninguna — nadie puede pagar comisiones de transacción desde esta billetera.',
   fee_spend: 'Esta billetera puede gastar {what} de tu billetera.', fee_what_plain: 'una asignación de comisiones',
@@ -871,6 +921,7 @@ I18N.es = {
   received_title: '📥 Permisos que te han concedido', received_none: 'Ninguno — ninguna otra billetera ha dado a esta billetera poder para actuar por ella.',
   given_by: 'Concedido por: ', no_expiry_set: 'Sin caducidad fijada.', info_word: 'info',
   received_fee_note: 'Las asignaciones de comisiones que otras billeteras te dieron no pueden listarse aquí — la API pública de esta cadena no ofrece esa consulta.',
+  fee_not_offered: 'Las asignaciones de comisiones que has dado no pueden listarse aquí — la API pública de esta cadena no ofrece esa consulta.',
   fp_how: '<b>Cómo leer esta página:</b> todo lo que se muestra se lee en vivo de los datos públicos de la cadena cuando tocas «{lookup}». Los saldos nativos, el staking y las recompensas vienen directamente de la cadena (LCD). Los saldos de tokens se descubren mediante un índice de explorador y luego se <b>vuelven a verificar uno por uno con consultas directas en la cadena</b> — solo se muestran saldos verificados. Los precios vienen solo de las fuentes públicas nombradas en la tarjeta de valor; todo lo que no tenga un precio real aparece con «{no_price}» y queda fuera del total.',
   fp_not_shown: 'Aún no se muestra en esta versión: NFT dentro de otros contratos de staking además de FRG NFT Staking, posiciones de cross-staking / fábrica de NFT de Garuda y posiciones LP. Las secciones indican su propia cobertura cuando es parcial.',
   fp_free_tool: 'es una herramienta comunitaria gratuita.',
@@ -892,6 +943,9 @@ I18N.pt = {
   wallet_label: 'Carteira:',
   err_addr_terra: 'Isso não parece um endereço Terra Classic (terra1… — 45 caracteres). Verifique e tente novamente.',
   err_addr_do: 'Isso não parece um endereço DO Chain (do1…). Verifique e tente novamente.',
+  placeholder_chain: 'Cole um endereço {p}…',
+  err_addr_chain: 'Isso não parece um endereço {name} ({p}…). Verifique e tente novamente.',
+  note_prices_major: 'Preços: preço spot de {sym} da CoinPaprika / CoinGecko (o que responder primeiro); qualquer outra denom é mostrada sem preço de mercado e fica fora do total. Uma estimativa de valor de mercado — não uma promessa do que uma venda renderia. ',
   no_native: 'Não foram encontrados saldos nativos na cadeia para esta carteira.', no_price: 'sem preço de mercado',
   cnt_denom: '· {n} denominação', cnt_denoms: '· {n} denominações',
   err_balances: '⚠️ Os saldos da cadeia não puderam ser lidos agora — tente novamente daqui a pouco.',
@@ -982,11 +1036,13 @@ I18N.pt = {
   never_expire_one: '{n} nunca expira', never_expire_many: '{n} nunca expiram',
   sec_counts_line: 'Subsídios de taxas concedidos: {fee} · Delegações com validadores presos: {jailed} · Contratos que esta carteira controla (conjunto conhecido): {contracts}.',
   sec_smoke: 'Observe esta secção como um alarme de fumo: qualquer permissão aqui funciona até expirar ou você a revogar — revogar requer sempre a sua assinatura na sua app de carteira (Keplr / LUNCDash). Esta página apenas lê; nunca pode revogar ou alterar nada.',
+  sec_smoke_keplr: 'Observe esta secção como um alarme de fumo: qualquer permissão aqui funciona até expirar ou você a revogar — revogar requer sempre a sua assinatura na sua app de carteira (Keplr). Esta página apenas lê; nunca pode revogar ou alterar nada.',
   cnt_open: '· {n} abertas', check_below: ' · ⚠️ verifique abaixo',
   given_title: '🔑 Permissões que você concedeu', given_none: '✅ Nenhuma — esta carteira não autorizou nenhuma outra carteira a agir por ela.',
   given_to: 'Concedido a: ', no_expiry: '🔴 SEM EXPIRAÇÃO — esta permissão funciona para sempre até você a revogar.', expires: 'Expira: {date}',
   risk_high: '🔴 risco alto', risk_mid: '🟠 verifique', risk_low: '🟢 baixo',
   given_fix: '<b>Como resolver:</b> abra a sua app de carteira (Keplr ou LUNCDash), encontre o ecrã AuthZ / permissões e revogue tudo o que não reconhecer. Revogar requer a sua assinatura na app — esta página nunca pode fazê-lo por si.',
+  given_fix_keplr: '<b>Como resolver:</b> abra a sua app de carteira (Keplr), encontre o ecrã AuthZ / permissões e revogue tudo o que não reconhecer. Revogar requer a sua assinatura na app — esta página nunca pode fazê-lo por si.',
   err_given: '⚠️ A lista de permissões não pôde ser lida agora — tente novamente daqui a pouco.',
   fee_title: '⛽ Subsídios de taxas que você concedeu', fee_none: '✅ Nenhum — ninguém pode pagar taxas de transação a partir desta carteira.',
   fee_spend: 'Esta carteira pode gastar {what} da sua carteira.', fee_what_plain: 'um subsídio de taxas',
@@ -1014,6 +1070,7 @@ I18N.pt = {
   received_title: '📥 Permissões concedidas a você', received_none: 'Nenhuma — nenhuma outra carteira deu a esta carteira poder para agir por ela.',
   given_by: 'Concedido por: ', no_expiry_set: 'Sem expiração definida.', info_word: 'info',
   received_fee_note: 'Os subsídios de taxas que outras carteiras lhe deram não podem ser listados aqui — a API pública desta cadeia não oferece essa consulta.',
+  fee_not_offered: 'Os subsídios de taxas que você concedeu não podem ser listados aqui — a API pública desta cadeia não oferece essa consulta.',
   fp_how: '<b>Como ler esta página:</b> tudo o que é mostrado é lido ao vivo a partir de dados públicos da cadeia quando toca em “{lookup}”. Saldos nativos, staking e recompensas vêm diretamente da cadeia (LCD). Os saldos de tokens são descobertos através de um índice de explorador e depois <b>reverificados um a um com consultas diretas na cadeia</b> — só são mostrados saldos verificados. Os preços vêm apenas das fontes públicas nomeadas no cartão de valor; qualquer coisa sem um preço real aparece com “{no_price}” e fica fora do total.',
   fp_not_shown: 'Ainda não mostrado nesta versão: NFTs dentro de outros contratos de staking além do FRG NFT Staking, posições de cross-staking / fábrica de NFTs da Garuda e posições LP. As secções indicam a sua própria cobertura quando é parcial.',
   fp_free_tool: 'é uma ferramenta comunitária gratuita.',
@@ -1035,6 +1092,9 @@ I18N.fr = {
   wallet_label: 'Portefeuille :',
   err_addr_terra: 'Ceci ne ressemble pas à une adresse Terra Classic (terra1… — 45 caractères). Vérifiez-la et réessayez.',
   err_addr_do: 'Ceci ne ressemble pas à une adresse DO Chain (do1…). Vérifiez-la et réessayez.',
+  placeholder_chain: 'Collez une adresse {p}…',
+  err_addr_chain: 'Ceci ne ressemble pas à une adresse {name} ({p}…). Vérifiez-la et réessayez.',
+  note_prices_major: 'Prix : prix spot de {sym} via CoinPaprika / CoinGecko (le premier qui répond) ; toute autre dénomination est affichée sans prix de marché et exclue du total. Une estimation de la valeur de marché — pas une promesse de ce qu\'une vente rapporterait. ',
   no_native: 'Aucun solde natif trouvé sur la chaîne pour ce portefeuille.', no_price: 'pas de prix de marché',
   cnt_denom: '· {n} dénomination', cnt_denoms: '· {n} dénominations',
   err_balances: '⚠️ Les soldes de la chaîne n\'ont pas pu être lus pour le moment — réessayez dans un instant.',
@@ -1125,11 +1185,13 @@ I18N.fr = {
   never_expire_one: '{n} n\'expire jamais', never_expire_many: '{n} n\'expirent jamais',
   sec_counts_line: 'Allocations de frais accordées : {fee} · Délégations chez des validateurs en prison : {jailed} · Contrats que ce portefeuille contrôle (ensemble connu) : {contracts}.',
   sec_smoke: 'Surveillez cette section comme un détecteur de fumée : toute autorisation ici fonctionne jusqu\'à son expiration ou sa révocation par vous — la révoquer nécessite toujours votre signature dans votre application de portefeuille (Keplr / LUNCDash). Cette page lit uniquement ; elle ne peut jamais rien révoquer ni modifier.',
+  sec_smoke_keplr: 'Surveillez cette section comme un détecteur de fumée : toute autorisation ici fonctionne jusqu\'à son expiration ou sa révocation par vous — la révoquer nécessite toujours votre signature dans votre application de portefeuille (Keplr). Cette page lit uniquement ; elle ne peut jamais rien révoquer ni modifier.',
   cnt_open: '· {n} ouvertes', check_below: ' · ⚠️ vérifiez ci-dessous',
   given_title: '🔑 Autorisations que vous avez accordées', given_none: '✅ Aucune — ce portefeuille n\'a autorisé aucun autre portefeuille à agir pour lui.',
   given_to: 'Accordée à : ', no_expiry: '🔴 AUCUNE EXPIRATION — cette autorisation fonctionne pour toujours jusqu\'à ce que vous la révoquiez.', expires: 'Expire : {date}',
   risk_high: '🔴 risque élevé', risk_mid: '🟠 à vérifier', risk_low: '🟢 faible',
   given_fix: '<b>Comment corriger :</b> ouvrez votre application de portefeuille (Keplr ou LUNCDash), trouvez son écran AuthZ / autorisations, et révoquez tout ce que vous ne reconnaissez pas. Une révocation nécessite votre signature dans l\'application — cette page ne peut jamais le faire pour vous.',
+  given_fix_keplr: '<b>Comment corriger :</b> ouvrez votre application de portefeuille (Keplr), trouvez son écran AuthZ / autorisations, et révoquez tout ce que vous ne reconnaissez pas. Une révocation nécessite votre signature dans l\'application — cette page ne peut jamais le faire pour vous.',
   err_given: '⚠️ La liste des autorisations n\'a pas pu être lue pour le moment — réessayez dans un instant.',
   fee_title: '⛽ Allocations de frais que vous avez accordées', fee_none: '✅ Aucune — personne ne peut payer de frais de transaction depuis ce portefeuille.',
   fee_spend: 'Ce portefeuille peut dépenser {what} depuis votre portefeuille.', fee_what_plain: 'une allocation de frais',
@@ -1157,6 +1219,7 @@ I18N.fr = {
   received_title: '📥 Autorisations qui vous ont été accordées', received_none: 'Aucune — aucun autre portefeuille n\'a donné à ce portefeuille le pouvoir d\'agir pour lui.',
   given_by: 'Accordée par : ', no_expiry_set: 'Aucune expiration définie.', info_word: 'info',
   received_fee_note: 'Les allocations de frais que d\'autres portefeuilles vous ont accordées ne peuvent pas être listées ici — l\'API publique de cette chaîne ne propose pas cette recherche.',
+  fee_not_offered: 'Les allocations de frais que vous avez accordées ne peuvent pas être listées ici — l\'API publique de cette chaîne ne propose pas cette recherche.',
   fp_how: '<b>Comment lire cette page :</b> tout ce qui est affiché est lu en direct depuis les données publiques de la chaîne lorsque vous touchez « {lookup} ». Les soldes natifs, le staking et les récompenses viennent directement de la chaîne (LCD). Les soldes de tokens sont découverts via un index d\'explorateur puis <b>revérifiés un par un avec des requêtes directes sur la chaîne</b> — seuls les soldes vérifiés sont affichés. Les prix proviennent uniquement des sources publiques nommées sur la carte de valeur ; tout élément sans vrai prix est listé avec « {no_price} » et laissé hors du total.',
   fp_not_shown: 'Pas encore affiché dans cette version : les NFT détenus dans d\'autres contrats de staking que FRG NFT Staking, les positions Garuda de cross-staking / usine NFT, et les positions LP. Les sections indiquent leur propre couverture lorsqu\'elle est partielle.',
   fp_free_tool: 'est un outil communautaire gratuit.',
@@ -1178,6 +1241,9 @@ I18N.de = {
   wallet_label: 'Wallet:',
   err_addr_terra: 'Das sieht nicht wie eine Terra-Classic-Adresse aus (terra1… — 45 Zeichen). Bitte prüfen und erneut versuchen.',
   err_addr_do: 'Das sieht nicht wie eine DO-Chain-Adresse aus (do1…). Bitte prüfen und erneut versuchen.',
+  placeholder_chain: '{p}… Adresse einfügen',
+  err_addr_chain: 'Das sieht nicht wie eine {name}-Adresse aus ({p}…). Bitte prüfen und erneut versuchen.',
+  note_prices_major: 'Preise: {sym}-Spotpreis von CoinPaprika / CoinGecko (wer zuerst antwortet); jede andere Denom wird ohne Marktpreis angezeigt und bleibt aus der Summe. Eine Schätzung des Marktwerts — kein Versprechen, was ein Verkauf einbringen würde. ',
   no_native: 'Für diese Wallet wurden keine nativen Guthaben on-chain gefunden.', no_price: 'kein Marktpreis',
   cnt_denom: '· {n} Denomination', cnt_denoms: '· {n} Denominationen',
   err_balances: '⚠️ Die Guthaben der Kette konnten gerade nicht gelesen werden — bitte gleich erneut versuchen.',
@@ -1268,11 +1334,13 @@ I18N.de = {
   never_expire_one: '{n} läuft nie ab', never_expire_many: '{n} laufen nie ab',
   sec_counts_line: 'Vergebene Gebühren-Freigaben: {fee} · Delegationen bei eingesperrten Validatoren: {jailed} · Verträge, die diese Wallet kontrolliert (bekannte Menge): {contracts}.',
   sec_smoke: 'Beobachten Sie diesen Abschnitt wie einen Rauchmelder: Jede Berechtigung hier wirkt, bis sie abläuft oder Sie sie widerrufen — der Widerruf braucht immer Ihre Unterschrift in Ihrer Wallet-App (Keplr / LUNCDash). Diese Seite liest nur; sie kann niemals etwas widerrufen oder ändern.',
+  sec_smoke_keplr: 'Beobachten Sie diesen Abschnitt wie einen Rauchmelder: Jede Berechtigung hier wirkt, bis sie abläuft oder Sie sie widerrufen — der Widerruf braucht immer Ihre Unterschrift in Ihrer Wallet-App (Keplr). Diese Seite liest nur; sie kann niemals etwas widerrufen oder ändern.',
   cnt_open: '· {n} offen', check_below: ' · ⚠️ unten prüfen',
   given_title: '🔑 Berechtigungen, die Sie vergeben haben', given_none: '✅ Keine — diese Wallet hat keine andere Wallet autorisiert, für sie zu handeln.',
   given_to: 'Vergeben an: ', no_expiry: '🔴 KEIN ABLAUF — diese Berechtigung wirkt für immer, bis Sie sie widerrufen.', expires: 'Läuft ab: {date}',
   risk_high: '🔴 hohes Risiko', risk_mid: '🟠 prüfen', risk_low: '🟢 niedrig',
   given_fix: '<b>So beheben Sie es:</b> Öffnen Sie Ihre Wallet-App (Keplr oder LUNCDash), suchen Sie den AuthZ-/Berechtigungsbildschirm und widerrufen Sie alles, was Sie nicht erkennen. Ein Widerruf braucht Ihre Unterschrift in der App — diese Seite kann das niemals für Sie tun.',
+  given_fix_keplr: '<b>So beheben Sie es:</b> Öffnen Sie Ihre Wallet-App (Keplr), suchen Sie den AuthZ-/Berechtigungsbildschirm und widerrufen Sie alles, was Sie nicht erkennen. Ein Widerruf braucht Ihre Unterschrift in der App — diese Seite kann das niemals für Sie tun.',
   err_given: '⚠️ Die Berechtigungsliste konnte gerade nicht gelesen werden — bitte gleich erneut versuchen.',
   fee_title: '⛽ Gebühren-Freigaben, die Sie vergeben haben', fee_none: '✅ Keine — niemand kann Transaktionsgebühren aus dieser Wallet zahlen.',
   fee_spend: 'Diese Wallet kann {what} aus Ihrer Wallet ausgeben.', fee_what_plain: 'eine Gebühren-Freigabe',
@@ -1300,6 +1368,7 @@ I18N.de = {
   received_title: '📥 Berechtigungen, die Ihnen gegeben wurden', received_none: 'Keine — keine andere Wallet hat dieser Wallet Macht gegeben, für sie zu handeln.',
   given_by: 'Gegeben von: ', no_expiry_set: 'Kein Ablauf gesetzt.', info_word: 'Info',
   received_fee_note: 'Gebühren-Freigaben, die andere Wallets Ihnen gegeben haben, können hier nicht aufgeführt werden — die öffentliche API dieser Kette bietet diese Abfrage nicht an.',
+  fee_not_offered: 'Gebühren-Freigaben, die Sie vergeben haben, können hier nicht aufgeführt werden — die öffentliche API dieser Kette bietet diese Abfrage nicht an.',
   fp_how: '<b>So lesen Sie diese Seite:</b> Alles Angezeigte wird live aus öffentlichen Kettendaten gelesen, wenn Sie auf „{lookup}“ tippen. Native Guthaben, Staking und Belohnungen kommen direkt von der Kette (LCD). Token-Guthaben werden über einen Explorer-Index entdeckt und danach <b>einzeln per direkter On-Chain-Abfrage erneut verifiziert</b> — nur verifizierte Guthaben werden angezeigt. Preise kommen nur aus den benannten öffentlichen Quellen auf der Wertkarte; alles ohne echten Preis wird mit „{no_price}“ aufgeführt und aus der Summe gelassen.',
   fp_not_shown: 'In dieser Version noch nicht angezeigt: NFTs in anderen Staking-Verträgen außer FRG NFT Staking, Garuda-Cross-Staking-/NFT-Factory-Positionen und LP-Positionen. Abschnitte nennen ihre eigene Abdeckung, wo sie teilweise ist.',
   fp_free_tool: 'ist ein kostenloses Community-Werkzeug.',
@@ -1321,6 +1390,9 @@ I18N.it = {
   wallet_label: 'Wallet:',
   err_addr_terra: 'Non sembra un indirizzo Terra Classic (terra1… — 45 caratteri). Controllalo e riprova.',
   err_addr_do: 'Non sembra un indirizzo DO Chain (do1…). Controllalo e riprova.',
+  placeholder_chain: 'Incolla un indirizzo {p}…',
+  err_addr_chain: 'Non sembra un indirizzo {name} ({p}…). Controllalo e riprova.',
+  note_prices_major: 'Prezzi: prezzo spot di {sym} da CoinPaprika / CoinGecko (il primo che risponde); ogni altra denom è mostrata senza prezzo di mercato e resta fuori dal totale. Una stima del valore di mercato — non una promessa di quanto darebbe una vendita. ',
   no_native: 'Nessun saldo nativo trovato on-chain per questo wallet.', no_price: 'nessun prezzo di mercato',
   cnt_denom: '· {n} denominazione', cnt_denoms: '· {n} denominazioni',
   err_balances: '⚠️ I saldi della catena non sono stati letti al momento — riprova tra un attimo.',
@@ -1411,11 +1483,13 @@ I18N.it = {
   never_expire_one: '{n} non scade mai', never_expire_many: '{n} non scadono mai',
   sec_counts_line: 'Quote commissioni concesse: {fee} · Deleghe presso validatori in galera: {jailed} · Contratti che questo wallet controlla (set conosciuto): {contracts}.',
   sec_smoke: 'Tieni d\'occhio questa sezione come un rilevatore di fumo: ogni permesso qui funziona finché non scade o non lo revochi tu — revocare richiede sempre la tua firma nella tua app wallet (Keplr / LUNCDash). Questa pagina legge soltanto; non può mai revocare o cambiare nulla.',
+  sec_smoke_keplr: 'Tieni d\'occhio questa sezione come un rilevatore di fumo: ogni permesso qui funziona finché non scade o non lo revochi tu — revocare richiede sempre la tua firma nella tua app wallet (Keplr). Questa pagina legge soltanto; non può mai revocare o cambiare nulla.',
   cnt_open: '· {n} aperti', check_below: ' · ⚠️ controlla sotto',
   given_title: '🔑 Permessi che hai dato', given_none: '✅ Nessuno — questo wallet non ha autorizzato nessun altro wallet ad agire per suo conto.',
   given_to: 'Dato a: ', no_expiry: '🔴 NESSUNA SCADENZA — questo permesso funziona per sempre finché non lo revochi.', expires: 'Scade: {date}',
   risk_high: '🔴 rischio alto', risk_mid: '🟠 da controllare', risk_low: '🟢 basso',
   given_fix: '<b>Come risolvere:</b> apri la tua app wallet (Keplr o LUNCDash), trova la schermata AuthZ / autorizzazioni e revoca tutto ciò che non riconosci. La revoca richiede la tua firma nell\'app — questa pagina non può mai farlo per te.',
+  given_fix_keplr: '<b>Come risolvere:</b> apri la tua app wallet (Keplr), trova la schermata AuthZ / autorizzazioni e revoca tutto ciò che non riconosci. La revoca richiede la tua firma nell\'app — questa pagina non può mai farlo per te.',
   err_given: '⚠️ La lista dei permessi non è stata letta al momento — riprova tra un attimo.',
   fee_title: '⛽ Quote commissioni che hai dato', fee_none: '✅ Nessuna — nessuno può pagare commissioni di transazione da questo wallet.',
   fee_spend: 'Questo wallet può spendere {what} dal tuo wallet.', fee_what_plain: 'una quota commissioni',
@@ -1443,6 +1517,7 @@ I18N.it = {
   received_title: '📥 Permessi che ti sono stati dati', received_none: 'Nessuno — nessun altro wallet ha dato a questo wallet il potere di agire per suo conto.',
   given_by: 'Dato da: ', no_expiry_set: 'Nessuna scadenza impostata.', info_word: 'info',
   received_fee_note: 'Le quote commissioni che altri wallet ti hanno dato non possono essere elencate qui — l\'API pubblica di questa catena non offre quella ricerca.',
+  fee_not_offered: 'Le quote commissioni che hai concesso non possono essere elencate qui — l\'API pubblica di questa catena non offre quella ricerca.',
   fp_how: '<b>Come leggere questa pagina:</b> tutto ciò che viene mostrato è letto in tempo reale dai dati pubblici della catena quando tocchi «{lookup}». I saldi nativi, lo staking e le ricompense vengono direttamente dalla catena (LCD). I saldi dei token vengono scoperti tramite un indice explorer e poi <b>riverificati uno a uno con query dirette on-chain</b> — vengono mostrati solo i saldi verificati. I prezzi provengono solo dalle fonti pubbliche nominate sulla scheda del valore; tutto ciò che non ha un vero prezzo è elencato con «{no_price}» e lasciato fuori dal totale.',
   fp_not_shown: 'Non ancora mostrato in questa versione: NFT detenuti in contratti di staking diversi da FRG NFT Staking, posizioni Garuda di cross-staking / factory NFT e posizioni LP. Le sezioni indicano la propria copertura quando è parziale.',
   fp_free_tool: 'è uno strumento comunitario gratuito.',
@@ -1464,6 +1539,9 @@ I18N.nl = {
   wallet_label: 'Wallet:',
   err_addr_terra: 'Dit lijkt geen Terra Classic-adres (terra1… — 45 tekens). Controleer het en probeer opnieuw.',
   err_addr_do: 'Dit lijkt geen DO Chain-adres (do1…). Controleer het en probeer opnieuw.',
+  placeholder_chain: 'Plak een {p}… adres',
+  err_addr_chain: 'Dit lijkt geen {name}-adres ({p}…). Controleer het en probeer opnieuw.',
+  note_prices_major: 'Prijzen: {sym}-spotprijs van CoinPaprika / CoinGecko (wie het eerst antwoordt); elke andere denom wordt zonder marktprijs getoond en blijft buiten het totaal. Een schatting van de marktwaarde — geen belofte van wat een verkoop zou opleveren. ',
   no_native: 'Geen native saldi gevonden on-chain voor deze wallet.', no_price: 'geen marktprijs',
   cnt_denom: '· {n} denominatie', cnt_denoms: '· {n} denominaties',
   err_balances: '⚠️ De ketensaldi konden nu niet worden gelezen — probeer het zo meteen opnieuw.',
@@ -1554,11 +1632,13 @@ I18N.nl = {
   never_expire_one: '{n} verloopt nooit', never_expire_many: '{n} verlopen nooit',
   sec_counts_line: 'Verleende fee-toelagen: {fee} · Delegaties bij gejailed validatoren: {jailed} · Contracten die deze wallet controleert (bekende set): {contracts}.',
   sec_smoke: 'Bewaak dit gedeelte als een rookmelder: elke machtiging hier werkt tot ze verloopt of tot u ze intrekt — intrekken vereist altijd uw handtekening in uw walletapp (Keplr / LUNCDash). Deze pagina leest alleen; ze kan nooit iets intrekken of wijzigen.',
+  sec_smoke_keplr: 'Bewaak dit gedeelte als een rookmelder: elke machtiging hier werkt tot ze verloopt of tot u ze intrekt — intrekken vereist altijd uw handtekening in uw walletapp (Keplr). Deze pagina leest alleen; ze kan nooit iets intrekken of wijzigen.',
   cnt_open: '· {n} open', check_below: ' · ⚠️ controleer hieronder',
   given_title: '🔑 Machtigingen die u heeft gegeven', given_none: '✅ Geen — deze wallet heeft geen andere wallet gemachtigd om namens haar te handelen.',
   given_to: 'Gegeven aan: ', no_expiry: '🔴 GEEN VERVALDATUM — deze machtiging werkt voor altijd tot u ze intrekt.', expires: 'Verloopt: {date}',
   risk_high: '🔴 hoog risico', risk_mid: '🟠 controleren', risk_low: '🟢 laag',
   given_fix: '<b>Zo lost u dit op:</b> open uw walletapp (Keplr of LUNCDash), zoek het AuthZ-/machtigingenscherm en trek alles in wat u niet herkent. Intrekken vereist uw handtekening in de app — deze pagina kan dat nooit voor u doen.',
+  given_fix_keplr: '<b>Zo lost u dit op:</b> open uw walletapp (Keplr), zoek het AuthZ-/machtigingenscherm en trek alles in wat u niet herkent. Intrekken vereist uw handtekening in de app — deze pagina kan dat nooit voor u doen.',
   err_given: '⚠️ De machtigingenlijst kon nu niet worden gelezen — probeer het zo meteen opnieuw.',
   fee_title: '⛽ Fee-toelagen die u heeft gegeven', fee_none: '✅ Geen — niemand kan transactiekosten uit deze wallet betalen.',
   fee_spend: 'Deze wallet kan {what} uit uw wallet uitgeven.', fee_what_plain: 'een fee-toelage',
@@ -1586,6 +1666,7 @@ I18N.nl = {
   received_title: '📥 Machtigingen die u zijn gegeven', received_none: 'Geen — geen andere wallet heeft deze wallet macht gegeven om namens haar te handelen.',
   given_by: 'Gegeven door: ', no_expiry_set: 'Geen vervaldatum ingesteld.', info_word: 'info',
   received_fee_note: 'Fee-toelagen die andere wallets u hebben gegeven, kunnen hier niet worden vermeld — de openbare API van deze keten biedt die opzoeking niet.',
+  fee_not_offered: 'Fee-toelagen die u heeft verleend, kunnen hier niet worden vermeld — de openbare API van deze keten biedt die opzoeking niet.',
   fp_how: '<b>Zo leest u deze pagina:</b> alles wat wordt getoond, wordt live uit openbare keten-gegevens gelezen wanneer u op „{lookup}“ tikt. Native saldi, staking en beloningen komen rechtstreeks van de keten (LCD). Tokensaldi worden ontdekt via een explorer-index en daarna <b>stuk voor stuk opnieuw geverifieerd met directe on-chain queries</b> — alleen geverifieerde saldi worden getoond. Prijzen komen alleen uit de benoemde openbare bronnen op de waardekaart; alles zonder echte prijs wordt vermeld met „{no_price}“ en uit het totaal gelaten.',
   fp_not_shown: 'Nog niet getoond in deze versie: NFT\'s in andere stakingcontracten dan FRG NFT Staking, Garuda cross-staking-/NFT-factory-posities en LP-posities. Gedeelten vermelden hun eigen dekking waar die gedeeltelijk is.',
   fp_free_tool: 'is een gratis community-hulpmiddel.',
@@ -1607,6 +1688,9 @@ I18N.ru = {
   wallet_label: 'Кошелёк:',
   err_addr_terra: 'Похоже, это не адрес Terra Classic (terra1… — 45 символов). Проверьте его и попробуйте ещё раз.',
   err_addr_do: 'Похоже, это не адрес DO Chain (do1…). Проверьте его и попробуйте ещё раз.',
+  placeholder_chain: 'Вставьте адрес {p}…',
+  err_addr_chain: 'Похоже, это не адрес {name} ({p}…). Проверьте его и попробуйте ещё раз.',
+  note_prices_major: 'Цены: спотовая цена {sym} от CoinPaprika / CoinGecko (кто ответит первым); любая другая деноминация показана без рыночной цены и не входит в итог. Оценка рыночной стоимости — не обещание того, что даст продажа. ',
   no_native: 'Нативные балансы для этого кошелька в блокчейне не найдены.', no_price: 'нет рыночной цены',
   cnt_denom: '· {n} номинация', cnt_denoms: '· {n} номинаций',
   err_balances: '⚠️ Балансы блокчейна сейчас прочитать не удалось — попробуйте через минуту.',
@@ -1697,11 +1781,13 @@ I18N.ru = {
   never_expire_one: 'без срока: {n}', never_expire_many: 'без срока: {n}',
   sec_counts_line: 'Выдано разрешений на комиссии: {fee} · Делегации у валидаторов в тюрьме: {jailed} · Контракты под контролем этого кошелька (известный набор): {contracts}.',
   sec_smoke: 'Следите за этим разделом как за датчиком дыма: каждое разрешение здесь работает, пока не истечёт или пока вы его не отзовёте, — отзыв всегда требует вашей подписи в вашем приложении кошелька (Keplr / LUNCDash). Эта страница только читает; она никогда ничего не может отозвать или изменить.',
+  sec_smoke_keplr: 'Следите за этим разделом как за датчиком дыма: каждое разрешение здесь работает, пока не истечёт или пока вы его не отзовёте, — отзыв всегда требует вашей подписи в вашем приложении кошелька (Keplr). Эта страница только читает; она никогда ничего не может отозвать или изменить.',
   cnt_open: '· открыто: {n}', check_below: ' · ⚠️ проверьте ниже',
   given_title: '🔑 Разрешения, которые вы выдали', given_none: '✅ Нет — этот кошелёк не уполномочил ни один другой кошелёк действовать от его имени.',
   given_to: 'Выдано: ', no_expiry: '🔴 БЕЗ СРОКА — это разрешение работает вечно, пока вы его не отзовёте.', expires: 'Истекает: {date}',
   risk_high: '🔴 высокий риск', risk_mid: '🟠 проверить', risk_low: '🟢 низкий',
   given_fix: '<b>Как исправить:</b> откройте приложение вашего кошелька (Keplr или LUNCDash), найдите экран AuthZ / разрешений и отзовите всё, что не узнаёте. Отзыв требует вашей подписи в приложении — эта страница никогда не сделает это за вас.',
+  given_fix_keplr: '<b>Как исправить:</b> откройте приложение вашего кошелька (Keplr), найдите экран AuthZ / разрешений и отзовите всё, что не узнаёте. Отзыв требует вашей подписи в приложении — эта страница никогда не сделает это за вас.',
   err_given: '⚠️ Список разрешений сейчас прочитать не удалось — попробуйте через минуту.',
   fee_title: '⛽ Разрешения на комиссии, которые вы выдали', fee_none: '✅ Нет — никто не может платить комиссии транзакций с этого кошелька.',
   fee_spend: 'Этот кошелёк может тратить {what} из вашего кошелька.', fee_what_plain: 'разрешение на комиссии',
@@ -1729,6 +1815,7 @@ I18N.ru = {
   received_title: '📥 Разрешения, выданные вам', received_none: 'Нет — ни один другой кошелёк не дал этому кошельку власть действовать от его имени.',
   given_by: 'Выдано от: ', no_expiry_set: 'Срок не установлен.', info_word: 'инфо',
   received_fee_note: 'Разрешения на комиссии, которые другие кошельки выдали вам, здесь перечислить нельзя — публичный API этого блокчейна не предоставляет такой поиск.',
+  fee_not_offered: 'Разрешения на комиссии, которые вы выдали, здесь перечислить нельзя — публичный API этого блокчейна не предоставляет такой поиск.',
   fp_how: '<b>Как читать эту страницу:</b> всё показанное читается в реальном времени из публичных данных блокчейна, когда вы нажимаете «{lookup}». Нативные балансы, стейкинг и награды приходят напрямую из блокчейна (LCD). Балансы токенов находятся через индекс обозревателя, а затем <b>перепроверяются по одному прямыми запросами к блокчейну</b> — показаны только подтверждённые балансы. Цены берутся только из названных публичных источников на карточке стоимости; всё без реальной цены указано с пометкой «{no_price}» и не входит в итог.',
   fp_not_shown: 'В этой версии пока не показано: NFT в контрактах стейкинга, отличных от FRG NFT Staking, позиции Garuda кросс-стейкинга / фабрики NFT и LP-позиции. Разделы указывают собственный охват, где он частичный.',
   fp_free_tool: '— бесплатный общественный инструмент.',
@@ -1750,6 +1837,9 @@ I18N.uk = {
   wallet_label: 'Гаманець:',
   err_addr_terra: 'Схоже, це не адреса Terra Classic (terra1… — 45 символів). Перевірте її та спробуйте ще раз.',
   err_addr_do: 'Схоже, це не адреса DO Chain (do1…). Перевірте її та спробуйте ще раз.',
+  placeholder_chain: 'Вставте адресу {p}…',
+  err_addr_chain: 'Схоже, це не адреса {name} ({p}…). Перевірте її та спробуйте ще раз.',
+  note_prices_major: 'Ціни: спотова ціна {sym} від CoinPaprika / CoinGecko (хто відповість першим); будь-яка інша деномінація показана без ринкової ціни й не входить до підсумку. Оцінка ринкової вартості — не обіцянка того, що дасть продаж. ',
   no_native: 'Нативні баланси для цього гаманця в блокчейні не знайдено.', no_price: 'немає ринкової ціни',
   cnt_denom: '· {n} номінація', cnt_denoms: '· {n} номінацій',
   err_balances: '⚠️ Баланси блокчейну зараз прочитати не вдалося — спробуйте за хвилину.',
@@ -1840,11 +1930,13 @@ I18N.uk = {
   never_expire_one: 'без строку: {n}', never_expire_many: 'без строку: {n}',
   sec_counts_line: 'Видано дозволів на комісії: {fee} · Делегувань у валідаторів у в\'язниці: {jailed} · Контрактів під контролем цього гаманця (відомий набір): {contracts}.',
   sec_smoke: 'Стежте за цим розділом як за датчиком диму: кожен дозвіл тут працює, доки не сплине або доки ви його не відкличете, — відкликання завжди потребує вашого підпису у вашому застосунку гаманця (Keplr / LUNCDash). Ця сторінка лише читає; вона ніколи нічого не може відкликати чи змінити.',
+  sec_smoke_keplr: 'Стежте за цим розділом як за датчиком диму: кожен дозвіл тут працює, доки не сплине або доки ви його не відкличете, — відкликання завжди потребує вашого підпису у вашому застосунку гаманця (Keplr). Ця сторінка лише читає; вона ніколи нічого не може відкликати чи змінити.',
   cnt_open: '· відкрито: {n}', check_below: ' · ⚠️ перевірте нижче',
   given_title: '🔑 Дозволи, які ви видали', given_none: '✅ Немає — цей гаманець не уповноважив жоден інший гаманець діяти від його імені.',
   given_to: 'Видано: ', no_expiry: '🔴 БЕЗ СТРОКУ — цей дозвіл працює вічно, доки ви його не відкличете.', expires: 'Спливає: {date}',
   risk_high: '🔴 високий ризик', risk_mid: '🟠 перевірити', risk_low: '🟢 низький',
   given_fix: '<b>Як виправити:</b> відкрийте застосунок вашого гаманця (Keplr або LUNCDash), знайдіть екран AuthZ / дозволів і відкличте все, чого не впізнаєте. Відкликання потребує вашого підпису в застосунку — ця сторінка ніколи не зробить це за вас.',
+  given_fix_keplr: '<b>Як виправити:</b> відкрийте застосунок вашого гаманця (Keplr), знайдіть екран AuthZ / дозволів і відкличте все, чого не впізнаєте. Відкликання потребує вашого підпису в застосунку — ця сторінка ніколи не зробить це за вас.',
   err_given: '⚠️ Список дозволів зараз прочитати не вдалося — спробуйте за хвилину.',
   fee_title: '⛽ Дозволи на комісії, які ви видали', fee_none: '✅ Немає — ніхто не може сплачувати комісії транзакцій із цього гаманця.',
   fee_spend: 'Цей гаманець може витрачати {what} з вашого гаманця.', fee_what_plain: 'дозвіл на комісії',
@@ -1872,6 +1964,7 @@ I18N.uk = {
   received_title: '📥 Дозволи, видані вам', received_none: 'Немає — жоден інший гаманець не дав цьому гаманцю владу діяти від його імені.',
   given_by: 'Видано від: ', no_expiry_set: 'Строк не встановлено.', info_word: 'інфо',
   received_fee_note: 'Дозволи на комісії, які інші гаманці видали вам, тут перелічити не можна — публічний API цього блокчейну не надає такого пошуку.',
+  fee_not_offered: 'Дозволи на комісії, які ви видали, тут перелічити не можна — публічний API цього блокчейну не надає такий пошук.',
   fp_how: '<b>Як читати цю сторінку:</b> усе показане читається в реальному часі з публічних даних блокчейну, коли ви натискаєте «{lookup}». Нативні баланси, стейкінг і нагороди надходять безпосередньо з блокчейну (LCD). Баланси токенів знаходяться через індекс оглядача, а потім <b>повторно перевіряються по одному прямими запитами до блокчейну</b> — показані лише підтверджені баланси. Ціни беруться лише з названих публічних джерел на картці вартості; усе без справжньої ціни зазначено з позначкою «{no_price}» і не входить до підсумку.',
   fp_not_shown: 'У цій версії ще не показано: NFT у контрактах стейкінгу, відмінних від FRG NFT Staking, позиції Garuda крос-стейкінгу / фабрики NFT та LP-позиції. Розділи вказують власне охоплення, де воно часткове.',
   fp_free_tool: '— безкоштовний громадський інструмент.',
@@ -1893,6 +1986,9 @@ I18N.tr = {
   wallet_label: 'Cüzdan:',
   err_addr_terra: 'Bu bir Terra Classic adresine benzemiyor (terra1… — 45 karakter). Kontrol edip tekrar deneyin.',
   err_addr_do: 'Bu bir DO Chain adresine benzemiyor (do1…). Kontrol edip tekrar deneyin.',
+  placeholder_chain: '{p}… adresi yapıştırın',
+  err_addr_chain: 'Bu bir {name} adresine benzemiyor ({p}…). Kontrol edip tekrar deneyin.',
+  note_prices_major: 'Fiyatlar: CoinPaprika / CoinGecko\'dan {sym} spot fiyatı (hangisi önce yanıt verirse); diğer her denom piyasa fiyatı olmadan gösterilir ve toplama dahil edilmez. Piyasa değerinin bir tahmini — bir satışın getireceğinin sözü değildir. ',
   no_native: 'Bu cüzdan için zincirde yerel bakiye bulunamadı.', no_price: 'piyasa fiyatı yok',
   cnt_denom: '· {n} birim', cnt_denoms: '· {n} birim',
   err_balances: '⚠️ Zincir bakiyeleri şu an okunamadı — birazdan tekrar deneyin.',
@@ -1983,11 +2079,13 @@ I18N.tr = {
   never_expire_one: '{n} tanesi asla sona ermiyor', never_expire_many: '{n} tanesi asla sona ermiyor',
   sec_counts_line: 'Verilen ücret payları: {fee} · Hapisteki doğrulayıcılardaki delegasyonlar: {jailed} · Bu cüzdanın kontrol ettiği sözleşmeler (bilinen küme): {contracts}.',
   sec_smoke: 'Bu bölümü bir duman dedektörü gibi izleyin: buradaki her izin, süresi dolana veya siz iptal edene kadar çalışır — iptal her zaman cüzdan uygulamanızda (Keplr / LUNCDash) imzanızı gerektirir. Bu sayfa yalnızca okur; asla hiçbir şeyi iptal edemez veya değiştiremez.',
+  sec_smoke_keplr: 'Bu bölümü bir duman dedektörü gibi izleyin: buradaki her izin, süresi dolana veya siz iptal edene kadar çalışır — iptal her zaman cüzdan uygulamanızda (Keplr) imzanızı gerektirir. Bu sayfa yalnızca okur; asla hiçbir şeyi iptal edemez veya değiştiremez.',
   cnt_open: '· {n} açık', check_below: ' · ⚠️ aşağıya bakın',
   given_title: '🔑 Verdiğiniz izinler', given_none: '✅ Yok — bu cüzdan, adına hareket etmesi için başka hiçbir cüzdana yetki vermedi.',
   given_to: 'Verilen: ', no_expiry: '🔴 SONA ERME YOK — bu izin siz iptal edene kadar sonsuza dek çalışır.', expires: 'Sona erme: {date}',
   risk_high: '🔴 yüksek risk', risk_mid: '🟠 kontrol edin', risk_low: '🟢 düşük',
   given_fix: '<b>Nasıl düzeltilir:</b> cüzdan uygulamanızı (Keplr veya LUNCDash) açın, AuthZ / yetki ekranını bulun ve tanımadığınız her şeyi iptal edin. İptal, uygulamada imzanızı gerektirir — bu sayfa bunu asla sizin için yapamaz.',
+  given_fix_keplr: '<b>Nasıl düzeltilir:</b> cüzdan uygulamanızı (Keplr) açın, AuthZ / yetki ekranını bulun ve tanımadığınız her şeyi iptal edin. İptal, uygulamada imzanızı gerektirir — bu sayfa bunu asla sizin için yapamaz.',
   err_given: '⚠️ İzin listesi şu an okunamadı — birazdan tekrar deneyin.',
   fee_title: '⛽ Verdiğiniz ücret payları', fee_none: '✅ Yok — kimse bu cüzdandan işlem ücreti ödeyemez.',
   fee_spend: 'Bu cüzdan cüzdanınızdan {what} harcayabilir.', fee_what_plain: 'bir ücret payı',
@@ -2015,6 +2113,7 @@ I18N.tr = {
   received_title: '📥 Size verilen izinler', received_none: 'Yok — başka hiçbir cüzdan bu cüzdana adına hareket etme gücü vermedi.',
   given_by: 'Veren: ', no_expiry_set: 'Sona erme ayarlanmamış.', info_word: 'bilgi',
   received_fee_note: 'Diğer cüzdanların size verdiği ücret payları burada listelenemez — bu zincirin herkese açık API\'si o aramayı sunmuyor.',
+  fee_not_offered: 'Verdiğiniz ücret payları burada listelenemez — bu zincirin herkese açık API\'si o aramayı sunmuyor.',
   fp_how: '<b>Bu sayfa nasıl okunur:</b> gösterilen her şey, "{lookup}" düğmesine dokunduğunuzda herkese açık zincir verilerinden canlı okunur. Yerel bakiyeler, staking ve ödüller doğrudan zincirden (LCD) gelir. Token bakiyeleri bir gezgin indeksiyle keşfedilir, ardından <b>doğrudan zincir sorgularıyla tek tek yeniden doğrulanır</b> — yalnızca doğrulanmış bakiyeler gösterilir. Fiyatlar yalnızca değer kartında adı geçen herkese açık kaynaklardan gelir; gerçek fiyatı olmayan her şey "{no_price}" ile listelenir ve toplama dahil edilmez.',
   fp_not_shown: 'Bu sürümde henüz gösterilmeyenler: FRG NFT Staking dışındaki staking sözleşmelerindeki NFT\'ler, Garuda çapraz staking / NFT fabrikası pozisyonları ve LP pozisyonları. Bölümler, kapsam kısmi olduğunda kendi kapsamını belirtir.',
   fp_free_tool: 'ücretsiz bir topluluk aracıdır.',
@@ -2036,6 +2135,9 @@ I18N.ar = {
   wallet_label: 'المحفظة:',
   err_addr_terra: 'لا يبدو هذا عنوان Terra Classic (terra1… — 45 حرفًا). تحقق منه وحاول مرة أخرى.',
   err_addr_do: 'لا يبدو هذا عنوان DO Chain (do1…). تحقق منه وحاول مرة أخرى.',
+  placeholder_chain: 'الصق عنوان {p}…',
+  err_addr_chain: 'لا يبدو هذا عنوان {name} ({p}…). تحقق منه وحاول مرة أخرى.',
+  note_prices_major: 'الأسعار: السعر الفوري لـ {sym} من CoinPaprika / CoinGecko (أيهما يرد أولًا)؛ كل فئة أخرى تُعرض دون سعر سوق وتُترك خارج الإجمالي. تقدير للقيمة السوقية — وليس وعدًا بما ستجلبه عملية بيع. ',
   no_native: 'لم يتم العثور على أرصدة أصلية على السلسلة لهذه المحفظة.', no_price: 'لا يوجد سعر سوق',
   cnt_denom: '· {n} فئة', cnt_denoms: '· {n} فئة',
   err_balances: '⚠️ تعذرت قراءة أرصدة السلسلة الآن — حاول بعد قليل.',
@@ -2126,11 +2228,13 @@ I18N.ar = {
   never_expire_one: '{n} لا تنتهي أبدًا', never_expire_many: '{n} لا تنتهي أبدًا',
   sec_counts_line: 'مخصصات الرسوم الممنوحة: {fee} · التفويضات لدى مدققين في السجن: {jailed} · العقود التي تتحكم بها هذه المحفظة (المجموعة المعروفة): {contracts}.',
   sec_smoke: 'راقب هذا القسم ككاشف دخان: كل إذن هنا يعمل حتى تنتهي صلاحيته أو تلغيه — يتطلب الإلغاء دائمًا توقيعك في تطبيق محفظتك (Keplr / LUNCDash). هذه الصفحة تقرأ فقط؛ لا يمكنها أبدًا إلغاء أو تغيير أي شيء.',
+  sec_smoke_keplr: 'راقب هذا القسم ككاشف دخان: كل إذن هنا يعمل حتى تنتهي صلاحيته أو تلغيه — يتطلب الإلغاء دائمًا توقيعك في تطبيق محفظتك (Keplr). هذه الصفحة تقرأ فقط؛ لا يمكنها أبدًا إلغاء أو تغيير أي شيء.',
   cnt_open: '· {n} مفتوحة', check_below: ' · ⚠️ تحقق أدناه',
   given_title: '🔑 الأذونات التي منحتها', given_none: '✅ لا شيء — لم تأذن هذه المحفظة لأي محفظة أخرى بالتصرف نيابة عنها.',
   given_to: 'مُنحت إلى: ', no_expiry: '🔴 لا انتهاء — يعمل هذا الإذن إلى الأبد حتى تلغيه.', expires: 'تنتهي: {date}',
   risk_high: '🔴 خطر مرتفع', risk_mid: '🟠 تحقق', risk_low: '🟢 منخفض',
   given_fix: '<b>كيفية الإصلاح:</b> افتح تطبيق محفظتك (Keplr أو LUNCDash)، وابحث عن شاشة AuthZ / التفويضات، وألغِ كل ما لا تعرفه. يتطلب الإلغاء توقيعك في التطبيق — لا يمكن لهذه الصفحة أبدًا القيام بذلك نيابة عنك.',
+  given_fix_keplr: '<b>كيفية الإصلاح:</b> افتح تطبيق محفظتك (Keplr)، وابحث عن شاشة AuthZ / التفويضات، وألغِ كل ما لا تعرفه. يتطلب الإلغاء توقيعك في التطبيق — لا يمكن لهذه الصفحة أبدًا القيام بذلك نيابة عنك.',
   err_given: '⚠️ تعذرت قراءة قائمة الأذونات الآن — حاول بعد قليل.',
   fee_title: '⛽ مخصصات الرسوم التي منحتها', fee_none: '✅ لا شيء — لا يمكن لأحد دفع رسوم معاملات من هذه المحفظة.',
   fee_spend: 'يمكن لهذه المحفظة إنفاق {what} من محفظتك.', fee_what_plain: 'مخصص رسوم',
@@ -2158,6 +2262,7 @@ I18N.ar = {
   received_title: '📥 الأذونات الممنوحة لك', received_none: 'لا شيء — لم تمنح أي محفظة أخرى هذه المحفظة سلطة التصرف نيابة عنها.',
   given_by: 'ممنوحة من: ', no_expiry_set: 'لا انتهاء محدد.', info_word: 'معلومات',
   received_fee_note: 'لا يمكن إدراج مخصصات الرسوم التي منحتها لك محافظ أخرى هنا — واجهة برمجة التطبيقات العامة لهذه السلسلة لا توفر ذلك البحث.',
+  fee_not_offered: 'بدلات الرسوم التي منحتها لا يمكن إدراجها هنا — واجهة برمجة التطبيقات العامة لهذه السلسلة لا توفر هذا البحث.',
   fp_how: '<b>كيفية قراءة هذه الصفحة:</b> كل ما يُعرض يُقرأ مباشرة من بيانات السلسلة العامة عندما تضغط «{lookup}». الأرصدة الأصلية والستيكينغ والمكافآت تأتي مباشرة من السلسلة (LCD). تُكتشف أرصدة الرموز عبر فهرس مستكشف ثم <b>يُعاد التحقق منها واحدًا تلو الآخر باستعلامات مباشرة على السلسلة</b> — تُعرض فقط الأرصدة الموثّقة. تأتي الأسعار فقط من المصادر العامة المسماة على بطاقة القيمة؛ كل ما ليس له سعر حقيقي يُدرج مع «{no_price}» ويُترك خارج الإجمالي.',
   fp_not_shown: 'لا يُعرض بعد في هذا الإصدار: الـ NFT المحفوظة في عقود ستيكينغ غير FRG NFT Staking، ومراكز Garuda للستيكينغ المتقاطع / مصنع NFT، ومراكز LP. تذكر الأقسام تغطيتها الخاصة عندما تكون جزئية.',
   fp_free_tool: 'أداة مجتمعية مجانية.',
@@ -2179,6 +2284,9 @@ I18N.hi = {
   wallet_label: 'वॉलेट:',
   err_addr_terra: 'यह Terra Classic पता नहीं लगता (terra1… — 45 वर्ण)। जाँचकर फिर से प्रयास करें।',
   err_addr_do: 'यह DO Chain पता नहीं लगता (do1…)। जाँचकर फिर से प्रयास करें।',
+  placeholder_chain: '{p}… पता पेस्ट करें',
+  err_addr_chain: 'यह {name} पता नहीं लगता ({p}…)। जाँचकर फिर से प्रयास करें।',
+  note_prices_major: 'कीमतें: CoinPaprika / CoinGecko से {sym} की spot कीमत (जो पहले जवाब दे); हर अन्य denom बिना बाज़ार कीमत के दिखाया जाता है और कुल से बाहर रहता है। बाज़ार मूल्य का एक अनुमान — यह वादा नहीं कि बिक्री पर कितना मिलेगा। ',
   no_native: 'इस वॉलेट के लिए ऑन-चेन कोई नेटिव बैलेंस नहीं मिला।', no_price: 'कोई बाज़ार मूल्य नहीं',
   cnt_denom: '· {n} डिनॉमिनेशन', cnt_denoms: '· {n} डिनॉमिनेशन',
   err_balances: '⚠️ चेन बैलेंस अभी नहीं पढ़े जा सके — थोड़ी देर में फिर प्रयास करें।',
@@ -2269,11 +2377,13 @@ I18N.hi = {
   never_expire_one: '{n} कभी समाप्त नहीं होती', never_expire_many: '{n} कभी समाप्त नहीं होतीं',
   sec_counts_line: 'दी गई fee अलाउंस: {fee} · जेल में बंद validatorों पर delegation: {jailed} · इस वॉलेट द्वारा नियंत्रित कॉन्ट्रैक्ट (ज्ञात सेट): {contracts}।',
   sec_smoke: 'इस अनुभाग को स्मोक डिटेक्टर की तरह देखें: यहाँ हर अनुमति तब तक काम करती है जब तक वह समाप्त न हो या आप उसे रद्द न करें — रद्द करने के लिए हमेशा आपके वॉलेट ऐप (Keplr / LUNCDash) में आपके हस्ताक्षर की आवश्यकता होती है। यह पेज केवल पढ़ता है; यह कभी कुछ रद्द या बदल नहीं सकता।',
+  sec_smoke_keplr: 'इस अनुभाग को स्मोक डिटेक्टर की तरह देखें: यहाँ हर अनुमति तब तक काम करती है जब तक वह समाप्त न हो या आप उसे रद्द न करें — रद्द करने के लिए हमेशा आपके वॉलेट ऐप (Keplr) में आपके हस्ताक्षर की आवश्यकता होती है। यह पेज केवल पढ़ता है; यह कभी कुछ रद्द या बदल नहीं सकता।',
   cnt_open: '· {n} खुली', check_below: ' · ⚠️ नीचे जाँचें',
   given_title: '🔑 अनुमतियाँ जो आपने दीं', given_none: '✅ कोई नहीं — इस वॉलेट ने किसी अन्य वॉलेट को अपनी ओर से कार्य करने के लिए अधिकृत नहीं किया।',
   given_to: 'दी गई: ', no_expiry: '🔴 कोई समाप्ति नहीं — यह अनुमति तब तक हमेशा काम करती है जब तक आप उसे रद्द न करें।', expires: 'समाप्ति: {date}',
   risk_high: '🔴 उच्च जोखिम', risk_mid: '🟠 जाँचें', risk_low: '🟢 कम',
   given_fix: '<b>कैसे ठीक करें:</b> अपना वॉलेट ऐप (Keplr या LUNCDash) खोलें, उसकी AuthZ / अनुमति स्क्रीन खोजें, और जो कुछ आप नहीं पहचानते उसे रद्द करें। रद्द करने के लिए ऐप में आपके हस्ताक्षर की आवश्यकता होती है — यह पेज यह आपके लिए कभी नहीं कर सकता।',
+  given_fix_keplr: '<b>कैसे ठीक करें:</b> अपना वॉलेट ऐप (Keplr) खोलें, उसकी AuthZ / अनुमति स्क्रीन खोजें, और जो कुछ आप नहीं पहचानते उसे रद्द करें। रद्द करने के लिए ऐप में आपके हस्ताक्षर की आवश्यकता होती है — यह पेज यह आपके लिए कभी नहीं कर सकता।',
   err_given: '⚠️ अनुमति सूची अभी नहीं पढ़ी जा सकी — थोड़ी देर में फिर प्रयास करें।',
   fee_title: '⛽ Fee अलाउंस जो आपने दिए', fee_none: '✅ कोई नहीं — कोई भी इस वॉलेट से लेनदेन शुल्क नहीं चुका सकता।',
   fee_spend: 'यह वॉलेट आपके वॉलेट से {what} खर्च कर सकता है।', fee_what_plain: 'एक fee अलाउंस',
@@ -2301,6 +2411,7 @@ I18N.hi = {
   received_title: '📥 अनुमतियाँ जो आपको मिलीं', received_none: 'कोई नहीं — किसी अन्य वॉलेट ने इस वॉलेट को अपनी ओर से कार्य करने की शक्ति नहीं दी।',
   given_by: 'दी गई द्वारा: ', no_expiry_set: 'कोई समाप्ति निर्धारित नहीं।', info_word: 'जानकारी',
   received_fee_note: 'अन्य वॉलेटों ने आपको जो fee अलाउंस दिए हैं वे यहाँ सूचीबद्ध नहीं किए जा सकते — इस चेन का सार्वजनिक API वह लुकअप प्रदान नहीं करता।',
+  fee_not_offered: 'आपके द्वारा दिए गए fee अलाउंस यहाँ सूचीबद्ध नहीं किए जा सकते — इस चेन का सार्वजनिक API वह लुकअप प्रदान नहीं करता।',
   fp_how: '<b>इस पेज को कैसे पढ़ें:</b> जो कुछ दिखाया जाता है वह तब लाइव सार्वजनिक चेन डेटा से पढ़ा जाता है जब आप "{lookup}" पर टैप करते हैं। नेटिव बैलेंस, staking और रिवॉर्ड सीधे चेन (LCD) से आते हैं। टोकन बैलेंस एक एक्सप्लोरर इंडेक्स से खोजे जाते हैं और फिर <b>सीधी ऑन-चेन क्वेरी से एक-एक करके फिर सत्यापित किए जाते हैं</b> — केवल सत्यापित बैलेंस दिखाए जाते हैं। कीमतें केवल मूल्य कार्ड पर नामित सार्वजनिक स्रोतों से आती हैं; बिना वास्तविक कीमत वाली हर चीज़ "{no_price}" के साथ सूचीबद्ध होती है और कुल से बाहर रहती है।',
   fp_not_shown: 'इस संस्करण में अभी नहीं दिखाया गया: FRG NFT Staking के अलावा अन्य staking कॉन्ट्रैक्ट में रखे NFT, Garuda क्रॉस-staking / NFT फ़ैक्टरी पोज़िशन, और LP पोज़िशन। अनुभाग जहाँ कवरेज आंशिक है वहाँ अपनी कवरेज बताते हैं।',
   fp_free_tool: 'एक मुफ़्त सामुदायिक उपकरण है।',
@@ -2322,6 +2433,9 @@ I18N.id = {
   wallet_label: 'Dompet:',
   err_addr_terra: 'Ini tidak terlihat seperti alamat Terra Classic (terra1… — 45 karakter). Periksa dan coba lagi.',
   err_addr_do: 'Ini tidak terlihat seperti alamat DO Chain (do1…). Periksa dan coba lagi.',
+  placeholder_chain: 'Tempel alamat {p}…',
+  err_addr_chain: 'Ini tidak terlihat seperti alamat {name} ({p}…). Periksa dan coba lagi.',
+  note_prices_major: 'Harga: harga spot {sym} dari CoinPaprika / CoinGecko (mana yang menjawab lebih dulu); denom lain ditampilkan tanpa harga pasar dan tidak masuk total. Perkiraan nilai pasar — bukan janji hasil penjualan. ',
   no_native: 'Tidak ada saldo native yang ditemukan on-chain untuk dompet ini.', no_price: 'tidak ada harga pasar',
   cnt_denom: '· {n} denominasi', cnt_denoms: '· {n} denominasi',
   err_balances: '⚠️ Saldo rantai tidak dapat dibaca saat ini — coba lagi sebentar.',
@@ -2412,11 +2526,13 @@ I18N.id = {
   never_expire_one: '{n} tidak pernah kedaluwarsa', never_expire_many: '{n} tidak pernah kedaluwarsa',
   sec_counts_line: 'Tunjangan biaya yang diberikan: {fee} · Delegasi pada validator yang dipenjara: {jailed} · Kontrak yang dikendalikan dompet ini (set yang dikenal): {contracts}.',
   sec_smoke: 'Awasi bagian ini seperti detektor asap: setiap izin di sini bekerja hingga kedaluwarsa atau Anda mencabutnya — pencabutan selalu membutuhkan tanda tangan Anda di aplikasi dompet Anda (Keplr / LUNCDash). Halaman ini hanya membaca; tidak pernah dapat mencabut atau mengubah apa pun.',
+  sec_smoke_keplr: 'Awasi bagian ini seperti detektor asap: setiap izin di sini bekerja hingga kedaluwarsa atau Anda mencabutnya — pencabutan selalu membutuhkan tanda tangan Anda di aplikasi dompet Anda (Keplr). Halaman ini hanya membaca; tidak pernah dapat mencabut atau mengubah apa pun.',
   cnt_open: '· {n} terbuka', check_below: ' · ⚠️ periksa di bawah',
   given_title: '🔑 Izin yang Anda berikan', given_none: '✅ Tidak ada — dompet ini tidak mengizinkan dompet lain bertindak atas namanya.',
   given_to: 'Diberikan kepada: ', no_expiry: '🔴 TANPA KEDALUWARSA — izin ini bekerja selamanya hingga Anda mencabutnya.', expires: 'Kedaluwarsa: {date}',
   risk_high: '🔴 risiko tinggi', risk_mid: '🟠 periksa', risk_low: '🟢 rendah',
   given_fix: '<b>Cara memperbaikinya:</b> buka aplikasi dompet Anda (Keplr atau LUNCDash), temukan layar AuthZ / otorisasi, dan cabut apa pun yang tidak Anda kenali. Pencabutan membutuhkan tanda tangan Anda di aplikasi — halaman ini tidak pernah dapat melakukannya untuk Anda.',
+  given_fix_keplr: '<b>Cara memperbaikinya:</b> buka aplikasi dompet Anda (Keplr), temukan layar AuthZ / otorisasi, dan cabut apa pun yang tidak Anda kenali. Pencabutan membutuhkan tanda tangan Anda di aplikasi — halaman ini tidak pernah dapat melakukannya untuk Anda.',
   err_given: '⚠️ Daftar izin tidak dapat dibaca saat ini — coba lagi sebentar.',
   fee_title: '⛽ Tunjangan biaya yang Anda berikan', fee_none: '✅ Tidak ada — tidak ada yang dapat membayar biaya transaksi dari dompet ini.',
   fee_spend: 'Dompet ini dapat membelanjakan {what} dari dompet Anda.', fee_what_plain: 'tunjangan biaya',
@@ -2444,6 +2560,7 @@ I18N.id = {
   received_title: '📥 Izin yang diberikan kepada Anda', received_none: 'Tidak ada — tidak ada dompet lain yang memberi dompet ini kekuasaan untuk bertindak atas namanya.',
   given_by: 'Diberikan oleh: ', no_expiry_set: 'Tidak ada kedaluwarsa yang ditetapkan.', info_word: 'info',
   received_fee_note: 'Tunjangan biaya yang diberikan dompet lain kepada Anda tidak dapat dicantumkan di sini — API publik rantai ini tidak menyediakan pencarian itu.',
+  fee_not_offered: 'Tunjangan biaya yang Anda berikan tidak dapat dicantumkan di sini — API publik rantai ini tidak menyediakan pencarian itu.',
   fp_how: '<b>Cara membaca halaman ini:</b> semua yang ditampilkan dibaca langsung dari data rantai publik saat Anda mengetuk "{lookup}". Saldo native, staking, dan hadiah datang langsung dari rantai (LCD). Saldo token ditemukan melalui indeks penjelajah lalu <b>diverifikasi ulang satu per satu dengan kueri on-chain langsung</b> — hanya saldo terverifikasi yang ditampilkan. Harga hanya berasal dari sumber publik yang disebutkan pada kartu nilai; apa pun tanpa harga nyata dicantumkan dengan "{no_price}" dan tidak dimasukkan ke total.',
   fp_not_shown: 'Belum ditampilkan dalam versi ini: NFT yang disimpan dalam kontrak staking selain FRG NFT Staking, posisi cross-staking / pabrik NFT Garuda, dan posisi LP. Bagian-bagian menyebutkan cakupannya sendiri ketika bersifat parsial.',
   fp_free_tool: 'adalah alat komunitas gratis.',
@@ -2465,6 +2582,9 @@ I18N.vi = {
   wallet_label: 'Ví:',
   err_addr_terra: 'Đây không giống địa chỉ Terra Classic (terra1… — 45 ký tự). Kiểm tra lại và thử lại.',
   err_addr_do: 'Đây không giống địa chỉ DO Chain (do1…). Kiểm tra lại và thử lại.',
+  placeholder_chain: 'Dán địa chỉ {p}…',
+  err_addr_chain: 'Đây không giống địa chỉ {name} ({p}…). Kiểm tra lại và thử lại.',
+  note_prices_major: 'Giá: giá spot {sym} từ CoinPaprika / CoinGecko (bên nào trả lời trước); mọi denom khác được hiển thị không có giá thị trường và để ngoài tổng. Ước tính giá trị thị trường — không phải lời hứa về số tiền bán được. ',
   no_native: 'Không tìm thấy số dư native on-chain cho ví này.', no_price: 'không có giá thị trường',
   cnt_denom: '· {n} mệnh giá', cnt_denoms: '· {n} mệnh giá',
   err_balances: '⚠️ Không thể đọc số dư chuỗi lúc này — thử lại sau ít phút.',
@@ -2555,11 +2675,13 @@ I18N.vi = {
   never_expire_one: '{n} không bao giờ hết hạn', never_expire_many: '{n} không bao giờ hết hạn',
   sec_counts_line: 'Trợ cấp phí đã cấp: {fee} · Ủy quyền tại các validator bị giam: {jailed} · Hợp đồng mà ví này kiểm soát (tập đã biết): {contracts}.',
   sec_smoke: 'Hãy theo dõi mục này như máy báo khói: mọi quyền ở đây hoạt động cho đến khi hết hạn hoặc bạn thu hồi — việc thu hồi luôn cần chữ ký của bạn trong ứng dụng ví (Keplr / LUNCDash). Trang này chỉ đọc; nó không bao giờ có thể thu hồi hay thay đổi bất cứ điều gì.',
+  sec_smoke_keplr: 'Hãy theo dõi mục này như máy báo khói: mọi quyền ở đây hoạt động cho đến khi hết hạn hoặc bạn thu hồi — việc thu hồi luôn cần chữ ký của bạn trong ứng dụng ví (Keplr). Trang này chỉ đọc; nó không bao giờ có thể thu hồi hay thay đổi bất cứ điều gì.',
   cnt_open: '· {n} đang mở', check_below: ' · ⚠️ kiểm tra bên dưới',
   given_title: '🔑 Quyền bạn đã cấp', given_none: '✅ Không có — ví này chưa ủy quyền cho ví nào khác hành động thay nó.',
   given_to: 'Đã cấp cho: ', no_expiry: '🔴 KHÔNG HẾT HẠN — quyền này hoạt động mãi mãi cho đến khi bạn thu hồi.', expires: 'Hết hạn: {date}',
   risk_high: '🔴 rủi ro cao', risk_mid: '🟠 kiểm tra', risk_low: '🟢 thấp',
   given_fix: '<b>Cách khắc phục:</b> mở ứng dụng ví của bạn (Keplr hoặc LUNCDash), tìm màn hình AuthZ / ủy quyền và thu hồi bất cứ thứ gì bạn không nhận ra. Thu hồi cần chữ ký của bạn trong ứng dụng — trang này không bao giờ có thể làm điều đó thay bạn.',
+  given_fix_keplr: '<b>Cách khắc phục:</b> mở ứng dụng ví của bạn (Keplr), tìm màn hình AuthZ / ủy quyền và thu hồi bất cứ thứ gì bạn không nhận ra. Thu hồi cần chữ ký của bạn trong ứng dụng — trang này không bao giờ có thể làm điều đó thay bạn.',
   err_given: '⚠️ Không thể đọc danh sách quyền lúc này — thử lại sau ít phút.',
   fee_title: '⛽ Trợ cấp phí bạn đã cấp', fee_none: '✅ Không có — không ai có thể trả phí giao dịch từ ví này.',
   fee_spend: 'Ví này có thể chi {what} từ ví của bạn.', fee_what_plain: 'một trợ cấp phí',
@@ -2587,6 +2709,7 @@ I18N.vi = {
   received_title: '📥 Quyền được cấp cho bạn', received_none: 'Không có — không ví nào khác đã cho ví này quyền hành động thay họ.',
   given_by: 'Được cấp bởi: ', no_expiry_set: 'Không đặt ngày hết hạn.', info_word: 'thông tin',
   received_fee_note: 'Trợ cấp phí mà các ví khác đã cấp cho bạn không thể liệt kê ở đây — API công khai của chuỗi này không cung cấp tra cứu đó.',
+  fee_not_offered: 'Trợ cấp phí bạn đã cấp không thể liệt kê ở đây — API công khai của chuỗi này không cung cấp tra cứu đó.',
   fp_how: '<b>Cách đọc trang này:</b> mọi thứ hiển thị đều được đọc trực tiếp từ dữ liệu chuỗi công khai khi bạn chạm vào "{lookup}". Số dư native, staking và phần thưởng đến trực tiếp từ chuỗi (LCD). Số dư token được khám phá qua chỉ mục trình khám phá rồi <b>xác minh lại từng cái bằng truy vấn on-chain trực tiếp</b> — chỉ số dư đã xác minh mới được hiển thị. Giá chỉ đến từ các nguồn công khai được nêu trên thẻ giá trị; bất cứ thứ gì không có giá thực đều được liệt kê với "{no_price}" và để ngoài tổng.',
   fp_not_shown: 'Chưa hiển thị trong phiên bản này: NFT giữ trong các hợp đồng staking khác ngoài FRG NFT Staking, vị thế cross-staking / nhà máy NFT của Garuda và vị thế LP. Các mục nêu phạm vi của riêng chúng khi phạm vi là một phần.',
   fp_free_tool: 'là một công cụ cộng đồng miễn phí.',
@@ -2608,6 +2731,9 @@ I18N.th = {
   wallet_label: 'กระเป๋าเงิน:',
   err_addr_terra: 'นี่ไม่เหมือนที่อยู่ Terra Classic (terra1… — 45 ตัวอักษร) โปรดตรวจสอบแล้วลองอีกครั้ง',
   err_addr_do: 'นี่ไม่เหมือนที่อยู่ DO Chain (do1…) โปรดตรวจสอบแล้วลองอีกครั้ง',
+  placeholder_chain: 'วางที่อยู่ {p}…',
+  err_addr_chain: 'นี่ไม่เหมือนที่อยู่ {name} ({p}…) โปรดตรวจสอบแล้วลองอีกครั้ง',
+  note_prices_major: 'ราคา: ราคา spot ของ {sym} จาก CoinPaprika / CoinGecko (เจ้าไหนตอบก่อน) denom อื่น ๆ จะแสดงโดยไม่มีราคาตลาดและไม่นับในยอดรวม เป็นการประมาณมูลค่าตลาด — ไม่ใช่คำสัญญาว่าจะขายได้เท่าใด ',
   no_native: 'ไม่พบยอดคงเหลือแบบ native บนเชนสำหรับกระเป๋าเงินนี้', no_price: 'ไม่มีราคาตลาด',
   cnt_denom: '· {n} หน่วย', cnt_denoms: '· {n} หน่วย',
   err_balances: '⚠️ ไม่สามารถอ่านยอดคงเหลือของเชนได้ในขณะนี้ — ลองอีกครั้งในอีกสักครู่',
@@ -2698,11 +2824,13 @@ I18N.th = {
   never_expire_one: '{n} รายการไม่มีวันหมดอายุ', never_expire_many: '{n} รายการไม่มีวันหมดอายุ',
   sec_counts_line: 'วงเงินค่าธรรมเนียมที่ให้: {fee} · การมอบหมายไปยังผู้ตรวจสอบที่ถูกจำคุก: {jailed} · สัญญาที่กระเป๋าเงินนี้ควบคุม (ชุดที่รู้จัก): {contracts}',
   sec_smoke: 'เฝ้าดูส่วนนี้เหมือนเครื่องตรวจจับควัน: สิทธิ์ทุกอย่างที่นี่ทำงานจนกว่าจะหมดอายุหรือคุณเพิกถอน — การเพิกถอนต้องใช้ลายเซ็นของคุณในแอปกระเป๋าเงินของคุณเสมอ (Keplr / LUNCDash) หน้านี้อ่านอย่างเดียว ไม่สามารถเพิกถอนหรือเปลี่ยนแปลงอะไรได้เลย',
+  sec_smoke_keplr: 'เฝ้าดูส่วนนี้เหมือนเครื่องตรวจจับควัน: สิทธิ์ทุกอย่างที่นี่ทำงานจนกว่าจะหมดอายุหรือคุณเพิกถอน — การเพิกถอนต้องใช้ลายเซ็นของคุณในแอปกระเป๋าเงินของคุณเสมอ (Keplr) หน้านี้อ่านอย่างเดียว ไม่สามารถเพิกถอนหรือเปลี่ยนแปลงอะไรได้เลย',
   cnt_open: '· เปิดอยู่ {n}', check_below: ' · ⚠️ ตรวจสอบด้านล่าง',
   given_title: '🔑 สิทธิ์ที่คุณให้', given_none: '✅ ไม่มี — กระเป๋าเงินนี้ไม่ได้อนุญาตให้กระเป๋าเงินอื่นดำเนินการแทน',
   given_to: 'ให้แก่: ', no_expiry: '🔴 ไม่มีการหมดอายุ — สิทธิ์นี้ทำงานตลอดไปจนกว่าคุณจะเพิกถอน', expires: 'หมดอายุ: {date}',
   risk_high: '🔴 ความเสี่ยงสูง', risk_mid: '🟠 ตรวจสอบ', risk_low: '🟢 ต่ำ',
   given_fix: '<b>วิธีแก้ไข:</b> เปิดแอปกระเป๋าเงินของคุณ (Keplr หรือ LUNCDash) ค้นหาหน้าจอ AuthZ / การอนุญาต และเพิกถอนทุกอย่างที่คุณไม่รู้จัก การเพิกถอนต้องใช้ลายเซ็นของคุณในแอป — หน้านี้ไม่สามารถทำแทนคุณได้เลย',
+  given_fix_keplr: '<b>วิธีแก้ไข:</b> เปิดแอปกระเป๋าเงินของคุณ (Keplr) ค้นหาหน้าจอ AuthZ / การอนุญาต และเพิกถอนทุกอย่างที่คุณไม่รู้จัก การเพิกถอนต้องใช้ลายเซ็นของคุณในแอป — หน้านี้ไม่สามารถทำแทนคุณได้เลย',
   err_given: '⚠️ ไม่สามารถอ่านรายการสิทธิ์ได้ในขณะนี้ — ลองอีกครั้งในอีกสักครู่',
   fee_title: '⛽ วงเงินค่าธรรมเนียมที่คุณให้', fee_none: '✅ ไม่มี — ไม่มีใครจ่ายค่าธรรมเนียมธุรกรรมจากกระเป๋าเงินนี้ได้',
   fee_spend: 'กระเป๋าเงินนี้สามารถใช้จ่าย {what} จากกระเป๋าเงินของคุณ', fee_what_plain: 'วงเงินค่าธรรมเนียม',
@@ -2730,6 +2858,7 @@ I18N.th = {
   received_title: '📥 สิทธิ์ที่ให้แก่คุณ', received_none: 'ไม่มี — ไม่มีกระเป๋าเงินอื่นให้อำนาจกระเป๋าเงินนี้ดำเนินการแทน',
   given_by: 'ให้โดย: ', no_expiry_set: 'ไม่มีการตั้งค่าวันหมดอายุ', info_word: 'ข้อมูล',
   received_fee_note: 'วงเงินค่าธรรมเนียมที่กระเป๋าเงินอื่นให้แก่คุณไม่สามารถแสดงที่นี่ได้ — API สาธารณะของเชนนี้ไม่มีการค้นหานั้น',
+  fee_not_offered: 'วงเงินค่าธรรมเนียมที่คุณให้ไม่สามารถแสดงที่นี่ได้ — API สาธารณะของเชนนี้ไม่มีการค้นหานั้น',
   fp_how: '<b>วิธีอ่านหน้านี้:</b> ทุกอย่างที่แสดงถูกอ่านสดจากข้อมูลเชนสาธารณะเมื่อคุณแตะ "{lookup}" ยอดคงเหลือแบบ native สเตกกิ้ง และรางวัลมาจากเชนโดยตรง (LCD) ยอดคงเหลือโทเคนถูกค้นพบผ่านดัชนี explorer จากนั้น<b>ยืนยันซ้ำทีละรายการด้วยการสอบถามบนเชนโดยตรง</b> — แสดงเฉพาะยอดที่ยืนยันแล้ว ราคามาจากแหล่งสาธารณะที่ระบุไว้บนการ์ดมูลค่าเท่านั้น สิ่งใดไม่มีราคาจริงจะแสดงพร้อม "{no_price}" และถูกตัดออกจากยอดรวม',
   fp_not_shown: 'ยังไม่แสดงในเวอร์ชันนี้: NFT ที่เก็บในสัญญาสเตกกิ้งอื่นนอกจาก FRG NFT Staking ตำแหน่ง cross-staking / โรงงาน NFT ของ Garuda และตำแหน่ง LP แต่ละส่วนจะระบุขอบเขตของตัวเองเมื่อเป็นบางส่วน',
   fp_free_tool: 'เป็นเครื่องมือชุมชนฟรี',
@@ -2751,6 +2880,9 @@ I18N.ko = {
   wallet_label: '지갑:',
   err_addr_terra: 'Terra Classic 주소처럼 보이지 않습니다 (terra1… — 45자). 확인 후 다시 시도하세요.',
   err_addr_do: 'DO Chain 주소처럼 보이지 않습니다 (do1…). 확인 후 다시 시도하세요.',
+  placeholder_chain: '{p}… 주소를 붙여넣으세요',
+  err_addr_chain: '{name} 주소처럼 보이지 않습니다 ({p}…). 확인 후 다시 시도하세요.',
+  note_prices_major: '가격: CoinPaprika / CoinGecko의 {sym} 현물 가격(먼저 응답하는 쪽); 다른 모든 단위는 시장 가격 없이 표시되고 합계에서 제외됩니다. 시장 가치의 추정이며 판매 시 받을 금액에 대한 약속이 아닙니다. ',
   no_native: '이 지갑의 네이티브 잔액이 온체인에서 발견되지 않았습니다.', no_price: '시장 가격 없음',
   cnt_denom: '· {n}개 단위', cnt_denoms: '· {n}개 단위',
   err_balances: '⚠️ 지금은 체인 잔액을 읽을 수 없습니다 — 잠시 후 다시 시도하세요.',
@@ -2841,11 +2973,13 @@ I18N.ko = {
   never_expire_one: '{n}개는 만료되지 않음', never_expire_many: '{n}개는 만료되지 않음',
   sec_counts_line: '부여된 수수료 허용량: {fee} · 수감 중인 검증인에 대한 위임: {jailed} · 이 지갑이 제어하는 계약 (알려진 집합): {contracts}.',
   sec_smoke: '이 섹션을 연기 감지기처럼 지켜보세요: 여기의 모든 권한은 만료되거나 귀하가 취소할 때까지 작동합니다 — 취소에는 항상 지갑 앱(Keplr / LUNCDash)에서 귀하의 서명이 필요합니다. 이 페이지는 읽기만 하며, 어떤 것도 취소하거나 변경할 수 없습니다.',
+  sec_smoke_keplr: '이 섹션을 연기 감지기처럼 지켜보세요: 여기의 모든 권한은 만료되거나 귀하가 취소할 때까지 작동합니다 — 취소에는 항상 지갑 앱(Keplr)에서 귀하의 서명이 필요합니다. 이 페이지는 읽기만 하며, 어떤 것도 취소하거나 변경할 수 없습니다.',
   cnt_open: '· {n}개 열림', check_below: ' · ⚠️ 아래를 확인하세요',
   given_title: '🔑 귀하가 부여한 권한', given_none: '✅ 없음 — 이 지갑은 다른 어떤 지갑에도 대신 행동할 권한을 부여하지 않았습니다.',
   given_to: '부여 대상: ', no_expiry: '🔴 만료 없음 — 이 권한은 귀하가 취소할 때까지 영원히 작동합니다.', expires: '만료: {date}',
   risk_high: '🔴 높은 위험', risk_mid: '🟠 확인 필요', risk_low: '🟢 낮음',
   given_fix: '<b>해결 방법:</b> 지갑 앱(Keplr 또는 LUNCDash)을 열고 AuthZ / 권한 화면을 찾아, 알아보지 못하는 것은 모두 취소하세요. 취소에는 앱에서 귀하의 서명이 필요합니다 — 이 페이지는 절대 대신할 수 없습니다.',
+  given_fix_keplr: '<b>해결 방법:</b> 지갑 앱(Keplr)을 열고 AuthZ / 권한 화면을 찾아, 알아보지 못하는 것은 모두 취소하세요. 취소에는 앱에서 귀하의 서명이 필요합니다 — 이 페이지는 절대 대신할 수 없습니다.',
   err_given: '⚠️ 지금은 권한 목록을 읽을 수 없습니다 — 잠시 후 다시 시도하세요.',
   fee_title: '⛽ 귀하가 부여한 수수료 허용량', fee_none: '✅ 없음 — 누구도 이 지갑에서 거래 수수료를 지불할 수 없습니다.',
   fee_spend: '이 지갑은 귀하의 지갑에서 {what}을(를) 사용할 수 있습니다.', fee_what_plain: '수수료 허용량',
@@ -2873,6 +3007,7 @@ I18N.ko = {
   received_title: '📥 귀하에게 부여된 권한', received_none: '없음 — 다른 어떤 지갑도 이 지갑에 대신 행동할 권한을 주지 않았습니다.',
   given_by: '부여한 지갑: ', no_expiry_set: '만료가 설정되지 않았습니다.', info_word: '정보',
   received_fee_note: '다른 지갑이 귀하에게 부여한 수수료 허용량은 여기에 나열할 수 없습니다 — 이 체인의 공개 API는 해당 조회를 제공하지 않습니다.',
+  fee_not_offered: '귀하가 부여한 수수료 허용량은 여기에 나열할 수 없습니다 — 이 체인의 공개 API는 해당 조회를 제공하지 않습니다.',
   fp_how: '<b>이 페이지를 읽는 방법:</b> 표시되는 모든 것은 "{lookup}"을 누를 때 공개 체인 데이터에서 실시간으로 읽어옵니다. 네이티브 잔액, 스테이킹, 보상은 체인(LCD)에서 직접 가져옵니다. 토큰 잔액은 탐색기 인덱스를 통해 발견된 후 <b>직접 온체인 쿼리로 하나씩 다시 확인됩니다</b> — 확인된 잔액만 표시됩니다. 가격은 가치 카드에 명시된 공개 출처에서만 가져옵니다. 실제 가격이 없는 것은 모두 "{no_price}"로 나열되고 합계에서 제외됩니다.',
   fp_not_shown: '이 버전에서 아직 표시되지 않는 것: FRG NFT Staking 이외의 스테이킹 계약에 보관된 NFT, Garuda 크로스 스테이킹 / NFT 팩토리 포지션, LP 포지션. 섹션은 범위가 부분적일 때 자체 범위를 명시합니다.',
   fp_free_tool: '무료 커뮤니티 도구입니다.',
@@ -2894,6 +3029,9 @@ I18N.ja = {
   wallet_label: 'ウォレット：',
   err_addr_terra: 'Terra Classic のアドレスのようには見えません（terra1… — 45文字）。確認して再試行してください。',
   err_addr_do: 'DO Chain のアドレスのようには見えません（do1…）。確認して再試行してください。',
+  placeholder_chain: '{p}… アドレスを貼り付け',
+  err_addr_chain: '{name} のアドレスのようには見えません（{p}…）。確認して再試行してください。',
+  note_prices_major: '価格：CoinPaprika / CoinGecko の {sym} スポット価格（先に応答した方）。他のすべての denom は市場価格なしで表示され、合計には含まれません。市場価値の見積もりであり、売却で得られる金額の約束ではありません。 ',
   no_native: 'このウォレットのネイティブ残高はオンチェーンで見つかりませんでした。', no_price: '市場価格なし',
   cnt_denom: '· {n} 単位', cnt_denoms: '· {n} 単位',
   err_balances: '⚠️ 現在チェーン残高を読み取れません — しばらくしてから再試行してください。',
@@ -2984,11 +3122,13 @@ I18N.ja = {
   never_expire_one: '{n} 件は期限なし', never_expire_many: '{n} 件は期限なし',
   sec_counts_line: '付与した手数料許容量：{fee} · 投獄中のバリデーターへの委任：{jailed} · このウォレットが管理するコントラクト（既知の集合）：{contracts}。',
   sec_smoke: 'このセクションを煙探知機のように見守ってください：ここのすべての権限は、期限が切れるかあなたが取り消すまで機能します — 取り消しには常にウォレットアプリ（Keplr / LUNCDash）でのあなたの署名が必要です。このページは読み取り専用で、何かを取り消したり変更したりすることは決してできません。',
+  sec_smoke_keplr: 'このセクションを煙探知機のように見守ってください：ここのすべての権限は、期限が切れるかあなたが取り消すまで機能します — 取り消しには常にウォレットアプリ（Keplr）でのあなたの署名が必要です。このページは読み取り専用で、何かを取り消したり変更したりすることは決してできません。',
   cnt_open: '· {n} 件開いています', check_below: ' · ⚠️ 下を確認してください',
   given_title: '🔑 あなたが付与した権限', given_none: '✅ なし — このウォレットは他のウォレットに代行を認可していません。',
   given_to: '付与先：', no_expiry: '🔴 期限なし — この権限はあなたが取り消すまで永遠に機能します。', expires: '期限：{date}',
   risk_high: '🔴 高リスク', risk_mid: '🟠 要確認', risk_low: '🟢 低',
   given_fix: '<b>対処方法：</b>ウォレットアプリ（Keplr または LUNCDash）を開き、AuthZ / 認可画面を見つけて、見覚えのないものをすべて取り消してください。取り消しにはアプリでのあなたの署名が必要です — このページが代わりに行うことは決してできません。',
+  given_fix_keplr: '<b>対処方法：</b>ウォレットアプリ（Keplr）を開き、AuthZ / 認可画面を見つけて、見覚えのないものをすべて取り消してください。取り消しにはアプリでのあなたの署名が必要です — このページが代わりに行うことは決してできません。',
   err_given: '⚠️ 現在権限リストを読み取れません — しばらくしてから再試行してください。',
   fee_title: '⛽ あなたが付与した手数料許容量', fee_none: '✅ なし — 誰もこのウォレットから取引手数料を支払えません。',
   fee_spend: 'このウォレットはあなたのウォレットから {what} を使うことができます。', fee_what_plain: '手数料許容量',
@@ -3016,6 +3156,7 @@ I18N.ja = {
   received_title: '📥 あなたに付与された権限', received_none: 'なし — 他のウォレットはこのウォレットに代行する権限を与えていません。',
   given_by: '付与元：', no_expiry_set: '期限は設定されていません。', info_word: '情報',
   received_fee_note: '他のウォレットがあなたに付与した手数料許容量はここに表示できません — このチェーンの公開 API はその検索を提供していません。',
+  fee_not_offered: 'あなたが付与した手数料許容量はここに表示できません — このチェーンの公開 API はその検索を提供していません。',
   fp_how: '<b>このページの読み方：</b>表示されるものはすべて、「{lookup}」をタップしたときに公開チェーンデータからライブで読み取られます。ネイティブ残高、ステーキング、報酬はチェーン（LCD）から直接取得します。トークン残高はエクスプローラーのインデックス経由で探索され、その後<b>直接のオンチェーンクエリで1つずつ再確認されます</b> — 確認済みの残高のみ表示されます。価格は価値カードに記載された公開ソースからのみ取得します。実際の価格がないものはすべて「{no_price}」と表示され、合計には含まれません。',
   fp_not_shown: 'このバージョンでまだ表示されないもの：FRG NFT Staking 以外のステーキングコントラクトに保管された NFT、Garuda のクロスステーキング / NFT ファクトリーのポジション、LP ポジション。セクションは対象範囲が部分的な場合、その旨を明記します。',
   fp_free_tool: 'は無料のコミュニティツールです。',
@@ -3037,6 +3178,9 @@ I18N.zh = {
   wallet_label: '钱包：',
   err_addr_terra: '这看起来不像 Terra Classic 地址（terra1…——45 个字符）。请检查后重试。',
   err_addr_do: '这看起来不像 DO Chain 地址（do1…）。请检查后重试。',
+  placeholder_chain: '粘贴 {p}… 地址',
+  err_addr_chain: '这看起来不像 {name} 地址（{p}…）。请检查后重试。',
+  note_prices_major: '价格：{sym} 现货价格来自 CoinPaprika / CoinGecko（以先响应者为准）；其他所有面额均以无市场价格显示，不计入总额。这是市场价值的估算，并非出售所得的承诺。 ',
   no_native: '未在链上找到此钱包的原生余额。', no_price: '无市场价格',
   cnt_denom: '· {n} 个面额', cnt_denoms: '· {n} 个面额',
   err_balances: '⚠️ 目前无法读取链上余额——请稍后重试。',
@@ -3127,11 +3271,13 @@ I18N.zh = {
   never_expire_one: '{n} 个永不过期', never_expire_many: '{n} 个永不过期',
   sec_counts_line: '已授予的手续费额度：{fee} · 委托给被监禁验证人的数量：{jailed} · 此钱包控制的合约（已知集）：{contracts}。',
   sec_smoke: '像看烟雾报警器一样关注此部分：这里的每个权限在过期或你撤销之前都有效——撤销始终需要你在钱包应用（Keplr / LUNCDash）中签名。本页面只读取；它永远无法撤销或更改任何内容。',
+  sec_smoke_keplr: '像看烟雾报警器一样关注此部分：这里的每个权限在过期或你撤销之前都有效——撤销始终需要你在钱包应用（Keplr）中签名。本页面只读取；它永远无法撤销或更改任何内容。',
   cnt_open: '· {n} 个开放', check_below: ' · ⚠️ 请查看下方',
   given_title: '🔑 你授予的权限', given_none: '✅ 无——此钱包未授权任何其他钱包代表它行事。',
   given_to: '授予给：', no_expiry: '🔴 无过期——此权限将永久有效，直到你撤销它。', expires: '过期：{date}',
   risk_high: '🔴 高风险', risk_mid: '🟠 请检查', risk_low: '🟢 低',
   given_fix: '<b>如何修复：</b>打开你的钱包应用（Keplr 或 LUNCDash），找到 AuthZ / 授权界面，撤销任何你不认识的内容。撤销需要在应用中签名——本页面永远无法替你完成。',
+  given_fix_keplr: '<b>如何修复：</b>打开你的钱包应用（Keplr），找到 AuthZ / 授权界面，撤销任何你不认识的内容。撤销需要在应用中签名——本页面永远无法替你完成。',
   err_given: '⚠️ 目前无法读取权限列表——请稍后重试。',
   fee_title: '⛽ 你授予的手续费额度', fee_none: '✅ 无——没有人可以从此钱包支付交易手续费。',
   fee_spend: '此钱包可以从你的钱包中支出 {what}。', fee_what_plain: '手续费额度',
@@ -3159,6 +3305,7 @@ I18N.zh = {
   received_title: '📥 授予你的权限', received_none: '无——没有其他钱包赋予此钱包代表它行事的权力。',
   given_by: '授予方：', no_expiry_set: '未设置过期时间。', info_word: '信息',
   received_fee_note: '其他钱包授予你的手续费额度无法在此列出——此链的公共 API 不提供该查询。',
+  fee_not_offered: '你授予的手续费额度无法在此列出——此链的公共 API 不提供该查询。',
   fp_how: '<b>如何阅读本页面：</b>当你点击"{lookup}"时，显示的所有内容都从公开链上数据实时读取。原生余额、质押和奖励直接来自链（LCD）。代币余额通过浏览器索引发现，然后<b>通过直接链上查询逐一重新验证</b>——只显示已验证的余额。价格仅来自价值卡上注明的公开来源；任何没有真实价格的内容都以"{no_price}"列出，并排除在总额之外。',
   fp_not_shown: '此版本尚未显示：保存在 FRG NFT Staking 以外质押合约中的 NFT、Garuda 跨质押 / NFT 工厂持仓以及 LP 持仓。各部分在覆盖范围为部分时会注明其覆盖范围。',
   fp_free_tool: '是一个免费的社区工具。',
@@ -3166,11 +3313,24 @@ I18N.zh = {
 };
 
 /* ── Lookup orchestration ──────────────────────────────────────── */
+function buildChainTabs(){
+  var html = '';
+  CHAIN_ORDER.forEach(function(id){
+    var C = CHAINS[id];
+    html += '<button type="button" data-chain="' + id + '" onclick="setChain(\'' + id + '\')">' +
+      C.icon + ' ' + esc(C.name) + '</button>';
+  });
+  $('chainTabs').innerHTML = html;
+}
 function setChain(c){
+  if (!CHAINS[c]) c = 'terra';
   chain = c;
-  $('tabTerra').className = c === 'terra' ? 'on' : '';
-  $('tabDo').className = c === 'do' ? 'on' : '';
-  $('addrInput').placeholder = tr(c === 'terra' ? 'placeholder_terra' : 'placeholder_do');
+  var tabs = document.querySelectorAll('#chainTabs button');
+  for (var i = 0; i < tabs.length; i++)
+    tabs[i].className = tabs[i].getAttribute('data-chain') === c ? 'on' : '';
+  $('addrInput').placeholder = c === 'terra' ? tr('placeholder_terra')
+    : c === 'do' ? tr('placeholder_do')
+    : tr('placeholder_chain', { p: CHAINS[c].prefix });
   $('addrInput').setAttribute('aria-label', tr('wallet_address_aria'));
 }
 function showErr(msg){
@@ -3179,13 +3339,14 @@ function showErr(msg){
   e.textContent = msg; e.style.display = 'block';
 }
 function validAddr(a){
-  if (chain === 'terra') return /^terra1[a-z0-9]{38}$/.test(a);
-  return /^do1[a-z0-9]{38,}$/.test(a);
+  return cfg().addrRe.test(a);
 }
 function lookup(){
   var a = $('addrInput').value.trim().toLowerCase();
   if (!validAddr(a)){
-    showErr(tr(chain === 'terra' ? 'err_addr_terra' : 'err_addr_do'));
+    showErr(chain === 'terra' ? tr('err_addr_terra')
+      : chain === 'do' ? tr('err_addr_do')
+      : tr('err_addr_chain', { name: cfg().name, p: cfg().prefix }));
     return;
   }
   showErr('');
@@ -3198,7 +3359,7 @@ function lookup(){
   $('dash').hidden = false;
   $('addrBar').hidden = false;
   $('addrBar').innerHTML = tr('wallet_label') + ' ' + addrLink(a) +
-    (chain === 'terra' ? '' : ' <span class="small">(DO Chain)</span>');
+    (chain === 'terra' ? '' : ' <span class="small">(' + esc(cfg().name) + ')</span>');
   ['balBody','tokBody','stkBody','pltBody','nftBody','txBody','claimBody','secBody'].forEach(function(id){
     $(id).innerHTML = '<span class="spin">' + tr('spin_chain') + '</span>';
   });
@@ -3213,14 +3374,18 @@ function lookup(){
   loadBalances(run);
   loadStaking(run);
   loadSecurity(run);
-  if (chain === 'terra'){
-    $('secTokens').hidden = false; $('secPlatforms').hidden = false; $('secNfts').hidden = false; $('secTxs').hidden = false;
-    loadTokens(run); loadPlatforms(run); loadNfts(run); loadTxs(run);
-  } else {
-    $('secTokens').hidden = true; $('secPlatforms').hidden = true; $('secNfts').hidden = true; $('secTxs').hidden = true;
-    $('tokCnt').textContent = ''; $('pltCnt').textContent = ''; $('nftCnt').textContent = ''; $('txCnt').textContent = '';
-    finishValue(run);
-  }
+  var S = cfg().sections;
+  $('secTokens').hidden = !S.tokens; $('secPlatforms').hidden = !S.platforms;
+  $('secNfts').hidden = !S.nfts; $('secTxs').hidden = !S.txs;
+  if (!S.tokens) $('tokCnt').textContent = '';
+  if (!S.platforms) $('pltCnt').textContent = '';
+  if (!S.nfts) $('nftCnt').textContent = '';
+  if (!S.txs) $('txCnt').textContent = '';
+  if (S.tokens) loadTokens(run);
+  if (S.platforms) loadPlatforms(run);
+  if (S.nfts) loadNfts(run);
+  if (S.txs) loadTxs(run);
+  if (!S.tokens && !S.platforms && !S.nfts && !S.txs) finishValue(run);
   renderFinePrint();
 }
 function alive(run){ return run === RUN; }
@@ -3375,7 +3540,7 @@ function loadStaking(run){
   return Promise.all([loadValNames(), pDel, pUnb, pRew]).then(async function(res){
     if (!alive(run)) return;
     var del = res[1], unb = res[2], rew = res[3];
-    var stakeDenom = chain === 'do' ? 'udo' : 'uluna';
+    var stakeDenom = cfg().stakeDenom;
     var rows = [], totalStaked = 0;
     if (del && del.delegation_responses){
       del.delegation_responses.forEach(function(d){
@@ -3409,7 +3574,7 @@ function loadStaking(run){
     }
     if (rows.length){
       html += '<div class="row"><span class="k"><b>' + tr('total_staked') + '</b></span><span class="v">' +
-        fmtAmt(String(totalStaked), 6) + ' ' + (chain === 'do' ? 'DO' : 'LUNC') + '</span></div>';
+        fmtAmt(String(totalStaked), 6) + ' ' + cfg().nativeSymbol + '</span></div>';
       rows.forEach(function(r){
         var nm = valNames[r.val];
         var jail = (valInfo[r.val] && valInfo[r.val].jailed) ? '<br><span style="color:#ff8080;font-weight:700">' + tr('jailed_warn') + '</span>' : '';
@@ -3427,7 +3592,7 @@ function loadStaking(run){
       });
     }
     $('stkBody').innerHTML = html;
-    $('stkCnt').textContent = rows.length ? '· ' + fmtAmt(String(totalStaked), 6) + ' ' + (chain === 'do' ? 'DO' : 'LUNC') : '';
+    $('stkCnt').textContent = rows.length ? '· ' + fmtAmt(String(totalStaked), 6) + ' ' + cfg().nativeSymbol : '';
     renderClaimable(run);
     finishValue(run);
   });
@@ -3443,10 +3608,10 @@ function renderClaimable(run){
   var rew = state.rewards;
   var html = '';
   var totals = rewardTotals(rew);
-  var mainDenom = chain === 'do' ? 'udo' : 'uluna';
+  var mainDenom = cfg().stakeDenom;
   var mainAmt = totals[mainDenom] || 0;
   html += '<div class="big" style="font-size:24px">🎁 ' + fmtAmt(String(Math.floor(mainAmt)), 6) + ' ' +
-    (chain === 'do' ? 'DO' : 'LUNC') + '</div>';
+    cfg().nativeSymbol + '</div>';
   html += '<p class="small">' + tr('rewards_note') + '</p>';
   if (rew && rew.rewards && rew.rewards.length){
     html += '<h3>' + tr('per_validator') + '</h3>';
@@ -3855,8 +4020,14 @@ function finishValue(run){
   $('valueAsOf').textContent = new Date().toUTCString().slice(17, 25) + ' UTC';
   $('valueSplit').innerHTML =
     tr('split_liquid') + ' <b>' + fmtUSD(liquid) + '</b> · ' + tr('split_staked_native') + ' <b>' + fmtUSD(stakedNat) + '</b>' +
-    ' · ' + tr('split_staked_tokens') + ' <b>' + fmtUSD(platform) + '</b> · ' + tr('split_claimable') + ' <b>' + fmtUSD(rewardsUsd) + '</b>' +
+    (cfg().generic ? '' : ' · ' + tr('split_staked_tokens') + ' <b>' + fmtUSD(platform) + '</b>') +
+    ' · ' + tr('split_claimable') + ' <b>' + fmtUSD(rewardsUsd) + '</b>' +
     (chain === 'terra' ? ' · ' + tr('split_nfts') + ' <b>' + (state.nftPriced ? fmtUSD(r.nfts) + ' ' + tr('floor_estimate') : tr('not_priced')) + '</b>' : '');
+  if (cfg().generic){
+    $('valueNote').innerHTML = tr('note_total_counts', { n: pricedItems }) + '<b>' +
+      tr(excluded === 1 ? 'note_excluded_one' : 'note_excluded_many', { n: excluded }) + '</b>' + tr('note_excluded_tail') +
+      tr('note_prices_major', { sym: cfg().nativeSymbol });
+  } else {
   $('valueNote').innerHTML = tr('note_total_counts', { n: pricedItems }) + '<b>' +
     tr(excluded === 1 ? 'note_excluded_one' : 'note_excluded_many', { n: excluded }) + '</b>' + tr('note_excluded_tail') +
     tr('note_prices') + tr('note_pair_index') + tr('note_disagree') +
@@ -3866,6 +4037,7 @@ function finishValue(run){
           ? ' <b>' + tr('note_nft_included_a') + '</b>' + tr('note_nft_included_b', { src: esc(state.nftFloorSource || tr('a_live_marketplace')) })
           : ' <b>' + tr('note_nft_excluded_a') + '</b>' + tr('note_nft_excluded_b'))
       : '');
+  }
   renderGauges(run);
 }
 function computeValue(run){
@@ -3888,7 +4060,7 @@ function computeValue(run){
   });
   var pLunc = priceCache.LUNC, pDo = priceCache.DO;
   if (state.totalStakedRaw != null){
-    var pp = chain === 'do' ? pDo : pLunc;
+    var pp = chain === 'do' ? pDo : (cfg().generic ? priceCache[cfg().priceKey] : pLunc);
     if (pp) { stakedNat = amtNum(String(state.totalStakedRaw), 6) * pp.usd; pricedItems++; }
     if (state.unbonding && pp) stakedNat += amtNum(String(state.unbonding), 6) * pp.usd;
   }
@@ -3905,6 +4077,8 @@ function computeValue(run){
     if (tot.uluna && pLunc) rewardsUsd += (tot.uluna / 1e6) * pLunc.usd;
     if (tot.uusd && priceCache.USTC) rewardsUsd += (tot.uusd / 1e6) * priceCache.USTC.usd;
     if (tot.udo && pDo) rewardsUsd += (tot.udo / 1e6) * pDo.usd;
+    if (cfg().generic && tot[cfg().stakeDenom] && priceCache[cfg().priceKey])
+      rewardsUsd += (tot[cfg().stakeDenom] / 1e6) * priceCache[cfg().priceKey].usd;
   }
   /* NFTs join the total ONLY when a verifiable live floor price exists.
      None does today (see the NFT section note), so nftUsd stays 0 and the
@@ -3986,10 +4160,10 @@ function renderGauges(run){
   }
   var counts = [];
   if (state.native) counts.push(tr('cnt_native', { n: state.native.length }));
-  if (state.tokens) counts.push(tr('cnt_tokens', { n: state.tokens.length }));
+  if (state.tokens && !cfg().generic) counts.push(tr('cnt_tokens', { n: state.tokens.length }));
   if (state.delegations) counts.push(tr('cnt_delegations', { n: state.delegations.length }));
-  if (state.platforms) counts.push(tr('cnt_platform_positions', { n: state.platforms.length }));
-  counts.push(tr('cnt_nfts', { n: nftCount }));
+  if (state.platforms && !cfg().generic) counts.push(tr('cnt_platform_positions', { n: state.platforms.length }));
+  if (!cfg().generic) counts.push(tr('cnt_nfts', { n: nftCount }));
   if (state.txCount) counts.push(tr('cnt_recent_txs', { n: state.txCount }));
   $('countStrip').innerHTML = counts.map(function(c){ return '<span class="pill g">' + esc(c) + '</span>'; }).join('');
 }
@@ -4051,7 +4225,7 @@ function loadSecurity(run){
         (counts.noexp ? '<br><small style="color:#ff8080;font-weight:700">' + tr(counts.noexp === 1 ? 'never_expire_one' : 'never_expire_many', { n: counts.noexp }) + '</small>' : '')) +
       '</span></div>' +
       '<p class="small">' + tr('sec_counts_line', { fee: counts.fee, jailed: counts.jailed, contracts: counts.contracts }) + '</p>' +
-      '<p class="small">' + tr('sec_smoke') + '</p>';
+      '<p class="small">' + tr(cfg().generic ? 'sec_smoke_keplr' : 'sec_smoke') + '</p>';
     $('secBody').innerHTML = head + parts.given + parts.fee + parts.health + parts.contracts + parts.allow + parts.received;
     $('secCnt').textContent = counts.given >= 0
       ? tr('cnt_open', { n: counts.given + counts.fee }) + ((counts.noexp || counts.jailed) ? tr('check_below') : '')
@@ -4082,7 +4256,7 @@ function loadSecurity(run){
                  : '<br><span class="small">' + tr('expires', { date: esc(String(g.expiration).slice(0, 10)) }) + '</span>') +
           '</span><span class="v">' + (f.risk === 'high' ? tr('risk_high') : f.risk === 'mid' ? tr('risk_mid') : tr('risk_low')) + '</span></div>';
       });
-      h += '<p class="small">' + tr('given_fix') + '</p>';
+      h += '<p class="small">' + tr(cfg().generic ? 'given_fix_keplr' : 'given_fix') + '</p>';
     }
     parts.given = h; paint();
   }).catch(function(){
@@ -4115,9 +4289,13 @@ function loadSecurity(run){
       h += '<p class="small">' + tr('fee_fix') + '</p>';
     }
     parts.fee = h; paint();
-  }).catch(function(){
+  }).catch(function(e){
     if (!alive(run)) return;
-    parts.fee = '<h3>' + tr('fee_title') + '</h3><p class="small">' + tr('err_fee') + '</p>';
+    /* Some chains' public LCDs simply do not implement the feegrant
+       list query (HTTP 501 — every public Osmosis LCD does this).
+       Say so plainly instead of showing a scary read error. */
+    var notOffered = cfg().generic && String((e && e.message) || e).indexOf('501') >= 0;
+    parts.fee = '<h3>' + tr('fee_title') + '</h3><p class="small">' + tr(notOffered ? 'fee_not_offered' : 'err_fee') + '</p>';
     paint();
   });
 
@@ -4142,7 +4320,7 @@ function loadSecurity(run){
           lines.push('<div class="row"><span class="k"><span style="color:#ff8080;font-weight:700">' + tr('jailed_validator') + '</span> — ' +
             esc(vi.name) + '<br><span class="small">' + addrLink(d.delegation.validator_address) +
             '</span><br><span class="small">' + tr('jailed_note') + '</span></span>' +
-            '<span class="v">' + fmtAmt(d.balance.amount, 6) + ' ' + (chain === 'do' ? 'DO' : 'LUNC') + '</span></div>');
+            '<span class="v">' + fmtAmt(d.balance.amount, 6) + ' ' + cfg().nativeSymbol + '</span></div>');
         }
       });
       unbs.forEach(function(u){
@@ -4150,7 +4328,7 @@ function loadSecurity(run){
           var vi = valInfo[u.validator_address];
           lines.push('<div class="row"><span class="k">' + tr('unbonding_from', { name: esc(vi ? vi.name : u.validator_address) }) +
             '<br><span class="small">' + tr('completes', { date: esc(String(e.completion_time || '').slice(0, 10)) }) + '</span></span>' +
-            '<span class="v">' + fmtAmt(e.balance, 6) + ' ' + (chain === 'do' ? 'DO' : 'LUNC') + '</span></div>');
+            '<span class="v">' + fmtAmt(e.balance, 6) + ' ' + cfg().nativeSymbol + '</span></div>');
         });
       });
       h += lines.length ? lines.join('') : '<p class="small">' + tr('healthy') + '</p>';
@@ -4315,12 +4493,13 @@ function renderFinePrint(){
 /* ── Init ──────────────────────────────────────────────────────── */
 $('addrInput').addEventListener('keydown', function(ev){ if (ev.key === 'Enter') lookup(); });
 (function(){
+  buildChainTabs();
   initLang();
   renderFinePrint();
   try {
     var u = new URL(window.location.href);
     var a = u.searchParams.get('addr'), c = u.searchParams.get('chain');
-    if (c === 'do' || c === 'terra') setChain(c);
+    if (c && CHAINS[c]) setChain(c);
     if (a){ $('addrInput').value = a; lookup(); }
     if (u.searchParams.get('open') === '1'){
       document.querySelectorAll('details.card').forEach(function(d){ d.open = true; });
