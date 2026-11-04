@@ -32,13 +32,17 @@ document.getElementById('game').appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x0a0818, 0.028);
 
-const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 0.1, 200);
+let isPortrait = innerWidth < innerHeight;
+const camera = new THREE.PerspectiveCamera(isPortrait ? 50 : 38, innerWidth / innerHeight, 0.1, 200);
 camera.position.set(0, 1.5, 7.2);
 
 addEventListener('resize', () => {
+  isPortrait = innerWidth < innerHeight;
   camera.aspect = innerWidth / innerHeight;
+  camera.fov = isPortrait ? 50 : 38;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+  layoutArena();
 });
 
 /* ---------------- lights ---------------- */
@@ -121,6 +125,7 @@ const glowTex = canvasTex(128, 128, (x, w, h) => {
 }, { nearest: true });
 
 /* ---------------- arena ---------------- */
+let gateRing, gateGlowSpr, moonMesh, moonGlowSpr;
 const arena = new THREE.Group(); scene.add(arena);
 const flames = [];
 let embers = null;
@@ -155,6 +160,7 @@ let embers = null;
   moon.position.set(-10.5, 8.4, -30); arena.add(moon);
   const moonGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0x9db8ff, transparent: true, opacity: .55, depthWrite: false, fog: false }));
   moonGlow.scale.set(7, 7, 1); moonGlow.position.copy(moon.position); arena.add(moonGlow);
+  gateRing = gate; gateGlowSpr = gateGlow; moonMesh = moon; moonGlowSpr = moonGlow;
 
   const stoneMat = new THREE.MeshStandardMaterial({ color: 0x191423, roughness: .95 });
   for (let i = 0; i < 8; i++) {
@@ -178,6 +184,26 @@ let embers = null;
   embers = new THREE.Points(eg, new THREE.PointsMaterial({ map: glowTex, color: 0xffa050, size: 0.09, transparent: true, opacity: .8, depthWrite: false, blending: THREE.AdditiveBlending }));
   arena.add(embers);
 }
+// Set pieces are composed per orientation: the landscape gate ring / moon
+// placement overwhelms a portrait frame, so portrait pulls them smaller,
+// higher and into the narrower frustum.
+function layoutArena() {
+  if (!gateRing) return;
+  if (isPortrait) {
+    gateRing.position.set(0, 3.7, -11.5); gateRing.scale.setScalar(0.78);
+    gateGlowSpr.position.copy(gateRing.position); gateGlowSpr.scale.set(8.5, 8.5, 1);
+    moonMesh.position.set(-3.8, 7.2, -26); moonMesh.scale.setScalar(0.85);
+    moonGlowSpr.position.copy(moonMesh.position); moonGlowSpr.scale.set(5.5, 5.5, 1);
+    scene.fog.density = 0.02;
+  } else {
+    gateRing.position.set(0, 3.0, -9.5); gateRing.scale.setScalar(1);
+    gateGlowSpr.position.copy(gateRing.position); gateGlowSpr.scale.set(11, 11, 1);
+    moonMesh.position.set(-10.5, 8.4, -30); moonMesh.scale.setScalar(1);
+    moonGlowSpr.position.copy(moonMesh.position); moonGlowSpr.scale.set(7, 7, 1);
+    scene.fog.density = 0.028;
+  }
+}
+layoutArena();
 
 /* ---------------- audio (synth, no assets) ---------------- */
 const AudioSys = {
@@ -528,6 +554,61 @@ document.querySelectorAll('.tbtn').forEach(b => {
   b.addEventListener('pointerleave', off);
   b.addEventListener('pointercancel', off);
 });
+/* ---------------- control scheme: joystick (default) | button pad ---------------- */
+const stickBase = document.getElementById('stickBase');
+const stickKnob = document.getElementById('stickKnob');
+const stickZone = document.getElementById('stickZone');
+const stick = { id: null, cx: 0, cy: 0 };
+function stickReset() {
+  stick.id = null;
+  stickKnob.style.transform = '';
+  touchState.left = touchState.right = touchState.down = touchState.up = false;
+}
+function stickVector(dx, dy) {
+  const R = 46, len = Math.hypot(dx, dy);
+  if (len > R) { dx *= R / len; dy *= R / len; }
+  stickKnob.style.transform = `translate(${dx}px,${dy}px)`;
+  touchState.left = dx < -15; touchState.right = dx > 15;
+  touchState.down = dy > 20; touchState.up = dy < -20;
+}
+stickZone.addEventListener('pointerdown', e => {
+  if (stick.id !== null) return;
+  AudioSys.init();
+  stick.id = e.pointerId; stick.cx = e.clientX; stick.cy = e.clientY;
+  try { stickZone.setPointerCapture(e.pointerId); } catch (err) { }
+  stickBase.style.left = (e.clientX - 62) + 'px';
+  stickBase.style.top = (e.clientY - 62) + 'px';
+  stickBase.style.bottom = 'auto';
+  stickVector(0, 0);
+  e.preventDefault();
+});
+stickZone.addEventListener('pointermove', e => {
+  if (e.pointerId === stick.id) stickVector(e.clientX - stick.cx, e.clientY - stick.cy);
+});
+const stickEnd = e => { if (e.pointerId === stick.id) stickReset(); };
+stickZone.addEventListener('pointerup', stickEnd);
+stickZone.addEventListener('pointercancel', stickEnd);
+
+let ctlMode = 'stick';
+try { if (localStorage.getItem('ac3d.controls') === 'pad') ctlMode = 'pad'; } catch (e) { }
+function applyCtlMode() {
+  document.body.classList.toggle('ctl-pad', ctlMode === 'pad');
+  document.body.classList.toggle('ctl-stick', ctlMode !== 'pad');
+  document.querySelectorAll('.ctl-opt').forEach(b => b.classList.toggle('sel', b.dataset.mode === ctlMode));
+  const hint = document.getElementById('ctlHint');
+  if (hint) hint.textContent = ctlMode === 'pad'
+    ? 'TOUCH: button pad — arrows move · JAB / HOOK / KICK / SPEC attack'
+    : 'TOUCH: left stick moves — flick up to jump · push down to crouch';
+  for (const k in touchState) touchState[k] = false;
+  stickReset();
+}
+document.querySelectorAll('.ctl-opt').forEach(b => b.addEventListener('click', () => {
+  ctlMode = b.dataset.mode === 'pad' ? 'pad' : 'stick';
+  try { localStorage.setItem('ac3d.controls', ctlMode); } catch (e) { }
+  AudioSys.init(); applyCtlMode();
+}));
+applyCtlMode();
+
 const pressed = { jab: false, hook: false, kick: false, spec: false, jump: false };
 function readPlayerInput() {
   const inp = {
@@ -735,18 +816,44 @@ function updateHUD() {
   const t = Math.max(0, Math.ceil(game.timer));
   $('timer').textContent = t;
   $('timer').classList.toggle('hurry', t <= 10 && game.phase === 'fight');
+  $('pauseBtn').style.display = (!QA_MODE && !paused && (game.phase === 'fight' || game.phase === 'intro')) ? 'block' : 'none';
 }
+
+/* ---------------- pause ---------------- */
+let paused = false;
+$('pauseBtn').addEventListener('click', () => {
+  if (game.phase !== 'fight' && game.phase !== 'intro') return;
+  paused = true; $('pauseMenu').style.display = 'flex'; AudioSys.init();
+});
+$('resumeBtn').addEventListener('click', () => { paused = false; $('pauseMenu').style.display = 'none'; });
+$('quitBtn').addEventListener('click', () => {
+  paused = false; $('pauseMenu').style.display = 'none';
+  resetFighter(P1); resetFighter(P2);
+  game.phase = 'menu'; game.winner = null;
+  $('rematch').style.display = 'none';
+  $('menu').style.display = 'flex';
+  updatePips(); updateHUD();
+});
 
 /* ---------------- camera ---------------- */
 const camTarget = new THREE.Vector3();
 function updateCamera(dt, t) {
   const mid = (P1.x + P2.x) / 2;
   const sep = Math.abs(P1.x - P2.x);
-  const distC = THREE.MathUtils.clamp(3.1 + sep * 0.66, 4.7, 7.4);
-  let tx = mid * 0.6, ty = 1.34, tz = distC;
-  if (game.phase === 'menu') { tx = Math.sin(t * 0.11) * 1.6; ty = 1.35; tz = 7.4; }
+  // Distance that fits (separation + body margin) inside the horizontal FOV
+  // at the current aspect. In landscape this stays under the classic framing
+  // distance, so the approved landscape shot is unchanged; in portrait it
+  // pulls the camera back until BOTH fighters are in frame.
+  const fitK = 2 * Math.tan(camera.fov * Math.PI / 360) * (innerWidth / innerHeight);
+  const distFit = THREE.MathUtils.clamp(sep * 0.92 + 1.9, 3.8, 8.8) / fitK;
+  const distC = THREE.MathUtils.clamp(Math.max(3.1 + sep * 0.66, distFit), 4.7, isPortrait ? 14 : 7.4);
+  let tx = mid * 0.6, ty = isPortrait ? 1.95 : 1.34, tz = distC;
+  if (game.phase === 'menu') {
+    tx = Math.sin(t * 0.11) * 1.6; ty = isPortrait ? 1.8 : 1.35;
+    tz = isPortrait ? Math.max(7.4, (3.4 * 0.92 + 1.9) / fitK) : 7.4;
+  }
   if (game.phase === 'roundEnd' || game.phase === 'matchEnd') {
-    const w = game.winner || P1; tx = w.x * 0.8; ty = 1.3; tz = 5.2;
+    const w = game.winner || P1; tx = w.x * 0.8; ty = isPortrait ? 1.8 : 1.3; tz = isPortrait ? 8.2 : 5.2;
   }
   camTarget.set(tx, ty, tz);
   camera.position.lerp(camTarget, 1 - Math.pow(0.0015, dt));
@@ -755,7 +862,7 @@ function updateCamera(dt, t) {
     camera.position.y += (Math.random() - .5) * shakeAmp * 0.3;
     shakeAmp *= Math.pow(0.0001, dt);
   } else shakeAmp = 0;
-  camera.lookAt(mid * 0.75, 1.02, 0);
+  camera.lookAt(mid * 0.75, isPortrait ? 0.8 : 1.02, 0);
 }
 
 /* ---------------- main loop ---------------- */
@@ -765,6 +872,7 @@ function animate() {
   requestAnimationFrame(animate);
   let rawDt = Math.min(clock.getDelta(), 0.05);
   elapsed += rawDt;
+  if (paused) { renderer.render(scene, camera); return; }
   let dt = rawDt;
   if (slowmoT > 0) { slowmoT -= rawDt; dt *= 0.25; }
   if (hitstopT > 0) { hitstopT -= rawDt; dt = 0; }
