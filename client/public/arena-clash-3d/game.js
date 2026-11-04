@@ -784,6 +784,8 @@ function animate() {
   });
   underGlow.intensity = 11 + Math.sin(elapsed * 2.3) * 2.2;
 
+  const SUB = QA_MODE === 'auto' ? 6 : 1; // QA-only: substep the sim so a full match completes under slow software rendering
+  for (let _s = 0; _s < SUB; _s++) {
   if (game.phase !== 'boot') {
     game.phaseT += rawDt;
     if (game.phase === 'intro' && game.phaseT > 1.45) {
@@ -839,6 +841,7 @@ function animate() {
       P1.mixer.update(0); P2.mixer.update(0);
     }
     updateHUD();
+  }
   }
   updateSparks(rawDt);
   updateSlashes(rawDt);
