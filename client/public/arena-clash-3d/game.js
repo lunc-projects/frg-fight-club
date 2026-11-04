@@ -267,6 +267,53 @@ function findBone(root, name) {
   return found;
 }
 
+/* -------- shirt-back brand prints (LUNC / USTC outfits) --------
+   Drawn on a 1024px canvas: crescent + big wordmark + full name under it
+   (the crescent alone does not say Luna Classic — the words must appear). */
+function makeBrandTexture(brand) {
+  const W = 1024, H = 1024;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d');
+  const grad = () => {
+    const g = x.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, brand.bg1); g.addColorStop(1, brand.bg2);
+    return g;
+  };
+  x.fillStyle = grad(); x.fillRect(0, 0, W, H);
+  // accent pinstripes
+  x.fillStyle = brand.fg;
+  x.fillRect(0, 34, W, 10); x.fillRect(0, H - 44, W, 10);
+  x.globalAlpha = 0.5; x.fillRect(0, 62, W, 4); x.fillRect(0, H - 66, W, 4); x.globalAlpha = 1;
+  // crescent: gold disc minus an offset disc refilled with the same gradient
+  const cx = W / 2, cy = 272, r = 140;
+  x.fillStyle = brand.fg;
+  x.beginPath(); x.arc(cx, cy, r, 0, Math.PI * 2); x.fill();
+  x.fillStyle = grad();
+  x.beginPath(); x.arc(cx + r * 0.685, cy - r * 0.315, r * 0.865, 0, Math.PI * 2); x.fill();
+  // wordmark
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  try { x.letterSpacing = '4px'; } catch (e) { }
+  let fs = 360;
+  x.font = `900 ${fs}px Arial, Helvetica, sans-serif`;
+  const ww = x.measureText(brand.word).width;
+  if (ww > 884) { fs = Math.floor(fs * 884 / ww); x.font = `900 ${fs}px Arial, Helvetica, sans-serif`; }
+  x.fillStyle = brand.fg;
+  x.fillText(brand.word, cx, 606);
+  // rule + full name
+  x.fillRect(cx - 250, 726, 500, 7);
+  try { x.letterSpacing = '15px'; } catch (e) { }
+  let fs2 = 98;
+  x.font = `700 ${fs2}px Arial, Helvetica, sans-serif`;
+  const sw = x.measureText(brand.sub).width;
+  if (sw > 864) { fs2 = Math.floor(fs2 * 864 / sw); x.font = `700 ${fs2}px Arial, Helvetica, sans-serif`; }
+  x.fillStyle = brand.sub2;
+  x.fillText(brand.sub, cx, 818);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+
 class Fighter {
   constructor(cfg) {
     this.cfg = cfg;
@@ -342,6 +389,7 @@ class Fighter {
     this.headBone = findBone(this.model, 'Head');
     this.play('idle');
     this.applyFacing();
+    this.attachBranding();
   }
   dur(key) { const a = this.actions[key]; return a ? a.getClip().duration : 0.6; }
   play(key, opts = {}) {
@@ -365,6 +413,32 @@ class Fighter {
   bonePos(bone, out) {
     if (!bone) return out.set(this.x, 1.1 + this.y, 0);
     return bone.getWorldPosition(out);
+  }
+  /* Shirt-back print: a slightly curved panel carrying the brand canvas,
+     placed in world space behind the chest at load, then attached to the
+     chest bone so it follows every animation (leans, knockback, death). */
+  attachBranding() {
+    const brand = this.cfg.brand;
+    if (!brand || !this.chestBone) return;
+    this.mixer.update(0.05);
+    scene.updateMatrixWorld(true);
+    const geo = new THREE.PlaneGeometry(0.60, 0.60, 20, 1);
+    const pa = geo.attributes.position;
+    for (let i = 0; i < pa.count; i++) { const t = pa.getX(i) / 0.30; pa.setZ(i, -0.055 * t * t); }
+    geo.computeVertexNormals();
+    const panel = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: makeBrandTexture(brand), roughness: 0.85, metalness: 0 }));
+    panel.frustumCulled = false;
+    const cPos = new THREE.Vector3();
+    this.chestBone.getWorldPosition(cPos);
+    const back = new THREE.Vector3(-this.face, 0, 0);
+    const center = cPos.clone().addScaledVector(back, 0.17);
+    center.y -= 0.09;
+    panel.position.copy(center);
+    panel.lookAt(center.clone().add(back));
+    scene.add(panel);
+    scene.updateMatrixWorld(true);
+    this.chestBone.attach(panel);
+    this.backPanel = panel;
   }
 }
 
@@ -521,14 +595,16 @@ const CLIPMAP = {
   win: 'Idle_FoldArms_Loop',
 };
 const P1 = new Fighter({
-  name: 'RYKER', model: 'models/ryker/char.gltf', startX: -1.7, handBone: 'hand_r',
+  name: 'MR LUNC', model: 'models/ryker/char.gltf', startX: -1.7, handBone: 'hand_r',
   sparkColor: 0x7fd8ff, specialType: 'dash',
+  brand: { word: 'LUNC', sub: 'LUNA CLASSIC', bg1: '#111e46', bg2: '#04061a', fg: '#f6bc45', sub2: '#dfe6ff' },
   hair: ['models/ryker/Hair_SimpleParted.gltf', 'models/ryker/Hair_Beard.gltf'],
   clips: { ...CLIPMAP, heavy: 'Melee_Hook', special: 'Sword_Dash', throw: 'OverhandThrow' },
 });
 const P2 = new Fighter({
-  name: 'SABLE', model: 'models/sable/char.gltf', startX: 1.7, handBone: 'hand_l',
+  name: 'MR USTC', model: 'models/sable/char.gltf', startX: 1.7, handBone: 'hand_l',
   sparkColor: 0xff8095, specialType: 'orb',
+  brand: { word: 'USTC', sub: 'TERRA CLASSIC', bg1: '#1a4396', bg2: '#071a3e', fg: '#ffffff', sub2: '#cfe0ff' },
   hair: ['models/sable/Hair_Long.gltf'], hairTint: 0x6e4a34,
   clips: { ...CLIPMAP, heavy: 'Punch_Cross', special: 'Spell_Simple_Shoot', throw: 'Spell_Simple_Shoot' },
 });
@@ -974,9 +1050,9 @@ function animate() {
     await loadAnims('anim/ual1.glb', ['Idle_Loop', 'Walk_Loop', 'Crouch_Idle_Loop', 'Jump_Loop', 'Punch_Jab', 'Punch_Cross', 'Hit_Chest', 'Hit_Head', 'Death01', 'Roll', 'Spell_Simple_Shoot']);
     setLoad(0.3, 'ANIMATIONS II');
     await loadAnims('anim/ual2.glb', ['Idle_Shield_Loop', 'Idle_FoldArms_Loop', 'Melee_Hook', 'Hit_Knockback', 'Sword_Dash', 'OverhandThrow', 'Slide_Start', 'Slide_Loop', 'Sword_Regular_A']);
-    setLoad(0.5, 'RYKER');
+    setLoad(0.5, 'MR LUNC');
     await P1.load();
-    setLoad(0.75, 'SABLE');
+    setLoad(0.75, 'MR USTC');
     await P2.load();
     setLoad(1, 'READY');
     document.getElementById('loading').style.display = 'none';
@@ -1064,6 +1140,28 @@ function setupQA(mode) {
     updatePips();
     setBannerPerm('K.O.', '');
     document.getElementById('koFlash').style.opacity = 0.55;
+    game.phase = 'frozen';
+  } else if (mode === 'backlunc' || mode === 'backustc') {
+    // Both fighters turned away at real fight spacing — the shirt-back
+    // prints are the subject. Focus fighter stands tall; the other crouches.
+    const luncFocus = mode === 'backlunc';
+    P1.x = luncFocus ? -0.66 : -0.82; P2.x = luncFocus ? 0.82 : 0.66;
+    P1.group.position.x = P1.x; P2.group.position.x = P2.x;
+    P1.group.rotation.y = Math.PI; P2.group.rotation.y = Math.PI;
+    freezePose(luncFocus ? P1 : P2, 'win', 0.5);
+    freezePose(luncFocus ? P2 : P1, 'crouch', 0.4);
+    game.phase = 'frozen';
+  } else if (mode === 'backfight') {
+    // Mid-fight: MR LUNC's jab knocks MR USTC around — USTC back to camera.
+    P1.x = -0.55; P2.x = 0.58;
+    P1.group.position.x = P1.x; P2.group.position.x = P2.x;
+    P1.face = 1; P1.applyFacing();
+    P2.group.rotation.y = Math.PI * 0.8;
+    freezePose(P1, 'jab', 0.16);
+    freezePose(P2, 'knock', 0.12);
+    P2.hp = 84;
+    P2.bonePos(P2.chestBone, _v1); burst(_v1, 0x7fd8ff, 20, 3, 1.3);
+    slashArc(_v1, 0x7fd8ff, false);
     game.phase = 'frozen';
   }
   updateHUD();
