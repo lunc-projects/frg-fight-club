@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Token Factory — Private Test · LUNC Dev Studio</title>
+<style>
+  :root{ --bg:#070b09; --panel:#0e1512; --panel2:#121c17; --line:#1f2f27;
+    --txt:#e8f1ec; --dim:#8fa89b; --gold:#e8b33c; --teal:#2dd4bf; --red:#ff6b6b; --green:#4ade80; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--txt);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  .wrap{ max-width:760px; margin:0 auto; padding:18px 16px 60px; }
+  .testbar{ background:#3a2b00; border:1px solid var(--gold); color:#ffe9a8;
+    border-radius:10px; padding:10px 14px; font-weight:700; text-align:center; margin-bottom:14px; }
+  header{ text-align:center; margin:10px 0 18px; }
+  header .mark{ font-size:40px; }
+  h1{ font-size:24px; margin:6px 0 2px; }
+  h1 .gold{ color:var(--gold); }
+  .sub{ color:var(--dim); font-size:14px; }
+  .card{ background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    padding:18px; margin:14px 0; }
+  .card h2{ font-size:17px; margin:0 0 4px; }
+  .card h2 .n{ display:inline-block; background:var(--gold); color:#111; border-radius:50%;
+    width:24px; height:24px; line-height:24px; text-align:center; font-size:14px; margin-right:8px; }
+  .hint{ color:var(--dim); font-size:13px; margin:4px 0 12px; }
+  label{ display:block; font-size:13px; color:var(--dim); margin:12px 0 4px; }
+  input[type=text], input[type=number]{ width:100%; padding:11px 12px; border-radius:9px;
+    border:1px solid var(--line); background:var(--panel2); color:var(--txt); font-size:16px; }
+  input[type=range]{ width:100%; }
+  .row{ display:flex; gap:12px; } .row > div{ flex:1; }
+  button{ width:100%; padding:13px; border:0; border-radius:10px; font-size:16px; font-weight:700;
+    background:linear-gradient(180deg,#f3c34d,#d99a17); color:#161006; cursor:pointer; margin-top:14px; }
+  button.alt{ background:var(--panel2); color:var(--teal); border:1px solid var(--teal); }
+  button:disabled{ opacity:.45; cursor:not-allowed; }
+  .mono{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12.5px; word-break:break-all; }
+  .kv{ display:flex; justify-content:space-between; gap:14px; padding:6px 0; border-bottom:1px dashed var(--line); font-size:14px; }
+  .kv b{ text-align:right; }
+  .err{ display:none; background:#3d0d0d; border:1px solid var(--red); color:#ffd7d7;
+    border-radius:10px; padding:12px 14px; margin:12px 0; font-size:14px; }
+  .err.show{ display:block; }
+  .ok{ display:none; background:#0d2e1a; border:1px solid var(--green); color:#d9ffe4;
+    border-radius:10px; padding:14px; margin:12px 0; font-size:14px; }
+  .ok.show{ display:block; }
+  .status{ font-size:13.5px; color:var(--dim); }
+  .status b{ color:var(--txt); }
+  a{ color:var(--teal); }
+  .badge{ display:inline-block; background:var(--gold); color:#111; font-weight:800; font-size:12px;
+    border-radius:6px; padding:2px 8px; vertical-align:middle; margin-left:8px; }
+  .review{ background:var(--panel2); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-top:12px; font-size:13.5px; }
+  .log{ font-size:13px; color:var(--dim); margin-top:10px; white-space:pre-wrap; }
+  .disclaimer{ color:#72857a; font-size:12px; line-height:1.5; text-align:center; margin-top:26px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="testbar">⚠️ PRIVATE TEST PAGE — TEST MODE · TEST FEE · TINY AMOUNTS ONLY</div>
+
+  <header>
+    <div class="mark">🏭</div>
+    <h1>Token Factory <span class="gold">Test</span><span class="badge">TEST</span></h1>
+    <div class="sub">LUNC Dev Studio · create a test token + its Terraswap pool in one go</div>
+  </header>
+
+  <div class="err" id="errBox"></div>
+  <div class="ok" id="okBox"></div>
+
+  <div class="card">
+    <h2>Factory status</h2>
+    <div class="status" id="svcStatus">Reading the factory service…</div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">1</span>Connect your wallet</h2>
+    <p class="hint">Keplr only. Your wallet is the token's <b>creator</b>: the full supply
+      (minus your LP %) is minted straight to it, you become the token's admin, and the token
+      is created with <b>no minter — ever</b>. This page never holds your keys; signing happens
+      only inside Keplr.</p>
+    <button id="connectBtn">Connect Keplr</button>
+    <div class="log" id="walletLog"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">2</span>Design your test token</h2>
+    <label>Token name</label>
+    <input type="text" id="fName" placeholder="e.g. Test Rocket" maxlength="50">
+    <label>Symbol (3–12 chars, uppercase)</label>
+    <input type="text" id="fSymbol" placeholder="e.g. TRKT" maxlength="12">
+    <div class="row">
+      <div>
+        <label>Total supply (whole tokens)</label>
+        <input type="number" id="fSupply" value="100000" min="1" step="1">
+      </div>
+      <div>
+        <label>Decimals</label>
+        <input type="number" id="fDecimals" value="6" min="0" max="18" step="1">
+      </div>
+    </div>
+    <label>Share of supply that seeds the pool (LP %): <b id="lpPctLabel">25%</b></label>
+    <input type="range" id="fLpPct" min="1" max="100" step="1" value="25">
+    <label>LUNC paired with it (test mode: 1–50, paid by the factory's test wallet)</label>
+    <input type="number" id="fLunc" value="10" min="1" max="50" step="1">
+    <p class="hint">The rest of the supply — your dev share — is minted straight to your wallet.
+      The LP tokens from the pool come <b>out to your wallet</b> too. The factory holds nothing.</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">3</span>Review the numbers</h2>
+    <p class="hint">Get the exact quote before anything is paid or signed: the split, the
+      starting price, and the total pool value.</p>
+    <button class="alt" id="quoteBtn">Get quote</button>
+    <div id="quoteBox"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">4</span>Create it</h2>
+    <div id="createReview" class="review">Connect your wallet and get a quote first — the exact
+      amounts and the wallet everything lands in will be listed here for review before you press.</div>
+
+    <label>Option A — free pass (one creation, no fee)</label>
+    <input type="text" id="fPass" placeholder="Paste your free-pass code" autocomplete="off">
+    <button id="passBtn">Create with free pass</button>
+
+    <label style="margin-top:20px">Option B — pay the test fee from your wallet</label>
+    <button class="alt" id="payBtn">Pay test fee &amp; create</button>
+    <div class="log" id="createLog"></div>
+  </div>
+
+  <div class="card" id="resultCard" style="display:none">
+    <h2>✅ Your test token is live</h2>
+    <div id="resultBox"></div>
+  </div>
+
+  <p class="disclaimer">Private test page for the LUNC Dev Studio Token Factory — not a public
+    offer. TEST MODE: the fee is a test fee and amounts are kept tiny on purpose. Tokens created
+    here are real on-chain tokens with no minter (supply can never change); a test token has no
+    market value unless a market forms on its own. This page never holds your keys or your funds —
+    signing happens only inside your own wallet. Always verify every transaction in your wallet
+    before you sign.</p>
+</div>
+
+<script>
+(function(){
+  'use strict';
+  /* ============================================================
+     LUNC Dev Studio — Token Factory PRIVATE TEST page.
+     Talks to the factory service (TEST configuration):
+       GET  /state            — open? fee? free pass available?
+       POST /token/quote      — the pre-confirm numbers
+       POST /token/start      — opens the request, returns ref+memo
+       POST /token/claim      — {ref, txHash} after the fee send,
+                                or {ref, freePass} with the pass
+     The fee send is a plain MsgSend built with the family's
+     tiny protobuf writer (no CDN, no libraries), signed by
+     Keplr signDirect and broadcast through the LCD — the same
+     pattern as the studio's validator-logo page.
+     ============================================================ */
+  var DEFAULT_FACTORY_URL = 'https://factory-production-4584.up.railway.app'; /* set to the deployed TEST factory URL at deploy time */
+  var svcOverride = new URLSearchParams(location.search).get('svc');
+  var FACTORY_URL = (svcOverride || DEFAULT_FACTORY_URL).replace(/\/+$/, '');
+  var LCD = 'https://terra-classic-lcd.publicnode.com';
+  var FINDER = 'https://finder.terraclassic.community/mainnet';
+  var CHAIN_ID = 'columbus-5';
+  var GAS_LIMIT = 200000;
+  var FEE_AMOUNT = '5665000'; /* 200,000 x 28.325 uluna — the house fixed fee */
+  var TEST_LUNC_CAP = 50;
+  var $ = function(id){ return document.getElementById(id); };
+
+  var state = { creator: null, svc: null, quote: null, busy: false,
+                started: null /* {ref, memo, feeUluna, studioWallet} */,
+                payTx: null };
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, function(c){
+      return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+    });
+  }
+  function showErr(html){ var b = $('errBox'); b.innerHTML = html; b.classList.add('show'); b.scrollIntoView(); }
+  function clearErr(){ var b = $('errBox'); b.innerHTML = ''; b.classList.remove('show'); }
+  function log(id, msg){ $(id).textContent = msg; }
+  function fmt(n, dec){ /* whole-token display from base units */
+    try {
+      var v = BigInt(n), d = BigInt(dec == null ? 6 : dec), p = 10n ** d;
+      var whole = v / p, frac = (v % p).toString().padStart(Number(d), '0').replace(/0+$/, '');
+      return whole.toLocaleString('en-US') + (frac ? '.' + frac : '');
+    } catch (e) { return String(n); }
+  }
+  function ulunaToLunc(u){ return fmt(u, 6); }
+  function svc(path, opts){
+    if (!FACTORY_URL) return Promise.reject(new Error('The factory service link is not set on this page yet — nothing was sent.'));
+    return fetch(FACTORY_URL + path, opts).then(function(r){
+      return r.json().catch(function(){ return null; }).then(function(j){
+        if (!r.ok) { var e = new Error((j && (j.detail || j.error)) || ('service HTTP ' + r.status)); e.payload = j; e.status = r.status; throw e; }
+        return j;
+      });
+    });
+  }
+
+  /* ---------------- service status ---------------- */
+  function loadState(){
+    if (!FACTORY_URL){ $('svcStatus').innerHTML = '<b>Service not linked yet.</b> This page is ready; the factory service URL gets set when the test service is deployed.'; return; }
+    svc('/state').then(function(s){
+      state.svc = s;
+      var fee = s.feeUluna ? ulunaToLunc(s.feeUluna) : '—';
+      var pass = s.freePass ? (s.freePassUsed ? 'free pass: <b>already used</b>' : 'free pass: <b>available</b>') : 'free pass: not offered';
+      $('svcStatus').innerHTML =
+        'Factory: <b>' + (s.open ? 'OPEN (test mode)' : 'CLOSED') + '</b> · test fee: <b>' + fee + ' LUNC</b> · ' + pass +
+        '<br>Tokens created so far: <b>' + s.created + '</b>';
+      renderCreateReview();
+    }).catch(function(e){
+      $('svcStatus').innerHTML = '<b>Could not reach the factory service.</b> ' + escapeHtml(e.message);
+    });
+  }
+
+  /* ---------------- Keplr connect ---------------- */
+  function keplrMissing(){
+    showErr('<b>No Keplr found in this browser.</b> Nothing was sent. Open this page inside the ' +
+      '<b>Keplr app\'s browser</b> on your phone, or in a desktop browser with the Keplr extension.');
+  }
+  function suggestTerraClassic(){
+    if (!window.keplr.experimentalSuggestChain) return Promise.reject(new Error('no suggest'));
+    return window.keplr.experimentalSuggestChain({
+      chainId: CHAIN_ID, chainName: 'Terra Classic',
+      rpc: 'https://terra-classic-rpc.publicnode.com', rest: LCD,
+      bip44: { coinType: 330 },
+      bech32Config: { bech32PrefixAccAddr: 'terra', bech32PrefixAccPub: 'terrapub',
+        bech32PrefixValAddr: 'terravaloper', bech32PrefixValPub: 'terravaloperpub',
+        bech32PrefixConsAddr: 'terravalcons', bech32PrefixConsPub: 'terravalconspub' },
+      currencies: [{ coinDenom: 'LUNC', coinMinimalDenom: 'uluna', coinDecimals: 6 }],
+      feeCurrencies: [{ coinDenom: 'LUNC', coinMinimalDenom: 'uluna', coinDecimals: 6,
+        gasPriceStep: { low: 28.325, average: 28.325, high: 28.325 } }],
+      stakeCurrency: { coinDenom: 'LUNC', coinMinimalDenom: 'uluna', coinDecimals: 6 },
+      coinType: 330
+    });
+  }
+  function enableKeplr(){
+    return window.keplr.enable(CHAIN_ID).catch(function(){
+      return suggestTerraClassic().then(function(){ return window.keplr.enable(CHAIN_ID); });
+    });
+  }
+  $('connectBtn').addEventListener('click', function(){
+    clearErr();
+    if (!window.keplr){ keplrMissing(); return; }
+    enableKeplr().then(function(){ return window.keplr.getKey(CHAIN_ID); }).then(function(key){
+      state.creator = key.bech32Address;
+      log('walletLog', 'Connected: ' + state.creator + '\nThis wallet becomes the token creator + admin.');
+      state.quote = null; $('quoteBox').innerHTML = '';
+      renderCreateReview();
+    }).catch(function(e){ showErr(escapeHtml(e.message || String(e))); });
+  });
+  if (window.addEventListener) window.addEventListener('keplr_keystorechange', function(){
+    state.creator = null;
+    log('walletLog', 'Wallet changed in Keplr — connect again.');
+    renderCreateReview();
+  });
+
+  /* ---------------- form + quote ---------------- */
+  function formBody(){
+    var lp = Number($('fLpPct').value);
+    var lunc = Number($('fLunc').value);
+    if (!($('fName').value || '').trim()) throw new Error('Give the token a name.');
+    if (!($('fSymbol').value || '').trim()) throw new Error('Give the token a symbol.');
+    if (!(Number($('fSupply').value) > 0)) throw new Error('Supply must be greater than zero.');
+    if (!(lunc >= 1 && lunc <= TEST_LUNC_CAP)) throw new Error('Test mode pairs 1–' + TEST_LUNC_CAP + ' LUNC — keep the test tiny.');
+    return {
+      name: $('fName').value.trim(),
+      symbol: $('fSymbol').value.trim().toUpperCase(),
+      decimals: Number($('fDecimals').value),
+      supply: String($('fSupply').value),
+      creator: state.creator,
+      launch: { lpPercent: lp, lunc: String(lunc) }
+    };
+  }
+  $('fLpPct').addEventListener('input', function(){ $('lpPctLabel').textContent = $('fLpPct').value + '%'; });
+
+  $('quoteBtn').addEventListener('click', function(){
+    clearErr();
+    if (!state.creator){ showErr('Connect your wallet first (step 1).'); return; }
+    var body;
+    try { body = formBody(); } catch (e) { showErr(escapeHtml(e.message)); return; }
+    $('quoteBox').innerHTML = '<p class="hint">Reading the quote…</p>';
+    svc('/token/quote', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+    .then(function(r){
+      state.quote = r;
+      var q = r.quote, t = r.token;
+      $('quoteBox').innerHTML =
+        '<div class="kv"><span>Token</span><b>' + escapeHtml(t.name) + ' (' + escapeHtml(t.symbol) + ')</b></div>' +
+        '<div class="kv"><span>Total supply</span><b>' + fmt(t.supplyBase, t.decimals) + ' ' + escapeHtml(t.symbol) + '</b></div>' +
+        '<div class="kv"><span>Into the pool (LP share)</span><b>' + fmt(q.pool.tokenToLpBase, t.decimals) + ' ' + escapeHtml(t.symbol) + '</b></div>' +
+        '<div class="kv"><span>To your wallet (dev share)</span><b>' + fmt(q.deliveries.devTokens.amountBase, t.decimals) + ' ' + escapeHtml(t.symbol) + '</b></div>' +
+        '<div class="kv"><span>Paired LUNC (from the test wallet)</span><b>' + q.pool.luncWhole + ' LUNC</b></div>' +
+        '<div class="kv"><span>Starting price</span><b>' + q.price.luncPerToken + ' LUNC per ' + escapeHtml(t.symbol) + '</b></div>' +
+        '<div class="kv"><span>Total pool value at start</span><b>' + q.totalValue.totalLunc + ' LUNC' + (q.totalValue.totalUsd ? ' (≈ $' + q.totalValue.totalUsd + ')' : '') + '</b></div>' +
+        '<div class="kv"><span>LP tokens you receive</span><b>' + fmt(q.deliveries.lpTokens.expectedBase, 6) + ' LP</b></div>' +
+        '<p class="hint" style="margin-top:8px">Pool value counts BOTH sides at the starting price (the token side is worth the same as the LUNC side at that price). The pair keeps a locked minimum of 1,000 LP base units — already taken off the LP figure above. Everything lands in <span class="mono">' + escapeHtml(state.creator) + '</span>.</p>';
+      renderCreateReview();
+    }).catch(function(e){ $('quoteBox').innerHTML = ''; showErr('<b>Quote failed:</b> ' + escapeHtml(e.message)); });
+  });
+
+  function renderCreateReview(){
+    var box = $('createReview');
+    if (!state.creator || !state.quote){
+      box.textContent = 'Connect your wallet and get a quote first — the exact amounts and the wallet everything lands in will be listed here for review before you press.';
+      return;
+    }
+    var q = state.quote.quote, t = state.quote.token;
+    var fee = state.svc && state.svc.feeUluna ? ulunaToLunc(state.svc.feeUluna) : '50';
+    box.innerHTML =
+      '<b>Review before you press:</b><br>' +
+      'Create <b>' + escapeHtml(t.name) + ' (' + escapeHtml(t.symbol) + ')</b>, supply ' + fmt(t.supplyBase, t.decimals) + ', no minter, admin = your wallet.<br>' +
+      'Pool: ' + fmt(q.pool.tokenToLpBase, t.decimals) + ' ' + escapeHtml(t.symbol) + ' + ' + q.pool.luncWhole + ' LUNC (test wallet\'s LUNC) on Terraswap.<br>' +
+      'You receive: ' + fmt(q.deliveries.devTokens.amountBase, t.decimals) + ' ' + escapeHtml(t.symbol) + ' + ≈' + fmt(q.deliveries.lpTokens.expectedBase, 6) + ' LP tokens, all to <span class="mono">' + escapeHtml(state.creator) + '</span>.<br>' +
+      'Option A: free pass — no fee. Option B: you send the <b>' + fee + ' LUNC test fee</b> to the studio test wallet with the memo this page shows you, from this same wallet.';
+  }
+
+  /* ---------------- tiny protobuf writer (family pattern) ---------------- */
+  function bytesToB64(bytes){ var s = ''; for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]); return btoa(s); }
+  function b64ToBytes(b64){ var s = atob(b64), out = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) out[i] = s.charCodeAt(i); return out; }
+  function varintBytes(n){ var out = [], v = BigInt(n); do { var b = Number(v & 0x7fn); v >>= 7n; if (v) b |= 0x80; out.push(b); } while (v); return out; }
+  function tagBytes(field, wire){ return varintBytes(field * 8 + wire); }
+  function fieldBytes(field, bytes){ return [].concat(tagBytes(field, 2), varintBytes(bytes.length), bytes); }
+  function fieldString(field, str){ if (str === '' || str == null) return []; return fieldBytes(field, Array.prototype.slice.call(new TextEncoder().encode(str))); }
+  function fieldVarint(field, n){ if (!n || Number(n) === 0) return []; return [].concat(tagBytes(field, 0), varintBytes(n)); }
+  function u8(arr){ return new Uint8Array(arr); }
+  function buildAnyBytes(typeUrl, msgBytes){
+    return u8([].concat(fieldString(1, typeUrl), fieldBytes(2, Array.prototype.slice.call(msgBytes))));
+  }
+  /* MsgSend{from_address=1, to_address=2, amount=3 (Coin{denom=1, amount=2})} */
+  function buildSendBodyBytes(from, to, amountUluna, memo){
+    var coin = u8([].concat(fieldString(1, 'uluna'), fieldString(2, String(amountUluna))));
+    var msg = u8([].concat(fieldString(1, from), fieldString(2, to), fieldBytes(3, Array.prototype.slice.call(coin))));
+    var any = buildAnyBytes('/cosmos.bank.v1beta1.MsgSend', msg);
+    return u8([].concat(fieldBytes(1, Array.prototype.slice.call(any)), fieldString(2, memo)));
+  }
+  function buildAuthInfoBytes(pubKeyB64, sequence){
+    var pubKey = u8(fieldBytes(1, Array.prototype.slice.call(b64ToBytes(pubKeyB64))));
+    var pubAny = buildAnyBytes('/cosmos.crypto.secp256k1.PubKey', pubKey);
+    var modeInfo = u8(fieldBytes(1, Array.prototype.slice.call(u8(fieldVarint(1, 1)))));
+    var signerInfo = u8([].concat(
+      fieldBytes(1, Array.prototype.slice.call(pubAny)),
+      fieldBytes(2, Array.prototype.slice.call(modeInfo)),
+      fieldVarint(3, Number(sequence))));
+    var coin = u8([].concat(fieldString(1, 'uluna'), fieldString(2, FEE_AMOUNT)));
+    var fee = u8([].concat(fieldBytes(1, Array.prototype.slice.call(coin)), fieldVarint(2, GAS_LIMIT)));
+    return u8([].concat(fieldBytes(1, Array.prototype.slice.call(signerInfo)), fieldBytes(2, Array.prototype.slice.call(fee))));
+  }
+  function buildTxRawBytes(bodyBytes, authBytes, sigB64){
+    return u8([].concat(
+      fieldBytes(1, Array.prototype.slice.call(bodyBytes)),
+      fieldBytes(2, Array.prototype.slice.call(authBytes)),
+      fieldBytes(3, Array.prototype.slice.call(b64ToBytes(sigB64)))));
+  }
+  function fetchJson(url, opts){
+    return fetch(url, opts).then(function(r){ if (!r.ok) throw new Error('LCD ' + r.status); return r.json(); });
+  }
+  function readAccount(addr){
+    return fetchJson(LCD + '/cosmos/auth/v1beta1/accounts/' + addr).then(function(j){
+      var a = j && j.account;
+      if (!a || a.account_number == null) throw new Error('could not read your account from the chain');
+      return a;
+    });
+  }
+  /* Send the fee: exactly one MsgSend, from the creator, to the
+     studio wallet, amount = the fee in force, memo from /start.
+     Pre-sign guard: the built message is re-checked field by
+     field before Keplr is ever asked to sign. */
+  function sendFee(started){
+    if (!window.keplr){ keplrMissing(); return Promise.reject(new Error('no keplr')); }
+    return enableKeplr()
+      .then(function(){ return window.keplr.getKey(CHAIN_ID); })
+      .then(function(key){
+        var signer = key && key.bech32Address;
+        if (signer !== state.creator) throw new Error('The connected wallet changed — reconnect (step 1) so the fee comes from the creator wallet. Nothing was sent.');
+        return readAccount(signer).then(function(acct){
+          var pubB64 = (acct.pub_key && acct.pub_key.key) || (key.pubKey ? bytesToB64(key.pubKey) : null);
+          if (!pubB64) throw new Error('could not get your public key — nothing was sent');
+          /* guard: exactly the reviewed send, nothing else */
+          if (started.studioWallet !== state.svc.studioWallet) throw new Error('Blocked: the fee destination changed between start and signing. Nothing was sent.');
+          var bodyBytes = buildSendBodyBytes(signer, started.studioWallet, started.feeUluna, started.memo);
+          var authBytes = buildAuthInfoBytes(pubB64, acct.sequence || '0');
+          window.__lastTxPreview = { to: started.studioWallet, amountUluna: started.feeUluna, memo: started.memo };
+          log('createLog', 'Waiting for your signature in Keplr… check it: ONE send of ' +
+            ulunaToLunc(started.feeUluna) + ' LUNC to the studio test wallet, memo "' + started.memo + '".');
+          return window.keplr.signDirect(CHAIN_ID, signer, {
+            bodyBytes: bodyBytes, authInfoBytes: authBytes,
+            chainId: CHAIN_ID, accountNumber: String(acct.account_number)
+          }).then(function(signed){
+            var raw = buildTxRawBytes(signed.signed.bodyBytes, signed.signed.authInfoBytes, signed.signature.signature);
+            return fetchJson(LCD + '/cosmos/tx/v1beta1/txs', {
+              method: 'POST', headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ tx_bytes: bytesToB64(raw), mode: 'BROADCAST_MODE_SYNC' })
+            });
+          });
+        });
+      })
+      .then(function(resp){
+        var tr = resp && resp.tx_response;
+        if (!tr || !tr.txhash) throw new Error('the chain did not return a transaction hash — check Keplr before retrying');
+        if (typeof tr.code === 'number' && tr.code !== 0)
+          throw new Error('the chain rejected the fee payment (code ' + tr.code + (tr.raw_log ? ': ' + String(tr.raw_log).slice(0, 160) : '') + ')');
+        return tr.txhash;
+      });
+  }
+
+  /* ---------------- create flows ---------------- */
+  /* Attempt persistence: a retry must RESUME the same factory
+     request — never open a second one (a second start would
+     double-charge the fee path and strand the free pass, which
+     binds to the first ref). The attempt is keyed by the exact
+     form + wallet, kept in sessionStorage, cleared on success. */
+  function formFingerprint(){
+    try { var b = formBody(); return JSON.stringify([b.name, b.symbol, b.decimals, b.supply, b.creator, b.launch.lpPercent, b.launch.lunc]); }
+    catch (e) { return null; }
+  }
+  function saveAttempt(a){ try { sessionStorage.setItem('factoryTestAttempt', JSON.stringify(a)); } catch (e) {} }
+  function loadAttempt(fp){ try { var a = JSON.parse(sessionStorage.getItem('factoryTestAttempt') || 'null'); return a && a.fp === fp ? a : null; } catch (e) { return null; } }
+  function clearAttempt(){ try { sessionStorage.removeItem('factoryTestAttempt'); } catch (e) {} }
+
+  function startRequest(){
+    var body;
+    try { body = formBody(); } catch (e) { return Promise.reject(e); }
+    return svc('/token/start', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+      .then(function(r){ state.started = r; return r; });
+  }
+  function showResult(r){
+    clearAttempt();
+    var L = r.launch || {};
+    var html =
+      '<div class="kv"><span>Token</span><b class="mono"><a href="' + escapeHtml(r.finderUrl) + '" target="_blank" rel="noopener">' + escapeHtml(r.contractAddress) + '</a></b></div>' +
+      '<div class="kv"><span>Create tx</span><b class="mono"><a href="' + FINDER + '/tx/' + escapeHtml(r.instantiateTxHash) + '" target="_blank" rel="noopener">' + escapeHtml(r.instantiateTxHash) + '</a></b></div>';
+    if (L.pairAddress){
+      html +=
+      '<div class="kv"><span>Pool (pair)</span><b class="mono"><a href="' + escapeHtml(L.pairFinderUrl) + '" target="_blank" rel="noopener">' + escapeHtml(L.pairAddress) + '</a></b></div>' +
+      '<div class="kv"><span>Dev share in your wallet</span><b>' + fmt(L.deliveries.devTokensBase, state.quote ? state.quote.token.decimals : 6) + '</b></div>' +
+      '<div class="kv"><span>LP tokens in your wallet</span><b>' + fmt(L.deliveries.lpTokensBase, 6) + ' LP</b></div>' +
+      (L.reserves ? '<div class="kv"><span>Pool reserves</span><b>' + fmt(L.reserves.tokenBase, state.quote ? state.quote.token.decimals : 6) + ' tokens + ' + ulunaToLunc(L.reserves.luncUluna) + ' LUNC</b></div>' : '') +
+      (L.liquidityTxHash ? '<div class="kv"><span>Pool seed tx</span><b class="mono"><a href="' + FINDER + '/tx/' + escapeHtml(L.liquidityTxHash) + '" target="_blank" rel="noopener">' + escapeHtml(L.liquidityTxHash) + '</a></b></div>' : '');
+    }
+    if (r.paymentTxHash && String(r.paymentTxHash).indexOf('FREEPASS') !== 0){
+      html += '<div class="kv"><span>Fee payment tx</span><b class="mono"><a href="' + FINDER + '/tx/' + escapeHtml(r.paymentTxHash) + '" target="_blank" rel="noopener">' + escapeHtml(r.paymentTxHash) + '</a></b></div>';
+    }
+    $('resultBox').innerHTML = html;
+    $('resultCard').style.display = 'block';
+    $('resultCard').scrollIntoView();
+    var ok = $('okBox');
+    ok.innerHTML = '✅ <b>Created.</b> Your test token + pool are live on chain — links above. ' +
+      (String(r.paymentTxHash).indexOf('FREEPASS') === 0 ? 'Your free pass is now used up.' : '');
+    ok.classList.add('show');
+    loadState();
+  }
+  function claimAndShow(claimBody, busyMsg){
+    log('createLog', busyMsg);
+    return svc('/token/claim', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(claimBody) })
+      .then(function(r){ showResult(r); log('createLog', ''); })
+      .catch(function(e){
+        showErr('<b>Creation did not finish:</b> ' + escapeHtml(e.message) +
+          '<br>Nothing is lost — if a payment or pass was accepted, pressing the same create button again with the same details resumes exactly where it stopped (it never creates twice).');
+        log('createLog', '');
+      });
+  }
+  function guardReady(){
+    clearErr();
+    if (state.busy) return false;
+    if (!state.creator){ showErr('Connect your wallet first (step 1).'); return false; }
+    if (!state.svc){ showErr('The factory status has not loaded yet — wait a second and try again.'); return false; }
+    if (!state.svc.open){ showErr('The factory is CLOSED right now — no creation can run.'); return false; }
+    if (!state.quote){ showErr('Get the quote first (step 3) — review the numbers before creating.'); return false; }
+    return true;
+  }
+  $('passBtn').addEventListener('click', function(){
+    if (!guardReady()) return;
+    var code = ($('fPass').value || '').trim();
+    if (!code){ showErr('Paste your free-pass code first.'); return; }
+    var fp = formFingerprint();
+    var attempt = fp ? loadAttempt(fp) : null;
+    state.busy = true;
+    var startP = attempt && attempt.started
+      ? Promise.resolve(attempt.started)
+      : startRequest().then(function(started){ if (fp) saveAttempt({ fp: fp, started: started }); return started; });
+    if (attempt) log('createLog', 'Resuming your earlier request ' + attempt.started.ref + ' — the pass is bound to it.');
+    else log('createLog', 'Opening your factory request…');
+    startP.then(function(started){
+      return claimAndShow({ ref: started.ref, freePass: code },
+        'Creating your token + pool with the free pass… this runs several on-chain steps and can take a minute or two. Don\'t close the page.');
+    }).catch(function(e){ showErr('<b>Could not start:</b> ' + escapeHtml(e.message)); })
+      .then(function(){ state.busy = false; });
+  });
+  $('payBtn').addEventListener('click', function(){
+    if (!guardReady()) return;
+    var fp = formFingerprint();
+    var attempt = fp ? loadAttempt(fp) : null;
+    state.busy = true;
+    var startP = attempt && attempt.started
+      ? Promise.resolve(attempt.started)
+      : startRequest().then(function(started){ if (fp) saveAttempt({ fp: fp, started: started }); return started; });
+    if (attempt) log('createLog', 'Resuming your earlier request ' + attempt.started.ref + '.');
+    else log('createLog', 'Opening your factory request…');
+    startP.then(function(started){
+      if (attempt && attempt.payTx){
+        return claimAndShow({ ref: started.ref, txHash: attempt.payTx },
+          'Fee already sent (' + attempt.payTx + '). Creating your token + pool… Don\'t close the page.');
+      }
+      log('createLog', 'Request ' + started.ref + ' open. Now the fee: ' + ulunaToLunc(started.feeUluna) +
+        ' LUNC to the studio test wallet with memo "' + started.memo + '" — Keplr will ask you to sign it.');
+      return sendFee(started).then(function(txHash){
+        state.payTx = txHash;
+        if (fp) saveAttempt({ fp: fp, started: started, payTx: txHash });
+        return claimAndShow({ ref: started.ref, txHash: txHash },
+          'Fee sent (' + txHash + '). Creating your token + pool… this runs several on-chain steps and can take a minute or two. Don\'t close the page.');
+      });
+    }).catch(function(e){
+      if (!(e && e.message && /reject|denied/i.test(e.message))) showErr('<b>Payment step failed:</b> ' + escapeHtml(e.message || String(e)));
+      else showErr('You rejected the signature in Keplr — nothing was sent.');
+      log('createLog', '');
+    }).then(function(){ state.busy = false; });
+  });
+
+  loadState();
+})();
+</script>
+</body>
+</html>
