@@ -18,6 +18,11 @@
 // runs flown in an NFT fighter post here instead of "orbit", under
 // the prefix orbitn:. Same caps and rate window as "orbit", same
 // off-origin CORS exception.
+// Wallet Scope usage counter: this router also serves the Scope page's
+// privacy-first counter (counts of visits + wallet lookups only — no
+// addresses or user data) behind ?scope=1; vercel.json rewrites the
+// public /api/scope-count URL to /api/luna-games?scope=1 because the
+// Hobby plan's 12-function cap leaves no room for a separate function.
 // Stores each player's BEST score in Upstash Redis sorted sets (all-time +
 // current ISO week) plus a name map, per game prefix. Telegram WebApp
 // initData is verified against the LUNC Assistant Bot token when present
@@ -225,7 +230,106 @@ async function board(cfg, res) {
   }
 }
 
+/* wallet-scope:start — Wallet Scope usage counter, folded into this
+   router (see the header note). Reached via ?scope=1; vercel.json
+   rewrites /api/scope-count here. Counts ONLY page visits and wallet
+   lookups, as totals and per-day numbers in this function's Upstash
+   store (NEONRUSH_* env, shared pipeline helper above). Keys:
+   scope:total:visits, scope:total:lookups,
+   scope:day:<YYYY-MM-DD>:visits, scope:day:<YYYY-MM-DD>:lookups
+   (day = America/New_York calendar date), incremented atomically
+   (INCR). No addresses, no IPs, no user data are ever read or
+   stored — the page sends nothing but {"type":"visit"|"lookup"},
+   and the handler ignores any other body fields. GET returns the
+   totals, today's numbers, and the last 7 days. No auth: the counts
+   are public-safe aggregate numbers, nothing else is exposed. */
+const SCOPE_TOTAL_VISITS = 'scope:total:visits';
+const SCOPE_TOTAL_LOOKUPS = 'scope:total:lookups';
+
+// YYYY-MM-DD in America/New_York, offset by whole days from today.
+// Day arithmetic is done in UTC on the NY calendar date, so DST never
+// shifts the result.
+function scopeNyDate(offsetDays = 0) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date());
+  const part = (t) => Number(parts.find((p) => p.type === t).value);
+  const d = new Date(Date.UTC(part('year'), part('month') - 1, part('day') + offsetDays));
+  return d.toISOString().slice(0, 10);
+}
+
+function scopeDayKeys(date) {
+  return { visits: `scope:day:${date}:visits`, lookups: `scope:day:${date}:lookups` };
+}
+
+// Stored counters as numbers; missing/corrupt reads count as 0.
+async function scopeReadCounts(keys) {
+  const out = await upstashPipeline(keys.map((k) => ['GET', k]));
+  return out.map((r) => {
+    const n = parseInt(r && r.result, 10);
+    return Number.isNaN(n) ? 0 : n;
+  });
+}
+
+export async function scopeCountHandler(req, res) {
+  if (req.method !== 'GET' && req.method !== 'POST') {
+    return res.status(405).json({ ok: false, error: 'method not allowed' });
+  }
+  if (!process.env.NEONRUSH_UPSTASH_URL || !process.env.NEONRUSH_UPSTASH_TOKEN) {
+    return res.status(500).json({ ok: false, error: 'storage not configured' });
+  }
+
+  if (req.method === 'POST') {
+    let body = req.body;
+    if (typeof body === 'string') {
+      try { body = JSON.parse(body); } catch { body = null; }
+    }
+    const type = body && body.type;
+    if (type !== 'visit' && type !== 'lookup') {
+      return res.status(400).json({ ok: false, error: 'unknown type' });
+    }
+    const day = scopeDayKeys(scopeNyDate(0));
+    try {
+      await upstashPipeline([
+        ['INCR', type === 'visit' ? SCOPE_TOTAL_VISITS : SCOPE_TOTAL_LOOKUPS],
+        ['INCR', type === 'visit' ? day.visits : day.lookups],
+      ]);
+    } catch (e) {
+      console.error('scope counter write failed', e && e.message);
+      return res.status(500).json({ ok: false, error: 'storage write failed' });
+    }
+    return res.status(200).json({ ok: true });
+  }
+
+  // GET: totals + today + the last 7 days (oldest -> newest).
+  try {
+    const dates = [];
+    for (let back = 6; back >= 0; back--) dates.push(scopeNyDate(-back));
+    const keys = [SCOPE_TOTAL_VISITS, SCOPE_TOTAL_LOOKUPS];
+    for (const date of dates) {
+      const k = scopeDayKeys(date);
+      keys.push(k.visits, k.lookups);
+    }
+    const vals = await scopeReadCounts(keys);
+    const week = dates.map((date, i) => ({
+      date, visits: vals[2 + i * 2], lookups: vals[3 + i * 2],
+    }));
+    const today = week[week.length - 1];
+    return res.status(200).json({
+      totalVisits: vals[0], totalLookups: vals[1], today, week,
+    });
+  } catch (e) {
+    console.error('scope counter read failed', e && e.message);
+    return res.status(500).json({ ok: false, error: 'storage read failed' });
+  }
+}
+/* wallet-scope:end */
+
 export default async function handler(req, res) {
+  /* Wallet Scope counter: /api/scope-count is rewritten to
+     /api/luna-games?scope=1 (see the wallet-scope block above). Runs
+     before game dispatch; game requests never carry ?scope. */
+  if (req.query && req.query.scope !== undefined) return scopeCountHandler(req, res);
   const game = String((req.query && req.query.game) || '');
   let cfg = GAMES[game];
   if (!cfg) return res.status(400).json({ error: 'unknown game' });
