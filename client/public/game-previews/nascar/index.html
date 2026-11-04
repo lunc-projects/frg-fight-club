@@ -112,10 +112,11 @@ var clouds = [];
 function asphaltTexture() {
   var c = makeCanvas(512, 512), x = c.getContext('2d');
   x.fillStyle = CFG.roadBase || '#24262c'; x.fillRect(0, 0, 512, 512);
-  /* large tonal patches / repairs */
-  for (var p = 0; p < 26; p++) {
-    x.fillStyle = 'rgba(' + (rnd() > 0.5 ? '255,255,255' : '0,0,0') + ',' + (0.025 + rnd() * 0.05) + ')';
-    x.beginPath(); x.ellipse(rnd() * 512, rnd() * 512, 30 + rnd() * 90, 20 + rnd() * 60, rnd() * 3, 0, Math.PI * 2); x.fill();
+  /* large tonal patches / repairs — kept faint: at full strength these
+     read as dirt stains on the surface */
+  for (var p = 0; p < 14; p++) {
+    x.fillStyle = 'rgba(' + (rnd() > 0.5 ? '255,255,255' : '0,0,0') + ',' + (0.015 + rnd() * 0.025) + ')';
+    x.beginPath(); x.ellipse(rnd() * 512, rnd() * 512, 24 + rnd() * 64, 16 + rnd() * 44, rnd() * 3, 0, Math.PI * 2); x.fill();
   }
   /* aggregate grain: dark + light flecks */
   for (var i = 0; i < 15000; i++) {
@@ -127,14 +128,14 @@ function asphaltTexture() {
   /* polished wheel tracks (soft-edged dark bands down the length) */
   [118, 394].forEach(function (bx) {
     var g = x.createLinearGradient(bx - 46, 0, bx + 46, 0);
-    g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.5, 'rgba(0,0,0,0.20)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.5, 'rgba(0,0,0,0.10)'); g.addColorStop(1, 'rgba(0,0,0,0)');
     x.fillStyle = g; x.fillRect(bx - 46, 0, 92, 512);
   });
   var cg = x.createLinearGradient(176, 0, 336, 0);
-  cg.addColorStop(0, 'rgba(0,0,0,0)'); cg.addColorStop(0.5, 'rgba(0,0,0,0.10)'); cg.addColorStop(1, 'rgba(0,0,0,0)');
+  cg.addColorStop(0, 'rgba(0,0,0,0)'); cg.addColorStop(0.5, 'rgba(0,0,0,0.05)'); cg.addColorStop(1, 'rgba(0,0,0,0)');
   x.fillStyle = cg; x.fillRect(176, 0, 160, 512);
   /* cracks: jittery dark polylines */
-  x.strokeStyle = 'rgba(8,8,10,0.35)'; x.lineWidth = 1.6;
+  x.strokeStyle = 'rgba(8,8,10,0.20)'; x.lineWidth = 1.3;
   for (var k = 0; k < 9; k++) {
     x.beginPath();
     var px = rnd() * 512, py = rnd() * 512; x.moveTo(px, py);
@@ -142,14 +143,14 @@ function asphaltTexture() {
     x.stroke();
   }
   /* tar seams */
-  x.strokeStyle = 'rgba(10,10,12,0.4)'; x.lineWidth = 5;
+  x.strokeStyle = 'rgba(10,10,12,0.20)'; x.lineWidth = 3;
   for (var t2 = 0; t2 < 3; t2++) {
     x.beginPath(); var ty = rnd() * 512; x.moveTo(0, ty);
     x.bezierCurveTo(170, ty + (rnd() - 0.5) * 22, 340, ty + (rnd() - 0.5) * 22, 512, ty); x.stroke();
   }
   /* rubber streaks near the edges */
   for (var r2 = 0; r2 < 40; r2++) {
-    x.fillStyle = 'rgba(0,0,0,' + (0.04 + rnd() * 0.07) + ')';
+    x.fillStyle = 'rgba(0,0,0,' + (0.03 + rnd() * 0.05) + ')';
     var rx = rnd() < 0.5 ? rnd() * 60 : 452 + rnd() * 60;
     x.fillRect(rx, rnd() * 512, 2 + rnd() * 4, 14 + rnd() * 40);
   }
@@ -492,11 +493,26 @@ function frameAt(s) {
 }
 /* banking: roll angle of the road surface at s (NASCAR oval) */
 function bankAt(fr) { return CFG.banking ? clamp(-fr.kappa * CFG.banking, -0.30, 0.30) : 0; }
-/* point on (possibly banked) road surface */
+/* Terrain level away from the track. On the banked oval the road's
+   cross-fall reaches +-3.25 m, so the flat ground must sit BELOW the
+   lowest road edge and an embankment (see buildGroundAndRoad) bridges
+   the gap — otherwise the grass plane swallows the low side of the
+   road (cars look parked on the infield) and the high side floats. */
+var GROUND_Y = CFG.banking ? -3.55 : -0.08;
+/* point on (possibly banked) road surface; beyond the road edge the
+   height blends down to terrain level so walls/fences/scenery placed
+   off-road sit on the embankment instead of floating or sinking */
 function surfPoint(fr, lat, y) {
   var bank = bankAt(fr);
   var pos = fr.p.clone().addScaledVector(fr.side, lat * Math.cos(bank));
-  pos.y += Math.sin(bank) * lat + (y || 0);
+  var baseY = Math.sin(bank) * lat;
+  var aLat = Math.abs(lat);
+  if (aLat > ROAD_HALF) {
+    var t = clamp((aLat - ROAD_HALF) / 13, 0, 1);
+    var ss = t * t * (3 - 2 * t);
+    baseY += (GROUND_Y + 0.03 - baseY) * ss;
+  }
+  pos.y += baseY + (y || 0);
   return pos;
 }
 function surfUp(fr) {
@@ -504,6 +520,27 @@ function surfUp(fr) {
   var up = new THREE.Vector3(0, 1, 0);
   var q = new THREE.Quaternion().setFromAxisAngle(fr.tan, bank);
   return up.applyQuaternion(q);
+}
+/* side vector rolled by the same banking as surfUp — (surfSide, surfUp,
+   tan) is a true orthonormal frame; using the UNROLLED side with the
+   rolled up shears every car/wall placed on a banked section */
+function surfSide(fr) {
+  var bank = bankAt(fr);
+  if (!bank) return fr.side;
+  var q = new THREE.Quaternion().setFromAxisAngle(fr.tan, bank);
+  return fr.side.clone().applyQuaternion(q);
+}
+/* terrain height under a world (x,z): nearest centreline sample, then
+   the (blended) surface height at that lateral offset */
+function groundYAt(x, z) {
+  var bi = 0, bd = 1e18;
+  for (var i = 0; i < N_SAMP; i += 7) {
+    var p = frames[i].p, dx = p.x - x, dz = p.z - z, d = dx * dx + dz * dz;
+    if (d < bd) { bd = d; bi = i; }
+  }
+  var fr = frames[bi];
+  var lat = (x - fr.p.x) * fr.side.x + (z - fr.p.z) * fr.side.z;
+  return surfPoint(fr, lat, 0).y;
 }
 
 /* ---------------- world building ---------------- */
@@ -539,7 +576,7 @@ function wallRun(lat, h, thick, mat, stepM, yBase) {
     var fr = frames[(i * step) % N_SAMP];
     var pos = surfPoint(fr, lat, (yBase || 0) + h / 2 - 0.05);
     var up = surfUp(fr);
-    var basis = new THREE.Matrix4().makeBasis(fr.side, up, fr.tan);
+    var basis = new THREE.Matrix4().makeBasis(surfSide(fr), up, fr.tan);
     Q.setFromRotationMatrix(basis);
     SC.set(thick, h, segLen);
     M.compose(pos, Q, SC);
@@ -560,10 +597,40 @@ function buildGroundAndRoad() {
   var groundMat = new THREE.MeshLambertMaterial({ map: grassTexture(), color: CFG.terrain });
   groundMat.map.repeat.set(64, 64);
   var ground = new THREE.Mesh(new THREE.PlaneGeometry(3400, 3400), groundMat);
-  ground.rotation.x = -Math.PI / 2; ground.position.y = -0.08; ground.userData.noCast = true; worldGroup.add(ground);
+  ground.rotation.x = -Math.PI / 2; ground.position.y = GROUND_Y; ground.userData.noCast = true; worldGroup.add(ground);
 
   var roadMat = new THREE.MeshPhongMaterial({ map: asphaltTexture(), color: CFG.roadTint || 0xffffff, specular: 0x2c313a, shininess: 24 });
+  roadMat.polygonOffset = true; roadMat.polygonOffsetFactor = 1; roadMat.polygonOffsetUnits = 1;
   ribbon(0, ROAD_HALF * 2, 0.02, roadMat, 14);
+  if (CFG.banking) { /* embankment skirts: grass slope from each road
+       edge down to terrain level, following the surfPoint blend, so
+       the banked road never floats over or sinks into the flat ground */
+    var skirtMat = new THREE.MeshLambertMaterial({ map: grassTexture(), color: CFG.terrain });
+    skirtMat.map.repeat.set(2.5, 1);
+    [-1, 1].forEach(function (sgn) {
+      var offs = [0, 2.5, 5, 8, 11, 14];
+      var n = Math.ceil(TRACK_LEN / (SAMP_DS * 2));
+      var posArr = [], uvArr = [], idx = [];
+      for (var i = 0; i <= n; i++) {
+        var s = TRACK_LEN * (i / n);
+        var fr = frameAt(s);
+        for (var j = 0; j < offs.length; j++) {
+          var pp = surfPoint(fr, sgn * (ROAD_HALF + offs[j]), 0.005);
+          posArr.push(pp.x, pp.y, pp.z);
+          uvArr.push(j / (offs.length - 1), s / 16);
+        }
+        if (i < n) for (var j2 = 0; j2 < offs.length - 1; j2++) {
+          var k = i * offs.length + j2;
+          idx.push(k, k + offs.length, k + 1, k + 1, k + offs.length, k + offs.length + 1);
+        }
+      }
+      var g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(posArr, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(uvArr, 2));
+      g.setIndex(idx); g.computeVertexNormals();
+      var m = new THREE.Mesh(g, skirtMat); m.frustumCulled = false; m.userData.noCast = true; worldGroup.add(m);
+    });
+  }
   if (CFG.shoulder) { /* dirt shoulders (drift) */
     var shMat = new THREE.MeshLambertMaterial({ map: speckleTexture(CFG.shoulderCss, ['rgba(0,0,0,0.08)', 'rgba(255,255,255,0.05)'], 1800), color: CFG.shoulder });
     shMat.map.repeat.set(1, 1);
@@ -597,7 +664,7 @@ function buildGroundAndRoad() {
       [-1, 1].forEach(function (sgn) {
         if (idxI >= n * 2) return;
         var pos = surfPoint(fr, sgn * (ROAD_HALF + 0.35), 0.045);
-        var basis = new THREE.Matrix4().makeBasis(fr.side, surfUp(fr), fr.tan);
+        var basis = new THREE.Matrix4().makeBasis(surfSide(fr), surfUp(fr), fr.tan);
         Q.setFromRotationMatrix(basis); SC.set(1.15, 1, SAMP_DS * 2 * 1.05);
         M.compose(pos, Q, SC); inst.setMatrixAt(idxI++, M);
       });
@@ -620,7 +687,7 @@ function buildGantry(text, checker) {
   var ban = new THREE.Mesh(new THREE.PlaneGeometry((ROAD_HALF + 1.2) * 2, 1.9),
     new THREE.MeshBasicMaterial({ map: banTex, side: THREE.DoubleSide }));
   ban.position.copy(cp); ban.position.y += 6.1; ban.rotation.y = Math.PI; grp.add(ban);
-  grp.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(fr.side, surfUp(fr), fr.tan));
+  grp.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(surfSide(fr), surfUp(fr), fr.tan));
   /* reposition children in world space: easier — set group at origin and rotate about start point */
   grp.position.copy(fr.p);
   grp.children.forEach(function (ch) { ch.position.sub(fr.p); });
@@ -645,7 +712,7 @@ function buildTrees(count, color, trunkColor) {
   while (placed < count && guard++ < count * 30) {
     var x = (rnd() * 2 - 1) * 900, z = (rnd() * 2 - 1) * 900;
     if (!scatterOK(x, z, ROAD_HALF + (CFG.treeGap || 7) + rnd() * 6)) continue;
-    var sc = 0.9 + rnd() * 1.7, y = -0.1;
+    var sc = 0.9 + rnd() * 1.7, y = groundYAt(x, z) - 0.06;
     M.makeScale(sc, sc, sc); M.setPosition(x, y + 1.2 * sc, z); trunks.setMatrixAt(placed, M);
     M.makeScale(sc, sc, sc); M.setPosition(x, y + (2.2 + 2.6) * sc, z); cones.setMatrixAt(placed, M);
     M.makeScale(sc, sc, sc); M.setPosition(x, y + (2.2 + 5.2) * sc, z); cones2.setMatrixAt(placed, M);
@@ -667,7 +734,7 @@ function buildBushes(count, color) {
     if (!scatterOK(x, z, ROAD_HALF + 2.4 + rnd() * 9)) continue;
     var sx = 1.1 + rnd() * 1.9, sy = 0.65 + rnd() * 0.75;
     E.set(0, rnd() * 3, 0); Q.setFromEuler(E);
-    M.compose(new THREE.Vector3(x, sy * 0.42, z), Q, new THREE.Vector3(sx, sy, sx));
+    M.compose(new THREE.Vector3(x, groundYAt(x, z) + sy * 0.42 - 0.05, z), Q, new THREE.Vector3(sx, sy, sx));
     inst.setMatrixAt(placed, M);
     var bc = new THREE.Color(color); bc.offsetHSL((rnd() - 0.5) * 0.03, (rnd() - 0.5) * 0.08, (rnd() - 0.5) * 0.09);
     inst.setColorAt(placed, bc);
@@ -739,7 +806,7 @@ function buildPoles(count, color) {
     var fr = frameAt(s);
     var sgn = i % 2 ? 1 : -1;
     var pos = surfPoint(fr, sgn * (ROAD_HALF + 3.4), 0);
-    var basis = new THREE.Matrix4().makeBasis(fr.side, surfUp(fr), fr.tan);
+    var basis = new THREE.Matrix4().makeBasis(surfSide(fr), surfUp(fr), fr.tan);
     Q.setFromRotationMatrix(basis);
     M.compose(new THREE.Vector3(pos.x, pos.y + 4.5, pos.z), Q, new THREE.Vector3(1, 1, 1)); poles.setMatrixAt(i, M);
     var hp = surfPoint(fr, sgn * (ROAD_HALF + 2.2), 0);
@@ -785,7 +852,12 @@ function buildGrandstand(s, lat, len) {
   ban.position.set(0, 1.15, 1.35); grp.add(ban);
   var base = surfPoint(fr, lat, 0);
   grp.position.copy(base);
-  grp.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(fr.side, surfUp(fr), fr.tan));
+  /* buildings stand on flat terrain: use an UNBANKED frame, not the
+     road's rolled frame, or the whole stand leans with the corner */
+  var up0 = new THREE.Vector3(0, 1, 0);
+  var tanH = fr.tan.clone(); tanH.y = 0; tanH.normalize();
+  var sideH = new THREE.Vector3().crossVectors(up0, tanH).normalize();
+  grp.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(sideH, up0, tanH));
   grp.rotateY(lat > 0 ? -Math.PI / 2 : Math.PI / 2);
   worldGroup.add(grp);
 }
@@ -815,9 +887,9 @@ function buildInfield() {
   [[-60, -40, 34, 7, 16], [30, -55, 24, 5.5, 13], [95, 20, 20, 6, 12], [-110, 30, 26, 5, 13], [0, 45, 16, 9, 10]].forEach(function (b) {
     if (!scatterOK(b[0], b[1], ROAD_HALF + 26)) return;
     var bx = new THREE.Mesh(new THREE.BoxGeometry(b[2], b[3], b[4]), rnd() > 0.5 ? bMat : bMat2);
-    bx.position.set(b[0], b[3] / 2, b[1]); worldGroup.add(bx);
+    bx.position.set(b[0], GROUND_Y + b[3] / 2, b[1]); worldGroup.add(bx);
     var rf = new THREE.Mesh(new THREE.BoxGeometry(b[2] + 1.5, 0.4, b[4] + 1.5), roofM);
-    rf.position.set(b[0], b[3] + 0.2, b[1]); worldGroup.add(rf);
+    rf.position.set(b[0], GROUND_Y + b[3] + 0.2, b[1]); worldGroup.add(rf);
   });
   /* scoreboard tower */
   var tw = new THREE.Group();
@@ -825,7 +897,7 @@ function buildInfield() {
   var board = new THREE.Mesh(new THREE.BoxGeometry(11, 6.5, 0.7),
     new THREE.MeshBasicMaterial({ map: bannerTexture('OVAL KING', '#0d1524', '#ffd75e', '#e8b62a') }));
   board.position.y = 19; tw.add(board);
-  tw.position.set(0, 0, 0); worldGroup.add(tw);
+  tw.position.set(0, GROUND_Y, 0); worldGroup.add(tw);
 }
 /* ---- DRIFT dressing: rock faces, curve signs ---- */
 function buildRocks(count, color) {
@@ -877,7 +949,7 @@ function buildCurveSigns() {
     pole.position.set(pos.x, pos.y + 1.15, pos.z); worldGroup.add(pole);
     var sign = new THREE.Mesh(new THREE.PlaneGeometry(1.15, 1.15), mat);
     sign.position.set(pos.x, pos.y + 2.5, pos.z);
-    sign.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(fr.side, surfUp(fr), fr.tan));
+    sign.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(surfSide(fr), surfUp(fr), fr.tan));
     worldGroup.add(sign);
   });
 }
@@ -1083,13 +1155,13 @@ function buildDriftCar() {
 buildGroundAndRoad();
 var wallMatW = lam(0xe8e6df), wallMatG = lam(0x9aa2ac), wallSteel = gloss(0x9aa2ac, 70, 0.5);
 if (CFG.walls === 'concrete') {
-  wallRun(ROAD_HALF + 1.7, 1.05, 0.5, wallMatW, 9);
-  wallRun(-(ROAD_HALF + 1.7), 1.05, 0.5, wallMatW, 9);
+  wallRun(ROAD_HALF + 1.7, 1.05, 0.5, wallMatW, 5);
+  wallRun(-(ROAD_HALF + 1.7), 1.05, 0.5, wallMatW, 5);
 } else if (CFG.walls === 'rail') {
-  wallRun(ROAD_HALF + 1.5, 0.42, 0.22, wallSteel, 6, 0.45);
-  wallRun(-(ROAD_HALF + 1.5), 0.42, 0.22, wallSteel, 6, 0.45);
-  wallRun(ROAD_HALF + 1.5, 0.16, 0.3, lam(0x6d747e), 6, 0.1);
-  wallRun(-(ROAD_HALF + 1.5), 0.16, 0.3, lam(0x6d747e), 6, 0.1);
+  wallRun(ROAD_HALF + 1.5, 0.42, 0.22, wallSteel, 5, 0.45);
+  wallRun(-(ROAD_HALF + 1.5), 0.42, 0.22, wallSteel, 5, 0.45);
+  wallRun(ROAD_HALF + 1.5, 0.16, 0.3, lam(0x6d747e), 5, 0.1);
+  wallRun(-(ROAD_HALF + 1.5), 0.16, 0.3, lam(0x6d747e), 5, 0.1);
 }
 buildGantry(CFG.gantryText, CFG.mode === 'nascar');
 buildTrees(CFG.trees, CFG.treeColor, 0x5a4632);
@@ -1121,7 +1193,7 @@ css.textContent = [
   '#topBar .v{font-size:17px;font-weight:900;font-style:italic;line-height:1.05;white-space:nowrap}',
   '#topBar .v .gold{color:#ffd75e}',
   '#topBar .mid{text-align:center}#topBar .r{text-align:right}',
-  '#rotateHint{position:absolute;top:52px;left:50%;transform:translateX(-50%);background:rgba(10,17,31,.82);border-radius:999px;padding:5px 14px;font-size:11px;font-weight:800;letter-spacing:1.5px;color:#ffd75e;display:none}',
+  '#rotateHint{position:absolute;top:52px;left:50%;transform:translateX(-50%);max-width:60vw;text-align:center;background:rgba(10,17,31,.82);border-radius:999px;padding:5px 14px;font-size:11px;font-weight:800;letter-spacing:1.5px;color:#ffd75e;display:none}',
   '@media (orientation:portrait){#rotateHint{display:block}}',
   '#badge{position:absolute;top:54px;right:10px;background:#37a7e8;color:#fff;font-weight:900;font-style:italic;font-size:12px;letter-spacing:1px;padding:5px 10px;border-radius:6px;transform:rotate(3deg);box-shadow:0 2px 8px rgba(0,0,0,.35)}',
   '#speedPanel{position:absolute;right:12px;bottom:118px;text-align:right}',
@@ -1342,20 +1414,25 @@ var streakMat = new THREE.LineBasicMaterial({ color: 0xdcefff, transparent: true
 var streaks = new THREE.LineSegments(streakGeo, streakMat);
 streaks.frustumCulled = false; scene.add(streaks);
 function stepStreaks(dt, origin, tan, side, up, v) {
-  var sf = clamp((v - 24) / 36, 0, 1);
-  streakMat.opacity += ((sf * 0.4) - streakMat.opacity) * Math.min(1, dt * 4);
+  /* subtlety pass: streaks used to spawn in a full ring around the
+     camera (including across the sky) at 0.4 opacity — on a phone they
+     read as scratches on the screen. Now: high speed only, faint,
+     short, and confined to the periphery at/below eye line so they
+     read as air rushing past the car, never across the view centre */
+  var sf = clamp((v - 33) / 30, 0, 1);
+  streakMat.opacity += ((sf * 0.13) - streakMat.opacity) * Math.min(1, dt * 4);
   streaks.visible = streakMat.opacity > 0.015;
   if (!streaks.visible) return;
   for (var i = 0; i < STREAK_N; i++) {
     var d = streakDat[i];
-    d.p.addScaledVector(tan, -(v * 2.1 + 10) * dt);
+    d.p.addScaledVector(tan, -(v * 1.25 + 6) * dt);
     var rx = d.p.x - origin.x, ry = d.p.y - origin.y, rz = d.p.z - origin.z;
     var along = rx * tan.x + ry * tan.y + rz * tan.z;
-    if (along < 1 || along > 55 || (rx * rx + ry * ry + rz * rz) > 3600) {
-      var ang = rnd() * Math.PI * 2, rad = 2.6 + rnd() * 4.6;
-      d.p.copy(origin).addScaledVector(tan, 16 + rnd() * 34)
-        .addScaledVector(side, Math.cos(ang) * rad).addScaledVector(up, Math.sin(ang) * rad + 0.4);
-      d.len = 0.7 + sf * 2.4 + rnd() * 0.8;
+    if (along < 1 || along > 46 || (rx * rx + ry * ry + rz * rz) > 2600) {
+      var sgn = rnd() < 0.5 ? -1 : 1;
+      d.p.copy(origin).addScaledVector(tan, 13 + rnd() * 26)
+        .addScaledVector(side, sgn * (2.3 + rnd() * 3.8)).addScaledVector(up, -1.5 + rnd() * 2.1);
+      d.len = 0.5 + sf * 1.1 + rnd() * 0.4;
     }
     var ix = i * 6;
     streakPos[ix] = d.p.x; streakPos[ix + 1] = d.p.y; streakPos[ix + 2] = d.p.z;
@@ -1442,7 +1519,7 @@ function placeCar(car, s, lat, slip, steerVis, rollExtra) {
   var fr = frameAt(s);
   var pos = surfPoint(fr, lat, 0.03);
   var up = surfUp(fr);
-  _m4.makeBasis(fr.side, up, fr.tan);
+  _m4.makeBasis(surfSide(fr), up, fr.tan);
   _q.setFromRotationMatrix(_m4);
   car.position.copy(pos);
   car.quaternion.copy(_q);
@@ -1573,6 +1650,13 @@ function step(dt) {
     rivals.forEach(function (r) {
       if (racing) {
         var aiTop = CFG.topSpeed * r.pace;
+        /* traffic sense: a faster rival must not ghost through the car
+           ahead in its lane — cap its pace to the leader's speed */
+        for (var oi = 0; oi < rivals.length; oi++) {
+          var o = rivals[oi]; if (o === r) continue;
+          var gap = ((o.s - r.s) % TRACK_LEN + TRACK_LEN) % TRACK_LEN;
+          if (gap > 0.5 && gap < 11 && Math.abs(o.lat - r.lat) < 1.8) aiTop = Math.min(aiTop, o.v + 0.3);
+        }
         r.v += 11 * (1 - r.v / (aiTop * 1.1)) * dt;
         r.v = Math.min(r.v, aiTop);
         r.s += r.v * dt; r.prog += r.v * dt;
@@ -1585,7 +1669,10 @@ function step(dt) {
         var rel = ((r.prog - G.prog) % (TRACK_LEN * 4) + TRACK_LEN * 4) % (TRACK_LEN * 4);
         var relS = ((r.s - G.s + TRACK_LEN * 1.5) % TRACK_LEN) - TRACK_LEN / 2;
         if (relS > 3.5 && relS < 16 && Math.abs(r.lat - G.lat) < 1.8) aheadDraft = true;
-        if (!r.passed && relS < -3) { r.passed = true; if (Math.abs(r.lat - G.lat) < 3.4) { G.score += 100; showEvent('PASS +100', 800); } }
+        /* any completed pass scores: the old lateral gate (< 3.4) ate
+           most honest oval passes (lanes sit ~3.7 apart) and left the
+           score on 0 for whole races */
+        if (!r.passed && relS < -3) { r.passed = true; G.score += 100; showEvent('PASS +100', 800); }
         if (r.passed && relS > 3) r.passed = false;
         if (Math.abs(relS) < 4.4 && Math.abs(r.lat - G.lat) >= 1.75 && Math.abs(r.lat - G.lat) < 2.9 && G.v - r.v > 5 && G.t > r.nearT) {
           r.nearT = G.t + 5; G.score += 150; showEvent('NEAR MISS +150', 800);
