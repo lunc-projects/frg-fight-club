@@ -431,6 +431,9 @@ const AudioSys = {
   breach() { this.tone(196, 130, 0.5, 'sawtooth', 0.3); this.tone(147, 98, 0.55, 'sawtooth', 0.26, 0.08); },
   bell() { this.tone(660, 655, 0.7, 'sine', 0.28); this.tone(990, 985, 0.55, 'sine', 0.16); },
   waveClear() { this.tone(523, 523, 0.14, 'triangle', 0.25); this.tone(659, 659, 0.14, 'triangle', 0.25, 0.13); this.tone(784, 784, 0.3, 'triangle', 0.28, 0.26); },
+  launch() { this.noise(0.32, 800, 'lowpass', 0.5, 0.55); this.tone(170, 55, 0.3, 'sawtooth', 0.1); },
+  boom() { this.noise(0.5, 200, 'lowpass', 0.9, 0.85); this.tone(95, 32, 0.45, 'sine', 0.8); },
+  toss() { this.tone(280, 540, 0.13, 'sine', 0.14); },
 };
 $('muteBtn').addEventListener('click', () => {
   AudioSys.init();
@@ -781,11 +784,14 @@ class CookieMonster {
     scene.remove(this.group);
     onBreach(this);
   }
-  damage(zone, point) {
+  damage(zone, point) { return this._hurt(playerGun.dmg, point, zone === 'head'); }
+  // explosions deal flat damage — they hit the dough mass, no eye bonus
+  damageFlat(amount, point) { return this._hurt(amount, point, false); }
+  _hurt(amount, point, eye) {
     if (this.dead || this.state === 'gone') return 'none';
-    if (zone === 'head') this.hp = 0; else this.hp -= playerGun.dmg;
-    burst(point, 0xd9a45f, zone === 'head' ? 16 : 10, 2.0, 1.0);   // crumbs
-    burst(point, 0x3a2110, 5, 1.4, 0.7);                            // choc bits
+    if (eye) this.hp = 0; else this.hp -= amount;
+    burst(point, 0xd9a45f, eye ? 16 : 10, 2.0, 1.0);   // crumbs
+    burst(point, 0x3a2110, 5, 1.4, 0.7);               // choc bits
     if (this.hp <= 0) {
       this.dead = true; this.state = 'dead'; this.deathT = 0;
       this.body.visible = false;
@@ -1005,11 +1011,13 @@ class DoughBoss {
     scene.remove(this.group);
     onBossBreach(this);
   }
-  damage(zone, point) {
+  damage(zone, point) { return this._hurt(zone === 'head' ? 3 * playerGun.dmg : playerGun.dmg, point, zone === 'head'); }
+  // explosions deal flat damage — they hit the dough mass, no eye bonus
+  damageFlat(amount, point) { return this._hurt(amount, point, false); }
+  _hurt(dmg, point, eye) {
     if (this.dead || this.state === 'gone') return 'none';
-    const dmg = zone === 'head' ? 3 * playerGun.dmg : playerGun.dmg;   // eyes hurt most — but never a one-shot
     this.hp -= dmg;
-    burst(point, 0xead9b0, zone === 'head' ? 18 : 12, 2.2, 1.1);   // pale dough bits
+    burst(point, 0xead9b0, eye ? 18 : 12, 2.2, 1.1);   // pale dough bits
     burst(point, 0xd9bd7f, 6, 1.5, 0.7);
     if (this.hp <= 0) {
       this.hp = 0;
@@ -1020,7 +1028,7 @@ class DoughBoss {
       return 'kill';
     }
     this.state = 'hit'; this.hitT = 0.26;
-    this.spawnDoughChunks(zone === 'head' ? 6 : 4, 0.8, point);
+    this.spawnDoughChunks(eye ? 6 : 4, 0.8, point);
     return 'hit';
   }
   dispose() {
@@ -1030,7 +1038,7 @@ class DoughBoss {
   }
 }
 
-/* ---------------- the armory: 6 rifles + a build-your-own slot ----------------
+/* ---------------- the armory: 7 roster guns + a build-your-own slot ----------------
    dmg   = damage per body hit (eye hits deal 3x — on the dough boss
            this is what melts its health pool; normal monsters still
            crumble instantly to an eye shot, body hits chip their hp)
@@ -1067,6 +1075,10 @@ const GUNS = [
     dmg: 0.25, bolt: 0.11, mag: 36, zooms: [17.2], sway: 1.5, auto: true, reload: 1.9,
     barrel: 0.44, barrelR: 0.02, scopeLen: 0.1, scopeR: 0.016, stock: 0xd94f8f,
     magStyle: 'drum', boltVisual: false },
+  { id: 'launcher', name: 'JAR BREAKER', tag: 'ROCKET LAUNCHER — a direct hit flattens anything (×4) and the blast crumbs everything near it (×2). Rockets hit the dough mass — no eye bonus, just boom.',
+    dmg: 4, bolt: 2.4, mag: 2, zooms: [17.2], sway: 0.8, reload: 2.2,
+    projectile: 'rocket', launcher: true, kickMul: 2.4, boltVisual: false,
+    barrel: 0.5, barrelR: 0.055, scopeLen: 0, scopeR: 0, stock: 0x5a4632 },
 ];
 
 /* -------- ROLL YOUR OWN: pick the parts, the panel does the math --------
@@ -1118,8 +1130,8 @@ function buildCustomGun() {
   };
 }
 let customGun = buildCustomGun();
-const CUSTOM_IDX = GUNS.length;               // turntable slot 6 (index 6)
-const SLOT_COUNT = GUNS.length + 1;           // 6 roster + the custom slot
+const CUSTOM_IDX = GUNS.length;               // selection-row slot after the roster guns
+const SLOT_COUNT = GUNS.length + 1;           // 7 roster + the custom slot
 function slotDef(i) { return i === CUSTOM_IDX ? customGun : GUNS[i]; }
 let playerGun = GUNS[0];
 let gunIdx = 0;
@@ -1131,6 +1143,29 @@ function buildRifleMesh(def) {
   const stockMat = def.stock === null
     ? new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.8 })
     : new THREE.MeshStandardMaterial({ color: def.stock, roughness: 0.62, metalness: 0.08 });
+  if (def.launcher) {
+    // JAR BREAKER: a fat olive tube with an open muzzle and the orange
+    // warhead poking out — no scope, just a post sight with a red dot.
+    const tubeMat = new THREE.MeshStandardMaterial({ color: 0x5c6636, roughness: 0.55, metalness: 0.35 });
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.062, 0.66, 14), tubeMat);
+    tube.rotation.x = Math.PI / 2; tube.position.set(0, 0.01, -0.3); g.add(tube);
+    const lip = new THREE.Mesh(new THREE.CylinderGeometry(0.068, 0.068, 0.05, 14), darkMetal);
+    lip.rotation.x = Math.PI / 2; lip.position.set(0, 0.01, -0.62); g.add(lip);
+    const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 0.12, 12), tubeMat);
+    tail.rotation.x = Math.PI / 2; tail.position.set(0, 0.01, 0.05); g.add(tail);
+    const pad = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.15, 0.05), new THREE.MeshStandardMaterial({ color: 0x2c2118, roughness: 0.9 }));
+    pad.position.set(0, -0.02, 0.14); g.add(pad);
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.13, 0.05), darkMetal);
+    grip.position.set(0, -0.09, -0.16); grip.rotation.x = 0.25; g.add(grip);
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.05, 0.008), darkMetal);
+    post.position.set(0, 0.1, -0.45); g.add(post);
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.011, 8, 8), new THREE.MeshBasicMaterial({ color: 0xff4030 }));
+    dot.position.set(0, 0.128, -0.45); g.add(dot);
+    const head = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.14, 12), new THREE.MeshStandardMaterial({ color: 0xd8622a, roughness: 0.5 }));
+    head.rotation.x = -Math.PI / 2; head.position.set(0, 0.01, -0.68); g.add(head);
+    const mt = new THREE.Object3D(); mt.position.set(0, 0.01, -0.72); g.add(mt);
+    return { group: g, boltHandle: null, muzzleTip: mt };
+  }
   const stock = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.13, 0.52), stockMat);
   stock.position.set(0, -0.03, 0.18); stock.rotation.x = 0.1; g.add(stock);
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.06, def.bodyH || 0.075, def.bodyLen || 0.34), metal);
@@ -1190,11 +1225,15 @@ scene.add(camera);
 const muzzleLight = new THREE.PointLight(0xffb050, 0, 9, 1.8);
 scene.add(muzzleLight);
 
-/* ---------------- the 360° pick turntable ---------------- */
+/* ---------------- the pick display: ONE gun on a stand ----------------
+   No turntable, no spinning, nothing to drag (owner's call, Nov 5):
+   the guns live in the #gunRow chips at the top of the menu; here in
+   3D only the SELECTED gun stands on the display disc, warmly lit,
+   in front of the cookie jar it guards. */
 const pickGroup = new THREE.Group();
 pickGroup.position.set(0, 1.02, 6.8);
-const pickRings = [];
-let customMount = null;   // the ROLL YOUR OWN turntable mount — its rifle is rebuilt when parts change
+const pickDisplays = [];   // one rifle mount per slot — only the picked one shows
+let customMount = null;    // the ROLL YOUR OWN display mount — rebuilt when parts change
 {
   const discMat = new THREE.MeshStandardMaterial({ color: 0x4a2f1a, roughness: 0.85 });
   const goldMat = new THREE.MeshStandardMaterial({ color: 0xd99a26, roughness: 0.35, metalness: 0.8, emissive: 0x442200 });
@@ -1202,43 +1241,54 @@ let customMount = null;   // the ROLL YOUR OWN turntable mount — its rifle is 
   pickGroup.add(disc);
   const rim = new THREE.Mesh(new THREE.TorusGeometry(2.1, 0.045, 10, 40), goldMat);
   rim.rotation.x = Math.PI / 2; rim.position.y = 0.08; pickGroup.add(rim);
-  // the prize itself — a little cookie jar on the centre pole
+  // the prize itself — a little cookie jar on a pole behind the display spot
   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.85, 10), goldMat);
-  pole.position.y = 0.5; pickGroup.add(pole);
+  pole.position.set(0, 0.5, -0.75); pickGroup.add(pole);
   const jarGlass = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.3, 0.52, 14),
     new THREE.MeshStandardMaterial({ color: 0xdfeaf2, roughness: 0.12, metalness: 0.1, transparent: true, opacity: 0.55 }));
-  jarGlass.position.y = 1.18; pickGroup.add(jarGlass);
+  jarGlass.position.set(0, 1.18, -0.75); pickGroup.add(jarGlass);
   const jarLid = new THREE.Mesh(new THREE.CylinderGeometry(0.37, 0.37, 0.07, 14), goldMat);
-  jarLid.position.y = 1.47; pickGroup.add(jarLid);
+  jarLid.position.set(0, 1.47, -0.75); pickGroup.add(jarLid);
   for (let i = 0; i < 3; i++) {
     const ck = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.05, 12),
       new THREE.MeshStandardMaterial({ color: 0xb5772e, roughness: 0.9 }));
-    ck.position.set(Math.sin(i * 2.2) * 0.12, 0.98 + i * 0.09, Math.cos(i * 2.2) * 0.12);
+    ck.position.set(Math.sin(i * 2.2) * 0.12, 0.98 + i * 0.09, -0.75 + Math.cos(i * 2.2) * 0.12);
     ck.rotation.set(0.4, i, 0.3); pickGroup.add(ck);
   }
   for (let i = 0; i < SLOT_COUNT; i++) {
-    const a = i * (Math.PI * 2 / SLOT_COUNT);
     const mount = new THREE.Group();
-    mount.position.set(Math.sin(a) * 1.45, 0.08, Math.cos(a) * 1.45);
-    mount.rotation.y = a + Math.PI;   // barrel faces outward
+    mount.position.set(0, 0.08, 0.55);
     mount.userData.gunIdx = i;
     const rm = buildRifleMesh(slotDef(i)).group;
-    rm.scale.setScalar(1.5);
+    rm.scale.setScalar(1.7);
     rm.rotation.x = 1.12;              // barrel tipped up, armory-style
-    rm.position.y = 0.62;
+    rm.position.y = 0.58;
     mount.add(rm);
+    mount.visible = false;
     if (i === CUSTOM_IDX) customMount = { mount, rm };
-    const ring = new THREE.Mesh(new THREE.RingGeometry(0.52, 0.66, 26),
-      new THREE.MeshBasicMaterial({ color: 0xffb340, transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
-    ring.rotation.x = -Math.PI / 2; ring.position.y = 0.015;
-    mount.add(ring);
-    pickRings.push(ring);
+    pickDisplays.push(mount);
     pickGroup.add(mount);
   }
+  // a gold ring lies flat on the disc under the displayed gun
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.52, 0.66, 26),
+    new THREE.MeshBasicMaterial({ color: 0xffb340, transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
+  ring.rotation.x = -Math.PI / 2; ring.position.set(0, 0.095, 0.55);
+  pickGroup.add(ring);
   const pl = new THREE.PointLight(0xffc37a, 60, 22, 1.8);
   pl.position.set(0, 3.6, 6.8); scene.add(pl);
 }
 scene.add(pickGroup);
+// the selection row: one chip per slot, built once — tap to pick
+{
+  const row = $('gunRow');
+  for (let i = 0; i < SLOT_COUNT; i++) {
+    const b = document.createElement('button');
+    b.className = 'gchip';
+    b.textContent = slotDef(i).name;
+    b.addEventListener('click', () => { AudioSys.init(); selectGun(i); });
+    row.appendChild(b);
+  }
+}
 
 function updateGunPanel() {
   const d = playerGun;
@@ -1246,7 +1296,7 @@ function updateGunPanel() {
   $('gunTag').textContent = d.tag;
   const maxZoom = 55 / Math.min(...d.zooms);
   const bars = [
-    ['dmg', d.dmg / 2, '×' + d.dmg],
+    ['dmg', THREE.MathUtils.clamp(d.dmg / 2, 0.04, 1), '×' + d.dmg],
     ['bolt', THREE.MathUtils.clamp((1.9 - d.bolt) / 1.5, 0.04, 1), d.auto ? 'AUTO' : d.bolt.toFixed(1) + 's'],
     ['mag', d.mag / 36, '' + d.mag],
     ['zoom', THREE.MathUtils.clamp(maxZoom / 12, 0.04, 1), '×' + maxZoom.toFixed(1)],
@@ -1254,11 +1304,12 @@ function updateGunPanel() {
   ];
   for (const [k, f, v] of bars) { $('gb-' + k).style.width = Math.round(f * 100) + '%'; $('gv-' + k).textContent = v; }
   $('startBtn').textContent = 'START · ' + d.name;
-  pickRings.forEach((r, i) => r.visible = i === gunIdx);
+  pickDisplays.forEach((m, i) => m.visible = i === gunIdx);
+  document.querySelectorAll('#gunRow .gchip').forEach((c, i) => c.classList.toggle('sel', i === gunIdx));
   $('builder').style.display = d.custom ? 'block' : 'none';
   $('gunHint').textContent = d.custom
-    ? '⟳ TAP THE PARTS TO BUILD YOUR RIFLE ⟳'
-    : '⟳ DRAG TO SPIN · TAP A RIFLE TO PICK IT ⟳';
+    ? 'TAP THE PARTS TO BUILD YOUR RIFLE'
+    : 'TAP A GUN TO PICK IT';
   syncBuilderUI();
 }
 function selectGun(i) {
@@ -1288,7 +1339,7 @@ function setPart(part, idx) {
   // rebuild the custom rifle wherever it is on display
   if (customMount) {
     const rm = buildRifleMesh(customGun).group;
-    rm.scale.setScalar(1.5); rm.rotation.x = 1.12; rm.position.y = 0.62;
+    rm.scale.setScalar(1.7); rm.rotation.x = 1.12; rm.position.y = 0.58;
     customMount.mount.remove(customMount.rm);
     customMount.mount.add(rm);
     customMount.rm = rm;
@@ -1315,7 +1366,8 @@ const game = { phase: 'boot', wave: 0, level: 0, boss: null, trickleT: 0,
 let enemies = [];
 let MAG = GUNS[0].mag;
 const player = { ammo: MAG, chamberT: 0, reloadT: 0, scoped: false, zoomIdx: 0,
-  breath: 1, holding: false, breathLock: false, kick: 0, boltT: -1, bloom: 0 };
+  breath: 1, holding: false, breathLock: false, kick: 0, boltT: -1, bloom: 0,
+  grenades: 3, throwT: 0 };
 let triggerHeld = false;   // FIRE held down — only the full-autos keep shooting
 let ZOOMS = GUNS[0].zooms;
 let aimYaw = 0, aimPitch = -0.052;
@@ -1362,9 +1414,11 @@ function showHitmarker(kill) {
 /* ---------------- input: drag aim, keys, buttons ---------------- */
 const keys = {};
 addEventListener('keydown', e => {
+  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return; // typing a leaderboard name
   keys[e.code] = true;
   if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) { triggerHeld = true; fire(); } }
   if (e.code === 'KeyR') startReload();
+  if (e.code === 'KeyG') throwGrenade();
   if (e.code === 'KeyF' || e.code === 'KeyQ') setScope(!player.scoped);
   if (e.code === 'Equal' && player.scoped) player.zoomIdx = Math.min(ZOOMS.length - 1, player.zoomIdx + 1);
   if (e.code === 'Minus' && player.scoped) player.zoomIdx = Math.max(0, player.zoomIdx - 1);
@@ -1418,6 +1472,7 @@ bindBtn('scopeBtn', () => setScope(!player.scoped));
   fb.addEventListener('pointerleave', release);
 }
 bindBtn('reloadBtn', () => startReload());
+bindBtn('nadeBtn', () => throwGrenade());
 $('startBtn').addEventListener('click', () => { AudioSys.init(); startGame(); });
 $('againBtn').addEventListener('click', () => { AudioSys.init(); showPick(); });
 $('builder').addEventListener('click', e => {
@@ -1427,37 +1482,9 @@ $('builder').addEventListener('click', e => {
   setPart(b.dataset.part, parseInt(b.dataset.v, 10));
 });
 
-/* gun pick: drag spins the turntable, a tap raycasts a rifle */
-let pickDragId = null, pickDragX = 0, pickMoved = 0, pickT0 = 0, pickDragOn = false;
-const menuEl = $('menu');
-menuEl.addEventListener('pointerdown', e => {
-  if (game.phase !== 'gunpick' || e.target === $('startBtn')) return;
-  if (e.target.closest && e.target.closest('#builder')) return;   // part taps are not spins
-  pickDragId = e.pointerId; pickDragX = e.clientX; pickMoved = 0; pickT0 = performance.now(); pickDragOn = true;
-});
-menuEl.addEventListener('pointermove', e => {
-  if (!pickDragOn || e.pointerId !== pickDragId) return;
-  const dx = e.clientX - pickDragX; pickDragX = e.clientX;
-  pickMoved += Math.abs(dx);
-  pickGroup.rotation.y += dx * 0.009;
-});
-const pickEnd = e => {
-  if (!pickDragOn || e.pointerId !== pickDragId) return;
-  pickDragOn = false;
-  if (pickMoved < 6 && performance.now() - pickT0 < 350) {
-    const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
-    raycaster.setFromCamera(ndc, camera);
-    const hits = raycaster.intersectObjects(pickGroup.children, true);
-    for (const h of hits) {
-      let o = h.object;
-      while (o && o.userData.gunIdx === undefined) o = o.parent;
-      if (o) { selectGun(o.userData.gunIdx); AudioSys.init(); break; }
-    }
-  }
-  pickDragId = null;
-};
-menuEl.addEventListener('pointerup', pickEnd);
-menuEl.addEventListener('pointercancel', pickEnd);
+/* gun pick input is the #gunRow chips now — no drag, no spin, no
+   raycast-a-rifle (owner's call, Nov 5). The parts buttons and the
+   START button carry their own click handlers. */
 
 function setScope(on) {
   if (game.phase !== 'fight' && game.phase !== 'boss' && game.phase !== 'levelclear') on = false;
@@ -1504,10 +1531,10 @@ function fire() {
   if (player.reloadT > 0 || player.chamberT > 0) return;
   if (player.ammo <= 0) { AudioSys.dryFire(); startReload(); return; }
   player.ammo--; game.shots++; game.waveShots++;
-  AudioSys.shot();
+  if (playerGun.projectile === 'rocket') AudioSys.launch(); else AudioSys.shot();
   player.chamberT = playerGun.bolt;
   player.boltT = playerGun.boltVisual === false ? -1 : 0;
-  player.kick = (player.scoped ? 0.017 : 0.009) * (playerGun.auto ? 0.3 : 1);
+  player.kick = (player.scoped ? 0.017 : 0.009) * (playerGun.auto ? 0.3 : 1) * (playerGun.kickMul || 1);
   if (playerGun.auto) player.bloom = Math.min(1, player.bloom + 0.13);   // sustained fire blooms
   // muzzle flash
   muzzleTip.getWorldPosition(_hp);
@@ -1515,6 +1542,8 @@ function fire() {
   const mf = $('muzzleFlash'); mf.style.transition = 'none'; mf.style.opacity = player.scoped ? 0 : 1;
   void mf.offsetWidth;
   requestAnimationFrame(() => { mf.style.transition = 'opacity .12s'; mf.style.opacity = 0; });
+
+  if (playerGun.projectile === 'rocket') { spawnRocket(); updateHUD(); return; }
 
   camera.getWorldDirection(_dir);
   if (playerGun.auto && player.bloom > 0.02) {
@@ -1624,6 +1653,170 @@ function resolveEnemyHit(best) {
   if (!killed || game.combo >= 2) showCombo();
   updateHUD();
 }
+/* ---------------- projectiles: rockets + grenades ----------------
+   Everything else in the bakery is hitscan; these two fly. A rocket
+   bursts for ×4 on a direct hit and ×2 splash inside 2.2m; a lobbed
+   grenade bursts for ×3 inside 2.6m. Explosions deal FLAT damage —
+   they hit the dough mass, so there is no eye bonus. Both explode on
+   contact (monster, cover, ground) or on an age cap, so nothing
+   flies off forever. */
+const projectiles = [];
+const boomLight = new THREE.PointLight(0xffa050, 0, 30, 1.6);
+scene.add(boomLight);
+function buildRocketMesh() {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.36, 10),
+    new THREE.MeshStandardMaterial({ color: 0xc8552e, roughness: 0.5, metalness: 0.3 }));
+  body.rotation.x = Math.PI / 2; g.add(body);
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.16, 10),
+    new THREE.MeshStandardMaterial({ color: 0xffe9b0, roughness: 0.4 }));
+  nose.rotation.x = Math.PI / 2; nose.position.z = 0.26; g.add(nose);
+  const finMat = new THREE.MeshStandardMaterial({ color: 0x8a2f18, roughness: 0.6 });
+  for (let i = 0; i < 3; i++) {
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.13, 0.1), finMat);
+    const a = i * Math.PI * 2 / 3;
+    fin.position.set(Math.sin(a) * 0.07, Math.cos(a) * 0.07, -0.16);
+    fin.rotation.z = -a; g.add(fin);
+  }
+  return g;
+}
+function buildGrenadeMesh() {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 10),
+    new THREE.MeshStandardMaterial({ color: 0x5c6636, roughness: 0.55, metalness: 0.25 }));
+  body.scale.y = 1.15; g.add(body);
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.05, 8),
+    new THREE.MeshStandardMaterial({ color: 0x2c2c30, roughness: 0.4, metalness: 0.6 }));
+  cap.position.y = 0.1; g.add(cap);
+  return g;
+}
+function spawnRocket() {
+  camera.getWorldDirection(_dir);
+  const pos = muzzleTip.getWorldPosition(new THREE.Vector3());
+  const vel = _dir.clone().multiplyScalar(38);
+  const mesh = buildRocketMesh(); mesh.position.copy(pos); scene.add(mesh);
+  projectiles.push({ kind: 'rocket', pos, vel, mesh, age: 0, trailT: 0 });
+}
+function throwGrenade() {
+  if (game.phase !== 'fight' && game.phase !== 'boss') return false;
+  if (player.grenades <= 0 || player.throwT > 0) return false;
+  player.grenades--; player.throwT = 0.5;   // a quick lob — bolt/reload state untouched
+  AudioSys.toss();
+  camera.getWorldDirection(_dir);
+  const pos = camera.position.clone().addScaledVector(_dir, 0.6); pos.y -= 0.1;
+  const vel = _dir.clone().multiplyScalar(19); vel.y += 4.4;
+  const mesh = buildGrenadeMesh(); mesh.position.copy(pos); scene.add(mesh);
+  projectiles.push({ kind: 'nade', pos, vel, mesh, age: 0 });
+  updateHUD();
+  return true;
+}
+// flat-damage scoring path for explosions — mirrors resolveEnemyHit
+// but with raw damage units and no eye-shot credit
+function resolveHitFlat(e, point, distT, dmg) {
+  const res = e.damageFlat(dmg, point);
+  if (res === 'none') return false;
+  game.hits++; game.waveHits++;
+  game.combo++; game.bestCombo = Math.max(game.bestCombo, game.combo);
+  const mult = 1 + 0.25 * Math.min(game.combo - 1, 7);
+  const killed = res === 'kill';
+  if (e.isBoss) {
+    if (killed) {
+      game.kills++;
+      game.score += Math.round((300 + game.level * 100) * mult);
+      AudioSys.crumble(); AudioSys.bossCrunch();
+      showToast('DOUGH MONSTER CRUMBLED!');
+      freezeT = 0.09;
+    } else {
+      game.score += Math.round(25 * mult);
+      AudioSys.bossCrunch();
+    }
+    showHitmarker(killed);
+    if (!killed || game.combo >= 2) showCombo();
+    updateHUD();
+    if (killed) onBossDown(e);
+    return killed;
+  }
+  if (killed) {
+    game.kills++;
+    game.score += Math.round((100 + Math.round(distT) * 2) * mult);
+    AudioSys.crumble();
+    showToast('CRUMBLED!');
+    freezeT = 0.05;
+  } else {
+    game.score += Math.round(25 * mult);
+    AudioSys.crunch();
+  }
+  showHitmarker(killed);
+  if (!killed || game.combo >= 2) showCombo();
+  updateHUD();
+  return killed;
+}
+function explodeAt(center, radius, splashDmg, directEnemy, directDmg) {
+  burst(center, 0xff9a3d, 30, 4.4, 2.0);
+  burst(center, 0xd9a45f, 16, 3.0, 1.4);
+  puff(center, 1.7, 0x8a7a66, 0.5);
+  boomLight.position.copy(center); boomLight.intensity = 90;
+  AudioSys.boom();
+  if (game.phase !== 'fight' && game.phase !== 'boss') return;
+  const targets = [];
+  for (const e of enemies) {
+    if (e.dead || e.breached || e.state === 'gone' || e.state === 'loading' || !e.headBone) continue;
+    const v = enemyVolumes(e);
+    if (e === directEnemy) targets.push({ e, dmg: directDmg, point: v.chest.clone() });
+    else if (v.chest.distanceTo(center) <= radius + e.hitR.body) targets.push({ e, dmg: splashDmg, point: v.chest.clone() });
+    else if (v.chest.distanceTo(center) <= radius + 3) e.alertT = Math.max(e.alertT, 2.0);   // close blast — they run
+  }
+  targets.sort((a, b) => (a.e.isBoss ? 1 : 0) - (b.e.isBoss ? 1 : 0));   // regulars first, boss last (its death clears the field)
+  for (const t of targets) resolveHitFlat(t.e, t.point, camera.position.distanceTo(t.e.group.position), t.dmg);
+}
+function updateProjectiles(dt) {
+  for (let i = projectiles.length - 1; i >= 0; i--) {
+    const p = projectiles[i];
+    p.age += dt;
+    if (p.kind === 'rocket') {
+      raycaster.set(p.pos, _dir.copy(p.vel).normalize());
+      raycaster.far = p.vel.length() * dt + 0.05;
+      const occ = raycaster.intersectObjects(coverMeshes, false);
+      p.pos.addScaledVector(p.vel, dt);
+      p.trailT -= dt;
+      if (p.trailT <= 0) { p.trailT = 0.028; puff(p.pos.clone(), 0.34, 0xd8cfc0, 0.4); }
+      p.mesh.position.copy(p.pos);
+      _v3.copy(p.pos).add(p.vel); p.mesh.lookAt(_v3);
+      let boom = null, direct = null;
+      if (occ.length) boom = occ[0].point.clone();
+      if (!boom) {
+        for (const e of enemies) {
+          if (e.dead || e.breached || e.state === 'gone' || e.state === 'loading' || !e.headBone) continue;
+          const v = enemyVolumes(e);
+          if (p.pos.distanceTo(v.chest) < e.hitR.body + 0.34 || p.pos.distanceTo(v.head) < e.hitR.head + 0.3) { direct = e; boom = p.pos.clone(); break; }
+        }
+      }
+      if (!boom && (p.pos.y < 0.05 || p.pos.z < -23 || p.pos.z > BREACH_Z + 2 || p.age > 4)) boom = p.pos.clone();
+      if (boom) { scene.remove(p.mesh); projectiles.splice(i, 1); explodeAt(boom, 2.2, 2, direct, 4); }
+    } else { // grenade — lobbed on an arc, bursts on landing or contact
+      p.vel.y -= 9.5 * dt;
+      p.pos.addScaledVector(p.vel, dt);
+      p.mesh.position.copy(p.pos);
+      p.mesh.rotation.x += dt * 6; p.mesh.rotation.z += dt * 4;
+      let boom = null;
+      if (p.pos.y <= 0.09) { p.pos.y = 0.09; boom = p.pos.clone(); }
+      // no gate-plane check: the perch stands BEHIND the jar line, so a
+      // z test would burst the grenade the instant it leaves the hand
+      // (bug caught in QA, Nov 5). Ground, monster contact and the 5s
+      // age cap end every throw instead.
+      if (!boom) {
+        for (const e of enemies) {
+          if (e.dead || e.breached || e.state === 'gone' || e.state === 'loading' || !e.headBone) continue;
+          const v = enemyVolumes(e);
+          if (p.pos.distanceTo(v.chest) < e.hitR.body + 0.3) { boom = p.pos.clone(); break; }
+        }
+      }
+      if (!boom && p.age > 5) boom = p.pos.clone();
+      if (boom) { scene.remove(p.mesh); projectiles.splice(i, 1); explodeAt(boom, 2.6, 3, null, 0); }
+    }
+  }
+}
+
 function startReload() {
   if ((game.phase !== 'fight' && game.phase !== 'boss') || player.reloadT > 0 || player.ammo >= MAG) return;
   player.reloadT = playerGun.reload || 1.6;   // the big auto drums take a little longer
@@ -1651,6 +1844,7 @@ function startGameAtLevel(n) {
   enemies = [];
   game.boss = null;
   Object.assign(game, { score: 0, kills: 0, shots: 0, hits: 0, headshots: 0, breaches: 0, combo: 0, bestCombo: 0 });
+  lbResetRun();
   player.ammo = MAG; player.chamberT = 0; player.reloadT = 0; player.breath = 1;
   setScope(false);
   pickGroup.visible = false;
@@ -1670,7 +1864,8 @@ function startLevel(n) {
   game.breaches = 0;   // the jar gets a fresh guard every level
   document.querySelectorAll('#breaches .gate').forEach(g => g.classList.remove('lost'));
   player.ammo = MAG; player.reloadT = 0; player.chamberT = 0; player.breath = 1; player.breathLock = false;
-  lastAmmo = -1;
+  player.grenades = 3; player.throwT = 0;   // a fresh pouch of grenades every level
+  lastAmmo = -1; lastNades = -1;
   game.phase = 'fight';
   showBanner('LEVEL ' + n, n === 1 ? 'OF 10 — PROTECT THE COOKIE JAR' : 'LEVEL ' + n + ' OF 10', 1.0);
   updateHUD();
@@ -1717,6 +1912,8 @@ function victory() {
     'ALL <b>10 LEVELS</b> CLEARED · CRUMBLED <b>' + game.kills + '</b> · EYE SHOTS <b>' + game.headshots + '</b><br>' +
     'ACCURACY <b>' + acc + '%</b> · BEST COMBO <b>×' + comboLabel() + '</b>';
   $('gameover').style.display = 'flex';
+  $('hud').style.display = 'none';
+  lbShowEndBoard();
   AudioSys.waveClear(); AudioSys.bell();
 }
 function onBreach(e) {
@@ -1737,6 +1934,8 @@ function gameOver() {
     'REACHED LEVEL <b>' + game.level + ' OF 10</b> · CRUMBLED <b>' + game.kills + '</b> · EYE SHOTS <b>' + game.headshots + '</b><br>' +
     'ACCURACY <b>' + acc + '%</b> · BEST COMBO <b>×' + comboLabel() + '</b>';
   $('gameover').style.display = 'flex';
+  $('hud').style.display = 'none';
+  lbShowEndBoard();
 }
 function spawnEnemy() {
   const lv = game.level;
@@ -1754,7 +1953,7 @@ function spawnEnemy() {
 }
 
 /* ---------------- HUD ---------------- */
-let lastAmmo = -1, lastChamber = null;
+let lastAmmo = -1, lastChamber = null, lastNades = -1;
 function updateHUD() {
   $('scoreVal').textContent = game.score;
   $('waveVal').textContent = Math.max(game.level, 1) + '/10';
@@ -1779,7 +1978,91 @@ function updateHUD() {
   const busy = player.chamberT > 0 || player.reloadT > 0;
   if (busy !== lastChamber) { lastChamber = busy; $('fireBtn').disabled = busy; }
   $('reloadBtn').textContent = player.reloadT > 0 ? '···' : 'RELOAD';
+  if (player.grenades !== lastNades) {
+    lastNades = player.grenades;
+    $('nadeBtn').textContent = 'GRENADE ×' + player.grenades;
+    $('nadeBtn').classList.toggle('empty', player.grenades <= 0);
+  }
 }
+
+/* ---------------- leaderboard ----------------
+   The shared LUNA GAMES board — the same endpoint every game on
+   this site uses: GET/POST /api/luna-games?game=cookie-sniper,
+   backed by the project's score store. One BEST score per player
+   name; the server enforces the sanity caps. Submits once per run,
+   at run end (jar overrun or victory). For glory only — no wallet,
+   no prizes, exactly like the footer says. */
+const LB_API = '/api/luna-games?game=cookie-sniper';
+const LB_NAME_KEY = 'cookieSniperName';
+let runStartMs = 0, runSubmitted = false, lbBusy = false;
+function lbStoredName() { try { return (localStorage.getItem(LB_NAME_KEY) || 'PLAYER').slice(0, 20); } catch (e) { return 'PLAYER'; } }
+function lbRenderRows(listEl, data, myName) {
+  const rows = (data && data.all) || [];
+  if (!rows.length) { listEl.innerHTML = '<div class="boardMsg">No scores yet — be the first! 🏆</div>'; return; }
+  listEl.innerHTML = '';
+  rows.slice(0, 10).forEach((r, i) => {
+    const d = document.createElement('div');
+    d.className = 'brow' + (myName && r.name && String(r.name).toLowerCase() === myName.toLowerCase() ? ' me' : '');
+    const rk = document.createElement('span'); rk.className = 'rk'; rk.textContent = (i + 1) + '.';
+    const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = r.name;
+    const lv = document.createElement('span'); lv.className = 'lv'; lv.textContent = r.level ? 'LV ' + r.level : '';
+    const sc = document.createElement('span'); sc.className = 'sc'; sc.textContent = r.score;
+    d.append(rk, nm, lv, sc); listEl.appendChild(d);
+  });
+}
+async function lbLoad(listEl, myName) {
+  try {
+    const r = await fetch(LB_API);
+    if (!r.ok) throw new Error('board ' + r.status);
+    lbRenderRows(listEl, await r.json(), myName);
+  } catch (e) {
+    listEl.innerHTML = '<div class="boardMsg">Board unavailable right now — keep guarding! 🍪</div>';
+  }
+}
+async function lbSubmit() {
+  if (runSubmitted || lbBusy) return false;
+  lbBusy = true;
+  const btn = $('submitBtn'); btn.disabled = true;
+  const name = ($('nameInput').value.trim() || 'PLAYER').slice(0, 20);
+  try { localStorage.setItem(LB_NAME_KEY, name); } catch (e) { /* private mode — name just won't persist */ }
+  $('submitStatus').textContent = 'Saving…';
+  const seconds = Math.max(1, Math.round((performance.now() - runStartMs) / 1000));
+  try {
+    const r = await fetch(LB_API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, score: Math.floor(game.score), seconds, level: game.level, initData: '' }) });
+    const d = await r.json().catch(() => null);
+    if (d && d.ok) {
+      runSubmitted = true;
+      $('submitStatus').textContent = d.rank ? "🏆 You're #" + d.rank + ' on the board!' : 'Saved to the board! 🏆';
+      lbLoad($('overBoardList'), name);
+      return true;
+    }
+    $('submitStatus').textContent = 'Could not save — tap to retry.';
+    btn.disabled = false;
+    return false;
+  } catch (e) {
+    $('submitStatus').textContent = 'Could not save — tap to retry.';
+    btn.disabled = false;
+    return false;
+  } finally { lbBusy = false; }
+}
+function lbResetRun() {
+  runStartMs = performance.now(); runSubmitted = false; lbBusy = false;
+  $('nameInput').value = lbStoredName();
+  $('submitBtn').disabled = false;
+  $('submitStatus').textContent = '';
+}
+function lbShowEndBoard() {
+  $('nameInput').value = lbStoredName();
+  lbLoad($('overBoardList'), lbStoredName());
+}
+$('submitBtn').addEventListener('click', () => lbSubmit());
+$('boardBtn').addEventListener('click', () => {
+  const p = $('pickBoard');
+  const open = p.style.display !== 'none';
+  p.style.display = open ? 'none' : 'block';
+  if (!open) lbLoad($('pickBoardList'), lbStoredName());
+});
 
 /* ---------------- QA hooks ---------------- */
 function aimAtPoint(p) {
@@ -1796,6 +2079,8 @@ function qaState() {
     gun: playerGun.id, magSize: MAG, zoomSteps: ZOOMS.length, dmg: playerGun.dmg,
     auto: !!playerGun.auto, bolt: playerGun.bolt, sway: playerGun.sway,
     trigger: triggerHeld, bloom: Math.round(player.bloom * 100) / 100,
+    grenades: player.grenades, throwT: Math.round(player.throwT * 100) / 100,
+    projectiles: projectiles.length,
     parts: playerGun.custom ? { ...customParts } : null,
     reloadT: Math.round(player.reloadT * 100) / 100, scoped: player.scoped,
     alive: aliveCount(), toSpawn: game.toSpawn, timer: Math.round(game.timer),
@@ -1846,7 +2131,18 @@ window.__qa = {
   showPick: () => showPick(),
   pickGun: i => { selectGun(i); return playerGun.id; },
   setSpin: r => { pickGroup.rotation.y = r; },
-  guns: () => GUNS.map(g => ({ id: g.id, name: g.name, dmg: g.dmg, bolt: g.bolt, mag: g.mag, zooms: g.zooms.length, sway: g.sway, auto: !!g.auto, reload: g.reload || 1.6 })),
+  guns: () => GUNS.map(g => ({ id: g.id, name: g.name, dmg: g.dmg, bolt: g.bolt, mag: g.mag, zooms: g.zooms.length, sway: g.sway, auto: !!g.auto, reload: g.reload || 1.6, projectile: g.projectile || null })),
+  // QA: pick row + armory 3 — the chips, a grenade toss, live projectiles
+  chips: () => [...document.querySelectorAll('#gunRow .gchip')].map(c => c.textContent),
+  throwGrenade: () => throwGrenade(),
+  projectiles: () => projectiles.map(p => ({ kind: p.kind, age: Math.round(p.age * 100) / 100 })),
+  positions: () => enemies.filter(e => !e.dead && !e.breached && e.state !== 'gone').map(e => ({ kind: e.kind, boss: !!e.isBoss, x: Math.round(e.group.position.x * 100) / 100, z: Math.round(e.group.position.z * 100) / 100, hp: e.hp })),
+  aimPoint: (x, y, z) => { aimAtPoint(_v3.set(x, y, z)); return true; },
+  boom: (x, y, z) => { explodeAt(new THREE.Vector3(x, y, z), 2.2, 2, null, 0); return true; },
+  warp: (i, x, z) => { const e = enemies.filter(q => !q.dead && !q.breached && q.state !== 'gone')[i]; if (!e) return false; e.group.position.x = x; e.group.position.z = z; return true; },
+  // QA: leaderboard — submit state + a programmatic submit
+  lb: () => ({ submitted: runSubmitted, storedName: lbStoredName() }),
+  submitScore: () => lbSubmit(),
   // QA: armory 2 — hold/release the trigger, pick custom parts, read the build
   setTrigger: v => { triggerHeld = !!v; },
   setPart: (part, idx) => setPart(part, idx),
@@ -1896,6 +2192,7 @@ function simUpdate(dt) {
     if (player.breathLock && player.breath > 0.4) player.breathLock = false;
   }
   if (player.chamberT > 0) player.chamberT -= dt;
+  if (player.throwT > 0) player.throwT -= dt;
   if (player.reloadT > 0) { player.reloadT -= dt; if (player.reloadT <= 0) { player.ammo = MAG; lastAmmo = -1; } }
   // full-auto: a held trigger keeps firing at the gun's interval; bloom
   // builds the whole time the trigger is down and only settles after
@@ -1913,6 +2210,7 @@ function simUpdate(dt) {
   }
   player.kick *= Math.pow(0.0001, dt); if (player.kick < 0.0004) player.kick = 0;
   muzzleLight.intensity *= Math.pow(0.000001, dt); if (muzzleLight.intensity < 0.05) muzzleLight.intensity = 0;
+  boomLight.intensity *= Math.pow(0.000001, dt); if (boomLight.intensity < 0.05) boomLight.intensity = 0;
 
   if (game.phase === 'fight') {
     game.timer = Math.max(0, game.timer - dt);
@@ -1971,7 +2269,7 @@ function animate() {
   });
   underGlow.intensity = 11 + Math.sin(elapsed * 2.3) * 2.2;
   BANNERS.forEach((b, i) => { b.rotation.y = 0.35 + Math.sin(elapsed * 1.1 + i * 1.9) * 0.14; b.rotation.z = Math.sin(elapsed * 0.9 + i) * 0.03; });
-  updateSparks(rawDt); updatePuffs(rawDt); updateTracers(rawDt);
+  updateSparks(rawDt); updatePuffs(rawDt); updateTracers(rawDt); updateProjectiles(rawDt);
 
   // scope zoom easing
   const targetFov = player.scoped ? ZOOMS[player.zoomIdx] : 55;
@@ -1991,7 +2289,7 @@ function animate() {
   let yaw = aimYaw, pitch = aimPitch;
   if (game.phase === 'gunpick') {
     yaw = Math.sin(elapsed * 0.08) * 0.045; pitch = -0.31 + Math.sin(elapsed * 0.06) * 0.008;
-    if (!pickDragOn) pickGroup.rotation.y += rawDt * 0.4;   // the 360° spin
+    // the display gun stands still — no spin (owner's call, Nov 5)
   }
   const amp = player.scoped ? (player.holding ? 0.0007 : 0.0044) * playerGun.sway * (1 + player.bloom * 1.6) : 0.0007;
   const swX = (Math.sin(elapsed * 0.83) + Math.sin(elapsed * 1.31 + 2.1) * 0.6) * amp;

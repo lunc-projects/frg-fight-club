@@ -81,6 +81,13 @@ const GAMES = {
   voidclash: { prefix: 'vclash', maxScore: 200000, minSec: 5, maxSec: 3600, rateMul: 300, rateBase: 1000 },
   'moonfelt-poker': { prefix: 'mpoker', maxScore: 10000000, minSec: 10, maxSec: 14400, rateMul: 10000, rateBase: 100000 },
   'comet-rush': { prefix: 'comet', maxScore: 200000, minSec: 5, maxSec: 7200, rateMul: 200, rateBase: 2000 },
+  /* Cookie Sniper (the DO community game): score comes from crumbles,
+     combos, boss and clear bonuses across up to 10 levels — a perfect
+     full run lands around ~90k, so the cap stays generous per the
+     house rule (never reject a real run). withLevel boards also store
+     the level of each player's best run (prefix:levels) and show it
+     next to the score; every other game is untouched by that flag. */
+  'cookie-sniper': { prefix: 'cookie', maxScore: 150000, minSec: 10, maxSec: 3600, rateMul: 300, rateBase: 2500, withLevel: true },
 };
 
 function weekKey(d = new Date()) {
@@ -175,13 +182,27 @@ async function submit(cfg, req, res) {
 
   const wk = `${cfg.prefix}:week:${weekKey()}`;
   try {
-    const out = await upstashPipeline([
+    const cmds = [
       ['ZADD', `${cfg.prefix}:all`, 'GT', score, playerId],
       ['ZADD', wk, 'GT', score, playerId],
       ['HSET', `${cfg.prefix}:names`, playerId, name],
       ['EXPIRE', wk, 60 * 60 * 24 * 40],
       ['ZREVRANK', `${cfg.prefix}:all`, playerId],
-    ]);
+    ];
+    if (cfg.withLevel) {
+      // Record the level of the player's BEST run: only when this
+      // score actually beats (or sets) their stored best. One extra
+      // read, withLevel games only.
+      const lvl = Math.floor(+body.level);
+      if (Number.isInteger(lvl) && lvl >= 1 && lvl <= 10) {
+        const cur = await upstashPipeline([['ZSCORE', `${cfg.prefix}:all`, playerId]]);
+        const curScore = cur[0] && cur[0].result != null ? +cur[0].result : null;
+        if (curScore === null || score > curScore) {
+          cmds.push(['HSET', `${cfg.prefix}:levels`, playerId, lvl]);
+        }
+      }
+    }
+    const out = await upstashPipeline(cmds);
     const rank = out[4] && typeof out[4].result === 'number' ? out[4].result + 1 : null;
     return res.status(200).json({ ok: true, name, rank });
   } catch (e) {
@@ -201,10 +222,16 @@ async function board(cfg, res) {
     const week = pairs(out[1] && out[1].result);
     const ids = [...new Set([...all, ...week].map((p) => p.id))];
     let names = {};
+    let levels = {};
     if (ids.length) {
       const nOut = await upstashPipeline([['HMGET', `${cfg.prefix}:names`, ...ids]]);
       const vals = (nOut[0] && nOut[0].result) || [];
       ids.forEach((id, i) => { names[id] = vals[i] || 'Player'; });
+      if (cfg.withLevel) {
+        const lOut = await upstashPipeline([['HMGET', `${cfg.prefix}:levels`, ...ids]]);
+        const lvals = (lOut[0] && lOut[0].result) || [];
+        ids.forEach((id, i) => { const n = parseInt(lvals[i], 10); levels[id] = Number.isNaN(n) ? null : n; });
+      }
     }
     // One row per display name: a player can hold both a name-based guest
     // entry and a Telegram-verified entry. Rows arrive best-first, so the
@@ -217,7 +244,9 @@ async function board(cfg, res) {
         const key = name.toLowerCase();
         if (seen.has(key)) continue;
         seen.add(key);
-        out.push({ name, score: p.score });
+        const row = { name, score: p.score };
+        if (cfg.withLevel) row.level = levels[p.id] ?? null;
+        out.push(row);
         if (out.length >= 20) break;
       }
       return out;
