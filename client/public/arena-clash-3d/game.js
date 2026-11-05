@@ -317,10 +317,10 @@ class Fighter {
     this.state = 'idle'; this.stateT = 0;
     this.atk = null; this.atkKey = null; this.atkHitDone = false; this.specDone = false;
     this.react = null; this.prevLimb = null; this.atkMinSurf = 99;
-    this.specNext = cfg.specialType || 'dash'; this.specKind = null; this.ult = null;
-    this.stats = { specDash: 0, specOrb: 0, ult: 0 };
+    this.specKind = null; this.ult = null;
+    this.stats = { specDash: 0, specOrb: 0, specRise: 0, specSweep: 0, ult: 0 };
     this.blocking = false; this.crouching = false;
-    this.roundsWon = 0; this.aiTimer = 0; this.aiHoldT = 0; this.aiAction = null; this.aiBlockT = 0;
+    this.roundsWon = 0; this.aiTimer = 0; this.aiHoldT = 0; this.aiAction = null; this.aiBlockT = 0; this.aiRot = {};
   }
   async load() {
     const g = await loader.loadAsync(this.cfg.model);
@@ -645,21 +645,36 @@ function startAttack(f, key) {
   else if (key === 'jab') setTimeout(() => AudioSys.swing(), 60);
   else AudioSys.swing();
 }
-/* Specials (owner, Nov 4): BOTH fighters own BOTH kinds — a dash strike
-   and an orb projectile. One SPEC control; successive presses alternate
-   dash <-> orb (the HUD meter label shows what's next). A special costs
-   25 meter. At a FULL bar (100) SPEC instead fires the ULTIMATE: LUNC's
-   dash-in 3-hit combo + dash finisher, USTC's 3-orb barrage — about 24
-   damage if everything lands, never a one-shot from full HP. */
+/* Specials (owner, Nov 4): DIRECTIONAL specials — the direction held on
+   the stick/pad at the moment SPEC is pressed picks the move:
+     → (or no direction) = DASH STRIKE (rush-in hit)
+     ←                   = ORB PROJECTILE (ranged blast)
+     ↑                   = RISE (step-in launcher, pops the opponent up)
+     ↓                   = SWEEP (long low slide, trips the opponent)
+   All four are attack moves, both fighters own all four, each costs 25
+   meter. The earlier alternating dash<->orb "NEXT" scheme is superseded.
+   At a FULL bar (100) SPEC in any direction fires the ULTIMATE instead:
+   LUNC's dash-in 3-hit combo + dash finisher, USTC's 3-orb barrage —
+   about 24 damage if everything lands, never a one-shot from full HP.
+   Clip choices are probe-measured (see ?qa=cliprobe:): no rising-fist
+   clip exists in the UAL set, so RISE rides the proven Punch_Cross fist
+   on a code-driven hop — the fist sweeps up through the chin line as the
+   body leaves the floor, and the launch reaction sells the rest. SWEEP
+   reuses the slide clips: Slide_Loop holds the lead foot 0.83 m out at
+   0.10 m height — a true low line. */
 const SPEC_COST = 25;
-function startSpecial(f) {
-  if (f.state !== 'idle' && f.state !== 'walk') return;
+function specKindFromInput(input) {
+  if (input.jump) return 'rise';   // stick/pad up (input.jump = up held)
+  if (input.down) return 'sweep';
+  if (input.left) return 'orb';
+  return 'dash';                   // right or neutral — the forgiving default
+}
+function startSpecial(f, kind) {
+  if (f.state !== 'idle' && f.state !== 'walk' && f.state !== 'crouch') return;
   if (f.meter >= 100) { startUltimate(f); return; }
   if (f.meter < SPEC_COST) return;
   f.meter -= SPEC_COST;
-  const kind = f.specNext;
-  f.specNext = kind === 'dash' ? 'orb' : 'dash';
-  beginSpecial(f, kind);
+  beginSpecial(f, kind || 'dash');
 }
 function dashClipKey(f) { return f === P1 ? 'special' : 'dashAlt'; } // both rigs carry Sword_Dash
 function beginSpecial(f, kind) {
@@ -667,6 +682,8 @@ function beginSpecial(f, kind) {
   f.specKind = kind;
   f.prevLimb = null; f.atkMinSurf = 99;
   if (kind === 'dash') { f.play(dashClipKey(f), { loop: false, clamp: true, fade: 0.05 }); AudioSys.dash(); f.stats.specDash++; }
+  else if (kind === 'rise') { f.play('heavy', { loop: false, clamp: true, fade: 0.05 }); f.vy = 6.2; AudioSys.swing(); f.stats.specRise++; }
+  else if (kind === 'sweep') { f.play('kick1', { loop: false, clamp: true, fade: 0.05 }); AudioSys.dash(); f.stats.specSweep++; }
   else { f.play('throw', { loop: false, clamp: true, fade: 0.05 }); f.stats.specOrb++; }
 }
 function startUltimate(f) {
@@ -787,7 +804,7 @@ const CLIPMAP = {
 };
 const P1 = new Fighter({
   name: 'MR LUNC', model: 'models/ryker/char.gltf', startX: -1.7, handBone: 'hand_r',
-  sparkColor: 0x7fd8ff, specialType: 'dash',
+  sparkColor: 0x7fd8ff,
   hair: ['models/ryker/Hair_SimpleParted.gltf', 'models/ryker/Hair_Beard.gltf'],
   // heavy was 'Melee_Hook' until Nov 4: that clip is a lunging overhead
   // weapon swing — the body pitches ~0.6 m forward, the fist peaks 0.55 m
@@ -799,7 +816,7 @@ const P1 = new Fighter({
 });
 const P2 = new Fighter({
   name: 'MRS USTC', model: 'models/sable/char.gltf', startX: 1.7, handBone: 'hand_l',
-  sparkColor: 0xff8095, specialType: 'orb',
+  sparkColor: 0xff8095,
   hair: ['models/sable/Hair_Long.gltf'], hairTint: 0x6e4a34,
   clips: { ...CLIPMAP, heavy: 'Punch_Cross', special: 'Spell_Simple_Shoot', throw: 'Spell_Simple_Shoot', dashAlt: 'Sword_Dash' },
 });
@@ -960,6 +977,13 @@ function fighterUpdate(f, dt, input) {
     if (input.blockKey || (away && threat)) {
       f.blocking = true;
       if (f.state !== 'block') { f.state = 'block'; f.play('block', { fade: 0.06 }); }
+    } else if (input.specHit) {
+      // SPEC is read BEFORE crouch/jump: the direction the player is
+      // holding (up/down) selects the special, so those stances must not
+      // swallow the press first. Direction comes from the live input
+      // vector (AI passes specDir explicitly; players get it from the
+      // held stick/pad/keys).
+      startSpecial(f, input.specDir || specKindFromInput(input));
     } else if (input.down) {
       f.crouching = true;
       if (f.state !== 'crouch') { f.state = 'crouch'; f.play('crouch', { fade: 0.06 }); }
@@ -968,7 +992,6 @@ function fighterUpdate(f, dt, input) {
     } else if (input.jabHit) startAttack(f, 'jab');
     else if (input.hookHit) startAttack(f, 'heavy');
     else if (input.kickHit) startAttack(f, 'kick');
-    else if (input.specHit) startSpecial(f);
     else if (toward || away) {
       const dir = toward ? f.face : -f.face;
       f.x += dir * 1.75 * dt;
@@ -1019,6 +1042,49 @@ function fighterUpdate(f, dt, input) {
         }
       }
       if (f.stateT >= total * 0.95) { f.state = 'idle'; f.play('idle', { fade: 0.08 }); }
+    } else if (f.specKind === 'rise') {
+      // LAUNCHER: short step-in while the hop (vy set in beginSpecial)
+      // carries the cross upward. The fist's swept path is tracked from
+      // the wind-up so the first active frame can't tunnel.
+      const total = Math.max(f.dur('heavy') * 0.95, 0.72);
+      if (f.stateT < 0.30) f.x += f.face * 4.6 * dt;
+      if (!f.atkHitDone) {
+        if (f.stateT >= 0.10 && f.stateT <= 0.55 && dist(f, o) < 2.0) {
+          const c = limbContact(f, o, 'heavy', 0.10);
+          if (c) {
+            f.atkHitDone = true;
+            resolveHit(f, o, 14, 1.5, { gain: 10, hitstop: 0.12, shake: 0.15, heavy: true, knock: true, kind: 'special', contact: c });
+            if (o.state === 'knock') o.vy = Math.max(o.vy, 7.6); // LAUNCH — the pop-up is the point of the move
+          }
+        } else if (f.stateT < 0.10) {
+          f.bonePos(f.limbBones.heavy, _limb); if (!f.prevLimb) f.prevLimb = _limb.clone(); else f.prevLimb.copy(_limb);
+        }
+      }
+      if (f.stateT >= total) { f.state = 'idle'; f.play('idle', { fade: 0.08 }); }
+    } else if (f.specKind === 'sweep') {
+      // GROUND SWEEP: the kick slide stretched into a long low dash —
+      // Slide_Loop pins the lead foot at floor height, the contact test
+      // reads it against the leg capsule ('low' zone), and a connect
+      // trips (knock). Dust puffs trail the slide along the floor.
+      if (f.stateT > 0.14 && f.currentKey !== 'kick2' && !f.atkHitDone) f.play('kick2', { loop: false, clamp: true, fade: 0.03 });
+      if (f.stateT > 0.06 && f.stateT < 0.55) {
+        f.x += f.face * 6.2 * dt;
+        f.specFxT = (f.specFxT || 0) + dt;
+        if (f.specFxT > 0.05) { f.specFxT = 0; puff(_v1.set(f.x + f.face * 0.3, 0.12, 0), 0.4, 0xbfb096, 0.35); }
+      }
+      if (!f.atkHitDone) {
+        if (f.stateT >= 0.12 && f.stateT <= 0.66 && dist(f, o) < 2.0) {
+          const c = limbContact(f, o, 'kick', 0.10);
+          if (c) {
+            f.atkHitDone = true;
+            resolveHit(f, o, 13, 2.1, { gain: 10, hitstop: 0.11, shake: 0.13, heavy: true, knock: true, kind: 'special', contact: c });
+            puff(_v1.set(o.x, 0.15, 0), 0.75, 0xcfc4b0, 0.5); // dust burst at the tripped feet
+          }
+        } else if (f.stateT < 0.12) {
+          f.bonePos(f.limbBones.kick, _limb); if (!f.prevLimb) f.prevLimb = _limb.clone(); else f.prevLimb.copy(_limb);
+        }
+      }
+      if (f.stateT >= 0.85) { f.state = 'idle'; f.play('idle', { fade: 0.08 }); }
     } else {
       if (!f.specDone && f.stateT >= 0.34) {
         f.specDone = true;
@@ -1045,7 +1111,7 @@ function fighterUpdate(f, dt, input) {
 /* ---------------- AI ---------------- */
 function aiInput(f, dt) {
   const o = foe(f);
-  const inp = { left: false, right: false, down: false, jump: false, blockKey: false, jab: false, hook: false, kick: false, spec: false, _aiBlock: false };
+  const inp = { left: false, right: false, down: false, jump: false, blockKey: false, jab: false, hook: false, kick: false, spec: false, specDir: null, _aiBlock: false };
   inp.jabHit = inp.hookHit = inp.kickHit = inp.specHit = inp.jumpHit = false;
   if (game.phase !== 'fight' || ['death', 'win'].includes(f.state)) return inp;
   f.aiTimer -= dt;
@@ -1060,21 +1126,29 @@ function aiInput(f, dt) {
     f.aiTimer = 0.13 + Math.random() * 0.14;
     f.aiAction = null;
     const hurt = f.hp < 28;
+    // Directional-special selection: a per-band rotation guarantees the
+    // AI cycles ALL FOUR moves over a match (front-loaded so the first
+    // spends in a band are all distinct kinds), and metered specials are
+    // capped at 8 per match so totals stay in the proven ~5-8 band —
+    // past the cap the AI saves the bar for the ULTIMATE instead.
+    const specTotal = f.stats.specDash + f.stats.specOrb + f.stats.specRise + f.stats.specSweep;
+    const canSpec = f.meter >= SPEC_COST && (f.meter >= 100 || specTotal < 8);
+    const rot = (band, arr) => { const i = f.aiRot[band] || 0; f.aiRot[band] = i + 1; return arr[i % arr.length]; };
     if (d > 2.7) {
-      // either special kind may come out (they alternate); orb is the
-      // natural long-range pick, a full bar means ULTIMATE — spend it
-      if (f.meter >= SPEC_COST && Math.random() < (f.meter >= 100 ? 0.55 : (f.specNext === 'orb' ? 0.5 : 0.3))) { inp.specHit = true; }
+      // long range: ORB leads the rotation, DASH is the surprise closer;
+      // a full bar means ULTIMATE — spend it, direction moot
+      if (canSpec && Math.random() < (f.meter >= 100 ? 0.55 : 0.42)) { inp.specHit = true; inp.specDir = rot('far', ['orb', 'dash', 'orb']); }
       else { f.aiAction = towardKey; f.aiHoldT = 0.24; }
     } else if (d > 1.18) {
       const r = Math.random();
-      if (f.meter >= SPEC_COST && (f.meter >= 100 ? r < 0.4 : (f.specNext === 'dash' ? r < 0.3 : r < 0.2))) inp.specHit = true;
+      if (canSpec && (f.meter >= 100 ? r < 0.4 : r < 0.32)) { inp.specHit = true; inp.specDir = rot('mid', ['dash', 'orb', 'rise', 'dash']); }
       else if (r < 0.24) { inp.kickHit = true; }
       else if (r < 0.34 && hurt) { f.aiAction = awayKey; f.aiHoldT = 0.3; }
       else { f.aiAction = towardKey; f.aiHoldT = 0.2; }
     } else {
       const r = Math.random();
-      if (f.meter >= 100 && r < 0.18) inp.specHit = true; // point-blank ULTIMATE
-      else if (f.meter >= SPEC_COST && f.meter < 100 && r < (f.meter >= 75 ? 0.3 : 0.24)) inp.specHit = true; // close-range special: spend sometimes, save for the ULTIMATE other times
+      if (f.meter >= 100 && r < 0.18) { inp.specHit = true; inp.specDir = 'dash'; } // point-blank ULTIMATE (direction moot at a full bar)
+      else if (canSpec && f.meter < 100 && r < (f.meter >= 75 ? 0.28 : 0.22)) { inp.specHit = true; inp.specDir = rot('close', ['rise', 'sweep', 'dash', 'orb', 'sweep', 'rise']); } // close-range special: launcher / sweep / dash / orb rotation
       else if (r < 0.42) inp.jabHit = true;
       else if (r < 0.64) inp.hookHit = true;
       else if (r < 0.78) inp.kickHit = true;
@@ -1101,14 +1175,14 @@ function showBanner(main, sub = '', hold = 0.85) {
 function resetFighter(f) {
   f.hp = 100; f.meter = 0; f.x = f.cfg.startX; f.vx = 0; f.y = 0; f.vy = 0;
   f.state = 'idle'; f.stateT = 0; f.atk = null; f.aiBlockT = 0; f.aiAction = null;
-  f.specNext = f.cfg.specialType; f.specKind = null; f.ult = null;
+  f.specKind = null; f.ult = null;
   f.react = null; f.prevLimb = null;
   f.face = f.cfg.startX < 0 ? 1 : -1; f.applyFacing(); f.play('idle');
   f.group.position.set(f.x, 0, 0);
 }
 function startMatch() {
   P1.roundsWon = 0; P2.roundsWon = 0; game.round = 1;
-  P1.stats = { specDash: 0, specOrb: 0, ult: 0 }; P2.stats = { specDash: 0, specOrb: 0, ult: 0 };
+  P1.stats = { specDash: 0, specOrb: 0, specRise: 0, specSweep: 0, ult: 0 }; P2.stats = { specDash: 0, specOrb: 0, specRise: 0, specSweep: 0, ult: 0 };
   $('rematch').style.display = 'none';
   startRound();
 }
@@ -1145,7 +1219,7 @@ function updateHUD() {
     meterEl.style.width = f.meter + '%';
     meterEl.classList.toggle('ready', f.meter >= SPEC_COST && f.meter < 100);
     meterEl.classList.toggle('ult', f.meter >= 100);
-    if (specEl) specEl.textContent = f.meter >= 100 ? '· ULTIMATE READY' : (f.meter >= SPEC_COST ? '· NEXT: ' + (f.specNext === 'dash' ? '⚡ DASH' : '🔮 ORB') : '');
+    if (specEl) specEl.textContent = f.meter >= 100 ? '· ULTIMATE READY' : '';
   }
   const t = Math.max(0, Math.ceil(game.timer));
   $('timer').textContent = t;
@@ -1289,13 +1363,14 @@ function animate() {
         if (!QA_MODE) $('rematch').style.display = 'block';
       } else { game.round++; startRound(); }
     }
+    if (game.__dirtest && game.phase === 'fight' && P1.state === 'idle' && P1.meter < SPEC_COST) P1.meter = 60; // QA-only: keep the dirtest driver supplied
     if (qaImpact && game.phase === 'fight') {
       qaImpact.t += dt;
       const attF = qaImpact.att2 ? P2 : P1;
       if (!qaImpact.fired && qaImpact.t > 1.15) {
         qaImpact.fired = true;
         if (qaImpact.ult) startUltimate(attF);
-        else if (qaImpact.spec) { attF.specNext = qaImpact.spec; startSpecial(attF); }
+        else if (qaImpact.spec) { startSpecial(attF, qaImpact.spec); }
         else startAttack(attF, qaImpact.atk);
       }
       if (qaImpact.ult) { // freeze once the ultimate's whole sequence completes
@@ -1304,7 +1379,7 @@ function animate() {
       }
       else if (qaImpact.fired && window.__lastHit && performance.now() - window.__lastHit.at > qaImpact.freezeMs) game.phase = 'frozen';
       else if (qaImpact.whiff && qaImpact.fired && attF.state === 'attack' && attF.atk && attF.stateT >= attF.atk.startup + attF.atk.active * 0.55) game.phase = 'frozen';
-      else if (qaImpact.spec && qaImpact.fired && attF.state === 'idle' && qaImpact.t > 1.5) game.phase = 'frozen';
+      else if (qaImpact.spec && qaImpact.fired && attF.state === 'idle' && qaImpact.t > 1.5 && projectiles.length === 0) game.phase = 'frozen'; // a live orb is still travelling — don't freeze the scene out from under it (USTC's short throw clip idles long before her orb lands)
       else if (qaImpact.t > 5 && !qaImpact.spec) game.phase = 'frozen';
       else if (qaImpact.t > 8) game.phase = 'frozen';
     }
@@ -1316,6 +1391,8 @@ function animate() {
         ai = !qaImpact.att2 && qaImpact.block ? blockInp : {};
       }
       else if (QA_MODE === 'auto') { inp = aiInput(P1, dt); ai = aiInput(P2, dt); }
+      else if (qaHoldInputs) { inp = {}; ai = {}; }
+      else if (qaHoldAI) { inp = readPlayerInput(); ai = {}; }
       else { inp = readPlayerInput(); ai = aiInput(P2, dt); }
       fighterUpdate(P1, dt, game.phase === 'fight' ? inp : {});
       fighterUpdate(P2, dt, game.phase === 'fight' ? ai : {});
@@ -1355,13 +1432,15 @@ function animate() {
   updateCamera(rawDt, elapsed);
   renderer.render(scene, camera);
 
+  if (qaProbe) qaProbeSample();
   if (QA_MODE) {
     const el = document.getElementById('qaState');
     el.textContent = JSON.stringify({
+      probe: qaProbe ? qaProbeSummary() : undefined,
       phase: game.phase, round: game.round, timer: Math.round(game.timer * 10) / 10,
       hp: [Math.round(P1.hp), Math.round(P2.hp)], wins: [P1.roundsWon, P2.roundsWon],
       states: [P1.state, P2.state], xs: [Math.round(P1.x * 100) / 100, Math.round(P2.x * 100) / 100], errors: window.__errs,
-      spec: [{ dash: P1.stats.specDash, orb: P1.stats.specOrb, ult: P1.stats.ult, meter: Math.round(P1.meter), next: P1.specNext, kind: P1.specKind, inUlt: !!P1.ult }, { dash: P2.stats.specDash, orb: P2.stats.specOrb, ult: P2.stats.ult, meter: Math.round(P2.meter), next: P2.specNext, kind: P2.specKind, inUlt: !!P2.ult }], ultCam: game.ultCamT > 0,
+      spec: [{ dash: P1.stats.specDash, orb: P1.stats.specOrb, rise: P1.stats.specRise, sweep: P1.stats.specSweep, ult: P1.stats.ult, meter: Math.round(P1.meter), kind: P1.specKind, inUlt: !!P1.ult }, { dash: P2.stats.specDash, orb: P2.stats.specOrb, rise: P2.stats.specRise, sweep: P2.stats.specSweep, ult: P2.stats.ult, meter: Math.round(P2.meter), kind: P2.specKind, inUlt: !!P2.ult }], ultCam: game.ultCamT > 0,
       lastHit: window.__lastHit || null, surf: Math.round(P1.atkMinSurf * 100) / 100, surf2: Math.round(P2.atkMinSurf * 100) / 100,
       dbg: { cam: camera.position.toArray().map(v => Math.round(v * 100) / 100), mh: [P1.measuredH, P2.measuredH], mn: [P1.measuredMin, P2.measuredMin], gs: [P1.group.scale.x, P2.group.scale.x], ph: [P1.posedH, P2.posedH], arm: [P1.armInfo, P2.armInfo] },
     });
@@ -1404,6 +1483,30 @@ document.getElementById('rematch').addEventListener('click', () => { AudioSys.in
 
 /* ---------------- QA scenes (deterministic tableaux) ---------------- */
 let qaImpact = null; // scripted live-sim impact scene state (QA only)
+let qaProbe = null, qaHoldInputs = false, qaHoldAI = false; // clip-trajectory probe + input holds (QA only)
+function qaProbeSample() {
+  for (const tr of qaProbe.trackers) {
+    const f = tr.f;
+    for (const [key, bone] of Object.entries(tr.bones)) {
+      if (!bone) continue;
+      f.bonePos(bone, _v1);
+      const fwd = (_v1.x - f.x) * f.face, y = _v1.y - f.y;
+      const t = tr.t[key] || (tr.t[key] = { minY: 99, maxY: -99, maxFwd: -99, yAtMaxFwd: 0, firstY: null });
+      if (t.firstY === null) t.firstY = y;
+      if (y < t.minY) t.minY = y;
+      if (y > t.maxY) t.maxY = y;
+      if (fwd > t.maxFwd) { t.maxFwd = fwd; t.yAtMaxFwd = y; }
+    }
+  }
+}
+function qaProbeSummary() {
+  const r2 = v => Math.round(v * 100) / 100;
+  return { clip: qaProbe.name, dur: r2(qaProbe.dur), fighters: qaProbe.trackers.map(tr => {
+    const o = {};
+    for (const [k, t] of Object.entries(tr.t)) o[k] = { minY: r2(t.minY), maxY: r2(t.maxY), maxFwd: r2(t.maxFwd), yAtMaxFwd: r2(t.yAtMaxFwd), firstY: r2(t.firstY) };
+    return o;
+  }) };
+}
 function freezePose(f, key, at) {
   f.play(key, { loop: false, clamp: true, fade: 0 });
   if (f.current) f.current.time = at;
@@ -1428,6 +1531,36 @@ function setupQA(mode) {
     updateHUD();
     return;
   }
+  if (mode === 'dirtest') {
+    // Player-path check for directional specials: the harness drives
+    // REAL keyboard input (hold a direction, tap U for SPEC) and reads
+    // the fired move back through qaState. P2's AI is held (qaHoldAI)
+    // so nothing interrupts P1; P1's meter is topped up when it runs
+    // dry (see the __dirtest refill in animate()).
+    qaHoldAI = true;
+    game.__dirtest = true;
+    P2.meter = 0;
+    updateHUD();
+    return;
+  }
+  if (mode.indexOf('cliprobe:') === 0) {
+    // Trajectory probe: both fighters loop one raw clip; qaState reports
+    // each striking limb's height range + forward reach so special-move
+    // clips get picked from measurements, not guesses.
+    const name = decodeURIComponent(mode.slice('cliprobe:'.length));
+    const clip = clips[name];
+    P1.x = -0.9; P2.x = 0.9;
+    P1.group.position.x = P1.x; P2.group.position.x = P2.x;
+    P1.face = 1; P2.face = -1; P1.applyFacing(); P2.applyFacing();
+    qaProbe = { name, dur: clip ? clip.duration : 0, trackers: [] };
+    for (const f of FIGHTERS) {
+      if (clip) { f.actions.probe = f.mixer.clipAction(clip); f.play('probe', { loop: true, fade: 0 }); }
+      qaProbe.trackers.push({ f, bones: { handL: f.limbBones.jab, handR: f.limbBones.heavy, footR: f.limbBones.kick, head: f.headBone, chest: f.chestBone }, t: {} });
+    }
+    qaHoldInputs = true;
+    updateHUD();
+    return;
+  }
   // Scripted LIVE impact scenes: real sim, real hit resolution — P1 throws
   // one strike at a measured distance, then the frame freezes just after
   // the strike resolves (or at the whiff's apex). Gaps come from the rig
@@ -1443,6 +1576,11 @@ function setupQA(mode) {
     impactspdash1: { spec: 'dash', gap: 1.6 },               // MR LUNC's dash strike
     impactspdash2: { spec: 'dash', gap: 1.6, att2: true },  // MRS USTC's dash strike (Sword_Dash on her rig)
     impactsporb1:  { spec: 'orb', gap: 3.2, freezeMs: 30 }, // MR LUNC's orb, connecting at range
+    impactsporb2:  { spec: 'orb', gap: 3.2, freezeMs: 30, att2: true }, // MRS USTC's orb
+    spekrise1:     { spec: 'rise', gap: 1.5, freezeMs: 500 },  // MR LUNC's launcher — freeze catches the pop-up
+    spekrise2:     { spec: 'rise', gap: 1.5, freezeMs: 500, att2: true }, // MRS USTC's launcher
+    specsweep1:    { spec: 'sweep', gap: 1.9, freezeMs: 60 },  // MR LUNC's ground sweep trip
+    specsweep2:    { spec: 'sweep', gap: 1.9, freezeMs: 60, att2: true }, // MRS USTC's ground sweep
     impactult:     { ult: true, gap: 2.6 },                 // MR LUNC's combo ULTIMATE
     impactult2:    { ult: true, gap: 3.4, att2: true },     // MRS USTC's barrage ULTIMATE
   };
