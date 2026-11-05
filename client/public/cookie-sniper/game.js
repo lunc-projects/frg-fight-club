@@ -1227,9 +1227,10 @@ scene.add(muzzleLight);
 
 /* ---------------- the pick display: ONE gun on a stand ----------------
    No turntable, no spinning, nothing to drag (owner's call, Nov 5):
-   the guns live in the #gunRow chips at the top of the menu; here in
-   3D only the SELECTED gun stands on the display disc, warmly lit,
-   in front of the cookie jar it guards. */
+   the guns live on the big #armoryPanel at the top of the menu, every
+   one shown as a still picture on its own card; here in 3D only the
+   SELECTED gun stands on the display disc, warmly lit, in front of
+   the cookie jar it guards. */
 const pickGroup = new THREE.Group();
 pickGroup.position.set(0, 1.02, 6.8);
 const pickDisplays = [];   // one rifle mount per slot — only the picked one shows
@@ -1278,17 +1279,66 @@ let customMount = null;    // the ROLL YOUR OWN display mount — rebuilt when p
   pl.position.set(0, 3.6, 6.8); scene.add(pl);
 }
 scene.add(pickGroup);
-// the selection row: one chip per slot, built once — tap to pick
+/* ---------------- gun snapshots for the armory panel ----------------
+   Every gun gets ONE still picture, rendered offscreen from its real
+   3D model the first time the menu is built — the panel shows photos
+   of the guns, never a live model, so nothing can spin or be dragged
+   (owner's call, Nov 5: "the guns on a big panel — not spinning —
+   and selectable"). The ROLL YOUR OWN picture is re-rendered whenever
+   the parts change, so the card always shows the current build. */
+const snapRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+snapRenderer.setSize(252, 158);
+snapRenderer.setClearColor(0x000000, 0);
+snapRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+snapRenderer.toneMappingExposure = 1.3;
+const snapScene = new THREE.Scene();
+snapScene.add(new THREE.HemisphereLight(0xfff0d8, 0x2a1a10, 1.25));
+const snapKey = new THREE.DirectionalLight(0xffd9a8, 3.2);
+snapKey.position.set(2.5, 3.5, 4); snapScene.add(snapKey);
+const snapRim = new THREE.DirectionalLight(0x7fa8ff, 2.0);
+snapRim.position.set(-3, 1.5, -3.5); snapScene.add(snapRim);
+const snapCam = new THREE.PerspectiveCamera(30, 252 / 158, 0.05, 40);
+function gunSnapshot(def) {
+  const stage = new THREE.Group();
+  const tilt = new THREE.Group();
+  tilt.add(buildRifleMesh(def).group);
+  tilt.rotation.set(0.1, Math.PI / 2 - 0.32, 0);   // side-on, barrel left, a hint of the top
+  stage.add(tilt);
+  snapScene.add(stage);
+  const box = new THREE.Box3().setFromObject(stage);
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  tilt.position.sub(center);                        // stage origin = the gun's centre
+  const vfov = THREE.MathUtils.degToRad(snapCam.fov) / 2;
+  const hfov = Math.atan(Math.tan(vfov) * snapCam.aspect);
+  const dist = Math.max(size.y / 2 / Math.tan(vfov), size.x / 2 / Math.tan(hfov)) + size.z / 2;
+  snapCam.position.set(0, size.y * 0.4, dist * 1.14);
+  snapCam.lookAt(0, 0, 0);
+  snapRenderer.render(snapScene, snapCam);
+  const url = snapRenderer.domElement.toDataURL('image/png');
+  snapScene.remove(stage);
+  return url;
+}
+// the big panel: one tappable card per slot, built once — tap to pick
+const gunCardImgs = [];   // one <img> per slot; the custom one refreshes with the parts
 {
-  const row = $('gunRow');
+  const grid = $('armoryGrid');
   for (let i = 0; i < SLOT_COUNT; i++) {
     const b = document.createElement('button');
-    b.className = 'gchip';
-    b.textContent = slotDef(i).name;
+    b.className = 'gcard';
+    const img = document.createElement('img');
+    img.alt = slotDef(i).name;
+    img.src = gunSnapshot(slotDef(i));
+    const nm = document.createElement('span');
+    nm.className = 'gname';
+    nm.textContent = slotDef(i).name;
+    b.append(img, nm);
     b.addEventListener('click', () => { AudioSys.init(); selectGun(i); });
-    row.appendChild(b);
+    grid.appendChild(b);
+    gunCardImgs.push(img);
   }
 }
+function refreshCustomCard() { gunCardImgs[CUSTOM_IDX].src = gunSnapshot(customGun); }
 
 function updateGunPanel() {
   const d = playerGun;
@@ -1305,7 +1355,7 @@ function updateGunPanel() {
   for (const [k, f, v] of bars) { $('gb-' + k).style.width = Math.round(f * 100) + '%'; $('gv-' + k).textContent = v; }
   $('startBtn').textContent = 'START · ' + d.name;
   pickDisplays.forEach((m, i) => m.visible = i === gunIdx);
-  document.querySelectorAll('#gunRow .gchip').forEach((c, i) => c.classList.toggle('sel', i === gunIdx));
+  document.querySelectorAll('#armoryGrid .gcard').forEach((c, i) => c.classList.toggle('sel', i === gunIdx));
   $('builder').style.display = d.custom ? 'block' : 'none';
   $('gunHint').textContent = d.custom
     ? 'TAP THE PARTS TO BUILD YOUR RIFLE'
@@ -1344,6 +1394,7 @@ function setPart(part, idx) {
     customMount.mount.add(rm);
     customMount.rm = rm;
   }
+  refreshCustomCard();   // the ROLL YOUR OWN card shows the build you just made
   if (gunIdx === CUSTOM_IDX) selectGun(CUSTOM_IDX);   // refresh stats, viewmodel, panel
   else syncBuilderUI();
   return true;
@@ -1482,7 +1533,7 @@ $('builder').addEventListener('click', e => {
   setPart(b.dataset.part, parseInt(b.dataset.v, 10));
 });
 
-/* gun pick input is the #gunRow chips now — no drag, no spin, no
+/* gun pick input is the #armoryPanel cards now — no drag, no spin, no
    raycast-a-rifle (owner's call, Nov 5). The parts buttons and the
    START button carry their own click handlers. */
 
@@ -2132,8 +2183,14 @@ window.__qa = {
   pickGun: i => { selectGun(i); return playerGun.id; },
   setSpin: r => { pickGroup.rotation.y = r; },
   guns: () => GUNS.map(g => ({ id: g.id, name: g.name, dmg: g.dmg, bolt: g.bolt, mag: g.mag, zooms: g.zooms.length, sway: g.sway, auto: !!g.auto, reload: g.reload || 1.6, projectile: g.projectile || null })),
-  // QA: pick row + armory 3 — the chips, a grenade toss, live projectiles
-  chips: () => [...document.querySelectorAll('#gunRow .gchip')].map(c => c.textContent),
+  // QA: armory panel — the gun cards, a grenade toss, live projectiles
+  chips: () => [...document.querySelectorAll('#armoryGrid .gcard .gname')].map(c => c.textContent),
+  cards: () => [...document.querySelectorAll('#armoryGrid .gcard')].map((c, i) => ({
+    name: c.querySelector('.gname').textContent, sel: c.classList.contains('sel'),
+    img: (c.querySelector('img').src || '').startsWith('data:image/'),
+    w: Math.round(c.getBoundingClientRect().width), h: Math.round(c.getBoundingClientRect().height),
+  })),
+  tapCard: i => { const c = document.querySelectorAll('#armoryGrid .gcard')[i]; if (!c) return false; c.click(); return playerGun.id; },
   throwGrenade: () => throwGrenade(),
   projectiles: () => projectiles.map(p => ({ kind: p.kind, age: Math.round(p.age * 100) / 100 })),
   positions: () => enemies.filter(e => !e.dead && !e.breached && e.state !== 'gone').map(e => ({ kind: e.kind, boss: !!e.isBoss, x: Math.round(e.group.position.x * 100) / 100, z: Math.round(e.group.position.z * 100) / 100, hp: e.hp })),
