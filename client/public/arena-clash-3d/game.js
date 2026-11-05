@@ -1035,28 +1035,54 @@ function updateCamera(dt, t) {
   const mid = (P1.x + P2.x) / 2;
   const sep = Math.abs(P1.x - P2.x);
   // Distance that fits (separation + body margin) inside the horizontal FOV
-  // at the current aspect. In landscape this stays under the classic framing
-  // distance, so the approved landscape shot is unchanged; in portrait it
-  // pulls the camera back until BOTH fighters are in frame.
+  // at the current aspect; in portrait it pulls the camera back until BOTH
+  // fighters are in frame.
+  // Owner (Nov 4): "make the characters a little bigger, closer up" — the
+  // fit margin and floor were tightened ~15-18% at fighting range in both
+  // orientations. The portrait wide cap (14) is untouched, so the
+  // full-separation pull-back behaves exactly as before.
   const fitK = 2 * Math.tan(camera.fov * Math.PI / 360) * (innerWidth / innerHeight);
-  const distFit = THREE.MathUtils.clamp(sep * 0.92 + 1.9, 3.8, 8.8) / fitK;
-  const distC = THREE.MathUtils.clamp(Math.max(3.1 + sep * 0.66, distFit), 4.7, isPortrait ? 14 : 7.4);
-  let tx = mid * 0.6, ty = isPortrait ? 1.95 : 1.34, tz = distC;
+  const distFit = THREE.MathUtils.clamp(sep * 0.85 + 1.45, 3.23, 8.8) / fitK;
+  const distC = THREE.MathUtils.clamp(Math.max(2.65 + sep * 0.56, distFit), 4.0, isPortrait ? 14 : 7.4);
+  // Camera MOTION (owner, Nov 4: "move the camera around — 360 or even
+  // 180"): the camera orbits an anchor point by angle theta. During the
+  // FIGHT it only sways +-13 deg on a slow 26 s cycle and NEVER crosses
+  // to the back side, so facing and left/right controls never flip. The
+  // big arcs play where they can't hurt play: a fly-in arc on the round
+  // intro, a 165 deg sweep around the winner on round/match end, and a
+  // slow +-35 deg arc on the menu.
+  let anchorX = mid * 0.75, baseX = mid * 0.6, baseY = isPortrait ? 1.95 : 1.34, dist = distC, theta = 0;
   if (game.phase === 'menu') {
-    tx = Math.sin(t * 0.11) * 1.6; ty = isPortrait ? 1.8 : 1.35;
-    tz = isPortrait ? Math.max(7.4, (3.4 * 0.92 + 1.9) / fitK) : 7.4;
+    anchorX = 0; baseX = 0; baseY = isPortrait ? 1.8 : 1.35;
+    // menu keeps the wider establishing distance (old fit): at +-1.7 the
+    // fighters' idle limbs graze the frame edge at the fight distance,
+    // especially mid-arc — the menu is a billboard, not the fight framing
+    dist = isPortrait ? Math.max(7.4, (3.4 * 0.92 + 1.9) / fitK) : 7.4;
+    theta = THREE.MathUtils.degToRad(35) * Math.sin(t * 0.11);
+  } else if (game.phase === 'roundEnd' || game.phase === 'matchEnd') {
+    const w = game.winner || P1;
+    anchorX = w.x; baseX = w.x; baseY = isPortrait ? 1.8 : 1.3;
+    dist = isPortrait ? 7.0 : 4.4;
+    const k = Math.min(1, game.phaseT / 4.2); // phaseT runs 0-2.8 in roundEnd, keeps counting in matchEnd
+    const ease = k * k * (3 - 2 * k);
+    theta = THREE.MathUtils.degToRad(165) * ease * (w.face > 0 ? 1 : -1); // sweep toward the fallen foe's side
+    dist *= 1 - 0.28 * Math.pow(Math.sin(theta), 2); // pull in at side angles: stays inside the pillar ring / clear of the gate
+  } else if (game.phase === 'intro') {
+    const k = Math.min(1, game.phaseT / 1.45);
+    const ease = 1 - Math.pow(1 - k, 3);
+    theta = THREE.MathUtils.degToRad(58) * (1 - ease); // fly-in arc, settled at 0 as FIGHT! lands
+  } else if (game.phase === 'fight') {
+    theta = THREE.MathUtils.degToRad(13) * Math.sin(game.phaseT * (Math.PI * 2 / 26));
   }
-  if (game.phase === 'roundEnd' || game.phase === 'matchEnd') {
-    const w = game.winner || P1; tx = w.x * 0.8; ty = isPortrait ? 1.8 : 1.3; tz = isPortrait ? 8.2 : 5.2;
-  }
-  camTarget.set(tx, ty, tz);
+  const ox = baseX - anchorX, st = Math.sin(theta), ct = Math.cos(theta);
+  camTarget.set(anchorX + ox * ct + dist * st, baseY, -ox * st + dist * ct);
   camera.position.lerp(camTarget, 1 - Math.pow(0.0015, dt));
   if (shakeAmp > 0.002) {
     camera.position.x += (Math.random() - .5) * shakeAmp * 0.35;
     camera.position.y += (Math.random() - .5) * shakeAmp * 0.3;
     shakeAmp *= Math.pow(0.0001, dt);
   } else shakeAmp = 0;
-  camera.lookAt(mid * 0.75, isPortrait ? 0.8 : 1.02, 0);
+  camera.lookAt(anchorX, isPortrait ? 0.8 : 1.02, 0);
 }
 
 /* ---------------- main loop ---------------- */
