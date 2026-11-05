@@ -34,7 +34,7 @@ for the CC0 work).
   https://creativecommons.org/licenses/by/4.0/
   (Khronos logos/trademarks are excluded from that licence and are not
   used; this build of the model carries no logo materials.)
-- Changes: decimated/re-exported game-ready version (via the open-source
+- Changes: texture-stripped (normal/occlusion maps removed for web delivery) from the decimated game-ready version (via the open-source
   Box3D demo asset set, github.com/SifuInTheShell/Box3D_Demo), repainted
   yellow; presented in-game under the fictional name "SOLARIS".
 
