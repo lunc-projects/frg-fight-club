@@ -88,6 +88,18 @@ const GAMES = {
      the level of each player's best run (prefix:levels) and show it
      next to the score; every other game is untouched by that flag. */
   'cookie-sniper': { prefix: 'cookie', maxScore: 150000, minSec: 10, maxSec: 3600, rateMul: 300, rateBase: 2500, withLevel: true },
+  /* Cookie Dash (the Garuda Dash reskin): folded into this router on
+     2026-11-05 — its standalone api/cookie-dash-{board,score}.js pair
+     pushed the project to 14 serverless functions, over the Hobby
+     plan's 12-function cap, and Vercel rejected EVERY deployment
+     from that commit on. Same 'cd' Redis prefix as the pair used, so
+     storage is unchanged. The pair's plausibility rule was
+     score <= seconds*60 + levels*2600 + 4000 (levels 1..10); the
+     levels term folds into rateBase at its max (2600*10 + 4000 =
+     30000) so no run the pair accepted is rejected here. withLevel
+     stores the best run's level from body.level, like Cookie
+     Sniper; the game still sends its levels field too. */
+  'cookie-dash': { prefix: 'cd', maxScore: 400000, minSec: 3, maxSec: 7200, rateMul: 60, rateBase: 30000, withLevel: true },
 };
 
 function weekKey(d = new Date()) {
