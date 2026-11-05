@@ -84,23 +84,37 @@ const floorTex = canvasTex(1024, 1024, (x, w, h) => {
     const segs = 6 + ring * 2;
     for (let s = 0; s < segs; s++) {
       const a0 = (s / segs) * Math.PI * 2, a1 = ((s + 0.92) / segs) * Math.PI * 2;
-      const v = 18 + Math.random() * 16;
-      x.fillStyle = `rgb(${v + 6},${v + 2},${v + 14})`;
+      const v = 24 + Math.random() * 24;
+      x.fillStyle = `rgb(${v + 7},${v + 2},${v + 15})`;
       x.beginPath();
       x.arc(w / 2, h / 2, r0 + 30, a0, a1); x.arc(w / 2, h / 2, r1 + 30, a1, a0, true);
       x.closePath(); x.fill();
     }
   }
-  x.strokeStyle = 'rgba(0,0,0,.55)'; x.lineWidth = 3;
+  // broad mottling so the stone never reads as one flat wash
+  for (let i = 0; i < 30; i++) {
+    const cx = Math.random() * w, cy = Math.random() * h, r = 60 + Math.random() * 150;
+    const rg = x.createRadialGradient(cx, cy, 0, cx, cy, r);
+    const lite = Math.random() < 0.5;
+    rg.addColorStop(0, lite ? 'rgba(120,110,160,0.07)' : 'rgba(0,0,0,0.10)');
+    rg.addColorStop(1, 'rgba(0,0,0,0)');
+    x.fillStyle = rg; x.beginPath(); x.arc(cx, cy, r, 0, 7); x.fill();
+  }
+  x.strokeStyle = 'rgba(0,0,0,.6)'; x.lineWidth = 3;
   for (let ring = 0; ring < 10; ring++) { x.beginPath(); x.arc(w / 2, h / 2, ring * 60 + 30, 0, 7); x.stroke(); }
+  // one worn painted ring, echoing the gate's orange — paint, not light
+  x.strokeStyle = 'rgba(224,94,18,0.16)'; x.lineWidth = 12;
+  x.beginPath(); x.arc(w / 2, h / 2, 300, 0, 7); x.stroke();
+  x.strokeStyle = 'rgba(232,238,255,0.10)'; x.lineWidth = 5;
+  x.beginPath(); x.arc(w / 2, h / 2, 330, 0, 7); x.stroke();
   x.strokeStyle = 'rgba(0,0,0,.35)'; x.lineWidth = 1.4;
-  for (let i = 0; i < 260; i++) {
+  for (let i = 0; i < 300; i++) {
     const px = Math.random() * w, py = Math.random() * h;
     x.beginPath(); x.moveTo(px, py);
     x.lineTo(px + (Math.random() - .5) * 60, py + (Math.random() - .5) * 60); x.stroke();
   }
-  for (let i = 0; i < 2600; i++) {
-    x.fillStyle = `rgba(255,255,255,${Math.random() * 0.05})`;
+  for (let i = 0; i < 3400; i++) {
+    x.fillStyle = `rgba(255,255,255,${Math.random() * 0.06})`;
     x.fillRect(Math.random() * w, Math.random() * h, 2, 2);
   }
 });
@@ -138,9 +152,19 @@ const woodTex = canvasTex(256, 256, (x, w, h) => {
     x.bezierCurveTo(w * 0.3, y + (Math.random() - .5) * 14, w * 0.7, y + (Math.random() - .5) * 14, w, y);
     x.stroke();
   }
-  x.strokeStyle = 'rgba(0,0,0,.6)'; x.lineWidth = 10; x.strokeRect(0, 0, w, h);
-  x.fillStyle = 'rgba(0,0,0,.5)';
-  for (const [px, py] of [[14, 14], [w - 14, 14], [14, h - 14], [w - 14, h - 14]]) { x.beginPath(); x.arc(px, py, 5, 0, 7); x.fill(); }
+  // plank seams
+  x.strokeStyle = 'rgba(0,0,0,.45)'; x.lineWidth = 3;
+  for (const py of [h * 0.34, h * 0.67]) { x.beginPath(); x.moveTo(0, py); x.lineTo(w, py); x.stroke(); }
+  // diagonal brace, corner to corner
+  x.strokeStyle = 'rgba(24,14,6,.55)'; x.lineWidth = 26;
+  x.beginPath(); x.moveTo(10, h - 10); x.lineTo(w - 10, 10); x.stroke();
+  x.strokeStyle = 'rgba(112,78,42,.5)'; x.lineWidth = 18;
+  x.beginPath(); x.moveTo(10, h - 10); x.lineTo(w - 10, 10); x.stroke();
+  // heavy edge frame
+  x.strokeStyle = 'rgba(16,9,4,.85)'; x.lineWidth = 22; x.strokeRect(0, 0, w, h);
+  x.strokeStyle = 'rgba(96,64,32,.65)'; x.lineWidth = 12; x.strokeRect(6, 6, w - 12, h - 12);
+  x.fillStyle = 'rgba(10,6,3,.75)';
+  for (const [px, py] of [[16, 16], [w - 16, 16], [16, h - 16], [w - 16, h - 16]]) { x.beginPath(); x.arc(px, py, 5, 0, 7); x.fill(); }
 });
 const stoneTex = canvasTex(256, 256, (x, w, h) => {
   x.fillStyle = '#2c2639'; x.fillRect(0, 0, w, h);
@@ -156,6 +180,104 @@ const stoneTex = canvasTex(256, 256, (x, w, h) => {
     x.lineTo(px + (Math.random() - .5) * 70, py + (Math.random() - .5) * 70); x.stroke();
   }
 });
+// worn runner lane: dusty trampled path, edges feathered out
+const laneTex = canvasTex(256, 512, (x, w, h) => {
+  x.clearRect(0, 0, w, h);
+  const g = x.createLinearGradient(0, 0, w, 0);
+  g.addColorStop(0, 'rgba(146,132,108,0)');
+  g.addColorStop(0.22, 'rgba(146,132,108,0.34)');
+  g.addColorStop(0.5, 'rgba(158,144,118,0.5)');
+  g.addColorStop(0.78, 'rgba(146,132,108,0.34)');
+  g.addColorStop(1, 'rgba(146,132,108,0)');
+  x.fillStyle = g; x.fillRect(0, 0, w, h);
+  // twin foot-worn darker tracks along the lane
+  for (const tx of [0.36, 0.64]) {
+    const tg = x.createLinearGradient(w * tx - 26, 0, w * tx + 26, 0);
+    tg.addColorStop(0, 'rgba(38,32,26,0)');
+    tg.addColorStop(0.5, 'rgba(38,32,26,0.30)');
+    tg.addColorStop(1, 'rgba(38,32,26,0)');
+    x.fillStyle = tg; x.fillRect(w * tx - 26, 0, 52, h);
+  }
+  // scuffs and kicked dust
+  for (let i = 0; i < 700; i++) {
+    const px = w * 0.5 + (Math.random() - .5) * w * 0.8, py = Math.random() * h;
+    x.fillStyle = Math.random() < 0.6 ? `rgba(30,25,20,${Math.random() * 0.16})` : `rgba(190,175,150,${Math.random() * 0.12})`;
+    x.fillRect(px, py, 1 + Math.random() * 5, 1 + Math.random() * 3);
+  }
+  for (let i = 0; i < 40; i++) { // heel scuffs
+    const px = w * (0.3 + Math.random() * 0.4), py = Math.random() * h;
+    x.strokeStyle = `rgba(25,20,16,${0.10 + Math.random() * 0.14})`; x.lineWidth = 1.6;
+    x.beginPath(); x.moveTo(px, py); x.lineTo(px + (Math.random() - .5) * 10, py + 4 + Math.random() * 7); x.stroke();
+  }
+}, { nearest: true });
+// painted centre emblem: crescent in a double ring, paint worn thin
+const emblemTex = canvasTex(512, 512, (x, w, h) => {
+  x.clearRect(0, 0, w, h);
+  const cx = w / 2, cy = h / 2;
+  x.strokeStyle = 'rgba(226,205,170,0.55)'; x.lineWidth = 13;
+  x.beginPath(); x.arc(cx, cy, 218, 0, 7); x.stroke();
+  x.strokeStyle = 'rgba(224,94,18,0.5)'; x.lineWidth = 7;
+  x.beginPath(); x.arc(cx, cy, 186, 0, 7); x.stroke();
+  // crescent: filled moon disc cut by an offset shadow disc
+  x.fillStyle = 'rgba(226,205,170,0.6)';
+  x.beginPath(); x.arc(cx, cy, 118, 0, 7); x.fill();
+  x.globalCompositeOperation = 'destination-out';
+  x.beginPath(); x.arc(cx + 52, cy - 30, 104, 0, 7); x.fill();
+  // small star beside the crescent
+  x.globalCompositeOperation = 'source-over';
+  x.fillStyle = 'rgba(224,94,18,0.65)';
+  x.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? 13 : 32;
+    const px = cx + 96 + Math.cos(a) * r, py = cy + 88 + Math.sin(a) * r;
+    i ? x.lineTo(px, py) : x.moveTo(px, py);
+  }
+  x.closePath(); x.fill();
+  // wear: stone shows back through the paint
+  x.globalCompositeOperation = 'destination-out';
+  for (let i = 0; i < 2600; i++) {
+    x.fillStyle = `rgba(0,0,0,${0.25 + Math.random() * 0.5})`;
+    x.fillRect(Math.random() * w, Math.random() * h, 1 + Math.random() * 4, 1 + Math.random() * 3);
+  }
+  for (let i = 0; i < 26; i++) {
+    const px = Math.random() * w, py = Math.random() * h;
+    x.strokeStyle = `rgba(0,0,0,${0.2 + Math.random() * 0.3})`; x.lineWidth = 1 + Math.random() * 2;
+    x.beginPath(); x.moveTo(px, py); x.lineTo(px + (Math.random() - .5) * 46, py + (Math.random() - .5) * 46); x.stroke();
+  }
+  x.globalCompositeOperation = 'source-over';
+}, { nearest: true });
+// pale ash drift: soft blotchy patches
+const ashTex = canvasTex(256, 256, (x, w, h) => {
+  x.clearRect(0, 0, w, h);
+  for (let i = 0; i < 42; i++) {
+    const cx = w * 0.5 + (Math.random() - .5) * w * 0.55, cy = h * 0.5 + (Math.random() - .5) * h * 0.55;
+    const r = 14 + Math.random() * 44;
+    const rg = x.createRadialGradient(cx, cy, 0, cx, cy, r);
+    rg.addColorStop(0, `rgba(168,166,178,${0.05 + Math.random() * 0.09})`);
+    rg.addColorStop(1, 'rgba(168,166,178,0)');
+    x.fillStyle = rg; x.beginPath(); x.arc(cx, cy, r, 0, 7); x.fill();
+  }
+}, { nearest: true });
+// banner cloth for the barriers: woven stripes + house crescent, tinted per barrier
+const clothTex = canvasTex(128, 160, (x, w, h) => {
+  x.fillStyle = '#cfc4b2'; x.fillRect(0, 0, w, h);
+  for (let i = 0; i < 300; i++) { // weave
+    x.fillStyle = `rgba(60,50,40,${Math.random() * 0.10})`;
+    x.fillRect(Math.random() * w, Math.random() * h, 2, 1);
+  }
+  x.fillStyle = 'rgba(40,32,26,0.55)'; x.fillRect(0, 0, w, 10); x.fillRect(0, h - 14, w, 14);
+  x.fillStyle = 'rgba(40,32,26,0.30)'; x.fillRect(0, 20, w, 4); x.fillRect(0, h - 28, w, 4);
+  // crescent glyph
+  x.fillStyle = 'rgba(38,30,24,0.8)';
+  x.beginPath(); x.arc(w / 2, h * 0.44, 27, 0, 7); x.fill();
+  x.globalCompositeOperation = 'destination-out';
+  x.beginPath(); x.arc(w / 2 + 13, h * 0.44 - 8, 23, 0, 7); x.fill();
+  x.globalCompositeOperation = 'source-over';
+  // frayed hem
+  x.globalCompositeOperation = 'destination-out';
+  for (let px = 0; px < w; px += 7) x.fillRect(px, h - 4 - Math.random() * 6, 3, 10);
+  x.globalCompositeOperation = 'source-over';
+}, { nearest: true });
 
 /* ---------------- arena set ---------------- */
 const coverMeshes = [];   // shot blockers (raycast targets)
@@ -175,6 +297,42 @@ let embers = null;
   ground.rotation.x = -Math.PI / 2; ground.position.set(0, 0, -4);
   ground.receiveShadow = true;
   scene.add(ground);
+
+  // --- ground dressing: the field is a place, not a plane ---
+  // warm light pools under gate, torches and braziers (glow decals, no light cost)
+  const poolMat = new THREE.MeshBasicMaterial({ map: glowTex, color: 0xff8b3d, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false });
+  const BRAZIERS = [[-9.9, -17.5], [9.9, -17.5], [-10.6, -4], [10.6, -4], [-9.9, 7.5], [9.9, 7.5]];
+  const poolSpots = [[0, -19, 10.5, 0.20], [-8.5, -12, 3.8, 0.12], [8.5, -12, 3.8, 0.12], [-8.5, 0, 3.8, 0.12], [8.5, 0, 3.8, 0.12], [-8.5, 10, 3.8, 0.12], [8.5, 10, 3.8, 0.12],
+    ...BRAZIERS.map(([bx, bz]) => [bx, bz, 4.6, 0.17])];
+  poolSpots.forEach(([px, pz, r, op], i) => {
+    const m = poolMat.clone(); m.opacity = op;
+    const pool = new THREE.Mesh(new THREE.PlaneGeometry(r * 2, r * 2), m);
+    pool.rotation.x = -Math.PI / 2; pool.position.set(px, 0.012 + i * 0.0004, pz);
+    pool.renderOrder = 1; scene.add(pool);
+  });
+  // ash drifts piled at the field edges
+  const ashMat = new THREE.MeshStandardMaterial({ map: ashTex, transparent: true, roughness: 1, depthWrite: false });
+  [[-13, -14, 2.4], [12.5, -9, 1.9], [-11, 3, 2.1], [14, 5, 2.6], [-15, -2, 1.6], [11, -19, 2.2],
+   [-7, -21.5, 1.8], [6, 12.5, 2.0], [-4, 13.5, 1.5], [15, -16, 2.3], [-16, -11, 2.0], [16, 1, 1.7]].forEach(([px, pz, r]) => {
+    const ash = new THREE.Mesh(new THREE.CircleGeometry(r, 20), ashMat);
+    ash.rotation.x = -Math.PI / 2; ash.rotation.z = Math.random() * 3;
+    ash.scale.set(1, 0.55 + Math.random() * 0.25, 1);
+    ash.position.set(px, 0.016, pz); ash.renderOrder = 2; ash.receiveShadow = true; scene.add(ash);
+  });
+  // worn runner lanes: gate to breach line, trampled into the stone
+  const laneMat = new THREE.MeshStandardMaterial({ map: laneTex, transparent: true, roughness: 1, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 });
+  [[-3.4, -0.02], [0.3, 0.015], [3.8, -0.01]].forEach(([lx, tilt]) => {
+    const lane = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 31), laneMat);
+    lane.rotation.x = -Math.PI / 2; lane.rotation.z = tilt;
+    lane.position.set(lx, 0.024, -4.25);
+    lane.renderOrder = 3; lane.receiveShadow = true; scene.add(lane);
+  });
+  // painted centre emblem, worn to a ghost
+  const emblem = new THREE.Mesh(new THREE.CircleGeometry(4.3, 40),
+    new THREE.MeshStandardMaterial({ map: emblemTex, transparent: true, roughness: 1, depthWrite: false }));
+  emblem.rotation.x = -Math.PI / 2; emblem.rotation.z = 0.4;
+  emblem.position.set(0.4, 0.03, -6.5);
+  emblem.renderOrder = 4; emblem.receiveShadow = true; scene.add(emblem);
 
   const rim1 = new THREE.Mesh(new THREE.TorusGeometry(24, 0.07, 10, 90),
     new THREE.MeshStandardMaterial({ color: 0x1a0d05, emissive: 0xff7a26, emissiveIntensity: 2.2 }));
@@ -216,17 +374,64 @@ let embers = null;
     addCover(new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.72, 3.4, 12), stoneMat), -4.6, -14, 1.4, 3.4),
     addCover(new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5), crateMat), 2.8, -13.4, 1.5, 1.5),
     addCover(new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.05, 0.5), barrierMat), 5.6, -8, 2.6, 1.05),
-    addCover(new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.72, 3.4, 12), stoneMat), -1.8, -7.6, 1.4, 3.4),
+    addCover(new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.72, 3.0, 12), stoneMat), -1.8, -7.6, 1.4, 3.0),
     addCover(new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5), crateMat), -5.8, -2.2, 1.5, 1.5),
     addCover(new THREE.Mesh(new THREE.BoxGeometry(1.5, 3.0, 1.5), crateMat), 4.4, -1.6, 1.5, 3.0),
     addCover(new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.05, 0.5), barrierMat), 0.6, 3.4, 2.6, 1.05),
-    addCover(new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.72, 3.4, 12), stoneMat), -4.2, 4.2, 1.4, 3.4),
+    addCover(new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.72, 3.8, 12), stoneMat), -4.2, 4.2, 1.4, 3.8),
     addCover(new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5), crateMat), 6.1, 8.6, 1.5, 1.5),
     addCover(new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.05, 0.5), barrierMat), -2.4, 9.2, 2.6, 1.05),
   ];
+  // --- cover dressing: plinths, trim rings, caps, battens, banner cloth ---
+  const trimMat = new THREE.MeshStandardMaterial({ color: 0x1b1726, roughness: .92 });
+  const battenMat = new THREE.MeshStandardMaterial({ color: 0x2a1c10, roughness: .85 });
+  function dressPiece(mesh, x, y, z, blocker = true) {
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    scene.add(mesh); if (blocker) coverMeshes.push(mesh);
+    return mesh;
+  }
+  function dressPillar(c) {
+    dressPiece(new THREE.Mesh(new THREE.BoxGeometry(c.w + 0.55, 0.34, c.w + 0.55), trimMat), c.x, 0.17, c.z);
+    const ringGeo = new THREE.TorusGeometry(0.76, 0.075, 8, 20);
+    for (const ry of [0.44, c.h - 0.3]) {
+      const ring = new THREE.Mesh(ringGeo, stoneMat);
+      ring.rotation.x = Math.PI / 2; dressPiece(ring, c.x, ry, c.z);
+    }
+    dressPiece(new THREE.Mesh(new THREE.CylinderGeometry(0.88, 0.8, 0.26, 12), trimMat), c.x, c.h + 0.13, c.z);
+    dressPiece(new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.18, 0.66), trimMat), c.x, c.h + 0.35, c.z);
+  }
+  function dressCrate(c) {
+    const batGeo = new THREE.BoxGeometry(0.1, c.h, 0.1);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1])
+      dressPiece(new THREE.Mesh(batGeo, battenMat), c.x + sx * (c.w / 2 - 0.05), c.h / 2, c.z + sz * (c.w / 2 - 0.05));
+    const rimF = new THREE.BoxGeometry(c.w + 0.06, 0.1, 0.12), rimS = new THREE.BoxGeometry(0.12, 0.1, c.w + 0.06);
+    for (const sz of [-1, 1]) dressPiece(new THREE.Mesh(rimF, battenMat), c.x, c.h - 0.06, c.z + sz * (c.w / 2 - 0.03));
+    for (const sx of [-1, 1]) dressPiece(new THREE.Mesh(rimS, battenMat), c.x + sx * (c.w / 2 - 0.03), c.h - 0.06, c.z);
+  }
+  const clothMats = [0xe05e12, 0x2e9bff].map(col => new THREE.MeshStandardMaterial({
+    map: clothTex, color: col, emissive: col, emissiveIntensity: 0.22, roughness: .95, side: THREE.DoubleSide }));
+  function dressBarrier(c, ci) {
+    dressPiece(new THREE.Mesh(new THREE.BoxGeometry(c.w + 0.26, 0.13, 0.76), trimMat), c.x, c.h + 0.065, c.z);
+    for (const sx of [-1, 1])
+      dressPiece(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.18, 0.88), trimMat), c.x + sx * (c.w / 2 - 0.3), 0.09, c.z);
+    const cloth = new THREE.Mesh(new THREE.PlaneGeometry(c.w * 0.5, 0.72), clothMats[ci]);
+    cloth.position.set(c.x + (ci ? 0.32 : -0.32), c.h * 0.52, c.z + 0.27);
+    cloth.rotation.x = -0.05; scene.add(cloth);
+  }
+  window.__covers.forEach((c, i) => {
+    if ([0, 3, 7].includes(i)) dressPillar(c);
+    else if ([1, 4, 5, 8].includes(i)) dressCrate(c);
+    else dressBarrier(c, i % 2);
+  });
   // stacked crate dressing (not waypoint cover)
   const extra = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.1, 1.1), crateMat);
   extra.position.set(4.4, 2.05 + 0.55, -1.6); extra.castShadow = true; scene.add(extra); coverMeshes.push(extra);
+  { // battens on the stacked crate too
+    const batGeo = new THREE.BoxGeometry(0.09, 1.1, 0.09);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1])
+      dressPiece(new THREE.Mesh(batGeo, battenMat), 4.4 + sx * 0.5, 2.6, -1.6 + sz * 0.5);
+  }
   // side torches
   for (const sx of [-8.5, 8.5]) for (const sz of [-12, 0, 10]) {
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 2.6, 8), stoneMat);
@@ -237,7 +442,7 @@ let embers = null;
   // war banners — house colours of the two fighters, marking the lanes
   const bannerCols = [0xe05e12, 0x2e9bff];
   window.__banners = [];
-  [[-6.9, -5.5, 0], [6.9, -11.5, 1], [-7.4, -16.5, 1], [7.4, -3.5, 0]].forEach(([bx, bz, ci]) => {
+  [[-6.9, -5.5, 0], [6.9, -11.5, 1], [-7.4, -16.5, 1], [7.4, -3.5, 0], [-8.3, -9.5, 1], [8.3, 4.5, 0]].forEach(([bx, bz, ci]) => {
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 4.6, 8), stoneMat);
     pole.position.set(bx, 2.3, bz); pole.castShadow = true; scene.add(pole);
     const cloth = new THREE.Mesh(new THREE.PlaneGeometry(1.15, 2.5),
@@ -248,6 +453,39 @@ let embers = null;
   // the sniper's perch: stone ledge below the lens line, grounds the view
   const perch = new THREE.Mesh(new THREE.BoxGeometry(8.5, 2.1, 2.4), barrierMat);
   perch.position.set(0, 1.05, 15.6); perch.receiveShadow = true; scene.add(perch);
+
+  // ground braziers flanking the lanes — flame sprites ride the shared flicker
+  const ironMat = new THREE.MeshStandardMaterial({ color: 0x1c1712, roughness: .55, metalness: .45 });
+  const coalMat = new THREE.MeshStandardMaterial({ color: 0x180c04, emissive: 0xff5a00, emissiveIntensity: 1.6, roughness: 1 });
+  for (const [bx, bz] of BRAZIERS) {
+    const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.14, 0.95, 8), ironMat);
+    stand.position.set(bx, 0.48, bz); stand.castShadow = true; scene.add(stand);
+    const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.58, 0.3, 0.34, 10), ironMat);
+    bowl.position.set(bx, 1.1, bz); bowl.castShadow = true; scene.add(bowl);
+    const coals = new THREE.Mesh(new THREE.CircleGeometry(0.44, 10), coalMat);
+    coals.rotation.x = -Math.PI / 2; coals.position.set(bx, 1.26, bz); scene.add(coals);
+    const fl = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffa63d, transparent: true, opacity: .9, depthWrite: false }));
+    fl.scale.set(1.25, 1.65, 1); fl.userData.k = 0.85; fl.position.set(bx, 1.62, bz);
+    scene.add(fl); flames.push(fl);
+  }
+  // a fallen colonnade pillar and its rubble, off the west edge
+  const fallen = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.56, 3.4, 10), stoneMat);
+  fallen.rotation.z = Math.PI / 2; fallen.rotation.y = 0.45;
+  fallen.position.set(-11.8, 0.52, -9.5); fallen.castShadow = true; fallen.receiveShadow = true; scene.add(fallen);
+  const fallenCap = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.5, 1.15), trimMat);
+  fallenCap.position.set(-13.6, 0.25, -10.6); fallenCap.rotation.y = 0.5; fallenCap.castShadow = true; scene.add(fallenCap);
+  const rubbleMat = new THREE.MeshStandardMaterial({ color: 0x241f31, roughness: 1 });
+  const rubbleSpots = [];
+  for (const c of window.__covers) for (let i = 0; i < 2; i++)
+    rubbleSpots.push([c.x + (Math.random() - .5) * (c.w + 1.6), c.z + c.w / 2 + 0.45 + Math.random() * 0.5]);
+  rubbleSpots.push([-10.2, -7.8], [-13.1, -8.2], [11.9, -15.2], [-12.4, 5.5], [13.3, 9.8]);
+  for (const [rx, rz] of rubbleSpots) {
+    const s = 0.1 + Math.random() * 0.22;
+    const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), rubbleMat);
+    rock.position.set(rx, s * 0.55, rz);
+    rock.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+    rock.receiveShadow = true; scene.add(rock);
+  }
 
   const N = 260, pos = new Float32Array(N * 3);
   for (let i = 0; i < N; i++) {
