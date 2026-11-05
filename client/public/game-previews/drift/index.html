@@ -16,6 +16,7 @@ body{font-family:"Segoe UI",Arial,sans-serif;-webkit-user-select:none;user-selec
 <div id="wrap"></div>
 <script>window.addEventListener('error',function(e){(window.__qaErrors=window.__qaErrors||[]).push(String(e.message||e));});</script>
 <script src="three.min.js"></script>
+<script src="GLTFLoader.js"></script>
 <script>window.PV_CONFIG = {"mode":"drift","title":"SLIDE KING","sub":"DRIFT RUN","kicker":"◆ GAME PREVIEW ◆","how":"◀ ▶ steer &nbsp;·&nbsp; hold DRIFT in the corners to slide.<br>Chain slides to build your combo —<br>cones, walls and traffic break it. 2 minutes on the clock!","ctrl":[[0,0,300],[70,0,235],[35,0,160],[95,0,95],[150,0,150],[205,0,90],[165,0,15],[215,0,-55],[150,0,-105],[70,0,-70],[15,0,-130],[-45,0,-195],[-120,0,-160],[-95,0,-85],[-160,0,-25],[-205,0,45],[-140,0,80],[-80,0,140],[-120,0,215],[-60,0,275]],"roadHalf":11.25,"timeSec":120,"traffic":5,"trafficCars":[[14165548,9377308],[15255602,11045148],[2072141,1336116],[15263984,11119032],[8011729,5121936]],"skyTop":"#4f6f9e","skyMid":"#dd8a4c","skyHorizon":"#ffca7a","fogColor":15712410,"fogDensity":0.00095,"hemiSky":16768704,"hemiGround":5525562,"hemiInt":0.68,"sunColor":16767395,"sunInt":1.12,"warmInt":0.5,"terrain":5334586,"terrainCss":"#51663a","mountain":4874051,"roadBase":"#1f1f24","roadSpec":4608094,"roadShine":42,"roadEnv":0.22,"smokeSize":3.6,"smokeOpacity":0.5,"vignette":true,"shoulder":3,"shoulderCss":"#9a7f56","walls":"rail","wallGap":1.15,"curbs":0.01,"centreDash":false,"gantryText":"SLIDE KING","trees":620,"treeColor":2378015,"treeGap":3.5,"poles":14,"lampColor":16759740,"standText":"SLIDE KING","bushes":360,"rocks":110,"rockColor":7301728,"topSpeed":47,"crashV":30,"centriK":0.07,"camDist":7.4,"camH":2.35};</script>
 <script>
 'use strict';
@@ -1286,200 +1287,169 @@ function glowDisc(r, color, x, y, z) {
   var m = new THREE.Mesh(new THREE.CircleGeometry(r, 16), new THREE.MeshBasicMaterial({ color: color }));
   m.position.set(x, y, z); return m;
 }
-function buildGTCoupe(paintHex) {
-  var car = new THREE.Group();
-  var paint = paintSRGB(paintHex), paint2 = paintSRGB(paintHex);
-  var dark = lam(0x101216);
-  var body = box(1.98, 0.5, 4.65, paint, 0, 0.50, 0); car.add(body);
-  car.add(box(2.0, 0.2, 4.35, dark, 0, 0.30, 0));
-  car.add(box(0.18, 0.05, 2.5, dark, -1.03, 0.22, 0));
-  car.add(box(0.18, 0.05, 2.5, dark, 1.03, 0.22, 0));
-  var nose = new THREE.Mesh(new THREE.BoxGeometry(1.86, 0.26, 1.0),
-    [paint2, paint2, paint2, paint2, glossMap(driftFrontTexture(cssOf(paintHex))), paint2]);
-  nose.position.set(0, 0.40, 2.15); car.add(nose);
-  car.add(box(2.14, 0.32, 1.1, paint, 0, 0.52, 1.5));
-  car.add(box(2.22, 0.34, 1.2, paint, 0, 0.54, -1.5));
-  car.add(box(2.12, 0.07, 0.5, dark, 0, 0.20, 2.42));
-  car.add(box(0.03, 0.18, 0.03, lam(0x6a7076), -0.5, 0.31, 2.52));
-  car.add(box(0.03, 0.18, 0.03, lam(0x6a7076), 0.5, 0.31, 2.52));
-  car.add(box(0.34, 0.03, 0.16, dark, -1.0, 0.47, 2.28, 0, 0.35));
-  car.add(box(0.34, 0.03, 0.16, dark, 1.0, 0.47, 2.28, 0, -0.35));
-  /* side intake scoops behind the doors (the render's signature cut) */
-  car.add(box(0.05, 0.26, 0.62, dark, -1.0, 0.55, -0.62, 0, 0, 0.1));
-  car.add(box(0.05, 0.26, 0.62, dark, 1.0, 0.55, -0.62, 0, 0, -0.1));
-  var ventTex = ventTexture();
-  [-0.44, 0.44].forEach(function (vx) {
-    var vp = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.9), glossMap(ventTex));
-    vp.rotation.x = -Math.PI / 2; vp.position.set(vx, 0.757, 1.28); car.add(vp);
+/* ---------------- the garage cars: real GLB models (v2) ----------------
+   Owner's verdict on the v1 primitive builds: they looked nothing like
+   the approved concept renders. The four garage cars are now real
+   modelled cars (glTF/GLB), loaded async, normalised to game space
+   (+Z forward, ground y=0, centred), wheels re-pivoted so the existing
+   spin/steer code drives them, and paint/glass/rim materials repainted
+   per build so garage swatches and traffic colours keep working.
+   Models + licences: see LICENSES.md in this folder.              */
+var GLB_CARS = [
+  { /* AZURE GT — Quaternius "Sports Car" (CC0): sleek coupe, chrome rims, black GT wing */
+    file: 'models/azure-gt.glb', len: 4.6,
+    wheels: /FrontLeftWheel|FrontRightWheel|BackWheels/,
+    paint: ['White'], glass: ['Windows'], lights: ['Headlights'],
+    rim: { mats: ['Grey'], color: 0xdfe3e8, metal: 1.0, rough: 0.2 },
+    wing: { color: 0x14161a } },
+  { /* BRUISER V8 — Grzybek "2015 Dodge Challenger" (CC-BY 3.0): long hood, factory scoop */
+    file: 'models/bruiser-v8.glb', len: 4.75,
+    wheels: /^Wheel\.\d+$/,
+    paint: ['Body'], glass: ['Windows.002'],
+    rim: { mats: ['Middle'], color: 0xc9ccd2, metal: 1.0, rough: 0.28 },
+    drop: /^(Light|Camera)$/ },
+  { /* RONIN — Grzybek "1994 Nissan 180MX" (CC-BY 3.0): white, GOLD rims, red GT wing */
+    file: 'models/ronin.glb', len: 4.6,
+    wheels: /^Cylinder(\.\d+)?$/,
+    paint: ['Body.001'], glass: ['Windows'], lights: ['Headlights'],
+    rim: { mats: ['Details 1.001'], color: 0xd9a13b, metal: 1.0, rough: 0.3 },
+    wing: { color: 0xd8262c } },
+  { /* SOLARIS — Darmstadt Graphics Group "CarConcept" (CC-BY 4.0): wedge concept, glass canopy */
+    file: 'models/solaris.glb', len: 4.25,
+    wheels: /^Wheel_(FL|FR|RL|RR)$/,
+    paint: ['Paint 1 Carmine.001'], glass: ['Glass.001'] }
+];
+var GLB_TEMPLATES = [null, null, null, null];
+var GLB_PENDING = [[], [], [], []];
+var GLB_LOADED = 0;
+function prepGLBTemplate(ix, gltf) {
+  var cfg = GLB_CARS[ix];
+  var wrap = new THREE.Group();
+  var inner = gltf.scene;
+  wrap.add(inner);
+  if (cfg.drop) {
+    var junk = [];
+    inner.traverse(function (o) { if (cfg.drop.test(o.name)) junk.push(o); });
+    junk.forEach(function (o) { if (o.parent) o.parent.remove(o); });
+  }
+  wrap.updateMatrixWorld(true);
+  var bb = new THREE.Box3().setFromObject(inner);
+  var size = bb.getSize(new THREE.Vector3());
+  inner.scale.setScalar(cfg.len / size.z);
+  wrap.updateMatrixWorld(true);
+  bb = new THREE.Box3().setFromObject(inner);
+  var ctr = bb.getCenter(new THREE.Vector3());
+  inner.position.x -= ctr.x; inner.position.z -= ctr.z; inner.position.y -= bb.min.y;
+  wrap.updateMatrixWorld(true);
+  bb = new THREE.Box3().setFromObject(inner);
+  size = bb.getSize(new THREE.Vector3());
+  cfg._w = size.x; cfg._h = size.y;
+  var found = [];
+  inner.traverse(function (o) { if (o.isMesh && cfg.wheels.test(o.name)) found.push(o); });
+  var infos = found.map(function (node) {
+    return { node: node, c: new THREE.Box3().setFromObject(node).getCenter(new THREE.Vector3()) };
   });
-  car.add(buildGreenhouse(paint));
-  car.add(box(0.2, 0.05, 0.3, dark, -0.55, 0.79, -1.98));
-  car.add(box(0.2, 0.05, 0.3, dark, 0.55, 0.79, -1.98));
-  car.add(box(0.07, 0.52, 0.26, dark, -0.55, 1.13, -2.06, -0.2));
-  car.add(box(0.07, 0.52, 0.26, dark, 0.55, 1.13, -2.06, -0.2));
-  car.add(box(2.34, 0.06, 0.48, dark, 0, 1.46, -2.18, -0.1));
-  car.add(box(0.05, 0.46, 0.6, dark, -1.17, 1.35, -2.18));
-  car.add(box(0.05, 0.46, 0.6, dark, 1.17, 1.35, -2.18));
-  car.add(box(1.84, 0.34, 0.06, lam(0x14161c), 0, 0.60, -2.335));
-  car.add(box(1.7, 0.06, 0.03, new THREE.MeshBasicMaterial({ color: 0xff2f38 }), 0, 0.72, -2.375));
-  car.add(box(1.72, 0.15, 0.34, dark, 0, 0.20, -2.28));
-  [-0.55, 0, 0.55].forEach(function (fx) { car.add(box(0.05, 0.13, 0.3, dark, fx, 0.20, -2.28)); });
-  [0.58, 0.76].forEach(function (ex) {
-    var pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.26, 12),
-      new THREE.MeshPhongMaterial({ color: 0xb9bfc9, shininess: 90, specular: 0x666666 }));
-    pipe.rotation.x = Math.PI / 2; pipe.position.set(ex, 0.34, -2.42); car.add(pipe);
-    var hole = new THREE.Mesh(new THREE.CircleGeometry(0.038, 12), new THREE.MeshBasicMaterial({ color: 0x060607 }));
-    hole.position.set(ex, 0.34, -2.556); hole.rotation.y = Math.PI; car.add(hole);
+  infos.sort(function (a, b) {
+    var fa = a.c.z > 0 ? 0 : 1, fb = b.c.z > 0 ? 0 : 1;
+    return (fa - fb) || (b.c.x - a.c.x);
   });
+  infos.forEach(function (info, k) {
+    var pivot = new THREE.Group(); pivot.name = '__wp' + k;
+    pivot.position.copy(info.c);
+    pivot.userData.front = info.c.z > 0;
+    var spin = new THREE.Group(); spin.name = '__ws' + k;
+    wrap.add(pivot); pivot.add(spin);
+    wrap.updateMatrixWorld(true);
+    spin.attach(info.node);
+  });
+  return wrap;
+}
+function applyGLBPaint(root, cfg, paintHex) {
+  var paintCol = new THREE.Color(paintHex);
+  if (paintCol.convertSRGBToLinear) paintCol.convertSRGBToLinear();
+  root.traverse(function (o) {
+    if (!o.isMesh) return;
+    var ms = Array.isArray(o.material) ? o.material : [o.material];
+    ms.forEach(function (m) {
+      if (!m || !m.isMeshStandardMaterial) return;
+      m.envMap = ENV; m.envMapIntensity = 0.55;
+      var nm = m.name || '';
+      if (cfg.paint.indexOf(nm) >= 0) {
+        m.color.copy(paintCol); m.color.multiplyScalar(0.85); /* deepen: game sun washes PBR paint pale */
+        m.metalness = 0.22; m.roughness = 0.33; m.envMapIntensity = 0.6;
+      } else if (cfg.glass && cfg.glass.indexOf(nm) >= 0) {
+        m.color.setHex(0x12161d); if (m.color.convertSRGBToLinear) m.color.convertSRGBToLinear();
+        m.metalness = 0.85; m.roughness = 0.14; m.transparent = false; m.opacity = 1; m.envMapIntensity = 1.0;
+      } else if (cfg.rim && cfg.rim.mats.indexOf(nm) >= 0) {
+        m.color.setHex(cfg.rim.color); if (m.color.convertSRGBToLinear) m.color.convertSRGBToLinear();
+        m.metalness = cfg.rim.metal; m.roughness = cfg.rim.rough; m.envMapIntensity = 1.0;
+      } else if (cfg.lights && cfg.lights.indexOf(nm) >= 0) {
+        m.color.setHex(0xf3e5bd); if (m.color.convertSRGBToLinear) m.color.convertSRGBToLinear();
+        m.transparent = false; m.opacity = 1;
+      }
+    });
+  });
+}
+function buildGTWing(w, topY, zPos, colorHex) {
+  var g = new THREE.Group();
+  var blade = gloss(colorHex, 70, 0.5), dark = lam(0x101216);
+  var upH = topY * 0.40;
+  [-0.30, 0.30].forEach(function (fx) {
+    g.add(box(0.07, upH, 0.26, dark, fx * w, topY - upH / 2, zPos, -0.12));
+  });
+  g.add(box(w * 1.04, 0.055, 0.46, blade, 0, topY, zPos - 0.05, -0.10));
+  g.add(box(0.05, 0.34, 0.58, blade, -w * 0.52, topY - 0.05, zPos - 0.05));
+  g.add(box(0.05, 0.34, 0.58, blade, w * 0.52, topY - 0.05, zPos - 0.05));
+  return g;
+}
+function populateGLBCar(job) {
+  var cfg = GLB_CARS[job.ix];
+  var c = GLB_TEMPLATES[job.ix].clone(true);
+  c.traverse(function (o) {
+    if (!o.isMesh) return;
+    if (Array.isArray(o.material)) o.material = o.material.map(function (m) { return m ? m.clone() : m; });
+    else if (o.material) o.material = o.material.clone();
+    o.castShadow = true; o.receiveShadow = true;
+  });
+  applyGLBPaint(c, cfg, job.paint);
+  job.car.add(c);
   var wheels = [];
-  [[-1.02, 1.55], [1.02, 1.55], [-1.05, -1.55], [1.05, -1.55]].forEach(function (wp, ix) {
-    var w = buildWheel(0.37, 0.36, 'chrome');
-    w.position.set(wp[0], 0.37, wp[1]);
-    w.rotation.z = (wp[0] > 0 ? -1 : 1) * 0.045;
-    car.add(w); wheels.push(w);
-    if (ix < 2) w.userData.front = true;
-  });
-  car.add(blobShadow(3.0, 5.6));
-  car.userData.wheels = wheels;
+  for (var k = 0; k < 4; k++) {
+    var p = c.getObjectByName('__wp' + k);
+    if (!p) continue;
+    p.userData.spin = c.getObjectByName('__ws' + k);
+    wheels.push(p);
+  }
+  job.car.userData.wheels = wheels;
+  if (cfg.wing) job.car.add(buildGTWing(cfg._w, cfg._h + 0.16, -cfg.len / 2 + 0.25, cfg.wing.color));
+}
+function buildGLBCar(ix, paintHex) {
+  var car = new THREE.Group();
+  car.userData.wheels = [];
+  car.add(blobShadow(3.0, GLB_CARS[ix].len + 1.1));
+  var job = { car: car, ix: ix, paint: paintHex };
+  if (GLB_TEMPLATES[ix]) populateGLBCar(job);
+  else GLB_PENDING[ix].push(job);
   return car;
 }
-function buildMuscle(paintHex) {
-  var car = new THREE.Group();
-  var paint = paintSRGB(paintHex);
-  var dark = lam(0x12141a), glass = glassMat();
-  var chrome = new THREE.MeshPhongMaterial({ color: 0xd7dce4, shininess: 90, specular: 0x888888, envMap: ENV, reflectivity: 0.7 });
-  car.add(box(2.04, 0.6, 4.95, paint, 0, 0.57, 0));               /* long flat body */
-  car.add(box(2.06, 0.18, 4.6, dark, 0, 0.30, 0));                /* rocker */
-  car.add(box(1.9, 0.38, 0.75, paint, 0, 0.50, 2.62));            /* nose */
-  car.add(box(1.72, 0.34, 0.06, dark, 0, 0.55, 2.99));            /* grille */
-  car.add(box(1.76, 0.05, 0.03, chrome, 0, 0.76, 2.98));          /* grille brow */
-  car.add(box(1.8, 0.09, 0.1, chrome, 0, 0.30, 2.94));            /* front bumper */
-  [-0.62, 0.62].forEach(function (hx) {                           /* round headlights, lit */
-    var ring = new THREE.Mesh(new THREE.CircleGeometry(0.135, 18), chrome);
-    ring.position.set(hx, 0.58, 3.026); car.add(ring);
-    car.add(glowDisc(0.105, 0xffe9ae, hx, 0.58, 3.03));
+(function loadGLBCars() {
+  if (!THREE.GLTFLoader) return;
+  var loader = new THREE.GLTFLoader();
+  GLB_CARS.forEach(function (cfg, ix) {
+    loader.load(cfg.file, function (gltf) {
+      GLB_TEMPLATES[ix] = prepGLBTemplate(ix, gltf);
+      GLB_PENDING[ix].splice(0).forEach(populateGLBCar);
+      GLB_LOADED++;
+      if (GLB_LOADED === GLB_CARS.length) window.__carsReady = true;
+    }, undefined, function (err) {
+      if (window.console) console.error('GLB load failed', cfg.file, err);
+    });
   });
-  car.add(box(0.86, 0.21, 1.18, lam(0x17181c), 0, 0.965, 1.02));  /* hood scoop */
-  car.add(box(0.7, 0.12, 0.04, lam(0x05060a), 0, 0.95, 1.62));    /* scoop mouth */
-  var cabin = box(1.68, 0.5, 1.95, glass, 0, 1.12, -0.42); car.add(cabin);
-  car.add(box(1.72, 0.06, 1.98, paint, 0, 1.40, -0.42));          /* roof */
-  car.add(box(1.66, 0.56, 0.05, glass, 0, 1.10, 0.62, -0.48));    /* windshield */
-  car.add(box(1.66, 0.58, 0.05, glass, 0, 1.11, -1.48, 0.52));    /* rear glass */
-  car.add(box(2.16, 0.3, 1.05, paint, 0, 0.55, 1.58));            /* front flares */
-  car.add(box(2.26, 0.36, 1.2, paint, 0, 0.58, -1.58));           /* rear flares */
-  car.add(box(1.92, 0.05, 0.36, paint, 0, 0.93, -2.44, -0.14));   /* lip spoiler */
-  car.add(box(1.9, 0.3, 0.05, lam(0x101216), 0, 0.62, -2.49));    /* tail panel */
-  car.add(box(1.66, 0.07, 0.03, new THREE.MeshBasicMaterial({ color: 0xff352e }), 0, 0.68, -2.52));
-  car.add(box(1.8, 0.09, 0.1, chrome, 0, 0.32, -2.5));            /* rear bumper */
-  [-1, 1].forEach(function (sgn) {                                /* side pipes */
-    var pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.9, 10), chrome);
-    pipe.rotation.x = Math.PI / 2; pipe.position.set(sgn * 1.07, 0.27, -0.15); car.add(pipe);
-  });
-  var wheels = [];
-  [[-1.0, 1.58, 0.38, 0.36], [1.0, 1.58, 0.38, 0.36], [-1.03, -1.58, 0.44, 0.56], [1.03, -1.58, 0.44, 0.56]].forEach(function (wp, ix) {
-    var w = buildWheel(wp[2], wp[3], 'chrome');
-    w.position.set(wp[0], wp[2], wp[1]);
-    car.add(w); wheels.push(w);
-    if (ix < 2) w.userData.front = true;
-  });
-  car.add(blobShadow(3.2, 6.1));
-  car.userData.wheels = wheels;
-  return car;
-}
-function buildDriftCoupe(paintHex) {
-  var car = new THREE.Group();
-  var paint = paintSRGB(paintHex);
-  var accent = paintSRGB(0xd8262c);
-  var dark = lam(0x101216);
-  car.add(box(1.98, 0.5, 4.65, paint, 0, 0.50, 0));
-  car.add(box(2.0, 0.2, 4.35, dark, 0, 0.30, 0));
-  car.add(box(0.17, 0.15, 2.6, accent, -1.03, 0.24, 0));          /* red side skirts */
-  car.add(box(0.17, 0.15, 2.6, accent, 1.03, 0.24, 0));
-  car.add(box(1.9, 0.3, 1.0, accent, 0, 0.38, 2.15));              /* red front bumper */
-  car.add(box(1.86, 0.24, 0.95, paint, 0, 0.57, 2.15));           /* nose panel */
-  car.add(box(1.24, 0.17, 0.05, lam(0x07080a), 0, 0.36, 2.66));   /* intake mouth */
-  car.add(box(2.12, 0.06, 0.52, accent, 0, 0.17, 2.44));          /* red splitter */
-  [-0.68, -0.45, 0.45, 0.68].forEach(function (hx) {              /* quad lamps, lit */
-    car.add(glowDisc(0.082, 0xffdf9e, hx, 0.57, 2.632));
-  });
-  var ventTex = ventTexture();
-  [-0.44, 0.44].forEach(function (vx) {                           /* red-framed hood vents */
-    car.add(box(0.58, 0.025, 0.95, accent, vx, 0.752, 1.26));
-    var vp = new THREE.Mesh(new THREE.PlaneGeometry(0.46, 0.8), glossMap(ventTex));
-    vp.rotation.x = -Math.PI / 2; vp.position.set(vx, 0.766, 1.26); car.add(vp);
-  });
-  car.add(box(2.2, 0.32, 1.1, accent, 0, 0.52, 1.5));              /* red front flares */
-  car.add(box(2.26, 0.34, 1.2, accent, 0, 0.54, -1.5));            /* red rear flares */
-  car.add(buildGreenhouse(paint));
-  car.add(box(0.07, 0.52, 0.26, accent, -0.55, 1.13, -2.06, -0.2)); /* red GT wing */
-  car.add(box(0.07, 0.52, 0.26, accent, 0.55, 1.13, -2.06, -0.2));
-  car.add(box(2.34, 0.06, 0.48, accent, 0, 1.46, -2.18, -0.1));
-  car.add(box(0.05, 0.46, 0.6, accent, -1.17, 1.35, -2.18));
-  car.add(box(0.05, 0.46, 0.6, accent, 1.17, 1.35, -2.18));
-  car.add(box(1.84, 0.34, 0.06, lam(0x14161c), 0, 0.60, -2.335));
-  car.add(box(1.7, 0.06, 0.03, new THREE.MeshBasicMaterial({ color: 0xff2f38 }), 0, 0.72, -2.375));
-  car.add(box(1.72, 0.15, 0.34, dark, 0, 0.20, -2.28));
-  [0.58, 0.76].forEach(function (ex) {
-    var pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.26, 12),
-      new THREE.MeshPhongMaterial({ color: 0xb9bfc9, shininess: 90, specular: 0x666666 }));
-    pipe.rotation.x = Math.PI / 2; pipe.position.set(ex, 0.34, -2.42); car.add(pipe);
-  });
-  var wheels = [];
-  [[-1.04, 1.55], [1.04, 1.55], [-1.06, -1.55], [1.06, -1.55]].forEach(function (wp, ix) {
-    var w = buildWheel(0.37, 0.38, 'gold');
-    w.position.set(wp[0], 0.37, wp[1]);
-    w.rotation.z = (wp[0] > 0 ? -1 : 1) * 0.05;
-    car.add(w); wheels.push(w);
-    if (ix < 2) w.userData.front = true;
-  });
-  car.add(blobShadow(3.0, 5.6));
-  car.userData.wheels = wheels;
-  return car;
-}
-function buildSupercar(paintHex) {
-  var car = new THREE.Group();
-  var paint = paintSRGB(paintHex);
-  var dark = lam(0x0c0e12), glass = glassMat();
-  car.add(box(2.12, 0.4, 4.85, paint, 0, 0.44, 0));               /* low wedge body */
-  car.add(box(1.95, 0.2, 1.15, paint, 0, 0.35, 2.2, 0.05));       /* nose */
-  car.add(box(2.2, 0.06, 0.62, dark, 0, 0.13, 2.52));             /* splitter */
-  car.add(box(0.58, 0.15, 0.05, dark, -0.56, 0.28, 2.79));        /* front intakes */
-  car.add(box(0.58, 0.15, 0.05, dark, 0.56, 0.28, 2.79));
-  car.add(box(0.44, 0.035, 0.02, new THREE.MeshBasicMaterial({ color: 0xdff2ff }), -0.58, 0.47, 2.74, 0, 0.18)); /* slim LEDs */
-  car.add(box(0.44, 0.035, 0.02, new THREE.MeshBasicMaterial({ color: 0xdff2ff }), 0.58, 0.47, 2.74, 0, -0.18));
-  /* black glass canopy: low extruded teardrop, no roof cap */
-  var s = new THREE.Shape();
-  s.moveTo(1.0, 0.60); s.lineTo(0.40, 1.02); s.lineTo(-0.30, 1.06);
-  s.lineTo(-0.72, 1.03); s.lineTo(-1.62, 0.63); s.lineTo(-1.62, 0.57);
-  s.lineTo(1.0, 0.57); s.closePath();
-  var cgeo = new THREE.ExtrudeGeometry(s, { depth: 1.56, bevelEnabled: false, steps: 1 });
-  cgeo.rotateY(-Math.PI / 2); cgeo.translate(0.78, 0, 0);
-  car.add(new THREE.Mesh(cgeo, glass));
-  car.add(box(0.06, 0.34, 0.85, dark, -1.07, 0.52, -0.78, 0, 0, 0.06)); /* side intakes */
-  car.add(box(0.06, 0.34, 0.85, dark, 1.07, 0.52, -0.78, 0, 0, -0.06));
-  car.add(box(1.9, 0.09, 0.95, paint, 0, 0.70, -1.95));           /* rear deck */
-  car.add(box(1.72, 0.045, 0.3, paint, 0, 0.82, -2.28, -0.08));   /* lip wing */
-  car.add(box(0.06, 0.12, 0.06, dark, -0.5, 0.72, -2.28));
-  car.add(box(0.06, 0.12, 0.06, dark, 0.5, 0.72, -2.28));
-  car.add(box(1.95, 0.26, 0.05, lam(0x0e1013), 0, 0.5, -2.44));   /* rear panel */
-  car.add(box(1.6, 0.03, 0.02, new THREE.MeshBasicMaterial({ color: 0xff352e }), 0, 0.58, -2.47));
-  car.add(box(1.8, 0.14, 0.3, dark, 0, 0.16, -2.32));             /* diffuser */
-  [-0.18, 0.18].forEach(function (ex) {
-    var pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.2, 10),
-      new THREE.MeshPhongMaterial({ color: 0xb9bfc9, shininess: 90, specular: 0x666666 }));
-    pipe.rotation.x = Math.PI / 2; pipe.position.set(ex, 0.34, -2.48); car.add(pipe);
-  });
-  var wheels = [];
-  [[-1.04, 1.6], [1.04, 1.6], [-1.04, -1.6], [1.04, -1.6]].forEach(function (wp, ix) {
-    var w = buildWheel(0.39, 0.4, 'black');
-    w.position.set(wp[0], 0.39, wp[1]);
-    car.add(w); wheels.push(w);
-    if (ix < 2) w.userData.front = true;
-  });
-  car.add(blobShadow(3.2, 6.0));
-  car.userData.wheels = wheels;
-  return car;
-}
+})();
+function buildGTCoupe(paintHex) { return buildGLBCar(0, paintHex); }
+function buildMuscle(paintHex) { return buildGLBCar(1, paintHex); }
+function buildDriftCoupe(paintHex) { return buildGLBCar(2, paintHex); }
+function buildSupercar(paintHex) { return buildGLBCar(3, paintHex); }
 var CAR_DEFS = [
   { name: 'AZURE GT', sub: 'GT COUPE', build: buildGTCoupe, def: 0x2e7cd6,
     colors: [0x2e7cd6, 0xd8262c, 0xe8b62a, 0x23262e, 0xf2f2ee],
