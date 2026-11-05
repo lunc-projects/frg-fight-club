@@ -98,6 +98,42 @@ const floorTex = canvasTex(1024, 1024, (x, w, h) => {
     x.fillStyle = `rgba(255,255,255,${Math.random() * 0.05})`;
     x.fillRect(Math.random() * w, Math.random() * h, 2, 2);
   }
+  // BIG LUNA CLASSIC canvas print (owner, Nov 4): a worn ring-paint
+  // emblem at the arena centre — crescent + the words LUNA CLASSIC
+  // (branding rule: the words must be there, crescent alone is not
+  // enough). Painted faded like old colosseum canvas; the fighters
+  // fight right over it. Painted faded like old colosseum canvas; the
+  // fighters fight right over it.
+  x.save();
+  x.translate(w / 2, h / 2); x.rotate(-Math.PI / 2); // cylinder-cap UVs swap the axes (canvas-right -> world +z/near, canvas-up -> world +x): rotate -90° so the print reads upright from the default camera — verified on screen Nov 5 (no rotation = sideways emblem, PI = upside down)
+  x.strokeStyle = 'rgba(232,228,218,0.17)'; x.lineWidth = 10;
+  x.beginPath(); x.arc(0, 0, 222, 0, 7); x.stroke();
+  x.lineWidth = 4; x.strokeStyle = 'rgba(232,228,218,0.14)';
+  x.beginPath(); x.arc(0, 0, 192, 0, 7); x.stroke();
+  // crescent: a bright disc with an offset disc cut out of it
+  x.fillStyle = 'rgba(242,237,224,0.48)';
+  x.beginPath(); x.arc(0, -108, 104, 0, 7); x.fill();
+  x.globalCompositeOperation = 'destination-out';
+  x.globalAlpha = 0.94;
+  x.beginPath(); x.arc(50, -132, 90, 0, 7); x.fill();
+  x.globalCompositeOperation = 'source-over';
+  x.globalAlpha = 1;
+  x.fillStyle = 'rgba(242,237,224,0.6)';
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.font = '900 96px Arial, sans-serif';
+  x.fillText('LUNA', 0, 66);
+  x.font = '900 82px Arial, sans-serif';
+  x.fillText('CLASSIC', 0, 158);
+  x.restore();
+  // scuff the print so it reads as worn paint, not a fresh sticker
+  x.save();
+  x.globalCompositeOperation = 'destination-out';
+  for (let i = 0; i < 300; i++) {
+    x.globalAlpha = 0.05 + Math.random() * 0.12;
+    const px = w / 2 + (Math.random() - .5) * 580, py = h / 2 + (Math.random() - .5) * 580;
+    x.fillRect(px, py, 4 + Math.random() * 42, 2 + Math.random() * 5);
+  }
+  x.restore();
 });
 floorTex.wrapS = floorTex.wrapT = THREE.ClampToEdgeWrapping;
 const skyTex = canvasTex(1024, 512, (x, w, h) => {
@@ -281,6 +317,8 @@ class Fighter {
     this.state = 'idle'; this.stateT = 0;
     this.atk = null; this.atkKey = null; this.atkHitDone = false; this.specDone = false;
     this.react = null; this.prevLimb = null; this.atkMinSurf = 99;
+    this.specNext = cfg.specialType || 'dash'; this.specKind = null; this.ult = null;
+    this.stats = { specDash: 0, specOrb: 0, ult: 0 };
     this.blocking = false; this.crouching = false;
     this.roundsWon = 0; this.aiTimer = 0; this.aiHoldT = 0; this.aiAction = null; this.aiBlockT = 0;
   }
@@ -468,7 +506,7 @@ function updateSlashes(dt) {
 }
 // projectiles
 const projectiles = [];
-function spawnOrb(owner, pos) {
+function spawnOrb(owner, pos, dmg = 12, homing = false) {
   const grp = new THREE.Group();
   const core = new THREE.Mesh(new THREE.SphereGeometry(0.11, 16, 12),
     new THREE.MeshStandardMaterial({ color: 0x220a12, emissive: 0xff5577, emissiveIntensity: 4 }));
@@ -477,7 +515,7 @@ function spawnOrb(owner, pos) {
   const light = new THREE.PointLight(0xff5577, 6, 3.4, 1.8);
   grp.add(core, glow, light); grp.position.copy(pos);
   fxGroup.add(grp);
-  projectiles.push({ grp, owner, vx: owner.face * 6.4, life: 2.2 });
+  projectiles.push({ grp, owner, vx: owner.face * 6.4, life: 2.2, dmg, homing });
   AudioSys.zap();
 }
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3();
@@ -491,9 +529,9 @@ const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3();
    kick's lead foot travels at pelvis height. If the limb never arrives,
    the strike whiffs: no damage, no reaction, no effects. */
 const ATTACKS = {
-  jab:   { clip: 'jab',   limb: 'jab',   startup: 0.12, active: 0.30, dmg: 5,  push: 0.9, gain: 7,  hitstop: 0.05, shake: 0 },
-  heavy: { clip: 'heavy', limb: 'heavy', startup: 0.20, active: 0.26, dmg: 10, push: 1.7, gain: 11, hitstop: 0.10, shake: 0.11 },
-  kick:  { clip: 'kick1', limb: 'kick',  startup: 0.13, active: 0.42, dmg: 8,  push: 1.3, gain: 9,  hitstop: 0.07, shake: 0, slide: true },
+  jab:   { clip: 'jab',   limb: 'jab',   startup: 0.12, active: 0.30, dmg: 5,  push: 0.9, gain: 14, hitstop: 0.05, shake: 0 },
+  heavy: { clip: 'heavy', limb: 'heavy', startup: 0.20, active: 0.26, dmg: 10, push: 1.7, gain: 22, hitstop: 0.10, shake: 0.11 },
+  kick:  { clip: 'kick1', limb: 'kick',  startup: 0.13, active: 0.42, dmg: 8,  push: 1.3, gain: 18, hitstop: 0.07, shake: 0, slide: true },
 };
 let hitstopT = 0, slowmoT = 0, shakeAmp = 0;
 
@@ -607,13 +645,85 @@ function startAttack(f, key) {
   else if (key === 'jab') setTimeout(() => AudioSys.swing(), 60);
   else AudioSys.swing();
 }
+/* Specials (owner, Nov 4): BOTH fighters own BOTH kinds — a dash strike
+   and an orb projectile. One SPEC control; successive presses alternate
+   dash <-> orb (the HUD meter label shows what's next). A special costs
+   25 meter. At a FULL bar (100) SPEC instead fires the ULTIMATE: LUNC's
+   dash-in 3-hit combo + dash finisher, USTC's 3-orb barrage — about 24
+   damage if everything lands, never a one-shot from full HP. */
+const SPEC_COST = 25;
 function startSpecial(f) {
-  if (f.meter < 50 || f.state !== 'idle' && f.state !== 'walk') return;
-  f.meter -= 50;
+  if (f.state !== 'idle' && f.state !== 'walk') return;
+  if (f.meter >= 100) { startUltimate(f); return; }
+  if (f.meter < SPEC_COST) return;
+  f.meter -= SPEC_COST;
+  const kind = f.specNext;
+  f.specNext = kind === 'dash' ? 'orb' : 'dash';
+  beginSpecial(f, kind);
+}
+function dashClipKey(f) { return f === P1 ? 'special' : 'dashAlt'; } // both rigs carry Sword_Dash
+function beginSpecial(f, kind) {
   f.state = 'special'; f.stateT = 0; f.atkHitDone = false; f.specDone = false;
+  f.specKind = kind;
   f.prevLimb = null; f.atkMinSurf = 99;
-  if (f.cfg.specialType === 'dash') { f.play('special', { loop: false, clamp: true, fade: 0.05 }); AudioSys.dash(); }
-  else { f.play('throw', { loop: false, clamp: true, fade: 0.05 }); }
+  if (kind === 'dash') { f.play(dashClipKey(f), { loop: false, clamp: true, fade: 0.05 }); AudioSys.dash(); f.stats.specDash++; }
+  else { f.play('throw', { loop: false, clamp: true, fade: 0.05 }); f.stats.specOrb++; }
+}
+function startUltimate(f) {
+  f.meter = 0;
+  f.stats.ult++;
+  f.specKind = null;
+  f.ult = { kind: f === P1 ? 'combo' : 'barrage', step: 0, stepT: 0, finisher: false, clipDone: false };
+  showBanner('ULTIMATE', f.cfg.name, 1.1);
+  burst(f.bonePos(f.chestBone, _v1).clone(), f.cfg.sparkColor, 30, 3.4, 1.6);
+  AudioSys.zap(); AudioSys.bell();
+}
+/* Ultimate driver — runs at the end of the owner's fighterUpdate.
+   'combo': dash in, jab, jab, heavy, then a light dash finisher
+   (5+5+10+4 = 24 if every piece lands). 'barrage': three 8-dmg orbs.
+   While it runs, brief slow-mo pulses + a camera push (ultCamT) sell
+   the moment; if it K.O.s, resolveHit's normal K.O. sequence plays. */
+function updateUltimate(att, dt) {
+  const u = att.ult, def = foe(att);
+  if (!u) return;
+  u.stepT += dt;
+  if (att.state === 'death' || game.phase !== 'fight') { att.ult = null; return; }
+  if (game.ultCamT <= 0) { slowmoT = Math.max(slowmoT, 0.06); game.ultCamT = 0.5; }
+  const end = () => { att.ult = null; if (att.state === 'ultimate') { att.state = 'idle'; att.play('idle', { fade: 0.08 }); } };
+  if (u.kind === 'combo') {
+    if (u.step === 0) {
+      att.state = 'ultimate';
+      if (!u.clipDone) { u.clipDone = true; att.play('special', { loop: false, clamp: true, fade: 0.05 }); AudioSys.dash(); }
+      att.x += att.face * 9.5 * dt;
+      if (dist(att, def) <= 0.78 || u.stepT > 0.65) { u.step = 1; u.stepT = 0; startAttack(att, 'jab'); }
+      return;
+    }
+    if (u.step <= 3) {
+      if (att.state === 'idle') { // previous strike finished — chain the next
+        if (u.step === 3) {
+          u.step = 4; u.stepT = 0; u.finisher = true;
+          beginSpecial(att, 'dash');
+          att.stats.specDash--; // the finisher is part of the ultimate, not a metered special
+        } else {
+          u.step++; u.stepT = 0;
+          startAttack(att, u.step === 3 ? 'heavy' : 'jab');
+        }
+      }
+      return;
+    }
+    if (u.step === 4 && att.state === 'idle') end();
+    if (u.stepT > 5) end(); // safety
+    return;
+  }
+  // barrage
+  att.state = 'ultimate';
+  if (u.step < 3 && u.stepT >= u.step * 0.24) {
+    att.play('throw', { loop: false, clamp: true, fade: 0.03 });
+    att.bonePos(att.handBone, _v1); _v1.y = Math.max(_v1.y, 1.25); _v1.z = 0;
+    spawnOrb(att, _v1.clone(), 8, true); // barrage orbs track the target — a knockback lean must not dodge 2 of 3
+    u.step++;
+  }
+  if (u.step >= 3 && u.stepT > 3 * 0.24 + 0.6) end();
 }
 // contact: { point, zone } from limbContact (or null for projectiles ->
 // chest-height body contact). opts: { gain, hitstop, shake, heavy, kind }
@@ -639,8 +749,9 @@ function resolveHit(att, def, dmg, push, opts = {}) {
   }
   def.hp -= dmg;
   att.meter = Math.min(100, att.meter + (opts.gain || 8));
-  def.meter = Math.min(100, def.meter + 5);
+  def.meter = Math.min(100, def.meter + 10);
   let pushV = push * (counter ? 1.45 : 1) * (zone === 'low' ? 1.15 : 1);
+  if (att.ult && att.ult.kind === 'combo') pushV *= 0.45; // the ultimate juggles — the victim stays in the pocket for the chain
   def.vx = att.face * pushV;
   const heavy = !!opts.heavy;
   burst(pt, att.cfg.sparkColor, heavy ? 26 : 16, heavy ? 3.4 : 2.5, 1.3);
@@ -678,13 +789,19 @@ const P1 = new Fighter({
   name: 'MR LUNC', model: 'models/ryker/char.gltf', startX: -1.7, handBone: 'hand_r',
   sparkColor: 0x7fd8ff, specialType: 'dash',
   hair: ['models/ryker/Hair_SimpleParted.gltf', 'models/ryker/Hair_Beard.gltf'],
-  clips: { ...CLIPMAP, heavy: 'Melee_Hook', special: 'Sword_Dash', throw: 'OverhandThrow' },
+  // heavy was 'Melee_Hook' until Nov 4: that clip is a lunging overhead
+  // weapon swing — the body pitches ~0.6 m forward, the fist peaks 0.55 m
+  // off-axis at head height, then chops down to 1.35 m out at belly
+  // height, so the hit registered mid-chop through the defender and read
+  // as a flying tackle. 'Punch_Cross' (same clip as P2's heavy) drives
+  // the fist straight to ~0.68 m at chin height, inside the tuned window.
+  clips: { ...CLIPMAP, heavy: 'Punch_Cross', special: 'Sword_Dash', throw: 'OverhandThrow' },
 });
 const P2 = new Fighter({
-  name: 'MR USTC', model: 'models/sable/char.gltf', startX: 1.7, handBone: 'hand_l',
+  name: 'MRS USTC', model: 'models/sable/char.gltf', startX: 1.7, handBone: 'hand_l',
   sparkColor: 0xff8095, specialType: 'orb',
   hair: ['models/sable/Hair_Long.gltf'], hairTint: 0x6e4a34,
-  clips: { ...CLIPMAP, heavy: 'Punch_Cross', special: 'Spell_Simple_Shoot', throw: 'Spell_Simple_Shoot' },
+  clips: { ...CLIPMAP, heavy: 'Punch_Cross', special: 'Spell_Simple_Shoot', throw: 'Spell_Simple_Shoot', dashAlt: 'Sword_Dash' },
 });
 const FIGHTERS = [P1, P2];
 function foe(f) { return f === P1 ? P2 : P1; }
@@ -712,23 +829,31 @@ document.querySelectorAll('.tbtn').forEach(b => {
 const stickBase = document.getElementById('stickBase');
 const stickKnob = document.getElementById('stickKnob');
 const stickZone = document.getElementById('stickZone');
-const stick = { id: null, cx: 0, cy: 0 };
+const stick = { id: null, cx: 0, cy: 0, t0: 0 };
 function stickReset() {
   stick.id = null;
   stickKnob.style.transform = '';
+  // send the base HOME: a tap (double-tap worst) used to leave the
+  // joystick parked wherever it landed, because the anchor styles were
+  // never cleared on release
+  stickBase.style.left = ''; stickBase.style.top = ''; stickBase.style.bottom = '';
   touchState.left = touchState.right = touchState.down = touchState.up = false;
 }
 function stickVector(dx, dy) {
   const R = 46, len = Math.hypot(dx, dy);
   if (len > R) { dx *= R / len; dy *= R / len; }
   stickKnob.style.transform = `translate(${dx}px,${dy}px)`;
+  // tap-jitter guard: in the first 70 ms after anchoring, a small drift
+  // is finger noise on a tap, not steering — it could cross the jump
+  // threshold for a frame and make the fighter hop on a plain tap
+  if (performance.now() - stick.t0 < 70 && len < 30) { dx = 0; dy = 0; }
   touchState.left = dx < -15; touchState.right = dx > 15;
   touchState.down = dy > 20; touchState.up = dy < -20;
 }
 stickZone.addEventListener('pointerdown', e => {
   if (stick.id !== null) return;
   AudioSys.init();
-  stick.id = e.pointerId; stick.cx = e.clientX; stick.cy = e.clientY;
+  stick.id = e.pointerId; stick.cx = e.clientX; stick.cy = e.clientY; stick.t0 = performance.now();
   try { stickZone.setPointerCapture(e.pointerId); } catch (err) { }
   stickBase.style.left = (e.clientX - 62) + 'px';
   stickBase.style.top = (e.clientY - 62) + 'px';
@@ -742,6 +867,11 @@ stickZone.addEventListener('pointermove', e => {
 const stickEnd = e => { if (e.pointerId === stick.id) stickReset(); };
 stickZone.addEventListener('pointerup', stickEnd);
 stickZone.addEventListener('pointercancel', stickEnd);
+// if capture is lost without an up/cancel (OS gesture, shade pull,
+// capture failure), the id used to stay set forever: every later touch
+// was ignored by the guard and any held direction stuck on
+stickZone.addEventListener('lostpointercapture', stickEnd);
+addEventListener('blur', () => { if (stick.id !== null) stickReset(); });
 
 let ctlMode = 'stick';
 try { if (localStorage.getItem('ac3d.controls') === 'pad') ctlMode = 'pad'; } catch (e) { }
@@ -817,12 +947,12 @@ function fighterUpdate(f, dt, input) {
   // pushback velocity decay
   if (Math.abs(f.vx) > 0.01 && f.state !== 'special') {
     f.x += f.vx * dt; f.vx *= Math.max(0, 1 - 9 * dt);
-  } else if (f.state === 'special' && f.cfg.specialType === 'dash') {
+  } else if (f.state === 'special' && f.specKind === 'dash') {
     // handled in special branch below
   } else f.vx = 0;
   f.blocking = false; f.crouching = false;
 
-  const busy = ['attack', 'special', 'hitstun', 'blockstun', 'knock', 'death', 'win'].includes(f.state);
+  const busy = ['attack', 'special', 'ultimate', 'hitstun', 'blockstun', 'knock', 'death', 'win'].includes(f.state);
   if (!busy && game.phase === 'fight') {
     const toward = (f.face > 0 && input.right) || (f.face < 0 && input.left);
     const away = (f.face > 0 && input.left) || (f.face < 0 && input.right);
@@ -877,14 +1007,15 @@ function fighterUpdate(f, dt, input) {
     if (f.stateT >= total) { f.state = 'idle'; f.atk = null; f.play('idle', { fade: 0.07 }); }
   }
   if (f.state === 'special') {
-    if (f.cfg.specialType === 'dash') {
-      const total = f.dur('special');
+    if (f.specKind === 'dash') {
+      const total = f.dur(dashClipKey(f));
       if (f.stateT < 0.34) f.x += f.face * 7.6 * dt;
       if (!f.atkHitDone && f.stateT > 0.1 && dist(f, o) < 1.9) {
-        const c = limbContact(f, o, 'body', 0.16); // the whole body is the weapon on a dash
+        const c = limbContact(f, o, 'body', 0.22); // the whole body is the weapon on a dash; 0.22 because a clean pass at the 0.62 floor measured +0.02..+0.03 short at 0.16 — the visible torso mass reaches past the spine point
         if (c) {
           f.atkHitDone = true;
-          resolveHit(f, o, 16, 2.4, { gain: 4, hitstop: 0.13, shake: 0.16, heavy: true, knock: true, kind: 'special', contact: c });
+          const fin = f.ult && f.ult.finisher; // ultimate's finisher dash is a light 4-dmg cap
+          resolveHit(f, o, fin ? 4 : 16, 2.4, { gain: 8, hitstop: 0.13, shake: 0.16, heavy: true, knock: true, kind: 'special', contact: c });
         }
       }
       if (f.stateT >= total * 0.95) { f.state = 'idle'; f.play('idle', { fade: 0.08 }); }
@@ -897,6 +1028,7 @@ function fighterUpdate(f, dt, input) {
       if (f.stateT >= f.dur('throw') * 0.95) { f.state = 'idle'; f.play('idle', { fade: 0.08 }); }
     }
   }
+  if (f.ult) updateUltimate(f, dt);
   if (f.state === 'hitstun' && f.stateT > (f.currentKey === 'hitH' ? 0.42 : 0.3)) { f.state = 'idle'; f.play('idle', { fade: 0.06 }); }
   if (f.state === 'blockstun' && f.stateT > 0.2) { f.state = 'idle'; f.play('idle', { fade: 0.05 }); }
   if (f.state === 'knock' && f.stateT > f.dur('knock') + 0.55) { f.state = 'idle'; f.play('idle', { fade: 0.1 }); }
@@ -929,17 +1061,21 @@ function aiInput(f, dt) {
     f.aiAction = null;
     const hurt = f.hp < 28;
     if (d > 2.7) {
-      if (f.meter >= 50 && f.cfg.specialType === 'orb' && Math.random() < 0.5) { inp.specHit = true; }
+      // either special kind may come out (they alternate); orb is the
+      // natural long-range pick, a full bar means ULTIMATE — spend it
+      if (f.meter >= SPEC_COST && Math.random() < (f.meter >= 100 ? 0.55 : (f.specNext === 'orb' ? 0.5 : 0.3))) { inp.specHit = true; }
       else { f.aiAction = towardKey; f.aiHoldT = 0.24; }
     } else if (d > 1.18) {
       const r = Math.random();
-      if (f.meter >= 50 && f.cfg.specialType === 'dash' && r < 0.3) inp.specHit = true;
+      if (f.meter >= SPEC_COST && (f.meter >= 100 ? r < 0.4 : (f.specNext === 'dash' ? r < 0.3 : r < 0.2))) inp.specHit = true;
       else if (r < 0.24) { inp.kickHit = true; }
       else if (r < 0.34 && hurt) { f.aiAction = awayKey; f.aiHoldT = 0.3; }
       else { f.aiAction = towardKey; f.aiHoldT = 0.2; }
     } else {
       const r = Math.random();
-      if (r < 0.42) inp.jabHit = true;
+      if (f.meter >= 100 && r < 0.18) inp.specHit = true; // point-blank ULTIMATE
+      else if (f.meter >= SPEC_COST && f.meter < 100 && r < (f.meter >= 75 ? 0.3 : 0.24)) inp.specHit = true; // close-range special: spend sometimes, save for the ULTIMATE other times
+      else if (r < 0.42) inp.jabHit = true;
       else if (r < 0.64) inp.hookHit = true;
       else if (r < 0.78) inp.kickHit = true;
       else if (r < 0.88) { f.aiAction = awayKey; f.aiHoldT = 0.26; }
@@ -951,7 +1087,7 @@ function aiInput(f, dt) {
 }
 
 /* ---------------- match flow ---------------- */
-const game = { phase: 'boot', round: 1, timer: 60, phaseT: 0, winner: null };
+const game = { phase: 'boot', round: 1, timer: 60, phaseT: 0, winner: null, ultCamT: 0 };
 const $ = id => document.getElementById(id);
 function showBanner(main, sub = '', hold = 0.85) {
   const m = $('bannerMain'), s = $('bannerSub');
@@ -965,12 +1101,14 @@ function showBanner(main, sub = '', hold = 0.85) {
 function resetFighter(f) {
   f.hp = 100; f.meter = 0; f.x = f.cfg.startX; f.vx = 0; f.y = 0; f.vy = 0;
   f.state = 'idle'; f.stateT = 0; f.atk = null; f.aiBlockT = 0; f.aiAction = null;
+  f.specNext = f.cfg.specialType; f.specKind = null; f.ult = null;
   f.react = null; f.prevLimb = null;
   f.face = f.cfg.startX < 0 ? 1 : -1; f.applyFacing(); f.play('idle');
   f.group.position.set(f.x, 0, 0);
 }
 function startMatch() {
   P1.roundsWon = 0; P2.roundsWon = 0; game.round = 1;
+  P1.stats = { specDash: 0, specOrb: 0, ult: 0 }; P2.stats = { specDash: 0, specOrb: 0, ult: 0 };
   $('rematch').style.display = 'none';
   startRound();
 }
@@ -999,13 +1137,15 @@ function updatePips() {
   }
 }
 function updateHUD() {
-  for (const [f, hpEl, ghostEl, meterEl] of [[P1, $('hp1'), $('ghost1'), $('meter1')], [P2, $('hp2'), $('ghost2'), $('meter2')]]) {
+  for (const [f, hpEl, ghostEl, meterEl, specEl] of [[P1, $('hp1'), $('ghost1'), $('meter1'), $('specNext1')], [P2, $('hp2'), $('ghost2'), $('meter2'), $('specNext2')]]) {
     const v = Math.max(0, f.hp) / 100;
     hpEl.style.transform = `scaleX(${v})`;
     ghostEl.style.transform = `scaleX(${v})`;
     hpEl.classList.toggle('low', f.hp <= 25 && f.hp > 0);
     meterEl.style.width = f.meter + '%';
-    meterEl.classList.toggle('ready', f.meter >= 50);
+    meterEl.classList.toggle('ready', f.meter >= SPEC_COST && f.meter < 100);
+    meterEl.classList.toggle('ult', f.meter >= 100);
+    if (specEl) specEl.textContent = f.meter >= 100 ? '· ULTIMATE READY' : (f.meter >= SPEC_COST ? '· NEXT: ' + (f.specNext === 'dash' ? '⚡ DASH' : '🔮 ORB') : '');
   }
   const t = Math.max(0, Math.ceil(game.timer));
   $('timer').textContent = t;
@@ -1074,6 +1214,18 @@ function updateCamera(dt, t) {
   } else if (game.phase === 'fight') {
     theta = THREE.MathUtils.degToRad(13) * Math.sin(game.phaseT * (Math.PI * 2 / 26));
   }
+  // ULTIMATE beat: while an ultimate runs, swing to a dramatic
+  // three-quarter angle on the user and push in ~12% — brief, then the
+  // normal fight framing (or the round-end sweep) takes back over.
+  if (game.ultCamT > 0 && game.phase === 'fight') {
+    const ua = P1.ult ? P1 : (P2.ult ? P2 : null);
+    if (ua) {
+      const k = Math.min(1, game.ultCamT / 0.55);
+      anchorX = ua.x * 0.7 + foe(ua).x * 0.3; baseX = anchorX;
+      theta = THREE.MathUtils.degToRad(38) * Math.sin(k * Math.PI) * ua.face;
+      dist *= 0.88;
+    }
+  }
   const ox = baseX - anchorX, st = Math.sin(theta), ct = Math.cos(theta);
   camTarget.set(anchorX + ox * ct + dist * st, baseY, -ox * st + dist * ct);
   camera.position.lerp(camTarget, 1 - Math.pow(0.0015, dt));
@@ -1116,6 +1268,7 @@ function animate() {
   for (let _s = 0; _s < SUB; _s++) {
   if (game.phase !== 'boot') {
     game.phaseT += rawDt;
+    game.ultCamT = Math.max(0, game.ultCamT - rawDt);
     if (game.phase === 'intro' && game.phaseT > 1.45) {
       game.phase = 'fight'; game.phaseT = 0;
       showBanner('FIGHT!', '', 0.55); AudioSys.bell();
@@ -1139,10 +1292,21 @@ function animate() {
     if (qaImpact && game.phase === 'fight') {
       qaImpact.t += dt;
       const attF = qaImpact.att2 ? P2 : P1;
-      if (!qaImpact.fired && qaImpact.t > 1.15) { qaImpact.fired = true; startAttack(attF, qaImpact.atk); }
-      if (qaImpact.fired && window.__lastHit && performance.now() - window.__lastHit.at > qaImpact.freezeMs) game.phase = 'frozen';
+      if (!qaImpact.fired && qaImpact.t > 1.15) {
+        qaImpact.fired = true;
+        if (qaImpact.ult) startUltimate(attF);
+        else if (qaImpact.spec) { attF.specNext = qaImpact.spec; startSpecial(attF); }
+        else startAttack(attF, qaImpact.atk);
+      }
+      if (qaImpact.ult) { // freeze once the ultimate's whole sequence completes
+        if (qaImpact.fired && !attF.ult && attF.state === 'idle' && qaImpact.t > 1.4) game.phase = 'frozen';
+        else if (qaImpact.t > 12) game.phase = 'frozen';
+      }
+      else if (qaImpact.fired && window.__lastHit && performance.now() - window.__lastHit.at > qaImpact.freezeMs) game.phase = 'frozen';
       else if (qaImpact.whiff && qaImpact.fired && attF.state === 'attack' && attF.atk && attF.stateT >= attF.atk.startup + attF.atk.active * 0.55) game.phase = 'frozen';
-      else if (qaImpact.t > 5) game.phase = 'frozen';
+      else if (qaImpact.spec && qaImpact.fired && attF.state === 'idle' && qaImpact.t > 1.5) game.phase = 'frozen';
+      else if (qaImpact.t > 5 && !qaImpact.spec) game.phase = 'frozen';
+      else if (qaImpact.t > 8) game.phase = 'frozen';
     }
     if (game.phase !== 'frozen' && (dt > 0 || game.phase === 'roundEnd' || game.phase === 'matchEnd')) {
       let inp, ai;
@@ -1164,8 +1328,13 @@ function animate() {
         p.grp.children[0].rotation.x += dt * 9;
         const target = foe(p.owner);
         const tp = target.bonePos(target.chestBone, _v2);
+        if (p.homing && target.state !== 'death') { // steer toward the chest, capped so it still reads as a projectile
+          const maxStep = 3.0 * dt;
+          p.grp.position.y += Math.max(-maxStep, Math.min(maxStep, tp.y - p.grp.position.y));
+          p.grp.position.z += Math.max(-maxStep, Math.min(maxStep, tp.z - p.grp.position.z));
+        }
         if (target.state !== 'death' && p.grp.position.distanceTo(tp) < 0.52) {
-          resolveHit(p.owner, target, 12, 2.0, { gain: 3, hitstop: 0.1, shake: 0.13, heavy: true, knock: true, kind: 'orb' });
+          resolveHit(p.owner, target, p.dmg || 12, 2.0, { gain: 6, hitstop: 0.1, shake: 0.13, heavy: true, knock: true, kind: 'orb' });
           p.life = 0;
         }
         if (p.life <= 0 || Math.abs(p.grp.position.x) > 5.2) {
@@ -1192,6 +1361,7 @@ function animate() {
       phase: game.phase, round: game.round, timer: Math.round(game.timer * 10) / 10,
       hp: [Math.round(P1.hp), Math.round(P2.hp)], wins: [P1.roundsWon, P2.roundsWon],
       states: [P1.state, P2.state], xs: [Math.round(P1.x * 100) / 100, Math.round(P2.x * 100) / 100], errors: window.__errs,
+      spec: [{ dash: P1.stats.specDash, orb: P1.stats.specOrb, ult: P1.stats.ult, meter: Math.round(P1.meter), next: P1.specNext, kind: P1.specKind, inUlt: !!P1.ult }, { dash: P2.stats.specDash, orb: P2.stats.specOrb, ult: P2.stats.ult, meter: Math.round(P2.meter), next: P2.specNext, kind: P2.specKind, inUlt: !!P2.ult }], ultCam: game.ultCamT > 0,
       lastHit: window.__lastHit || null, surf: Math.round(P1.atkMinSurf * 100) / 100, surf2: Math.round(P2.atkMinSurf * 100) / 100,
       dbg: { cam: camera.position.toArray().map(v => Math.round(v * 100) / 100), mh: [P1.measuredH, P2.measuredH], mn: [P1.measuredMin, P2.measuredMin], gs: [P1.group.scale.x, P2.group.scale.x], ph: [P1.posedH, P2.posedH], arm: [P1.armInfo, P2.armInfo] },
     });
@@ -1207,7 +1377,7 @@ function animate() {
     await loadAnims('anim/ual2.glb', ['Idle_Shield_Loop', 'Idle_FoldArms_Loop', 'Melee_Hook', 'Hit_Knockback', 'Sword_Dash', 'OverhandThrow', 'Slide_Start', 'Slide_Loop', 'Sword_Regular_A']);
     setLoad(0.5, 'MR LUNC');
     await P1.load();
-    setLoad(0.75, 'MR USTC');
+    setLoad(0.75, 'MRS USTC');
     await P2.load();
     setLoad(1, 'READY');
     document.getElementById('loading').style.display = 'none';
@@ -1245,6 +1415,19 @@ function setupQA(mode) {
   if (mode === 'auto') { game.phase = 'menu'; startMatch(); return; }
   game.phase = 'fight'; game.timer = 47;
   P1.meter = 65; P2.meter = 80;
+  if (mode === 'sticktest') {
+    // live fight vs the AI on REAL player input; the harness drives the
+    // joystick with synthetic pointer events (double-taps included) and
+    // reads the stick's internals back through this hook
+    window.__stickDbg = () => ({
+      id: stick.id, bases: document.querySelectorAll('#stickBase').length,
+      ts: { left: !!touchState.left, right: !!touchState.right, down: !!touchState.down, up: !!touchState.up },
+      basePos: [stickBase.style.left, stickBase.style.top], knob: stickKnob.style.transform,
+      p1: [Math.round(P1.x * 100) / 100, P1.state], phase: game.phase,
+    });
+    updateHUD();
+    return;
+  }
   // Scripted LIVE impact scenes: real sim, real hit resolution — P1 throws
   // one strike at a measured distance, then the frame freezes just after
   // the strike resolves (or at the whiff's apex). Gaps come from the rig
@@ -1252,18 +1435,23 @@ function setupQA(mode) {
   // 1.34 = clean miss.
   const IMPACT_SCENES = {
     impactjab:   { atk: 'jab',   gap: 0.92 },
-    impacthook:  { atk: 'heavy', gap: 1.05 },
-    impactcross: { atk: 'heavy', gap: 0.88, att2: true }, // MR USTC's cross travels flat at chin height; its true max connect is ~0.91
+    impacthook:  { atk: 'heavy', gap: 0.88 }, // both heavies are Punch_Cross now (max connect ~0.91); the old Melee_Hook scene used 1.05
+    impactcross: { atk: 'heavy', gap: 0.88, att2: true }, // MRS USTC's cross travels flat at chin height; its true max connect is ~0.91
     impactkick:  { atk: 'kick',  gap: 1.50, freezeMs: 30 },
     impactblock: { atk: 'jab',   gap: 0.92, block: true },
     whiffjab:    { atk: 'jab',   gap: 1.34, whiff: true },
+    impactspdash1: { spec: 'dash', gap: 1.6 },               // MR LUNC's dash strike
+    impactspdash2: { spec: 'dash', gap: 1.6, att2: true },  // MRS USTC's dash strike (Sword_Dash on her rig)
+    impactsporb1:  { spec: 'orb', gap: 3.2, freezeMs: 30 }, // MR LUNC's orb, connecting at range
+    impactult:     { ult: true, gap: 2.6 },                 // MR LUNC's combo ULTIMATE
+    impactult2:    { ult: true, gap: 3.4, att2: true },     // MRS USTC's barrage ULTIMATE
   };
   if (IMPACT_SCENES[mode]) {
     const sc = IMPACT_SCENES[mode];
     P1.x = -sc.gap / 2; P2.x = sc.gap / 2;
     P1.group.position.x = P1.x; P2.group.position.x = P2.x;
     P1.face = 1; P2.face = -1; P1.applyFacing(); P2.applyFacing();
-    qaImpact = { atk: sc.atk, block: !!sc.block, whiff: !!sc.whiff, att2: !!sc.att2, freezeMs: sc.freezeMs || 80, t: 0, fired: false };
+    qaImpact = { atk: sc.atk, spec: sc.spec || null, ult: !!sc.ult, block: !!sc.block, whiff: !!sc.whiff, att2: !!sc.att2, freezeMs: sc.freezeMs || 80, t: 0, fired: false };
     updateHUD();
     return;
   }
@@ -1330,7 +1518,7 @@ function setupQA(mode) {
     freezePose(luncFocus ? P2 : P1, 'crouch', 0.4);
     game.phase = 'frozen';
   } else if (mode === 'backfight') {
-    // Mid-fight: MR LUNC's jab knocks MR USTC around — USTC back to camera.
+    // Mid-fight: MR LUNC's jab knocks MRS USTC around — USTC back to camera.
     P1.x = -0.55; P2.x = 0.58;
     P1.group.position.x = P1.x; P2.group.position.x = P2.x;
     P1.face = 1; P1.applyFacing();
