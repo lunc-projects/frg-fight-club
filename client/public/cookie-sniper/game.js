@@ -179,6 +179,25 @@ const cookieTex = canvasTex(256, 256, (x, w, h) => {
     x.beginPath(); x.arc(cx - r * 0.3, cy - r * 0.3, r * 0.35, 0, 7); x.fill();
   }
 });
+const doughTex = canvasTex(256, 256, (x, w, h) => {
+  x.fillStyle = '#ecdcae'; x.fillRect(0, 0, w, h);
+  for (let i = 0; i < 900; i++) { // soft raw-dough mottling
+    const v = Math.random();
+    x.fillStyle = v < 0.5 ? `rgba(206,178,110,${0.10 + Math.random() * 0.16})` : `rgba(250,240,210,${0.10 + Math.random() * 0.18})`;
+    const r = 3 + Math.random() * 10;
+    x.beginPath(); x.arc(Math.random() * w, Math.random() * h, r, 0, 7); x.fill();
+  }
+  for (let i = 0; i < 26; i++) { // flour dusting patches
+    const cx = Math.random() * w, cy = Math.random() * h, r = 8 + Math.random() * 22;
+    const rg = x.createRadialGradient(cx, cy, 0, cx, cy, r);
+    rg.addColorStop(0, 'rgba(255,252,244,0.5)'); rg.addColorStop(1, 'rgba(255,252,244,0)');
+    x.fillStyle = rg; x.beginPath(); x.arc(cx, cy, r, 0, 7); x.fill();
+  }
+  for (let i = 0; i < 500; i++) { // tiny raw specks
+    x.fillStyle = `rgba(160,128,70,${Math.random() * 0.25})`;
+    x.fillRect(Math.random() * w, Math.random() * h, 2, 2);
+  }
+});
 const milkTex = canvasTex(256, 256, (x, w, h) => {
   x.fillStyle = '#f4f7f2'; x.fillRect(0, 0, w, h);
   x.fillStyle = '#3f74c9'; x.fillRect(0, h * 0.34, w, h * 0.3); // blue band
@@ -402,6 +421,11 @@ const AudioSys = {
     this.noise(0.13, 420, 'bandpass', 0.36, 0.8, 0.15);
     this.tone(300, 60, 0.24, 'triangle', 0.3, 0.02);
   },
+  bossCrunch() { // deeper, heavier crunch for the dough monster
+    this.noise(0.16, 300, 'bandpass', 0.6, 0.7);
+    this.noise(0.08, 1100, 'bandpass', 0.3, 0.8, 0.01);
+    this.tone(110, 42, 0.18, 'sine', 0.55);
+  },
   headshot() { this.tone(1560, 1560, 0.09, 'sine', 0.22); this.tone(2340, 2340, 0.14, 'sine', 0.18, 0.07); },
   kill() { this.tone(520, 180, 0.16, 'triangle', 0.3); },
   breach() { this.tone(196, 130, 0.5, 'sawtooth', 0.3); this.tone(147, 98, 0.55, 'sawtooth', 0.26, 0.08); },
@@ -512,10 +536,10 @@ const chunkMats = [0xd9a45f, 0xc08b3e, 0x3a2110, 0xe6bc77].map(c =>
   new THREE.MeshStandardMaterial({ color: c, roughness: .9 }));
 
 class CookieMonster {
-  constructor(kind, speed) {
+  constructor(kind, speed, speedF) {
     const K = KINDS[kind];
     this.kind = kind; this.K = K;
-    this.baseSpeed = speed * K.speedF;
+    this.baseSpeed = speed * (speedF || K.speedF);
     this.hp = K.hp; this.state = 'run'; this.dead = false; this.breached = false;
     this.wpIndex = 0; this.pauseT = 0; this.hitT = 0; this.deathT = 0; this.alertT = 0;
     this.id = ++enemySeq;
@@ -759,7 +783,7 @@ class CookieMonster {
   }
   damage(zone, point) {
     if (this.dead || this.state === 'gone') return 'none';
-    if (zone === 'head') this.hp = 0; else this.hp -= 1;
+    if (zone === 'head') this.hp = 0; else this.hp -= playerGun.dmg;
     burst(point, 0xd9a45f, zone === 'head' ? 16 : 10, 2.0, 1.0);   // crumbs
     burst(point, 0x3a2110, 5, 1.4, 0.7);                            // choc bits
     if (this.hp <= 0) {
@@ -783,51 +807,402 @@ class CookieMonster {
   }
 }
 
-/* ---------------- rifle viewmodel ---------------- */
-const rifle = new THREE.Group();
-const boltHandle = new THREE.Group();
-{
+/* ---------------- THE COOKIE DOUGH MONSTER (level boss) ----------------
+   The finale of every level: a giant raw-dough blob, several times
+   the size of a normal monster, built from the same primitives —
+   lumpy pale dough, drip shapes, huge googly eyes, a wide mouth.
+   It oozes straight for the jar, shrugging off hits that would
+   crumble a cookie: body shots chip it (1), eye shots deal heavy
+   damage (3) but never one-shot it. It visibly sags as it weakens.
+   If it reaches the jar, the run is over regardless of breaches. */
+const doughChunkMats = [0xead9b0, 0xe2cd96, 0xf7ecd0, 0xd9bd7f].map(c =>
+  new THREE.MeshStandardMaterial({ color: c, roughness: .95 }));
+function bossHpFor(level) { return 5 + level * 3; }          // L1: 8 HP, L10: 35 HP
+function bossSpeedFor(level) { return 0.5 + level * 0.035; } // slow ooze, faster late
+
+class DoughBoss {
+  constructor(level) {
+    this.isBoss = true; this.kind = 'boss';
+    this.level = level;
+    this.maxHp = bossHpFor(level);
+    this.hp = this.maxHp;
+    this.baseSpeed = bossSpeedFor(level);
+    this.state = 'run'; this.dead = false; this.breached = false;
+    this.hitT = 0; this.deathT = 0; this.alertT = 0; this.spawnT = 0;
+    this.gait = Math.random() * 6.28;
+    this.id = ++enemySeq;
+    this.chunks = [];
+    // hit volumes, consumed by fire() exactly like the monsters' bones
+    this.hitR = { head: 0.85, body: 1.55, low: 1.15 };
+    this.group = new THREE.Group();
+    this.buildBody();
+    this.baseX = (Math.random() - 0.5) * 3;
+    this.swayT = Math.random() * 6.28;
+    this.group.position.set(this.baseX, 0, -19.5);
+    scene.add(this.group);
+  }
+  buildBody() {
+    const doughMat = new THREE.MeshStandardMaterial({ map: doughTex, roughness: .95 });
+    const body = new THREE.Group();
+    this.baseBodyY = 1.62;
+    body.position.y = this.baseBodyY;
+    this.body = body;
+    this.group.add(body);
+    const blob = (r, x, y, z, sx = 1, sy = 1, sz = 1) => {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(r, 22, 16), doughMat);
+      m.position.set(x, y, z); m.scale.set(sx, sy, sz);
+      m.castShadow = true;
+      body.add(m); return m;
+    };
+    blob(1.55, 0, 0, 0, 1.08, 0.85, 0.92);        // the main dough mass
+    blob(0.78, -1.05, 0.42, 0.1, 1, 0.9, 1);      // lumps
+    blob(0.66, 1.12, 0.3, -0.08, 1, 0.95, 1);
+    blob(0.6, 0.35, 0.92, 0.28, 1, 0.85, 1);
+    blob(0.52, -0.5, 0.85, -0.3, 1, 0.9, 1);
+    blob(0.7, 0.05, -0.55, -0.95, 1, 0.8, 1);
+    // dough drips hanging off the bottom rim
+    for (const [dx, len] of [[-1.25, 0.62], [-0.45, 0.85], [0.55, 0.7], [1.3, 0.55]]) {
+      const drip = blob(0.18, dx, -1.12, 0.55);
+      drip.scale.y = len * 2.6;
+    }
+    // wide open mouth on the front face
+    const mouth = new THREE.Mesh(new THREE.CircleGeometry(0.4, 22), mouthMat);
+    mouth.scale.set(1.5, 0.95, 1);
+    mouth.position.set(0, -0.52, 1.34);
+    body.add(mouth); this.mouth = mouth;
+    // huge googly eyes on stalks — the head/eye zone
+    this.pupils = [];
+    for (const sx of [-1, 1]) {
+      const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.5, 8), doughMat);
+      stalk.position.set(sx * 0.52, 1.32, 0.25);
+      stalk.rotation.z = -sx * 0.22;
+      body.add(stalk);
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.36, 16, 12), eyeWhiteMat);
+      eye.position.set(sx * 0.58, 1.62, 0.3);
+      eye.castShadow = true;
+      body.add(eye);
+      const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 10), pupilMat);
+      pupil.position.set(sx * 0.58, 1.66, 0.6);
+      body.add(pupil);
+      this.pupils.push(pupil);
+    }
+    // stubby dough arms (pivot at the shoulder)
+    this.arms = [];
+    for (const sx of [-1, 1]) {
+      const arm = new THREE.Group();
+      arm.position.set(sx * 1.62, 0.25, 0.1);
+      const m = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 10), doughMat);
+      m.scale.set(0.75, 1.5, 0.75); m.position.y = -0.42; m.castShadow = true;
+      arm.add(m);
+      arm.rotation.z = sx * 0.5;
+      body.add(arm);
+      this.arms.push(arm);
+    }
+    // feet blobs at the base
+    for (const sx of [-1, 1]) {
+      const foot = new THREE.Mesh(new THREE.SphereGeometry(0.34, 12, 10), doughMat);
+      foot.scale.set(1.1, 0.45, 1.5);
+      foot.position.set(sx * 0.72, -1.5, 0.35);
+      body.add(foot);
+    }
+    // hit-volume markers (same interface as CookieMonster's bones)
+    const mk = (x, y, z) => { const o = new THREE.Object3D(); o.position.set(x, y, z); body.add(o); return o; };
+    this.headBone = mk(0, 1.62, 0.3);       // the eyes
+    this.chestBone = mk(0, 0.35, 0);
+    this.pelvisBone = mk(0, -0.75, 0);
+    body.scale.setScalar(0.01); // pop-in; update() drives scale from here
+  }
+  bonePos(bone, out) {
+    if (!bone) return out.set(this.group.position.x, 2.2, this.group.position.z);
+    return bone.getWorldPosition(out);
+  }
+  speedNow() { return this.baseSpeed; }
+  spawnDoughChunks(n, spread = 1, point = null) {
+    const p = this.group.position;
+    for (let i = 0; i < n; i++) {
+      const m = new THREE.Mesh(chunkGeo, doughChunkMats[(Math.random() * doughChunkMats.length) | 0]);
+      m.scale.setScalar(1.6 + Math.random() * 2.2);
+      m.position.set(
+        (point ? point.x : p.x) + (Math.random() - .5) * 0.7,
+        (point ? point.y : 1.9) + (Math.random() - .5) * 0.6,
+        (point ? point.z : p.z) + (Math.random() - .5) * 0.7);
+      m.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+      m.castShadow = true;
+      fxGroup.add(m);
+      this.chunks.push({
+        m, baseSc: m.scale.x,
+        vx: (Math.random() - .5) * 3 * spread, vy: 1.8 + Math.random() * 2.6 * spread, vz: (Math.random() - .5) * 3 * spread,
+        rx: (Math.random() - .5) * 8, rz: (Math.random() - .5) * 8, rest: false, age: 0, gone: false,
+      });
+    }
+  }
+  updateChunks(dt) {
+    for (const c of this.chunks) {
+      if (c.gone) continue;
+      c.age += dt;
+      if (!c.rest) {
+        c.vy -= 9.5 * dt;
+        c.m.position.x += c.vx * dt;
+        c.m.position.y += c.vy * dt;
+        c.m.position.z += c.vz * dt;
+        c.m.rotation.x += c.rx * dt; c.m.rotation.z += c.rz * dt;
+        const floorY = 0.06 * c.m.scale.x;
+        if (c.m.position.y <= floorY) { c.m.position.y = floorY; c.rest = true; }
+      }
+      let k = 1;
+      if (this.dead && this.deathT > 1.7) k = Math.max(0, 1 - (this.deathT - 1.7) / 1.2);
+      else if (c.age > 4.5) k = Math.max(0, 1 - (c.age - 4.5) / 1.0);
+      if (k < 1) {
+        c.m.scale.setScalar(Math.max(0.01, (c.baseSc || c.m.scale.x) * k));
+        if (k <= 0.02) { fxGroup.remove(c.m); c.gone = true; }
+      }
+    }
+  }
+  update(dt) {
+    if (this.state === 'gone') return;
+    if (this.alertT > 0) this.alertT -= dt;
+    this.updateChunks(dt);
+    let pop = 1; // pop-in
+    if (this.spawnT < 1) {
+      this.spawnT = Math.min(1, this.spawnT + dt / 0.4);
+      pop = Math.max(0.01, 1 - Math.pow(1 - this.spawnT, 3));
+    }
+    if (this.state === 'dead') {
+      this.deathT += dt;
+      if (this.deathT > 3.1) { this.state = 'gone'; scene.remove(this.group); }
+      return;
+    }
+    // sag as it weakens, plus a hit squash on top
+    const frac = Math.max(0, this.hp / this.maxHp);
+    const sagY = 0.7 + 0.3 * frac, sagXZ = 1 + 0.17 * (1 - frac);
+    let sq = 1;
+    if (this.state === 'hit') {
+      this.hitT -= dt;
+      sq = 1 - 0.16 * Math.sin(Math.PI * Math.max(0, this.hitT / 0.26));
+      if (this.hitT <= 0) this.state = 'run';
+    }
+    this.body.scale.set(pop * sagXZ / sq, pop * sagY * sq, pop * sagXZ / sq);
+    // ooze straight for the jar, swaying gently
+    const p = this.group.position;
+    p.z += this.baseSpeed * dt;
+    this.swayT += dt * 0.55;
+    p.x = this.baseX + Math.sin(this.swayT) * 0.7;
+    this.gait += dt * 2.1;
+    this.body.position.y = this.baseBodyY + Math.abs(Math.sin(this.gait)) * 0.07 - (1 - frac) * 0.22;
+    this.body.rotation.z = Math.sin(this.gait * 0.5) * 0.045;
+    this.arms[0].rotation.x = Math.sin(this.gait) * 0.4;
+    this.arms[1].rotation.x = -Math.sin(this.gait) * 0.4;
+    for (let i = 0; i < 2; i++) {
+      const pu = this.pupils[i];
+      pu.position.x = (i ? 1 : -1) * 0.58 + Math.sin(this.gait * 0.6 + i * 2.2) * 0.05;
+      pu.position.y = 1.66 + Math.cos(this.gait * 0.8 + i * 1.6) * 0.04;
+    }
+    if (p.z >= BREACH_Z) this.breach();
+  }
+  breach() {
+    if (this.breached) return;
+    this.breached = true; this.state = 'gone';
+    scene.remove(this.group);
+    onBossBreach(this);
+  }
+  damage(zone, point) {
+    if (this.dead || this.state === 'gone') return 'none';
+    const dmg = zone === 'head' ? 3 * playerGun.dmg : playerGun.dmg;   // eyes hurt most — but never a one-shot
+    this.hp -= dmg;
+    burst(point, 0xead9b0, zone === 'head' ? 18 : 12, 2.2, 1.1);   // pale dough bits
+    burst(point, 0xd9bd7f, 6, 1.5, 0.7);
+    if (this.hp <= 0) {
+      this.hp = 0;
+      this.dead = true; this.state = 'dead'; this.deathT = 0;
+      this.body.visible = false;
+      this.spawnDoughChunks(34, 1.5);
+      burst(point, 0xf7ecd0, 24, 3.2, 1.6);
+      return 'kill';
+    }
+    this.state = 'hit'; this.hitT = 0.26;
+    this.spawnDoughChunks(zone === 'head' ? 6 : 4, 0.8, point);
+    return 'hit';
+  }
+  dispose() {
+    for (const c of this.chunks) fxGroup.remove(c.m);
+    this.chunks = [];
+    scene.remove(this.group); this.state = 'gone';
+  }
+}
+
+/* ---------------- the armory: 4 rifles, real tradeoffs ----------------
+   dmg   = damage per body hit (eye hits deal 3x — on the dough boss
+           this is what melts its health pool; normal monsters still
+           crumble instantly to an eye shot, body hits chip their hp)
+   bolt  = seconds before the next shot can fire
+   mag   = rounds before a reload
+   zooms = scope FOV steps (fewer steps / higher min = weaker scope)
+   sway  = scope sway multiplier (lower = steadier)
+   No rifle is strictly best: the Piercer hits hardest but bolts
+   slowly with a 3-round mag; the Cannon cycles fastest with the
+   biggest mag but chips; the Guard is rock-steady but short-sighted;
+   the Chip Shot sits in the middle of everything. */
+const GUNS = [
+  { id: 'chip', name: 'CHIP SHOT', tag: 'The balanced all-rounder. A fine first rifle.',
+    dmg: 1, bolt: 1.0, mag: 5, zooms: [15, 10.5, 7.2], sway: 1.0,
+    barrel: 0.52, barrelR: 0.016, scopeLen: 0.24, scopeR: 0.026, stock: null },
+  { id: 'piercer', name: 'DOUGH PIERCER', tag: 'Monster damage and a huge scope — but a slow bolt and only 3 rounds.',
+    dmg: 2, bolt: 1.7, mag: 3, zooms: [13, 9, 6, 4.6], sway: 1.4,
+    barrel: 0.74, barrelR: 0.014, scopeLen: 0.36, scopeR: 0.036, stock: 0x23211e },
+  { id: 'cannon', name: 'CRUMB CANNON', tag: 'Fastest bolt and the biggest mag — but it only chips the dough.',
+    dmg: 0.5, bolt: 0.5, mag: 8, zooms: [16, 11], sway: 1.2,
+    barrel: 0.38, barrelR: 0.024, scopeLen: 0.15, scopeR: 0.02, stock: 0x9c3226 },
+  { id: 'guard', name: 'JAR GUARD', tag: 'Rock-steady aim and a quick bolt — with a modest little scope.',
+    dmg: 1, bolt: 0.8, mag: 6, zooms: [15, 10.5], sway: 0.45,
+    barrel: 0.6, barrelR: 0.017, scopeLen: 0.2, scopeR: 0.023, stock: 0x20655e },
+];
+let playerGun = GUNS[0];
+let gunIdx = 0;
+
+function buildRifleMesh(def) {
+  const g = new THREE.Group();
   const metal = new THREE.MeshStandardMaterial({ color: 0x23242c, roughness: 0.42, metalness: 0.75 });
   const darkMetal = new THREE.MeshStandardMaterial({ color: 0x14151a, roughness: 0.5, metalness: 0.7 });
-  const wood = new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.8 });
-  const stock = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.13, 0.52), wood);
-  stock.position.set(0, -0.03, 0.18); stock.rotation.x = 0.1; rifle.add(stock);
+  const stockMat = def.stock === null
+    ? new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.8 })
+    : new THREE.MeshStandardMaterial({ color: def.stock, roughness: 0.62, metalness: 0.08 });
+  const stock = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.13, 0.52), stockMat);
+  stock.position.set(0, -0.03, 0.18); stock.rotation.x = 0.1; g.add(stock);
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.075, 0.34), metal);
-  body.position.set(0, 0.01, -0.08); rifle.add(body);
-  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.52, 10), darkMetal);
-  barrel.rotation.x = Math.PI / 2; barrel.position.set(0, 0.028, -0.48); rifle.add(barrel);
-  const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.026, 0.07, 10), darkMetal);
-  muzzle.rotation.x = Math.PI / 2; muzzle.position.set(0, 0.028, -0.72); rifle.add(muzzle);
-  const scopeTube = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.026, 0.24, 12), darkMetal);
-  scopeTube.rotation.x = Math.PI / 2; scopeTube.position.set(0, 0.095, -0.1); rifle.add(scopeTube);
-  const scopeBell = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.032, 0.07, 12), darkMetal);
-  scopeBell.rotation.x = Math.PI / 2; scopeBell.position.set(0, 0.095, -0.21); rifle.add(scopeBell);
+  body.position.set(0, 0.01, -0.08); g.add(body);
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(def.barrelR, def.barrelR, def.barrel, 10), darkMetal);
+  barrel.rotation.x = Math.PI / 2; barrel.position.set(0, 0.028, -(0.22 + def.barrel / 2)); g.add(barrel);
+  const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(def.barrelR * 1.6, def.barrelR * 1.6, 0.07, 10), darkMetal);
+  muzzle.rotation.x = Math.PI / 2; muzzle.position.set(0, 0.028, -(0.22 + def.barrel + 0.035)); g.add(muzzle);
+  const scopeY = 0.07 + def.scopeR;
+  const scopeTube = new THREE.Mesh(new THREE.CylinderGeometry(def.scopeR, def.scopeR, def.scopeLen, 12), darkMetal);
+  scopeTube.rotation.x = Math.PI / 2; scopeTube.position.set(0, scopeY, -0.1); g.add(scopeTube);
+  const scopeBell = new THREE.Mesh(new THREE.CylinderGeometry(def.scopeR * 1.45, def.scopeR * 1.2, 0.07, 12), darkMetal);
+  scopeBell.rotation.x = Math.PI / 2; scopeBell.position.set(0, scopeY, -0.1 - def.scopeLen / 2); g.add(scopeBell);
   const mount = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.045, 0.1), metal);
-  mount.position.set(0, 0.06, -0.1); rifle.add(mount);
+  mount.position.set(0, 0.06, -0.1); g.add(mount);
   const bolt = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.07, 8), metal);
   bolt.rotation.z = Math.PI / 2; bolt.position.set(0.05, 0, 0);
   const knob = new THREE.Mesh(new THREE.SphereGeometry(0.02, 10, 8), darkMetal);
   knob.position.set(0.09, 0, 0);
-  boltHandle.add(bolt, knob); boltHandle.position.set(0.03, 0.02, 0.06); rifle.add(boltHandle);
-  rifle.position.set(0.3, -0.31, -0.55);
-  rifle.rotation.y = 0.06;
-  camera.add(rifle);
-  scene.add(camera);
+  const boltHandle = new THREE.Group();
+  boltHandle.add(bolt, knob); boltHandle.position.set(0.03, 0.02, 0.06); g.add(boltHandle);
+  const muzzleTip = new THREE.Object3D();
+  muzzleTip.position.set(0, 0.028, -(0.22 + def.barrel + 0.12)); g.add(muzzleTip);
+  return { group: g, boltHandle, muzzleTip };
 }
-const muzzleTip = new THREE.Object3D();
-muzzleTip.position.set(0, 0.028, -0.78); rifle.add(muzzleTip);
+
+/* ---------------- rifle viewmodel (swapped per gun) ---------------- */
+const VM_POS = { x: 0.22, y: -0.295, z: -0.52 };   // framed for portrait phones
+let rifle = null, boltHandle = null, muzzleTip = null;
+function setViewmodel(def) {
+  if (rifle) camera.remove(rifle);
+  const b = buildRifleMesh(def);
+  rifle = b.group; boltHandle = b.boltHandle; muzzleTip = b.muzzleTip;
+  rifle.position.set(VM_POS.x, VM_POS.y, VM_POS.z);
+  rifle.rotation.y = 0.14;
+  camera.add(rifle);
+}
+setViewmodel(playerGun);
+scene.add(camera);
 const muzzleLight = new THREE.PointLight(0xffb050, 0, 9, 1.8);
 scene.add(muzzleLight);
 
+/* ---------------- the 360° pick turntable ---------------- */
+const pickGroup = new THREE.Group();
+pickGroup.position.set(0, 1.02, 6.8);
+const pickRings = [];
+{
+  const discMat = new THREE.MeshStandardMaterial({ color: 0x4a2f1a, roughness: 0.85 });
+  const goldMat = new THREE.MeshStandardMaterial({ color: 0xd99a26, roughness: 0.35, metalness: 0.8, emissive: 0x442200 });
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(2.1, 2.3, 0.16, 30), discMat);
+  pickGroup.add(disc);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(2.1, 0.045, 10, 40), goldMat);
+  rim.rotation.x = Math.PI / 2; rim.position.y = 0.08; pickGroup.add(rim);
+  // the prize itself — a little cookie jar on the centre pole
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.85, 10), goldMat);
+  pole.position.y = 0.5; pickGroup.add(pole);
+  const jarGlass = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.3, 0.52, 14),
+    new THREE.MeshStandardMaterial({ color: 0xdfeaf2, roughness: 0.12, metalness: 0.1, transparent: true, opacity: 0.55 }));
+  jarGlass.position.y = 1.18; pickGroup.add(jarGlass);
+  const jarLid = new THREE.Mesh(new THREE.CylinderGeometry(0.37, 0.37, 0.07, 14), goldMat);
+  jarLid.position.y = 1.47; pickGroup.add(jarLid);
+  for (let i = 0; i < 3; i++) {
+    const ck = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.05, 12),
+      new THREE.MeshStandardMaterial({ color: 0xb5772e, roughness: 0.9 }));
+    ck.position.set(Math.sin(i * 2.2) * 0.12, 0.98 + i * 0.09, Math.cos(i * 2.2) * 0.12);
+    ck.rotation.set(0.4, i, 0.3); pickGroup.add(ck);
+  }
+  GUNS.forEach((def, i) => {
+    const a = i * Math.PI / 2;
+    const mount = new THREE.Group();
+    mount.position.set(Math.sin(a) * 1.45, 0.08, Math.cos(a) * 1.45);
+    mount.rotation.y = a + Math.PI;   // barrel faces outward
+    mount.userData.gunIdx = i;
+    const rm = buildRifleMesh(def).group;
+    rm.scale.setScalar(1.5);
+    rm.rotation.x = 1.12;              // barrel tipped up, armory-style
+    rm.position.y = 0.62;
+    mount.add(rm);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.52, 0.66, 26),
+      new THREE.MeshBasicMaterial({ color: 0xffb340, transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
+    ring.rotation.x = -Math.PI / 2; ring.position.y = 0.015;
+    mount.add(ring);
+    pickRings.push(ring);
+    pickGroup.add(mount);
+  });
+  const pl = new THREE.PointLight(0xffc37a, 60, 22, 1.8);
+  pl.position.set(0, 3.6, 6.8); scene.add(pl);
+}
+scene.add(pickGroup);
+
+function updateGunPanel() {
+  const d = playerGun;
+  $('gunName').textContent = d.name;
+  $('gunTag').textContent = d.tag;
+  const maxZoom = 55 / Math.min(...d.zooms);
+  const bars = [
+    ['dmg', d.dmg / 2, '×' + d.dmg],
+    ['bolt', THREE.MathUtils.clamp((1.9 - d.bolt) / 1.5, 0.04, 1), d.bolt.toFixed(1) + 's'],
+    ['mag', d.mag / 8, '' + d.mag],
+    ['zoom', THREE.MathUtils.clamp(maxZoom / 12, 0.04, 1), '×' + maxZoom.toFixed(1)],
+    ['steady', THREE.MathUtils.clamp((1.7 - d.sway) / 1.4, 0.04, 1), d.sway <= 0.6 ? 'STEADY' : d.sway >= 1.3 ? 'WILD' : 'OK'],
+  ];
+  for (const [k, f, v] of bars) { $('gb-' + k).style.width = Math.round(f * 100) + '%'; $('gv-' + k).textContent = v; }
+  $('startBtn').textContent = 'START · ' + d.name;
+  pickRings.forEach((r, i) => r.visible = i === gunIdx);
+}
+function selectGun(i) {
+  gunIdx = THREE.MathUtils.clamp(i | 0, 0, GUNS.length - 1);
+  playerGun = GUNS[gunIdx];
+  MAG = playerGun.mag;
+  ZOOMS = playerGun.zooms;
+  player.zoomIdx = Math.min(player.zoomIdx, ZOOMS.length - 1);
+  if (player.ammo > MAG) player.ammo = MAG;
+  lastAmmo = -1;
+  setViewmodel(playerGun);
+  updateGunPanel();
+}
+function showPick() {
+  game.phase = 'gunpick';
+  setScope(false);
+  pickGroup.visible = true;
+  $('menu').style.display = 'flex';
+  $('gameover').style.display = 'none';
+  $('hud').style.display = 'none';
+  updateGunPanel();
+}
+
 /* ---------------- game state ---------------- */
-const game = { phase: 'boot', wave: 0, score: 0, kills: 0, shots: 0, hits: 0, headshots: 0,
+const game = { phase: 'boot', wave: 0, level: 0, boss: null, trickleT: 0,
+  score: 0, kills: 0, shots: 0, hits: 0, headshots: 0,
   breaches: 0, combo: 0, bestCombo: 0, timer: 0, toSpawn: 0, spawnT: 0,
   waveShots: 0, waveHits: 0, interT: 0, timerExpired: false, simT: 0 };
 let enemies = [];
-const MAG = 5;
+let MAG = GUNS[0].mag;
 const player = { ammo: MAG, chamberT: 0, reloadT: 0, scoped: false, zoomIdx: 0,
   breath: 1, holding: false, breathLock: false, kick: 0, boltT: -1 };
-const ZOOMS = [15, 10.5, 7.2];
+let ZOOMS = GUNS[0].zooms;
 let aimYaw = 0, aimPitch = -0.052;
 let freezeT = 0, elapsed = 0;
 let qaHold = false, qaDone = false, qaFreeze = false;
@@ -882,7 +1257,7 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 addEventListener('wheel', e => {
-  if (!player.scoped || game.phase !== 'fight') return;
+  if (!player.scoped || (game.phase !== 'fight' && game.phase !== 'boss')) return;
   player.zoomIdx = THREE.MathUtils.clamp(player.zoomIdx + (e.deltaY > 0 ? -1 : 1), 0, ZOOMS.length - 1);
 }, { passive: true });
 document.body.style.touchAction = 'none';
@@ -906,7 +1281,7 @@ cvs.addEventListener('pointermove', e => {
 const dragEnd = e => {
   if (e.pointerId !== dragId) return;
   canvasDown = false;
-  if (dragMoved < 6 && performance.now() - dragT0 < 350 && game.phase === 'fight') fire(); // tap = shoot
+  if (dragMoved < 6 && performance.now() - dragT0 < 350 && (game.phase === 'fight' || game.phase === 'boss')) fire(); // tap = shoot
   dragId = null;
 };
 cvs.addEventListener('pointerup', dragEnd);
@@ -920,10 +1295,41 @@ bindBtn('scopeBtn', () => setScope(!player.scoped));
 bindBtn('fireBtn', () => fire());
 bindBtn('reloadBtn', () => startReload());
 $('startBtn').addEventListener('click', () => { AudioSys.init(); startGame(); });
-$('againBtn').addEventListener('click', () => { AudioSys.init(); startGame(); });
+$('againBtn').addEventListener('click', () => { AudioSys.init(); showPick(); });
+
+/* gun pick: drag spins the turntable, a tap raycasts a rifle */
+let pickDragId = null, pickDragX = 0, pickMoved = 0, pickT0 = 0, pickDragOn = false;
+const menuEl = $('menu');
+menuEl.addEventListener('pointerdown', e => {
+  if (game.phase !== 'gunpick' || e.target === $('startBtn')) return;
+  pickDragId = e.pointerId; pickDragX = e.clientX; pickMoved = 0; pickT0 = performance.now(); pickDragOn = true;
+});
+menuEl.addEventListener('pointermove', e => {
+  if (!pickDragOn || e.pointerId !== pickDragId) return;
+  const dx = e.clientX - pickDragX; pickDragX = e.clientX;
+  pickMoved += Math.abs(dx);
+  pickGroup.rotation.y += dx * 0.009;
+});
+const pickEnd = e => {
+  if (!pickDragOn || e.pointerId !== pickDragId) return;
+  pickDragOn = false;
+  if (pickMoved < 6 && performance.now() - pickT0 < 350) {
+    const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+    raycaster.setFromCamera(ndc, camera);
+    const hits = raycaster.intersectObjects(pickGroup.children, true);
+    for (const h of hits) {
+      let o = h.object;
+      while (o && o.userData.gunIdx === undefined) o = o.parent;
+      if (o) { selectGun(o.userData.gunIdx); AudioSys.init(); break; }
+    }
+  }
+  pickDragId = null;
+};
+menuEl.addEventListener('pointerup', pickEnd);
+menuEl.addEventListener('pointercancel', pickEnd);
 
 function setScope(on) {
-  if (game.phase !== 'fight' && game.phase !== 'waveclear') on = false;
+  if (game.phase !== 'fight' && game.phase !== 'boss' && game.phase !== 'levelclear') on = false;
   player.scoped = on;
   $('scopeBtn').classList.toggle('on', on);
   if (!on) player.holding = false;
@@ -963,12 +1369,12 @@ function enemyVolumes(e) {
   return { head: _ph.clone(), pelv: _pa.clone(), chest: _pb.clone() };
 }
 function fire() {
-  if (game.phase !== 'fight') return;
+  if (game.phase !== 'fight' && game.phase !== 'boss') return;
   if (player.reloadT > 0 || player.chamberT > 0) return;
   if (player.ammo <= 0) { AudioSys.dryFire(); startReload(); return; }
   player.ammo--; game.shots++; game.waveShots++;
   AudioSys.shot();
-  player.chamberT = 1.0; player.boltT = 0;
+  player.chamberT = playerGun.bolt; player.boltT = 0;
   player.kick = player.scoped ? 0.017 : 0.009;
   // muzzle flash
   muzzleTip.getWorldPosition(_hp);
@@ -1040,6 +1446,26 @@ function resolveEnemyHit(best) {
   game.combo++; game.bestCombo = Math.max(game.bestCombo, game.combo);
   const mult = 1 + 0.25 * Math.min(game.combo - 1, 7);
   const killed = res === 'kill';
+  if (e.isBoss) {
+    if (killed) {
+      game.kills++;
+      if (zone === 'head') game.headshots++;
+      const pts = Math.round((300 + game.level * 100) * mult);
+      game.score += pts;
+      AudioSys.crumble(); AudioSys.bossCrunch(); if (zone === 'head') AudioSys.headshot();
+      showToast('DOUGH MONSTER CRUMBLED!');
+      freezeT = 0.09; // a longer hit-stop for the big one
+    } else {
+      game.score += Math.round((zone === 'head' ? 60 : 25) * mult);
+      AudioSys.bossCrunch();
+      if (zone === 'head') showToast('EYE HIT — BIG DAMAGE!');
+    }
+    showHitmarker(killed);
+    if (!killed || game.combo >= 2) showCombo();
+    updateHUD();
+    if (killed) onBossDown(e);
+    return;
+  }
   if (killed) {
     game.kills++;
     if (zone === 'head') game.headshots++;
@@ -1057,58 +1483,104 @@ function resolveEnemyHit(best) {
   updateHUD();
 }
 function startReload() {
-  if (game.phase !== 'fight' || player.reloadT > 0 || player.ammo >= MAG) return;
+  if ((game.phase !== 'fight' && game.phase !== 'boss') || player.reloadT > 0 || player.ammo >= MAG) return;
   player.reloadT = 1.6;
   AudioSys.reload();
 }
 
-/* ---------------- waves / flow ---------------- */
+/* ---------------- levels / flow ----------------
+   A run is 10 levels. Each level: a wave of cookie monsters, then
+   the COOKIE DOUGH MONSTER oozes in as the finale (with a light
+   trickle of normal monsters while you fight it). Kill the boss to
+   clear the level; kill the level-10 boss to save the jar. Three
+   breaches in a level end the run — and if the boss itself reaches
+   the jar, the run is over on the spot. */
 function aliveCount() { return enemies.filter(e => !e.dead && !e.breached && e.state !== 'gone').length; }
-function startGame() {
+function normalAlive() { return enemies.filter(e => !e.isBoss && !e.dead && !e.breached && e.state !== 'gone').length; }
+function comboLabel() { return (1 + 0.25 * Math.min(Math.max(game.bestCombo - 1, 0), 7)).toFixed(2).replace(/\.?0+$/, ''); }
+function breachFlashFx() {
+  const bf = $('breachFlash'); bf.style.transition = 'none'; bf.style.opacity = 1;
+  void bf.offsetWidth;
+  requestAnimationFrame(() => { bf.style.transition = 'opacity .5s'; bf.style.opacity = 0; });
+}
+function startGame() { startGameAtLevel(1); AudioSys.bell(); }
+function startGameAtLevel(n) {
   for (const e of enemies) e.dispose();
   enemies = [];
+  game.boss = null;
   Object.assign(game, { score: 0, kills: 0, shots: 0, hits: 0, headshots: 0, breaches: 0, combo: 0, bestCombo: 0 });
   player.ammo = MAG; player.chamberT = 0; player.reloadT = 0; player.breath = 1;
   setScope(false);
+  pickGroup.visible = false;
   $('menu').style.display = 'none';
   $('gameover').style.display = 'none';
   $('hud').style.display = 'block';
-  document.querySelectorAll('#breaches .gate').forEach(g => g.classList.remove('lost'));
-  startWave(1);
-  AudioSys.bell();
+  startLevel(THREE.MathUtils.clamp(n | 0, 1, 10));
 }
-function startWave(n) {
-  game.wave = n;
-  game.toSpawn = 3 + n;
+function levelSpawnCount(n) { return 4 + n * 2; }   // L1: 6 monsters → L10: 24
+function startLevel(n) {
+  game.level = n; game.wave = n;
+  game.toSpawn = levelSpawnCount(n);
   game.spawnT = 0.8;
   game.timer = 75;
   game.timerExpired = false;
   game.waveShots = 0; game.waveHits = 0;
+  game.breaches = 0;   // the jar gets a fresh guard every level
+  document.querySelectorAll('#breaches .gate').forEach(g => g.classList.remove('lost'));
+  player.ammo = MAG; player.reloadT = 0; player.chamberT = 0; player.breath = 1; player.breathLock = false;
+  lastAmmo = -1;
   game.phase = 'fight';
-  showBanner('WAVE ' + n, n === 1 ? 'PROTECT THE COOKIE JAR' : 'THEY WANT YOUR COOKIES', 1.0);
+  showBanner('LEVEL ' + n, n === 1 ? 'OF 10 — PROTECT THE COOKIE JAR' : 'LEVEL ' + n + ' OF 10', 1.0);
   updateHUD();
 }
-function waveCleared() {
-  game.phase = 'waveclear'; game.interT = 3.2;
-  setScope(false);
-  if (game.timerExpired) {
-    showBanner('TIME UP', 'THE REST GOT AWAY', 1.2);
-  } else {
-    const acc = game.waveShots ? game.waveHits / game.waveShots : 0;
-    const grade = acc >= 0.85 ? 'S — DEADEYE' : acc >= 0.65 ? 'A — SHARPSHOOTER' : acc >= 0.45 ? 'B — STEADY' : 'C — CRUMB SPRAYER';
-    const bonus = Math.round(200 * acc) + game.wave * 25;
-    game.score += bonus;
-    showBanner('WAVE ' + game.wave + ' CLEARED', grade + ' · BONUS +' + bonus, 1.4);
-    AudioSys.waveClear();
-  }
+function startBossPhase() {
+  game.phase = 'boss';
+  game.timer = 0;
+  game.trickleT = 3.0;
+  game.boss = new DoughBoss(game.level);
+  enemies.push(game.boss);
+  showBanner('COOKIE DOUGH MONSTER', 'IT WANTS THE JAR — EYE SHOTS HURT IT MOST', 1.4);
+  AudioSys.breach();
   updateHUD();
+}
+function onBossDown(boss) {
+  const killBonus = 500 + game.level * 250;
+  game.score += killBonus;
+  game.boss = null;
+  // clear the field for the breather — the boss corpse keeps crumbling
+  for (const e of [...enemies]) if (e !== boss) e.dispose();
+  enemies = enemies.filter(e => e === boss);
+  if (game.level >= 10) { victory(); return; }
+  const clearBonus = 150 + game.level * 50;
+  game.score += clearBonus;
+  game.phase = 'levelclear'; game.interT = 3.6;
+  setScope(false);
+  showBanner('LEVEL CLEARED!', 'DOUGH MONSTER DOWN · BONUS +' + (killBonus + clearBonus), 1.6);
+  AudioSys.waveClear();
+  updateHUD();
+}
+function onBossBreach(boss) {
+  if (game.phase !== 'boss') return;
+  breachFlashFx();
+  AudioSys.breach();
+  gameOver();
+}
+function victory() {
+  game.phase = 'victory';
+  setScope(false);
+  const acc = game.shots ? Math.round(100 * game.hits / game.shots) : 0;
+  $('goTitle').textContent = 'COOKIE JAR SAVED!';
+  $('goStats').innerHTML =
+    'FINAL SCORE <b>' + game.score + '</b><br>' +
+    'ALL <b>10 LEVELS</b> CLEARED · CRUMBLED <b>' + game.kills + '</b> · EYE SHOTS <b>' + game.headshots + '</b><br>' +
+    'ACCURACY <b>' + acc + '%</b> · BEST COMBO <b>×' + comboLabel() + '</b>';
+  $('gameover').style.display = 'flex';
+  AudioSys.waveClear(); AudioSys.bell();
 }
 function onBreach(e) {
-  if (game.phase !== 'fight') return;
+  if (game.phase !== 'fight' && game.phase !== 'boss') return;
   game.breaches++;
-  const bf = $('breachFlash'); bf.style.transition = 'none'; bf.style.opacity = 1;
-  void bf.offsetWidth;
-  requestAnimationFrame(() => { bf.style.transition = 'opacity .5s'; bf.style.opacity = 0; });
+  breachFlashFx();
   AudioSys.breach();
   document.querySelectorAll('#breaches .gate').forEach((g, i) => g.classList.toggle('lost', i < game.breaches));
   if (game.breaches >= 3) gameOver();
@@ -1117,27 +1589,39 @@ function gameOver() {
   game.phase = 'over';
   setScope(false);
   const acc = game.shots ? Math.round(100 * game.hits / game.shots) : 0;
+  $('goTitle').textContent = 'JAR OVERRUN';
   $('goStats').innerHTML =
     'FINAL SCORE <b>' + game.score + '</b><br>' +
-    'WAVES HELD <b>' + game.wave + '</b> · CRUMBLED <b>' + game.kills + '</b> · EYE SHOTS <b>' + game.headshots + '</b><br>' +
-    'ACCURACY <b>' + acc + '%</b> · BEST COMBO <b>×' + (1 + 0.25 * Math.min(Math.max(game.bestCombo - 1, 0), 7)).toFixed(2).replace(/\.?0+$/, '') + '</b>';
+    'REACHED LEVEL <b>' + game.level + ' OF 10</b> · CRUMBLED <b>' + game.kills + '</b> · EYE SHOTS <b>' + game.headshots + '</b><br>' +
+    'ACCURACY <b>' + acc + '%</b> · BEST COMBO <b>×' + comboLabel() + '</b>';
   $('gameover').style.display = 'flex';
 }
 function spawnEnemy() {
+  const lv = game.level;
   const r = Math.random();
-  let kind = 'cookie';
-  if (game.wave >= 3 && r < 0.16) kind = 'chunk';       // big slow tank
-  else if (game.wave >= 2 && r < 0.46) kind = 'chip';   // small + fast
-  const speed = 1.85 + game.wave * 0.16 + Math.random() * 0.55;
-  enemies.push(new CookieMonster(kind, speed));
+  let kind = 'cookie', speedF;
+  const chunkShare = lv >= 3 ? Math.min(0.22, 0.13 + lv * 0.01) : 0;   // tanks from level 3
+  const chipShare = lv >= 2 ? Math.min(0.45, 0.28 + lv * 0.015) : 0;   // minis grow with level
+  if (chunkShare && r < chunkShare) kind = 'chunk';
+  else if (chipShare && r < chunkShare + chipShare) {
+    kind = 'chip';
+    speedF = 1.5 + (lv - 1) * 0.05;   // minis get faster on later levels
+  }
+  const speed = 1.75 + lv * 0.17 + Math.random() * 0.5;
+  enemies.push(new CookieMonster(kind, speed, speedF));
 }
 
 /* ---------------- HUD ---------------- */
 let lastAmmo = -1, lastChamber = null;
 function updateHUD() {
   $('scoreVal').textContent = game.score;
-  $('waveVal').textContent = Math.max(game.wave, 1);
+  $('waveVal').textContent = Math.max(game.level, 1) + '/10';
   $('killVal').textContent = game.kills;
+  const bw = $('bossWrap');
+  if (game.phase === 'boss' && game.boss && !game.boss.dead) {
+    bw.style.display = 'block';
+    $('bossFill').style.width = Math.max(0, Math.round(100 * game.boss.hp / game.boss.maxHp)) + '%';
+  } else bw.style.display = 'none';
   const t = Math.max(0, Math.ceil(game.timer));
   $('waveTimer').textContent = t;
   $('waveTimer').classList.toggle('hurry', t <= 10 && game.phase === 'fight');
@@ -1164,11 +1648,15 @@ function aimAtPoint(p) {
 }
 function qaState() {
   return {
-    phase: game.phase, wave: game.wave, score: game.score, kills: game.kills,
+    phase: game.phase, wave: game.wave, level: game.level, score: game.score, kills: game.kills,
     shots: game.shots, hits: game.hits, headshots: game.headshots, breaches: game.breaches,
     combo: game.combo, ammo: player.ammo, chamberT: Math.round(player.chamberT * 100) / 100,
+    gun: playerGun.id, magSize: MAG, zoomSteps: ZOOMS.length, dmg: playerGun.dmg,
     reloadT: Math.round(player.reloadT * 100) / 100, scoped: player.scoped,
     alive: aliveCount(), toSpawn: game.toSpawn, timer: Math.round(game.timer),
+    bossHp: game.boss ? game.boss.hp : null,
+    bossMaxHp: game.boss ? game.boss.maxHp : null,
+    bossZ: game.boss ? Math.round(game.boss.group.position.z * 10) / 10 : null,
     nearestZ: enemies.reduce((m, e) => (!e.dead && !e.breached && e.state !== 'gone' ? Math.max(m, e.group.position.z) : m), -99),
     errors: window.__errs, qaDone,
   };
@@ -1187,8 +1675,33 @@ function qaAimAt(zone, stableOnly) {
   aimAtPoint(zone === 'head' ? v.head : v.chest);
   return true;
 }
+function qaAimBoss(zone) {
+  const b = game.boss;
+  if (!b || b.dead || b.state === 'gone' || !b.headBone) return false;
+  const v = enemyVolumes(b);
+  aimAtPoint(zone === 'head' ? v.head : v.chest);
+  return true;
+}
 window.__qa = {
   start: () => startGame(),
+  // QA: jump straight into level n (fresh run) — used to verify the
+  // level-10 boss / victory path without playing all 10 levels.
+  startLevel: n => startGameAtLevel(n),
+  // QA: end the current level's wave phase immediately so the boss
+  // phase begins on the next sim tick.
+  skipToBoss: () => {
+    if (game.phase !== 'fight') return false;
+    game.toSpawn = 0;
+    for (const e of [...enemies]) if (!e.isBoss) e.dispose();
+    enemies = enemies.filter(e => e.isBoss);
+    return true;
+  },
+  aimBoss: zone => qaAimBoss(zone || 'body'),
+  // QA: gun pick screen — show it, choose a rifle, pose the turntable
+  showPick: () => showPick(),
+  pickGun: i => { selectGun(i); return playerGun.id; },
+  setSpin: r => { pickGroup.rotation.y = r; },
+  guns: () => GUNS.map(g => ({ id: g.id, name: g.name, dmg: g.dmg, bolt: g.bolt, mag: g.mag, zooms: g.zooms.length, sway: g.sway })),
   state: qaState,
   scope: v => setScope(v !== false),
   fire: () => fire(),
@@ -1200,17 +1713,19 @@ window.__qa = {
 };
 let qaAutoT = 0, qaShotFlip = false;
 function qaAutoPilot(dt) {
-  if (qaDone || game.phase !== 'fight') return;
+  if (qaDone || (game.phase !== 'fight' && game.phase !== 'boss')) return;
   qaAutoT += dt;
   if (qaAutoT > 150) { qaDone = true; return; }
-  const e = enemies.find(x => !x.dead && !x.breached && x.state !== 'gone' && x.state !== 'loading' && x.headBone);
+  const boss = game.boss && !game.boss.dead && game.boss.state !== 'gone' ? game.boss : null;
+  const e = boss || enemies.find(x => !x.dead && !x.breached && x.state !== 'gone' && x.state !== 'loading' && x.headBone);
   if (!e) { setScope(false); return; }
   setScope(true); qaHold = true;
   qaShotFlip = !qaShotFlip;
-  qaAimAt(qaShotFlip ? 'head' : 'body');
+  if (boss) qaAimBoss(qaShotFlip ? 'head' : 'body');
+  else qaAimAt(qaShotFlip ? 'head' : 'body');
   if (player.ammo <= 0) { startReload(); return; }
   if (player.chamberT <= 0 && player.reloadT <= 0) fire();
-  if (game.kills >= 2 && game.hits >= 2 && game.shots >= 2) qaDone = true;
+  if (!boss && game.kills >= 2 && game.hits >= 2 && game.shots >= 2) qaDone = true;
 }
 
 /* ---------------- per-frame sim ---------------- */
@@ -1234,32 +1749,33 @@ function simUpdate(dt) {
     const p = Math.min(1, player.boltT / 0.34);
     boltHandle.position.z = 0.06 + Math.sin(p * Math.PI) * 0.055;
     boltHandle.rotation.x = Math.sin(p * Math.PI) * 0.7;
-    rifle.position.y = -0.31 - Math.sin(p * Math.PI) * 0.018;
-    if (p >= 1) { player.boltT = -1; boltHandle.position.z = 0.06; boltHandle.rotation.x = 0; rifle.position.y = -0.31; }
+    rifle.position.y = VM_POS.y - Math.sin(p * Math.PI) * 0.018;
+    if (p >= 1) { player.boltT = -1; boltHandle.position.z = 0.06; boltHandle.rotation.x = 0; rifle.position.y = VM_POS.y; }
   }
   player.kick *= Math.pow(0.0001, dt); if (player.kick < 0.0004) player.kick = 0;
   muzzleLight.intensity *= Math.pow(0.000001, dt); if (muzzleLight.intensity < 0.05) muzzleLight.intensity = 0;
 
   if (game.phase === 'fight') {
-    game.timer -= dt;
+    game.timer = Math.max(0, game.timer - dt);
     if (game.spawnT > 0) game.spawnT -= dt;
-    if (game.toSpawn > 0 && game.spawnT <= 0 && aliveCount() < 6) {
+    if (game.toSpawn > 0 && game.spawnT <= 0 && aliveCount() < 6 + Math.floor(game.level / 3)) {
       spawnEnemy();
       game.toSpawn--;
-      game.spawnT = Math.max(1.15, 2.35 - game.wave * 0.12);
+      game.spawnT = Math.max(0.85, 2.4 - game.level * 0.14);
     }
-    if (game.timer <= 0 && !game.timerExpired) {
-      game.timerExpired = true; game.timer = 0;
-      for (const e of [...enemies]) if (!e.dead && !e.breached && e.state !== 'gone') e.breach();
-      game.toSpawn = 0;
+    // the level's wave is beaten when every monster is crumbled or
+    // through — then the dough monster comes out for the finale
+    if (game.phase === 'fight' && game.toSpawn === 0 && normalAlive() === 0) startBossPhase();
+  } else if (game.phase === 'boss') {
+    // a light trickle of normal monsters keeps the pressure on
+    game.trickleT -= dt;
+    if (game.trickleT <= 0 && normalAlive() < 3) {
+      spawnEnemy();
+      game.trickleT = Math.max(3.2, 5.2 - game.level * 0.2);
     }
-    if (game.phase === 'fight' && game.toSpawn === 0 && aliveCount() === 0 && enemies.every(e => e.state === 'gone' || e.dead)) {
-      // wave ends when every runner is dead or through; corpses may still be sinking
-      if (enemies.every(e => e.dead || e.breached || e.state === 'gone')) waveCleared();
-    }
-  } else if (game.phase === 'waveclear') {
+  } else if (game.phase === 'levelclear') {
     game.interT -= dt;
-    if (game.interT <= 0) startWave(game.wave + 1);
+    if (game.interT <= 0) startLevel(game.level + 1);
   }
   for (const e of enemies) if (!qaFreeze) e.update(dt);
   enemies = enemies.filter(e => e.state !== 'gone');
@@ -1306,16 +1822,19 @@ function animate() {
   }
   const scopedNow = player.scoped && camera.fov < 34;
   $('scopeOverlay').style.display = scopedNow ? 'block' : 'none';
-  $('cross').style.display = (!scopedNow && (game.phase === 'fight' || game.phase === 'waveclear')) ? 'block' : 'none';
+  $('cross').style.display = (!scopedNow && (game.phase === 'fight' || game.phase === 'boss' || game.phase === 'levelclear')) ? 'block' : 'none';
   rifle.visible = !scopedNow;
   $('breathWrap').style.display = player.scoped ? 'block' : 'none';
   $('breathFill').style.width = Math.round(player.breath * 100) + '%';
   $('breathFill').style.background = player.holding ? 'linear-gradient(90deg,#ffd98a,#ffb340)' : '';
 
-  // aim: player + sway + kick (menu gets a slow idle pan)
+  // aim: player + sway + kick (gun pick gets a framed view of the turntable)
   let yaw = aimYaw, pitch = aimPitch;
-  if (game.phase === 'menu') { yaw = Math.sin(elapsed * 0.1) * 0.16; pitch = -0.045 + Math.sin(elapsed * 0.07) * 0.012; }
-  const amp = player.scoped ? (player.holding ? 0.0007 : 0.0044) : 0.0007;
+  if (game.phase === 'gunpick') {
+    yaw = Math.sin(elapsed * 0.08) * 0.045; pitch = -0.31 + Math.sin(elapsed * 0.06) * 0.008;
+    if (!pickDragOn) pickGroup.rotation.y += rawDt * 0.4;   // the 360° spin
+  }
+  const amp = player.scoped ? (player.holding ? 0.0007 : 0.0044) * playerGun.sway : 0.0007;
   const swX = (Math.sin(elapsed * 0.83) + Math.sin(elapsed * 1.31 + 2.1) * 0.6) * amp;
   const swY = (Math.cos(elapsed * 0.97 + 0.7) + Math.sin(elapsed * 1.53) * 0.6) * amp * 0.85;
   camera.position.copy(CAM_POS);
@@ -1324,8 +1843,8 @@ function animate() {
   camera.rotation.x = pitch + swY + player.kick;
   camera.rotation.z = 0;
   // rifle idle sway, subtler echo of the scope sway
-  rifle.position.x = 0.3 + swX * 1.4;
-  if (player.boltT < 0) rifle.position.y = -0.31 + swY * 1.2;
+  rifle.position.x = VM_POS.x + swX * 1.4;
+  if (player.boltT < 0) rifle.position.y = VM_POS.y + swY * 1.2;
 
   renderer.render(scene, camera);
 
@@ -1343,7 +1862,7 @@ function animate() {
     $('loading').style.display = 'none';
     window.__qaReady = true;
     if (QA_MODE) { startGame(); }
-    else { game.phase = 'menu'; $('menu').style.display = 'flex'; }
+    else { showPick(); }
     updateHUD();
     animate();
   } catch (err) {
