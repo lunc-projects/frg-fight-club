@@ -1030,32 +1030,97 @@ class DoughBoss {
   }
 }
 
-/* ---------------- the armory: 4 rifles, real tradeoffs ----------------
+/* ---------------- the armory: 6 rifles + a build-your-own slot ----------------
    dmg   = damage per body hit (eye hits deal 3x — on the dough boss
            this is what melts its health pool; normal monsters still
            crumble instantly to an eye shot, body hits chip their hp)
-   bolt  = seconds before the next shot can fire
+   bolt  = seconds before the next shot can fire (the fire interval
+           on the full-autos — hold FIRE and they keep shooting)
    mag   = rounds before a reload
    zooms = scope FOV steps (fewer steps / higher min = weaker scope)
    sway  = scope sway multiplier (lower = steadier)
+   auto  = full-auto: hold the trigger, no bolt cycle; per-hit damage
+           is low and sustained fire blooms (sway + spread grow while
+           held) so it sprays instead of sniping
    No rifle is strictly best: the Piercer hits hardest but bolts
-   slowly with a 3-round mag; the Cannon cycles fastest with the
-   biggest mag but chips; the Guard is rock-steady but short-sighted;
-   the Chip Shot sits in the middle of everything. */
+   slowly with a small mag; the Cannon cycles fastest but chips;
+   the Guard is rock-steady but short-sighted; the autos hose the
+   dough down in a stream of crumbs but can't place a shot. */
 const GUNS = [
   { id: 'chip', name: 'CHIP SHOT', tag: 'The balanced all-rounder. A fine first rifle.',
-    dmg: 1, bolt: 1.0, mag: 5, zooms: [15, 10.5, 7.2], sway: 1.0,
+    dmg: 1, bolt: 1.0, mag: 8, zooms: [15, 10.5, 7.2], sway: 1.0, reload: 1.6,
     barrel: 0.52, barrelR: 0.016, scopeLen: 0.24, scopeR: 0.026, stock: null },
-  { id: 'piercer', name: 'DOUGH PIERCER', tag: 'Monster damage and a huge scope — but a slow bolt and only 3 rounds.',
-    dmg: 2, bolt: 1.7, mag: 3, zooms: [13, 9, 6, 4.6], sway: 1.4,
+  { id: 'piercer', name: 'DOUGH PIERCER', tag: 'Monster damage and a huge scope — but a slow bolt and only 5 rounds.',
+    dmg: 2, bolt: 1.7, mag: 5, zooms: [13, 9, 6, 4.6], sway: 1.4, reload: 1.6,
     barrel: 0.74, barrelR: 0.014, scopeLen: 0.36, scopeR: 0.036, stock: 0x23211e },
-  { id: 'cannon', name: 'CRUMB CANNON', tag: 'Fastest bolt and the biggest mag — but it only chips the dough.',
-    dmg: 0.5, bolt: 0.5, mag: 8, zooms: [16, 11], sway: 1.2,
+  { id: 'cannon', name: 'CRUMB CANNON', tag: 'Fastest bolt and a fat mag — but it only chips the dough.',
+    dmg: 0.5, bolt: 0.5, mag: 12, zooms: [16, 11], sway: 1.2, reload: 1.6,
     barrel: 0.38, barrelR: 0.024, scopeLen: 0.15, scopeR: 0.02, stock: 0x9c3226 },
   { id: 'guard', name: 'JAR GUARD', tag: 'Rock-steady aim and a quick bolt — with a modest little scope.',
-    dmg: 1, bolt: 0.8, mag: 6, zooms: [15, 10.5], sway: 0.45,
+    dmg: 1, bolt: 0.8, mag: 10, zooms: [15, 10.5], sway: 0.45, reload: 1.6,
     barrel: 0.6, barrelR: 0.017, scopeLen: 0.2, scopeR: 0.023, stock: 0x20655e },
+  { id: 'cutter', name: 'COOKIE CUTTER', tag: 'FULL AUTO — hold FIRE and hose. A drum of little bites, no aiming required. Almost.',
+    dmg: 0.35, bolt: 0.16, mag: 24, zooms: [15.5, 11], sway: 1.1, auto: true, reload: 1.9,
+    barrel: 0.34, barrelR: 0.03, scopeLen: 0.15, scopeR: 0.021, stock: 0x7a4a21,
+    magStyle: 'drum', boltVisual: false },
+  { id: 'storm', name: 'SPRINKLE STORM', tag: 'FULL AUTO and furious — the fastest trigger in the bakery, the weakest bite, wild as weather.',
+    dmg: 0.25, bolt: 0.11, mag: 36, zooms: [17.2], sway: 1.5, auto: true, reload: 1.9,
+    barrel: 0.44, barrelR: 0.02, scopeLen: 0.1, scopeR: 0.016, stock: 0xd94f8f,
+    magStyle: 'drum', boltVisual: false },
 ];
+
+/* -------- ROLL YOUR OWN: pick the parts, the panel does the math --------
+   RECEIVER sets damage + cycle (Auto = hold-fire), MAGAZINE the clip
+   (a Drum only feeds semi/auto receivers — on a bolt gun it is capped
+   at 12 and the panel says so), SCOPE the zoom steps (Longshot adds
+   sway), STOCK trades steadiness against speed. */
+const PARTS = {
+  receiver: [
+    { id: 'bolt', name: 'BOLT', dmg: 1, bolt: 1.0, auto: false },
+    { id: 'semi', name: 'SEMI', dmg: 0.7, bolt: 0.45, auto: false },
+    { id: 'auto', name: 'AUTO', dmg: 0.35, bolt: 0.16, auto: true },
+  ],
+  magazine: [
+    { id: 'std', name: 'STANDARD', mag: 8, magStyle: 'box' },
+    { id: 'ext', name: 'EXTENDED', mag: 16, magStyle: 'ext' },
+    { id: 'drum', name: 'DRUM', mag: 30, magStyle: 'drum' },
+  ],
+  scope: [
+    { id: 'scout', name: 'SCOUT', zooms: [16, 11], swayAdd: 0 },
+    { id: 'hunter', name: 'HUNTER', zooms: [15, 10.5, 7.2], swayAdd: 0 },
+    { id: 'longshot', name: 'LONGSHOT', zooms: [13, 9, 6, 4.6], swayAdd: 0.3 },
+  ],
+  stock: [
+    { id: 'steady', name: 'STEADY', swayMul: 0.5, spdMul: 1.0, color: 0x23211e },
+    { id: 'standard', name: 'STANDARD', swayMul: 1.0, spdMul: 1.0, color: null },
+    { id: 'light', name: 'LIGHT', swayMul: 1.3, spdMul: 0.85, color: 0x9c3226 },
+  ],
+};
+const customParts = { receiver: 0, magazine: 0, scope: 1, stock: 1 };
+function buildCustomGun() {
+  const R = PARTS.receiver[customParts.receiver], M = PARTS.magazine[customParts.magazine];
+  const S = PARTS.scope[customParts.scope], K = PARTS.stock[customParts.stock];
+  let mag = M.mag, capNote = '';
+  if (M.id === 'drum' && R.id === 'bolt') { mag = 12; capNote = 'Drum capped at 12 on a bolt receiver.'; }
+  return {
+    id: 'custom', name: 'ROLL YOUR OWN', custom: true,
+    tag: R.name + ' receiver · ' + M.name + ' mag · ' + S.name + ' scope · ' + K.name + ' stock.' + (capNote ? ' ' + capNote : ''),
+    dmg: R.dmg, bolt: +(R.bolt * K.spdMul).toFixed(3), mag,
+    zooms: S.zooms.slice(), sway: +(1.0 * K.swayMul + S.swayAdd).toFixed(2),
+    auto: R.auto, reload: R.auto ? 1.9 : 1.6,
+    barrel: R.id === 'bolt' ? 0.56 : R.id === 'semi' ? 0.46 : 0.4,
+    barrelR: R.id === 'auto' ? 0.026 : 0.016,
+    scopeLen: S.id === 'longshot' ? 0.36 : S.id === 'scout' ? 0.15 : 0.24,
+    scopeR: S.id === 'longshot' ? 0.036 : S.id === 'scout' ? 0.02 : 0.026,
+    stock: K.color, magStyle: M.magStyle, boltVisual: R.id === 'bolt',
+    bodyLen: R.id === 'semi' ? 0.42 : R.id === 'auto' ? 0.38 : 0.34,
+    bodyH: R.id === 'auto' ? 0.095 : 0.075,
+  };
+}
+let customGun = buildCustomGun();
+const CUSTOM_IDX = GUNS.length;               // turntable slot 6 (index 6)
+const SLOT_COUNT = GUNS.length + 1;           // 6 roster + the custom slot
+function slotDef(i) { return i === CUSTOM_IDX ? customGun : GUNS[i]; }
 let playerGun = GUNS[0];
 let gunIdx = 0;
 
@@ -1068,8 +1133,21 @@ function buildRifleMesh(def) {
     : new THREE.MeshStandardMaterial({ color: def.stock, roughness: 0.62, metalness: 0.08 });
   const stock = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.13, 0.52), stockMat);
   stock.position.set(0, -0.03, 0.18); stock.rotation.x = 0.1; g.add(stock);
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.075, 0.34), metal);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.06, def.bodyH || 0.075, def.bodyLen || 0.34), metal);
   body.position.set(0, 0.01, -0.08); g.add(body);
+  // magazine — the shape tells the size: slim box, long box, or a drum
+  if (def.magStyle === 'drum') {
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.062, 0.05, 16), darkMetal);
+    drum.rotation.x = Math.PI / 2; drum.position.set(0, -0.085, -0.06); g.add(drum);
+    const drumFace = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.056, 16), metal);
+    drumFace.rotation.x = Math.PI / 2; drumFace.position.set(0, -0.085, -0.06); g.add(drumFace);
+  } else if (def.magStyle === 'ext') {
+    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.17, 0.06), darkMetal);
+    mag.position.set(0, -0.1, -0.05); mag.rotation.x = 0.12; g.add(mag);
+  } else {
+    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.095, 0.055), darkMetal);
+    mag.position.set(0, -0.065, -0.05); mag.rotation.x = 0.12; g.add(mag);
+  }
   const barrel = new THREE.Mesh(new THREE.CylinderGeometry(def.barrelR, def.barrelR, def.barrel, 10), darkMetal);
   barrel.rotation.x = Math.PI / 2; barrel.position.set(0, 0.028, -(0.22 + def.barrel / 2)); g.add(barrel);
   const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(def.barrelR * 1.6, def.barrelR * 1.6, 0.07, 10), darkMetal);
@@ -1081,12 +1159,16 @@ function buildRifleMesh(def) {
   scopeBell.rotation.x = Math.PI / 2; scopeBell.position.set(0, scopeY, -0.1 - def.scopeLen / 2); g.add(scopeBell);
   const mount = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.045, 0.1), metal);
   mount.position.set(0, 0.06, -0.1); g.add(mount);
-  const bolt = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.07, 8), metal);
-  bolt.rotation.z = Math.PI / 2; bolt.position.set(0.05, 0, 0);
-  const knob = new THREE.Mesh(new THREE.SphereGeometry(0.02, 10, 8), darkMetal);
-  knob.position.set(0.09, 0, 0);
-  const boltHandle = new THREE.Group();
-  boltHandle.add(bolt, knob); boltHandle.position.set(0.03, 0.02, 0.06); g.add(boltHandle);
+  // only bolt-action rifles get a bolt handle — semis and autos don't cycle one
+  let boltHandle = null;
+  if (def.boltVisual !== false) {
+    const bolt = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.07, 8), metal);
+    bolt.rotation.z = Math.PI / 2; bolt.position.set(0.05, 0, 0);
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.02, 10, 8), darkMetal);
+    knob.position.set(0.09, 0, 0);
+    boltHandle = new THREE.Group();
+    boltHandle.add(bolt, knob); boltHandle.position.set(0.03, 0.02, 0.06); g.add(boltHandle);
+  }
   const muzzleTip = new THREE.Object3D();
   muzzleTip.position.set(0, 0.028, -(0.22 + def.barrel + 0.12)); g.add(muzzleTip);
   return { group: g, boltHandle, muzzleTip };
@@ -1112,6 +1194,7 @@ scene.add(muzzleLight);
 const pickGroup = new THREE.Group();
 pickGroup.position.set(0, 1.02, 6.8);
 const pickRings = [];
+let customMount = null;   // the ROLL YOUR OWN turntable mount — its rifle is rebuilt when parts change
 {
   const discMat = new THREE.MeshStandardMaterial({ color: 0x4a2f1a, roughness: 0.85 });
   const goldMat = new THREE.MeshStandardMaterial({ color: 0xd99a26, roughness: 0.35, metalness: 0.8, emissive: 0x442200 });
@@ -1133,24 +1216,25 @@ const pickRings = [];
     ck.position.set(Math.sin(i * 2.2) * 0.12, 0.98 + i * 0.09, Math.cos(i * 2.2) * 0.12);
     ck.rotation.set(0.4, i, 0.3); pickGroup.add(ck);
   }
-  GUNS.forEach((def, i) => {
-    const a = i * Math.PI / 2;
+  for (let i = 0; i < SLOT_COUNT; i++) {
+    const a = i * (Math.PI * 2 / SLOT_COUNT);
     const mount = new THREE.Group();
     mount.position.set(Math.sin(a) * 1.45, 0.08, Math.cos(a) * 1.45);
     mount.rotation.y = a + Math.PI;   // barrel faces outward
     mount.userData.gunIdx = i;
-    const rm = buildRifleMesh(def).group;
+    const rm = buildRifleMesh(slotDef(i)).group;
     rm.scale.setScalar(1.5);
     rm.rotation.x = 1.12;              // barrel tipped up, armory-style
     rm.position.y = 0.62;
     mount.add(rm);
+    if (i === CUSTOM_IDX) customMount = { mount, rm };
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.52, 0.66, 26),
       new THREE.MeshBasicMaterial({ color: 0xffb340, transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
     ring.rotation.x = -Math.PI / 2; ring.position.y = 0.015;
     mount.add(ring);
     pickRings.push(ring);
     pickGroup.add(mount);
-  });
+  }
   const pl = new THREE.PointLight(0xffc37a, 60, 22, 1.8);
   pl.position.set(0, 3.6, 6.8); scene.add(pl);
 }
@@ -1163,18 +1247,23 @@ function updateGunPanel() {
   const maxZoom = 55 / Math.min(...d.zooms);
   const bars = [
     ['dmg', d.dmg / 2, '×' + d.dmg],
-    ['bolt', THREE.MathUtils.clamp((1.9 - d.bolt) / 1.5, 0.04, 1), d.bolt.toFixed(1) + 's'],
-    ['mag', d.mag / 8, '' + d.mag],
+    ['bolt', THREE.MathUtils.clamp((1.9 - d.bolt) / 1.5, 0.04, 1), d.auto ? 'AUTO' : d.bolt.toFixed(1) + 's'],
+    ['mag', d.mag / 36, '' + d.mag],
     ['zoom', THREE.MathUtils.clamp(maxZoom / 12, 0.04, 1), '×' + maxZoom.toFixed(1)],
     ['steady', THREE.MathUtils.clamp((1.7 - d.sway) / 1.4, 0.04, 1), d.sway <= 0.6 ? 'STEADY' : d.sway >= 1.3 ? 'WILD' : 'OK'],
   ];
   for (const [k, f, v] of bars) { $('gb-' + k).style.width = Math.round(f * 100) + '%'; $('gv-' + k).textContent = v; }
   $('startBtn').textContent = 'START · ' + d.name;
   pickRings.forEach((r, i) => r.visible = i === gunIdx);
+  $('builder').style.display = d.custom ? 'block' : 'none';
+  $('gunHint').textContent = d.custom
+    ? '⟳ TAP THE PARTS TO BUILD YOUR RIFLE ⟳'
+    : '⟳ DRAG TO SPIN · TAP A RIFLE TO PICK IT ⟳';
+  syncBuilderUI();
 }
 function selectGun(i) {
-  gunIdx = THREE.MathUtils.clamp(i | 0, 0, GUNS.length - 1);
-  playerGun = GUNS[gunIdx];
+  gunIdx = THREE.MathUtils.clamp(i | 0, 0, SLOT_COUNT - 1);
+  playerGun = slotDef(gunIdx);
   MAG = playerGun.mag;
   ZOOMS = playerGun.zooms;
   player.zoomIdx = Math.min(player.zoomIdx, ZOOMS.length - 1);
@@ -1182,6 +1271,31 @@ function selectGun(i) {
   lastAmmo = -1;
   setViewmodel(playerGun);
   updateGunPanel();
+}
+/* -------- the parts picker -------- */
+function syncBuilderUI() {
+  document.querySelectorAll('#builder .partRow').forEach(row => {
+    const part = row.dataset.part;
+    row.querySelectorAll('button').forEach((b, bi) => b.classList.toggle('sel', customParts[part] === bi));
+  });
+  const capped = PARTS.magazine[customParts.magazine].id === 'drum' && PARTS.receiver[customParts.receiver].id === 'bolt';
+  $('drumNote').textContent = capped ? '⚠ DRUM CAPPED AT 12 ON A BOLT RECEIVER' : '';
+}
+function setPart(part, idx) {
+  if (!PARTS[part] || idx < 0 || idx >= PARTS[part].length) return false;
+  customParts[part] = idx | 0;
+  customGun = buildCustomGun();
+  // rebuild the custom rifle wherever it is on display
+  if (customMount) {
+    const rm = buildRifleMesh(customGun).group;
+    rm.scale.setScalar(1.5); rm.rotation.x = 1.12; rm.position.y = 0.62;
+    customMount.mount.remove(customMount.rm);
+    customMount.mount.add(rm);
+    customMount.rm = rm;
+  }
+  if (gunIdx === CUSTOM_IDX) selectGun(CUSTOM_IDX);   // refresh stats, viewmodel, panel
+  else syncBuilderUI();
+  return true;
 }
 function showPick() {
   game.phase = 'gunpick';
@@ -1201,7 +1315,8 @@ const game = { phase: 'boot', wave: 0, level: 0, boss: null, trickleT: 0,
 let enemies = [];
 let MAG = GUNS[0].mag;
 const player = { ammo: MAG, chamberT: 0, reloadT: 0, scoped: false, zoomIdx: 0,
-  breath: 1, holding: false, breathLock: false, kick: 0, boltT: -1 };
+  breath: 1, holding: false, breathLock: false, kick: 0, boltT: -1, bloom: 0 };
+let triggerHeld = false;   // FIRE held down — only the full-autos keep shooting
 let ZOOMS = GUNS[0].zooms;
 let aimYaw = 0, aimPitch = -0.052;
 let freezeT = 0, elapsed = 0;
@@ -1248,14 +1363,14 @@ function showHitmarker(kill) {
 const keys = {};
 addEventListener('keydown', e => {
   keys[e.code] = true;
-  if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) fire(); }
+  if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) { triggerHeld = true; fire(); } }
   if (e.code === 'KeyR') startReload();
   if (e.code === 'KeyF' || e.code === 'KeyQ') setScope(!player.scoped);
   if (e.code === 'Equal' && player.scoped) player.zoomIdx = Math.min(ZOOMS.length - 1, player.zoomIdx + 1);
   if (e.code === 'Minus' && player.scoped) player.zoomIdx = Math.max(0, player.zoomIdx - 1);
   AudioSys.init();
 });
-addEventListener('keyup', e => { keys[e.code] = false; });
+addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'Space') triggerHeld = false; });
 addEventListener('wheel', e => {
   if (!player.scoped || (game.phase !== 'fight' && game.phase !== 'boss')) return;
   player.zoomIdx = THREE.MathUtils.clamp(player.zoomIdx + (e.deltaY > 0 ? -1 : 1), 0, ZOOMS.length - 1);
@@ -1268,6 +1383,7 @@ cvs.addEventListener('pointerdown', e => {
   AudioSys.init();
   dragId = e.pointerId; dragX = e.clientX; dragY = e.clientY; dragMoved = 0; dragT0 = performance.now();
   canvasDown = true;
+  triggerHeld = true;   // holding the field keeps an auto firing; bolt guns ignore it
 });
 cvs.addEventListener('pointermove', e => {
   if (e.pointerId !== dragId) return;
@@ -1281,6 +1397,7 @@ cvs.addEventListener('pointermove', e => {
 const dragEnd = e => {
   if (e.pointerId !== dragId) return;
   canvasDown = false;
+  triggerHeld = false;
   if (dragMoved < 6 && performance.now() - dragT0 < 350 && (game.phase === 'fight' || game.phase === 'boss')) fire(); // tap = shoot
   dragId = null;
 };
@@ -1292,16 +1409,30 @@ function bindBtn(id, fn) {
   el.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); AudioSys.init(); fn(); });
 }
 bindBtn('scopeBtn', () => setScope(!player.scoped));
-bindBtn('fireBtn', () => fire());
+{ // FIRE is a hold, not just a tap — full-autos keep shooting while it is down
+  const fb = $('fireBtn');
+  fb.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); AudioSys.init(); triggerHeld = true; fire(); });
+  const release = () => { triggerHeld = false; };
+  fb.addEventListener('pointerup', release);
+  fb.addEventListener('pointercancel', release);
+  fb.addEventListener('pointerleave', release);
+}
 bindBtn('reloadBtn', () => startReload());
 $('startBtn').addEventListener('click', () => { AudioSys.init(); startGame(); });
 $('againBtn').addEventListener('click', () => { AudioSys.init(); showPick(); });
+$('builder').addEventListener('click', e => {
+  const b = e.target.closest ? e.target.closest('button[data-part]') : null;
+  if (!b) return;
+  AudioSys.init();
+  setPart(b.dataset.part, parseInt(b.dataset.v, 10));
+});
 
 /* gun pick: drag spins the turntable, a tap raycasts a rifle */
 let pickDragId = null, pickDragX = 0, pickMoved = 0, pickT0 = 0, pickDragOn = false;
 const menuEl = $('menu');
 menuEl.addEventListener('pointerdown', e => {
   if (game.phase !== 'gunpick' || e.target === $('startBtn')) return;
+  if (e.target.closest && e.target.closest('#builder')) return;   // part taps are not spins
   pickDragId = e.pointerId; pickDragX = e.clientX; pickMoved = 0; pickT0 = performance.now(); pickDragOn = true;
 });
 menuEl.addEventListener('pointermove', e => {
@@ -1374,8 +1505,10 @@ function fire() {
   if (player.ammo <= 0) { AudioSys.dryFire(); startReload(); return; }
   player.ammo--; game.shots++; game.waveShots++;
   AudioSys.shot();
-  player.chamberT = playerGun.bolt; player.boltT = 0;
-  player.kick = player.scoped ? 0.017 : 0.009;
+  player.chamberT = playerGun.bolt;
+  player.boltT = playerGun.boltVisual === false ? -1 : 0;
+  player.kick = (player.scoped ? 0.017 : 0.009) * (playerGun.auto ? 0.3 : 1);
+  if (playerGun.auto) player.bloom = Math.min(1, player.bloom + 0.13);   // sustained fire blooms
   // muzzle flash
   muzzleTip.getWorldPosition(_hp);
   muzzleLight.position.copy(_hp); muzzleLight.intensity = 26;
@@ -1384,6 +1517,15 @@ function fire() {
   requestAnimationFrame(() => { mf.style.transition = 'opacity .12s'; mf.style.opacity = 0; });
 
   camera.getWorldDirection(_dir);
+  if (playerGun.auto && player.bloom > 0.02) {
+    // bloom spread: the longer an auto is held, the wider it sprays —
+    // hits stay honest, they are just placed inside a growing cone
+    const sp = player.bloom * 0.022;
+    _dir.x += (Math.random() * 2 - 1) * sp;
+    _dir.y += (Math.random() * 2 - 1) * sp;
+    _dir.z += (Math.random() * 2 - 1) * sp;
+    _dir.normalize();
+  }
   const O = camera.position;
   // cover occlusion
   raycaster.set(O, _dir); raycaster.far = 160;
@@ -1484,7 +1626,7 @@ function resolveEnemyHit(best) {
 }
 function startReload() {
   if ((game.phase !== 'fight' && game.phase !== 'boss') || player.reloadT > 0 || player.ammo >= MAG) return;
-  player.reloadT = 1.6;
+  player.reloadT = playerGun.reload || 1.6;   // the big auto drums take a little longer
   AudioSys.reload();
 }
 
@@ -1652,6 +1794,9 @@ function qaState() {
     shots: game.shots, hits: game.hits, headshots: game.headshots, breaches: game.breaches,
     combo: game.combo, ammo: player.ammo, chamberT: Math.round(player.chamberT * 100) / 100,
     gun: playerGun.id, magSize: MAG, zoomSteps: ZOOMS.length, dmg: playerGun.dmg,
+    auto: !!playerGun.auto, bolt: playerGun.bolt, sway: playerGun.sway,
+    trigger: triggerHeld, bloom: Math.round(player.bloom * 100) / 100,
+    parts: playerGun.custom ? { ...customParts } : null,
     reloadT: Math.round(player.reloadT * 100) / 100, scoped: player.scoped,
     alive: aliveCount(), toSpawn: game.toSpawn, timer: Math.round(game.timer),
     bossHp: game.boss ? game.boss.hp : null,
@@ -1701,7 +1846,15 @@ window.__qa = {
   showPick: () => showPick(),
   pickGun: i => { selectGun(i); return playerGun.id; },
   setSpin: r => { pickGroup.rotation.y = r; },
-  guns: () => GUNS.map(g => ({ id: g.id, name: g.name, dmg: g.dmg, bolt: g.bolt, mag: g.mag, zooms: g.zooms.length, sway: g.sway })),
+  guns: () => GUNS.map(g => ({ id: g.id, name: g.name, dmg: g.dmg, bolt: g.bolt, mag: g.mag, zooms: g.zooms.length, sway: g.sway, auto: !!g.auto, reload: g.reload || 1.6 })),
+  // QA: armory 2 — hold/release the trigger, pick custom parts, read the build
+  setTrigger: v => { triggerHeld = !!v; },
+  setPart: (part, idx) => setPart(part, idx),
+  parts: () => ({ ...customParts }),
+  custom: () => ({ id: customGun.id, name: customGun.name, dmg: customGun.dmg, bolt: customGun.bolt,
+    mag: customGun.mag, zooms: customGun.zooms.length, sway: customGun.sway, auto: customGun.auto,
+    reload: customGun.reload, tag: customGun.tag }),
+  slots: () => SLOT_COUNT,
   state: qaState,
   scope: v => setScope(v !== false),
   fire: () => fire(),
@@ -1744,7 +1897,13 @@ function simUpdate(dt) {
   }
   if (player.chamberT > 0) player.chamberT -= dt;
   if (player.reloadT > 0) { player.reloadT -= dt; if (player.reloadT <= 0) { player.ammo = MAG; lastAmmo = -1; } }
-  if (player.boltT >= 0) {
+  // full-auto: a held trigger keeps firing at the gun's interval; bloom
+  // builds the whole time the trigger is down and only settles after
+  // you let go (a constant decay would cancel the per-shot build-up)
+  if (player.bloom > 0 && !(playerGun.auto && triggerHeld)) player.bloom = Math.max(0, player.bloom - dt * 1.4);
+  if (playerGun.auto && triggerHeld && player.chamberT <= 0 && player.reloadT <= 0 &&
+      (game.phase === 'fight' || game.phase === 'boss')) fire();
+  if (player.boltT >= 0 && boltHandle) {
     player.boltT += dt;
     const p = Math.min(1, player.boltT / 0.34);
     boltHandle.position.z = 0.06 + Math.sin(p * Math.PI) * 0.055;
@@ -1834,7 +1993,7 @@ function animate() {
     yaw = Math.sin(elapsed * 0.08) * 0.045; pitch = -0.31 + Math.sin(elapsed * 0.06) * 0.008;
     if (!pickDragOn) pickGroup.rotation.y += rawDt * 0.4;   // the 360° spin
   }
-  const amp = player.scoped ? (player.holding ? 0.0007 : 0.0044) * playerGun.sway : 0.0007;
+  const amp = player.scoped ? (player.holding ? 0.0007 : 0.0044) * playerGun.sway * (1 + player.bloom * 1.6) : 0.0007;
   const swX = (Math.sin(elapsed * 0.83) + Math.sin(elapsed * 1.31 + 2.1) * 0.6) * amp;
   const swY = (Math.cos(elapsed * 0.97 + 0.7) + Math.sin(elapsed * 1.53) * 0.6) * amp * 0.85;
   camera.position.copy(CAM_POS);
