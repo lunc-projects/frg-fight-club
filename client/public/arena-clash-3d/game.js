@@ -780,6 +780,31 @@ function readPlayerInput() {
 
 /* ---------------- per-fighter update ---------------- */
 const STAGE_MIN = -3.6, STAGE_MAX = 3.6;
+/* Body separation: the two roots may never come closer than MIN_SEP, so
+   the bodies can touch but never interpenetrate. Runs after every
+   movement update (walk, slide, dash, knockback all included), splits
+   the push symmetrically, and hands the leftover to the free fighter
+   when one is pinned at a stage edge. group.position is re-synced here
+   so the correction is what the same frame actually renders. Strike
+   reach is unaffected: jab connects up to ~1.02 root gap, cross ~0.91,
+   kick ~1.50 — a 0.62 floor keeps every strike landing on the surface. */
+const MIN_SEP = 0.62;
+function separateFighters() {
+  const a = P1, b = P2;
+  const d = b.x - a.x;
+  if (Math.abs(d) >= MIN_SEP) return;
+  const dir = d === 0 ? (a.face >= 0 ? 1 : -1) : Math.sign(d);
+  const sep = () => (b.x - a.x) * dir;
+  const need = MIN_SEP - sep();
+  a.x -= dir * need / 2; b.x += dir * need / 2;
+  const ca = THREE.MathUtils.clamp(a.x, STAGE_MIN, STAGE_MAX);
+  if (ca !== a.x) { a.x = ca; b.x += dir * (MIN_SEP - sep()); }
+  const cb = THREE.MathUtils.clamp(b.x, STAGE_MIN, STAGE_MAX);
+  if (cb !== b.x) { b.x = cb; a.x -= dir * (MIN_SEP - sep()); }
+  a.x = THREE.MathUtils.clamp(a.x, STAGE_MIN, STAGE_MAX);
+  b.x = THREE.MathUtils.clamp(b.x, STAGE_MIN, STAGE_MAX);
+  a.group.position.x = a.x; b.group.position.x = b.x;
+}
 function fighterUpdate(f, dt, input) {
   const o = foe(f);
   f.stateT += dt;
@@ -1104,14 +1129,8 @@ function animate() {
       else { inp = readPlayerInput(); ai = aiInput(P2, dt); }
       fighterUpdate(P1, dt, game.phase === 'fight' ? inp : {});
       fighterUpdate(P2, dt, game.phase === 'fight' ? ai : {});
-      // body separation
-      if (P1.state !== 'death' && P2.state !== 'death') {
-        const d = P2.x - P1.x;
-        if (Math.abs(d) < 0.58 && Math.abs(P1.y - P2.y) < 0.6) {
-          const push = (0.58 - Math.abs(d)) / 2 * Math.sign(d || 1);
-          P1.x -= push; P2.x += push;
-        }
-      }
+      // body separation: roots never closer than MIN_SEP, render-synced
+      separateFighters();
       // projectiles
       for (let i = projectiles.length - 1; i >= 0; i--) {
         const p = projectiles[i];
@@ -1146,7 +1165,7 @@ function animate() {
     el.textContent = JSON.stringify({
       phase: game.phase, round: game.round, timer: Math.round(game.timer * 10) / 10,
       hp: [Math.round(P1.hp), Math.round(P2.hp)], wins: [P1.roundsWon, P2.roundsWon],
-      states: [P1.state, P2.state], errors: window.__errs,
+      states: [P1.state, P2.state], xs: [Math.round(P1.x * 100) / 100, Math.round(P2.x * 100) / 100], errors: window.__errs,
       lastHit: window.__lastHit || null, surf: Math.round(P1.atkMinSurf * 100) / 100, surf2: Math.round(P2.atkMinSurf * 100) / 100,
       dbg: { cam: camera.position.toArray().map(v => Math.round(v * 100) / 100), mh: [P1.measuredH, P2.measuredH], mn: [P1.measuredMin, P2.measuredMin], gs: [P1.group.scale.x, P2.group.scale.x], ph: [P1.posedH, P2.posedH], arm: [P1.armInfo, P2.armInfo] },
     });
