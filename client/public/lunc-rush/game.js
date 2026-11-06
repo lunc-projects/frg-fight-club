@@ -168,7 +168,7 @@ function surfaceAt(z, x) {
 }
 
 /* ---------------- zone definitions ---------------- */
-const G_STD = 2250, LOOP_MIN = 620, LOOP_G = 880;
+const G_STD = 2250, LOOP_MIN = 527, LOOP_G = 636; // speed retune (owner, Nov 5): top speed -15% (1320->1122); loop gate scaled x0.85, loop gravity x0.85^2 so loop proofs behave identically in relative terms
 function buildZones() {
   const Z = [];
   function mk(spans, o) { const z = Object.assign({ spans, coins: [], stars: [], enemies: [], springs: [], loops: [], corks: [], plats: [], beacon: 0, len: 0, par: 75, grav: G_STD, jump: 1000, ckpt: 0, theme: 0 }, o || {}); Z.push(z); return z; }
@@ -365,12 +365,12 @@ function feetRenderPos() {
 }
 
 /* ---------------- physics ---------------- */
-const ACC = 1450, BRAKE = 2800, FRIC = 1050, ROLLFRIC = 95, AIRACC = 780, MAXG = 1320;
+const ACC = 1233, BRAKE = 2380, FRIC = 893, ROLLFRIC = 81, AIRACC = 663, MAXG = 1122;
 function doJump() {
   const z = zone, JV = z.jump;
   P.vx = P.g * Math.cos(P.ang) + JV * Math.sin(P.ang);
   P.vy = P.g * Math.sin(P.ang) - JV * Math.cos(P.ang);
-  P.spin = P.rolling || Math.abs(P.g) > 260;
+  P.spin = P.rolling || Math.abs(P.g) > 221;
   P.grounded = false; P.onPlat = null; P.mode = 'air'; P.cut = false; P.coyote = 0;
   sfx.jump();
 }
@@ -378,7 +378,7 @@ function landOn(surfY, ang, plat) {
   const z = zone;
   if (plat) { P.g = P.vx; P.ang = 0; } else { P.g = P.vx * Math.cos(ang) + P.vy * Math.sin(ang); P.ang = ang; }
   P.y = surfY; P.grounded = true; P.onPlat = plat || null; P.mode = 'ground'; P.vy = 0;
-  if (P.spin && Math.abs(P.g) > 95) { P.rolling = true; }
+  if (P.spin && Math.abs(P.g) > 81) { P.rolling = true; }
   P.spin = false;
   if (P.g > MAXG) P.g = MAXG; if (P.g < -MAXG) P.g = -MAXG;
 }
@@ -437,21 +437,21 @@ function step(dt) {
       else {
         P.ang = s0.ang;
         const ax = inputAxis();
-        if (P.rolling && ax !== 0 && Math.sign(ax) !== Math.sign(P.g) && Math.abs(P.g) < 300) P.rolling = false;
-        if (!P.rolling && downHeld() && Math.abs(P.g) > 70) { P.rolling = true; sfx.roll(); }
+        if (P.rolling && ax !== 0 && Math.sign(ax) !== Math.sign(P.g) && Math.abs(P.g) < 255) P.rolling = false;
+        if (!P.rolling && downHeld() && Math.abs(P.g) > 60) { P.rolling = true; sfx.roll(); }
         let acc = Math.sin(P.ang) * G * (P.rolling ? 1.55 : 1.0);
         if (P.rolling) acc += -Math.sign(P.g) * ROLLFRIC;
         else if (ax !== 0) acc += ax * (Math.sign(ax) !== Math.sign(P.g) && P.g !== 0 ? BRAKE : ACC);
         P.g += acc * dt;
         if (!P.rolling && ax === 0 && Math.abs(Math.sin(P.ang)) < 0.045) P.g = approach(P.g, 0, FRIC * dt);
-        if (Math.abs(P.g) > 980) P.g -= P.g * 0.22 * dt;
+        if (Math.abs(P.g) > 833) P.g -= P.g * 0.22 * dt;
         if (P.g > MAXG) P.g = MAXG; if (P.g < -MAXG) P.g = -MAXG;
         if (P.g !== 0) P.facing = Math.sign(P.g);
         P.x += Math.cos(P.ang) * P.g * dt;
         const s2 = surfaceAt(z, P.x);
         if (!s2) { P.grounded = false; P.mode = 'air'; P.vx = Math.cos(P.ang) * P.g; P.vy = Math.sin(P.ang) * P.g; P.spin = P.rolling; }
         else { P.y = s2.y; P.ang = s2.ang; }
-        if (P.rolling && Math.abs(P.g) < 55 && !downHeld()) P.rolling = false;
+        if (P.rolling && Math.abs(P.g) < 47 && !downHeld()) P.rolling = false;
         // loop trigger (crossing the loop's bottom point at speed)
         if (P.grounded && state === 'play') {
           for (const L of z.loops) {
@@ -463,7 +463,7 @@ function step(dt) {
     }
     if (P.grounded) P.runPhase += Math.abs(P.g) * dt * 0.055;
   } else if (P.mode === 'air') {
-    P.vx += inputAxis() * AIRACC * dt; if (P.vx > 1180) P.vx = 1180; if (P.vx < -1180) P.vx = -1180;
+    P.vx += inputAxis() * AIRACC * dt; if (P.vx > 1003) P.vx = 1003; if (P.vx < -1003) P.vx = -1003;
     P.vy += G * dt; if (P.vy > 1500) P.vy = 1500;
     if (!keys.jump && !P.cut && P.vy < -330) { P.vy *= 0.45; P.cut = true; }
     const prevY = P.y;
@@ -603,7 +603,7 @@ function updateWorld(dt) {
   for (let i = particles.length - 1; i >= 0; i--) { const p = particles[i]; p.life -= dt; if (p.life <= 0) { particles.splice(i, 1); continue; } p.vy += (p.grav || 0) * dt; p.x += p.vx * dt; p.y += p.vy * dt; }
   for (let i = texts.length - 1; i >= 0; i--) { const t = texts[i]; t.t += dt; t.y -= 42 * dt; if (t.t > 0.95) texts.splice(i, 1); }
   // speed streaks
-  if (state === 'play' && P.mode !== 'loop' && Math.abs(P.g || P.vx) > 860 && Math.random() < 0.5) {
+  if (state === 'play' && P.mode !== 'loop' && Math.abs(P.g || P.vx) > 731 && Math.random() < 0.5) {
     particles.push({ x: P.x - P.facing * 20, y: P.y - 14 - Math.random() * 18, vx: -P.facing * 300, vy: 0, life: 0.22, max: 0.22, color: 'rgba(255,240,200,0.7)', size: 2, grav: 0 });
   }
   shake = Math.max(0, shake - dt * 16);
