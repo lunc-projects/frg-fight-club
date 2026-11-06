@@ -106,6 +106,12 @@ const GAMES = {
      the house rule. rateMul is sized from that same ceiling: a 36s
      perfect run must fit seconds*rateMul + rateBase. */
   'pipe-hero': { prefix: 'pipe', maxScore: 250000, minSec: 5, maxSec: 3600, rateMul: 4000, rateBase: 5000 },
+  /* LUNC Rush (momentum speed-platformer): score = LUNC coins x10 +
+     USTC stars x50 + bot smashes x100 + per-zone time bonuses
+     (<= par*15 x3). A perfect 3-zone run lands well under 20k and
+     takes minutes; caps stay generous per the house rule so no real
+     run is ever rejected. */
+  'lunc-rush': { prefix: 'lrush', maxScore: 50000, minSec: 20, maxSec: 3600, rateMul: 60, rateBase: 5000 },
 };
 
 function weekKey(d = new Date()) {
