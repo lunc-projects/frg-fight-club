@@ -20,8 +20,8 @@ const LANGS = [
 const I18N = {
 en: { tagline: 'PLAY THE PIPES · ROCK THE PUB', language: 'LANGUAGE', score: 'SCORE', combo: 'COMBO', crowd: 'CROWD', tune: 'TUNE',
   top10: 'TOP 10', top_pipers: 'TOP 10 PIPERS', play: 'PLAY', best: 'BEST',
-  t1n: 'Pub Opener', t1d: 'Slow march · gentle start', t2n: 'Highland Reel', t2d: 'Brisk reel · fingers flying',
-  t3n: 'Ceilidh Chaos', t3d: 'Frantic jig · hold on tight',
+  t1n: '2/4 March', t1d: 'Pub Opener', t2n: 'Strathspey', t2d: 'Highland Reel',
+  t3n: 'The Reel', t3d: 'Ceilidh Chaos',
   perfect: 'PERFECT', good: 'GOOD', miss: 'MISS',
   res_ovation: 'STANDING OVATION!', res_done: 'SONG FINISHED', res_fail: 'BOOED OFF STAGE',
   max_combo: 'MAX COMBO', submit: 'SUBMIT SCORE', name_ph: 'YOUR NAME', saving: 'Saving…',
@@ -31,8 +31,8 @@ en: { tagline: 'PLAY THE PIPES · ROCK THE PUB', language: 'LANGUAGE', score: 'S
   howto: '<b>Tap the lanes</b> (or keys <b>D F J K</b>) as each note crosses the ring. <b>PERFECT</b> timing fills the <b>CROWD</b> meter — miss too often and you get <b>booed off stage!</b>' },
 es: { tagline: 'TOCA LA GAITA · AGITA EL PUB', language: 'IDIOMA', score: 'PUNTOS', combo: 'COMBO', crowd: 'PÚBLICO', tune: 'TEMA',
   top10: 'TOP 10', top_pipers: 'LOS 10 MEJORES GAITEROS', play: 'JUGAR', best: 'RÉCORD',
-  t1n: 'Apertura del Pub', t1d: 'Marcha lenta · comienzo suave', t2n: 'Reel de las Highlands', t2d: 'Reel rápido · dedos volando',
-  t3n: 'Caos Ceilidh', t3d: 'Jiga frenética · agárrate fuerte',
+  t1n: '2/4 March', t1d: 'Apertura del Pub', t2n: 'Strathspey', t2d: 'Reel de las Highlands',
+  t3n: 'The Reel', t3d: 'Caos Ceilidh',
   perfect: 'PERFECTO', good: 'BIEN', miss: 'FALLO',
   res_ovation: '¡OVACIÓN DE PIE!', res_done: 'CANCIÓN TERMINADA', res_fail: 'ABUCHEADO FUERA DEL ESCENARIO',
   max_combo: 'COMBO MÁX', submit: 'ENVIAR PUNTOS', name_ph: 'TU NOMBRE', saving: 'Guardando…',
@@ -42,8 +42,8 @@ es: { tagline: 'TOCA LA GAITA · AGITA EL PUB', language: 'IDIOMA', score: 'PUNT
   howto: '<b>Toca los carriles</b> (o las teclas <b>D F J K</b>) cuando cada nota cruce el anillo. El ritmo <b>PERFECTO</b> llena el medidor del <b>PÚBLICO</b> — ¡falla demasiado y te <b>abuchearán fuera del escenario!</b>' },
 pt: { tagline: 'TOQUE A GAITA · AGITE O PUB', language: 'IDIOMA', score: 'PONTOS', combo: 'COMBO', crowd: 'PÚBLICO', tune: 'MÚSICA',
   top10: 'TOP 10', top_pipers: 'OS 10 MELHORES GAITEIROS', play: 'JOGAR', best: 'RECORDE',
-  t1n: 'Abertura do Pub', t1d: 'Marcha lenta · começo suave', t2n: 'Reel das Highlands', t2d: 'Reel rápido · dedos voando',
-  t3n: 'Caos Ceilidh', t3d: 'Jiga frenética · segure firme',
+  t1n: '2/4 March', t1d: 'Abertura do Pub', t2n: 'Strathspey', t2d: 'Reel das Highlands',
+  t3n: 'The Reel', t3d: 'Caos Ceilidh',
   perfect: 'PERFEITO', good: 'BOM', miss: 'ERROU',
   res_ovation: 'OVACIONADO DE PÉ!', res_done: 'MÚSICA TERMINADA', res_fail: 'VAIADO PARA FORA DO PALCO',
   max_combo: 'COMBO MÁX', submit: 'ENVIAR PONTOS', name_ph: 'SEU NOME', saving: 'Salvando…',
@@ -53,8 +53,8 @@ pt: { tagline: 'TOQUE A GAITA · AGITE O PUB', language: 'IDIOMA', score: 'PONTO
   howto: '<b>Toque nas pistas</b> (ou nas teclas <b>D F J K</b>) quando cada nota cruzar o anel. O ritmo <b>PERFEITO</b> enche o medidor do <b>PÚBLICO</b> — erre demais e será <b>vaiado para fora do palco!</b>' },
 fr: { tagline: 'JOUEZ DE LA CORNEMUSE · FAITES VIBRER LE PUB', language: 'LANGUE', score: 'SCORE', combo: 'COMBO', crowd: 'PUBLIC', tune: 'AIR',
   top10: 'TOP 10', top_pipers: 'LES 10 MEILLEURS SONNEURS', play: 'JOUER', best: 'RECORD',
-  t1n: 'Ouverture du Pub', t1d: 'Marche lente · début en douceur', t2n: 'Reel des Highlands', t2d: 'Reel vif · les doigts volent',
-  t3n: 'Chaos Ceilidh', t3d: 'Gigue frénétique · accrochez-vous',
+  t1n: '2/4 March', t1d: 'Ouverture du Pub', t2n: 'Strathspey', t2d: 'Reel des Highlands',
+  t3n: 'The Reel', t3d: 'Chaos Ceilidh',
   perfect: 'PARFAIT', good: 'BIEN', miss: 'RATÉ',
   res_ovation: 'OVATION DEBOUT !', res_done: 'AIR TERMINÉ', res_fail: 'HUÉ HORS DE SCÈNE',
   max_combo: 'COMBO MAX', submit: 'ENVOYER LE SCORE', name_ph: 'VOTRE NOM', saving: 'Enregistrement…',
@@ -64,8 +64,8 @@ fr: { tagline: 'JOUEZ DE LA CORNEMUSE · FAITES VIBRER LE PUB', language: 'LANGU
   howto: '<b>Touchez les couloirs</b> (ou les touches <b>D F J K</b>) quand chaque note traverse l\'anneau. Le rythme <b>PARFAIT</b> remplit la jauge du <b>PUBLIC</b> — manquez trop souvent et vous serez <b>hué hors de scène !</b>' },
 de: { tagline: 'SPIEL DEN DUDELSACK · ROCK DAS PUB', language: 'SPRACHE', score: 'PUNKTE', combo: 'COMBO', crowd: 'PUBLIKUM', tune: 'STÜCK',
   top10: 'TOP 10', top_pipers: 'DIE 10 BESTEN DUDELSACKSPIELER', play: 'SPIELEN', best: 'REKORD',
-  t1n: 'Pub-Eröffnung', t1d: 'Langsamer Marsch · sanfter Start', t2n: 'Highland Reel', t2d: 'Flotter Reel · Finger fliegen',
-  t3n: 'Ceilidh-Chaos', t3d: 'Rasanter Jig · festhalten',
+  t1n: '2/4 March', t1d: 'Pub-Eröffnung', t2n: 'Strathspey', t2d: 'Highland Reel',
+  t3n: 'The Reel', t3d: 'Ceilidh-Chaos',
   perfect: 'PERFEKT', good: 'GUT', miss: 'DANEBEN',
   res_ovation: 'STANDING OVATIONS!', res_done: 'STÜCK BEENDET', res_fail: 'VON DER BÜHNE GEBUHT',
   max_combo: 'MAX-COMBO', submit: 'PUNKTE SENDEN', name_ph: 'DEIN NAME', saving: 'Speichern…',
@@ -75,8 +75,8 @@ de: { tagline: 'SPIEL DEN DUDELSACK · ROCK DAS PUB', language: 'SPRACHE', score
   howto: '<b>Tippe auf die Spuren</b> (oder Tasten <b>D F J K</b>), wenn jede Note den Ring kreuzt. <b>PERFEKTES</b> Timing füllt die <b>PUBLIKUMS</b>-Leiste — verfehle zu oft und du wirst <b>von der Bühne gebuht!</b>' },
 it: { tagline: 'SUONA LA CORNAMUSA · SCUOTI IL PUB', language: 'LINGUA', score: 'PUNTI', combo: 'COMBO', crowd: 'PUBBLICO', tune: 'BRANO',
   top10: 'TOP 10', top_pipers: 'I 10 MIGLIORI ZAMPOGNARI', play: 'GIOCA', best: 'RECORD',
-  t1n: 'Apertura del Pub', t1d: 'Marcia lenta · inizio morbido', t2n: 'Reel delle Highlands', t2d: 'Reel veloce · dita che volano',
-  t3n: 'Caos Ceilidh', t3d: 'Giga frenetica · tieniti forte',
+  t1n: '2/4 March', t1d: 'Apertura del Pub', t2n: 'Strathspey', t2d: 'Reel delle Highlands',
+  t3n: 'The Reel', t3d: 'Caos Ceilidh',
   perfect: 'PERFETTO', good: 'BENE', miss: 'ERRORE',
   res_ovation: 'OVAZIONE IN PIEDI!', res_done: 'BRANO FINITO', res_fail: 'FISCHIATO FUORI DAL PALCO',
   max_combo: 'COMBO MAX', submit: 'INVIA PUNTI', name_ph: 'IL TUO NOME', saving: 'Salvataggio…',
@@ -86,8 +86,8 @@ it: { tagline: 'SUONA LA CORNAMUSA · SCUOTI IL PUB', language: 'LINGUA', score:
   howto: '<b>Tocca le corsie</b> (o i tasti <b>D F J K</b>) quando ogni nota attraversa l\'anello. Il ritmo <b>PERFETTO</b> riempie il misuratore del <b>PUBBLICO</b> — sbaglia troppo e verrai <b>fischiato fuori dal palco!</b>' },
 nl: { tagline: 'SPEEL DE DOEDELZAK · ROCK DE PUB', language: 'TAAL', score: 'SCORE', combo: 'COMBO', crowd: 'PUBLIEK', tune: 'NUMMER',
   top10: 'TOP 10', top_pipers: 'DE 10 BESTE PIJPERS', play: 'SPELEN', best: 'RECORD',
-  t1n: 'Pub-opener', t1d: 'Langzame mars · zachte start', t2n: 'Highland Reel', t2d: 'Vlotte reel · vingers vliegen',
-  t3n: 'Ceilidh-chaos', t3d: 'Razende jig · hou je vast',
+  t1n: '2/4 March', t1d: 'Pub-opener', t2n: 'Strathspey', t2d: 'Highland Reel',
+  t3n: 'The Reel', t3d: 'Ceilidh-chaos',
   perfect: 'PERFECT', good: 'GOED', miss: 'MIS',
   res_ovation: 'STAANDE OVATIE!', res_done: 'NUMMER KLAAR', res_fail: 'VAN HET PODIUM GEJOELD',
   max_combo: 'MAX-COMBO', submit: 'SCORE VERSTUREN', name_ph: 'JE NAAM', saving: 'Opslaan…',
@@ -97,8 +97,8 @@ nl: { tagline: 'SPEEL DE DOEDELZAK · ROCK DE PUB', language: 'TAAL', score: 'SC
   howto: '<b>Tik op de banen</b> (of toetsen <b>D F J K</b>) als elke noot de ring kruist. <b>PERFECTE</b> timing vult de <b>PUBLIEK</b>-meter — mis te vaak en je wordt <b>van het podium gejoeld!</b>' },
 ru: { tagline: 'ИГРАЙ НА ВОЛЫНКЕ · ЗАЖГИ ПАБ', language: 'ЯЗЫК', score: 'ОЧКИ', combo: 'КОМБО', crowd: 'ПУБЛИКА', tune: 'МЕЛОДИЯ',
   top10: 'ТОП 10', top_pipers: '10 ЛУЧШИХ ВОЛЫНЩИКОВ', play: 'ИГРАТЬ', best: 'РЕКОРД',
-  t1n: 'Открытие паба', t1d: 'Медленный марш · мягкий старт', t2n: 'Хайленд-рил', t2d: 'Бодрый рил · пальцы летают',
-  t3n: 'Хаос кейли', t3d: 'Бешеная джига · держись крепче',
+  t1n: '2/4 March', t1d: 'Открытие паба', t2n: 'Strathspey', t2d: 'Хайленд-рил',
+  t3n: 'The Reel', t3d: 'Хаос кейли',
   perfect: 'ИДЕАЛЬНО', good: 'ХОРОШО', miss: 'МИМО',
   res_ovation: 'ОВАЦИИ СТОЯ!', res_done: 'МЕЛОДИЯ СЫГРАНА', res_fail: 'ОСВИСТАЛИ СО СЦЕНЫ',
   max_combo: 'МАКС. КОМБО', submit: 'ОТПРАВИТЬ ОЧКИ', name_ph: 'ВАШЕ ИМЯ', saving: 'Сохранение…',
@@ -108,8 +108,8 @@ ru: { tagline: 'ИГРАЙ НА ВОЛЫНКЕ · ЗАЖГИ ПАБ', language: 
   howto: '<b>Касайтесь дорожек</b> (или клавиш <b>D F J K</b>), когда каждая нота пересекает кольцо. <b>ИДЕАЛЬНЫЙ</b> ритм наполняет шкалу <b>ПУБЛИКИ</b> — ошибайтесь слишком часто, и вас <b>освищут со сцены!</b>' },
 uk: { tagline: 'ГРАЙ НА ВОЛИНЦІ · ЗАПАЛИ ПАБ', language: 'МОВА', score: 'ОЧКИ', combo: 'КОМБО', crowd: 'ПУБЛІКА', tune: 'МЕЛОДІЯ',
   top10: 'ТОП 10', top_pipers: '10 НАЙКРАЩИХ ВОЛИНЩИКІВ', play: 'ГРАТИ', best: 'РЕКОРД',
-  t1n: 'Відкриття пабу', t1d: 'Повільний марш · м’який старт', t2n: 'Хайленд-ріл', t2d: 'Жвавий ріл · пальці літають',
-  t3n: 'Хаос кейлі', t3d: 'Шалена джига · тримайся міцно',
+  t1n: '2/4 March', t1d: 'Відкриття пабу', t2n: 'Strathspey', t2d: 'Хайленд-ріл',
+  t3n: 'The Reel', t3d: 'Хаос кейлі',
   perfect: 'ІДЕАЛЬНО', good: 'ДОБРЕ', miss: 'МИМО',
   res_ovation: 'ОВАЦІЇ СТОЯЧИ!', res_done: 'МЕЛОДІЮ ЗІГРАНО', res_fail: 'ОСВИСТАЛИ ЗІ СЦЕНИ',
   max_combo: 'МАКС. КОМБО', submit: 'НАДІСЛАТИ ОЧКИ', name_ph: 'ВАШЕ ІМ’Я', saving: 'Збереження…',
@@ -119,8 +119,8 @@ uk: { tagline: 'ГРАЙ НА ВОЛИНЦІ · ЗАПАЛИ ПАБ', language: 
   howto: '<b>Торкайтеся доріжок</b> (або клавіш <b>D F J K</b>), коли кожна нота перетинає кільце. <b>ІДЕАЛЬНИЙ</b> ритм наповнює шкалу <b>ПУБЛІКИ</b> — помиляйтеся надто часто, і вас <b>освищуть зі сцени!</b>' },
 tr: { tagline: 'GAYDAYI ÇAL · PUB’I SALLA', language: 'DİL', score: 'PUAN', combo: 'KOMBO', crowd: 'SEYİRCİ', tune: 'PARÇA',
   top10: 'İLK 10', top_pipers: 'EN İYİ 10 GAYDACI', play: 'OYNA', best: 'REKOR',
-  t1n: 'Pub Açılışı', t1d: 'Yavaş marş · yumuşak başlangıç', t2n: 'Highland Reel', t2d: 'Hızlı reel · parmaklar uçuyor',
-  t3n: 'Ceilidh Kaosu', t3d: 'Çılgın jig · sıkı tutun',
+  t1n: '2/4 March', t1d: 'Pub Açılışı', t2n: 'Strathspey', t2d: 'Highland Reel',
+  t3n: 'The Reel', t3d: 'Ceilidh Kaosu',
   perfect: 'MÜKEMMEL', good: 'İYİ', miss: 'ISKA',
   res_ovation: 'AYAKTA ALKIŞ!', res_done: 'PARÇA BİTTİ', res_fail: 'SAHNEDEN YUHALANDIN',
   max_combo: 'MAKS KOMBO', submit: 'PUANI GÖNDER', name_ph: 'ADIN', saving: 'Kaydediliyor…',
@@ -130,8 +130,8 @@ tr: { tagline: 'GAYDAYI ÇAL · PUB’I SALLA', language: 'DİL', score: 'PUAN',
   howto: '<b>Şeritlere dokun</b> (veya <b>D F J K</b> tuşları), her nota halkayı geçerken. <b>MÜKEMMEL</b> zamanlama <b>SEYİRCİ</b> ölçeri doldurur — çok ıskalarsan <b>sahneden yuhalanırsın!</b>' },
 ar: { tagline: 'اعزف على مزمار القربة · أشعل الحانة', language: 'اللغة', score: 'النقاط', combo: 'التتابع', crowd: 'الجمهور', tune: 'اللحن',
   top10: 'أفضل 10', top_pipers: 'أفضل 10 عازفي قربة', play: 'العب', best: 'الأفضل',
-  t1n: 'افتتاح الحانة', t1d: 'مسيرة بطيئة · بداية هادئة', t2n: 'رقصة المرتفعات', t2d: 'رقصة سريعة · الأصابع تطير',
-  t3n: 'فوضى الكيلي', t3d: 'جيغ صاخب · تمسّك جيدًا',
+  t1n: '2/4 March', t1d: 'افتتاح الحانة', t2n: 'Strathspey', t2d: 'رقصة المرتفعات',
+  t3n: 'The Reel', t3d: 'فوضى الكيلي',
   perfect: 'مثالي', good: 'جيد', miss: 'أخطأت',
   res_ovation: 'تصفيق واقفًا!', res_done: 'انتهى اللحن', res_fail: 'طُردت بصيحات الاستهجان',
   max_combo: 'أقصى تتابع', submit: 'إرسال النقاط', name_ph: 'اسمك', saving: 'جارٍ الحفظ…',
@@ -141,8 +141,8 @@ ar: { tagline: 'اعزف على مزمار القربة · أشعل الحانة
   howto: '<b>المس المسارات</b> (أو مفاتيح <b>D F J K</b>) عندما تعبر كل نغمة الحلقة. التوقيت <b>المثالي</b> يملأ مقياس <b>الجمهور</b> — أخطئ كثيرًا وستُطرد من المسرح <b>بصيحات الاستهجان!</b>' },
 hi: { tagline: 'बैगपाइप बजाओ · पब को झुमाओ', language: 'भाषा', score: 'स्कोर', combo: 'कॉम्बो', crowd: 'भीड़', tune: 'धुन',
   top10: 'टॉप 10', top_pipers: 'टॉप 10 पाइपर्स', play: 'खेलो', best: 'सर्वश्रेष्ठ',
-  t1n: 'पब ओपनर', t1d: 'धीमी मार्च · नरम शुरुआत', t2n: 'हाईलैंड रील', t2d: 'तेज़ रील · उंगलियाँ उड़ती हुई',
-  t3n: 'केइली कैओस', t3d: 'पागल जिग · कसकर पकड़ो',
+  t1n: '2/4 March', t1d: 'पब ओपनर', t2n: 'Strathspey', t2d: 'हाईलैंड रील',
+  t3n: 'The Reel', t3d: 'केइली कैओस',
   perfect: 'परफेक्ट', good: 'अच्छा', miss: 'चूक',
   res_ovation: 'खड़े होकर तालियाँ!', res_done: 'धुन खत्म', res_fail: 'मंच से हूट करके भगाया',
   max_combo: 'मैक्स कॉम्बो', submit: 'स्कोर भेजें', name_ph: 'आपका नाम', saving: 'सेव हो रहा है…',
@@ -152,8 +152,8 @@ hi: { tagline: 'बैगपाइप बजाओ · पब को झुमा
   howto: '<b>लेन पर टैप करें</b> (या <b>D F J K</b> कुंजियाँ) जब हर नोट रिंग को पार करे। <b>परफेक्ट</b> टाइमिंग <b>भीड़</b> मीटर भरती है — ज़्यादा चूके तो <b>मंच से हूट करके भगा दिए जाओगे!</b>' },
 id: { tagline: 'MAINKAN BAGPIPE · GOYANGKAN PUB', language: 'BAHASA', score: 'SKOR', combo: 'KOMBO', crowd: 'PENONTON', tune: 'LAGU',
   top10: '10 TERATAS', top_pipers: '10 PENIUP TERBAIK', play: 'MAIN', best: 'TERBAIK',
-  t1n: 'Pembuka Pub', t1d: 'Mars lambat · awal lembut', t2n: 'Reel Dataran Tinggi', t2d: 'Reel gesit · jari terbang',
-  t3n: 'Kekacauan Ceilidh', t3d: 'Jig panik · pegang erat',
+  t1n: '2/4 March', t1d: 'Pembuka Pub', t2n: 'Strathspey', t2d: 'Reel Dataran Tinggi',
+  t3n: 'The Reel', t3d: 'Kekacauan Ceilidh',
   perfect: 'SEMPURNA', good: 'BAGUS', miss: 'MELESET',
   res_ovation: 'TEPUK TANGAN BERDIRI!', res_done: 'LAGU SELESAI', res_fail: 'DISORAKI TURUN PANGGUNG',
   max_combo: 'KOMBO MAKS', submit: 'KIRIM SKOR', name_ph: 'NAMAMU', saving: 'Menyimpan…',
@@ -163,8 +163,8 @@ id: { tagline: 'MAINKAN BAGPIPE · GOYANGKAN PUB', language: 'BAHASA', score: 'S
   howto: '<b>Ketuk jalur</b> (atau tombol <b>D F J K</b>) saat setiap not melintasi cincin. Waktu <b>SEMPURNA</b> mengisi meteran <b>PENONTON</b> — terlalu sering meleset dan kamu akan <b>disoraki turun panggung!</b>' },
 vi: { tagline: 'THỔI KÈN TÚI · KHUẤY ĐỘNG QUÁN', language: 'NGÔN NGỮ', score: 'ĐIỂM', combo: 'COMBO', crowd: 'KHÁN GIẢ', tune: 'ĐIỆU',
   top10: 'TOP 10', top_pipers: '10 NGƯỜI THỔI HAY NHẤT', play: 'CHƠI', best: 'KỶ LỤC',
-  t1n: 'Khai Mạc Quán', t1d: 'Hành khúc chậm · khởi đầu nhẹ', t2n: 'Điệu Reel Cao Nguyên', t2d: 'Reel lanh lẹ · ngón tay bay',
-  t3n: 'Hỗn Loạn Ceilidh', t3d: 'Jig cuồng nhiệt · bám chặt nhé',
+  t1n: '2/4 March', t1d: 'Khai Mạc Quán', t2n: 'Strathspey', t2d: 'Điệu Reel Cao Nguyên',
+  t3n: 'The Reel', t3d: 'Hỗn Loạn Ceilidh',
   perfect: 'HOÀN HẢO', good: 'TỐT', miss: 'TRƯỢT',
   res_ovation: 'ĐỨNG DẬY VỖ TAY!', res_done: 'HẾT ĐIỆU', res_fail: 'BỊ LA Ó ĐUỔI KHỎI SÂN KHẤU',
   max_combo: 'COMBO TỐI ĐA', submit: 'GỬI ĐIỂM', name_ph: 'TÊN CỦA BẠN', saving: 'Đang lưu…',
@@ -174,8 +174,8 @@ vi: { tagline: 'THỔI KÈN TÚI · KHUẤY ĐỘNG QUÁN', language: 'NGÔN NG�
   howto: '<b>Chạm vào làn</b> (hoặc phím <b>D F J K</b>) khi mỗi nốt đi qua vòng. Nhịp <b>HOÀN HẢO</b> làm đầy thước <b>KHÁN GIẢ</b> — trượt quá nhiều và bạn sẽ bị <b>la ó đuổi khỏi sân khấu!</b>' },
 th: { tagline: 'เป่าปี่สกอต · เขย่าผับ', language: 'ภาษา', score: 'คะแนน', combo: 'คอมโบ', crowd: 'ผู้ชม', tune: 'ทำนอง',
   top10: '10 อันดับแรก', top_pipers: 'นักเป่า 10 อันดับแรก', play: 'เล่น', best: 'ดีที่สุด',
-  t1n: 'เพลงเปิดผับ', t1d: 'มาร์ชช้า · เริ่มแบบนุ่มนวล', t2n: 'รีลไฮแลนด์', t2d: 'รีลคล่องแคล่ว · นิ้วบิน',
-  t3n: 'ความโกลาหล Ceilidh', t3d: 'จิ๊กสุดมันส์ · เกาะไว้ให้แน่น',
+  t1n: '2/4 March', t1d: 'เพลงเปิดผับ', t2n: 'Strathspey', t2d: 'รีลไฮแลนด์',
+  t3n: 'The Reel', t3d: 'ความโกลาหล Ceilidh',
   perfect: 'สมบูรณ์แบบ', good: 'ดี', miss: 'พลาด',
   res_ovation: 'ยืนปรบมือให้!', res_done: 'จบทำนอง', res_fail: 'โดนโห่ไล่ลงเวที',
   max_combo: 'คอมโบสูงสุด', submit: 'ส่งคะแนน', name_ph: 'ชื่อของคุณ', saving: 'กำลังบันทึก…',
@@ -185,8 +185,8 @@ th: { tagline: 'เป่าปี่สกอต · เขย่าผับ', 
   howto: '<b>แตะเลน</b> (หรือปุ่ม <b>D F J K</b>) เมื่อโน้ตแต่ละตัวข้ามวงแหวน จังหวะ<b>สมบูรณ์แบบ</b>จะเติมเกจ<b>ผู้ชม</b> — พลาดบ่อยเกินไปและคุณจะโดน<b>โห่ไล่ลงเวที!</b>' },
 ko: { tagline: '백파이프를 불어라 · 펍을 흔들어라', language: '언어', score: '점수', combo: '콤보', crowd: '관객', tune: '곡',
   top10: 'TOP 10', top_pipers: '최고의 파이퍼 10인', play: '플레이', best: '최고 기록',
-  t1n: '펍 오프너', t1d: '느린 행진곡 · 부드러운 시작', t2n: '하이랜드 릴', t2d: '경쾌한 릴 · 손가락이 날아다녀',
-  t3n: '케일리 카오스', t3d: '광란의 지그 · 꽉 잡아',
+  t1n: '2/4 March', t1d: '펍 오프너', t2n: 'Strathspey', t2d: '하이랜드 릴',
+  t3n: 'The Reel', t3d: '케일리 카오스',
   perfect: '퍼펙트', good: '좋음', miss: '미스',
   res_ovation: '기립 박수!', res_done: '곡 종료', res_fail: '야유를 받으며 퇴장',
   max_combo: '최대 콤보', submit: '점수 제출', name_ph: '이름', saving: '저장 중…',
@@ -196,8 +196,8 @@ ko: { tagline: '백파이프를 불어라 · 펍을 흔들어라', language: '�
   howto: '<b>레인을 탭</b>하세요 (또는 <b>D F J K</b> 키). 각 노트가 링을 지날 때 맞추면 됩니다. <b>퍼펙트</b> 타이밍은 <b>관객</b> 게이지를 채우고 — 너무 많이 놓치면 <b>야유를 받으며 쫓겨나요!</b>' },
 ja: { tagline: 'バグパイプを吹け · パブを揺らせ', language: '言語', score: 'スコア', combo: 'コンボ', crowd: '観客', tune: '曲',
   top10: 'トップ10', top_pipers: 'トップ10パイパー', play: 'プレイ', best: 'ベスト',
-  t1n: 'パブ・オープナー', t1d: 'ゆったり行進曲 · やさしい幕開け', t2n: 'ハイランド・リール', t2d: '軽快なリール · 指が舞う',
-  t3n: 'ケーリー・カオス', t3d: '猛烈なジグ · しっかりつかまって',
+  t1n: '2/4 March', t1d: 'パブ・オープナー', t2n: 'Strathspey', t2d: 'ハイランド・リール',
+  t3n: 'The Reel', t3d: 'ケーリー・カオス',
   perfect: 'パーフェクト', good: 'グッド', miss: 'ミス',
   res_ovation: 'スタンディングオベーション！', res_done: '曲終了', res_fail: 'ブーイングで退場',
   max_combo: '最大コンボ', submit: 'スコアを送信', name_ph: '名前', saving: '保存中…',
@@ -207,8 +207,8 @@ ja: { tagline: 'バグパイプを吹け · パブを揺らせ', language: '言�
   howto: '<b>レーンをタップ</b>（または <b>D F J K</b> キー）して、各ノーツがリングを横切る瞬間に合わせよう。<b>パーフェクト</b>なタイミングで<b>観客</b>メーターが満ちる — 外しすぎると<b>ブーイングで退場</b>だ！' },
 zh: { tagline: '吹起风笛 · 摇滚酒馆', language: '语言', score: '分数', combo: '连击', crowd: '观众', tune: '曲目',
   top10: '前十名', top_pipers: '十大风笛手', play: '开始', best: '最佳',
-  t1n: '酒馆开场曲', t1d: '慢板进行曲 · 温和开场', t2n: '高地里尔舞曲', t2d: '轻快的里尔 · 手指翻飞',
-  t3n: '凯利大混战', t3d: '狂热的吉格 · 抓紧了',
+  t1n: '2/4 March', t1d: '酒馆开场曲', t2n: 'Strathspey', t2d: '高地里尔舞曲',
+  t3n: 'The Reel', t3d: '凯利大混战',
   perfect: '完美', good: '良好', miss: '错过',
   res_ovation: '全场起立鼓掌！', res_done: '曲目结束', res_fail: '被嘘下台',
   max_combo: '最高连击', submit: '提交分数', name_ph: '你的名字', saving: '保存中…',
@@ -241,7 +241,31 @@ function setLang(code) {
 }
 
 /* ================= tunes & charts (original, seeded, deterministic) ================= */
-const FREQS = [196.00, 220.00, 246.94, 277.18, 293.66, 329.63, 369.99, 392.00, 440.00]; // chanter G3..A4
+/* The chanter at TRUE modern Highland pitch: low A = 474 Hz, with the
+   scale just-intoned on low A the way pipes are actually tuned —
+   low G 8/9 · low A 1 · B 9/8 · C♯ 5/4 · D 4/3 · E 3/2 · F♯ 5/3 ·
+   high G 16/9 · high A 2/1. Drones: tenors one octave below low A
+   (237 Hz), bass two octaves below (118.5 Hz). */
+const LOW_A_HZ = 474;
+const NOTE_NAMES = ['Low G', 'Low A', 'B', 'C♯', 'D', 'E', 'F♯', 'High G', 'High A'];
+const FREQS = [8 / 9, 1, 9 / 8, 5 / 4, 4 / 3, 3 / 2, 5 / 3, 16 / 9, 2].map(r => LOW_A_HZ * r);
+const TENOR_HZ = LOW_A_HZ / 2, BASS_HZ = LOW_A_HZ / 4;
+/* Standard Highland fingering — the way real pipers play it.
+   Pattern: [thumb, H1..H7] top→bottom; 1 = hole covered, 0 = open.
+   Note the true cross-fingerings: forked C♯ (H5 open, H6 shut), D with
+   the pinky DOWN, top-hand notes with the bottom hand back on, and
+   high A = thumb off + H3 down. */
+const FINGERING = [
+  [1, 1, 1, 1, 1, 1, 1, 1], // Low G — everything shut
+  [1, 1, 1, 1, 1, 1, 1, 0], // Low A — pinky off
+  [1, 1, 1, 1, 1, 1, 0, 0], // B
+  [1, 1, 1, 1, 1, 0, 1, 0], // C♯ — forked
+  [1, 1, 1, 1, 0, 0, 0, 1], // D — pinky down
+  [1, 1, 1, 0, 1, 1, 1, 0], // E
+  [1, 1, 0, 0, 1, 1, 1, 0], // F♯
+  [1, 0, 0, 0, 1, 1, 1, 0], // High G — thumb stays on
+  [0, 0, 0, 1, 1, 1, 1, 0], // High A — thumb off, H3 down
+];
 const LANE_OF_PITCH = [0, 0, 0, 1, 1, 2, 2, 3, 3];
 const TUNES = [
   { nameKey: 't1n', descKey: 't1d', bpm: 96,  bars: 18, seed: 1123, onP: 0.55, offP: 0.16, doubles: 0 },
@@ -274,10 +298,11 @@ function chartFor(idx) {
   const CADENCE = [4, 1, 6, 4, 7, 4];
   const place = (t, p) => {
     const lane = LANE_OF_PITCH[p];
-    if (t - lastLaneT[lane] < 0.17) return false;
+    if (t - lastLaneT[lane] < 0.17) return null;
     lastLaneT[lane] = t;
-    notes.push({ t, lane, pitch: p, freq: FREQS[p], state: 0 });
-    return true;
+    const note = { t, lane, pitch: p, freq: FREQS[p], state: 0, grace: false };
+    notes.push(note);
+    return note;
   };
   for (let s = 2; s < totalSlots; s++) {
     const on = s % 2 === 0;
@@ -296,8 +321,11 @@ function chartFor(idx) {
     else if (pitch > home + 1 && rng() < 0.5) pitch -= 1;
     if (s % 16 === 14) { pitch = CADENCE[phrase++ % CADENCE.length]; } // cadence
     const t = CHART_START + s * eighth;
-    if (place(t, pitch) && tune.doubles && rng() < tune.doubles) {
-      place(t + spb / 4, pitch); // grace-note double, same lane
+    const placedNote = place(t, pitch);
+    if (placedNote && tune.doubles && rng() < tune.doubles) {
+      // a grace-note double: not a separate note — a G-grace ornament ON
+      // this note, flicked just before it sounds (as pipers play it)
+      placedNote.grace = true;
     }
   }
   notes.sort((a, b) => a.t - b.t);
@@ -332,7 +360,9 @@ function droneStart() {
     const og = AC.createGain(); og.gain.value = vol;
     o.connect(og); og.connect(f); o.start(); return o;
   };
-  const oscs = [mk('sawtooth', 98, 0.055), mk('sawtooth', 196, 0.038), mk('square', 147, 0.016)];
+  // bass drone (118.5 Hz) + two tenor drones (237 Hz) — all on A, two and
+  // one octaves below the chanter's low A, exactly as a real set is tuned
+  const oscs = [mk('sawtooth', BASS_HZ, 0.055), mk('sawtooth', TENOR_HZ, 0.036), mk('sawtooth', TENOR_HZ * 1.003, 0.026)];
   const lfo = AC.createOscillator(); lfo.frequency.value = 0.4;
   const lfoG = AC.createGain(); lfoG.gain.value = 0.012;
   lfo.connect(lfoG); lfoG.connect(g.gain); lfo.start();
@@ -348,18 +378,20 @@ function droneStop() {
   dr.g.gain.linearRampToValueAtTime(0, AC.currentTime + 0.45);
   setTimeout(() => dr.oscs.forEach(o => { try { o.stop(); } catch (e) {} }), 600);
 }
+function cutChanter(now) {
+  if (!chanterVoice) return;
+  try {
+    chanterVoice.g.gain.cancelScheduledValues(now);
+    chanterVoice.g.gain.setValueAtTime(chanterVoice.g.gain.value, now);
+    chanterVoice.g.gain.linearRampToValueAtTime(0, now + 0.03);
+    const v = chanterVoice; setTimeout(() => v.oscs.forEach(o => { try { o.stop(); } catch (e) {} }), 80);
+  } catch (e) {}
+  chanterVoice = null;
+}
 function chanter(freq, wobble) {
   if (!AC) return;
   const now = AC.currentTime;
-  if (chanterVoice) { // the chanter is monophonic — cut the previous note like a real pipe
-    try {
-      chanterVoice.g.gain.cancelScheduledValues(now);
-      chanterVoice.g.gain.setValueAtTime(chanterVoice.g.gain.value, now);
-      chanterVoice.g.gain.linearRampToValueAtTime(0, now + 0.03);
-      const v = chanterVoice; setTimeout(() => v.oscs.forEach(o => { try { o.stop(); } catch (e) {} }), 80);
-    } catch (e) {}
-    chanterVoice = null;
-  }
+  cutChanter(now); // the chanter is monophonic — cut the previous note like a real pipe
   const g = AC.createGain(); g.gain.value = 0;
   const f = AC.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1150; f.Q.value = 0.8;
   const o1 = AC.createOscillator(); o1.type = 'sawtooth';
@@ -374,6 +406,36 @@ function chanter(freq, wobble) {
   g.gain.linearRampToValueAtTime(0.0, now + 0.34);
   o1.start(now); o2.start(now); o1.stop(now + 0.4); o2.stop(now + 0.4);
   chanterVoice = { g, oscs: [o1, o2] };
+}
+function graceBlip() {
+  // a G grace note: a ~50 ms flick of high G from the top-hand index
+  // finger, the working grace note of Highland piping
+  if (!AC) return;
+  const now = AC.currentTime;
+  cutChanter(now);
+  const g = AC.createGain(); g.gain.value = 0;
+  const f = AC.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1250; f.Q.value = 0.8;
+  const o1 = AC.createOscillator(); o1.type = 'sawtooth'; o1.frequency.value = FREQS[7]; // high G
+  const o2 = AC.createOscillator(); o2.type = 'square'; o2.frequency.value = FREQS[7];
+  const g2 = AC.createGain(); g2.gain.value = 0.35;
+  o1.connect(f); o2.connect(g2); g2.connect(f); f.connect(g); g.connect(master);
+  g.gain.linearRampToValueAtTime(0.115, now + 0.008);
+  g.gain.setValueAtTime(0.115, now + 0.036);
+  g.gain.linearRampToValueAtTime(0, now + 0.056);
+  o1.start(now); o2.start(now); o1.stop(now + 0.075); o2.stop(now + 0.075);
+  chanterVoice = { g, oscs: [o1, o2] };
+}
+function playNote(note, wobble) {
+  S.curPitch = note.pitch; // the piper's fingers take the note's true fingering
+  if (note.grace) {
+    S.graceCount++;
+    S.graceUntil = performance.now() / 1000 + 0.12; // visible H1 flick
+    graceBlip();
+    const f = note.freq;
+    setTimeout(() => chanter(f, wobble), 48); // melody note lands just after the flick
+  } else {
+    chanter(note.freq, wobble);
+  }
 }
 function squeak() {
   if (!AC) return;
@@ -470,6 +532,7 @@ const S = {
   paused: false, failed: false, score: 0, combo: 0, maxCombo: 0, maxMult: 1, crowd: 55,
   nPerfect: 0, nGood: 0, nMiss: 0, finalSeconds: 0,
   judge: null, squeeze: 0, wince: 0, beatPulse: 0,
+  curPitch: 1, graceUntil: 0, graceCount: 0, // live fingering state (Low A at rest)
   laneFlash: [0, 0, 0, 0], particles: [], qaAuto: false,
 };
 function songPos() { return AC ? AC.currentTime - S.startCtx + S.timeShift : 0; }
@@ -493,6 +556,7 @@ function startSong(idx) {
   S.nPerfect = 0; S.nGood = 0; S.nMiss = 0; S.failed = false; S.paused = false;
   S.firstPending = 0; S.nextBeat = 0; S.lastBeat = -1; S.timeShift = 0;
   S.judge = null; S.particles = [];
+  S.curPitch = 1; S.graceUntil = 0; S.graceCount = 0;
   S.startCtx = AC ? AC.currentTime + 0.10 : 0;
   $('songLab').textContent = T(TUNES[idx].nameKey);
   $('tuneVal').textContent = (idx + 1) + '/3';
@@ -555,14 +619,14 @@ function hitLane(lane) {
     S.nPerfect++;
     S.score += 100 * m;
     S.crowd = Math.min(100, S.crowd + 2.2);
-    chanter(best.freq, false);
+    playNote(best, false);
     judgePopup(T('perfect'), '#ffd94d');
     spawnBurst(best.lane, true);
   } else {
     S.nGood++;
     S.score += 40 * m;
     S.crowd = Math.min(100, S.crowd + 1.1);
-    chanter(best.freq, true);
+    playNote(best, true);
     judgePopup(T('good'), '#cfe8ff');
     spawnBurst(best.lane, false);
   }
@@ -734,21 +798,73 @@ function drawPiper(now, beatPh, crowdVis) {
   ctx.rotate(Math.sin(beatPh * Math.PI) * 0.028);
   const sq = S.squeeze, bagSX = (1 - 0.13 * sq) * (1 + 0.03 * Math.sin(now * 1.6)), bagSY = 1 - 0.08 * sq;
   const lw = (w) => { ctx.lineWidth = w; };
-  // drones over the shoulder
-  ctx.strokeStyle = '#453322'; lw(0.036 * u); ctx.lineCap = 'round';
-  ctx.beginPath(); ctx.moveTo(0.09 * u, -0.82 * u); ctx.lineTo(0.155 * u, -1.29 * u); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(0.175 * u, -0.84 * u); ctx.lineTo(0.25 * u, -1.245 * u); ctx.stroke();
-  ctx.fillStyle = '#e8ddc4';
-  ctx.fillRect(0.132 * u, -1.315 * u, 0.048 * u, 0.032 * u); ctx.fillRect(0.227 * u, -1.27 * u, 0.048 * u, 0.032 * u);
-  // bag (tucked under the left arm) + blowpipe
+  // THREE drones fanned over the shoulder — two tenors (equal) + one long
+  // bass in three joints — African blackwood with imitation-ivory
+  // projecting mounts, metal ferrules and tuning slides, combing and
+  // beading, black silk cords with tassels: the Gibson Classic look.
+  const WOOD = '#2e1c10', WOOD_D = '#1a0f07', IVORY = '#ece0c6', METAL = '#c9ced4';
+  ctx.lineCap = 'round';
+  const seg = (x0, y0, x1, y1, w, col) => { ctx.strokeStyle = col; lw(w); ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); };
+  const droneDraw = (bx, by, tx, ty, joints) => {
+    const P = f => [bx + (tx - bx) * f, by + (ty - by) * f];
+    seg(bx, by, tx, ty, 0.034 * u, WOOD); // blackwood body
+    ctx.strokeStyle = 'rgba(0,0,0,.5)'; lw(0.037 * u); // combing grooves
+    for (let f = 0.05; f < 0.96; f += 0.052) {
+      if (joints.some(j => Math.abs(f - j) < 0.055)) continue;
+      const [gx, gy] = P(f), [hx, hy] = P(f + 0.014);
+      ctx.beginPath(); ctx.moveTo(gx, gy); ctx.lineTo(hx, hy); ctx.stroke();
+    }
+    for (const j of joints) { // tuning slide (metal ferrule) + projecting mount (ivory)
+      const [ax, ay] = P(j - 0.014), [cx2, cy2] = P(j + 0.016);
+      seg(ax, ay, cx2, cy2, 0.041 * u, METAL);
+      const [dx, dy] = P(j + 0.020), [ex, ey] = P(j + 0.060);
+      seg(dx, dy, ex, ey, 0.053 * u, IVORY);
+      const [fx2, fy2] = P(j + 0.060), [gx2, gy2] = P(j + 0.070);
+      seg(fx2, fy2, gx2, gy2, 0.055 * u, WOOD_D);
+    }
+    const [c1x, c1y] = P(0.962), [c2x, c2y] = P(1.0); // ivory drone cap
+    seg(c1x, c1y, c2x, c2y, 0.050 * u, IVORY);
+    return P;
+  };
+  // common stock on the shoulder, ivory ring cap on top
+  ctx.fillStyle = WOOD_D;
+  ctx.beginPath();
+  ctx.moveTo(0.055 * u, -0.812 * u); ctx.lineTo(0.238 * u, -0.842 * u);
+  ctx.lineTo(0.228 * u, -0.905 * u); ctx.lineTo(0.065 * u, -0.875 * u); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = IVORY; ctx.fillRect(0.058 * u, -0.912 * u, 0.172 * u, 0.014 * u);
+  const bassP = droneDraw(0.088 * u, -0.885 * u, 0.010 * u, -1.365 * u, [0.34, 0.66]); // bass — three joints
+  const ten1P = droneDraw(0.148 * u, -0.890 * u, 0.138 * u, -1.175 * u, [0.5]);        // tenor 1
+  const ten2P = droneDraw(0.208 * u, -0.892 * u, 0.258 * u, -1.160 * u, [0.5]);        // tenor 2
+  // black drone cords linking the drones, tassels hanging at each sag
+  const cordSpan = (Pa, fa, Pb, fb) => {
+    const [x1, y1] = Pa(fa), [x2, y2] = Pb(fb);
+    const mx = (x1 + x2) / 2, my = Math.max(y1, y2) + 0.075 * u;
+    ctx.strokeStyle = '#17120e'; lw(0.011 * u);
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.quadraticCurveTo(mx, my + 0.055 * u, x2, y2); ctx.stroke();
+    ctx.fillStyle = '#17120e';
+    ctx.beginPath(); ctx.arc(mx, my + 0.030 * u, 0.013 * u, 0, 6.29); ctx.fill();
+    lw(0.006 * u);
+    for (let s = -2; s <= 2; s++) { ctx.beginPath(); ctx.moveTo(mx + s * 0.006 * u, my + 0.040 * u); ctx.lineTo(mx + s * 0.010 * u, my + 0.086 * u); ctx.stroke(); }
+  };
+  cordSpan(bassP, 0.50, ten1P, 0.55);
+  cordSpan(ten1P, 0.55, ten2P, 0.58);
+  // the bag in its tartan cover, tucked under the left arm
   ctx.save(); ctx.translate(-0.25 * u, -0.595 * u); ctx.scale(bagSX, bagSY);
-  ctx.beginPath(); ctx.ellipse(0, 0, 0.148 * u, 0.118 * u, -0.15, 0, 6.29);
-  ctx.fillStyle = '#6e1f28'; ctx.fill();
-  ctx.strokeStyle = 'rgba(245,233,208,.22)'; lw(0.012 * u);
-  for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(i * 0.07 * u, -0.14 * u); ctx.lineTo(i * 0.07 * u, 0.14 * u); ctx.stroke(); }
+  ctx.beginPath(); ctx.ellipse(0, 0, 0.152 * u, 0.120 * u, -0.15, 0, 6.29);
+  ctx.save(); ctx.clip();
+  tartan(-0.16 * u, -0.13 * u, 0.32 * u, 0.26 * u, '#5d2129', 'rgba(240,168,50,.30)', 'rgba(245,233,208,.22)');
   ctx.restore();
-  ctx.strokeStyle = '#17120c'; lw(0.034 * u);
-  ctx.beginPath(); ctx.moveTo(-0.245 * u, -0.70 * u); ctx.lineTo(-0.02 * u, -0.945 * u); ctx.stroke();
+  ctx.strokeStyle = 'rgba(0,0,0,.35)'; lw(0.010 * u);
+  ctx.beginPath(); ctx.ellipse(0, 0, 0.152 * u, 0.120 * u, -0.15, 0, 6.29); ctx.stroke();
+  ctx.restore();
+  // blowpipe: stock tied into the bag, ferrule midway, mouthpiece at the lips
+  seg(-0.352 * u, -0.664 * u, -0.300 * u, -0.694 * u, 0.056 * u, WOOD_D); // blowpipe stock
+  seg(-0.338 * u, -0.670 * u, -0.328 * u, -0.675 * u, 0.058 * u, IVORY);  // stock ring
+  seg(-0.322 * u, -0.688 * u, -0.030 * u, -0.936 * u, 0.029 * u, WOOD);  // blowpipe
+  seg(-0.155 * u, -0.858 * u, -0.129 * u, -0.828 * u, 0.037 * u, METAL); // ferrule
+  ctx.save(); ctx.translate(-0.018 * u, -0.947 * u); ctx.rotate(0.86);
+  ctx.fillStyle = IVORY; ctx.beginPath(); ctx.ellipse(0, 0, 0.015 * u, 0.029 * u, 0, 0, 6.29); ctx.fill(); // mouthpiece
+  ctx.restore();
   // legs, socks, shoes
   ctx.fillStyle = '#e8e0cc';
   ctx.fillRect(-0.088 * u, -0.245 * u, 0.056 * u, 0.225 * u);
@@ -784,21 +900,70 @@ function drawPiper(now, beatPh, crowdVis) {
   ctx.beginPath(); ctx.moveTo(0.15 * u, -0.80 * u); ctx.lineTo(0.035 * u, -0.635 * u); ctx.stroke();
   ctx.fillStyle = '#eec39b';
   ctx.beginPath(); ctx.arc(0.03 * u, -0.63 * u, 0.033 * u, 0, 6.29); ctx.fill();
-  // chanter hanging from the hands, finger lights per lane
+  // THE CHANTER — tapered blackwood in its stock, ivory sole at the foot,
+  // and the fingers play the TRUE fingering of the note sounding now.
+  const fing = FINGERING[S.curPitch].slice();
+  if (now < S.graceUntil) fing[1] = fing[1] ? 0 : 1; // G-grace flick: the G finger snaps
+  const chX = 0.024, chTop = -0.648, chBot = -0.222; // chanter centreline (× u)
+  const holeY = i => -0.596 + i * 0.0495; // 7 front holes, top → bottom
+  // hand backs behind the chanter
+  ctx.fillStyle = '#e0af82';
+  ctx.beginPath(); ctx.arc(0.002 * u, -0.612 * u, 0.034 * u, 0, 6.29); ctx.fill(); // top hand
+  ctx.beginPath(); ctx.arc(0.054 * u, -0.412 * u, 0.032 * u, 0, 6.29); ctx.fill(); // bottom hand
+  // chanter stock (tied into the bag) with its ivory ring
+  ctx.fillStyle = WOOD_D; ctx.fillRect(0.000 * u, -0.692 * u, 0.052 * u, 0.048 * u);
+  ctx.fillStyle = IVORY; ctx.fillRect(0.000 * u, -0.652 * u, 0.052 * u, 0.009 * u);
+  // body: a gentle cone flaring out to the sole
   ctx.beginPath();
-  ctx.moveTo(-0.004 * u, -0.645 * u); ctx.lineTo(0.048 * u, -0.645 * u);
-  ctx.lineTo(0.062 * u, -0.30 * u); ctx.lineTo(0.016 * u, -0.30 * u); ctx.closePath();
-  ctx.fillStyle = '#2a1608'; ctx.fill();
-  ctx.fillStyle = '#e8ddc4'; ctx.fillRect(0.014 * u, -0.315 * u, 0.05 * u, 0.016 * u);
-  ctx.fillStyle = '#0d0906';
-  for (let i = 0; i < 6; i++) { ctx.beginPath(); ctx.arc(0.030 * u, (-0.60 + i * 0.048) * u, 0.0075 * u, 0, 6.29); ctx.fill(); }
+  ctx.moveTo((chX - 0.026) * u, chTop * u); ctx.lineTo((chX + 0.026) * u, chTop * u);
+  ctx.lineTo((chX + 0.017) * u, -0.268 * u);
+  ctx.quadraticCurveTo((chX + 0.030) * u, -0.238 * u, (chX + 0.034) * u, chBot * u);
+  ctx.lineTo((chX - 0.034) * u, chBot * u);
+  ctx.quadraticCurveTo((chX - 0.030) * u, -0.238 * u, (chX - 0.017) * u, -0.268 * u);
+  ctx.closePath();
+  ctx.fillStyle = '#241407'; ctx.fill();
+  ctx.fillStyle = 'rgba(236,224,198,.15)';
+  ctx.fillRect((chX - 0.020) * u, chTop * u, 0.007 * u, (chBot - chTop) * u * 0.9); // sheen
+  // flared ivory sole
+  ctx.fillStyle = IVORY; ctx.fillRect((chX - 0.035) * u, (chBot - 0.004) * u, 0.070 * u, 0.016 * u);
+  // the 7 front holes and the fingers that work them
+  for (let i = 0; i < 7; i++) {
+    const hy = holeY(i), closed = fing[i + 1] === 1;
+    ctx.fillStyle = '#0a0603';
+    ctx.beginPath(); ctx.arc(chX * u, hy * u, 0.0085 * u, 0, 6.29); ctx.fill();
+    const topHand = i < 3, side = topHand ? -1 : 1; // top hand from the left, bottom from the right
+    const fx = chX + (closed ? side * 0.004 : side * 0.037), fy = hy + (closed ? 0 : -0.031);
+    ctx.save(); ctx.translate(fx * u, fy * u); ctx.rotate(side * (closed ? 0.5 : 0.95));
+    ctx.fillStyle = closed ? '#eec39b' : '#e8b98d';
+    ctx.beginPath(); ctx.ellipse(0, 0, 0.0135 * u, 0.026 * u, 0, 0, 6.29); ctx.fill();
+    ctx.fillStyle = 'rgba(120,70,30,.30)';
+    ctx.beginPath(); ctx.ellipse(0, 0.008 * u, 0.012 * u, 0.009 * u, 0, 0, 6.29); ctx.fill();
+    ctx.restore();
+  }
+  // the thumb works the back hole — it peeks at the top-left edge and
+  // lifts clear for high A, showing the open hole as a gold glint
+  { const tClosed = fing[0] === 1;
+    const tx = chX - (tClosed ? 0.031 : 0.054), ty = -0.614 + (tClosed ? 0 : -0.020);
+    ctx.save(); ctx.translate(tx * u, ty * u); ctx.rotate(-0.6);
+    ctx.fillStyle = '#eec39b';
+    ctx.beginPath(); ctx.ellipse(0, 0, 0.012 * u, 0.024 * u, 0, 0, 6.29); ctx.fill();
+    ctx.restore();
+    if (!tClosed) { ctx.fillStyle = '#ffd94d'; ctx.beginPath(); ctx.arc((chX - 0.018) * u, -0.614 * u, 0.006 * u, 0, 6.29); ctx.fill(); } }
+  // lane flashes still glow on the chanter — now anchored to real holes
+  const LANE_HOLE = [6, 4, 2, 0];
   for (let L = 0; L < 4; L++) {
     if (S.laneFlash[L] > 0.05) {
-      ctx.globalAlpha = S.laneFlash[L];
+      ctx.globalAlpha = S.laneFlash[L] * 0.9;
       ctx.fillStyle = '#ffd94d';
-      ctx.beginPath(); ctx.arc(0.028 * u, (-0.605 + L * 0.052) * u, 0.021 * u, 0, 6.29); ctx.fill();
+      ctx.beginPath(); ctx.arc(chX * u, holeY(LANE_HOLE[L]) * u, 0.023 * u, 0, 6.29); ctx.fill();
       ctx.globalAlpha = 1;
     }
+  }
+  // grace-note sparkle at the G finger while the flick is on
+  if (now < S.graceUntil) {
+    ctx.fillStyle = '#ffd94d';
+    ctx.font = '700 ' + (0.08 * u) + 'px Georgia, serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('✦', (chX - 0.058) * u, (holeY(0) - 0.048) * u);
   }
   // head + glengarry
   ctx.fillStyle = '#eec39b';
@@ -1091,6 +1256,12 @@ window.__qa = {
     crowd: Math.round(S.crowd * 10) / 10, perfect: S.nPerfect, good: S.nGood, miss: S.nMiss,
     notes: S.chart.length, pos: Math.round(songPos() * 100) / 100, dur: Math.round(S.dur * 10) / 10,
     failed: S.failed, paused: S.paused, errs: window.__errs,
+    cur: S.curPitch, grace: S.graceCount,
+  }),
+  pipe: () => ({
+    lowA: LOW_A_HZ, tenor: TENOR_HZ, bass: BASS_HZ,
+    freqs: FREQS.map(f => Math.round(f * 100) / 100), names: NOTE_NAMES,
+    fingering: FINGERING, cur: S.curPitch,
   }),
   start: i => { startSong(i == null ? S.selTune : i); return true; },
   setAuto: v => { S.qaAuto = !!v; return S.qaAuto; },
