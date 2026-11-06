@@ -68,6 +68,82 @@ function bindTouch(id, prop) {
 bindTouch('tLeft', 'left'); bindTouch('tRight', 'right'); bindTouch('tRoll', 'down'); bindTouch('tJump', 'jump');
 const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 
+/* ---------------- virtual thumbstick (default touch control) ----------------
+   Floating stick: touch anywhere in the left zone and the base lands under
+   the thumb. Horizontal push is ANALOG (scales the existing accel), push
+   DOWN past the gate = roll/crouch. Classic pad stays selectable. */
+let ctrlMode = 'stick';
+try { if (localStorage.getItem('luncRushControls') === 'pad') ctrlMode = 'pad'; } catch (e) {}
+const stick = { x: 0, down: false, id: null, ox: 0, oy: 0, live: false };
+const STICK_R = 52;
+function inputAxis() { // -1..1 merged axis: keys win, else analog stick
+  const k = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+  return k !== 0 ? k : stick.x;
+}
+function downHeld() { return keys.down || stick.down; }
+function stickHome() {
+  const b = $('stickBase'), z = $('stickZone'); if (!b || !z) return;
+  const zr = z.getBoundingClientRect(); // base is positioned relative to the zone
+  b.style.left = (86 - zr.left) + 'px'; b.style.top = (window.innerHeight - 116 - zr.top) + 'px';
+  $('stickKnob').style.transform = 'translate(0px,0px)';
+}
+function stickSet(cx, cy) {
+  let dx = cx - stick.ox, dy = cy - stick.oy;
+  const d = Math.hypot(dx, dy);
+  if (d > STICK_R) { dx *= STICK_R / d; dy *= STICK_R / d; }
+  $('stickKnob').style.transform = `translate(${dx}px,${dy}px)`;
+  const nx = dx / STICK_R, ny = dy / STICK_R;
+  stick.x = Math.abs(nx) < 0.16 ? 0 : nx;
+  stick.down = ny > 0.52;
+}
+function stickRelease() {
+  stick.x = 0; stick.down = false; stick.id = null; stick.live = false;
+  stickHome();
+}
+function stickBegin(cx, cy, id) {
+  stick.id = id; stick.ox = cx; stick.oy = cy; stick.live = true;
+  const b = $('stickBase'), zr = $('stickZone').getBoundingClientRect();
+  b.style.left = (cx - zr.left) + 'px'; b.style.top = (cy - zr.top) + 'px';
+  stickSet(cx, cy);
+  audio();
+}
+(function wireStick() {
+  const zoneEl = $('stickZone'); if (!zoneEl) return;
+  zoneEl.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    if (stick.id !== null) return;
+    const t = e.changedTouches[0];
+    stickBegin(t.clientX, t.clientY, t.identifier);
+  }, { passive: false });
+  zoneEl.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    for (const t of e.changedTouches) if (t.identifier === stick.id) stickSet(t.clientX, t.clientY);
+  }, { passive: false });
+  const end = (e) => { for (const t of e.changedTouches) if (t.identifier === stick.id) stickRelease(); };
+  zoneEl.addEventListener('touchend', end); zoneEl.addEventListener('touchcancel', end);
+  zoneEl.addEventListener('mousedown', (e) => {
+    if (stick.id !== null) return;
+    stickBegin(e.clientX, e.clientY, 'mouse');
+    const mv = (ev) => { if (stick.id === 'mouse') stickSet(ev.clientX, ev.clientY); };
+    const up = () => { if (stick.id === 'mouse') stickRelease(); window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); };
+    window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up);
+  });
+})();
+function syncTouchUI() {
+  const on = $('touch').classList.contains('on');
+  const stickMode = ctrlMode === 'stick';
+  $('touch').classList.toggle('stickmode', stickMode);
+  const z = $('stickZone');
+  if (z) z.classList.toggle('on', on && stickMode && isTouch);
+  if (!(on && stickMode)) stickRelease(); else stickHome();
+}
+function setControls(m) {
+  ctrlMode = m;
+  try { localStorage.setItem('luncRushControls', m); } catch (e) {}
+  stickRelease(); applyLang(); syncTouchUI();
+}
+function toggleControls() { audio(); setControls(ctrlMode === 'stick' ? 'pad' : 'stick'); }
+
 /* ---------------- terrain ----------------
    Span: {x0,x1,y0,y1,k,d}  k: 'lin' | 'arc' (cosine ease) | 'dip' (y0->y1 + d*sin(pi t)) */
 function spanY(s, x) {
@@ -115,7 +191,18 @@ function buildZones() {
     { x0: 4700, x1: 5600, y0: 380, y1: 380, k: 'lin' },
     { x0: 5600, x1: 5900, y0: 380, y1: 430, k: 'arc' },
     { x0: 5900, x1: 6650, y0: 430, y1: 430, k: 'lin' },
-  ], { len: 6650, beacon: 6480, par: 70, theme: 0, ckpt: 3300 });
+    { x0: 6650, x1: 7150, y0: 430, y1: 430, k: 'lin' },
+    { x0: 7150, x1: 7750, y0: 430, y1: 430, k: 'dip', d: 110 },
+    { x0: 7750, x1: 8300, y0: 430, y1: 372, k: 'lin' },
+    { x0: 8300, x1: 9300, y0: 372, y1: 372, k: 'lin' },
+    { x0: 9300, x1: 9750, y0: 372, y1: 430, k: 'arc' },
+    { x0: 9750, x1: 10950, y0: 430, y1: 430, k: 'lin' },
+    { x0: 10950, x1: 11550, y0: 430, y1: 430, k: 'dip', d: 80 },
+    { x0: 11550, x1: 12100, y0: 430, y1: 385, k: 'lin' },
+    { x0: 12100, x1: 12700, y0: 385, y1: 385, k: 'lin' },
+    { x0: 12700, x1: 13000, y0: 385, y1: 430, k: 'arc' },
+    { x0: 13000, x1: 13450, y0: 430, y1: 430, k: 'lin' },
+  ], { len: 13450, beacon: 13290, par: 135, theme: 0, ckpt: 8300 });
   z1.loops.push({ cx: 2050, r: 112, gy: 430 });
   z1.corks.push({ x0: 4860, x1: 5460, r: 62, turns: 1 });
   z1.springs.push({ x: 3460, y: 430, pow: 1090, anim: 0 });
@@ -126,6 +213,17 @@ function buildZones() {
   coinSurf(z1, 2820, 3240, 6, 40); coinLine(z1, 3640, 4280, 264, 7); coinSurf(z1, 4480, 4660, 3);
   corkCoins(z1, z1.corks[0], 9); coinSurf(z1, 5960, 6400, 6);
   star(z1, 4300, 252); starSurf(z1, 5540, 48); starSurf(z1, 3260, 54);
+  /* Z1 extension: dip valley, sea-bridge corkscrew (1.5 turns), loop 2, spring shelf */
+  z1.loops.push({ cx: 10450, r: 118, gy: 430 });
+  z1.corks.push({ x0: 8450, x1: 9250, r: 64, turns: 1.5 });
+  z1.springs.push({ x: 11700, y: 418, pow: 1090, anim: 0 });
+  z1.plats.push({ x0: 11820, x1: 12460, y: 300 });
+  z1.enemies.push({ type: 'candle', x: 6880, range: 52, sp: 28 }, { type: 'drone', x: 9550, y0: 300, range: 54 }, { type: 'candle', x: 11200, range: 48, sp: 27 }, { type: 'drone', x: 12340, y0: 252, range: 54 }, { type: 'candle', x: 13180, range: 40, sp: 26 });
+  coinSurf(z1, 6720, 7100, 5); coinSurf(z1, 7220, 7680, 5, 44); coinSurf(z1, 7820, 8240, 4);
+  corkCoins(z1, z1.corks[1], 10); coinSurf(z1, 9360, 9700, 4);
+  coinSurf(z1, 9850, 10150, 4); loopCoins(z1, z1.loops[1], 6);
+  coinSurf(z1, 11000, 11500, 5, 42); coinLine(z1, 11880, 12400, 268, 6); coinSurf(z1, 13040, 13360, 5);
+  starSurf(z1, 7450, 56); star(z1, 12150, 252); starSurf(z1, 13260, 48);
 
   /* ===== ZONE 2 — Validator City ===== */
   const z2 = mk([
@@ -140,7 +238,17 @@ function buildZones() {
     { x0: 5450, x1: 5800, y0: 350, y1: 430, k: 'arc' },
     { x0: 5800, x1: 6180, y0: 430, y1: 430, k: 'lin' },
     { x0: 6245, x1: 7020, y0: 430, y1: 430, k: 'lin' },
-  ], { len: 7020, beacon: 6880, par: 80, theme: 1, ckpt: 3100 });
+    { x0: 7020, x1: 7750, y0: 430, y1: 430, k: 'lin' },
+    { x0: 7750, x1: 8300, y0: 430, y1: 352, k: 'lin' },
+    { x0: 8300, x1: 9050, y0: 352, y1: 352, k: 'lin' },
+    { x0: 9050, x1: 9650, y0: 352, y1: 430, k: 'arc' },
+    { x0: 9650, x1: 10400, y0: 430, y1: 430, k: 'lin' },
+    { x0: 10400, x1: 11000, y0: 430, y1: 355, k: 'lin' },
+    { x0: 11000, x1: 11750, y0: 355, y1: 355, k: 'lin' },
+    { x0: 11750, x1: 12150, y0: 355, y1: 430, k: 'arc' },
+    { x0: 12150, x1: 12900, y0: 430, y1: 430, k: 'dip', d: 95 },
+    { x0: 12900, x1: 14040, y0: 430, y1: 430, k: 'lin' },
+  ], { len: 14040, beacon: 13890, par: 155, theme: 1, ckpt: 6300 });
   z2.loops.push({ cx: 3420, r: 116, gy: 430 });
   z2.corks.push({ x0: 4900, x1: 5420, r: 60, turns: 1 });
   z2.springs.push({ x: 3900, y: 430, pow: 1070, anim: 0 });
@@ -150,6 +258,16 @@ function buildZones() {
   coinSurf(z2, 2680, 3000, 4); loopCoins(z2, z2.loops[0], 5); coinLine(z2, 4100, 4640, 260, 6);
   corkCoins(z2, z2.corks[0], 8); coinSurf(z2, 5840, 6140, 4); coinSurf(z2, 6300, 6820, 6);
   starSurf(z2, 2540, 48); star(z2, 4620, 248); starSurf(z2, 6330, 48);
+  /* Z2 extension: rooftop spring chain (2 springs, 2 plats), corkscrew 2, half-pipe dip */
+  z2.corks.push({ x0: 9820, x1: 10380, r: 60, turns: 1 });
+  z2.springs.push({ x: 8380, y: 352, pow: 1020, anim: 0 }, { x: 9120, y: 262, pow: 980, anim: 0 });
+  z2.plats.push({ x0: 8500, x1: 9200, y: 262 }, { x0: 9280, x1: 9950, y: 180 });
+  z2.enemies.push({ type: 'candle', x: 7360, range: 56, sp: 30 }, { type: 'drone', x: 8760, y0: 168, range: 46 }, { type: 'candle', x: 10760, range: 48, sp: 27 }, { type: 'drone', x: 11400, y0: 250, range: 64 }, { type: 'drone', x: 12550, y0: 322, range: 58 }, { type: 'candle', x: 13380, range: 58, sp: 31 });
+  coinSurf(z2, 7080, 7700, 7); coinSurf(z2, 7820, 8240, 5);
+  coinLine(z2, 8560, 9140, 230, 6); coinLine(z2, 9340, 9890, 148, 6);
+  corkCoins(z2, z2.corks[1], 9); coinSurf(z2, 10460, 10940, 5); coinSurf(z2, 11060, 11700, 6);
+  coinSurf(z2, 12200, 12850, 6, 42); coinSurf(z2, 12960, 13820, 8);
+  star(z2, 9600, 132); star(z2, 10100, 322); starSurf(z2, 13600, 48);
 
   /* ===== ZONE 3 — Orbit Station ===== */
   const z3 = mk([
@@ -163,7 +281,18 @@ function buildZones() {
     { x0: 4900, x1: 5800, y0: 355, y1: 355, k: 'lin' },
     { x0: 5800, x1: 6300, y0: 355, y1: 430, k: 'arc' },
     { x0: 6300, x1: 7220, y0: 430, y1: 430, k: 'lin' },
-  ], { len: 7220, beacon: 7060, par: 90, theme: 2, grav: 1500, jump: 905, ckpt: 3300 });
+    { x0: 7220, x1: 7950, y0: 430, y1: 430, k: 'lin' },
+    { x0: 7950, x1: 8700, y0: 430, y1: 430, k: 'dip', d: 120 },
+    { x0: 8700, x1: 9300, y0: 430, y1: 350, k: 'lin' },
+    { x0: 9300, x1: 10100, y0: 350, y1: 350, k: 'lin' },
+    { x0: 10100, x1: 10600, y0: 350, y1: 430, k: 'arc' },
+    { x0: 10600, x1: 11800, y0: 430, y1: 430, k: 'lin' },
+    { x0: 11800, x1: 12400, y0: 430, y1: 430, k: 'dip', d: -70 },
+    { x0: 12400, x1: 13100, y0: 430, y1: 430, k: 'dip', d: 90 },
+    { x0: 13100, x1: 13650, y0: 430, y1: 368, k: 'lin' },
+    { x0: 13650, x1: 14150, y0: 368, y1: 368, k: 'lin' },
+    { x0: 14150, x1: 14440, y0: 368, y1: 430, k: 'arc' },
+  ], { len: 14440, beacon: 14310, par: 175, theme: 2, grav: 1500, jump: 905, ckpt: 9300 });
   z3.loops.push({ cx: 3560, r: 122, gy: 430 });
   z3.corks.push({ x0: 5060, x1: 5660, r: 66, turns: 1 });
   z3.springs.push({ x: 4060, y: 430, pow: 1000, anim: 0 });
@@ -173,6 +302,15 @@ function buildZones() {
   coinSurf(z3, 2780, 3140, 4); loopCoins(z3, z3.loops[0], 5); coinLine(z3, 4260, 4840, 256, 6);
   corkCoins(z3, z3.corks[0], 9); coinSurf(z3, 6380, 6980, 7);
   starSurf(z3, 1200, 52); star(z3, 4820, 244); starSurf(z3, 5740, 48);
+  /* Z3 extension: low-grav swoop, loop 2, long float-arc (crest + valley), final deck */
+  z3.loops.push({ cx: 11300, r: 124, gy: 430 });
+  z3.enemies.push({ type: 'drone', x: 7620, y0: 306, range: 58 }, { type: 'candle', x: 9580, range: 46, sp: 27 }, { type: 'candle', x: 10980, range: 44, sp: 26 }, { type: 'drone', x: 13380, y0: 300, range: 56 }, { type: 'candle', x: 13920, range: 42, sp: 25 });
+  coinSurf(z3, 7280, 7900, 7); coinSurf(z3, 8030, 8620, 6, 46); coinSurf(z3, 8760, 9240, 5);
+  coinSurf(z3, 9360, 10040, 6); coinSurf(z3, 10160, 10540, 4);
+  coinSurf(z3, 10660, 11020, 4); loopCoins(z3, z3.loops[1], 6);
+  coinSurf(z3, 11880, 12360, 6, 128); coinSurf(z3, 12460, 13040, 5, 44);
+  coinSurf(z3, 13160, 13600, 4); coinSurf(z3, 13710, 14100, 4); coinSurf(z3, 14190, 14390, 3);
+  starSurf(z3, 10020, 50); star(z3, 12100, 268); starSurf(z3, 14020, 50);
   return Z;
 }
 const ZONES = buildZones();
@@ -212,6 +350,7 @@ function startRun() {
   $('titleScreen').classList.add('hidden'); $('endScreen').classList.add('hidden'); $('pauseScreen').classList.add('hidden');
   $('langSel').classList.add('hidden');
   $('hud').classList.remove('hidden'); if (isTouch) $('touch').classList.add('on');
+  syncTouchUI();
   audio();
 }
 function corkAt(z, x) { for (const c of z.corks) if (x >= c.x0 && x <= c.x1) return c; return null; }
@@ -281,10 +420,10 @@ function step(dt) {
     const prevX = P.x;
     if (P.onPlat) {
       const pl = P.onPlat;
-      let acc = 0; const dir = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
-      if (!P.rolling && dir !== 0) acc += dir * (Math.sign(dir) !== Math.sign(P.g) && P.g !== 0 ? BRAKE : ACC);
+      let acc = 0; const ax = inputAxis();
+      if (!P.rolling && ax !== 0) acc += ax * (Math.sign(ax) !== Math.sign(P.g) && P.g !== 0 ? BRAKE : ACC);
       P.g += acc * dt;
-      if (!P.rolling && dir === 0) P.g = approach(P.g, 0, FRIC * dt);
+      if (!P.rolling && ax === 0) P.g = approach(P.g, 0, FRIC * dt);
       if (P.rolling) P.g = approach(P.g, 0, ROLLFRIC * dt);
       P.x += P.g * dt; P.facing = P.g >= 0 ? 1 : -1; if (P.g !== 0) P.facing = Math.sign(P.g);
       if (P.x < pl.x0 || P.x > pl.x1) {
@@ -297,14 +436,14 @@ function step(dt) {
       if (!s0) { P.grounded = false; P.mode = 'air'; P.vx = P.g; P.vy = 0; }
       else {
         P.ang = s0.ang;
-        const dir = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
-        if (P.rolling && dir !== 0 && Math.sign(dir) !== Math.sign(P.g) && Math.abs(P.g) < 300) P.rolling = false;
-        if (!P.rolling && keys.down && Math.abs(P.g) > 70) { P.rolling = true; sfx.roll(); }
+        const ax = inputAxis();
+        if (P.rolling && ax !== 0 && Math.sign(ax) !== Math.sign(P.g) && Math.abs(P.g) < 300) P.rolling = false;
+        if (!P.rolling && downHeld() && Math.abs(P.g) > 70) { P.rolling = true; sfx.roll(); }
         let acc = Math.sin(P.ang) * G * (P.rolling ? 1.55 : 1.0);
         if (P.rolling) acc += -Math.sign(P.g) * ROLLFRIC;
-        else if (dir !== 0) acc += dir * (Math.sign(dir) !== Math.sign(P.g) && P.g !== 0 ? BRAKE : ACC);
+        else if (ax !== 0) acc += ax * (Math.sign(ax) !== Math.sign(P.g) && P.g !== 0 ? BRAKE : ACC);
         P.g += acc * dt;
-        if (!P.rolling && dir === 0 && Math.abs(Math.sin(P.ang)) < 0.045) P.g = approach(P.g, 0, FRIC * dt);
+        if (!P.rolling && ax === 0 && Math.abs(Math.sin(P.ang)) < 0.045) P.g = approach(P.g, 0, FRIC * dt);
         if (Math.abs(P.g) > 980) P.g -= P.g * 0.22 * dt;
         if (P.g > MAXG) P.g = MAXG; if (P.g < -MAXG) P.g = -MAXG;
         if (P.g !== 0) P.facing = Math.sign(P.g);
@@ -312,7 +451,7 @@ function step(dt) {
         const s2 = surfaceAt(z, P.x);
         if (!s2) { P.grounded = false; P.mode = 'air'; P.vx = Math.cos(P.ang) * P.g; P.vy = Math.sin(P.ang) * P.g; P.spin = P.rolling; }
         else { P.y = s2.y; P.ang = s2.ang; }
-        if (P.rolling && Math.abs(P.g) < 55 && !keys.down) P.rolling = false;
+        if (P.rolling && Math.abs(P.g) < 55 && !downHeld()) P.rolling = false;
         // loop trigger (crossing the loop's bottom point at speed)
         if (P.grounded && state === 'play') {
           for (const L of z.loops) {
@@ -324,8 +463,7 @@ function step(dt) {
     }
     if (P.grounded) P.runPhase += Math.abs(P.g) * dt * 0.055;
   } else if (P.mode === 'air') {
-    const dir = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
-    P.vx += dir * AIRACC * dt; if (P.vx > 1180) P.vx = 1180; if (P.vx < -1180) P.vx = -1180;
+    P.vx += inputAxis() * AIRACC * dt; if (P.vx > 1180) P.vx = 1180; if (P.vx < -1180) P.vx = -1180;
     P.vy += G * dt; if (P.vy > 1500) P.vy = 1500;
     if (!keys.jump && !P.cut && P.vy < -330) { P.vy *= 0.45; P.cut = true; }
     const prevY = P.y;
@@ -405,7 +543,7 @@ function zoneClear() {
 }
 function endRun(finishedGame) {
   state = finishedGame ? 'finish' : 'over';
-  $('touch').classList.remove('on'); $('langSel').classList.remove('hidden');
+  $('touch').classList.remove('on'); syncTouchUI(); $('langSel').classList.remove('hidden');
   $('endTitle').textContent = finishedGame ? T('finish') : T('over');
   $('endScore').textContent = score.toLocaleString();
   $('endStats').innerHTML = '🪙 <b>' + coinsHeld + '</b> ' + T('coinsWord') + ' · <span style="color:#5ea0ff">★</span> <b>' + starsHeld + '</b> ' + T('starsWord') + ' · ⏱ <b>' + fmtTime(runTime) + '</b>';
@@ -635,7 +773,7 @@ function drawSilhouettes(theme, t) {
       }
     }
     // neon signs in world space
-    const signs = [[1050, 268, 'LUNC', '#ffd23e'], [2280, 283, 'USTC', '#5ea0ff'], [3350, 300, 'VALIDATOR', '#ff7ad9'], [4700, 258, 'BLOCK 31160', '#7CFC98'], [6000, 330, 'LUNA CLASSIC', '#ffd23e']];
+    const signs = [[1050, 268, 'LUNC', '#ffd23e'], [2280, 283, 'USTC', '#5ea0ff'], [3350, 300, 'VALIDATOR', '#ff7ad9'], [4700, 258, 'BLOCK 31160', '#7CFC98'], [6000, 330, 'LUNA CLASSIC', '#ffd23e'], [8150, 296, 'ROOFTOPS', '#2fd4ff'], [12150, 300, 'BLOCK 31161', '#7CFC98'], [13450, 322, 'LUNC RUSH', '#ffd23e']];
     ctx.textAlign = 'center'; ctx.font = '900 21px Arial';
     for (const [sx, sy, txt, col] of signs) { if (sx < camX - 200 || sx > camX + VIEWW + 200) continue; ctx.shadowColor = col; ctx.shadowBlur = 16; ctx.fillStyle = col; ctx.fillText(txt, sx, sy); ctx.shadowBlur = 0; }
   } else {
@@ -845,7 +983,7 @@ function drawDecorBack(theme, t) {
   const x0 = camX - 90, x1 = camX + VIEWW + 90;
   if (theme === 0) {
     // fixed story signs
-    const signs = [[430, 'MOONRISE →'], [1830, 'LOOP AHEAD'], [2500, 'LUNC · 2 MI'], [4650, 'CORKSCREW →'], [6120, 'GOAL →']];
+    const signs = [[430, 'MOONRISE →'], [1830, 'LOOP AHEAD'], [2500, 'LUNC · 2 MI'], [4650, 'CORKSCREW →'], [6120, 'HALFWAY →'], [8120, 'BRIDGE →'], [10050, 'LOOP 2 →'], [13060, 'GOAL →']];
     for (const [sx, txt] of signs) { if (sx < x0 || sx > x1) continue; const s = surfaceAt(zone, sx); if (s) drawWoodSign(sx, s.y, txt); }
     // fences on flat ground (posts + rails between neighbours)
     const posts = [];
@@ -892,7 +1030,7 @@ function drawDecorBack(theme, t) {
     }
   } else if (theme === 1) {
     for (let x = Math.floor(x0 / 520) * 520 + 150; x < x1; x += 520) { const s = surfaceAt(zone, x); if (s && !decorBlocked(x)) drawCityLamp(x, s.y, t); }
-    const signs = [[900, 'NODE-7', '#7CFC98'], [2560, '24H SYNC', '#5ea0ff'], [4520, 'VALIDATOR', '#ff7ad9'], [5920, 'LUNC →', '#ffd23e']];
+    const signs = [[900, 'NODE-7', '#7CFC98'], [2560, '24H SYNC', '#5ea0ff'], [4520, 'VALIDATOR', '#ff7ad9'], [5920, 'LUNC →', '#ffd23e'], [7260, 'NODE-8', '#7CFC98'], [9680, 'CORKSCREW', '#2fd4ff'], [12680, 'LUNC →', '#ffd23e'], [13620, 'GOAL →', '#ffd23e']];
     ctx.textAlign = 'center';
     for (const [sx, txt, col] of signs) {
       if (sx < x0 || sx > x1) continue;
@@ -921,7 +1059,7 @@ function drawDecorBack(theme, t) {
     ctx.fillStyle = '#ffd23e';
     for (const [px, py] of posts) ctx.fillRect(px - 2, py - 27, 4, 3);
     // floating holo signs
-    const signs = [[820, 'DOCK 7'], [2180, 'AIRLOCK →'], [3980, 'LOOP AHEAD'], [6080, 'LUNA →']];
+    const signs = [[820, 'DOCK 7'], [2180, 'AIRLOCK →'], [3980, 'LOOP AHEAD'], [6080, 'LUNA →'], [9050, 'DOCK 9'], [10950, 'LOOP 2 →'], [12750, 'FLOAT ARC'], [14050, 'GOAL →']];
     ctx.textAlign = 'center';
     for (const [sx, txt] of signs) {
       if (sx < x0 || sx > x1) continue;
@@ -1337,6 +1475,9 @@ function applyLang() {
   $('pauseTitle').textContent = T('paused'); $('resumeBtn').textContent = T('resume'); $('quitBtn').textContent = T('quit');
   $('submitBtn').textContent = T('submit'); $('againBtn').textContent = T('again'); $('endBoardBtn').textContent = T('board');
   $('nameInput').placeholder = T('namePh');
+  const cl = T('controls') + ': ' + (ctrlMode === 'stick' ? T('stick') : T('pad'));
+  if ($('ctrlBtn')) $('ctrlBtn').textContent = cl;
+  if ($('ctrlBtnP')) $('ctrlBtnP').textContent = cl;
   if (state === 'finish') $('endTitle').textContent = T('finish'); else if (state === 'over') $('endTitle').textContent = T('over');
 }
 const langSel = $('langSel');
@@ -1393,11 +1534,13 @@ function togglePause() {
   $('pauseScreen').classList.toggle('hidden', !paused);
 }
 $('pauseBtn').onclick = () => togglePause();
+if ($('ctrlBtn')) $('ctrlBtn').onclick = () => toggleControls();
+if ($('ctrlBtnP')) $('ctrlBtnP').onclick = () => toggleControls();
 $('resumeBtn').onclick = () => togglePause();
 $('quitBtn').onclick = () => {
   paused = false; $('pauseScreen').classList.add('hidden');
   state = 'title'; zone = freshZone(0); P.x = 70; const s = surfaceAt(zone, P.x); P.y = s ? s.y : 430; P.g = 0; P.vx = 0; P.vy = 0; P.grounded = true; P.mode = 'ground'; P.rolling = false; P.spin = false;
-  $('hud').classList.add('hidden'); $('touch').classList.remove('on'); $('endScreen').classList.add('hidden'); $('titleScreen').classList.remove('hidden'); $('langSel').classList.remove('hidden');
+  $('hud').classList.add('hidden'); $('touch').classList.remove('on'); syncTouchUI(); $('endScreen').classList.add('hidden'); $('titleScreen').classList.remove('hidden'); $('langSel').classList.remove('hidden');
 };
 $('muteBtn').onclick = () => { muted = !muted; try { localStorage.setItem('luncRushMute', muted ? '1' : '0'); } catch (e) {} $('muteBtn').textContent = muted ? '🔇' : '🔊'; if (!muted) sfx.coin(0); };
 document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'play' && !paused) togglePause(); });
@@ -1406,7 +1549,9 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && sta
 zone = freshZone(0);
 { const s = surfaceAt(zone, P.x); if (s) P.y = s.y; }
 $('muteBtn').textContent = muted ? '🔇' : '🔊';
-applyLang(); hud();
+if (!isTouch) { if ($('ctrlBtn')) $('ctrlBtn').style.display = 'none'; if ($('ctrlBtnP')) $('ctrlBtnP').style.display = 'none'; }
+window.addEventListener('resize', () => { if (!stick.live) stickHome(); });
+applyLang(); hud(); syncTouchUI();
 requestAnimationFrame(frame);
 window.__LR = {
   state() { const c = zone ? corkAt(zone, P.x) : null; return { state, paused, zone: zi, x: Math.round(P.x), y: Math.round(P.y), g: Math.round(P.g), vx: Math.round(P.vx), vy: Math.round(P.vy), mode: P.mode, grounded: P.grounded, rolling: P.rolling, spin: P.spin, coins: coinsHeld, stars: starsHeld, score, hearts, la: +P.la.toFixed(2), ls: Math.round(P.ls), cork: !!(c && P.grounded), beta: c ? +corkBeta(c, P.x).toFixed(2) : null, time: +runTime.toFixed(1), errs: window.__errs.slice(0, 5) }; },
@@ -1417,6 +1562,10 @@ window.__LR = {
   hurt() { P.invuln = 0; hurt(); },
   key(k, v) { keys[k] = v; },
   jump() { pressJump(); },
+  stick(x, down) { stick.x = x; stick.down = !!down; },
+  stickState() { return { x: +stick.x.toFixed(2), down: stick.down, live: stick.live, mode: ctrlMode, zoneOn: $('stickZone') ? $('stickZone').classList.contains('on') : null, padVisible: (() => { const el = $('padLeft'); if (!el) return null; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; })() }; },
+  setControls(m) { setControls(m); },
+  controls() { return ctrlMode; },
   setLang(l) { if (I18N[l]) { LANG_CUR = l; langSel.value = l; applyLang(); } },
-  zoneInfo() { return { len: zone.len, beacon: zone.beacon, loops: zone.loops, corks: zone.corks, killY: zone.killY }; },
+  zoneInfo() { return { len: zone.len, beacon: zone.beacon, par: zone.par, coins: zone.coins.length, stars: zone.stars.length, enemies: zone.enemies.length, springs: zone.springs.length, plats: zone.plats.length, loops: zone.loops, corks: zone.corks, killY: zone.killY }; },
 };
