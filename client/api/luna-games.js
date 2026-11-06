@@ -100,6 +100,12 @@ const GAMES = {
      stores the best run's level from body.level, like Cookie
      Sniper; the game still sends its levels field too. */
   'cookie-dash': { prefix: 'cd', maxScore: 400000, minSec: 3, maxSec: 7200, rateMul: 60, rateBase: 30000, withLevel: true },
+  /* Pipe Hero (bagpipe rhythm): score is PERFECT 100 / GOOD 40 times a
+     combo multiplier up to x8; the hardest chart (~175 notes) played
+     perfectly tops out around ~112k, so the cap stays generous per
+     the house rule. rateMul is sized from that same ceiling: a 36s
+     perfect run must fit seconds*rateMul + rateBase. */
+  'pipe-hero': { prefix: 'pipe', maxScore: 250000, minSec: 5, maxSec: 3600, rateMul: 4000, rateBase: 5000 },
 };
 
 function weekKey(d = new Date()) {

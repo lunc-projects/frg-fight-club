@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>PIPE HERO</title>
+<style>
+  :root{
+    --amber:#f0a832; --amber2:#ffcf5e; --cream:#f5e9d0; --red:#c22e3a;
+    --green:#3f9e4d; --wood:#2a1a0e; --ink:#17100a;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{width:100%;height:100%;overflow:hidden;background:#120b06;color:var(--cream);
+    font-family:"Segoe UI",system-ui,Roboto,Arial,sans-serif}
+  #game{position:fixed;inset:0}
+  canvas{display:block}
+  .serif{font-family:Georgia,"Times New Roman",serif}
+  /* ---------- HUD ---------- */
+  #hud{position:fixed;inset:0;pointer-events:none;z-index:5;display:none}
+  #topbar{position:absolute;top:8px;left:12px;right:12px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+  .stat .lab{font-size:9px;letter-spacing:.3em;font-weight:700;opacity:.8}
+  .stat .val{font-size:clamp(19px,5.2vw,28px);font-weight:900;line-height:1;text-shadow:0 2px 8px #000}
+  .stat.mid{text-align:center}
+  .stat.right{text-align:right}
+  #comboVal{color:var(--amber2)}
+  #crowdWrap{position:absolute;top:52px;left:50%;transform:translateX(-50%);width:min(62vw,320px);text-align:center}
+  #crowdWrap .clab{font-size:9px;letter-spacing:.34em;font-weight:700;opacity:.85;margin-bottom:3px;text-shadow:0 1px 6px #000}
+  #crowdShell{height:11px;background:rgba(10,6,3,.72);border:1px solid rgba(245,233,208,.5);border-radius:6px;overflow:hidden}
+  #crowdFill{height:100%;width:60%;background:linear-gradient(90deg,#57b25e,#a8d95e);transition:width .18s}
+  #crowdFill.low{background:linear-gradient(90deg,#c22e3a,#e06a3b)}
+  #muteBtn,#pauseBtn{pointer-events:auto;cursor:pointer;position:absolute;top:88px;width:42px;height:42px;border-radius:50%;
+    border:1px solid rgba(245,233,208,.45);background:rgba(10,6,3,.62);color:var(--cream);font-size:17px;
+    display:flex;align-items:center;justify-content:center}
+  #muteBtn{right:12px}
+  #pauseBtn{left:12px;font-size:14px}
+  #songLab{position:absolute;top:88px;left:50%;transform:translateX(-50%);font-size:11px;letter-spacing:.22em;
+    font-weight:700;color:var(--amber2);text-shadow:0 1px 6px #000;opacity:.9;white-space:nowrap}
+  /* ---------- screens ---------- */
+  .screen{position:fixed;inset:0;z-index:10;display:none;flex-direction:column;align-items:center;overflow-y:auto;
+    padding:3.2vh 14px 4vh;text-align:center;
+    background:linear-gradient(180deg,rgba(10,6,3,.55) 0%,rgba(10,6,3,.18) 38%,rgba(10,6,3,.35) 68%,rgba(10,6,3,.9) 100%)}
+  /* pub sign logo */
+  #logo{margin-top:1vh;background:linear-gradient(180deg,#3a2412,#241407);border:3px solid var(--amber);
+    border-radius:14px;padding:12px 30px 10px;box-shadow:0 10px 34px rgba(0,0,0,.6), inset 0 0 0 2px rgba(0,0,0,.55), inset 0 0 26px rgba(240,168,50,.22)}
+  #logo .l1{font-family:Georgia,"Times New Roman",serif;font-size:clamp(38px,10.5vw,64px);font-weight:700;
+    letter-spacing:.08em;line-height:1;color:var(--amber2);text-shadow:0 3px 0 #6b3d05,0 6px 18px rgba(0,0,0,.7)}
+  #logo .tag{margin-top:5px;letter-spacing:.34em;font-size:clamp(9px,2vw,12px);font-weight:700;color:var(--cream);opacity:.92}
+  #langRow{margin-top:14px;display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.18em;font-weight:700;opacity:.95}
+  #langSel{pointer-events:auto;font-family:inherit;font-size:13px;font-weight:700;color:var(--ink);
+    background:var(--cream);border:2px solid var(--amber);border-radius:8px;padding:6px 8px;min-height:38px}
+  /* tune cards */
+  #tuneList{margin-top:2vh;width:min(94vw,440px);display:flex;flex-direction:column;gap:10px}
+  .tune{pointer-events:auto;cursor:pointer;text-align:left;font-family:inherit;color:var(--cream);
+    background:linear-gradient(180deg,rgba(42,26,14,.92),rgba(26,16,8,.94));border:2px solid rgba(240,168,50,.4);
+    border-radius:12px;padding:11px 14px 10px;display:flex;align-items:center;gap:12px}
+  .tune.sel{border-color:var(--amber);box-shadow:0 0 16px rgba(240,168,50,.4);background:linear-gradient(180deg,rgba(66,40,18,.95),rgba(34,20,9,.96))}
+  .tune .tnum{font-family:Georgia,serif;font-size:26px;font-weight:700;color:var(--amber);width:30px;text-align:center;flex:none}
+  .tune .tmain{flex:1;min-width:0}
+  .tune .tname{font-family:Georgia,serif;font-size:clamp(18px,4.8vw,23px);font-weight:700;line-height:1.05}
+  .tune .tdesc{font-size:11.5px;opacity:.85;letter-spacing:.04em;margin-top:2px}
+  .tune .tmeta{flex:none;text-align:right;font-size:10px;letter-spacing:.12em;font-weight:700;opacity:.9;line-height:1.5}
+  .tune .tmeta .best{color:var(--amber2);font-size:12px}
+  .dots{color:var(--amber);letter-spacing:.2em;font-size:11px}
+  .bigbtn{pointer-events:auto;cursor:pointer;border:none;outline:none;margin-top:2.2vh;
+    background:linear-gradient(180deg,#ffc44d,#d97f16);color:#2a1503;font-family:Georgia,serif;
+    font-size:clamp(20px,4.6vw,27px);font-weight:700;letter-spacing:.1em;padding:13px 46px;border-radius:12px;
+    box-shadow:0 10px 30px rgba(217,127,22,.4), inset 0 2px 0 rgba(255,255,255,.55);animation:btnpulse 1.1s infinite alternate}
+  @keyframes btnpulse{from{filter:brightness(1)}to{filter:brightness(1.15)}}
+  #boardBtn{pointer-events:auto;cursor:pointer;font-family:inherit;font-weight:800;letter-spacing:.12em;font-size:12px;
+    color:var(--amber2);background:rgba(10,6,3,.72);border:1px solid rgba(240,168,50,.6);padding:10px 22px;border-radius:999px;min-height:44px;margin-top:1.6vh}
+  .boardPanel{width:min(92vw,430px);margin:10px auto 0;background:rgba(10,6,3,.88);border:1px solid rgba(240,168,50,.5);
+    border-radius:12px;padding:9px 12px;max-height:264px;overflow-y:auto}
+  .boardTitle{text-align:center;font-weight:900;letter-spacing:.14em;color:var(--amber);font-size:13px;margin-bottom:5px}
+  .brow{display:flex;gap:8px;align-items:baseline;padding:3px 6px;font-size:13.5px;color:var(--cream);border-radius:6px}
+  .brow .rk{width:26px;text-align:right;font-weight:900;color:var(--amber);flex:none}
+  .brow .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;text-align:left}
+  .brow .sc{flex:none;font-weight:900}
+  .brow.me{background:rgba(240,168,50,.28);outline:1px solid var(--amber)}
+  .boardMsg{text-align:center;opacity:.85;font-size:12.5px;padding:5px 0;color:var(--cream)}
+  #pickBoard{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:40;margin:0;box-shadow:0 18px 50px rgba(0,0,0,.65)}
+  #howto{margin-top:2.2vh;font-size:clamp(11px,2vw,13.5px);line-height:1.75;color:#e8dcc2;text-shadow:0 1px 6px #000;letter-spacing:.03em;max-width:440px}
+  #howto b{color:#fff}
+  #credits{margin-top:2vh;font-size:10px;letter-spacing:.3em;color:rgba(245,233,208,.55)}
+  /* results */
+  #resTitle{font-family:Georgia,serif;font-size:clamp(32px,8.6vw,56px);font-weight:700;color:var(--amber2);
+    text-shadow:0 3px 0 #6b3d05,0 8px 26px rgba(0,0,0,.75);margin-top:2vh;line-height:1.05}
+  #rankBig{font-family:Georgia,serif;font-size:clamp(64px,20vw,120px);font-weight:700;line-height:1;color:#fff;
+    text-shadow:0 0 34px rgba(240,168,50,.85),0 6px 0 rgba(107,61,5,.8);margin-top:1vh}
+  #resStats{margin-top:1.4vh;font-size:clamp(12.5px,2.4vw,15px);line-height:1.9;color:#e8dcc2;letter-spacing:.04em}
+  #resStats b{color:#fff}
+  #nameRow{display:flex;gap:8px;justify-content:center;align-items:center;margin-top:14px;flex-wrap:wrap;pointer-events:auto}
+  #nameInput{font-family:inherit;font-size:16px;font-weight:700;text-align:center;color:var(--ink);background:var(--cream);
+    border:2px solid var(--amber);border-radius:10px;padding:10px 8px;width:168px;min-height:44px;pointer-events:auto}
+  #submitBtn{font-family:inherit;font-weight:900;letter-spacing:.07em;font-size:13.5px;color:#2a1503;
+    background:linear-gradient(180deg,#ffcf5e,#f0a832);border:0;border-radius:10px;padding:12px 16px;cursor:pointer;min-height:44px;pointer-events:auto}
+  #submitBtn:disabled{opacity:.45}
+  #submitStatus{text-align:center;min-height:19px;margin-top:6px;font-weight:800;color:var(--amber2);font-size:13.5px}
+  .rowBtns{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+  .ghostbtn{pointer-events:auto;cursor:pointer;font-family:inherit;font-weight:800;letter-spacing:.1em;font-size:13px;
+    color:var(--cream);background:rgba(10,6,3,.7);border:1px solid rgba(245,233,208,.5);padding:12px 22px;border-radius:12px;min-height:48px;margin-top:2.2vh}
+  #qaState{display:none}
+</style>
+</head>
+<body>
+<div id="game"></div>
+
+<div id="hud">
+  <div id="topbar">
+    <div class="stat"><div class="lab" data-i18n="score">SCORE</div><div class="val" id="scoreVal">0</div></div>
+    <div class="stat mid"><div class="lab" data-i18n="combo">COMBO</div><div class="val" id="comboVal">×1</div></div>
+    <div class="stat right"><div class="lab" data-i18n="tune">TUNE</div><div class="val" id="tuneVal" style="font-size:clamp(13px,3.4vw,18px);padding-top:4px">—</div></div>
+  </div>
+  <div id="crowdWrap"><div class="clab" data-i18n="crowd">CROWD</div><div id="crowdShell"><div id="crowdFill"></div></div></div>
+  <button id="pauseBtn" title="Pause">❚❚</button>
+  <div id="songLab"></div>
+  <button id="muteBtn">♪</button>
+</div>
+
+<div class="screen" id="menu">
+  <div id="logo">
+    <div class="l1">PIPE HERO</div>
+    <div class="tag" data-i18n="tagline">PLAY THE PIPES · ROCK THE PUB</div>
+  </div>
+  <div id="langRow"><span data-i18n="language">LANGUAGE</span>
+    <select id="langSel"></select>
+  </div>
+  <div id="tuneList"></div>
+  <button class="bigbtn" id="playBtn">▶ PLAY</button>
+  <button id="boardBtn">🏆 <span data-i18n="top10">TOP 10</span></button>
+  <div class="boardPanel" id="pickBoard" style="display:none">
+    <div class="boardTitle">🏆 <span data-i18n="top_pipers">TOP 10 PIPERS</span></div>
+    <div id="pickBoardList"><div class="boardMsg">…</div></div>
+  </div>
+  <div id="howto"></div>
+  <div id="credits">PIPE HERO</div>
+</div>
+
+<div class="screen" id="results">
+  <div id="resTitle">OVATION</div>
+  <div id="rankBig">S</div>
+  <div id="resStats"></div>
+  <div id="nameRow">
+    <input id="nameInput" maxlength="20" placeholder="YOUR NAME" autocomplete="off">
+    <button id="submitBtn">SUBMIT SCORE</button>
+  </div>
+  <div id="submitStatus"></div>
+  <div class="boardPanel" id="overBoard">
+    <div class="boardTitle">🏆 <span data-i18n="top_pipers">TOP 10 PIPERS</span></div>
+    <div id="overBoardList"><div class="boardMsg">…</div></div>
+  </div>
+  <div class="rowBtns">
+    <button class="bigbtn" id="againBtn" style="margin-top:2.2vh">↻ <span data-i18n="again">PLAY AGAIN</span></button>
+    <button class="ghostbtn" id="menuBtn">☰ <span data-i18n="song_select">SONG SELECT</span></button>
+  </div>
+  <div id="credits">PIPE HERO</div>
+</div>
+
+<div id="qaState"></div>
+
+<script src="./game.js"></script>
+</body>
+</html>
