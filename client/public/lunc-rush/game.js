@@ -1276,12 +1276,16 @@ function drawPlayer(t, dt) {
   else rot = Math.max(-0.4, Math.min(0.5, P.vy * 0.00045)) * P.facing;
   const blink = P.invuln > 0 && Math.floor(t * 14) % 2 === 0;
   const ball = P.rolling || P.spin || P.mode === 'loop';
+  // hero size (owner, Nov 6): drawn rig scaled x1.28 about the feet point — VISUAL ONLY.
+  // Physics/hitbox deliberately untouched: P.x/P.y, collision, loop/corkscrew clearance and
+  // pickup/enemy geometry stay exactly as proven in the speed QA; only the art grows.
+  const HS = 1.28;
   // ear physics (visual spring): sweep back with speed, bounce with stride
   const sweepTgt = ball ? 0.4 : Math.min(0.95, speed / 830) * 0.85 + (!P.grounded && !ball ? 0.38 : 0);
   earSweep += (sweepTgt - earSweep) * Math.min(1, dt * 7);
   earBobP = P.grounded && speed > 40 ? P.runPhase : earBobP + dt * 2.2;
   const earBob = Math.sin(earBobP * 2) * (P.grounded && speed > 40 ? 0.055 : 0.02);
-  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(P.facing, 1); if (blink) ctx.globalAlpha = 0.35;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(P.facing * HS, HS); if (blink) ctx.globalAlpha = 0.35;
   // comet tail (behind, -x in facing space)
   const tlen = Math.min(64, 12 + speed * 0.055) * (1 + Math.sin(t * 31) * 0.08);
   if (speed > 94 && !ball) {
