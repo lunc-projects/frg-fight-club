@@ -168,7 +168,7 @@ function surfaceAt(z, x) {
 }
 
 /* ---------------- zone definitions ---------------- */
-const G_STD = 2250, LOOP_MIN = 527, LOOP_G = 636; // speed retune (owner, Nov 5): top speed -15% (1320->1122); loop gate scaled x0.85, loop gravity x0.85^2 so loop proofs behave identically in relative terms
+const G_STD = 2250, LOOP_MIN = 380, LOOP_G = 331; // speed retune 2 (owner, Nov 6): top speed 1122->810 (x0.722 on top of Nov 5 x0.85); loop gate scaled by the same factor, loop gravity by its square, so loop entry/detach behave identically in relative terms. NOTE: in-loop speed loss is dominated by the tangential-gravity climb (entry ~1.45x gate min speed at the top ~ sqrt(LOOP_G*r)), identical in relative terms in every build — a ~1.06x-gate entry can never clear any loop in ANY build (verified A/B vs the 1122 build); natural entries run at ~2.1x gate.
 function buildZones() {
   const Z = [];
   function mk(spans, o) { const z = Object.assign({ spans, coins: [], stars: [], enemies: [], springs: [], loops: [], corks: [], plats: [], beacon: 0, len: 0, par: 75, grav: G_STD, jump: 1000, ckpt: 0, theme: 0 }, o || {}); Z.push(z); return z; }
@@ -202,12 +202,12 @@ function buildZones() {
     { x0: 12100, x1: 12700, y0: 385, y1: 385, k: 'lin' },
     { x0: 12700, x1: 13000, y0: 385, y1: 430, k: 'arc' },
     { x0: 13000, x1: 13450, y0: 430, y1: 430, k: 'lin' },
-  ], { len: 13450, beacon: 13290, par: 135, theme: 0, ckpt: 8300 });
+  ], { len: 13450, beacon: 13290, par: 185, theme: 0, ckpt: 8300 });
   z1.loops.push({ cx: 2050, r: 112, gy: 430 });
   z1.corks.push({ x0: 4860, x1: 5460, r: 62, turns: 1 });
   z1.springs.push({ x: 3460, y: 430, pow: 1090, anim: 0 });
   z1.plats.push({ x0: 3560, x1: 4360, y: 296 });
-  z1.enemies.push({ type: 'candle', x: 3950, range: 46, sp: 26 }, { type: 'candle', x: 6120, range: 60, sp: 30 }, { type: 'drone', x: 2420, y0: 318, range: 70 }, { type: 'drone', x: 4180, y0: 306, range: 56 });
+  z1.enemies.push({ type: 'candle', x: 3950, range: 46, sp: 19 }, { type: 'candle', x: 6120, range: 60, sp: 22 }, { type: 'drone', x: 2420, y0: 318, range: 70 }, { type: 'drone', x: 4180, y0: 306, range: 56 });
   coinSurf(z1, 150, 600, 6); coinSurf(z1, 720, 1040, 5); coinSurf(z1, 1200, 1700, 6);
   loopCoins(z1, z1.loops[0], 5);
   coinSurf(z1, 2820, 3240, 6, 40); coinLine(z1, 3640, 4280, 264, 7); coinSurf(z1, 4480, 4660, 3);
@@ -218,7 +218,7 @@ function buildZones() {
   z1.corks.push({ x0: 8450, x1: 9250, r: 64, turns: 1.5 });
   z1.springs.push({ x: 11700, y: 418, pow: 1090, anim: 0 });
   z1.plats.push({ x0: 11820, x1: 12460, y: 300 });
-  z1.enemies.push({ type: 'candle', x: 6880, range: 52, sp: 28 }, { type: 'drone', x: 9550, y0: 300, range: 54 }, { type: 'candle', x: 11200, range: 48, sp: 27 }, { type: 'drone', x: 12340, y0: 252, range: 54 }, { type: 'candle', x: 13180, range: 40, sp: 26 });
+  z1.enemies.push({ type: 'candle', x: 6880, range: 52, sp: 20 }, { type: 'drone', x: 9550, y0: 300, range: 54 }, { type: 'candle', x: 11200, range: 48, sp: 19 }, { type: 'drone', x: 12340, y0: 252, range: 54 }, { type: 'candle', x: 13180, range: 40, sp: 19 });
   coinSurf(z1, 6720, 7100, 5); coinSurf(z1, 7220, 7680, 5, 44); coinSurf(z1, 7820, 8240, 4);
   corkCoins(z1, z1.corks[1], 10); coinSurf(z1, 9360, 9700, 4);
   coinSurf(z1, 9850, 10150, 4); loopCoins(z1, z1.loops[1], 6);
@@ -248,12 +248,12 @@ function buildZones() {
     { x0: 11750, x1: 12150, y0: 355, y1: 430, k: 'arc' },
     { x0: 12150, x1: 12900, y0: 430, y1: 430, k: 'dip', d: 95 },
     { x0: 12900, x1: 14040, y0: 430, y1: 430, k: 'lin' },
-  ], { len: 14040, beacon: 13890, par: 155, theme: 1, ckpt: 6300 });
+  ], { len: 14040, beacon: 13890, par: 200, theme: 1, ckpt: 6300 });
   z2.loops.push({ cx: 3420, r: 116, gy: 430 });
   z2.corks.push({ x0: 4900, x1: 5420, r: 60, turns: 1 });
   z2.springs.push({ x: 3900, y: 430, pow: 1070, anim: 0 });
   z2.plats.push({ x0: 4020, x1: 4720, y: 292 });
-  z2.enemies.push({ type: 'drone', x: 1560, y0: 252, range: 80 }, { type: 'candle', x: 2300, range: 52, sp: 28 }, { type: 'candle', x: 3650, range: 40, sp: 24 }, { type: 'candle', x: 6520, range: 64, sp: 32 }, { type: 'drone', x: 5960, y0: 322, range: 60 });
+  z2.enemies.push({ type: 'drone', x: 1560, y0: 252, range: 80 }, { type: 'candle', x: 2300, range: 52, sp: 20 }, { type: 'candle', x: 3650, range: 40, sp: 17 }, { type: 'candle', x: 6520, range: 64, sp: 23 }, { type: 'drone', x: 5960, y0: 322, range: 60 });
   coinSurf(z2, 140, 740, 7); coinSurf(z2, 1330, 1840, 6); coinSurf(z2, 2060, 2540, 6);
   coinSurf(z2, 2680, 3000, 4); loopCoins(z2, z2.loops[0], 5); coinLine(z2, 4100, 4640, 260, 6);
   corkCoins(z2, z2.corks[0], 8); coinSurf(z2, 5840, 6140, 4); coinSurf(z2, 6300, 6820, 6);
@@ -262,7 +262,7 @@ function buildZones() {
   z2.corks.push({ x0: 9820, x1: 10380, r: 60, turns: 1 });
   z2.springs.push({ x: 8380, y: 352, pow: 1020, anim: 0 }, { x: 9120, y: 262, pow: 980, anim: 0 });
   z2.plats.push({ x0: 8500, x1: 9200, y: 262 }, { x0: 9280, x1: 9950, y: 180 });
-  z2.enemies.push({ type: 'candle', x: 7360, range: 56, sp: 30 }, { type: 'drone', x: 8760, y0: 168, range: 46 }, { type: 'candle', x: 10760, range: 48, sp: 27 }, { type: 'drone', x: 11400, y0: 250, range: 64 }, { type: 'drone', x: 12550, y0: 322, range: 58 }, { type: 'candle', x: 13380, range: 58, sp: 31 });
+  z2.enemies.push({ type: 'candle', x: 7360, range: 56, sp: 22 }, { type: 'drone', x: 8760, y0: 168, range: 46 }, { type: 'candle', x: 10760, range: 48, sp: 19 }, { type: 'drone', x: 11400, y0: 250, range: 64 }, { type: 'drone', x: 12550, y0: 322, range: 58 }, { type: 'candle', x: 13380, range: 58, sp: 22 });
   coinSurf(z2, 7080, 7700, 7); coinSurf(z2, 7820, 8240, 5);
   coinLine(z2, 8560, 9140, 230, 6); coinLine(z2, 9340, 9890, 148, 6);
   corkCoins(z2, z2.corks[1], 9); coinSurf(z2, 10460, 10940, 5); coinSurf(z2, 11060, 11700, 6);
@@ -292,19 +292,19 @@ function buildZones() {
     { x0: 13100, x1: 13650, y0: 430, y1: 368, k: 'lin' },
     { x0: 13650, x1: 14150, y0: 368, y1: 368, k: 'lin' },
     { x0: 14150, x1: 14440, y0: 368, y1: 430, k: 'arc' },
-  ], { len: 14440, beacon: 14310, par: 175, theme: 2, grav: 1500, jump: 905, ckpt: 9300 });
+  ], { len: 14440, beacon: 14310, par: 230, theme: 2, grav: 1500, jump: 905, ckpt: 9300 });
   z3.loops.push({ cx: 3560, r: 122, gy: 430 });
   z3.corks.push({ x0: 5060, x1: 5660, r: 66, turns: 1 });
   z3.springs.push({ x: 4060, y: 430, pow: 1000, anim: 0 });
   z3.plats.push({ x0: 4180, x1: 4920, y: 288 });
-  z3.enemies.push({ type: 'drone', x: 2300, y0: 232, range: 74 }, { type: 'drone', x: 2560, y0: 268, range: 50 }, { type: 'candle', x: 3980, range: 44, sp: 26 }, { type: 'candle', x: 6620, range: 58, sp: 30 }, { type: 'drone', x: 6120, y0: 330, range: 66 });
+  z3.enemies.push({ type: 'drone', x: 2300, y0: 232, range: 74 }, { type: 'drone', x: 2560, y0: 268, range: 50 }, { type: 'candle', x: 3980, range: 44, sp: 19 }, { type: 'candle', x: 6620, range: 58, sp: 22 }, { type: 'drone', x: 6120, y0: 330, range: 66 });
   coinSurf(z3, 140, 840, 8); coinSurf(z3, 980, 1420, 6, 42); coinSurf(z3, 2080, 2640, 6);
   coinSurf(z3, 2780, 3140, 4); loopCoins(z3, z3.loops[0], 5); coinLine(z3, 4260, 4840, 256, 6);
   corkCoins(z3, z3.corks[0], 9); coinSurf(z3, 6380, 6980, 7);
   starSurf(z3, 1200, 52); star(z3, 4820, 244); starSurf(z3, 5740, 48);
   /* Z3 extension: low-grav swoop, loop 2, long float-arc (crest + valley), final deck */
   z3.loops.push({ cx: 11300, r: 124, gy: 430 });
-  z3.enemies.push({ type: 'drone', x: 7620, y0: 306, range: 58 }, { type: 'candle', x: 9580, range: 46, sp: 27 }, { type: 'candle', x: 10980, range: 44, sp: 26 }, { type: 'drone', x: 13380, y0: 300, range: 56 }, { type: 'candle', x: 13920, range: 42, sp: 25 });
+  z3.enemies.push({ type: 'drone', x: 7620, y0: 306, range: 58 }, { type: 'candle', x: 9580, range: 46, sp: 19 }, { type: 'candle', x: 10980, range: 44, sp: 19 }, { type: 'drone', x: 13380, y0: 300, range: 56 }, { type: 'candle', x: 13920, range: 42, sp: 18 });
   coinSurf(z3, 7280, 7900, 7); coinSurf(z3, 8030, 8620, 6, 46); coinSurf(z3, 8760, 9240, 5);
   coinSurf(z3, 9360, 10040, 6); coinSurf(z3, 10160, 10540, 4);
   coinSurf(z3, 10660, 11020, 4); loopCoins(z3, z3.loops[1], 6);
@@ -365,12 +365,12 @@ function feetRenderPos() {
 }
 
 /* ---------------- physics ---------------- */
-const ACC = 1233, BRAKE = 2380, FRIC = 893, ROLLFRIC = 81, AIRACC = 663, MAXG = 1122;
+const ACC = 890, BRAKE = 1718, FRIC = 645, ROLLFRIC = 58, AIRACC = 479, MAXG = 810;
 function doJump() {
   const z = zone, JV = z.jump;
   P.vx = P.g * Math.cos(P.ang) + JV * Math.sin(P.ang);
   P.vy = P.g * Math.sin(P.ang) - JV * Math.cos(P.ang);
-  P.spin = P.rolling || Math.abs(P.g) > 221;
+  P.spin = P.rolling || Math.abs(P.g) > 160;
   P.grounded = false; P.onPlat = null; P.mode = 'air'; P.cut = false; P.coyote = 0;
   sfx.jump();
 }
@@ -378,7 +378,7 @@ function landOn(surfY, ang, plat) {
   const z = zone;
   if (plat) { P.g = P.vx; P.ang = 0; } else { P.g = P.vx * Math.cos(ang) + P.vy * Math.sin(ang); P.ang = ang; }
   P.y = surfY; P.grounded = true; P.onPlat = plat || null; P.mode = 'ground'; P.vy = 0;
-  if (P.spin && Math.abs(P.g) > 81) { P.rolling = true; }
+  if (P.spin && Math.abs(P.g) > 58) { P.rolling = true; }
   P.spin = false;
   if (P.g > MAXG) P.g = MAXG; if (P.g < -MAXG) P.g = -MAXG;
 }
@@ -437,21 +437,21 @@ function step(dt) {
       else {
         P.ang = s0.ang;
         const ax = inputAxis();
-        if (P.rolling && ax !== 0 && Math.sign(ax) !== Math.sign(P.g) && Math.abs(P.g) < 255) P.rolling = false;
-        if (!P.rolling && downHeld() && Math.abs(P.g) > 60) { P.rolling = true; sfx.roll(); }
+        if (P.rolling && ax !== 0 && Math.sign(ax) !== Math.sign(P.g) && Math.abs(P.g) < 184) P.rolling = false;
+        if (!P.rolling && downHeld() && Math.abs(P.g) > 43) { P.rolling = true; sfx.roll(); }
         let acc = Math.sin(P.ang) * G * (P.rolling ? 1.55 : 1.0);
         if (P.rolling) acc += -Math.sign(P.g) * ROLLFRIC;
         else if (ax !== 0) acc += ax * (Math.sign(ax) !== Math.sign(P.g) && P.g !== 0 ? BRAKE : ACC);
         P.g += acc * dt;
         if (!P.rolling && ax === 0 && Math.abs(Math.sin(P.ang)) < 0.045) P.g = approach(P.g, 0, FRIC * dt);
-        if (Math.abs(P.g) > 833) P.g -= P.g * 0.22 * dt;
+        if (Math.abs(P.g) > 503) P.g -= P.g * 0.22 * dt;
         if (P.g > MAXG) P.g = MAXG; if (P.g < -MAXG) P.g = -MAXG;
         if (P.g !== 0) P.facing = Math.sign(P.g);
         P.x += Math.cos(P.ang) * P.g * dt;
         const s2 = surfaceAt(z, P.x);
         if (!s2) { P.grounded = false; P.mode = 'air'; P.vx = Math.cos(P.ang) * P.g; P.vy = Math.sin(P.ang) * P.g; P.spin = P.rolling; }
         else { P.y = s2.y; P.ang = s2.ang; }
-        if (P.rolling && Math.abs(P.g) < 47 && !downHeld()) P.rolling = false;
+        if (P.rolling && Math.abs(P.g) < 34 && !downHeld()) P.rolling = false;
         // loop trigger (crossing the loop's bottom point at speed)
         if (P.grounded && state === 'play') {
           for (const L of z.loops) {
@@ -463,7 +463,7 @@ function step(dt) {
     }
     if (P.grounded) P.runPhase += Math.abs(P.g) * dt * 0.055;
   } else if (P.mode === 'air') {
-    P.vx += inputAxis() * AIRACC * dt; if (P.vx > 1003) P.vx = 1003; if (P.vx < -1003) P.vx = -1003;
+    P.vx += inputAxis() * AIRACC * dt; if (P.vx > 724) P.vx = 724; if (P.vx < -724) P.vx = -724;
     P.vy += G * dt; if (P.vy > 1500) P.vy = 1500;
     if (!keys.jump && !P.cut && P.vy < -330) { P.vy *= 0.45; P.cut = true; }
     const prevY = P.y;
@@ -490,7 +490,7 @@ function step(dt) {
   for (const sp of z.springs) {
     sp.anim = Math.max(0, sp.anim - dt * 4);
     if (Math.abs(P.x - sp.x) < 22 && Math.abs(P.y - sp.y) < 30 && P.vy >= -60) {
-      P.grounded = false; P.onPlat = null; P.mode = 'air'; P.vy = -sp.pow; P.vx = Math.max(P.vx, P.g * 0.6, 240); P.spin = false; sp.anim = 1; sfx.spring();
+      P.grounded = false; P.onPlat = null; P.mode = 'air'; P.vy = -sp.pow; P.vx = Math.max(P.vx, P.g * 0.6, 173); P.spin = false; sp.anim = 1; sfx.spring();
       burst(sp.x, sp.y - 6, 6, '#7CFC98');
     }
   }
@@ -603,7 +603,7 @@ function updateWorld(dt) {
   for (let i = particles.length - 1; i >= 0; i--) { const p = particles[i]; p.life -= dt; if (p.life <= 0) { particles.splice(i, 1); continue; } p.vy += (p.grav || 0) * dt; p.x += p.vx * dt; p.y += p.vy * dt; }
   for (let i = texts.length - 1; i >= 0; i--) { const t = texts[i]; t.t += dt; t.y -= 42 * dt; if (t.t > 0.95) texts.splice(i, 1); }
   // speed streaks
-  if (state === 'play' && P.mode !== 'loop' && Math.abs(P.g || P.vx) > 731 && Math.random() < 0.5) {
+  if (state === 'play' && P.mode !== 'loop' && Math.abs(P.g || P.vx) > 528 && Math.random() < 0.5) {
     particles.push({ x: P.x - P.facing * 20, y: P.y - 14 - Math.random() * 18, vx: -P.facing * 300, vy: 0, life: 0.22, max: 0.22, color: 'rgba(255,240,200,0.7)', size: 2, grav: 0 });
   }
   shake = Math.max(0, shake - dt * 16);
@@ -1277,20 +1277,20 @@ function drawPlayer(t, dt) {
   const blink = P.invuln > 0 && Math.floor(t * 14) % 2 === 0;
   const ball = P.rolling || P.spin || P.mode === 'loop';
   // ear physics (visual spring): sweep back with speed, bounce with stride
-  const sweepTgt = ball ? 0.4 : Math.min(0.95, speed / 1150) * 0.85 + (!P.grounded && !ball ? 0.38 : 0);
+  const sweepTgt = ball ? 0.4 : Math.min(0.95, speed / 830) * 0.85 + (!P.grounded && !ball ? 0.38 : 0);
   earSweep += (sweepTgt - earSweep) * Math.min(1, dt * 7);
   earBobP = P.grounded && speed > 40 ? P.runPhase : earBobP + dt * 2.2;
   const earBob = Math.sin(earBobP * 2) * (P.grounded && speed > 40 ? 0.055 : 0.02);
   ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(P.facing, 1); if (blink) ctx.globalAlpha = 0.35;
   // comet tail (behind, -x in facing space)
   const tlen = Math.min(64, 12 + speed * 0.055) * (1 + Math.sin(t * 31) * 0.08);
-  if (speed > 130 && !ball) {
+  if (speed > 94 && !ball) {
     const tg = ctx.createLinearGradient(-14, -16, -(14 + tlen), -16); tg.addColorStop(0, 'rgba(255,150,50,0.85)'); tg.addColorStop(0.5, 'rgba(255,90,40,0.4)'); tg.addColorStop(1, 'rgba(255,90,40,0)');
     ctx.fillStyle = tg; ctx.beginPath(); ctx.moveTo(-12, -24); ctx.lineTo(-(14 + tlen), -15 + Math.sin(t * 24) * 2.4); ctx.lineTo(-12, -8); ctx.closePath(); ctx.fill();
   }
   if (ball) {
     /* curled-up rabbit ball: fur ball, ears wrapped around, tail puff, charm */
-    if (speed > 200) { ctx.fillStyle = 'rgba(255,150,50,0.75)'; ctx.beginPath(); ctx.moveTo(-14, -22); ctx.lineTo(-(16 + tlen * 0.7), -15); ctx.lineTo(-14, -9); ctx.closePath(); ctx.fill(); }
+    if (speed > 144) { ctx.fillStyle = 'rgba(255,150,50,0.75)'; ctx.beginPath(); ctx.moveTo(-14, -22); ctx.lineTo(-(16 + tlen * 0.7), -15); ctx.lineTo(-14, -9); ctx.closePath(); ctx.fill(); }
     const bg = ctx.createRadialGradient(-5, -22, 3, 0, -16, 17); bg.addColorStop(0, '#fffaf0'); bg.addColorStop(0.65, '#f3e3bc'); bg.addColorStop(1, '#d9bd85');
     ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(0, -16, 15.5, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = 'rgba(156,109,14,0.55)'; ctx.lineWidth = 1.6; ctx.stroke();
