@@ -23,6 +23,11 @@
 // addresses or user data) behind ?scope=1; vercel.json rewrites the
 // public /api/scope-count URL to /api/luna-games?scope=1 because the
 // Hobby plan's 12-function cap leaves no room for a separate function.
+// Wallet Scope Solana relay: this router also relays the Scope page's
+// read-only Solana JSON-RPC calls behind ?solrpc=1 (vercel.json
+// rewrites /api/solana-rpc here) — the public Solana RPC cluster
+// refuses browser-Origin requests, so the page cannot call it directly
+// (see the solana-rpc block below for the full note).
 // Stores each player's BEST score in Upstash Redis sorted sets (all-time +
 // current ISO week) plus a name map, per game prefix. Telegram WebApp
 // initData is verified against the LUNC Assistant Bot token when present
@@ -381,11 +386,75 @@ export async function scopeCountHandler(req, res) {
 }
 /* wallet-scope:end */
 
+/* solana-rpc:start — Wallet Scope Solana relay, folded into this router
+   for the same 12-function-cap reason as the Scope counter above.
+   Reached via ?solrpc=1; vercel.json rewrites /api/solana-rpc here.
+   Why a relay at all: the public Solana RPC cluster refuses requests
+   that carry a browser Origin header (api.mainnet-beta.solana.com
+   answers HTTP 403 "Access forbidden" to any Origin, verified
+   2026-11-06; the other keyless endpoints either block token-account
+   reads from browsers or require a personal token for
+   getProgramAccounts), so the Scope page cannot read Solana directly
+   from a browser. This relay forwards a small allowlist of READ-ONLY
+   JSON-RPC methods from the server side (no Origin header) to the
+   public RPC upstreams and returns the upstream JSON untouched. It
+   holds no keys, signs nothing, stores nothing, and never logs the
+   request body. Allowlist: getBalance, getAccountInfo,
+   getTokenAccountsByOwner (the two SPL token programs only),
+   getProgramAccounts (the Stake program only — the Scope page's
+   staking check). Anything else is refused with 400. */
+const SOLRPC_UPSTREAMS = ['https://api.mainnet-beta.solana.com', 'https://solana-rpc.publicnode.com'];
+const SOLRPC_METHODS = { getBalance: 1, getAccountInfo: 1, getTokenAccountsByOwner: 1, getProgramAccounts: 1 };
+const SOLRPC_TOKEN_PROGRAMS = { TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA: 1, TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb: 1 };
+const SOLRPC_STAKE_PROGRAM = 'Stake11111111111111111111111111111111111111';
+
+export async function solanaRpcHandler(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }
+  if (!body || typeof body !== 'object') return res.status(400).json({ error: 'bad request' });
+  if (JSON.stringify(body).length > 16384) return res.status(413).json({ error: 'request too large' });
+  const method = String(body.method || '');
+  if (!SOLRPC_METHODS[method]) return res.status(400).json({ error: 'method not allowed' });
+  const params = Array.isArray(body.params) ? body.params : [];
+  if (method === 'getTokenAccountsByOwner') {
+    const prog = params[1] && params[1].programId;
+    if (!SOLRPC_TOKEN_PROGRAMS[prog]) return res.status(400).json({ error: 'program not allowed' });
+  }
+  if (method === 'getProgramAccounts' && params[0] !== SOLRPC_STAKE_PROGRAM) {
+    return res.status(400).json({ error: 'program not allowed' });
+  }
+  const payload = JSON.stringify({ jsonrpc: '2.0', id: body.id == null ? 1 : body.id, method, params });
+  let lastErr = null;
+  for (const up of SOLRPC_UPSTREAMS) {
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 9000);
+      const r = await fetch(up, { method: 'POST', headers: { 'content-type': 'application/json' }, body: payload, signal: ctl.signal });
+      clearTimeout(t);
+      const text = await r.text();
+      let j = null;
+      try { j = JSON.parse(text); } catch (e) { /* not JSON — treat as upstream failure */ }
+      if (r.ok && j && !j.error) {
+        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('Content-Type', 'application/json');
+        return res.status(200).send(text);
+      }
+      lastErr = (j && j.error && j.error.message) || ('HTTP ' + r.status);
+    } catch (e) { lastErr = (e && e.message) || 'fetch failed'; }
+  }
+  return res.status(502).json({ jsonrpc: '2.0', id: body.id == null ? 1 : body.id, error: { code: -32000, message: 'upstream unavailable: ' + (lastErr || 'unknown') } });
+}
+/* solana-rpc:end */
+
 export default async function handler(req, res) {
   /* Wallet Scope counter: /api/scope-count is rewritten to
      /api/luna-games?scope=1 (see the wallet-scope block above). Runs
      before game dispatch; game requests never carry ?scope. */
   if (req.query && req.query.scope !== undefined) return scopeCountHandler(req, res);
+  /* Wallet Scope Solana relay: /api/solana-rpc is rewritten to
+     /api/luna-games?solrpc=1 (see the solana-rpc block above). */
+  if (req.query && req.query.solrpc !== undefined) return solanaRpcHandler(req, res);
   const game = String((req.query && req.query.game) || '');
   let cfg = GAMES[game];
   if (!cfg) return res.status(400).json({ error: 'unknown game' });
