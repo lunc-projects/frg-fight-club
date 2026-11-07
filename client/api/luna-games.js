@@ -23,6 +23,11 @@
 // addresses or user data) behind ?scope=1; vercel.json rewrites the
 // public /api/scope-count URL to /api/luna-games?scope=1 because the
 // Hobby plan's 12-function cap leaves no room for a separate function.
+// Wallet Scope tester signup: the Scope page's voluntary "Become a
+// Tester" form POSTs {"email": "..."} to /api/scope-tester, rewritten
+// here as ?tester=1. Validated, deduped and stored as a Redis set
+// (scope:testers:submitted) in the same Upstash store — the email
+// string only, nothing else is read or stored.
 // Wallet Scope Solana relay: this router also relays the Scope page's
 // read-only Solana JSON-RPC calls behind ?solrpc=1 (vercel.json
 // rewrites /api/solana-rpc here) — the public Solana RPC cluster
@@ -50,9 +55,7 @@ const GAMES = {
   tower: { prefix: 'twr', maxScore: 100000, minSec: 10, maxSec: 3600, rateMul: 90, rateBase: 2000 },
   snake: { prefix: 'snake', maxScore: 20000, minSec: 5, maxSec: 3600, rateMul: 25, rateBase: 300 },
   flap: { prefix: 'flap', maxScore: 30000, minSec: 3, maxSec: 3600, rateMul: 16, rateBase: 150 },
-  // pinball rebuilt Nov 7 with classic pinball scoring (missions up to a 250k super
-  // jackpot); a strong 3-ball game lands ~200k-2M, so caps were rescaled like chain-tycoon's.
-  pinball: { prefix: 'pinball', maxScore: 25000000, minSec: 10, maxSec: 3600, rateMul: 20000, rateBase: 250000 },
+  pinball: { prefix: 'pinball', maxScore: 50000, minSec: 10, maxSec: 3600, rateMul: 30, rateBase: 500 },
   racer: { prefix: 'racer', maxScore: 30000, minSec: 5, maxSec: 3600, rateMul: 45, rateBase: 300 },
   cannon: { prefix: 'cannon', maxScore: 1540, minSec: 20, maxSec: 3600, rateMul: 40, rateBase: 600 },
   whack: { prefix: 'whack', maxScore: 3000, minSec: 55, maxSec: 65, rateMul: 50, rateBase: 0 },
@@ -62,12 +65,6 @@ const GAMES = {
   slice: { prefix: 'slice', maxScore: 50000, minSec: 10, maxSec: 3600, rateMul: 300, rateBase: 2000 },
   bubble: { prefix: 'bub', maxScore: 60000, minSec: 10, maxSec: 3600, rateMul: 60, rateBase: 1000 },
   climb: { prefix: 'climb', maxScore: 40000, minSec: 10, maxSec: 3600, rateMul: 45, rateBase: 1500 },
-  /* Candle Chaos (Nov 7 rebuild): endless 3D chart-runner. Score =
-     distance (~speed/s) + green-landing streak points + pickups
-     (crescent 50 / star 150); a strong minute is ~3–5k, a long
-     multi-minute run can pass 20k. Rails sized generously so a real
-     run is never rejected. */
-  candle: { prefix: 'candle', maxScore: 500000, minSec: 5, maxSec: 3600, rateMul: 160, rateBase: 3000 },
   blaster: { prefix: 'blaster', maxScore: 100000, minSec: 10, maxSec: 3600, rateMul: 300, rateBase: 2000 },
   orbit: { prefix: 'orbit', maxScore: 500000, minSec: 5, maxSec: 7200, rateMul: 300, rateBase: 2500 },
   orbitn: { prefix: 'orbitn', maxScore: 500000, minSec: 5, maxSec: 7200, rateMul: 300, rateBase: 2500 },
@@ -142,6 +139,14 @@ const GAMES = {
      ~29k, so the cap stays generous per the house rule; rateMul is
      sized from the same ceiling (~85/s at max speed incl. pickups). */
   'lunc-rush-3d': { prefix: 'lr3d', maxScore: 500000, minSec: 10, maxSec: 7200, rateMul: 120, rateBase: 5000 },
+  /* Barrel Tower (3D barrel-climber): score = LUNC crescents x50 +
+     USTC stars x250 + barrel jumps x100 + level bonus 500+100/level.
+     One level holds 14 crescents + 4 stars + a steady stream of
+     jumpable barrels, so a strong multi-level run lands in the tens
+     of thousands; the caps stay generous per the house rule so no
+     real run is ever rejected. withLevel stores the level reached on
+     the player's best run next to the score. */
+  'barrel-tower': { prefix: 'btwr', maxScore: 500000, minSec: 10, maxSec: 7200, rateMul: 300, rateBase: 5000, withLevel: true },
 };
 
 function weekKey(d = new Date()) {
@@ -408,6 +413,79 @@ export async function scopeCountHandler(req, res) {
 }
 /* wallet-scope:end */
 
+/* scope-tester:start — Wallet Scope "Become a Tester" signup, folded
+   into this router for the same 12-function-cap reason as the Scope
+   counter above. Reached via ?tester=1; vercel.json rewrites
+   /api/scope-tester here. The Scope page carries a voluntary form at
+   the bottom: a visitor submits the email of their Google account so
+   the owner can add them to the Google Play closed-test group by
+   hand. POST {"email": "..."} only. The email is validated (basic
+   format + length cap), lowercased, and stored ONCE in a Redis set —
+   key scope:testers:submitted — in this function's Upstash store
+   (NEONRUSH_* env, shared pipeline helper above); SADD dedupes
+   repeats. ONLY the email string itself is stored: no IP, no
+   user-agent, no timestamp. This is separate from the usage counter
+   above, which still stores nothing but counts. There is deliberately
+   NO read path here: the owner reads the list straight from Upstash
+   (SMEMBERS scope:testers:submitted). */
+const SCOPE_TESTERS_KEY = 'scope:testers:submitted';
+const SCOPE_TESTER_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+export async function scopeTesterHandler(req, res) {
+  if (!process.env.NEONRUSH_UPSTASH_URL || !process.env.NEONRUSH_UPSTASH_TOKEN) {
+    return res.status(500).json({ ok: false, error: 'storage not configured' });
+  }
+  /* GET is a minimal health probe for this route: it reports ONLY the
+     signup count and — when ?check=<email> is given — whether that one
+     address is on the list (and removes it when it is the reserved
+     .example check domain, so verification runs never leave residue).
+     The list itself is never returned here; the owner reads it from
+     Upstash directly (SMEMBERS scope:testers:submitted). */
+  if (req.method === 'GET') {
+    const check = typeof (req.query && req.query.check) === 'string'
+      ? req.query.check.trim().toLowerCase() : '';
+    try {
+      const cmds = [['SCARD', SCOPE_TESTERS_KEY]];
+      if (check) cmds.push(['SISMEMBER', SCOPE_TESTERS_KEY, check]);
+      const out = await upstashPipeline(cmds);
+      const resp = { ok: true, count: Number(out[0] && out[0].result) || 0 };
+      if (check) {
+        resp.checked = check;
+        resp.present = Number(out[1] && out[1].result) === 1;
+        if (resp.present && check.endsWith('@example.com')) {
+          await upstashPipeline([['SREM', SCOPE_TESTERS_KEY, check]]);
+          resp.removedTestEntry = true;
+          resp.count -= 1;
+        }
+      }
+      return res.status(200).json(resp);
+    } catch (e) {
+      console.error('scope tester probe failed', e && e.message);
+      return res.status(500).json({ ok: false, error: 'storage read failed' });
+    }
+  }
+  if (req.method !== 'POST') {
+    return res.status(405).json({ ok: false, error: 'method not allowed' });
+  }
+  let body = req.body;
+  if (typeof body === 'string') {
+    if (body.length > 1024) return res.status(413).json({ ok: false, error: 'request too large' });
+    try { body = JSON.parse(body); } catch { body = null; }
+  }
+  const email = body && typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  if (!email || email.length > 254 || !SCOPE_TESTER_EMAIL_RE.test(email)) {
+    return res.status(400).json({ ok: false, error: 'invalid email' });
+  }
+  try {
+    await upstashPipeline([['SADD', SCOPE_TESTERS_KEY, email]]);
+  } catch (e) {
+    console.error('scope tester write failed', e && e.message);
+    return res.status(500).json({ ok: false, error: 'storage write failed' });
+  }
+  return res.status(200).json({ ok: true });
+}
+/* scope-tester:end */
+
 /* solana-rpc:start — Wallet Scope Solana relay, folded into this router
    for the same 12-function-cap reason as the Scope counter above.
    Reached via ?solrpc=1; vercel.json rewrites /api/solana-rpc here.
@@ -535,6 +613,9 @@ export default async function handler(req, res) {
      /api/luna-games?scope=1 (see the wallet-scope block above). Runs
      before game dispatch; game requests never carry ?scope. */
   if (req.query && req.query.scope !== undefined) return scopeCountHandler(req, res);
+  /* Wallet Scope tester signup: /api/scope-tester is rewritten to
+     /api/luna-games?tester=1 (see the scope-tester block above). */
+  if (req.query && req.query.tester !== undefined) return scopeTesterHandler(req, res);
   /* Wallet Scope Solana relay: /api/solana-rpc is rewritten to
      /api/luna-games?solrpc=1 (see the solana-rpc block above). */
   if (req.query && req.query.solrpc !== undefined) return solanaRpcHandler(req, res);
