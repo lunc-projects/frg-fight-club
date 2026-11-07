@@ -1,5 +1,13 @@
 # Model licences & credits — Slide King (drift) garage cars
 
+> Nov 6, 2026 update: all four cars now wear a full house race livery
+> (number roundels, stripes, sponsor stacks) drawn at runtime on canvas
+> textures — every word/logo is our own (LUNC, LUNA CLASSIC, LUNC DEV
+> STUDIO, the gold crescent, SLIDE KING, DRIFT KING, APEX, TURBO and
+> invented parts brands). No real brands or real liveries are used.
+> The drift track's two grandstands were removed the same day (open
+> track, per Tom), and a track minimap was added to the HUD.
+
 All models are used under Creative Commons licences that allow commercial
 use. Attribution is given here as required by CC-BY licences (and gladly
 for the CC0 work).
