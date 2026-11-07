@@ -120,6 +120,12 @@ const GAMES = {
      every real run inside it; caps stay generous per the house rule
      so no real run is ever rejected. (Coin census: 328 total.) */
   'lunc-rush': { prefix: 'lrush', maxScore: 60000, minSec: 20, maxSec: 3600, rateMul: 120, rateBase: 8000 },
+  /* LUNC Rush 3D (behind-view endless runner): score = distance in
+     metres x1 + LUNC coins x25 + USTC stars x250. A long survival run
+     (~10 min at full speed) covers ~11km + ~600 coins + ~10 stars =
+     ~29k, so the cap stays generous per the house rule; rateMul is
+     sized from the same ceiling (~85/s at max speed incl. pickups). */
+  'lunc-rush-3d': { prefix: 'lr3d', maxScore: 500000, minSec: 10, maxSec: 7200, rateMul: 120, rateBase: 5000 },
 };
 
 function weekKey(d = new Date()) {
