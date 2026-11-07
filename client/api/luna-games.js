@@ -62,6 +62,12 @@ const GAMES = {
   slice: { prefix: 'slice', maxScore: 50000, minSec: 10, maxSec: 3600, rateMul: 300, rateBase: 2000 },
   bubble: { prefix: 'bub', maxScore: 60000, minSec: 10, maxSec: 3600, rateMul: 60, rateBase: 1000 },
   climb: { prefix: 'climb', maxScore: 40000, minSec: 10, maxSec: 3600, rateMul: 45, rateBase: 1500 },
+  /* Candle Chaos (Nov 7 rebuild): endless 3D chart-runner. Score =
+     distance (~speed/s) + green-landing streak points + pickups
+     (crescent 50 / star 150); a strong minute is ~3–5k, a long
+     multi-minute run can pass 20k. Rails sized generously so a real
+     run is never rejected. */
+  candle: { prefix: 'candle', maxScore: 500000, minSec: 5, maxSec: 3600, rateMul: 160, rateBase: 3000 },
   blaster: { prefix: 'blaster', maxScore: 100000, minSec: 10, maxSec: 3600, rateMul: 300, rateBase: 2000 },
   orbit: { prefix: 'orbit', maxScore: 500000, minSec: 5, maxSec: 7200, rateMul: 300, rateBase: 2500 },
   orbitn: { prefix: 'orbitn', maxScore: 500000, minSec: 5, maxSec: 7200, rateMul: 300, rateBase: 2500 },
