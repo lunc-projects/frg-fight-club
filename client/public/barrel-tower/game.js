@@ -102,11 +102,11 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.12;
+renderer.toneMappingExposure = 1.28;   // lifted Nov 7 (Tom: "lighten up the screen so you can see more detail")
 $('game').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x0d1730, 0.012);
+scene.fog = new THREE.FogExp2(0x24365e, 0.008);   // lighter + thinner Nov 7 so the far side of the tower and the backdrop stay visible
 const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 300);
 
 function resize() {
@@ -117,8 +117,8 @@ function resize() {
 window.addEventListener('resize', resize); resize();
 
 /* lights — night set: cool ambient + moon key + warm practicals */
-scene.add(new THREE.HemisphereLight(0x8fb4e8, 0x2a1c10, 0.55));
-const moonLight = new THREE.DirectionalLight(0xcfe0ff, 1.15);
+scene.add(new THREE.HemisphereLight(0xa8c8f0, 0x4a3826, 0.85));
+const moonLight = new THREE.DirectionalLight(0xcfe0ff, 1.3);
 moonLight.position.set(14, 26, 10);
 moonLight.castShadow = true;
 moonLight.shadow.mapSize.set(2048, 2048);
@@ -126,7 +126,7 @@ moonLight.shadow.camera.left = -16; moonLight.shadow.camera.right = 16;
 moonLight.shadow.camera.top = 21; moonLight.shadow.camera.bottom = -4;
 moonLight.shadow.camera.far = 70; moonLight.shadow.bias = -0.0006;
 scene.add(moonLight);
-const fillLight = new THREE.DirectionalLight(0xffd9a0, 0.28);
+const fillLight = new THREE.DirectionalLight(0xffd9a0, 0.42);
 fillLight.position.set(-10, 8, 14); scene.add(fillLight);
 const workLights = [];   // {light, bulb, base, phase} — flicker set
 
@@ -243,7 +243,7 @@ function textPlate(lines, opts = {}) {
 }
 const skyTex = cnv(1024, 512, (g, w, h) => {
   const grad = g.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, '#060d24'); grad.addColorStop(0.55, '#0d1a3d'); grad.addColorStop(1, '#1a2c55');
+  grad.addColorStop(0, '#16264d'); grad.addColorStop(0.55, '#243a6b'); grad.addColorStop(1, '#3a5a94');
   g.fillStyle = grad; g.fillRect(0, 0, w, h);
   for (let i = 0; i < 260; i++) {                      // stars
     g.fillStyle = `rgba(255,255,255,${0.25 + Math.random() * 0.75})`;
@@ -251,9 +251,9 @@ const skyTex = cnv(1024, 512, (g, w, h) => {
     g.fillRect(Math.random() * w, Math.random() * h * 0.8, r, r);
   }
   const neb = (x, y, r, col) => { const rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, col); rg.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = rg; g.fillRect(x - r, y - r, r * 2, r * 2); };
-  neb(w * 0.22, h * 0.3, 190, 'rgba(70,100,190,.16)');
-  neb(w * 0.78, h * 0.18, 150, 'rgba(120,80,180,.12)');
-  neb(w * 0.55, h * 0.55, 220, 'rgba(50,80,160,.10)');
+  neb(w * 0.22, h * 0.3, 190, 'rgba(70,100,190,.24)');
+  neb(w * 0.78, h * 0.18, 150, 'rgba(120,80,180,.18)');
+  neb(w * 0.55, h * 0.55, 220, 'rgba(50,80,160,.16)');
 });
 
 /* ================= shared materials / geometries ================= */
@@ -331,7 +331,7 @@ const starMat = new THREE.MeshStandardMaterial({ color: 0x59e0d2, roughness: 0.2
 const moonGroup = new THREE.Group();
 {
   const glow = new THREE.Mesh(new THREE.CircleGeometry(5.4, 32),
-    new THREE.MeshBasicMaterial({ color: 0xffeeb8, transparent: true, opacity: 0.13, fog: false }));
+    new THREE.MeshBasicMaterial({ color: 0xffeeb8, transparent: true, opacity: 0.2, fog: false }));
   const moon = new THREE.Mesh(crescentGeo(3.1, 0.2),
     new THREE.MeshBasicMaterial({ color: 0xf7e3a1, fog: false }));
   moon.rotation.z = -0.5;
@@ -340,7 +340,7 @@ const moonGroup = new THREE.Group();
   scene.add(moonGroup);
 }
 { /* distant city glow: two dark skyline planes + lit-window sprites */
-  const cityMat = new THREE.MeshBasicMaterial({ color: 0x0a1226, fog: false });
+  const cityMat = new THREE.MeshBasicMaterial({ color: 0x1d2c52, fog: false });   // lifted Nov 7 so the skyline reads against the lighter sky
   const mkRow = (z, y0, seed) => {
     const grp = new THREE.Group();
     let x = -46;
@@ -353,7 +353,7 @@ const moonGroup = new THREE.Group();
       const n = (w * h * 0.55) | 0;
       for (let i = 0; i < n; i++) {
         const win = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.3),
-          new THREE.MeshBasicMaterial({ color: rnd() > 0.3 ? 0xffca7a : 0xbfd8ff, transparent: true, opacity: 0.25 + rnd() * 0.35, fog: false }));
+          new THREE.MeshBasicMaterial({ color: rnd() > 0.3 ? 0xffca7a : 0xbfd8ff, transparent: true, opacity: 0.4 + rnd() * 0.4, fog: false }));
         win.position.set(x + 0.4 + rnd() * (w - 0.8), y0 + 0.5 + rnd() * (h - 1), z + 0.3);
         grp.add(win);
       }
