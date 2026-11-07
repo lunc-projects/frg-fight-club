@@ -111,6 +111,14 @@ const GAMES = {
      the house rule. rateMul is sized from that same ceiling: a 36s
      perfect run must fit seconds*rateMul + rateBase. */
   'pipe-hero': { prefix: 'pipe', maxScore: 250000, minSec: 5, maxSec: 3600, rateMul: 4000, rateBase: 5000 },
+  /* Sniper Shot 3D (the rooftop city rebuild of Sniper Shot): score =
+     target base (50–150) + distance bonus (~30–160) times a combo
+     multiplier up to x2.75, in 60s waves, minus fouls; runs end on the
+     3rd foul, so length varies a lot. Caps stay generous per the house
+     rule: a strong 10-minute run lands around ~60–80k. The original
+     /sniper-shot/ never had a board; the 3D build introduces the
+     'sniper-shot' key fresh (prefix 'snip'). */
+  'sniper-shot': { prefix: 'snip', maxScore: 500000, minSec: 10, maxSec: 3600, rateMul: 400, rateBase: 3000 },
   /* LUNC Rush (momentum speed-platformer): score = LUNC coins x10 +
      USTC stars x50 + bot smashes x100 + per-zone time bonuses
      (<= par*15 x3). Zones doubled in length (Nov 5): 323 coins,
