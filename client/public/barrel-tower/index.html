@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Barrel Tower — Luna Classic 3D Barrel Climber</title>
+<meta name="description" content="Barrel Tower — an original 3D arcade climber from LUNC Dev Studio. Dodge the great ape's rolling barrels, climb the girder tower, grab LUNC crescents and USTC stars.">
+<meta name="theme-color" content="#0a1026">
+<link rel="icon" href="lunc.png">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{width:100%;height:100%;height:100dvh;overflow:hidden;background:#0a1026;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;color:#fff;touch-action:none;user-select:none;-webkit-user-select:none}
+  #game{position:fixed;inset:0;height:100dvh}
+  canvas{display:block;width:100%;height:100%}
+  .hidden{display:none !important}
+
+  /* ---------- Loading ---------- */
+  #loader{position:fixed;inset:0;z-index:60;background:#0a1026;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px}
+  #loader img{width:96px;height:96px;animation:pulse 1.2s ease-in-out infinite}
+  @keyframes pulse{0%,100%{transform:scale(1);opacity:.85}50%{transform:scale(1.08);opacity:1}}
+  #loadTxt{font-weight:800;letter-spacing:2px;color:#ffe9a8}
+
+  /* ---------- HUD (concept shape: SCORE | crescent count | LIVES) ---------- */
+  #hud{position:fixed;inset:0;pointer-events:none;z-index:5}
+  #hudBar{position:absolute;top:calc(env(safe-area-inset-top,0px) + 8px);left:8px;right:8px;display:flex;align-items:stretch;gap:6px;background:linear-gradient(180deg,rgba(38,64,110,.88),rgba(16,30,58,.88));border:2px solid rgba(140,180,240,.5);border-radius:18px;padding:6px 10px;box-shadow:0 4px 16px rgba(0,0,0,.45)}
+  .hudCell{display:flex;flex-direction:column;justify-content:center;min-width:0}
+  .hudCell.mid{flex:1;align-items:center}
+  .hudCell.right{align-items:flex-end}
+  .hudLbl{font-size:10px;font-weight:900;letter-spacing:2px;color:#bcd6ff}
+  .hudVal{display:flex;align-items:center;gap:5px;font-size:19px;font-weight:900;color:#ffd94d;line-height:1.1}
+  .hudVal img{width:19px;height:19px}
+  .hudVal.cres{color:#fff;font-size:21px}
+  .hudVal.cres .cresIco{color:#ffcf3d;font-size:20px;text-shadow:0 0 8px rgba(255,207,61,.8)}
+  #hearts{font-size:15px;letter-spacing:1px;color:#ff5d7a;line-height:1.25;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+  #hudLvl{font-size:11px;font-weight:900;color:#9fd8ff;letter-spacing:1px}
+  #hudBtns{position:absolute;top:calc(env(safe-area-inset-top,0px) + 74px);right:8px;display:flex;gap:6px}
+  .iconbtn{pointer-events:auto;background:rgba(10,22,44,.78);border:2px solid rgba(255,255,255,.35);color:#fff;border-radius:999px;width:40px;height:40px;font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .iconbtn:active{transform:scale(.93)}
+  #banner{position:absolute;top:24%;left:0;right:0;text-align:center;pointer-events:none}
+  #bannerMain{font-size:clamp(30px,8.5vw,56px);font-weight:900;color:#ffcf3d;text-shadow:0 3px 0 #b97e0a,0 6px 18px rgba(0,0,0,.55),0 0 26px rgba(255,185,46,.5);letter-spacing:1px}
+  #bannerSub{font-size:clamp(15px,4.2vw,24px);font-weight:800;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.7);margin-top:4px}
+  #bannerMain.fadeout,#bannerSub.fadeout{transition:opacity .3s;opacity:0 !important}
+  #popups{position:absolute;inset:0;overflow:hidden}
+  .pop{position:absolute;transform:translate(-50%,-50%);font-weight:900;font-size:21px;color:#ffe9a8;text-shadow:0 2px 0 #7a4d00,0 3px 8px rgba(0,0,0,.85),0 0 14px rgba(255,185,46,.45);animation:poprise 1s ease-out forwards;white-space:nowrap}
+  @keyframes poprise{0%{opacity:0;margin-top:6px}15%{opacity:1}100%{opacity:0;margin-top:-44px}}
+
+  /* ---------- Touch controls (concept: big round gold buttons) ---------- */
+  #touchUI{position:fixed;inset:auto 0 0 0;z-index:6;pointer-events:none;display:flex;justify-content:flex-end;align-items:flex-end;padding:0 14px calc(env(safe-area-inset-bottom,0px) + 16px)}
+  .goldbtn{pointer-events:auto;width:84px;height:84px;border-radius:50%;border:3px solid #ffe9a8;background:radial-gradient(circle at 38% 30%,#ffe98a,#f5a623 68%,#c77f1a);color:#4a2c00;font-size:15px;font-weight:900;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.5);letter-spacing:.5px}
+  .goldbtn .arr{font-size:30px;line-height:.9}
+  .goldbtn:active{transform:scale(.92)}
+  @media (pointer:fine){ #touchUI{opacity:.6} }
+
+  /* ---------- Floating joystick (house style: gold crescent knob) ---------- */
+  #stickDock{position:fixed;left:26px;bottom:calc(env(safe-area-inset-bottom,0px) + 22px);width:118px;height:118px;z-index:7;pointer-events:none}
+  #stickBase{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:104px;height:104px;border-radius:50%;border:3px solid rgba(255,203,61,.75);background:radial-gradient(circle at 50% 42%,rgba(120,84,10,.34),rgba(10,22,44,.45));box-shadow:0 4px 18px rgba(0,0,0,.4),inset 0 0 22px rgba(255,203,61,.22);opacity:.62}
+  #stickKnob{position:absolute;left:50%;top:50%;width:52px;height:52px;margin:-26px 0 0 -26px;will-change:transform;border-radius:50%;border:3px solid rgba(255,203,61,.95);background:radial-gradient(circle at 38% 32%,#ffe9a8,#f5a623 72%,#b97e0a);box-shadow:0 3px 10px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center}
+  #stickKnob img{width:30px;height:30px;pointer-events:none}
+
+  /* ---------- Screens ---------- */
+  .screen{position:fixed;inset:0;z-index:10;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;background:radial-gradient(ellipse at 50% 30%,rgba(24,40,90,.5),rgba(4,8,24,.9));padding:14px 16px calc(env(safe-area-inset-bottom,0px) + 16px);text-align:center;overflow-y:auto}
+  #menuHero{width:min(88vw,340px);border-radius:18px;border:3px solid rgba(255,203,61,.75);box-shadow:0 12px 34px rgba(0,0,0,.6);margin-top:8px}
+  .logo{font-size:clamp(36px,10.5vw,58px);font-weight:900;line-height:.98;color:#ffcf3d;text-shadow:0 4px 0 #b97e0a,0 8px 24px rgba(0,0,0,.6);letter-spacing:1px;margin-top:10px}
+  .logoSub{letter-spacing:7px;font-weight:800;color:#cdd6ff;font-size:clamp(11px,3.2vw,15px);margin-top:5px}
+  #menuTag{font-size:clamp(14px,4vw,18px);font-weight:600;color:#d8ecff;margin:10px 0 14px;max-width:520px}
+  .bigbtn{pointer-events:auto;background:linear-gradient(180deg,#ffd94d,#f5a623);border:none;border-bottom:5px solid #b97e0a;color:#3a2400;font-size:clamp(19px,5.4vw,25px);font-weight:900;padding:13px 42px;border-radius:999px;cursor:pointer;letter-spacing:.5px;box-shadow:0 6px 20px rgba(0,0,0,.45);margin:5px}
+  .bigbtn:active{transform:translateY(3px);border-bottom-width:2px}
+  .smallbtn{pointer-events:auto;background:rgba(255,255,255,.12);border:2px solid rgba(255,255,255,.45);color:#fff;font-size:15px;font-weight:800;padding:9px 22px;border-radius:999px;cursor:pointer;margin:5px}
+  .smallbtn:active{transform:scale(.95)}
+  .rowbtns{display:flex;flex-wrap:wrap;justify-content:center}
+  #langSel{margin-top:14px;background:rgba(6,24,44,.85);color:#fff;border:2px solid rgba(255,255,255,.4);border-radius:10px;font-size:16px;padding:9px 12px;max-width:88vw}
+  .secStrip{margin-top:16px;max-width:520px;background:rgba(20,80,50,.3);border:1.5px solid #2f9e63;color:#c9f5da;border-radius:14px;padding:11px 14px;font-size:13.5px;line-height:1.5;font-weight:600}
+  .builtBy{margin-top:12px;color:#8b96c9;font-size:12.5px;font-weight:700;letter-spacing:.5px}
+  .panel{background:rgba(6,20,44,.94);border:2px solid rgba(255,203,61,.6);border-radius:18px;padding:18px 20px;max-width:min(92vw,480px);max-height:84vh;overflow:auto;text-align:left;box-shadow:0 10px 40px rgba(0,0,0,.5);margin:auto}
+  .panel h2{color:#ffcf3d;font-size:22px;margin-bottom:10px;text-align:center}
+  .panel .body{font-size:15px;line-height:1.55;color:#e6f2ff}
+  .panel .center{text-align:center;margin-top:14px}
+  table.board{width:100%;border-collapse:collapse;font-size:15px}
+  table.board td,table.board th{padding:5px 6px;border-bottom:1px solid rgba(255,255,255,.14)}
+  table.board td.nm{font-weight:700;color:#fff;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  table.board td.sc{text-align:right;font-weight:800;color:#ffe9a8}
+  .tabs{display:flex;gap:8px;justify-content:center;margin-bottom:10px}
+  .tab{pointer-events:auto;background:rgba(255,255,255,.1);border:2px solid rgba(255,255,255,.3);color:#cfe8ff;padding:6px 14px;border-radius:999px;font-weight:800;font-size:14px;cursor:pointer}
+  .tab.on{background:#ffcf3d;color:#3a2400;border-color:#ffcf3d}
+  #overTitle{font-size:clamp(32px,9vw,52px);font-weight:900;color:#ff5d7a;text-shadow:0 3px 0 #8f1d33,0 6px 18px rgba(0,0,0,.5);margin-top:9vh}
+  #finalScoreLine{font-size:clamp(20px,6vw,30px);font-weight:900;color:#ffe9a8;margin:8px 0 2px}
+  #finalDetail{color:#cfe8ff;font-weight:600;margin-bottom:12px}
+  #saveRow{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;align-items:center}
+  #nameInput{background:rgba(255,255,255,.14);border:2px solid rgba(255,255,255,.45);border-radius:999px;color:#fff;font-size:16px;font-weight:700;padding:10px 16px;width:170px;text-align:center;outline:none}
+  #nameInput::placeholder{color:rgba(255,255,255,.55)}
+  #savedLine{color:#7dff9a;font-weight:800;min-height:22px;margin-top:6px}
+  #loadErr{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;background:#0a1026;color:#ffd7d7;font-size:16px;padding:24px;text-align:center}
+</style>
+</head>
+<body>
+<div id="game"></div>
+
+<div id="loader"><img src="lunc.png" alt="Luna Classic"><div id="loadTxt">BARREL TOWER</div></div>
+
+<!-- HUD -->
+<div id="hud" class="hidden">
+  <div id="hudBar">
+    <div class="hudCell"><div class="hudLbl" id="hudScoreLbl">SCORE</div><div class="hudVal"><img src="lunc.png" alt=""><span id="hudScore">0</span></div></div>
+    <div class="hudCell mid"><div class="hudVal cres"><span class="cresIco">&#9790;</span><span id="hudCres">0</span></div><div id="hudLvl">LEVEL 1</div></div>
+    <div class="hudCell right"><div class="hudLbl" id="hudLivesLbl">LIVES</div><div id="hearts">&#10084;&#10084;&#10084;</div></div>
+  </div>
+  <div id="hudBtns">
+    <button class="iconbtn" id="muteBtn" aria-label="Sound">&#128266;</button>
+    <button class="iconbtn" id="pauseBtn" aria-label="Pause">&#10073;&#10073;</button>
+  </div>
+  <div id="banner"><div id="bannerMain"></div><div id="bannerSub"></div></div>
+  <div id="popups"></div>
+</div>
+
+<!-- Touch controls -->
+<div id="touchUI" class="hidden">
+  <button class="goldbtn" id="btnJump"><span class="arr">&#8599;</span><span id="jumpLbl">JUMP</span></button>
+</div>
+<div id="stickDock" class="hidden">
+  <div id="stickBase"><div id="stickKnob"><img src="lunc.png" alt=""></div></div>
+</div>
+
+<!-- MENU -->
+<div id="menu" class="screen hidden">
+  <img id="menuHero" src="keyart.webp" alt="Barrel Tower — the great ape atop the Luna Classic tower">
+  <div class="logo">BARREL TOWER</div>
+  <div class="logoSub">LUNA CLASSIC</div>
+  <div id="menuTag"></div>
+  <button class="bigbtn" id="playBtn"></button>
+  <div class="rowbtns">
+    <button class="smallbtn" id="howBtn"></button>
+    <button class="smallbtn" id="boardBtn"></button>
+  </div>
+  <select id="langSel" aria-label="Language"></select>
+  <div class="secStrip" id="secStrip"></div>
+  <div class="builtBy">LUNC DEV STUDIO</div>
+</div>
+
+<!-- HOW TO -->
+<div id="howPanel" class="screen hidden">
+  <div class="panel">
+    <h2 id="howTitle"></h2>
+    <div class="body" id="howBody"></div>
+    <div class="center"><button class="smallbtn" id="howClose"></button></div>
+  </div>
+</div>
+
+<!-- LEADERBOARD -->
+<div id="boardPanel" class="screen hidden">
+  <div class="panel">
+    <h2 id="boardTitle"></h2>
+    <div class="tabs">
+      <button class="tab on" id="tabAll"></button>
+      <button class="tab" id="tabWeek"></button>
+    </div>
+    <div id="boardBody"></div>
+    <div class="center"><button class="smallbtn" id="boardClose"></button></div>
+  </div>
+</div>
+
+<!-- PAUSE -->
+<div id="pausePanel" class="screen hidden">
+  <div class="panel" style="text-align:center">
+    <h2 id="pauseTitle"></h2>
+    <div class="center">
+      <button class="bigbtn" id="resumeBtn"></button><br>
+      <button class="smallbtn" id="quitBtn"></button>
+    </div>
+  </div>
+</div>
+
+<!-- GAME OVER -->
+<div id="overPanel" class="screen hidden">
+  <div id="overTitle"></div>
+  <div id="finalScoreLine"></div>
+  <div id="finalDetail"></div>
+  <div id="saveRow">
+    <input id="nameInput" maxlength="14" autocomplete="off">
+    <button class="bigbtn" id="submitBtn" style="font-size:17px;padding:10px 26px"></button>
+  </div>
+  <div id="savedLine"></div>
+  <div class="rowbtns">
+    <button class="bigbtn" id="againBtn"></button>
+    <button class="smallbtn" id="menuBtn"></button>
+  </div>
+</div>
+</body>
+
+<script type="importmap">
+{"imports":{"three":"./lib/three.module.js","three/addons/":"./lib/addons/"}}
+</script>
+<script>
+const LANGS = [["en","English"],["es","Español"],["pt","Português"],["fr","Français"],["de","Deutsch"],["it","Italiano"],["nl","Nederlands"],["ru","Русский"],["uk","Українська"],["tr","Türkçe"],["ar","العربية"],["hi","हिन्दी"],["id","Bahasa Indonesia"],["vi","Tiếng Việt"],["th","ไทย"],["ko","한국어"],["ja","日本語"],["zh","简体中文"]];
+const BT_BASE = {play:"▶ PLAY",how:"HOW TO PLAY",board:"🏆 LEADERBOARD",howTitle:"How to play",close:"CLOSE",allTime:"All time",week:"This week",loading:"Loading…",noScores:"No scores yet — be the first!",score:"SCORE",lives:"LIVES",jump:"JUMP",over:"GAME OVER",finalScore:"Final score",submit:"SAVE SCORE",saved:"Saved!",rank:"You're #{n} all-time!",namePh:"Your name",again:"PLAY AGAIN",menu:"MENU",paused:"PAUSED",resume:"RESUME",quit:"QUIT TO MENU",coinsWord:"crescents",starsWord:"stars"};
+const BT_EN = {tag:"Climb the steel tower, dodge the great ape's rolling barrels, and reach the top.",howBody:"<b>Joystick (bottom-left): push \u25c0 \u25b6</b> to run along the decks.<br><b>Push up at a ladder</b> to climb &middot; <b>push down</b> to descend.<br><b>JUMP button</b> (or push the stick up on the ground) to leap a barrel &mdash; clearing one scores <b>+100</b>!<br>Desktop: arrow keys or WASD + space.<br>Grab gold <b>LUNC crescents</b> (+50) and blue <b>USTC stars</b> (+250).<br>Reach the top deck beside the ape to clear the level. Watch for rolling crates and fire drums on higher levels!",level:"LEVEL",levelClear:"LEVEL CLEAR!",bonus:"Level bonus",overTitle:"GAME OVER",climbWord:"climbs",hint:"Climb to the ape!",sec:"\ud83d\udd12 This game is free and never asks you to connect a wallet or sign anything to play. Any page that does is a fake."};
+const BT_LOCALES = {"es":{"tag":"Escala la torre de acero, esquiva los barriles del gran simio y llega a la cima.","howBody":"<b>Joystick (abajo a la izquierda): empuja ◀ ▶</b> para correr por las plataformas.<br><b>Empuja hacia arriba junto a una escalera</b> para subir · <b>hacia abajo</b> para bajar.<br><b>Botón SALTAR</b> (o empuja el joystick hacia arriba en el suelo) para saltar barriles — ¡saltar uno da <b>+100</b>!<br>Escritorio: flechas o WASD + espacio.<br>Recoge <b>medias lunas LUNC</b> doradas (+50) y <b>estrellas USTC</b> azules (+250).<br>Llega a la plataforma superior junto al simio para superar el nivel. ¡Cuidado con las cajas rodantes y los bidones de fuego!","level":"NIVEL","levelClear":"¡NIVEL SUPERADO!","bonus":"Bono de nivel","overTitle":"FIN DEL JUEGO","climbWord":"subidas","hint":"¡Sube hasta el simio!","sec":"🔒 Este juego es gratuito y nunca te pide conectar una billetera ni firmar nada para jugar. Cualquier página que lo pida es falsa."},"pt":{"tag":"Suba a torre de aço, desvie dos barris do grande símio e chegue ao topo.","howBody":"<b>Joystick (canto inferior esquerdo): empurre ◀ ▶</b> para correr pelas plataformas.<br><b>Empurre para cima junto a uma escada</b> para subir · <b>para baixo</b> para descer.<br><b>Botão PULAR</b> (ou empurre o joystick para cima no chão) para saltar barris — pular um vale <b>+100</b>!<br>Desktop: setas ou WASD + espaço.<br>Pegue <b>luas crescentes LUNC</b> douradas (+50) e <b>estrelas USTC</b> azuis (+250).<br>Chegue à plataforma do topo ao lado do símio para passar de nível. Cuidado com caixas rolantes e tambores de fogo!","level":"NÍVEL","levelClear":"NÍVEL CONCLUÍDO!","bonus":"Bônus de nível","overTitle":"FIM DE JOGO","climbWord":"subidas","hint":"Suba até o símio!","sec":"🔒 Este jogo é gratuito e nunca pede para conectar uma carteira ou assinar qualquer coisa para jogar. Qualquer página que peça isso é falsa."},"fr":{"tag":"Grimpez la tour d'acier, esquivez les tonneaux du grand singe et atteignez le sommet.","howBody":"<b>Joystick (en bas à gauche) : poussez ◀ ▶</b> pour courir sur les plateformes.<br><b>Poussez vers le haut près d'une échelle</b> pour monter · <b>vers le bas</b> pour descendre.<br><b>Bouton SAUTER</b> (ou poussez le joystick vers le haut au sol) pour sauter les tonneaux — en sauter un rapporte <b>+100</b> !<br>Bureau : flèches ou WASD + espace.<br>Ramassez les <b>croissants LUNC</b> dorés (+50) et les <b>étoiles USTC</b> bleues (+250).<br>Atteignez la plateforme du haut, près du singe, pour finir le niveau. Attention aux caisses roulantes et aux fûts en feu !","level":"NIVEAU","levelClear":"NIVEAU TERMINÉ !","bonus":"Bonus de niveau","overTitle":"PARTIE TERMINÉE","climbWord":"montées","hint":"Grimpez jusqu'au singe !","sec":"🔒 Ce jeu est gratuit et ne demande jamais de connecter un portefeuille ni de signer quoi que ce soit pour jouer. Toute page qui le demande est fausse."},"de":{"tag":"Klettere den Stahlturm hinauf, weiche den Fässern des großen Affen aus und erreiche die Spitze.","howBody":"<b>Joystick (unten links): drücke ◀ ▶</b>, um über die Plattformen zu laufen.<br><b>An einer Leiter nach oben drücken</b> = klettern · <b>nach unten</b> = absteigen.<br><b>SPRINGEN-Taste</b> (oder Joystick am Boden nach oben) springt über Fässer — eins übersprungen gibt <b>+100</b>!<br>Desktop: Pfeiltasten oder WASD + Leertaste.<br>Sammle goldene <b>LUNC-Sicheln</b> (+50) und blaue <b>USTC-Sterne</b> (+250).<br>Erreiche die oberste Plattform neben dem Affen, um das Level zu schaffen. Vorsicht vor rollenden Kisten und Feuerfässern!","level":"LEVEL","levelClear":"LEVEL GESCHAFFT!","bonus":"Level-Bonus","overTitle":"SPIEL VORBEI","climbWord":"Aufstiege","hint":"Klettere zum Affen hinauf!","sec":"🔒 Dieses Spiel ist kostenlos und verlangt niemals, eine Wallet zu verbinden oder etwas zu signieren. Jede Seite, die das verlangt, ist eine Fälschung."},"it":{"tag":"Scala la torre d'acciaio, schiva i barili della grande scimmia e raggiungi la cima.","howBody":"<b>Joystick (in basso a sinistra): spingi ◀ ▶</b> per correre sulle piattaforme.<br><b>Spingi in su vicino a una scala</b> per salire · <b>in giù</b> per scendere.<br><b>Pulsante SALTA</b> (o spingi il joystick in su a terra) per saltare i barili — saltarne uno vale <b>+100</b>!<br>Desktop: frecce o WASD + spazio.<br>Raccogli <b>mezzelune LUNC</b> dorate (+50) e <b>stelle USTC</b> blu (+250).<br>Raggiungi la piattaforma in alto accanto alla scimmia per superare il livello. Attento alle casse rotolanti e ai fusti di fuoco!","level":"LIVELLO","levelClear":"LIVELLO SUPERATO!","bonus":"Bonus livello","overTitle":"PARTITA FINITA","climbWord":"salite","hint":"Arrampicati fino alla scimmia!","sec":"🔒 Questo gioco è gratuito e non chiede mai di collegare un wallet o firmare nulla per giocare. Qualsiasi pagina che lo chiede è falsa."},"nl":{"tag":"Beklim de stalen toren, ontwijk de vaten van de grote aap en bereik de top.","howBody":"<b>Joystick (linksonder): duw ◀ ▶</b> om over de platforms te rennen.<br><b>Duw omhoog bij een ladder</b> om te klimmen · <b>omlaag</b> om af te dalen.<br><b>SPRING-knop</b> (of duw de joystick op de grond omhoog) om over vaten te springen — één overspringen is <b>+100</b>!<br>Desktop: pijltjestoetsen of WASD + spatie.<br>Pak gouden <b>LUNC-sikkels</b> (+50) en blauwe <b>USTC-sterren</b> (+250).<br>Bereik het bovenste platform naast de aap om het level te halen. Pas op voor rollende kisten en vuurvaten!","level":"LEVEL","levelClear":"LEVEL GEHAALD!","bonus":"Levelbonus","overTitle":"SPEL VOORBIJ","climbWord":"beklimmingen","hint":"Klim omhoog naar de aap!","sec":"🔒 Dit spel is gratis en vraagt nooit om een wallet te verbinden of iets te tekenen om te spelen. Elke pagina die dat wel vraagt, is nep."},"ru":{"tag":"Заберись на стальную башню, уворачивайся от бочек большой обезьяны и доберись до вершины.","howBody":"<b>Джойстик (слева внизу): веди ◀ ▶</b>, чтобы бегать по платформам.<br><b>У лестницы веди вверх</b> — подняться · <b>вниз</b> — спуститься.<br><b>Кнопка ПРЫЖОК</b> (или джойстик вверх на земле) — прыжок через бочки: одна бочка = <b>+100</b>!<br>На компьютере: стрелки или WASD + пробел.<br>Собирай золотые <b>полумесяцы LUNC</b> (+50) и синие <b>звёзды USTC</b> (+250).<br>Доберься до верхней платформы рядом с обезьяной, чтобы пройти уровень. Осторожно: катящиеся ящики и огненные бочки!","level":"УРОВЕНЬ","levelClear":"УРОВЕНЬ ПРОЙДЕН!","bonus":"Бонус уровня","overTitle":"ИГРА ОКОНЧЕНА","climbWord":"подъёмов","hint":"Забериcь к обезьяне!","sec":"🔒 Эта игра бесплатна и никогда не просит подключить кошелёк или что-то подписать для игры. Любая страница, которая просит, — подделка."},"uk":{"tag":"Заберися на сталеву вежу, ухиляйся від бочок великої мавпи й дістанься вершини.","howBody":"<b>Джойстик (зліва внизу): веди ◀ ▶</b>, щоб бігати платформами.<br><b>Біля драбини веди вгору</b> — піднятися · <b>униз</b> — спуститися.<br><b>Кнопка СТРИБОК</b> (або джойстик угору на землі) — стрибок через бочки: одна бочка = <b>+100</b>!<br>На комп'ютері: стрілки або WASD + пробіл.<br>Збирай золоті <b>півмісяці LUNC</b> (+50) і сині <b>зірки USTC</b> (+250).<br>Дістанься верхньої платформи поруч із мавпою, щоб пройти рівень. Обережно: ящики, що котяться, і вогняні бочки!","level":"РІВЕНЬ","levelClear":"РІВЕНЬ ПРОЙДЕНО!","bonus":"Бонус рівня","overTitle":"ГРУ ЗАВЕРШЕНО","climbWord":"підйомів","hint":"Забериcя до мавпи!","sec":"🔒 Ця гра безкоштовна і ніколи не просить підключити гаманець чи щось підписати для гри. Будь-яка сторінка, що просить, — підробка."},"tr":{"tag":"Çelik kuleye tırman, büyük maymunun varillerinden kaç ve zirveye ulaş.","howBody":"<b>Joystick (sol altta): ◀ ▶ it</b> — platformlarda koş.<br><b>Merdivenin yanında yukarı it</b> = tırman · <b>aşağı</b> = in.<br><b>ZIPLA düğmesi</b> (veya yerdeyken joystick yukarı) varillerin üzerinden atlar — bir varil <b>+100</b>!<br>Masaüstü: ok tuşları veya WASD + boşluk.<br>Altın <b>LUNC hilalleri</b> (+50) ve mavi <b>USTC yıldızları</b> (+250) topla.<br>Seviyeyi geçmek için maymunun yanındaki en üst platforma ulaş. Yuvarlanan kasalara ve ateş varillerine dikkat!","level":"SEVİYE","levelClear":"SEVİYE TAMAM!","bonus":"Seviye bonusu","overTitle":"OYUN BİTTİ","climbWord":"tırmanış","hint":"Maymuna tırman!","sec":"🔒 Bu oyun ücretsizdir ve oynamak için asla cüzdan bağlamanı veya bir şey imzalamanı istemez. İsteyen sayfa sahtedir."},"ar":{"tag":"تسلّق البرج الفولاذي، وتفادَ براميل القرد الكبير، واصعد إلى القمة.","howBody":"<b>عصا التحكم (أسفل اليسار): ادفع ◀ ▶</b> للجري على المنصات.<br><b>ادفع لأعلى عند سلم</b> للتسلق · <b>لأسفل</b> للنزول.<br><b>زر القفز</b> (أو ادفع العصا لأعلى على الأرض) للقفز فوق البراميل — قفز واحد = <b>+100</b>!<br>على الحاسوب: الأسهم أو WASD + المسافة.<br>اجمع <b>أهلة LUNC</b> الذهبية (+50) و<b>نجوم USTC</b> الزرقاء (+250).<br>صِل إلى المنصة العليا بجانب القرد لإنهاء المستوى. احذر الصناديق المتدحرجة وبراميل النار!","level":"المستوى","levelClear":"أكملت المستوى!","bonus":"مكافأة المستوى","overTitle":"انتهت اللعبة","climbWord":"تسلقات","hint":"تسلّق إلى القرد!","sec":"🔒 هذه اللعبة مجانية ولا تطلب أبدًا توصيل محفظة أو توقيع أي شيء للعب. أي صفحة تطلب ذلك فهي مزيفة."},"hi":{"tag":"स्टील टावर पर चढ़ो, बड़े वानर के बैरलों से बचो और चोटी तक पहुँचो।","howBody":"<b>जॉयस्टिक (नीचे बाएँ): ◀ ▶ दबाओ</b> — प्लेटफ़ॉर्म पर दौड़ो।<br><b>सीढ़ी के पास ऊपर दबाओ</b> = चढ़ो · <b>नीचे</b> = उतरो।<br><b>कूदो बटन</b> (या ज़मीन पर जॉयस्टिक ऊपर) बैरलों के ऊपर से कूदता है — एक बैरल = <b>+100</b>!<br>डेस्कटॉप: एरो की या WASD + स्पेस।<br>सुनहरे <b>LUNC अर्धचंद्र</b> (+50) और नीले <b>USTC सितारे</b> (+250) बटोरो।<br>लेवल पूरा करने के लिए वानर के बगल वाली सबसे ऊपर की प्लेटफ़ॉर्म तक पहुँचो। लुढ़कते बक्सों और आग के ड्रमों से सावधान!","level":"लेवल","levelClear":"लेवल पूरा!","bonus":"लेवल बोनस","overTitle":"खेल खत्म","climbWord":"चढ़ाइयाँ","hint":"वानर तक चढ़ो!","sec":"🔒 यह खेल मुफ़्त है और खेलने के लिए कभी वॉलेट जोड़ने या कुछ साइन करने को नहीं कहता। जो पेज कहे, वह नकली है।"},"id":{"tag":"Panjat menara baja, hindari barel kera raksasa, dan capai puncaknya.","howBody":"<b>Joystick (kiri bawah): dorong ◀ ▶</b> untuk berlari di platform.<br><b>Dorong ke atas di dekat tangga</b> untuk memanjat · <b>ke bawah</b> untuk turun.<br><b>Tombol LOMPAT</b> (atau dorong joystick ke atas saat di tanah) melompati barel — satu barel <b>+100</b>!<br>Desktop: tombol panah atau WASD + spasi.<br>Kumpulkan <b>bulan sabit LUNC</b> emas (+50) dan <b>bintang USTC</b> biru (+250).<br>Capai platform teratas di samping kera untuk menyelesaikan level. Awas peti berguling dan drum api!","level":"LEVEL","levelClear":"LEVEL SELESAI!","bonus":"Bonus level","overTitle":"PERMAINAN SELESAI","climbWord":"panjatan","hint":"Panjat ke kera!","sec":"🔒 Game ini gratis dan tidak pernah meminta menghubungkan dompet atau menandatangani apa pun untuk bermain. Halaman yang meminta itu palsu."},"vi":{"tag":"Leo lên tháp thép, né thùng gỗ của con vượn khổng lồ và chạm tới đỉnh.","howBody":"<b>Cần điều khiển (góc trái dưới): đẩy ◀ ▶</b> để chạy trên các sàn.<br><b>Đẩy lên gần thang</b> để leo · <b>xuống</b> để tụt xuống.<br><b>Nút NHẢY</b> (hoặc đẩy cần lên khi ở mặt đất) nhảy qua thùng — một thùng <b>+100</b>!<br>Máy tính: phím mũi tên hoặc WASD + dấu cách.<br>Nhặt <b>lưỡi liềm LUNC</b> vàng (+50) và <b>sao USTC</b> xanh (+250).<br>Lên sàn cao nhất cạnh con vượn để qua màn. Cẩn thận thùng gỗ lăn và thùng lửa!","level":"CẤP","levelClear":"QUA MÀN!","bonus":"Thưởng màn","overTitle":"KẾT THÚC","climbWord":"lượt leo","hint":"Leo lên chỗ con vượn!","sec":"🔒 Game này miễn phí và không bao giờ yêu cầu kết nối ví hay ký bất cứ thứ gì để chơi. Trang nào yêu cầu là giả mạo."},"th":{"tag":"ปีนหอเหล็ก หลบถังไม้ของวานรยักษ์ แล้วไปให้ถึงยอด","howBody":"<b>จอยสติ๊ก (ซ้ายล่าง): ดัน ◀ ▶</b> เพื่อวิ่งบนแท่น<br><b>ดันขึ้นใกล้บันได</b> = ปีน · <b>ลง</b> = ลงมา<br><b>ปุ่มกระโดด</b> (หรือดันจอยสติ๊กขึ้นตอนอยู่บนพื้น) กระโดดข้ามถัง — ข้ามหนึ่งถังได้ <b>+100</b>!<br>คอมพิวเตอร์: ปุ่มลูกศรหรือ WASD + สเปซ<br>เก็บ <b>จันทร์เสี้ยว LUNC</b> สีทอง (+50) และ <b>ดาว USTC</b> สีน้ำเงิน (+250)<br>ไปถึงแท่นบนสุดข้างวานรเพื่อผ่านด่าน ระวังลังที่กลิ้งและถังไฟ!","level":"ด่าน","levelClear":"ผ่านด่าน!","bonus":"โบนัสด่าน","overTitle":"จบเกม","climbWord":"การปีน","hint":"ปีนขึ้นไปหาวานร!","sec":"🔒 เกมนี้เล่นฟรี และไม่เคยขอให้เชื่อมต่อกระเป๋าเงินหรือเซ็นอะไรเพื่อเล่น หน้าไหนที่ขอคือของปลอม"},"ko":{"tag":"강철 타워를 오르고, 거대한 유인원의 나무통을 피하고, 정상에 도달하세요.","howBody":"<b>조이스틱 (왼쪽 아래): ◀ ▶로 밀기</b> — 플랫폼을 달립니다.<br><b>사다리 옆에서 위로</b> = 오르기 · <b>아래로</b> = 내려오기.<br><b>점프 버튼</b>(또는 바닥에서 스틱 위로)으로 나무통을 뛰어넘으세요 — 통 하나당 <b>+100</b>!<br>데스크톱: 방향키 또는 WASD + 스페이스.<br>황금 <b>LUNC 초승달</b>(+50)과 파란 <b>USTC 별</b>(+250)을 모으세요.<br>유인원 옆 최상단 플랫폼에 도달하면 레벨 클리어. 구르는 상자와 불 드럼을 조심하세요!","level":"레벨","levelClear":"레벨 클리어!","bonus":"레벨 보너스","overTitle":"게임 오버","climbWord":"등반","hint":"유인원에게 올라가세요!","sec":"🔒 이 게임은 무료이며, 플레이하기 위해 지갑 연결이나 서명을 절대 요구하지 않습니다. 요구하는 페이지는 가짜입니다."},"ja":{"tag":"鋼鉄のタワーを登り、巨大な猿の樽をかわして、頂上を目指そう。","howBody":"<b>ジョイスティック（左下）：◀ ▶ に倒す</b>とプラットフォームを走れる。<br><b>はしごのそばで上に倒す</b>＝登る · <b>下</b>＝降りる。<br><b>ジャンプボタン</b>（または地面でスティックを上）で樽を飛び越える — 1つで<b>+100</b>！<br>PC：矢印キーまたはWASD＋スペース。<br>金の<b>LUNC三日月</b>（+50）と青い<b>USTCスター</b>（+250）を集めよう。<br>猿の隣の最上段プラットフォームに着けばレベルクリア。転がる木箱と炎のドラムに注意！","level":"レベル","levelClear":"レベルクリア！","bonus":"レベルボーナス","overTitle":"ゲームオーバー","climbWord":"クライム","hint":"猿のところまで登ろう！","sec":"🔒 このゲームは無料で、プレイするためにウォレット接続や署名を求めることは決してありません。求めるページは偽物です。"},"zh":{"tag":"爬上钢铁塔，躲开巨猿的木桶，登上塔顶。","howBody":"<b>摇杆（左下）：推 ◀ ▶</b> 在平台上奔跑。<br><b>在梯子旁上推</b>＝爬梯 · <b>下推</b>＝下梯。<br><b>跳跃按钮</b>（或在地面上推摇杆）跳过木桶 — 跳过一个 <b>+100</b>！<br>电脑：方向键或 WASD + 空格。<br>收集金色 <b>LUNC 月牙</b>（+50）和蓝色 <b>USTC 星星</b>（+250）。<br>到达巨猿旁边的最高平台即可过关。小心滚动的木箱和火焰桶！","level":"关卡","levelClear":"过关啦！","bonus":"关卡奖励","overTitle":"游戏结束","climbWord":"次攀爬","hint":"爬到巨猿那里！","sec":"🔒 本游戏免费，玩游戏永远不会要求你连接钱包或签名任何东西。要求你这样做的页面都是假的。"}};
+const I18N = { en: Object.assign({}, BT_BASE, BT_EN) };
+for (const k in BT_LOCALES) I18N[k] = Object.assign({}, BT_BASE, BT_EN, BT_LOCALES[k]);
+let LANG_CUR = 'en';
+try { const sv = localStorage.getItem('barrelTowerLang'); if (sv && I18N[sv]) LANG_CUR = sv; else { const n = (navigator.language || 'en').slice(0, 2); if (I18N[n]) LANG_CUR = n; } } catch (e) {}
+function T(k) { return (I18N[LANG_CUR] && I18N[LANG_CUR][k]) || I18N.en[k] || k; }
+</script>
+<script type="module" src="game.js?v=bt1"></script>
+</body>
+</html>
