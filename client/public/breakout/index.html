@@ -308,6 +308,8 @@ function burst(x, y, color, n){
   }
 }
 function popBurst(b){
+  /* bloom flash at the pop point — white-hot core in the balloon's color */
+  particles.push({ x: b.cx, y: b.cy, vx: 0, vy: 0, life: 0.13, color: shade(b.color, 1.5), r: 52, flash: true });
   /* rubber shards: curved slivers in the balloon's own color */
   const cx = b.cx, cy = b.cy, n = 9 + (Math.random() * 4 | 0);
   for (let i = 0; i < n; i++){
@@ -727,21 +729,61 @@ function drawBalloon(b){
   ctx.moveTo(cx, cy + ry + 5);
   ctx.quadraticCurveTo(cx + Math.sin(drawT * 2 + b.sway) * 4, cy + ry + 13, cx + sway * 0.4, cy + ry + 20);
   ctx.stroke();
-  /* body with vertical gloss gradient + sheen */
+  /* ===== RUBBER BODY — photographic gloss stack (Peggle-sphere + balloon-pop recipe) =====
+     key light from upper-left: bright hot core -> saturated body -> deep rim, clipped to the body */
   if (special){ ctx.shadowColor = b.type === 'star' ? 'rgba(55,224,200,.9)' : 'rgba(255,183,0,.95)'; ctx.shadowBlur = 12 + 8 * Math.sin(drawT * 5 + b.sway); }
-  const g = ctx.createLinearGradient(cx - rx, cy - ry, cx + rx * 0.4, cy + ry);
-  g.addColorStop(0, shade(b.color, 1.25)); g.addColorStop(0.45, b.color); g.addColorStop(1, shade(b.color, 0.62));
   drawBalloonShape(cx, cy, rx, ry);
-  ctx.fillStyle = g; ctx.fill();
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 1.2; ctx.stroke();
-  /* gloss highlight */
+  ctx.fillStyle = b.color; ctx.fill();
   ctx.save();
-  ctx.translate(cx - rx * 0.38, cy - ry * 0.42); ctx.rotate(-0.5);
-  const hg = ctx.createRadialGradient(0, 0, 1, 0, 0, rx * 0.5);
-  hg.addColorStop(0, 'rgba(255,255,255,.75)'); hg.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = hg;
-  ctx.beginPath(); ctx.ellipse(0, 0, rx * 0.34, ry * 0.5, 0, 0, 6.29); ctx.fill();
+  ctx.clip();
+  const lx = cx - rx * 0.42, ly = cy - ry * 0.5;
+  let rg = ctx.createRadialGradient(lx, ly, 2, lx, ly, rx * 2.05);
+  rg.addColorStop(0, shade(b.color, 1.85));
+  rg.addColorStop(0.3, shade(b.color, 1.22));
+  rg.addColorStop(0.58, b.color);
+  rg.addColorStop(0.82, shade(b.color, 0.7));
+  rg.addColorStop(1, shade(b.color, 0.42));
+  ctx.fillStyle = rg;
+  ctx.fillRect(cx - rx - 2, cy - ry - 2, rx * 2 + 4, ry * 2 + 4);
+  /* fresnel rim light — thin bright crescent on the dark lower-right edge */
+  ctx.globalCompositeOperation = 'lighter';
+  let fr = ctx.createRadialGradient(cx - rx * 0.2, cy - ry * 0.2, rx * 0.55, cx + rx * 0.12, cy + ry * 0.18, rx * 1.28);
+  fr.addColorStop(0.78, 'rgba(255,255,255,0)');
+  fr.addColorStop(0.93, 'rgba(255,235,215,.16)');
+  fr.addColorStop(1, 'rgba(255,235,215,0)');
+  ctx.fillStyle = fr;
+  ctx.fillRect(cx - rx - 2, cy - ry - 2, rx * 2 + 4, ry * 2 + 4);
+  ctx.globalCompositeOperation = 'source-over';
+  /* tight specular highlight — crisp white core with a soft halo, upper-left */
+  ctx.save();
+  ctx.translate(lx, ly); ctx.rotate(-0.62);
+  const hs = ctx.createRadialGradient(0, 0, 0.5, 0, 0, rx * 0.42);
+  hs.addColorStop(0, 'rgba(255,255,255,.5)');
+  hs.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = hs;
+  ctx.beginPath(); ctx.ellipse(0, 0, rx * 0.4, ry * 0.52, 0, 0, 6.29); ctx.fill();
+  const hc = ctx.createRadialGradient(0, 0, 0.3, 0, 0, rx * 0.17);
+  hc.addColorStop(0, 'rgba(255,255,255,.98)');
+  hc.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = hc;
+  ctx.beginPath(); ctx.ellipse(0, 0, rx * 0.155, ry * 0.225, 0, 0, 6.29); ctx.fill();
+  ctx.restore();
+  /* faint bounce light from below — the fairground glow under the balloon */
+  const bg2 = ctx.createLinearGradient(0, cy + ry * 0.45, 0, cy + ry);
+  bg2.addColorStop(0, 'rgba(255,190,120,0)');
+  bg2.addColorStop(1, 'rgba(255,190,120,.13)');
+  ctx.fillStyle = bg2;
+  ctx.fillRect(cx - rx - 2, cy + ry * 0.45, rx * 2 + 4, ry * 0.55 + 2);
+  ctx.restore(); /* unclip */
+  /* rim edge: light stroke top-left, deep stroke bottom-right */
+  ctx.save();
+  drawBalloonShape(cx, cy, rx, ry);
+  ctx.clip();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = 'rgba(255,255,255,.34)';
+  ctx.beginPath(); ctx.ellipse(cx - rx * 0.3, cy - ry * 0.34, rx * 0.85, ry * 0.85, 0, Math.PI * 0.95, Math.PI * 1.55); ctx.stroke();
+  ctx.strokeStyle = 'rgba(10,6,30,.30)';
+  ctx.beginPath(); ctx.ellipse(cx + rx * 0.24, cy + ry * 0.3, rx * 0.9, ry * 0.9, 0, Math.PI * 0.05, Math.PI * 0.6); ctx.stroke();
   ctx.restore();
   /* knot */
   ctx.fillStyle = shade(b.color, 0.7);
@@ -793,6 +835,18 @@ function draw(){
   const g = ctx.createLinearGradient(0, 0, 0, VH);
   g.addColorStop(0, '#131c48'); g.addColorStop(0.45, '#1c1440'); g.addColorStop(0.75, '#33163f'); g.addColorStop(1, '#4a1e35');
   ctx.fillStyle = g; ctx.fillRect(0, 0, IW, VH);
+  /* warm carnival glow rising from the fairground below the field */
+  const cg = ctx.createRadialGradient(IW / 2, VH + 90, 60, IW / 2, VH + 90, 470);
+  cg.addColorStop(0, 'rgba(255,150,70,.20)'); cg.addColorStop(0.55, 'rgba(255,110,80,.07)'); cg.addColorStop(1, 'rgba(255,110,80,0)');
+  ctx.fillStyle = cg; ctx.fillRect(0, VH - 470, IW, 470);
+  /* gentle light shaft falling from the moon */
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const sg = ctx.createLinearGradient(660, 0, 470, 460);
+  sg.addColorStop(0, 'rgba(255,228,160,.07)'); sg.addColorStop(1, 'rgba(255,228,160,0)');
+  ctx.fillStyle = sg;
+  ctx.beginPath(); ctx.moveTo(648, 0); ctx.lineTo(742, 0); ctx.lineTo(500, 460); ctx.lineTo(330, 460); ctx.closePath(); ctx.fill();
+  ctx.restore();
   for (const s of skyDots){
     ctx.globalAlpha = 0.3 + 0.28 * Math.sin(drawT * 1.7 + s.p);
     ctx.fillStyle = '#dfe8ff';
@@ -870,6 +924,14 @@ function draw(){
   ctx.lineTo(paddle.x - pw / 2 + pr, PADDLE_Y + PADDLE_H);
   ctx.arc(paddle.x - pw / 2 + pr, PADDLE_Y + pr, pr, 1.57, 4.72);
   ctx.closePath(); ctx.fill();
+  /* glassy top sheen — a soft light band across the face, clipped to the capsule */
+  ctx.save();
+  ctx.clip();
+  const psh = ctx.createLinearGradient(0, PADDLE_Y, 0, PADDLE_Y + PADDLE_H);
+  psh.addColorStop(0, 'rgba(255,255,255,.5)'); psh.addColorStop(0.45, 'rgba(255,255,255,.06)'); psh.addColorStop(1, 'rgba(0,40,50,.28)');
+  ctx.fillStyle = psh;
+  ctx.fillRect(paddle.x - pw / 2, PADDLE_Y, pw, PADDLE_H);
+  ctx.restore();
   ctx.strokeStyle = 'rgba(216,255,251,.75)'; ctx.lineWidth = 1.4; ctx.stroke();
   ctx.fillStyle = 'rgba(255,255,255,.35)';
   ctx.beginPath(); ctx.arc(paddle.x - pw / 2 + pr, PADDLE_Y + pr, 3.4, 0, 6.29); ctx.fill();
@@ -905,10 +967,29 @@ function draw(){
     ctx.arc(0, 0, s.size, 0.5, 2.4);
     ctx.arc(0, 0, s.size * 0.55, 2.4, 0.5, true);
     ctx.closePath(); ctx.fill();
+    /* glossy face on the bigger shards — fresh rubber catching the light */
+    if (s.size > 7){
+      ctx.fillStyle = 'rgba(255,255,255,.4)';
+      ctx.beginPath(); ctx.arc(-s.size * 0.3, -s.size * 0.3, s.size * 0.28, 0, 6.29); ctx.fill();
+    }
     ctx.restore();
   }
   /* particles: confetti, sparks, rings */
   for (const p of particles){
+    if (p.flash){
+      /* additive pop flash — hot white core blooming out (Shatter-style bloom) */
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = Math.max(0, p.life / 0.13);
+      const fg = ctx.createRadialGradient(p.x, p.y, 1, p.x, p.y, p.r);
+      fg.addColorStop(0, 'rgba(255,255,255,.95)');
+      fg.addColorStop(0.35, p.color);
+      fg.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = fg;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.29); ctx.fill();
+      ctx.restore();
+      continue;
+    }
     if (p.ring){
       ctx.globalAlpha = Math.max(0, p.life / 0.28) * 0.8;
       ctx.strokeStyle = p.color; ctx.lineWidth = 2.4;
@@ -948,6 +1029,16 @@ function draw(){
     ctx.fillText(toastTxt, IW / 2, VH * 0.42);
     ctx.shadowBlur = 0;
   }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  /* vignette — darker corners pull focus to the center of the field (premium depth cue) */
+  ctx.save();
+  ctx.scale(SCALE, SCALE);
+  const vg = ctx.createRadialGradient(IW / 2, VH * 0.44, VH * 0.34, IW / 2, VH * 0.52, VH * 0.86);
+  vg.addColorStop(0, 'rgba(4,2,16,0)');
+  vg.addColorStop(1, 'rgba(4,2,16,.38)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, IW, VH);
+  ctx.restore();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
 }
 
