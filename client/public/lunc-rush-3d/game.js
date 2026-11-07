@@ -276,7 +276,7 @@ const M = {
   glint: new THREE.MeshPhongMaterial({ color: 0x9fd8ef, shininess: 120, transparent: true, opacity: 0.75 }),
   hillFar: new THREE.MeshBasicMaterial({ color: 0xa8502e, fog: true }),
   temple: new THREE.MeshBasicMaterial({ color: 0x8f3d20, fog: true }),
-  bird: new THREE.MeshBasicMaterial({ color: 0x22303c, fog: true }),
+  bird: new THREE.MeshBasicMaterial({ color: 0x46586a, fog: true }), // softened slate (Nov 7): near-black read as glitch dashes on phones
   gold: new THREE.MeshPhongMaterial({ color: 0xffc93d, emissive: 0xcf8a00, emissiveIntensity: 0.85, shininess: 110 }),
   goldDark: new THREE.MeshPhongMaterial({ color: 0xe8a90c, emissive: 0x9a6a00, emissiveIntensity: 0.4, shininess: 70 }),
   ustc: new THREE.MeshPhongMaterial({ color: 0x4da3ff, emissive: 0x1d5fd0, emissiveIntensity: 1.15, shininess: 110 }),
@@ -1497,10 +1497,14 @@ function animate() {
         sub.mesh.rotation.y = -Math.atan(trackBendVel(dC)) * 0.9;
       }
     }
-    /* whole-section banking: the ground group rolls gently INTO the bend
-       (bank ∝ bend slope, capped ±7°) — reads as a cambered road on the
-       turns and costs nothing. */
-    sec.rotation.z = THREE.MathUtils.clamp(-trackBendVel(S.dist + rel) * 0.55, -0.12, 0.12);
+    /* whole-section banking: REMOVED (Nov 7 hotfix). Rolling the section
+       group rolls the full 90 m-wide ground slabs around the section
+       origin, lifting the slab edges by up to ~45 m × tan(7°) ≈ 5.4 m —
+       at the horizon those raised sand/dirt slab edges read as long tan
+       planks floating off the plateau edge (Tom's 18:47 screenshot). The
+       curve already reads through the sub-slab yaw, the hero's lean and
+       the finish arch's roll; the ground itself stays flat. */
+    sec.rotation.z = 0;
   }
   /* palms */
   for (let i = 0; i < PALM_N; i++) {
@@ -1653,8 +1657,13 @@ function animate() {
       const b = birds[i];
       const bx = b.x0 + ((globalT * b.sp + i * 47) % 330);
       const by = b.y + Math.sin(globalT * 1.7 + b.ph) * 0.9;
-      const flap = Math.sin(globalT * 7 + b.ph) * 0.65;
-      dummy.position.set(bx, by, b.z); dummy.scale.setScalar(1);
+      /* permanent gull dihedral (Nov 7): flap used to swing through 0,
+         where the two wings form ONE straight 2.3 m black line — at
+         55–185 m on a phone that reads as a stray dash/glitch in the
+         sky (Tom's 18:47 screenshot), not a bird. The wings now always
+         hold a V, and the birds are scaled up so the silhouette reads. */
+      const flap = 0.45 + Math.sin(globalT * 7 + b.ph) * 0.35;
+      dummy.position.set(bx, by, b.z); dummy.scale.setScalar(1.55);
       dummy.rotation.set(0, 0, flap); dummy.updateMatrix(); birdL.setMatrixAt(i, dummy.matrix);
       dummy.rotation.set(0, Math.PI, -flap); dummy.updateMatrix(); birdR.setMatrixAt(i, dummy.matrix);
     }
@@ -1765,7 +1774,15 @@ function animate() {
   const hopS = THREE.MathUtils.clamp(hopRaw * 1.6, -1, 1); // sharpened: distinct crouch vs full-stretch airborne beats
   const hopC = Math.cos(hopPh);
   {
-    H.group.position.set(S.laneX, S.y + hopLift, 0);
+    /* SCREEN FRAME (Nov 7 hotfix): S.laneX is ABSOLUTE — the CURVE CARRY
+       block folds bendDrift into it every frame, so laneX = bend + relX.
+       But everything visual is placed RELATIVE to the centre line via
+       bendX(), whose offset at the hero's own plane (a=0) is 0 — the road
+       under Roo sits at x = relX, not laneX. Placing the hero at laneX
+       double-counted the bend and parked him up to ±7.5 m off the road
+       (clean off the 8.4 m dirt strip) while the camera framed the road.
+       laneX − bendHero IS S.relX during a run; use it. */
+    H.group.position.set(S.laneX - bendHero, S.y + hopLift, 0);
     /* lean INTO the bend + the steering lean: the road's slope at the
        hero tilts ROO up to ~8° on the turns (banking feel) */
     H.group.rotation.z = (LANE_X[S.lane] - S.relX) * -0.14 + THREE.MathUtils.clamp(-trackBendVel(S.dist) * 0.9, -0.14, 0.14);
@@ -1810,9 +1827,20 @@ function animate() {
   /* --- camera --- */
   const speedT = THREE.MathUtils.clamp((S.speed - SPEED0) / (SPEED_MAX - SPEED0), 0, 1);
   /* the camera aims a touch INTO the bend (look lead ∝ bend slope up to
-     ~120 m ahead): the turn is visible coming, not a surprise */
+     ~120 m ahead): the turn is visible coming, not a surprise.
+     Nov 7 hotfix: bendLead swings ±12.8 m, so it must be CLAMPED before
+     it touches the camera — the old code fed it in at 0.30 and then
+     amplified the look target by (… + bendLead × 0.85) × 1.309, yawing
+     the camera up to ~35° sideways on bends while the hero (placed at
+     the un-clamped laneX) sat ~35° the other way: Roo left the frame
+     entirely and the camera stared at the canyon wall (Tom's 18:47
+     screenshot, 120 m). Now: the camera and its look point both hang
+     off heroX — the hero's SCREEN x (laneX − bendHero = relX) — with
+     only a small clamped taste of the lead. */
   const bendLead = trackBend(S.dist + 110) - bendHero;
-  let camTX = S.laneX * 0.55 + bendLead * 0.30, camTY = 5.4 + S.y * 0.32, camTZ = 9.6 - speedT * 0.9;
+  const heroX = S.laneX - bendHero;
+  const leadX = THREE.MathUtils.clamp(bendLead * 0.18, -2.2, 2.2);
+  let camTX = heroX * 0.55 + leadX * 0.5, camTY = 5.4 + S.y * 0.32, camTZ = 9.6 - speedT * 0.9;
   let lookY = 1.1 + S.y * 0.3, lookZ = -12;
   let fovT = 66 + speedT * 10;
   camera.up.set(0, 1, 0);
@@ -1825,7 +1853,7 @@ function animate() {
     camera.position.x += (camTX - camera.position.x) * lerpK;
     camera.position.y += (camTY - camera.position.y) * lerpK;
     camera.position.z += (camTZ - camera.position.z) * lerpK;
-    lookPt.x += ((camTX + bendLead * 0.85) * 1.309 - lookPt.x) * lookK;
+    lookPt.x += ((heroX * 0.85 + leadX) - lookPt.x) * lookK;
     lookPt.y += (lookY - lookPt.y) * lookK;
     lookPt.z += (lookZ - lookPt.z) * lookK;
   }
