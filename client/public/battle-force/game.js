@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 /* ============================================================
-   ARENA CLASH 3D — Midnight Colosseum
+   BATTLE FORCE — Command Battle-Dome
    Characters & animations: Quaternius UBC + UAL (CC0 1.0)
    Engine: three.js r160 (MIT). All game code/art direction original.
    ============================================================ */
@@ -30,7 +30,7 @@ renderer.toneMappingExposure = 1.16;
 document.getElementById('game').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x0a0818, 0.028);
+scene.fog = new THREE.FogExp2(0x060a0c, 0.022);
 
 let isPortrait = innerWidth < innerHeight;
 const camera = new THREE.PerspectiveCamera(isPortrait ? 52 : 41, innerWidth / innerHeight, 0.1, 200);
@@ -46,7 +46,7 @@ addEventListener('resize', () => {
 });
 
 /* ---------------- lights ---------------- */
-scene.add(new THREE.HemisphereLight(0x8fa3cc, 0x1a0f08, 0.55));
+scene.add(new THREE.HemisphereLight(0x9fd8d2, 0x0c1410, 0.55));
 const keyLight = new THREE.DirectionalLight(0xffd9a8, 2.6);
 keyLight.position.set(4.5, 8, 5);
 keyLight.castShadow = true;
@@ -55,15 +55,15 @@ keyLight.shadow.camera.left = -6; keyLight.shadow.camera.right = 6;
 keyLight.shadow.camera.top = 7; keyLight.shadow.camera.bottom = -3;
 keyLight.shadow.camera.far = 30; keyLight.shadow.bias = -0.0004;
 scene.add(keyLight);
-const rimLight = new THREE.DirectionalLight(0x5e8bff, 2.0);
+const rimLight = new THREE.DirectionalLight(0x2fd8c8, 2.0);
 rimLight.position.set(-5, 4.5, -6);
 scene.add(rimLight);
 // soft frontal fill (visual pass, Nov 6): lifts faces/chests toward the
 // closer camera so the fighters read with more presence
-const fillLight = new THREE.DirectionalLight(0xbfd0ff, 0.55);
+const fillLight = new THREE.DirectionalLight(0xd6f2ec, 0.55);
 fillLight.position.set(-3.5, 2.2, 6.5);
 scene.add(fillLight);
-const underGlow = new THREE.PointLight(0xff7a26, 12, 12, 1.8);
+const underGlow = new THREE.PointLight(0x2fd8c8, 12, 12, 1.8);
 underGlow.position.set(0, 0.7, -2.5);
 scene.add(underGlow);
 
@@ -78,53 +78,54 @@ function canvasTex(w, h, draw, opts = {}) {
   return t;
 }
 const floorTex = canvasTex(1024, 1024, (x, w, h) => {
-  x.fillStyle = '#17151f'; x.fillRect(0, 0, w, h);
-  for (let ring = 0; ring < 9; ring++) {
-    const r0 = ring * 60, r1 = r0 + 56;
-    const segs = 6 + ring * 2;
-    for (let s = 0; s < segs; s++) {
-      const a0 = (s / segs) * Math.PI * 2, a1 = ((s + 0.92) / segs) * Math.PI * 2;
-      const v = 18 + Math.random() * 16;
-      x.fillStyle = `rgb(${v + 6},${v + 2},${v + 14})`;
-      x.beginPath();
-      x.arc(w / 2, h / 2, r0 + 30, a0, a1); x.arc(w / 2, h / 2, r1 + 30, a1, a0, true);
-      x.closePath(); x.fill();
+  // BATTLE FORCE deck (conversion, Nov 7): gunmetal hangar plates with
+  // rivets and a teal holo-grid burned into the surface — a command-dome
+  // floor, not colosseum stone. All procedural canvas work, original.
+  x.fillStyle = '#10151a'; x.fillRect(0, 0, w, h);
+  const plate = 128;
+  for (let py = 0; py < h / plate; py++) for (let px = 0; px < w / plate; px++) {
+    const v = (Math.random() - 0.5) * 14;
+    x.fillStyle = `rgb(${20 + v},${26 + v},${32 + v})`;
+    x.fillRect(px * plate + 2, py * plate + 2, plate - 4, plate - 4);
+    x.fillStyle = 'rgba(200,220,230,0.20)';
+    for (const [rx, ry] of [[11, 11], [plate - 11, 11], [11, plate - 11], [plate - 11, plate - 11]]) {
+      x.beginPath(); x.arc(px * plate + rx, py * plate + ry, 3, 0, 7); x.fill();
     }
   }
-  x.strokeStyle = 'rgba(0,0,0,.55)'; x.lineWidth = 3;
-  for (let ring = 0; ring < 10; ring++) { x.beginPath(); x.arc(w / 2, h / 2, ring * 60 + 30, 0, 7); x.stroke(); }
+  x.strokeStyle = 'rgba(47,216,200,0.15)'; x.lineWidth = 2;
+  for (let i = 0; i <= w; i += 64) {
+    x.beginPath(); x.moveTo(i, 0); x.lineTo(i, h); x.stroke();
+    x.beginPath(); x.moveTo(0, i); x.lineTo(w, i); x.stroke();
+  }
   x.strokeStyle = 'rgba(0,0,0,.35)'; x.lineWidth = 1.4;
-  for (let i = 0; i < 260; i++) {
+  for (let i = 0; i < 220; i++) {
     const px = Math.random() * w, py = Math.random() * h;
     x.beginPath(); x.moveTo(px, py);
-    x.lineTo(px + (Math.random() - .5) * 60, py + (Math.random() - .5) * 60); x.stroke();
+    x.lineTo(px + (Math.random() - .5) * 70, py + (Math.random() - .5) * 70); x.stroke();
   }
-  for (let i = 0; i < 2600; i++) {
+  for (let i = 0; i < 2400; i++) {
     x.fillStyle = `rgba(255,255,255,${Math.random() * 0.05})`;
     x.fillRect(Math.random() * w, Math.random() * h, 2, 2);
   }
-  // Visual pass (Nov 6): edge vignette + metal inlay rings around the
-  // emblem, so the floor reads as a finished arena surface, not bare stone
   const rg = x.createRadialGradient(w / 2, h / 2, 120, w / 2, h / 2, 512);
   rg.addColorStop(0, 'rgba(0,0,0,0)'); rg.addColorStop(1, 'rgba(0,0,0,0.42)');
   x.fillStyle = rg; x.fillRect(0, 0, w, h);
-  x.strokeStyle = 'rgba(255,179,64,0.20)'; x.lineWidth = 5;
-  x.beginPath(); x.arc(w / 2, h / 2, 318, 0, 7); x.stroke();
-  x.strokeStyle = 'rgba(120,190,255,0.13)'; x.lineWidth = 3;
-  x.beginPath(); x.arc(w / 2, h / 2, 296, 0, 7); x.stroke();
-  // BIG LUNA CLASSIC canvas print (owner, Nov 4): a worn ring-paint
-  // emblem at the arena centre — crescent + the words LUNA CLASSIC
-  // (branding rule: the words must be there, crescent alone is not
-  // enough). Painted faded like old colosseum canvas; the fighters
-  // fight right over it. Painted faded like old colosseum canvas; the
-  // fighters fight right over it.
+  // hazard ring + holo inlay ring around the emblem
+  x.save(); x.translate(w / 2, h / 2);
+  x.strokeStyle = 'rgba(255,179,64,0.50)'; x.lineWidth = 10; x.setLineDash([46, 26]);
+  x.beginPath(); x.arc(0, 0, 318, 0, 7); x.stroke(); x.setLineDash([]);
+  x.strokeStyle = 'rgba(47,216,200,0.35)'; x.lineWidth = 3;
+  x.beginPath(); x.arc(0, 0, 296, 0, 7); x.stroke();
+  x.restore();
+  // BIG LUNA CLASSIC deck print (house branding rule: the words must be
+  // there, crescent alone is not enough). Worn stencilled paint in the
+  // same rotated frame as before (cylinder-cap UVs swap the axes).
   x.save();
-  x.translate(w / 2, h / 2); x.rotate(-Math.PI / 2); // cylinder-cap UVs swap the axes (canvas-right -> world +z/near, canvas-up -> world +x): rotate -90° so the print reads upright from the default camera — verified on screen Nov 5 (no rotation = sideways emblem, PI = upside down)
+  x.translate(w / 2, h / 2); x.rotate(-Math.PI / 2);
   x.strokeStyle = 'rgba(232,228,218,0.17)'; x.lineWidth = 10;
   x.beginPath(); x.arc(0, 0, 222, 0, 7); x.stroke();
   x.lineWidth = 4; x.strokeStyle = 'rgba(232,228,218,0.14)';
   x.beginPath(); x.arc(0, 0, 192, 0, 7); x.stroke();
-  // crescent: a bright disc with an offset disc cut out of it
   x.fillStyle = 'rgba(242,237,224,0.48)';
   x.beginPath(); x.arc(0, -108, 104, 0, 7); x.fill();
   x.globalCompositeOperation = 'destination-out';
@@ -142,11 +143,10 @@ const floorTex = canvasTex(1024, 1024, (x, w, h) => {
   x.fillStyle = 'rgba(255,196,77,0.55)';
   x.fillText('LUNC DEV STUDIO', 0, 196);
   x.restore();
-  // sponsor rim band around the mat: LUNC wordmarks repeated like a real
-  // branded ring canvas (painted in the same rotated frame as the emblem)
+  // sponsor rim band: LUNC wordmarks repeated around the deck edge
   x.save();
   x.translate(w / 2, h / 2); x.rotate(-Math.PI / 2);
-  x.fillStyle = 'rgba(242,237,224,0.13)';
+  x.fillStyle = 'rgba(159,232,255,0.14)';
   x.font = '900 44px Arial, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
   for (let i = 0; i < 10; i++) {
     const a = (i / 10) * Math.PI * 2;
@@ -166,8 +166,8 @@ const floorTex = canvasTex(1024, 1024, (x, w, h) => {
 floorTex.wrapS = floorTex.wrapT = THREE.ClampToEdgeWrapping;
 const skyTex = canvasTex(1024, 512, (x, w, h) => {
   const g = x.createLinearGradient(0, 0, 0, h);
-  g.addColorStop(0, '#050310'); g.addColorStop(0.42, '#171233');
-  g.addColorStop(0.68, '#3d1d4e'); g.addColorStop(0.86, '#8a3b2e'); g.addColorStop(1, '#2a0f14');
+  g.addColorStop(0, '#020608'); g.addColorStop(0.42, '#06222b');
+  g.addColorStop(0.68, '#0a3644'); g.addColorStop(0.86, '#7a4a1e'); g.addColorStop(1, '#10100a');
   x.fillStyle = g; x.fillRect(0, 0, w, h);
   for (let i = 0; i < 340; i++) {
     x.fillStyle = `rgba(255,255,255,${0.25 + Math.random() * 0.7})`;
@@ -177,7 +177,7 @@ const skyTex = canvasTex(1024, 512, (x, w, h) => {
   for (let i = 0; i < 46; i++) {
     const cx = Math.random() * w, cy = h * 0.16 + Math.random() * h * 0.4, r = 40 + Math.random() * 120;
     const rg = x.createRadialGradient(cx, cy, 0, cx, cy, r);
-    rg.addColorStop(0, 'rgba(10,8,26,0.5)'); rg.addColorStop(1, 'rgba(10,8,26,0)');
+    rg.addColorStop(0, 'rgba(4,18,20,0.5)'); rg.addColorStop(1, 'rgba(4,18,20,0)');
     x.fillStyle = rg; x.beginPath(); x.arc(cx, cy, r, 0, 7); x.fill();
   }
 }, { nearest: true });
@@ -188,89 +188,82 @@ const glowTex = canvasTex(128, 128, (x, w, h) => {
   x.fillStyle = g; x.fillRect(0, 0, w, h);
 }, { nearest: true });
 /* Visual pass (Nov 6) — new procedural textures, all original: a painted
-   crescent moon (the old flat disc read as a sticker), the colosseum
-   arcade wall (arches + torch glow + upper windows), and the two war
-   banners that flank the gate (gold crescent for LUNC, azure star for
-   USTC). */
-const moonTex = canvasTex(512, 512, (x, w, h) => {
+   crescent moon, an arcade wall, and the two war banners that flank the
+   gate (gold crescent for LUNC, azure star for USTC). BATTLE FORCE
+   conversion (Nov 7): the moon is now a radar dish face, the wall a
+   steel hangar, and the banners carry rank chevrons + the new name. */
+const radarTex = canvasTex(512, 512, (x, w, h) => {
+  // BATTLE FORCE (conversion, Nov 7): a painted radar dish face — steel
+  // bowl, panel rings, amber feed receiver — replaces the crescent moon.
   x.clearRect(0, 0, w, h);
-  const g = x.createRadialGradient(256, 256, 60, 256, 256, 250);
-  g.addColorStop(0, 'rgba(170,195,255,0.30)'); g.addColorStop(0.55, 'rgba(140,165,255,0.10)'); g.addColorStop(1, 'rgba(140,165,255,0)');
+  const g = x.createRadialGradient(256, 256, 40, 256, 256, 250);
+  g.addColorStop(0, 'rgba(47,216,200,0.20)'); g.addColorStop(1, 'rgba(47,216,200,0)');
   x.fillStyle = g; x.fillRect(0, 0, w, h);
-  const lg = x.createLinearGradient(120, 100, 380, 420);
-  lg.addColorStop(0, '#f4f7ff'); lg.addColorStop(0.6, '#dbe4f7'); lg.addColorStop(1, '#b9c6e4');
-  x.fillStyle = lg;
-  x.beginPath(); x.arc(256, 256, 148, 0, 7); x.fill();
-  x.fillStyle = 'rgba(140,155,190,0.25)';
-  for (const [cx, cy, r] of [[205, 205, 16], [238, 300, 11], [185, 275, 8], [225, 160, 7], [270, 235, 9]]) {
-    x.beginPath(); x.arc(cx, cy, r, 0, 7); x.fill();
-  }
-  x.globalCompositeOperation = 'destination-out';
-  x.beginPath(); x.arc(322, 208, 128, 0, 7); x.fill();
-  x.globalCompositeOperation = 'source-over';
+  x.save(); x.translate(256, 250);
+  const dg = x.createLinearGradient(-160, -140, 160, 160);
+  dg.addColorStop(0, '#dfe9ee'); dg.addColorStop(0.6, '#9fb2bc'); dg.addColorStop(1, '#5f7480');
+  x.fillStyle = dg;
+  x.beginPath(); x.ellipse(0, 0, 168, 118, -0.5, 0, 7); x.fill();
+  x.strokeStyle = 'rgba(20,30,36,0.65)'; x.lineWidth = 5;
+  x.beginPath(); x.ellipse(0, 0, 168, 118, -0.5, 0, 7); x.stroke();
+  x.strokeStyle = 'rgba(20,30,36,0.30)'; x.lineWidth = 3;
+  x.beginPath(); x.ellipse(0, 0, 118, 80, -0.5, 0, 7); x.stroke();
+  x.beginPath(); x.ellipse(0, 0, 66, 44, -0.5, 0, 7); x.stroke();
+  x.strokeStyle = '#39434a'; x.lineWidth = 12;
+  x.beginPath(); x.moveTo(0, 0); x.lineTo(88, -96); x.stroke();
+  x.fillStyle = '#ffb340'; x.beginPath(); x.arc(92, -100, 15, 0, 7); x.fill();
+  x.fillStyle = 'rgba(47,216,200,0.9)'; x.beginPath(); x.arc(92, -100, 6, 0, 7); x.fill();
+  x.restore();
 }, { nearest: true });
 const wallTex = canvasTex(2048, 512, (x, w, h) => {
+  // BATTLE FORCE hangar wall (conversion, Nov 7): riveted steel panels,
+  // teal viewport slits, stencilled BATTLE FORCE / LUNA CLASSIC boards
+  // and an amber hazard band — a military command dome, not a colosseum.
   const g = x.createLinearGradient(0, 0, 0, h);
-  g.addColorStop(0, '#251a31'); g.addColorStop(0.55, '#1c1425'); g.addColorStop(1, '#110b19');
+  g.addColorStop(0, '#161d24'); g.addColorStop(0.55, '#10161d'); g.addColorStop(1, '#090d12');
   x.fillStyle = g; x.fillRect(0, 0, w, h);
   const bays = 16, bw = w / bays;
   for (let i = 0; i < bays; i++) {
     const bx = i * bw;
-    x.fillStyle = 'rgba(0,0,0,0.35)'; x.fillRect(bx, 0, 5, h); x.fillRect(bx + bw - 5, 0, 5, h);
-    x.fillStyle = 'rgba(255,220,170,0.05)'; x.fillRect(bx + 5, 0, 3, h);
-    const aw = bw * 0.58, ah = h * 0.52, ax = bx + (bw - aw) / 2, ay = h * 0.30;
-    x.fillStyle = '#090614';
-    x.beginPath();
-    x.moveTo(ax, ay + ah); x.lineTo(ax, ay + ah * 0.38);
-    x.arc(bx + bw / 2, ay + ah * 0.38, aw / 2, Math.PI, 0);
-    x.lineTo(ax + aw, ay + ah); x.closePath(); x.fill();
-    const ag = x.createRadialGradient(bx + bw / 2, ay + ah * 0.55, 8, bx + bw / 2, ay + ah * 0.55, aw * 0.85);
-    ag.addColorStop(0, 'rgba(255,150,60,0.32)'); ag.addColorStop(0.6, 'rgba(120,50,30,0.16)'); ag.addColorStop(1, 'rgba(0,0,0,0)');
-    x.fillStyle = ag; x.fill();
-    x.strokeStyle = 'rgba(255,190,120,0.28)'; x.lineWidth = 4;
-    x.beginPath();
-    x.moveTo(ax, ay + ah); x.lineTo(ax, ay + ah * 0.38);
-    x.arc(bx + bw / 2, ay + ah * 0.38, aw / 2, Math.PI, 0);
-    x.lineTo(ax + aw, ay + ah); x.stroke();
-    x.fillStyle = 'rgba(0,0,0,0.4)'; x.fillRect(bx, ay + ah, bw, 7);
-    x.fillStyle = 'rgba(255,220,170,0.07)'; x.fillRect(bx, ay + ah + 7, bw, 3);
-  }
-  for (let i = 0; i < bays * 2; i++) {
-    const bx = i * (w / (bays * 2));
-    x.fillStyle = 'rgba(255,170,80,0.13)';
-    x.fillRect(bx + 10, h * 0.10, w / (bays * 2) - 20, h * 0.09);
-    x.fillStyle = 'rgba(0,0,0,0.3)'; x.fillRect(bx + 10, h * 0.10, w / (bays * 2) - 20, 3);
-  }
-  // house wordmarks painted over the upper windows (venue branding,
-  // Tom Nov 6): alternating LUNC / LUNA CLASSIC in worn gold, like
-  // sponsor boards mounted on the arena wall
-  x.textAlign = 'center'; x.textBaseline = 'middle';
-  for (let i = 0; i < bays; i++) {
-    const cx = i * bw + bw / 2;
+    x.fillStyle = 'rgba(0,0,0,0.5)'; x.fillRect(bx, 0, 4, h); x.fillRect(bx + bw - 4, 0, 4, h);
+    x.fillStyle = 'rgba(190,225,235,0.06)'; x.fillRect(bx + 4, 0, 2, h);
+    x.fillStyle = 'rgba(200,220,230,0.22)';
+    for (const ry of [14, h * 0.30, h * 0.72, h - 16]) {
+      x.beginPath(); x.arc(bx + 13, ry, 3, 0, 7); x.fill();
+      x.beginPath(); x.arc(bx + bw - 13, ry, 3, 0, 7); x.fill();
+    }
+    // viewport slit with teal glow
+    const vx = bx + bw * 0.18, vw = bw * 0.64, vy = h * 0.50, vh = h * 0.13;
+    x.fillStyle = '#04141a'; x.fillRect(vx - 5, vy - 5, vw + 10, vh + 10);
+    const vg = x.createLinearGradient(0, vy, 0, vy + vh);
+    vg.addColorStop(0, 'rgba(47,216,200,0.40)'); vg.addColorStop(1, 'rgba(20,90,110,0.25)');
+    x.fillStyle = vg; x.fillRect(vx, vy, vw, vh);
+    x.fillStyle = 'rgba(4,10,12,0.85)'; x.fillRect(vx + vw / 2 - 3, vy, 6, vh);
+    // stencil boards (venue branding): alternating BATTLE FORCE / LUNA CLASSIC
+    x.textAlign = 'center'; x.textBaseline = 'middle';
     x.font = '900 30px Arial, sans-serif';
     x.fillStyle = 'rgba(255,196,77,0.34)';
-    x.fillText(i % 2 ? 'LUNA CLASSIC' : 'LUNC', cx, h * 0.145);
+    x.fillText(i % 2 ? 'LUNA CLASSIC' : 'BATTLE FORCE', bx + bw / 2, h * 0.145);
     x.font = '700 15px Arial, sans-serif';
-    x.fillStyle = 'rgba(240,235,220,0.20)';
-    x.fillText('LUNC DEV STUDIO', cx, h * 0.205);
+    x.fillStyle = 'rgba(200,235,240,0.20)';
+    x.fillText('LUNC DEV STUDIO', bx + bw / 2, h * 0.205);
+    const v = (Math.random() - 0.5) * 12;
+    x.fillStyle = `rgba(${v > 0 ? 210 : 0},${v > 0 ? 230 : 0},${v > 0 ? 235 : 10},${Math.abs(v) / 255})`;
+    x.fillRect(bx + 4, h * 0.66, bw - 8, h * 0.20);
   }
-  for (let i = 0; i < bays; i++) { // ashlar block joints across each bay — real masonry, not a flat wash
-    const bx = i * bw;
-    x.strokeStyle = 'rgba(5,3,10,0.55)'; x.lineWidth = 2.5;
-    for (const fy of [0.06, 0.62, 0.80, 0.93]) { x.beginPath(); x.moveTo(bx + 4, h * fy); x.lineTo(bx + bw - 4, h * fy); x.stroke(); }
-    for (const fx of [0.28, 0.55, 0.8]) {
-      x.beginPath(); x.moveTo(bx + bw * fx, h * 0.62); x.lineTo(bx + bw * fx, h * 0.80); x.stroke();
-      x.beginPath(); x.moveTo(bx + bw * fx + 12, h * 0.80); x.lineTo(bx + bw * fx + 12, h * 0.93); x.stroke();
-    }
-    x.strokeStyle = 'rgba(255,225,180,0.06)'; x.lineWidth = 1;
-    for (const fy of [0.06, 0.62, 0.80, 0.93]) { x.beginPath(); x.moveTo(bx + 4, h * fy + 2.5); x.lineTo(bx + bw - 4, h * fy + 2.5); x.stroke(); }
-    const v = (Math.random() - 0.5) * 14; // per-block tonal shift
-    x.fillStyle = `rgba(${v > 0 ? 255 : 0},${v > 0 ? 240 : 0},${v > 0 ? 210 : 8},${Math.abs(v) / 255})`;
-    x.fillRect(bx + 4, h * 0.62, bw - 8, h * 0.31);
-  }
+  x.strokeStyle = 'rgba(0,0,0,0.55)'; x.lineWidth = 3;
+  for (const fy of [0.30, 0.72]) { x.beginPath(); x.moveTo(0, h * fy); x.lineTo(w, h * fy); x.stroke(); }
   x.fillStyle = 'rgba(0,0,0,0.45)'; x.fillRect(0, h * 0.235, w, 6);
-  x.fillStyle = 'rgba(255,220,170,0.06)'; x.fillRect(0, h * 0.235 + 6, w, 3);
-  x.fillStyle = 'rgba(0,0,0,0.5)'; x.fillRect(0, h - 4, w, 4);
+  // hazard stripe band along the foot of the wall
+  x.save(); x.beginPath(); x.rect(0, h * 0.90, w, h * 0.07); x.clip();
+  x.fillStyle = '#0b0d10'; x.fillRect(0, h * 0.90, w, h * 0.07);
+  x.fillStyle = 'rgba(255,179,64,0.55)';
+  for (let sx = -40; sx < w + 40; sx += 56) {
+    x.beginPath();
+    x.moveTo(sx, h * 0.97); x.lineTo(sx + 28, h * 0.90); x.lineTo(sx + 56, h * 0.90); x.lineTo(sx + 28, h * 0.97);
+    x.closePath(); x.fill();
+  }
+  x.restore();
   for (let i = 0; i < 5200; i++) {
     x.fillStyle = `rgba(255,255,255,${Math.random() * 0.045})`;
     x.fillRect(Math.random() * w, Math.random() * h, 2, 2);
@@ -295,10 +288,10 @@ function paintStone(x, w, h, base, joint) {
     for (let cix = -1; cix < cols + 1; cix++) {
       const bx = (cix + off) * (w / cols), by = r * rh, bw2 = w / cols, bh2 = rh;
       const v = (Math.random() - 0.5) * 26;
-      x.fillStyle = `rgba(${v > 0 ? 255 : 0},${v > 0 ? 240 : 0},${v > 0 ? 220 : 10},${Math.abs(v) / 255})`;
+      x.fillStyle = `rgba(${v > 0 ? 205 : 0},${v > 0 ? 225 : 0},${v > 0 ? 232 : 10},${Math.abs(v) / 255})`;
       x.fillRect(bx + 2, by + 2, bw2 - 4, bh2 - 4);
       const grd = x.createLinearGradient(bx, by, bx, by + bh2);
-      grd.addColorStop(0, 'rgba(255,235,200,0.07)'); grd.addColorStop(1, 'rgba(0,0,0,0.20)');
+      grd.addColorStop(0, 'rgba(205,230,238,0.07)'); grd.addColorStop(1, 'rgba(0,0,0,0.20)');
       x.fillStyle = grd; x.fillRect(bx + 2, by + 2, bw2 - 4, bh2 - 4);
       x.fillStyle = 'rgba(0,0,0,0.30)'; x.fillRect(bx + 2, by + bh2 - 6, bw2 - 4, 3); // worn lower lip
     }
@@ -312,7 +305,7 @@ function paintStone(x, w, h, base, joint) {
       x.beginPath(); x.moveTo(bx, r * rh); x.lineTo(bx, (r + 1) * rh); x.stroke();
     }
   }
-  x.strokeStyle = 'rgba(255,230,190,0.10)'; x.lineWidth = 1;
+  x.strokeStyle = 'rgba(200,230,238,0.10)'; x.lineWidth = 1;
   for (let r = 0; r < rows; r++) { x.beginPath(); x.moveTo(0, r * rh + 2); x.lineTo(w, r * rh + 2); x.stroke(); }
   for (let i = 0; i < 46; i++) { // cracks
     x.strokeStyle = `rgba(0,0,0,${0.18 + Math.random() * 0.22})`; x.lineWidth = 1 + Math.random();
@@ -325,7 +318,7 @@ function paintStone(x, w, h, base, joint) {
   for (let i = 0; i < 30; i++) { // damp / soot stains
     const sx = Math.random() * w, sy = Math.random() * h, sr = 22 + Math.random() * 70;
     const sg2 = x.createRadialGradient(sx, sy, 0, sx, sy, sr);
-    sg2.addColorStop(0, `rgba(8,4,14,${0.10 + Math.random() * 0.14})`); sg2.addColorStop(1, 'rgba(0,0,0,0)');
+    sg2.addColorStop(0, `rgba(4,8,10,${0.10 + Math.random() * 0.14})`); sg2.addColorStop(1, 'rgba(0,0,0,0)');
     x.fillStyle = sg2; x.beginPath(); x.arc(sx, sy, sr, 0, 7); x.fill();
   }
   for (let i = 0; i < 5200; i++) { // grain
@@ -337,20 +330,32 @@ function paintStone(x, w, h, base, joint) {
     x.fillRect(Math.random() * w, Math.random() * h, 2, 2);
   }
 }
-const stoneTex = canvasTex(512, 512, (x, w, h) => paintStone(x, w, h, '#2b2138', 'rgba(6,3,12,0.85)'));
+const stoneTex = canvasTex(512, 512, (x, w, h) => paintStone(x, w, h, '#232a31', 'rgba(4,6,8,0.85)'));
 const stoneBump = canvasTex(512, 512, (x, w, h) => paintStone(x, w, h, '#808080', 'rgba(0,0,0,0.9)'));
 const stoneMatT = new THREE.MeshStandardMaterial({ map: stoneTex, bumpMap: stoneBump, bumpScale: 0.6, roughness: 0.94, metalness: 0.04, envMapIntensity: 0.25, fog: false });
 function bannerTex(kind) {
   return canvasTex(256, 448, (x, w, h) => {
     const g = x.createLinearGradient(0, 0, 0, h);
-    if (kind === 'lunc') { g.addColorStop(0, '#16264d'); g.addColorStop(1, '#0a1226'); }
-    else { g.addColorStop(0, '#0d2f4d'); g.addColorStop(1, '#081a2c'); }
+    if (kind === 'lunc') { g.addColorStop(0, '#131c28'); g.addColorStop(1, '#080d14'); }
+    else { g.addColorStop(0, '#0d2233'); g.addColorStop(1, '#060f18'); }
     x.fillStyle = g; x.fillRect(0, 0, w, h);
     const main = kind === 'lunc' ? '#ffc44d' : '#8fd0ff';
     x.strokeStyle = main; x.globalAlpha = 0.85; x.lineWidth = 5;
     x.strokeRect(14, 14, w - 28, h - 28);
+    x.globalAlpha = 0.45; x.lineWidth = 2;
+    x.strokeRect(24, 24, w - 48, h - 48);
     x.globalAlpha = 1;
-    x.save(); x.translate(w / 2, 150);
+    // rank chevrons across the head of the banner (Battle Force dressing)
+    x.fillStyle = main;
+    for (let cix = 0; cix < 3; cix++) {
+      const cy = 44 + cix * 20;
+      x.beginPath();
+      x.moveTo(w / 2 - 34, cy + 12); x.lineTo(w / 2, cy - 8); x.lineTo(w / 2 + 34, cy + 12);
+      x.lineTo(w / 2 + 34, cy + 24); x.lineTo(w / 2, cy + 4); x.lineTo(w / 2 - 34, cy + 24);
+      x.closePath(); x.globalAlpha = 0.9 - cix * 0.22; x.fill();
+    }
+    x.globalAlpha = 1;
+    x.save(); x.translate(w / 2, 176);
     if (kind === 'lunc') {
       x.fillStyle = main;
       x.beginPath(); x.arc(0, 0, 74, 0, 7); x.fill();
@@ -380,14 +385,15 @@ function bannerTex(kind) {
       x.globalAlpha = 1;
     }
     x.restore();
-    // venue branding worked into the cloth (Tom, Nov 6): the house name
-    // under the emblem, DEV STUDIO along the foot — real sponsored-arena
-    // dressing, painted into the fabric like the rest of the banner
+    // venue branding worked into the cloth: fighter word, then the game
+    // name, then the house — painted like the rest of the banner
     x.fillStyle = main; x.textAlign = 'center'; x.textBaseline = 'middle';
     x.font = '900 44px Arial, sans-serif';
-    x.fillText(kind === 'lunc' ? 'LUNC' : 'USTC', w / 2, 322);
-    x.font = '700 21px Arial, sans-serif'; x.globalAlpha = 0.85;
-    x.fillText('L U N C   D E V   S T U D I O', w / 2, h - 82);
+    x.fillText(kind === 'lunc' ? 'LUNC' : 'USTC', w / 2, 330);
+    x.font = '900 25px Arial, sans-serif'; x.globalAlpha = 0.95;
+    x.fillText('BATTLE FORCE', w / 2, h - 106);
+    x.font = '700 19px Arial, sans-serif'; x.globalAlpha = 0.8;
+    x.fillText('L U N C   D E V   S T U D I O', w / 2, h - 76);
     x.globalAlpha = 1;
     x.fillStyle = main;
     for (let i = 0; i < 5; i++) x.fillRect(28 + i * 42, h - 52, 22, 26);
@@ -399,7 +405,7 @@ const bannerTexR = bannerTex('ustc');
    plaque painted with the house marks — LUNA CLASSIC in gold, LUNC DEV
    STUDIO beneath, crescents flanking. Procedural canvas, original. */
 const signTex = canvasTex(1024, 256, (x, w, h) => {
-  paintStone(x, w, h, '#241a30', 'rgba(6,3,12,0.85)');
+  paintStone(x, w, h, '#1c232a', 'rgba(4,6,8,0.85)');
   const grd = x.createLinearGradient(0, 0, 0, h);
   grd.addColorStop(0, 'rgba(0,0,0,0.12)'); grd.addColorStop(1, 'rgba(0,0,0,0.42)');
   x.fillStyle = grd; x.fillRect(0, 0, w, h);
@@ -416,13 +422,16 @@ const signTex = canvasTex(1024, 256, (x, w, h) => {
   }
   x.textAlign = 'center'; x.textBaseline = 'middle';
   x.font = '900 104px Arial, sans-serif';
-  x.fillStyle = 'rgba(0,0,0,0.55)'; x.fillText('LUNA CLASSIC', w / 2 + 3, 111);
+  x.fillStyle = 'rgba(0,0,0,0.55)'; x.fillText('BATTLE FORCE', w / 2 + 3, 111);
   const tg = x.createLinearGradient(0, 56, 0, 166);
   tg.addColorStop(0, '#ffe9a8'); tg.addColorStop(0.55, '#ffc44d'); tg.addColorStop(1, '#c77f1a');
-  x.fillStyle = tg; x.fillText('LUNA CLASSIC', w / 2, 108);
+  x.fillStyle = tg; x.fillText('BATTLE FORCE', w / 2, 108);
   x.font = '700 40px Arial, sans-serif';
   x.fillStyle = 'rgba(240,235,220,0.88)';
-  x.fillText('L U N C   D E V   S T U D I O', w / 2, 204);
+  x.fillText('L U N C   D E V   S T U D I O', w / 2, 198);
+  x.font = '700 24px Arial, sans-serif';
+  x.fillStyle = 'rgba(47,216,200,0.8)';
+  x.fillText('L U N A   C L A S S I C', w / 2, 232);
 }, { nearest: true });
 /* Image-based lighting baked from the game's own sky: gives the suits,
    hair and eyes believable specular life under the closer camera. */
@@ -432,7 +441,7 @@ const signTex = canvasTex(1024, 256, (x, w, h) => {
   envScene.add(new THREE.Mesh(new THREE.SphereGeometry(50, 16, 12),
     new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide })));
   const envSun = new THREE.Mesh(new THREE.SphereGeometry(4, 8, 8), new THREE.MeshBasicMaterial());
-  envSun.material.color.setRGB(4, 3, 1.8);
+  envSun.material.color.setRGB(3.2, 3.1, 2.7);
   envSun.position.set(18, 22, 14);
   envScene.add(envSun);
   scene.environment = pmrem.fromScene(envScene, 0.05).texture;
@@ -444,6 +453,8 @@ let gateRing, gateGlowSpr, moonMesh, moonGlowSpr;
 const arena = new THREE.Group(); scene.add(arena);
 const flames = [];
 const banners = [];
+const searchlights = [];
+let holoRing = null;
 let embers = null;
 {
   const sky = new THREE.Mesh(new THREE.SphereGeometry(80, 32, 20),
@@ -451,14 +462,16 @@ let embers = null;
   arena.add(sky);
 
   const platform = new THREE.Mesh(new THREE.CylinderGeometry(5.4, 5.9, 0.5, 48),
-    new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.85, metalness: 0.08, envMapIntensity: 0.3 }));
+    new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.55, metalness: 0.38, envMapIntensity: 0.4 }));
   platform.position.y = -0.25; platform.receiveShadow = true;
   arena.add(platform);
 
-  /* Visual pass (Nov 6) — the colosseum itself: a painted arcade wall
-     ringing the arena, three stone seating tiers stepping up to it with
-     ember-lit trim, and a dusting of distant crowd lights on the tiers.
-     All procedural geometry + canvas textures, original to this project. */
+  /* Visual pass (Nov 6) — the bowl itself: a painted wall ringing the
+     arena, three seating tiers stepping up to it with lit trim, and a
+     dusting of distant crowd lights on the tiers. All procedural
+     geometry + canvas textures, original to this project. BATTLE FORCE
+     conversion (Nov 7) re-skins the wall/trim/lights as a steel
+     command dome; the tier RING geometry is unchanged (see below). */
   const wall = new THREE.Mesh(new THREE.CylinderGeometry(17, 17.6, 7.6, 48, 1, true),
     new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.95, metalness: 0.04, side: THREE.BackSide, envMapIntensity: 0.2, fog: false }));
   wall.position.y = 3.0;
@@ -467,15 +480,15 @@ let embers = null;
   // wall's silhouette reaches higher into the sky (the fog used to eat
   // everything past the arch tops and the bowl read flat)
   const gallery = new THREE.Mesh(new THREE.CylinderGeometry(17.3, 17.1, 3.4, 48, 1, true),
-    new THREE.MeshStandardMaterial({ map: stoneTex, bumpMap: stoneBump, bumpScale: 0.5, roughness: 0.95, metalness: 0.03, side: THREE.BackSide, envMapIntensity: 0.15, fog: false }));
+    new THREE.MeshStandardMaterial({ map: stoneTex, bumpMap: stoneBump, bumpScale: 0.5, color: 0x8a97a3, roughness: 0.8, metalness: 0.35, side: THREE.BackSide, envMapIntensity: 0.15, fog: false }));
   gallery.position.y = 8.4;
   arena.add(gallery);
   const galleryTrim = new THREE.Mesh(new THREE.TorusGeometry(17.2, 0.05, 8, 72),
-    new THREE.MeshStandardMaterial({ color: 0x1a0d05, emissive: 0xff7a26, emissiveIntensity: 0.7, roughness: 0.5, fog: false }));
+    new THREE.MeshStandardMaterial({ color: 0x1a0d05, emissive: 0x2fd8c8, emissiveIntensity: 0.7, roughness: 0.5, fog: false }));
   galleryTrim.rotation.x = Math.PI / 2; galleryTrim.position.y = 6.72;
   arena.add(galleryTrim);
   const stepMat = stoneMatT;
-  const trimMat = new THREE.MeshStandardMaterial({ color: 0x1a0d05, emissive: 0xff7a26, emissiveIntensity: 0.9, roughness: 0.5, fog: false });
+  const trimMat = new THREE.MeshStandardMaterial({ color: 0x0a1414, emissive: 0x2fd8c8, emissiveIntensity: 0.9, roughness: 0.5, fog: false });
   /* Seating tiers are RINGS (tread + inner riser), never solid discs:
      the first build used full cylinders, whose largest disc topped out
      at y=1.0 across the WHOLE arena — burying the platform (top y=0)
@@ -513,15 +526,15 @@ let embers = null;
     }
     const cg = new THREE.BufferGeometry();
     cg.setAttribute('position', new THREE.BufferAttribute(pos2, 3));
-    arena.add(new THREE.Points(cg, new THREE.PointsMaterial({ map: glowTex, color: 0xffc98a, size: 0.07, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending })));
+    arena.add(new THREE.Points(cg, new THREE.PointsMaterial({ map: glowTex, color: 0x9fe8ff, size: 0.07, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending })));
   }
 
   const rim = new THREE.Mesh(new THREE.TorusGeometry(5.4, 0.045, 10, 90),
-    new THREE.MeshStandardMaterial({ color: 0x1a0d05, emissive: 0xff7a26, emissiveIntensity: 2.6 }));
+    new THREE.MeshStandardMaterial({ color: 0x1a0d05, emissive: 0xffb340, emissiveIntensity: 2.6 }));
   rim.rotation.x = Math.PI / 2; rim.position.y = 0.012;
   arena.add(rim);
   const rim2 = new THREE.Mesh(new THREE.TorusGeometry(4.1, 0.03, 8, 80),
-    new THREE.MeshStandardMaterial({ color: 0x050d1a, emissive: 0x2e9bff, emissiveIntensity: 1.7 }));
+    new THREE.MeshStandardMaterial({ color: 0x050d1a, emissive: 0x2fd8c8, emissiveIntensity: 1.7 }));
   rim2.rotation.x = Math.PI / 2; rim2.position.y = 0.012;
   arena.add(rim2);
 
@@ -529,7 +542,7 @@ let embers = null;
   const gate = new THREE.Group();
   gate.add(new THREE.Mesh(new THREE.TorusGeometry(3.1, 0.16, 14, 64), gateMat));
   gate.add(new THREE.Mesh(new THREE.TorusGeometry(2.52, 0.06, 10, 56),
-    new THREE.MeshStandardMaterial({ color: 0x06121f, emissive: 0x2e9bff, emissiveIntensity: 1.9, roughness: .4 })));
+    new THREE.MeshStandardMaterial({ color: 0x06121f, emissive: 0x2fd8c8, emissiveIntensity: 1.9, roughness: .4 })));
   const studMat = new THREE.MeshStandardMaterial({ color: 0x140b04, emissive: 0xffb340, emissiveIntensity: 2.2, roughness: .35 });
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
@@ -547,13 +560,23 @@ let embers = null;
   const gateGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff8b3d, transparent: true, opacity: 0.5, depthWrite: false }));
   gateGlow.scale.set(11, 11, 1); gateGlow.position.copy(gate.position);
   arena.add(gateGlow);
-  const moon = new THREE.Sprite(new THREE.SpriteMaterial({ map: moonTex, transparent: true, fog: false, depthWrite: false }));
-  moon.position.set(-9.5, 11.5, -25);
-  moon.scale.setScalar(7);
-  arena.add(moon);
-  const moonGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0x9db8ff, transparent: true, opacity: .55, depthWrite: false, fog: false }));
-  moonGlow.scale.set(7, 7, 1); moonGlow.position.copy(moon.position); arena.add(moonGlow);
-  gateRing = gate; gateGlowSpr = gateGlow; moonMesh = moon; moonGlowSpr = moonGlow;
+  // Command-dome radar tower (conversion, Nov 7): a lattice mast + dish
+  // standing behind the wall where the painted moon used to hang. The
+  // layoutArena() hooks below keep the moonMesh/moonGlowSpr names — here
+  // they point at the tower group and its teal glow sprite.
+  const radar = new THREE.Group();
+  const mastMat = new THREE.MeshStandardMaterial({ color: 0x39434c, roughness: 0.6, metalness: 0.65, fog: false });
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.24, 3.6, 8), mastMat);
+  mast.position.y = -1.3;
+  const dish = new THREE.Mesh(new THREE.CircleGeometry(1.55, 28),
+    new THREE.MeshStandardMaterial({ map: radarTex, transparent: true, side: THREE.DoubleSide, roughness: 0.5, metalness: 0.3, fog: false }));
+  dish.position.y = 0.9; dish.rotation.y = 0.5; dish.rotation.x = -0.25;
+  const radarGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0x2fd8c8, transparent: true, opacity: 0.4, depthWrite: false, fog: false }));
+  radarGlow.position.y = 0.9;
+  radar.add(mast, dish, radarGlow);
+  radar.position.set(-9.5, 11.5, -25);
+  arena.add(radar);
+  gateRing = gate; gateGlowSpr = gateGlow; moonMesh = radar; moonGlowSpr = radarGlow;
 
   const stoneMat = new THREE.MeshStandardMaterial({ map: stoneTex, bumpMap: stoneBump, bumpScale: 0.6, roughness: .95, envMapIntensity: 0.2 });
   for (let i = 0; i < 8; i++) {
@@ -598,6 +621,30 @@ let embers = null;
     bg.position.set(bx, 0.25, bz);
     arena.add(bg);
   }
+  /* Battle Force set dressing (conversion, Nov 7): twin searchlight
+     towers flanking the gate with volumetric-feel beams that sweep the
+     sky, plus a pulsing holo projector ring around the platform. */
+  const towerMat = new THREE.MeshStandardMaterial({ color: 0x2c353d, roughness: 0.55, metalness: 0.6 });
+  for (const side of [-1, 1]) {
+    const tw = new THREE.Group();
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.15, 4.6, 8), towerMat);
+    leg.position.y = 2.3;
+    const head = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.42, 0.8, 12), towerMat);
+    head.rotation.z = Math.PI / 2; head.position.y = 4.75;
+    const lens = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xbfe8ff, transparent: true, opacity: 0.9, depthWrite: false }));
+    lens.scale.set(1.5, 1.5, 1); lens.position.set(0, 4.75, 0.45);
+    const beam = new THREE.Mesh(new THREE.ConeGeometry(1.15, 7.5, 20, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0x9fd8ff, transparent: true, opacity: 0.10, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, fog: false }));
+    beam.position.set(0, 6.4, 2.6); beam.rotation.x = 1.12;
+    tw.add(leg, head, lens, beam);
+    tw.position.set(side * 7.8, 0, -6.4);
+    arena.add(tw);
+    searchlights.push({ beam, phase: side * 2.1 });
+  }
+  const holo = new THREE.Mesh(new THREE.TorusGeometry(5.85, 0.022, 8, 96),
+    new THREE.MeshBasicMaterial({ color: 0x2fd8c8, transparent: true, opacity: 0.5, fog: false }));
+  holo.rotation.x = Math.PI / 2; holo.position.y = 0.65;
+  arena.add(holo); holoRing = holo;
   for (const [side, tex] of [[-1, bannerTexL], [1, bannerTexR]]) {
     const bg2 = new THREE.Group();
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 5.4, 8), stoneMat);
@@ -618,7 +665,7 @@ let embers = null;
   }
   const eg = new THREE.BufferGeometry();
   eg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  embers = new THREE.Points(eg, new THREE.PointsMaterial({ map: glowTex, color: 0xffa050, size: 0.09, transparent: true, opacity: .8, depthWrite: false, blending: THREE.AdditiveBlending }));
+  embers = new THREE.Points(eg, new THREE.PointsMaterial({ map: glowTex, color: 0x7fe8dc, size: 0.09, transparent: true, opacity: .55, depthWrite: false, blending: THREE.AdditiveBlending }));
   arena.add(embers);
 }
 // Set pieces are composed per orientation: the landscape gate ring / moon
@@ -629,15 +676,15 @@ function layoutArena() {
   if (isPortrait) {
     gateRing.position.set(0, 3.7, -11.5); gateRing.scale.setScalar(0.78);
     gateGlowSpr.position.copy(gateRing.position); gateGlowSpr.scale.set(8.5, 8.5, 1);
-    moonMesh.position.set(-3.6, 8.6, -26); moonMesh.scale.setScalar(3.6);
-    moonGlowSpr.position.copy(moonMesh.position); moonGlowSpr.scale.set(5.5, 5.5, 1);
-    scene.fog.density = 0.02;
+    moonMesh.position.set(-3.6, 9.8, -26); moonMesh.scale.setScalar(1.35);
+    moonGlowSpr.position.set(0, 0.9, 0); moonGlowSpr.scale.set(4.2, 4.2, 1);
+    scene.fog.density = 0.016;
   } else {
     gateRing.position.set(0, 3.0, -9.5); gateRing.scale.setScalar(1);
     gateGlowSpr.position.copy(gateRing.position); gateGlowSpr.scale.set(11, 11, 1);
-    moonMesh.position.set(-9.5, 11.5, -25); moonMesh.scale.setScalar(7);
-    moonGlowSpr.position.copy(moonMesh.position); moonGlowSpr.scale.set(9, 9, 1);
-    scene.fog.density = 0.028;
+    moonMesh.position.set(-9.5, 11.5, -25); moonMesh.scale.setScalar(2.4);
+    moonGlowSpr.position.set(0, 0.9, 0); moonGlowSpr.scale.set(5.5, 5.5, 1);
+    scene.fog.density = 0.022;
   }
 }
 layoutArena();
@@ -1997,6 +2044,12 @@ function animate() {
     }
     posA.needsUpdate = true;
   }
+  // Battle Force dressing motion: searchlight beams sweep, holo ring pulses
+  for (const s of searchlights) {
+    s.beam.rotation.z = Math.sin(elapsed * 0.35 + s.phase) * 0.35;
+    s.beam.rotation.x = 1.12 + Math.cos(elapsed * 0.27 + s.phase) * 0.14;
+  }
+  if (holoRing) { holoRing.rotation.z = elapsed * 0.15; holoRing.material.opacity = 0.38 + Math.sin(elapsed * 2.2) * 0.14; }
   if (gateRing) gateRing.rotation.z -= rawDt * 0.06;
   // energy trails (visual pass): dash/sweep specials drag their colour;
   // orbs shed sparks as they fly
@@ -2033,7 +2086,7 @@ function animate() {
       if (P1.roundsWon >= 2 || P2.roundsWon >= 2) {
         game.phase = 'matchEnd';
         const w = P1.roundsWon >= 2 ? P1 : P2;
-        showBanner(w.cfg.name + ' WINS', 'CHAMPION OF THE COLOSSEUM', 2.6);
+        showBanner(w.cfg.name + ' WINS', 'BATTLE FORCE CHAMPION', 2.6);
         if (!QA_MODE) $('rematch').style.display = 'block';
       } else { game.round++; startRound(); }
     }
@@ -2376,6 +2429,13 @@ async function setupQA(mode) {
     P2.hp = 84;
     P2.bonePos(P2.chestBone, _v1); burst(_v1, 0xffc44d, 20, 3, 1.3);
     slashArc(_v1, 0xffc44d, false);
+    game.phase = 'frozen';
+  } else if (mode === 'wide') {
+    // QA-only: max separation — both fighters frozen at the stage clamps
+    P1.x = -3.6; P2.x = 3.6;
+    P1.group.position.x = P1.x; P2.group.position.x = P2.x;
+    P1.face = 1; P2.face = -1; P1.applyFacing(); P2.applyFacing();
+    freezePose(P1, 'idle', 0.3); freezePose(P2, 'idle', 0.3);
     game.phase = 'frozen';
   }
   updateHUD();

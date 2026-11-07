@@ -1,4 +1,10 @@
-# Arena Clash 3D — third-party asset licenses
+# Battle Force — third-party asset licenses
+
+> Renamed from "Arena Clash 3D" on 2026-11-07 (owner's direction):
+> same engine, roster and CC0/MIT assets; the arena was re-skinned as a
+> military command battle-dome (steel deck + holo grid, hangar wall,
+> radar tower, searchlights — all procedural canvas/geometry original
+> to this project, no new third-party assets).
 
 Every third-party asset below is **CC0 1.0 Universal (public domain dedication)**
 or MIT, verified against the license text shipped inside the downloaded packs
