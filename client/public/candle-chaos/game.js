@@ -12,9 +12,19 @@ const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const lerp = (a, b, t) => a + (b - a) * t;
 
 /* ---------------- constants ---------------- */
-const LANE_X = [-2.35, 0, 2.35];
-const STEP_Z = 3.05;               // distance between chart steps
-const BLOCK_W = 2.15, BLOCK_D = 2.3;
+/* Wide-field layout (Nov 7, owner: "make a row of eight — the spaces
+   are bigger than the jumping"). Eight candles across, tight pitch:
+   lane spacing 1.20 with BLOCK_W 1.08 = 0.12 m lateral edge gap, and
+   STEP_Z 2.40 with BLOCK_D 1.95 = 0.45 m forward edge gap. Measured
+   jump range at the opening speed (JUMP_V 15.2 against GRAV_RISE 26 /
+   GRAV 34: 0.585 s up + 0.511 s down = 1.10 s airborne; x 7.6 m/s =
+   8.3 m) — so a normal row hop is 2.40 m centre-to-centre (29% of
+   range) and even a full missing row is 4.80 m (58% of range, under
+   the 70% ceiling). Every intended hop is comfortably makeable. */
+const LANE_X = [-4.2, -3.0, -1.8, -0.6, 0.6, 1.8, 3.0, 4.2];
+const LANES = LANE_X.length;       // 8 candles across
+const STEP_Z = 2.40;               // distance between chart steps
+const BLOCK_W = 1.08, BLOCK_D = 1.95;
 /* Control-ease tuning (Nov 7, owner: "hard to control — easier movement").
    Everything below is about forgiveness: slower opening pace, floatier
    jump with coyote time + input buffering, stronger air steering, a
@@ -35,7 +45,7 @@ const S = {
   score: 0, dist: 0, crescents: 0, stars: 0, streak: 0,
   speed: 0, runTime: 0, time: 0,
   x: 0, y: 0, z: 0, vx: 0, vy: 0, grounded: true,
-  curBlock: null, lastBlock: null, fallStartY: 0, airTime: 0, bumped: false,
+  curBlock: null, lastBlock: null, fallStartY: 0, airPeakY: 0, airTime: 0, bumped: false,
   lastGroundedT: -9, jumpBufferT: -9,   // coyote / input-buffer timestamps
   dieT: 0, dieKind: null, muted: false, best: 0, submitted: false,
 };
@@ -103,7 +113,7 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x060a18);
 scene.fog = new THREE.Fog(0x070b1a, 42, 178);
 
-const camera = new THREE.PerspectiveCamera(66, 1, 0.1, 900);
+const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 900);
 function applySize() {
   const s = viewSize();
   renderer.setSize(s.w, s.h, false);
@@ -118,8 +128,8 @@ scene.add(hemi);
 const moonLight = new THREE.DirectionalLight(0xcfe0ff, 1.5);
 moonLight.castShadow = true;
 moonLight.shadow.mapSize.set(1024, 1024);
-moonLight.shadow.camera.left = -17; moonLight.shadow.camera.right = 17;
-moonLight.shadow.camera.top = 17; moonLight.shadow.camera.bottom = -17;
+moonLight.shadow.camera.left = -20; moonLight.shadow.camera.right = 20;
+moonLight.shadow.camera.top = 20; moonLight.shadow.camera.bottom = -20;
 moonLight.shadow.camera.far = 70; moonLight.shadow.bias = -0.002;
 scene.add(moonLight); scene.add(moonLight.target);
 const glowLight = new THREE.PointLight(0xffb35c, 26, 24, 1.8);
@@ -456,7 +466,7 @@ const chartGroup = new THREE.Group();
 
 /* ---------------- shared geometry / materials ---------------- */
 const bodyGeo = new THREE.BoxGeometry(BLOCK_W, 1, BLOCK_D);
-const discGeo = new THREE.CylinderGeometry(0.80, 0.94, 0.15, 20);
+const discGeo = new THREE.CylinderGeometry(0.40, 0.47, 0.15, 20);
 const wickGeo = new THREE.CylinderGeometry(0.045, 0.045, 0.36, 6);
 const tailGeo = new THREE.CylinderGeometry(0.055, 0.075, 1, 6);
 const chunkGeo = new THREE.BoxGeometry(0.36, 0.32, 0.36);
@@ -513,7 +523,7 @@ function makeCandle(color) {
   flame.userData.phase = Math.random() * 9;
   grp.add(flame);
   const halo = new THREE.Sprite(color === 'G' ? haloMatG : haloMatR);
-  halo.scale.set(2.3, 2.3, 1);
+  halo.scale.set(1.65, 1.65, 1);
   halo.position.y = 0.72;
   halo.userData.phase = flame.userData.phase;
   grp.add(halo);
@@ -598,8 +608,8 @@ function updateChunks(dt) {
 }
 
 /* ---------------- path generation ---------------- */
-const gen = { next: 0, price: 2.0, safeLane: 1, gapNext: false, lastGap: -9, lastWall: -9 };
-const steps = new Map();   // i -> {i, z, price, gap, blocks:[block|null x3]}
+const gen = { next: 0, price: 2.0, safeLane: 3, gapNext: false, lastGap: -9, lastWall: -9 };
+const steps = new Map();   // i -> {i, z, price, gap, blocks:[block|null x8]}
 const pickups = [];        // {kind, mesh, x, y, z, taken, step}
 
 function stepZ(i) { return -i * STEP_Z; }
@@ -609,30 +619,34 @@ function genStep(i) {
   let gap = false;
   if (gen.gapNext) {
     // price right after a gap stays close to the pre-gap price so the jump lands
-    gen.price = clamp(gen.price + (Math.random() - 0.5) * 1.1 - 0.35, 0.2, 8.6);
+    gen.price = clamp(gen.price + (Math.random() - 0.5) * 0.7 - 0.25, 0.2, 8.6);
     gen.gapNext = false;
   } else if (i > 4) {
-    let dy = (Math.random() - 0.48) * 1.45 + (3.6 - gen.price) * 0.045;
-    if (i > 14 && i - gen.lastWall > 6 && Math.random() < 0.13) {
-      dy = 1.4 + Math.random() * 0.9; gen.lastWall = i;   // wall step: JUMP!
+    // Per-step height change is capped at ~0.5 m (was ~0.75 + walls to
+    // 2.3): no single step ever asks for more than a fraction of the
+    // jump's 4.4 m apex, so a hop never feels "smaller than the space".
+    let dy = (Math.random() - 0.49) * 0.85 + (3.6 - gen.price) * 0.045;
+    if (i > 25 && i - gen.lastWall > 10 && Math.random() < 0.10) {
+      dy = 0.95 + Math.random() * 0.35; gen.lastWall = i;   // wall step: JUMP! (max 1.3 m)
     }
+    dy = clamp(dy, -0.5, 1.3);
     gen.price = clamp(gen.price + dy, 0.2, 8.6);
-    if (i > 12 && i - gen.lastGap > 7 && Math.random() < 0.09) {
+    if (i > 34 && i - gen.lastGap > 12 && Math.random() < 0.07) {
       gap = true; gen.lastGap = i; gen.gapNext = true;
     }
   }
   // safe lane wanders by at most one lane per step — a route always exists
-  if (i > 0 && Math.random() < 0.62) {
-    gen.safeLane = clamp(gen.safeLane + (Math.random() < 0.5 ? -1 : 1), 0, 2);
+  if (i > 0 && Math.random() < 0.5) {
+    gen.safeLane = clamp(gen.safeLane + (Math.random() < 0.5 ? -1 : 1), 0, LANES - 1);
   }
-  const step = { i, z, price: gen.price, gap, blocks: [null, null, null] };
+  const step = { i, z, price: gen.price, gap, blocks: new Array(LANES).fill(null) };
   if (!gap) {
     const distNow = i * STEP_Z;
-    const redP = i < 8 ? 0 : Math.min(0.14 + distNow * 0.00042, 0.40);
-    const gapP = i < 6 ? 0 : 0.15;
-    for (let lane = 0; lane < 3; lane++) {
+    const redP = i < 10 ? 0 : Math.min(0.10 + distNow * 0.00030, 0.30);
+    const gapP = i < 8 ? 0 : 0.10;
+    for (let lane = 0; lane < LANES; lane++) {
       let color = null;
-      if (lane === gen.safeLane || i <= 4) color = 'G';
+      if (lane === gen.safeLane || i <= 5) color = 'G';
       else {
         const r = Math.random();
         if (r < gapP) color = null;
@@ -712,14 +726,30 @@ function blockAt(x, z) {
   // Among candles whose footprint holds the point, prefer the one the
   // runner is most centred on (a higher neighbour only wins if it is
   // clearly taller) — no cheap deaths for straddling an edge.
-  let best = null, bestScore = -Infinity;
+  // GREEN-tie rule (same intent as landBlockAt, but order-proof):
+  // if the winner is RED and a GREEN candle of similar height
+  // (within 0.35) is comparably centred under the runner (centre
+  // distance within 0.45), the GREEN wins — a boundary graze while
+  // crossing lanes must not kill. A clearly-taller or clearly-more-
+  // centred RED still wins: standing in RED is still death.
+  let best = null, bestScore = -Infinity, bestDist = Infinity;
   for (const b of blocksNear(z)) {
     const dx = Math.abs(x - b.x), dz = Math.abs(z - b.z);
-    // z slack (0.40) makes neighbouring steps' footprints just touch:
-    // STEP_Z 3.05 vs BLOCK_D/2+0.40 = 1.55 — no dead seam to fall through.
+    // z slack (0.40) makes neighbouring steps' footprints overlap:
+    // STEP_Z/2 1.20 vs BLOCK_D/2+0.40 = 1.375 — no dead seam to fall through.
     if (dx <= BLOCK_W / 2 + 0.14 && dz <= BLOCK_D / 2 + 0.40) {
       const s = b.top - (dx + dz) * 0.35;
-      if (s > bestScore) { bestScore = s; best = b; }
+      if (s > bestScore) { bestScore = s; best = b; bestDist = dx + dz; }
+    }
+  }
+  if (best && best.color === 'R') {
+    for (const b of blocksNear(z)) {
+      if (b.color !== 'G') continue;
+      const dx = Math.abs(x - b.x), dz = Math.abs(z - b.z);
+      if (dx <= BLOCK_W / 2 + 0.14 && dz <= BLOCK_D / 2 + 0.40 &&
+          Math.abs(b.top - best.top) <= 0.35 && (dx + dz) <= bestDist + 0.45) {
+        return b;
+      }
     }
   }
   return best;
@@ -730,15 +760,25 @@ function landBlockAt(x, z, y) {
   // the centre is on it. Between candles of similar height (a normal
   // straddle) GREEN wins the tie: a boundary graze should not kill.
   // A clearly-taller RED still wins — standing in RED is still death.
-  let best = null, bestScore = -Infinity;
+  let best = null, bestScore = -Infinity, bestDist = Infinity;
   for (const b of blocksNear(z)) {
     const dx = Math.abs(x - b.x), dz = Math.abs(z - b.z);
     if (dx <= BLOCK_W / 2 + 0.30 && dz <= BLOCK_D / 2 + 0.55) {
       let s = b.top - (dx + dz) * 0.35;
       if (b.top > y + AUTO_STEP) s -= 2.5;                       // a wall, not a floor
-      if (best && b.color === 'G' && best.color === 'R' &&
-          Math.abs(b.top - best.top) <= 0.35 && b.top <= best.top + 0.05) s = bestScore + 0.01;
-      if (s > bestScore) { bestScore = s; best = b; }
+      if (s > bestScore) { bestScore = s; best = b; bestDist = dx + dz; }
+    }
+  }
+  // Order-proof GREEN tie (same rule as blockAt): a GREEN of similar
+  // height comparably centred under the runner beats a RED winner.
+  if (best && best.color === 'R') {
+    for (const b of blocksNear(z)) {
+      if (b.color !== 'G' || b.top > y + AUTO_STEP) continue;
+      const dx = Math.abs(x - b.x), dz = Math.abs(z - b.z);
+      if (dx <= BLOCK_W / 2 + 0.30 && dz <= BLOCK_D / 2 + 0.55 &&
+          Math.abs(b.top - best.top) <= 0.35 && (dx + dz) <= bestDist + 0.45) {
+        return b;
+      }
     }
   }
   return best;
@@ -983,7 +1023,8 @@ function stepPhysics(dt) {
   // corrected mid-flight instead of being a one-way ticket.
   const targetVx = inputX * (S.grounded ? 11.5 : 13.5);
   S.vx = lerp(S.vx, targetVx, clamp(dt * (S.grounded ? 11 : 9), 0, 1));
-  S.x = clamp(S.x + S.vx * dt, -3.55, 3.55);
+  S.x = clamp(S.x + S.vx * dt, -4.6, 4.6);
+  if (S.grounded) S.airPeakY = S.y;
   const prevY = S.y;
 
   if (S.grounded) {
@@ -1019,12 +1060,17 @@ function stepPhysics(dt) {
     S.vy -= (S.vy > 0 ? GRAV_RISE : GRAV) * dt;
     S.y += S.vy * dt;
     S.z -= S.speed * dt;
+    if (S.y > S.airPeakY) S.airPeakY = S.y;
     if (S.vy <= 0) {
       const b = landBlockAt(S.x, S.z, prevY);
-      // Land when we were above the top last frame and have now reached
-      // it (catch window under the plane so fast falls and seam entries
-      // at low frame rates still catch instead of tunnelling).
-      if (b && prevY >= b.top - 0.02 && S.y <= b.top + 0.02 && S.y >= b.top - CATCH_BELOW) {
+      // Land when the jump actually rose above the top (apex counts,
+      // not just last frame — a steep descent can cross the top plane
+      // a hair before the footprint, and that catch must still count)
+      // and we have now reached it (catch window under the plane so
+      // fast falls and seam entries at low frame rates still catch
+      // instead of tunnelling). A jump that never got above a wall
+      // still cannot land on it.
+      if (b && (prevY >= b.top - 0.02 || S.airPeakY >= b.top - 0.02) && S.y <= b.top + 0.02 && S.y >= b.top - CATCH_BELOW) {
         if (b.color === 'R') { S.y = b.top; die('red'); return; }
         S.y = b.top; S.grounded = true; S.vy = 0;
         onLand(b);
@@ -1089,7 +1135,7 @@ function updateBlocks(dt) {
         f.scale.set(0.85 * s, 1.25 * (2 - s) * 0.9 + 0.25, 1);
         const halo = b.grp.userData.halo;
         if (halo) {
-          const hs = 2.3 * (1 + Math.sin(S.time * 9 + f.userData.phase) * 0.09);
+          const hs = 1.65 * (1 + Math.sin(S.time * 9 + f.userData.phase) * 0.09);
           halo.scale.set(hs, hs, 1);
         }
       }
@@ -1231,17 +1277,17 @@ function resetWorld() {
   emberLife.fill(0);
   for (let i = 0; i < EMBERS; i++) emberPos[i * 3 + 1] = -999;
   emberGeo.attributes.position.needsUpdate = true;
-  gen.next = 0; gen.price = 2.0; gen.safeLane = 1; gen.gapNext = false; gen.lastGap = -9; gen.lastWall = -9;
+  gen.next = 0; gen.price = 2.0; gen.safeLane = 3; gen.gapNext = false; gen.lastGap = -9; gen.lastWall = -9;
   S.score = 0; S.dist = 0; S.crescents = 0; S.stars = 0; S.streak = 0;
   S.speed = 0; S.runTime = 0;
-  S.x = 0; S.z = -2 * STEP_Z; S.vx = 0; S.vy = 0;
+  S.x = LANE_X[3]; S.z = -2 * STEP_Z; S.vx = 0; S.vy = 0;
   S.grounded = true; S.bumped = false; S.airTime = 0;
   S.lastGroundedT = -9; S.jumpBufferT = -9;
   S.submitted = false; S.dieKind = null;
   runner.rotation.set(0, 0, 0);
   ensureSteps();
   const st2 = steps.get(2);
-  const startBlock = st2 && st2.blocks[1];
+  const startBlock = st2 && st2.blocks[3];
   S.y = startBlock ? startBlock.top : 2.0;
   S.curBlock = startBlock; S.lastBlock = startBlock;
   hudCache.score = hudCache.cres = hudCache.dist = '';
@@ -1314,15 +1360,16 @@ function updateCamera(dt) {
   }
   // Behind-and-above, looking up-path: the runner rides the LOWER third
   // of the frame and the chart path fills the view ahead (spec framing).
+  // Pulled back/up for the 8-wide field so the full row width reads.
   const px = S.x * 0.55;
-  const py = S.y + 4.6 - clamp(S.vy * 0.05, -0.9, 0.7);
+  const py = S.y + 5.6 - clamp(S.vy * 0.05, -0.9, 0.7);
   // px/py ease smoothly; z is set exactly each frame (constant offset —
   // no judder). Ease factors are frame-rate independent.
   const kx = 1 - Math.exp(-dt * 7), ky = 1 - Math.exp(-dt * 5.2);
   camera.position.x = lerp(camera.position.x, px, kx);
   camera.position.y = lerp(camera.position.y, py, ky);
-  camera.position.z = S.z + 8.6;
-  camTarget.set(S.x * 0.72, S.y + 1.55, S.z - 10);
+  camera.position.z = S.z + 10.8;
+  camTarget.set(S.x * 0.72, S.y + 1.35, S.z - 11);
   camera.lookAt(camTarget);
   chartGroup.position.z = S.z - 165;
   chartGroup.position.y = clamp(S.y - 2, -4, 6);
@@ -1470,7 +1517,7 @@ window.CCQA = {
     const ci = Math.floor(-S.z / STEP_Z);
     for (let i = ci + 1; i < ci + 90; i++) {
       const st = steps.get(i); if (!st) continue;
-      for (let a = 0; a < 2; a++) {
+      for (let a = 0; a < LANES - 1; a++) {
         const g = st.blocks[a], r = st.blocks[a + 1];
         if (g && r && g.color === 'G' && r.color === 'R' &&
             Math.abs(g.top - r.top) <= 0.3 && r.top >= g.top - 0.05) {
@@ -1499,12 +1546,29 @@ window.CCQA = {
       block: S.curBlock ? { color: S.curBlock.color, step: S.curBlock.step } : null,
     };
   },
+  /* Snapshot of the candle field around the runner for an external
+     pilot (qa/touch_pilot.py): every live block from just behind the
+     runner to ~20 m ahead, plus the lane/step geometry constants. */
+  track() {
+    const out = [];
+    for (const st of steps.values()) {
+      const dz = S.z - st.z;
+      if (dz < -2 || dz > 21) continue;
+      for (const b of st.blocks) {
+        if (!b || b.state === 'gone') continue;
+        out.push({ x: b.x, z: b.z, top: b.top, color: b.color, state: b.state, step: b.step });
+      }
+    }
+    out.sort((a, b) => b.z - a.z);
+    return { blocks: out, lanes: LANE_X, stepZ: STEP_Z, blockW: BLOCK_W, blockD: BLOCK_D, autoStep: AUTO_STEP };
+  },
   /* Advance the simulation deterministically (no rendering) — the
      render loop runs far too slowly under software GL for real-time
      bot play. auto() steers toward the nearest green candle and jumps
      gaps/walls, like a careful player. */
   step(sec) {
     const dt = 1 / 30;
+    const prevHold = S.qaHold;
     S.qaHold = true;
     for (let t = 0; t < sec; t += dt) {
       S.time += dt;
@@ -1519,13 +1583,14 @@ window.CCQA = {
       } else break;
       updateChunks(dt); updateEmbers(dt);
     }
-    S.qaHold = false;
+    S.qaHold = prevHold;
     updateHUD();
     return { mode: S.mode, score: Math.floor(S.score), dist: Math.floor(S.dist), crescents: S.crescents, stars: S.stars, grounded: S.grounded };
   },
   auto(sec) {
     const dt = 1 / 30;
     let overGap = false, crossedGap = false, sawCrumble = false;
+    const prevHold = S.qaHold;
     S.qaHold = true;
     for (let t = 0; t < sec; t += dt) {
       if (S.mode !== 'run') break;
@@ -1562,7 +1627,7 @@ window.CCQA = {
       }
     }
     stick.active = false; stick.x = 0;
-    S.qaHold = false;
+    S.qaHold = prevHold;
     updateHUD();
     return {
       mode: S.mode, score: Math.floor(S.score), dist: Math.floor(S.dist),
