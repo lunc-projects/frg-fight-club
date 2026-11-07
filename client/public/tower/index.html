@@ -150,6 +150,9 @@ const RESTORE = 16;        /* width regained per restore step */
 const BASE_SPEED = 135;    /* slide speed at level 0 (units/s) */
 const SPEED_PER = 7;       /* +speed per placed block */
 const MAX_SPEED = 430;     /* slide speed cap */
+const DROP_GAP = 120;      /* air gap (world units) between the sliding block's bottom and the stack's top */
+const GRAVITY = 1500;      /* fall acceleration when a block is dropped (world units/s²) */
+const OFFSETTRACK = 520;   /* horizontal drift (units/s) a total miss picks up as it tumbles past the tower */
 
 /* Bubbly neon module palette — every newly dropped block advances one color. */
 const NEON_PALETTE = [
@@ -171,11 +174,12 @@ function neonColor(index){ return NEON_PALETTE[((index % NEON_PALETTE.length) + 
 /* ================= state ================= */
 let state = 'menu';        /* menu | play | over */
 let tower = [];            /* [{x, w, gold, perfect, colorIndex}] — tower[0] is the landing pad block */
-let moving = null;         /* {x, w, dir, colorIndex} — the sliding block */
-let falling = [];          /* [{x, w, y, vy, gold, colorIndex}] — sheared-off pieces, world y = bottom */
+let moving = null;         /* {x, w, dir, colorIndex, mode, y, vy, vx} — mode: 'slide' | 'fall'; y = world bottom while falling */
+let falling = [];          /* [{x, w, y, vy, vx, gold, colorIndex}] — sheared-off pieces, world y = bottom */
 let landPulses = [];       /* [{x, w, wy, colorIndex, gold, t, dur}] — landing glow feedback */
 let score = 0, combo = 0, height = 0, elapsed = 0;
 let camY = 0, shake = 0, flashTxt = '', flashT = 0;
+let particles = [];        /* spark/dust motes from drops, landings, trims — pooled render-only juice */
 let W = 420, H = 640, S = 1;
 
 let muted = localStorage.getItem('lunaTowerMute') === '1';
@@ -249,6 +253,7 @@ function reset(){
   tower = [{ x: (FW - W0) / 2, w: W0, gold: false, perfect: false, pad: true, colorIndex: 0 }];
   falling = [];
   landPulses = [];
+  particles = [];
   score = 0; combo = 0; height = 0; elapsed = 0; camY = 0; shake = 0;
   spawnNext(W0);
   updateHud();
@@ -257,7 +262,22 @@ function speedNow(){ return Math.min(MAX_SPEED, BASE_SPEED + height * SPEED_PER)
 function spawnNext(w){
   const fromLeft = (height % 2 === 0);
   const colorIndex = isGoldLevel(height + 1) ? 3 : height + 1;
-  moving = { x: fromLeft ? -w * 0.35 : FW - w * 0.65, w, dir: fromLeft ? 1 : -1, colorIndex };
+  moving = { x: fromLeft ? -w * 0.35 : FW - w * 0.65, w, dir: fromLeft ? 1 : -1, colorIndex, mode: 'slide', y: 0, vy: 0, vx: 0 };
+}
+/* The block slides across a launch rail DROP_GAP above the stack top, so a
+   tap releases a real fall — never a slide at the landing level itself. */
+function slideY(){ return tower.length * BH + DROP_GAP; }
+function spawnParts(x, wy, count, color, spread, up){
+  for (let i = 0; i < count; i++){
+    if (particles.length > 220) return;
+    const a = Math.random() * Math.PI - Math.PI / 2; /* fan upward-ish */
+    const sp = (0.35 + Math.random() * 0.65) * (spread || 90);
+    particles.push({
+      x: x + (Math.random() - 0.5) * 14, y: wy, vx: Math.cos(a) * sp * 0.7,
+      vy: (up || 60) * (0.4 + Math.random() * 0.9), life: 0.55 + Math.random() * 0.55,
+      t: 0, size: 1 + Math.random() * 2.2, color: color || '#ffd76a',
+    });
+  }
 }
 function addLandPulse(x, w, wy, colorIndex, gold, perfect){
   landPulses.push({ x, w, wy, colorIndex, gold, perfect, t: 0, dur: perfect ? 0.62 : 0.44 });
@@ -265,7 +285,15 @@ function addLandPulse(x, w, wy, colorIndex, gold, perfect){
 function isGoldLevel(placedCount){ return placedCount > 0 && placedCount % 10 === 0; }
 
 function drop(){
-  if (state !== 'play' || !moving) return null;
+  if (state !== 'play' || !moving || moving.mode !== 'slide') return null;
+  /* Tapped: detach from the launch rail and let it fall. The landing is
+     resolved in step() the moment the falling block reaches the stack top. */
+  moving.mode = 'fall';
+  moving.y = slideY();
+  moving.vy = 0;
+  return { released: true };
+}
+function landDrop(){
   const below = tower[tower.length - 1];
   const cur = moving;
   const belowC = below.x + below.w / 2, curC = cur.x + cur.w / 2;
@@ -280,6 +308,7 @@ function drop(){
     const gold = isGoldLevel(placedCount);
     tower.push({ x: below.x, w: below.w, gold, perfect: true, colorIndex: cur.colorIndex });
     addLandPulse(below.x, below.w, lvlY, cur.colorIndex, gold, true);
+    spawnParts(below.x + below.w / 2, lvlY + BH, 16, gold ? '#ffd83d' : neonColor(cur.colorIndex).base, 120, 90);
     height = placedCount;
     const restore = (combo % 3 === 0) ? RESTORE : 0;
     spawnNext(Math.min(W0, below.w + restore));
@@ -290,8 +319,7 @@ function drop(){
     const left = Math.max(cur.x, below.x), right = Math.min(cur.x + cur.w, below.x + below.w);
     const ov = right - left;
     if (ov <= 0){
-      /* total miss — the module drifts off into the dark */
-      falling.push({ x: cur.x, w: cur.w, y: lvlY, vy: 0, gold: isGoldLevel(height + 1), colorIndex: cur.colorIndex });
+      /* total miss — the module tumbles away past the tower into the dark */
       moving = null;
       res = { placed: false, perfect: false, gained: 0, width: 0, combo };
       gameOver();
@@ -299,12 +327,14 @@ function drop(){
     }
     combo = 0;
     score += 10;
-    if (cur.x < left) falling.push({ x: cur.x, w: left - cur.x, y: lvlY, vy: 0, gold: false, colorIndex: cur.colorIndex });
-    if (cur.x + cur.w > right) falling.push({ x: right, w: cur.x + cur.w - right, y: lvlY, vy: 0, gold: false, colorIndex: cur.colorIndex });
+    /* overhang keeps falling from the landing height it just reached */
+    if (cur.x < left) falling.push({ x: cur.x, w: left - cur.x, y: lvlY, vy: cur.vy * 0.85, vx: 0, gold: false, colorIndex: cur.colorIndex });
+    if (cur.x + cur.w > right) falling.push({ x: right, w: cur.x + cur.w - right, y: lvlY, vy: cur.vy * 0.85, vx: 0, gold: false, colorIndex: cur.colorIndex });
     const placedCount = height + 1;
     const gold = isGoldLevel(placedCount);
     tower.push({ x: left, w: ov, gold, perfect: false, colorIndex: cur.colorIndex });
     addLandPulse(left, ov, lvlY, cur.colorIndex, gold, false);
+    spawnParts(left + ov / 2, lvlY + BH, 9, gold ? '#ffd83d' : neonColor(cur.colorIndex).base, 90, 65);
     height = placedCount;
     spawnNext(ov);
     sndPlace(); sndTrim(); if (gold) sndGold();
@@ -346,21 +376,48 @@ function step(dt){
   if (state === 'play'){
     elapsed += dt;
     if (moving){
-      moving.x += moving.dir * speedNow() * dt;
-      const lo = -moving.w * 0.35, hi = FW - moving.w * 0.65;
-      if (moving.x < lo){ moving.x = lo; moving.dir = 1; }
-      if (moving.x > hi){ moving.x = hi; moving.dir = -1; }
+      if (moving.mode === 'slide'){
+        moving.x += moving.dir * speedNow() * dt;
+        const lo = -moving.w * 0.35, hi = FW - moving.w * 0.65;
+        if (moving.x < lo){ moving.x = lo; moving.dir = 1; }
+        if (moving.x > hi){ moving.x = hi; moving.dir = -1; }
+      } else {
+        /* released: accelerate down from the launch rail to the stack top */
+        moving.vy += GRAVITY * dt;
+        moving.y -= moving.vy * dt;
+        if (Math.random() < 0.85) spawnParts(moving.x + moving.w / 2, moving.y + BH, 1, neonColor(moving.colorIndex).base, 26, 14);
+        const landY = tower.length * BH;
+        if (moving.y <= landY){
+          moving.y = landY;
+          const below = tower[tower.length - 1];
+          const ovL = Math.max(moving.x, below.x), ovR = Math.min(moving.x + moving.w, below.x + below.w);
+          if (ovR - ovL <= 0){
+            /* no overlap at all: the whole block keeps falling and tumbles
+               away past the tower — the run ends as it disappears */
+            const center = moving.x + moving.w / 2, bCenter = below.x + below.w / 2;
+            falling.push({ x: moving.x, w: moving.w, y: moving.y, vy: moving.vy, vx: (center < bCenter ? -1 : 1) * OFFSETTRACK, gold: isGoldLevel(height + 1), colorIndex: moving.colorIndex });
+          }
+          landDrop();
+        }
+      }
     }
     if (combo > bestCombo) bestCombo = combo;
   }
-  for (const f of falling){ f.vy += 900 * dt; f.y -= f.vy * dt; }
+  for (const f of falling){ f.vy += GRAVITY * dt; f.y -= f.vy * dt; f.x += (f.vx || 0) * dt; }
   falling = falling.filter(f => sy(f.y) < H + 80);
   for (const p of landPulses) p.t += dt;
   landPulses = landPulses.filter(p => p.t < p.dur);
+  for (const pt of particles){
+    pt.t += dt;
+    pt.x += pt.vx * dt;
+    pt.y += pt.vy * dt;
+    pt.vy -= 300 * dt;
+  }
+  particles = particles.filter(pt => pt.t < pt.life);
   /* camera: keep the tower's working top around 58% down the screen */
   const topY = tower.length * BH;
   const viewWorldH = H / S;
-  const target = Math.max(0, topY - viewWorldH * 0.42);
+  const target = Math.max(0, topY + DROP_GAP + BH - viewWorldH * 0.42);
   camY += (target - camY) * Math.min(1, dt * 5);
   if (shake > 0) shake = Math.max(0, shake - dt * 26);
   if (flashT > 0) flashT -= dt;
@@ -484,10 +541,36 @@ function drawLandPulses(){
 }
 function draw(){
   ctx.clearRect(0, 0, W, H);
-  /* deep-space navy */
+  /* deep-space sky: layered gradient + a violet nebula band (fully procedural) */
   const bg = ctx.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, '#05081c'); bg.addColorStop(0.6, '#0a1132'); bg.addColorStop(1, '#0d1440');
+  bg.addColorStop(0, '#04061a'); bg.addColorStop(0.42, '#0a1136'); bg.addColorStop(0.78, '#121b4d'); bg.addColorStop(1, '#1a2560');
   ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  const neb = ctx.createRadialGradient(W * 0.24, H * 0.3, 10, W * 0.24, H * 0.3, W * 0.85);
+  neb.addColorStop(0, 'rgba(124,58,237,.17)');
+  neb.addColorStop(0.55, 'rgba(76,29,149,.08)');
+  neb.addColorStop(1, 'rgba(76,29,149,0)');
+  ctx.fillStyle = neb; ctx.fillRect(0, 0, W, H);
+  const neb2 = ctx.createRadialGradient(W * 0.82, H * 0.62, 10, W * 0.82, H * 0.62, W * 0.7);
+  neb2.addColorStop(0, 'rgba(14,116,144,.13)');
+  neb2.addColorStop(1, 'rgba(14,116,144,0)');
+  ctx.fillStyle = neb2; ctx.fillRect(0, 0, W, H);
+  /* distant ridge silhouettes — parallax depth layers behind the play field */
+  ctx.save();
+  ctx.fillStyle = 'rgba(38,48,102,.5)';
+  ctx.beginPath();
+  for (let x = 0; x <= W; x += 14){
+    const wyy = H * 0.66 + Math.sin((x + camY * 9) * 0.011) * 15 + Math.sin((x + camY * 9) * 0.031) * 6;
+    if (x === 0) ctx.moveTo(x, wyy); else ctx.lineTo(x, wyy);
+  }
+  ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = 'rgba(24,30,70,.72)';
+  ctx.beginPath();
+  for (let x = 0; x <= W; x += 12){
+    const wyy = H * 0.78 + Math.sin((x + camY * 20) * 0.014) * 12 + Math.sin((x + camY * 20) * 0.04) * 5;
+    if (x === 0) ctx.moveTo(x, wyy); else ctx.lineTo(x, wyy);
+  }
+  ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath(); ctx.fill();
+  ctx.restore();
   /* starfield */
   const t = performance.now() / 1000;
   for (const st of STARS){
@@ -512,16 +595,35 @@ function draw(){
   /* moon surface (visible while the camera is low) */
   const gy = sy(0);
   if (gy < H + 60){
-    ctx.fillStyle = '#9aa3b8';
+    /* soft glow pool under the tower base — grounds the scene with light */
+    const glow = ctx.createRadialGradient(W / 2, gy + 6, 8, W / 2, gy + 6, W * 0.52);
+    glow.addColorStop(0, 'rgba(255,183,0,.20)');
+    glow.addColorStop(0.5, 'rgba(64,224,208,.07)');
+    glow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, Math.max(0, gy - 90), W, 190);
+    /* regolith surface: lit crest fading into shadow, crater shading */
+    const sg = ctx.createLinearGradient(0, gy - 12, 0, H);
+    sg.addColorStop(0, '#aab4c8'); sg.addColorStop(0.25, '#8b95ac'); sg.addColorStop(1, '#59637a');
+    ctx.fillStyle = sg;
     ctx.beginPath();
     ctx.moveTo(0, gy);
     const r = mulberry(77);
     for (let x = 0; x <= W; x += 28) ctx.lineTo(x, gy - 3 - r() * 7);
     ctx.lineTo(W, H + 80); ctx.lineTo(0, H + 80); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = 'rgba(70,78,96,.5)';
+    ctx.fillStyle = 'rgba(255,255,255,.20)';
+    ctx.beginPath();
+    ctx.moveTo(0, gy - 1);
+    const r2 = mulberry(77);
+    for (let x = 0; x <= W; x += 28) ctx.lineTo(x, gy - 4 - r2() * 7);
+    ctx.lineTo(W, gy + 3); ctx.lineTo(0, gy + 3); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(52,60,80,.55)';
     for (let i = 0; i < 6; i++){
       const cx = ((i * 173 + 60) % FW) * S, cw = 18 + (i % 3) * 9;
       ctx.beginPath(); ctx.ellipse(cx, gy + 8 + (i % 2) * 9, cw, 4.5, 0, 0, 6.29); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(cx - cw * 0.18, gy + 6.4 + (i % 2) * 9, cw * 0.72, 3.2, 0, 0, 6.29);
+      ctx.fillStyle = 'rgba(255,255,255,.14)'; ctx.fill();
+      ctx.fillStyle = 'rgba(52,60,80,.55)';
     }
   }
   /* tower */
@@ -537,26 +639,49 @@ function draw(){
   }
   /* falling sheared pieces */
   for (const f of falling) drawBlock(f.x, f.y, f.w, f.gold, false, 0.9, f.colorIndex);
-  /* the sliding block + drop guide */
+  /* impact sparks / dust motes */
+  if (particles.length){
+    ctx.save();
+    for (const pt of particles){
+      const k = 1 - pt.t / pt.life;
+      ctx.globalAlpha = Math.max(0, k) * 0.9;
+      ctx.fillStyle = pt.color;
+      ctx.shadowColor = pt.color;
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.arc(pt.x * S, sy(pt.y), pt.size * (0.5 + k * 0.5), 0, 6.29);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  /* the sliding/falling block + drop guide */
   if (state === 'play' && moving){
     const lvl = tower.length;
-    drawBlock(moving.x, lvl * BH, moving.w, isGoldLevel(height + 1), false, null, moving.colorIndex);
-    ctx.save();
-    ctx.strokeStyle = 'rgba(255,215,106,.35)';
-    ctx.setLineDash([5, 7]);
-    ctx.beginPath();
-    ctx.moveTo((moving.x + moving.w / 2) * S, sy(lvl * BH));
-    ctx.lineTo((moving.x + moving.w / 2) * S, sy((lvl - 1) * BH));
-    ctx.stroke();
-    ctx.restore();
-    /* perfect-zone marker on the block below */
-    const below = tower[lvl - 1];
-    ctx.fillStyle = 'rgba(140,240,220,.5)';
-    const pcx = (below.x + below.w / 2) * S;
-    ctx.fillRect(pcx - PERFECT_PX * S, sy(lvl * BH) - 3, PERFECT_PX * 2 * S, 3);
+    const blkY = moving.mode === 'fall' ? moving.y : lvl * BH + DROP_GAP;
+    drawBlock(moving.x, blkY, moving.w, isGoldLevel(height + 1), false, null, moving.colorIndex);
+    if (moving.mode === 'slide'){
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,215,106,.35)';
+      ctx.setLineDash([5, 7]);
+      ctx.beginPath();
+      ctx.moveTo((moving.x + moving.w / 2) * S, sy(lvl * BH + DROP_GAP));
+      ctx.lineTo((moving.x + moving.w / 2) * S, sy(lvl * BH));
+      ctx.stroke();
+      ctx.restore();
+      /* perfect-zone marker on the stack top, where the block will land */
+      const below = tower[lvl - 1];
+      ctx.fillStyle = 'rgba(140,240,220,.5)';
+      const pcx = (below.x + below.w / 2) * S;
+      ctx.fillRect(pcx - PERFECT_PX * S, sy((lvl + 1) * BH) - 3, PERFECT_PX * 2 * S, 3);
+    }
   }
   drawLandPulses();
   ctx.restore();
+  /* vignette — darkened corners focus the eye on the tower (premium framing) */
+  const vg = ctx.createRadialGradient(W / 2, H * 0.46, Math.min(W, H) * 0.34, W / 2, H * 0.52, Math.max(W, H) * 0.78);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(2,3,12,.42)');
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
   /* combo flash */
   if (flashT > 0){
     ctx.save();
@@ -708,16 +833,18 @@ $('shareBtn').onclick = async () => {
 window.LT = {
   start: startGame,
   drop,
+  landDrop,
+  slideY,
   step,
   setX(x){ if (moving) moving.x = x; },
   setWidth(w){ if (moving) moving.w = w; },
   setDir(d){ if (moving) moving.dir = d; },
-  state(){ return { state, score, combo, bestCombo, height, elapsed,
+  state(){ return { state, score, combo, bestCombo, height, elapsed, camY,
     towerTop: tower.length ? { x: tower[tower.length - 1].x, w: tower[tower.length - 1].w } : null,
     towerLen: tower.length,
-    moving: moving ? { x: moving.x, w: moving.w } : null,
+    moving: moving ? { x: moving.x, w: moving.w, mode: moving.mode, y: moving.y, vy: moving.vy } : null,
     falling: falling.length }; },
-  constants: { FW, BH, W0, PERFECT_PX, RESTORE, BASE_SPEED, SPEED_PER, MAX_SPEED },
+  constants: { FW, BH, W0, PERFECT_PX, RESTORE, BASE_SPEED, SPEED_PER, MAX_SPEED, DROP_GAP, GRAVITY, OFFSETTRACK },
 };
 
 /* ================= boot ================= */
