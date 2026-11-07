@@ -1074,7 +1074,7 @@ function stickMove(x, y) {
 }
 stickZone.addEventListener('pointerdown', e => {
   if (S.mode !== 'run' || stick.id !== null) return;
-  stick.id = e.pointerId; stickTouch = true;
+  stick.id = e.pointerId; stickTouch = true; window.__stickPtrAt = performance.now();
   stick.bx = e.clientX; stick.by = e.clientY;
   stick.armedX = true; stick.armedY = true;
   try { stickZone.setPointerCapture(e.pointerId); } catch (err) {}
@@ -1092,9 +1092,34 @@ const stickEnd = e => {
 stickZone.addEventListener('pointerup', stickEnd);
 stickZone.addEventListener('pointercancel', stickEnd);
 // Swallow the raw touch events of a stick touch so nothing else sees them.
-stickZone.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
-stickZone.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
-stickZone.addEventListener('touchend', e => e.preventDefault(), { passive: false });
+// TOUCH FALLBACK (Nov 7): if a browser delivers touch without pointer
+// events, drive the same stick from touchstart/move/end on the zone.
+stickZone.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (S.mode !== 'run' || stick.id !== null) return;
+  // Pointer events own the stick when they fire (they precede touchstart
+  // by ~0ms; touchstart follows pointerdown). If a pointer just claimed
+  // the stick for this same press, stand down — never double-own.
+  if (window.__stickPtrAt && performance.now() - window.__stickPtrAt < 500) return;
+  const t = e.changedTouches[0]; if (!t) return;
+  stick.id = 'touch:' + t.identifier; stickTouch = true;
+  stick.bx = t.clientX; stick.by = t.clientY;
+  stick.armedX = true; stick.armedY = true;
+  stickShow(t.clientX, t.clientY);
+}, { passive: false });
+stickZone.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (stick.id === null || typeof stick.id !== 'string') return;
+  for (const t of e.changedTouches) if ('touch:' + t.identifier === stick.id) stickMove(t.clientX, t.clientY);
+}, { passive: false });
+stickZone.addEventListener('touchend', e => {
+  e.preventDefault();
+  if (stick.id === null || typeof stick.id !== 'string') return;
+  for (const t of e.changedTouches) if ('touch:' + t.identifier === stick.id) { stickReset(); stickTouch = false; }
+}, { passive: false });
+stickZone.addEventListener('touchcancel', e => {
+  if (stick.id !== null && typeof stick.id === 'string') { stickReset(); stickTouch = false; }
+}, { passive: true });
 
 let tsX = 0, tsY = 0, tsT = 0;
 addEventListener('touchstart', e => {
