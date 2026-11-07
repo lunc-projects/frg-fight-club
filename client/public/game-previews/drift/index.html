@@ -1754,6 +1754,10 @@ css.textContent = [
   '#dialWrap{position:absolute;right:8px;bottom:108px;width:118px;height:118px}',
   '#miniMap{position:absolute;left:10px;top:52px;width:118px;height:118px;border-radius:14px;background:rgba(8,13,24,.58);border:1.5px solid rgba(255,215,94,.45);box-shadow:0 4px 14px rgba(0,0,0,.35)}',
   '#miniMapLab{position:absolute;left:10px;top:174px;width:118px;text-align:center;font-size:9px;font-weight:900;letter-spacing:2.5px;color:rgba(255,215,94,.85);text-shadow:0 1px 4px rgba(0,0,0,.6)}',
+  '#btnView{position:absolute;left:10px;top:192px;width:118px;padding:6px 0 5px;border-radius:12px;background:rgba(10,17,31,.62);border:2px solid rgba(255,215,94,.55);color:#fff;text-align:center;pointer-events:auto;user-select:none;-webkit-user-select:none;touch-action:none;box-shadow:0 4px 14px rgba(0,0,0,.35)}',
+  '#btnView .vk{font-size:9px;font-weight:900;letter-spacing:2.5px;color:rgba(255,215,94,.9)}',
+  '#btnView .vv{font-size:14px;font-weight:900;font-style:italic;letter-spacing:1px;line-height:1.15}',
+  '#btnView.on{border-color:#ffd75e;background:rgba(70,140,230,.5)}',
   '@media (orientation:landscape){#speedVal{font-size:40px}#barWrap{bottom:96px}#dialWrap{bottom:88px}}'
 ].join('\n');
 document.head.appendChild(css);
@@ -1822,6 +1826,12 @@ for (var gi = 1; gi <= 4; gi++) {
 var mmCvs = document.createElement('canvas'); mmCvs.id = 'miniMap'; mmCvs.width = 236; mmCvs.height = 236;
 hud.appendChild(mmCvs);
 el('div', 'miniMapLab', hud, 'TRACK');
+/* ---- camera VIEW button (Tom, Nov 7): tap to cycle the driving
+   camera while driving. Sits under the minimap in the top-left HUD
+   column — clear of the stick zone's working area (the stick ignores
+   the top strip), the tach (top-right) and the right-hand controls.
+   Wired up in the camera-view block in the input section below. ---- */
+var btnView = el('div', 'btnView', hud, '<div class="vk">VIEW</div><div class="vv" id="btnViewName">NORMAL</div>');
 var mmCtx = mmCvs.getContext('2d');
 var mmPath = (function () {
   var minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9, i, p;
@@ -2255,6 +2265,42 @@ function bindBtn(elm, key) {
   elm.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 }
 bindBtn(btnLeft, 'left'); bindBtn(btnRight, 'right'); bindBtn(btnBrake, 'brake'); bindBtn(btnAction, 'action');
+/* ---------------- camera views (Tom, Nov 7: "make adjustable views
+   for the car when driving") ----------------
+   Tap VIEW (or press C / V) to cycle: CLOSE -> NORMAL -> FAR -> HOOD.
+   NORMAL is exactly the framing the game already shipped with; the
+   others scale the chase distance/height around it, and HOOD blends
+   to a bonnet camera. The portrait pull-back still composes on top.
+   The smoothed multipliers below glide (~0.4s) so switching never
+   snaps. The pick persists in localStorage across races + visits. */
+var CAM_VIEWS = [
+  { name: 'CLOSE', d: 0.60, h: 0.75 },
+  { name: 'NORMAL', d: 1.00, h: 1.00 },
+  { name: 'FAR', d: 1.55, h: 1.45 },
+  { name: 'HOOD', hood: true }
+];
+var camViewIx = 1; /* NORMAL */
+try {
+  var savedCamView = parseInt(localStorage.getItem('driftCamView'), 10);
+  if (savedCamView >= 0 && savedCamView < CAM_VIEWS.length) camViewIx = savedCamView;
+} catch (e) {}
+var camMultSm = {
+  d: CAM_VIEWS[camViewIx].hood ? 1 : CAM_VIEWS[camViewIx].d,
+  h: CAM_VIEWS[camViewIx].hood ? 1 : CAM_VIEWS[camViewIx].h,
+  hood: CAM_VIEWS[camViewIx].hood ? 1 : 0
+};
+var btnViewName = document.getElementById('btnViewName');
+function syncCamViewUI() { if (btnViewName) btnViewName.textContent = CAM_VIEWS[camViewIx].name; }
+function cycleCamView() {
+  camViewIx = (camViewIx + 1) % CAM_VIEWS.length;
+  try { localStorage.setItem('driftCamView', String(camViewIx)); } catch (e) {}
+  syncCamViewUI();
+  btnView.classList.add('on');
+  setTimeout(function () { btnView.classList.remove('on'); }, 180);
+}
+syncCamViewUI();
+btnView.addEventListener('pointerdown', function (e) { e.preventDefault(); cycleCamView(); });
+btnView.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 window.addEventListener('keydown', function (e) {
   if (e.key === 'ArrowLeft') input.left = true;
   if (e.key === 'ArrowRight') input.right = true;
@@ -2263,6 +2309,7 @@ window.addEventListener('keydown', function (e) {
   if (e.key === 'Shift') input.boost = true;
   if (!e.repeat && (e.key === 'e' || e.key === 'E')) setGear(G.gear + 1, true);
   if (!e.repeat && (e.key === 'q' || e.key === 'Q')) setGear(G.gear - 1, true);
+  if (!e.repeat && (e.key === 'c' || e.key === 'C' || e.key === 'v' || e.key === 'V')) cycleCamView();
 });
 window.addEventListener('keyup', function (e) {
   if (e.key === 'ArrowLeft') input.left = false;
@@ -2587,13 +2634,32 @@ function step(dt) {
     camera.position.copy(camPos);
     camera.lookAt(gp.x, gp.y + 2.1, gp.z);
   } else {
-  var camDist = CFG.camDist || 8.6, camH = CFG.camH || 3.1;
+  /* camera view (Tom, Nov 7): glide the smoothed multipliers toward
+     the picked view — ~0.4s, never a snap. Portrait pull-back below
+     composes on top of the picked view's distance/height. */
+  var vTgt = CAM_VIEWS[camViewIx];
+  var kSm = Math.min(1, dt * 6);
+  camMultSm.d += ((vTgt.hood ? 1 : vTgt.d) - camMultSm.d) * kSm;
+  camMultSm.h += ((vTgt.hood ? 1 : vTgt.h) - camMultSm.h) * kSm;
+  camMultSm.hood += ((vTgt.hood ? 1 : 0) - camMultSm.hood) * kSm;
+  var camDist = (CFG.camDist || 8.6) * camMultSm.d, camH = (CFG.camH || 3.1) * camMultSm.h;
   if (camera.aspect < 1) { camDist *= 1.32; camH *= 1.30; } /* portrait: pull back + up so the road ahead reads (Tom, Nov 6) */
   var camTargetTan = placed.fr.tan;
   camTan.lerp(camTargetTan, Math.min(1, dt * (CFG.mode === 'drift' ? 4.2 : 9))).normalize();
   var back = placed.pos.clone().addScaledVector(camTan, -camDist).addScaledVector(placed.up, camH);
   back.addScaledVector(placed.fr.side, G.lat * 0.22);
-  camPos.lerp(back, Math.min(1, dt * 7));
+  if (camMultSm.hood > 0.001) { /* bonnet cam: just over the hood, road ahead.
+     NOTE the livery cars are TALL (bbox ~1.8 incl. wing) with the
+     driver's eye at ~1.3 in surface space — the camera rides at 1.62
+     over the SURFACE POINT (placed.pos rides ~0.33 under the mesh
+     origin), i.e. just above the roofline, nose-forward. Its chase
+     target sits high over the car so the blend arcs OVER the roof
+     instead of pushing the camera through the bodywork. */
+    var hoodBack = placed.pos.clone().addScaledVector(camTan, -(CFG.camDist || 8.6) * 0.35).addScaledVector(placed.up, (CFG.camH || 3.1) * 1.9);
+    var hoodPos = placed.pos.clone().addScaledVector(placed.up, 1.62).addScaledVector(camTan, 1.7);
+    back.copy(hoodBack).lerp(hoodPos, camMultSm.hood);
+  }
+  camPos.lerp(back, Math.min(1, dt * (camMultSm.hood > 0.02 && camMultSm.hood < 0.98 ? 3.2 : 7))); /* slower push through the hood transition so no frame lands inside the car */
   camera.position.copy(camPos);
   if (G.shake > 0) {
     G.shake -= dt;
@@ -2601,6 +2667,10 @@ function step(dt) {
     camera.position.y += (rnd() - 0.5) * G.shake * 0.4;
   }
   var look = placed.pos.clone().addScaledVector(placed.fr.tan, 10).addScaledVector(placed.up, 1.0);
+  if (camMultSm.hood > 0.001) {
+    var hoodLook = placed.pos.clone().addScaledVector(placed.fr.tan, 34).addScaledVector(placed.up, 1.05);
+    look.lerp(hoodLook, camMultSm.hood);
+  }
   camera.lookAt(look);
   }
   /* speed feel: FOV widens as the car gets fast, streaks stream past */
@@ -2706,7 +2776,9 @@ window.__pv = {
   },
   input: input,
   joy: joy,
-  setGear: function (g) { setGear(g, true); }
+  setGear: function (g) { setGear(g, true); },
+  view: function () { return { ix: camViewIx, name: CAM_VIEWS[camViewIx].name, dSm: +camMultSm.d.toFixed(2), hSm: +camMultSm.h.toFixed(2), hoodSm: +camMultSm.hood.toFixed(2) }; },
+  cycleView: function () { cycleCamView(); }
 };
 window.__qaErrors = [];
 window.addEventListener('error', function (e) { window.__qaErrors.push(String(e.message || e)); });
