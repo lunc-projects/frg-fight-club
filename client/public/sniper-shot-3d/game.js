@@ -1271,7 +1271,7 @@ const player = { ammo: MAG, chamberT: 0, reloadT: 0, scoped: false, zoomIdx: 0, 
 const ZOOMS = [15, 10.5, 7.2]; // QA-friendly stops (fov); kept for harness compat
 const FOV_PLAIN = 55, FOV_WIDE = 25, FOV_MAX = 6.8;
 const ZOOM_STOPS = [{ fov: 24, label: '2X' }, { fov: 12.6, label: '4X' }, { fov: 6.8, label: '8X' }];
-function zoomLabel(fov = player.zoomFov) { return (FOV_WIDE / fov).toFixed(1).replace(/\.0$/, '') + 'X'; }
+function zoomLabel(fov = player.zoomFov) { return (FOV_PLAIN / fov).toFixed(1).replace(/\.0$/, '') + 'X'; } // magnification vs the plain unscoped view
 function setZoomFov(f) {
   player.zoomFov = THREE.MathUtils.clamp(f, FOV_MAX, FOV_WIDE);
   player.zoomIdx = ZOOMS.reduce((bi, z, i) => Math.abs(z - player.zoomFov) < Math.abs(ZOOMS[bi] - player.zoomFov) ? i : bi, 0);
