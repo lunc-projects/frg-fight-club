@@ -4786,6 +4786,138 @@ function renderEthSecurity(parts, nameByAddr){
   $('secCnt').textContent = tr('cnt_open', { n: n }) + (n ? tr('check_below') : '');
 }
 /* ── End Ethereum support ─────────────────────────────────────── */
+
+function loadSolana(run){
+  $('claimBody').innerHTML = '<p class="small">' + tr('sol_no_claim') + '</p>';
+  var pPrice = priceSol();
+  var pBal = solRpc('getBalance', [ADDR], 20000).then(function(r){
+    if (!r || r.value == null) throw new Error('no balance');
+    return r.value;
+  });
+  var pTok = Promise.all(SOL_TOKEN_PROGRAMS.map(function(prog){
+    return solRpc('getTokenAccountsByOwner', [ADDR, { programId: prog }, { encoding: 'jsonParsed' }], 30000)
+      .then(function(r){ return (r && r.value) || []; });
+  })).then(function(lists){ return lists[0].concat(lists[1]); });
+  var pInfo = solRpc('getAccountInfo', [ADDR, { encoding: 'jsonParsed' }], 20000)
+    .then(function(r){ return (r && r.value) || null; }).catch(function(){ return null; });
+  var pStake = loadSolanaStake().then(function(list){ return { ok: true, list: list }; },
+                                       function(){ return { ok: false, list: [] }; });
+
+  Promise.all([pBal, pTok, pPrice]).then(function(res){
+    if (!alive(run)) return;
+    var lamports = res[0], accts = res[1], solPrice = res[2];
+    var nonzero = [], zeroCount = 0, delegates = [];
+    accts.forEach(function(a){
+      var info = a.account && a.account.data && a.account.data.parsed && a.account.data.parsed.info;
+      if (!info || !info.tokenAmount) return;
+      var ta = info.tokenAmount;
+      if (info.delegate && info.delegatedAmount){
+        delegates.push({ mint: info.mint, delegate: info.delegate,
+          amount: info.delegatedAmount.amount, decimals: info.delegatedAmount.decimals });
+      }
+      if (rawNum(ta.amount) > 0) nonzero.push({ mint: info.mint, amount: ta.amount, decimals: ta.decimals });
+      else zeroCount++;
+    });
+    /* price each held mint we can actually price; cache per lookup */
+    var mints = {};
+    nonzero.forEach(function(t){ mints[t.mint] = true; });
+    return mapLimit(Object.keys(mints), 4, function(mint){
+      return priceSolMint(mint).then(function(p){ return { mint: mint, price: p }; });
+    }).then(function(pricedList){
+      if (!alive(run)) return;
+      var priceByMint = {};
+      pricedList.forEach(function(x){ if (x) priceByMint[x.mint] = x.price; });
+      var toks = nonzero.map(function(t){
+        var k = SOL_KNOWN_MINTS[t.mint];
+        var p = priceByMint[t.mint] || null;
+        return { contract: t.mint, name: k ? k.name : 'Token', symbol: k ? k.sym : solShort(t.mint),
+                 decimals: t.decimals, balance: t.amount,
+                 price: p ? { usd: p.usd, src: p.src, verified: true } : null };
+      });
+      toks.sort(function(x, y){
+        var xv = x.price ? amtNum(x.balance, x.decimals) * x.price.usd : -1;
+        var yv = y.price ? amtNum(y.balance, y.decimals) * y.price.usd : -1;
+        if (xv !== yv) return yv - xv;
+        return amtNum(y.balance, y.decimals) - amtNum(x.balance, x.decimals);
+      });
+      state.tokens = toks;
+      /* balances section: the SOL row (true lamports, 9 decimals) */
+      var solAmt = lamports / 1e9;
+      state.native = [{ denom: 'SOL', amount: String(lamports) }];
+      state.nativePriced = [{ b: { amount: String(Math.round(lamports / 1000)), denom: 'sol-native' },
+        label: 'SOL', price: solPrice }];
+      $('balBody').innerHTML = '<div class="row"><span class="k">SOL <span class="small">Solana</span></span>' +
+        '<span class="v">' + fmtAmt(String(lamports), 9) +
+        (solPrice ? '<small>' + fmtUSD(solAmt * solPrice.usd) + '</small>' : '<small>' + tr('no_price') + '</small>') +
+        '</span></div>';
+      $('balCnt').textContent = tr('cnt_denom', { n: 1 });
+      /* tokens section */
+      var CAP = 100, html = '';
+      if (!toks.length) html = '<p class="small">' + tr('sol_tokens_none') + '</p>';
+      toks.slice(0, CAP).forEach(function(t){
+        var usd = t.price ? amtNum(t.balance, t.decimals) * t.price.usd : null;
+        var nftTag = (t.decimals === 0 && t.balance === '1') ? ' <span class="tag">' + tr('sol_nft_tag') + '</span>' : '';
+        html += '<div class="row"><span class="k">' + esc(t.name) + ' (' + esc(t.symbol) + ')' + nftTag + '<br>' +
+          '<span class="small">' + tr('sol_mint') +
+          '<a href="https://solscan.io/token/' + esc(t.contract) + '" target="_blank" rel="noopener">' + esc(t.contract) + '</a></span></span>' +
+          '<span class="v">' + fmtAmt(t.balance, t.decimals) +
+          (usd != null ? '<small>' + fmtUSD(usd) + '</small>' : '<small>' + tr('no_price') + '</small>') + '</span></div>';
+      });
+      if (toks.length > CAP) html += '<p class="small">' + tr('more', { n: toks.length - CAP }) + '</p>';
+      if (toks.length) html += '<p class="cov">' + tr('sol_tokens_coverage', { n: toks.length }) + '</p>';
+      if (zeroCount) html += '<p class="cov">' + tr('sol_empty_accounts', { n: zeroCount }) + '</p>';
+      $('tokBody').innerHTML = html;
+      $('tokCnt').textContent = toks.length ? tr('cnt_verified', { n: toks.length }) : '';
+      finishValue(run);
+      return pInfo.then(function(acctInfo){
+        if (!alive(run)) return;
+        renderSolanaSecurity(run, delegates, acctInfo);
+      });
+    });
+  }).catch(function(){
+    if (!alive(run)) return;
+    $('balBody').innerHTML = '<p class="small">' + tr('sol_timeout') + '</p>';
+    $('tokBody').innerHTML = '<p class="small">' + tr('sol_timeout') + '</p>';
+    $('secBody').innerHTML = '<p class="small">' + tr('err_generic') + '</p>';
+    finishValue(run);
+  });
+
+  pStake.then(function(st){
+    if (!alive(run)) return;
+    return pPrice.then(function(){
+      if (!alive(run)) return;
+      if (!st.ok){
+        $('stkBody').innerHTML = '<p class="small">' + tr('sol_stake_gap') + '</p>';
+        $('stkCnt').textContent = '';
+        return;
+      }
+      var list = st.list, total = 0;
+      list.forEach(function(x){ total += x.stake; });
+      state.totalStakedRaw = String(Math.round(total / 1000));
+      state.delegations = list.map(function(x){ return { validator: x.voter }; });
+      var html = '';
+      if (!list.length){
+        html = '<p class="small">' + tr('sol_staking_none') + '</p>';
+      } else {
+        html += '<div class="row"><span class="k"><b>' + tr('total_staked') + '</b></span><span class="v">' +
+          fmtAmt(String(Math.round(total)), 9) + ' SOL</span></div>';
+        list.slice(0, 25).forEach(function(x){
+          var inactive = x.deact && x.deact !== '18446744073709551615';
+          html += '<div class="row"><span class="k">' + solAddrLink(x.pubkey, solShort(x.pubkey)) +
+            '<br><span class="small">' + tr('sol_validator') +
+            '<a href="https://solscan.io/account/' + esc(x.voter) + '" target="_blank" rel="noopener">' + esc(solShort(x.voter)) + '</a></span></span>' +
+            '<span class="v">' + fmtAmt(String(Math.round(x.stake)), 9) + ' SOL' +
+            (inactive ? '<br><small>' + tr('unbonding') + '</small>' : '') + '</span></div>';
+        });
+        if (list.length > 25) html += '<p class="small">' + tr('more', { n: list.length - 25 }) + '</p>';
+      }
+      $('stkBody').innerHTML = html;
+      $('stkCnt').textContent = list.length ? tr(list.length === 1 ? 'stake_entries_one' : 'stake_entries_many', { n: list.length }) : '';
+      finishValue(run);
+    });
+  });
+}
+
 /* ── Fine print ────────────────────────────────────────────────── */
 
 /* ── Section: wallet security ──────────────────────────────────── */
