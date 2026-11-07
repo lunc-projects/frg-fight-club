@@ -33,6 +33,15 @@ ear stud and chest charm, large cream-tipped tail plume.
 - Palm trees, cliffs, hills, the giant loop, obstacles, the LUNC crescent
   coin (extruded crescent shape) and the USTC star (extruded star shape)
   are all procedural Three.js geometry created for this game.
+- Max-out pass (2026-11-07): the painted texture set (grass, water, sand,
+  hero fur, thatch, painted sky dome), the palm-frond sprite texture, the
+  instanced scenery (bushes, flowers, grass tufts, rocks, tiki torches,
+  huts, statues, banner arches, distant islands, birds, pollen motes,
+  beach foam) and the house-branding wordmark textures (LUNA CLASSIC /
+  LUNC RUSH 3D banners, billboards, start arch, wooden signs) are all
+  generated at runtime on `<canvas>` in `game.js` from original code —
+  no image files, no third-party art, nothing copied from any video or
+  other game. Pickups remain LUNC crescents + USTC stars only.
 - `lunc.png` — the Luna Classic crescent emblem, the project's own asset
   (shared with the 2D LUNC Rush), drawn from the game's own crescent
   design.
