@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#0b1e3a">
 <style>
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  html,body{width:100%;height:100%;height:100dvh;overflow:hidden;background:#0b1e3a;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;color:#fff;touch-action:none;user-select:none;-webkit-user-select:none}
+  html,body{width:100%;height:100%;height:100dvh;overflow:hidden;background:#101f42;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;color:#fff;touch-action:none;user-select:none;-webkit-user-select:none}
   #game{position:fixed;inset:0;height:100dvh}
   canvas{display:block;width:100%;height:100%}
   .hidden{display:none !important}
@@ -1012,6 +1012,7 @@ const container = $('game');
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0x101f42, 1); /* match the sky-dome top colour: a bare first frame is sky, never a flat blue pop */
 renderer.outputEncoding = THREE.sRGBEncoding;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.12;
@@ -1019,6 +1020,7 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 container.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x101f42); /* from the very first frame: no unlit-blue flash at race start */
 scene.fog = new THREE.Fog(0x2a3350, 190, 1500);
 const camera = new THREE.PerspectiveCamera(66, window.innerWidth / window.innerHeight, 0.1, 4200);
 window.addEventListener('resize', () => {
@@ -1739,10 +1741,10 @@ function readSteer() {
 }
 
 /* ================= physics ================= */
-const TOP_SPEED = 41, CHAMP_TOP = 40.2;
+const TOP_SPEED = 82, CHAMP_TOP = 80.5; /* doubled (owner, Nov 7): a racer, not a crawl — HUD km/h = v*3.6 now reads ~290 flat-out */
 /* Launch ramp: acceleration builds over the first 5 s after GO so a start
    feels like a start (0 -> building speed), not a slingshot to top speed. */
-function launchRamp() { return state === 'race' ? 0.35 + 0.65 * Math.min(1, raceTime / 5) : 1; }
+function launchRamp() { return state === 'race' ? 0.55 + 0.45 * Math.min(1, raceTime / 2.5) : 1; }
 function jumpCheck(car) {
   if (car.air) return null;
   for (const j of JUMPS) if (car.s >= j.s0 && car.s <= j.s1) return j;
@@ -1752,12 +1754,12 @@ function stepAir(car, dt) {
   if (!car.air) {
     const j = jumpCheck(car);
     if (j && car.v > 10) {
-      car.air = true; car.vy = 7.6 + car.v * 0.055;
+      car.air = true; car.vy = 7.6 + car.v * 0.028; /* launch slope rebalanced for 2x speed */
       if (car === P) sndJump();
     }
   }
   if (car.air) {
-    car.vy -= 22 * dt; car.airY += car.vy * dt;
+    car.vy -= 30 * dt; car.airY += car.vy * dt;
     if (car === P) P.airTime += dt;
     if (car.airY <= 0 && car.vy < 0) {
       car.airY = 0; car.air = false;
@@ -1771,24 +1773,29 @@ function stepPlayer(dt) {
   P.steerVis += (P.steer - P.steerVis) * Math.min(1, dt * 11);
   if (state === 'count') { P.v = 0; placeCar(playerCar, P.s, P.lat, 0, -P.steerVis * 0.10, 0); spinWheels(playerCar, 0, dt, P.steerVis); return; }
   const braking = input.brake || input.down || (QA && autoBrake());
-  if (braking) P.v -= 27 * dt;
+  if (braking) P.v -= 54 * dt;
   else {
-    const dragTop = TOP_SPEED * (Math.abs(P.lat) > ROAD_HALF ? 0.45 : 1);
-    P.v += 13.5 * launchRamp() * (1 - P.v / (dragTop * 1.12)) * dt;
-    if (Math.abs(P.lat) > ROAD_HALF) P.v -= 11 * dt;
+    const dragTop = TOP_SPEED * (Math.abs(P.lat) > ROAD_HALF ? 0.62 : 1);
+    P.v += 34 * launchRamp() * (1 - P.v / (dragTop * 1.12)) * dt;
+    if (Math.abs(P.lat) > ROAD_HALF) P.v -= 16 * dt;
   }
-  if (Math.abs(P.steer) > 0.72 && P.v > 30) P.v -= 2.0 * dt; /* tyre scrub */
+  if (Math.abs(P.steer) > 0.72 && P.v > 60) P.v -= 2.0 * dt; /* tyre scrub */
   P.v = clamp(P.v, 0, TOP_SPEED * 1.06);
   const fr = frameAt(P.s);
-  const maxLat = (5.4 + P.v * 0.105) * (P.air ? 0.35 : 1);
+  const maxLat = (8.5 + P.v * 0.075) * (P.air ? 0.35 : 1); /* steering authority scales with the new speed */
   const latTarget = -P.steer * maxLat;
   P.latV += (latTarget - P.latV) * Math.min(1, dt * 9);
-  P.latV += fr.kappa * P.v * P.v * 0.060 * dt;
+  P.latV += fr.kappa * P.v * P.v * 0.015 * dt; /* cornering pull rebalanced for 2x speed (was 0.060 at 41 m/s) */
   if (!P.air) P.lat += P.latV * dt;
   else P.lat += P.latV * dt * 0.4;
-  if (Math.abs(P.lat) > ROAD_HALF + 0.6) {
-    if (P.latV * Math.sign(P.lat) > 0) { P.v = Math.max(6, P.v - 16 * dt * 10 * 0.16); P.latV *= 0.4; }
-    P.lat = clamp(P.lat, -(ROAD_HALF + 0.6), ROAD_HALF + 0.6);
+  /* SOLID guardrails: the red/white barrier band stands at ±(ROAD_HALF + 0.55)
+     and the car body is ~0.9 m half-width — the centre is hard-clamped at
+     ±(ROAD_HALF + 0.25), so the body can NEVER sink into or cross the rail.
+     Hitting it kills outward velocity and scrapes speed off. */
+  const WALL_LAT = ROAD_HALF + 0.25;
+  if (Math.abs(P.lat) > WALL_LAT) {
+    if (P.latV * Math.sign(P.lat) > 0) { P.v = Math.max(8, P.v - 55 * dt); P.latV = 0; }
+    P.lat = clamp(P.lat, -WALL_LAT, WALL_LAT);
   }
   stepAir(P, dt);
   P.s += P.v * dt;
@@ -1805,8 +1812,8 @@ function champTargetSpeed() {
   const gap = C.s - P.s;
   if (gap > 100) top *= 0.94;
   else if (gap < -80) top *= 1.05;
-  let corner = kMax > 0.004 ? Math.sqrt(55 / kMax) : top;
-  let t = Math.min(top, Math.max(corner, 13.5));
+  let corner = kMax > 0.004 ? Math.sqrt(198 / kMax) : top;
+  let t = Math.min(top, Math.max(corner, 27));
   if (C.mistakeT > 0) t *= 0.82;
   return t;
 }
@@ -1815,7 +1822,7 @@ function stepChamp(dt) {
   if (C.finished) { C.v = Math.max(0, C.v - 20 * dt); }
   else {
     const tgt = champTargetSpeed();
-    const dv = clamp(tgt - C.v, -16 * dt * 3, 9.5 * dt * 3) / 3;
+    const dv = clamp(tgt - C.v, -32 * dt * 3, 24 * dt * 3) / 3;
     C.v += dv > 0 ? dv * launchRamp() : dv;
   }
   C.s += C.v * dt;
@@ -1823,7 +1830,7 @@ function stepChamp(dt) {
   const err = lineLat - C.lat;
   C.latV += (clamp(err * 2.2, -6, 6) - C.latV) * Math.min(1, dt * 5);
   if (!C.air) C.lat += C.latV * dt; else C.lat += C.latV * dt * 0.4;
-  C.lat = clamp(C.lat, -(ROAD_HALF + 0.4), ROAD_HALF + 0.4);
+  C.lat = clamp(C.lat, -(ROAD_HALF + 0.25), ROAD_HALF + 0.25); /* same solid rail as the player */
   stepAir(C, dt);
   C.steerVis += (clamp(-C.latV * 0.09, -1, 1) - C.steerVis) * Math.min(1, dt * 6);
   placeCar(champCar, C.s, C.lat, C.airY, -C.steerVis * 0.10, C.air ? clamp(C.vy * 0.012, -0.1, 0.14) : 0);
@@ -1842,7 +1849,7 @@ function autoSteer() {
 function autoBrake() {
   let kMax = 0;
   for (let d = 10; d < 55; d += 6) kMax = Math.max(kMax, Math.abs(frameAt(P.s + d).kappaS));
-  const corner = kMax > 0.004 ? Math.sqrt(72 / kMax) : 99;
+  const corner = kMax > 0.004 ? Math.sqrt(259 / kMax) : 99;
   return P.v > corner + 2;
 }
 
