@@ -60,7 +60,8 @@
   .row{display:flex; justify-content:space-between; gap:12px; padding:8px 0; border-bottom:1px dashed #173c25; font-size:14.5px}
   .row:last-child{border-bottom:none}
   .row .k{min-width:0; overflow-wrap:anywhere}
-  .row .v{font-weight:700; text-align:right; white-space:nowrap}
+  .row .k .addr{overflow-wrap:normal; word-break:normal; white-space:nowrap}
+  .row .v{font-weight:700; text-align:right; white-space:normal; overflow-wrap:break-word; min-width:0}
   .row .v small{display:block; color:var(--dim); font-weight:400; font-size:12px}
   a{color:var(--blue); overflow-wrap:anywhere}
   details.card{padding:0}
@@ -596,10 +597,19 @@ function allBalances(addr){
 function finderAddr(a){ return FINDER + '/account/' + a; }
 function finderTx(h){ return FINDER + '/tx/' + h; }
 function addrLink(a, label){
-  if (cfg().explorer) return '<a href="' + cfg().explorer + esc(a) + '" target="_blank" rel="noopener">' + esc(label || a) + '</a>';
-  if (chain === 'do') return '<a href="' + DO_PORTAL + '/wallet/' + esc(a) + '" target="_blank" rel="noopener">' + esc(label || a) + '</a>';
-  return '<a href="' + finderAddr(a) + '" target="_blank" rel="noopener">' + esc(label || a) + '</a>';
+  /* Shortened labels get a .addr span: parent containers set
+     overflow-wrap:anywhere, which would otherwise wrap a shortened
+     address mid-string (the Ethereum approvals card defect). Full
+     addresses keep the default wrapping. */
+  var full = !(label && label !== a);
+  var inner = full ? esc(label || a) : '<span class="addr">' + esc(label) + '</span>';
+  if (cfg().explorer) return '<a href="' + cfg().explorer + esc(a) + '" target="_blank" rel="noopener">' + inner + '</a>';
+  if (chain === 'do') return '<a href="' + DO_PORTAL + '/wallet/' + esc(a) + '" target="_blank" rel="noopener">' + inner + '</a>';
+  return '<a href="' + finderAddr(a) + '" target="_blank" rel="noopener">' + inner + '</a>';
 }
+/* Short display form for a 0x address in row labels (full address
+   stays in the link target and in the dedicated address bar). */
+function ethShort(a){ return a && a.length > 12 ? a.slice(0, 6) + '…' + a.slice(-4) : String(a || ''); }
 
 /* ── Languages ───────────────────────────────────────────────────
    The same 18 languages as the LUNC Assistant Bot (lang.py LANGS,
@@ -4528,7 +4538,11 @@ function ethPriceFor(t){
    curated balanceOf sweep; every candidate balance is then verified
    by a direct balanceOf call — display uses ONLY the verified value. */
 function ethDiscover(owner){
-  var fromIndex = getJSON(ETH_BLOCKSCOUT + '/addresses/' + owner + '/token-balances', 20000)
+  /* 12s budget: the index is a bonus, not a gate — if it has not
+     answered by then the verified on-chain list renders anyway and
+     the coverage note says so (the note is per-lookup state, never
+     cached, so the next lookup retries the index fresh). */
+  var fromIndex = getJSON(ETH_BLOCKSCOUT + '/addresses/' + owner + '/token-balances', 12000)
     .then(function(r){
       var list = Array.isArray(r) ? r : (r && r.items) || [];
       return { ok: true, list: list.map(function(it){
@@ -4585,14 +4599,18 @@ function loadEthereum(run){
   $('claimBody').innerHTML = '<p class="small">' + tr('eth_no_claim') + '</p>';
   $('stkBody').innerHTML = '<p class="small">' + tr('eth_staking_note') + '</p>';
   $('stkCnt').textContent = '';
+  /* Progressive rendering: the balance paints as soon as its two
+     fast calls land (~1s), the security panel shows a checking
+     state immediately, and tokens + security fill in when their
+     (heavier) work completes — no single long wait. */
+  $('secBody').innerHTML = '<p class="small"><span class="spin">' + tr('spin_allow') + '</span></p>';
   var pPrice = priceEth();
   var pBal = ethRpc('eth_getBalance', [ADDR, 'latest'], 15000).then(function(r){
     return ethHexToBigInt(r).toString();
   });
-  var pDisc = ethDiscover(ADDR);
-  Promise.all([pBal, pDisc, pPrice]).then(function(res){
-    if (!alive(run)) return;
-    var wei = res[0], disc = res[1], ethPrice = res[2];
+  var painted = false, ethPrice = null;
+  function paintBalance(wei){
+    if (painted) return; painted = true;
     state.native = [{ denom: 'ETH', amount: wei }];
     state.nativePriced = [{ b: { amount: wei, denom: 'ETH' }, label: 'ETH', price: ethPrice,
                              priceDec: 18, nativeKey: 'ETH' }];
@@ -4602,6 +4620,20 @@ function loadEthereum(run){
       (ethPrice ? '<small>' + fmtUSD(ethAmt * ethPrice.usd) + '</small>' : '<small>' + tr('no_price') + '</small>') +
       '</span></div>';
     $('balCnt').textContent = tr('cnt_denom', { n: 1 });
+  }
+  Promise.all([pBal, pPrice]).then(function(res){
+    if (!alive(run)) return;
+    ethPrice = res[1];
+    paintBalance(res[0]);
+    finishValue(run);
+  }).catch(function(){
+    /* As before, a failed balance/price stage leaves the token
+       stage's catch below to report the failure. */
+  });
+  var pDisc = ethDiscover(ADDR);
+  Promise.all([pDisc, pPrice]).then(function(res){
+    if (!alive(run)) return;
+    var disc = res[0]; ethPrice = res[1];
     var toks = disc.tokens;
     return mapLimit(toks, 4, function(t){
       return ethPriceFor(t).then(function(p){ t.price = p; return t; });
@@ -4657,12 +4689,14 @@ function loadEthSecurity(run, toks){
     .then(function(c){ parts.code = c; }).catch(function(){});
   var pHead = ethRpc('eth_blockNumber', [], 12000)
     .then(function(h){ return parseInt(h, 16); }).catch(function(){ return 0; });
-  /* (a) known-spender sweep over held tokens */
+  /* (a) known-spender sweep over held tokens — wider lanes: the
+     calls are independent cache-hot eth_calls and the shared relay
+     fans them out to multiple upstreams. */
   var sweepJobs = [];
   toks.forEach(function(t){
     ETH_KNOWN_SPENDERS.forEach(function(s){ sweepJobs.push({ token: t, spender: s[0] }); });
   });
-  var pSweep = mapLimit(sweepJobs, 6, function(j){
+  var pSweep = mapLimit(sweepJobs, 10, function(j){
     return ethCall(j.token.contract, ETH_SEL_ALLOWANCE + ethPadAddr(owner) + ethPadAddr(j.spender))
       .then(function(r){
         var amt = ethHexToBigInt(r);
@@ -4682,7 +4716,7 @@ function loadEthSecurity(run, toks){
         .then(function(logs){ return { token: t, logs: logs || [] }; })
         .catch(function(){ return { token: t, logs: [] }; });
     });
-    return mapLimit(jobs, 3, function(x){ return x; }).then(function(res){
+    return mapLimit(jobs, 6, function(x){ return x; }).then(function(res){
       var seen = {}, cand = [];
       parts.allowances.forEach(function(a){ seen[a.token.contract + '|' + a.spender] = true; });
       res.forEach(function(x){
@@ -4693,7 +4727,7 @@ function loadEthSecurity(run, toks){
           if (!seen[key]){ seen[key] = true; cand.push({ token: x.token, spender: spender }); }
         });
       });
-      return mapLimit(cand, 6, function(j){
+      return mapLimit(cand, 10, function(j){
         return ethCall(j.token.contract, ETH_SEL_ALLOWANCE + ethPadAddr(owner) + ethPadAddr(j.spender))
           .then(function(r){
             var amt = ethHexToBigInt(r);
@@ -4762,7 +4796,7 @@ function renderEthSecurity(parts, nameByAddr){
       var nm = nameByAddr[a.spender];
       h += '<div class="row"' + (unlimited ? ' style="border:1px solid #b03a3a;border-radius:10px;padding:6px 8px"' : '') +
         '><span class="k">' + esc(a.token.name || a.token.symbol) + ' (' + esc(a.token.symbol || '') + ')<br>' +
-        '<span class="small">' + tr('given_to') + addrLink(a.spender) + (nm ? ' (' + esc(nm) + ')' : '') + '</span></span>' +
+        '<span class="small">' + tr('given_to') + addrLink(a.spender, ethShort(a.spender)) + (nm ? ' (' + esc(nm) + ')' : '') + '</span></span>' +
         '<span class="v">' + esc(amtTxt) +
         '<br><small style="color:' + (unlimited ? '#ff8080' : '#ffcf6e') + ';font-weight:700">' +
         (unlimited ? tr('risk_high') : tr('risk_mid')) + '</small></span></div>';
@@ -4774,13 +4808,13 @@ function renderEthSecurity(parts, nameByAddr){
       var expTxt = a.expiry === 0 ? tr('eth_no_expiry')
         : tr('eth_expires') + ' ' + new Date(a.expiry * 1000).toISOString().slice(0, 10);
       h += '<div class="row"><span class="k">' + esc(a.token.name || a.token.symbol) + ' (' + esc(a.token.symbol || '') + ')<br>' +
-        '<span class="small">' + tr('given_to') + addrLink(a.spender) + ' (' + esc(nameByAddr[a.spender] || 'Uniswap Universal Router') + ')' +
+        '<span class="small">' + tr('given_to') + addrLink(a.spender, ethShort(a.spender)) + ' (' + esc(nameByAddr[a.spender] || 'Uniswap Universal Router') + ')' +
         '<br>' + esc(expTxt) + '</span></span>' +
         '<span class="v">' + esc(fmtAmt(a.amount.toString(), a.token.decimals)) +
         '<br><small style="color:#ffcf6e;font-weight:700">' + tr('risk_mid') + '</small></span></div>';
     });
   }
-  h += '<p class="cov">' + tr('eth_allow_coverage', { tokens: parts.tokensChecked, blocks: parts.windowBlocks }) + '</p>';
+  h += '<p class="cov">' + tr('eth_allow_coverage', { n: ETH_KNOWN_SPENDERS.length, blocks: parts.windowBlocks }) + '</p>';
   h += '<p class="small">' + tr('eth_sec_gap') + '</p>';
   $('secBody').innerHTML = h;
   $('secCnt').textContent = tr('cnt_open', { n: n }) + (n ? tr('check_below') : '');
