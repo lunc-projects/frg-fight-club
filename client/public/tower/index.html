@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Luna Tower — Stack the Moon Base · PREVIEW</title>
+<title>Luna Tower — Stack the Moon Base</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -24,8 +24,6 @@
   #hudHeight { font-weight:900; font-size:15.5px; color:#ffe9a8; white-space:nowrap; }
   #hudCombo { font-weight:900; font-size:13px; color:#ffb35c; white-space:nowrap; min-width:44px; text-align:center; }
   #hudScore { font-weight:900; font-size:17px; font-variant-numeric:tabular-nums; min-width:52px; text-align:right; }
-  #previewChip { font-size:10px; font-weight:900; letter-spacing:.14em; color:#0b1030; background:#ffd76a;
-    border-radius:999px; padding:3px 8px; white-space:nowrap; }
   #toast {
     position:absolute; top:20%; width:100%; text-align:center; font-size:27px; font-weight:900; letter-spacing:.05em;
     color:#ffd76a; text-shadow:0 0 18px rgba(255,183,0,.8), 0 2px 12px rgba(0,0,0,.7);
@@ -76,7 +74,6 @@
 <body>
 <div id="hud">
   <div id="hudHeight">🏗️ 0 m</div>
-  <span id="previewChip">PREVIEW</span>
   <div id="hudCombo"></div>
   <div id="hudScore">0</div>
   <button id="rstBtn" title="Restart run (R)">↩</button>
@@ -154,11 +151,29 @@ const BASE_SPEED = 135;    /* slide speed at level 0 (units/s) */
 const SPEED_PER = 7;       /* +speed per placed block */
 const MAX_SPEED = 430;     /* slide speed cap */
 
+/* Bubbly neon module palette — every newly dropped block advances one color. */
+const NEON_PALETTE = [
+  { name: 'neon cyan',    light: '#c8fbff', base: '#00d9ff', deep: '#0077b6' },
+  { name: 'neon magenta', light: '#ffd2fb', base: '#ff3df2', deep: '#9d1899' },
+  { name: 'neon lime',    light: '#e7ffc4', base: '#8cff3d', deep: '#3f9417' },
+  { name: 'neon amber',   light: '#fff0a6', base: '#ffb300', deep: '#a85f00' },
+  { name: 'neon violet',  light: '#ded4ff', base: '#8b5cff', deep: '#4c1d95' },
+  { name: 'neon coral',   light: '#ffd0d6', base: '#ff5c73', deep: '#b4233c' },
+  { name: 'electric blue',light: '#cfe0ff', base: '#3d7bff', deep: '#173a9e' },
+  { name: 'neon mint',    light: '#c8ffec', base: '#00f5a8', deep: '#007a57' },
+  { name: 'neon orange',  light: '#ffe0bd', base: '#ff7a1a', deep: '#9c3d00' },
+  { name: 'neon lemon',   light: '#fffbc2', base: '#ffe93d', deep: '#947400' },
+  { name: 'neon pink',    light: '#ffd7ef', base: '#ff6ec7', deep: '#a61e72' },
+  { name: 'neon aqua',    light: '#c9fffa', base: '#00d8c9', deep: '#006f68' },
+];
+function neonColor(index){ return NEON_PALETTE[((index % NEON_PALETTE.length) + NEON_PALETTE.length) % NEON_PALETTE.length]; }
+
 /* ================= state ================= */
 let state = 'menu';        /* menu | play | over */
-let tower = [];            /* [{x, w, gold, perfect}] — tower[0] is the landing pad block */
-let moving = null;         /* {x, w, dir} — the sliding block */
-let falling = [];          /* [{x, w, y, vy, gold}] — sheared-off pieces, world y = bottom */
+let tower = [];            /* [{x, w, gold, perfect, colorIndex}] — tower[0] is the landing pad block */
+let moving = null;         /* {x, w, dir, colorIndex} — the sliding block */
+let falling = [];          /* [{x, w, y, vy, gold, colorIndex}] — sheared-off pieces, world y = bottom */
+let landPulses = [];       /* [{x, w, wy, colorIndex, gold, t, dur}] — landing glow feedback */
 let score = 0, combo = 0, height = 0, elapsed = 0;
 let camY = 0, shake = 0, flashTxt = '', flashT = 0;
 let W = 420, H = 640, S = 1;
@@ -231,8 +246,9 @@ function sy(wy){ return H - (wy - camY) * S; }
 
 /* ================= game flow ================= */
 function reset(){
-  tower = [{ x: (FW - W0) / 2, w: W0, gold: false, perfect: false, pad: true }];
+  tower = [{ x: (FW - W0) / 2, w: W0, gold: false, perfect: false, pad: true, colorIndex: 0 }];
   falling = [];
+  landPulses = [];
   score = 0; combo = 0; height = 0; elapsed = 0; camY = 0; shake = 0;
   spawnNext(W0);
   updateHud();
@@ -240,7 +256,11 @@ function reset(){
 function speedNow(){ return Math.min(MAX_SPEED, BASE_SPEED + height * SPEED_PER); }
 function spawnNext(w){
   const fromLeft = (height % 2 === 0);
-  moving = { x: fromLeft ? -w * 0.35 : FW - w * 0.65, w, dir: fromLeft ? 1 : -1 };
+  const colorIndex = isGoldLevel(height + 1) ? 3 : height + 1;
+  moving = { x: fromLeft ? -w * 0.35 : FW - w * 0.65, w, dir: fromLeft ? 1 : -1, colorIndex };
+}
+function addLandPulse(x, w, wy, colorIndex, gold, perfect){
+  landPulses.push({ x, w, wy, colorIndex, gold, perfect, t: 0, dur: perfect ? 0.62 : 0.44 });
 }
 function isGoldLevel(placedCount){ return placedCount > 0 && placedCount % 10 === 0; }
 
@@ -258,7 +278,8 @@ function drop(){
     score += gained;
     const placedCount = height + 1;
     const gold = isGoldLevel(placedCount);
-    tower.push({ x: below.x, w: below.w, gold, perfect: true });
+    tower.push({ x: below.x, w: below.w, gold, perfect: true, colorIndex: cur.colorIndex });
+    addLandPulse(below.x, below.w, lvlY, cur.colorIndex, gold, true);
     height = placedCount;
     const restore = (combo % 3 === 0) ? RESTORE : 0;
     spawnNext(Math.min(W0, below.w + restore));
@@ -270,7 +291,7 @@ function drop(){
     const ov = right - left;
     if (ov <= 0){
       /* total miss — the module drifts off into the dark */
-      falling.push({ x: cur.x, w: cur.w, y: lvlY, vy: 0, gold: isGoldLevel(height + 1) });
+      falling.push({ x: cur.x, w: cur.w, y: lvlY, vy: 0, gold: isGoldLevel(height + 1), colorIndex: cur.colorIndex });
       moving = null;
       res = { placed: false, perfect: false, gained: 0, width: 0, combo };
       gameOver();
@@ -278,11 +299,12 @@ function drop(){
     }
     combo = 0;
     score += 10;
-    if (cur.x < left) falling.push({ x: cur.x, w: left - cur.x, y: lvlY, vy: 0, gold: false });
-    if (cur.x + cur.w > right) falling.push({ x: right, w: cur.x + cur.w - right, y: lvlY, vy: 0, gold: false });
+    if (cur.x < left) falling.push({ x: cur.x, w: left - cur.x, y: lvlY, vy: 0, gold: false, colorIndex: cur.colorIndex });
+    if (cur.x + cur.w > right) falling.push({ x: right, w: cur.x + cur.w - right, y: lvlY, vy: 0, gold: false, colorIndex: cur.colorIndex });
     const placedCount = height + 1;
     const gold = isGoldLevel(placedCount);
-    tower.push({ x: left, w: ov, gold, perfect: false });
+    tower.push({ x: left, w: ov, gold, perfect: false, colorIndex: cur.colorIndex });
+    addLandPulse(left, ov, lvlY, cur.colorIndex, gold, false);
     height = placedCount;
     spawnNext(ov);
     sndPlace(); sndTrim(); if (gold) sndGold();
@@ -333,6 +355,8 @@ function step(dt){
   }
   for (const f of falling){ f.vy += 900 * dt; f.y -= f.vy * dt; }
   falling = falling.filter(f => sy(f.y) < H + 80);
+  for (const p of landPulses) p.t += dt;
+  landPulses = landPulses.filter(p => p.t < p.dur);
   /* camera: keep the tower's working top around 58% down the screen */
   const topY = tower.length * BH;
   const viewWorldH = H / S;
@@ -343,30 +367,91 @@ function step(dt){
 }
 
 /* ================= render ================= */
-function drawBlock(x, wy, w, gold, perfect, alpha){
+function drawBlock(x, wy, w, gold, perfect, alpha, colorIndex){
   const sx = x * S, sw = w * S, sh = BH * S, top = sy(wy + BH);
+  const palette = neonColor(colorIndex == null ? Math.round(wy / BH) : colorIndex);
+  const bodyLight = gold ? '#fff7ae' : palette.light;
+  const bodyBase = gold ? '#ffd83d' : palette.base;
+  const bodyDeep = gold ? '#d97706' : palette.deep;
+  const r = Math.max(3, Math.min(12, sh * 0.48, sw * 0.5));
   ctx.save();
   if (alpha != null) ctx.globalAlpha = alpha;
+
+  /* Saturated candy body with a soft neon halo. */
   const g = ctx.createLinearGradient(0, top, 0, top + sh);
-  if (gold){ g.addColorStop(0, '#ffe98a'); g.addColorStop(0.5, '#f5b921'); g.addColorStop(1, '#c47f0a'); }
-  else { g.addColorStop(0, '#3d5a80'); g.addColorStop(0.5, '#2b4364'); g.addColorStop(1, '#1b2c47'); }
-  ctx.fillStyle = g;
-  const r = Math.min(5, sh * 0.22);
+  g.addColorStop(0, bodyLight);
+  g.addColorStop(0.34, bodyBase);
+  g.addColorStop(1, bodyDeep);
   ctx.beginPath();
   ctx.roundRect(sx, top, sw, sh, r);
+  ctx.shadowColor = bodyBase;
+  ctx.shadowBlur = Math.min(17, Math.max(7, sh * 0.62));
+  ctx.fillStyle = g;
   ctx.fill();
-  ctx.strokeStyle = gold ? 'rgba(255,240,190,.9)' : (perfect ? 'rgba(140,240,220,.95)' : 'rgba(150,190,240,.55)');
-  ctx.lineWidth = perfect || gold ? 2 : 1.2;
+  ctx.shadowBlur = 0;
+
+  /* Inflated, glossy finish: bright crown, lower shade, and a bubble sheen. */
+  ctx.save();
+  ctx.beginPath(); ctx.roundRect(sx, top, sw, sh, r); ctx.clip();
+  const crown = ctx.createLinearGradient(0, top, 0, top + sh * 0.72);
+  crown.addColorStop(0, 'rgba(255,255,255,.58)');
+  crown.addColorStop(0.48, 'rgba(255,255,255,.12)');
+  crown.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = crown;
+  ctx.fillRect(sx, top, sw, sh * 0.72);
+  const shade = ctx.createLinearGradient(0, top + sh * 0.52, 0, top + sh);
+  shade.addColorStop(0, 'rgba(0,0,0,0)');
+  shade.addColorStop(1, 'rgba(0,0,0,.24)');
+  ctx.fillStyle = shade;
+  ctx.fillRect(sx, top + sh * 0.52, sw, sh * 0.48);
+  ctx.beginPath();
+  ctx.ellipse(sx + sw * 0.27, top + sh * 0.27, Math.max(4, sw * 0.27), Math.max(2, sh * 0.2), -0.06, 0, 6.29);
+  ctx.fillStyle = 'rgba(255,255,255,.34)';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(sx + sw * 0.72, top + sh * 0.68, Math.max(3, sw * 0.16), Math.max(1.5, sh * 0.12), -0.06, 0, 6.29);
+  ctx.fillStyle = 'rgba(255,255,255,.13)';
+  ctx.fill();
+  ctx.restore();
+
+  /* Bright neon rim, with a fine inner bevel so the module reads as molded candy. */
+  ctx.beginPath(); ctx.roundRect(sx, top, sw, sh, r);
+  ctx.strokeStyle = gold ? 'rgba(255,247,174,.98)' : palette.light;
+  ctx.lineWidth = perfect || gold ? 2.4 : 2;
+  ctx.shadowColor = bodyBase;
+  ctx.shadowBlur = perfect || gold ? 10 : 6;
   ctx.stroke();
-  /* lit habitat windows — deterministic per position */
-  const rnd = mulberry(Math.round(x * 13 + wy * 7 + w));
-  const nw = Math.max(1, Math.floor(sw / 26));
-  for (let i = 0; i < nw; i++){
-    const wx = sx + 6 + rnd() * Math.max(2, sw - 14);
-    const wyy = top + sh * 0.3 + rnd() * sh * 0.35;
-    ctx.fillStyle = rnd() > 0.25 ? 'rgba(255,214,110,.95)' : 'rgba(160,210,255,.8)';
-    ctx.fillRect(wx, wyy, 4.5, 3.4);
+  ctx.shadowBlur = 0;
+  if (sw > 8 && sh > 8){
+    ctx.beginPath(); ctx.roundRect(sx + 2, top + 2, sw - 4, sh - 4, Math.max(2, r - 2));
+    ctx.strokeStyle = 'rgba(255,255,255,.36)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
   }
+  if (perfect){
+    ctx.beginPath(); ctx.roundRect(sx - 1.5, top - 1.5, sw + 3, sh + 3, r + 1.5);
+    ctx.strokeStyle = 'rgba(255,255,255,.72)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  /* Warm lit habitat windows — deterministic per block, clipped inside the bubble. */
+  ctx.save();
+  ctx.beginPath(); ctx.roundRect(sx + 1, top + 1, Math.max(0, sw - 2), Math.max(0, sh - 2), Math.max(2, r - 1)); ctx.clip();
+  const rnd = mulberry(Math.round(x * 13 + wy * 7 + w + (colorIndex || 0) * 101));
+  const nw = Math.max(1, Math.floor(sw / 25));
+  for (let i = 0; i < nw; i++){
+    const wx = sx + 6 + rnd() * Math.max(2, sw - 15);
+    const wyy = top + sh * 0.34 + rnd() * sh * 0.3;
+    const warm = ['rgba(255,232,154,.98)', 'rgba(255,201,77,.96)', 'rgba(255,246,201,.98)'][Math.floor(rnd() * 3)];
+    ctx.beginPath(); ctx.roundRect(wx, wyy, 5.2, 3.8, 1.8);
+    ctx.shadowColor = 'rgba(255,183,0,.9)';
+    ctx.shadowBlur = 5;
+    ctx.fillStyle = warm;
+    ctx.fill();
+  }
+  ctx.restore();
+
   if (gold && LUNC_IMG.complete && LUNC_IMG.naturalWidth){
     const d = sh * 0.92;
     ctx.save();
@@ -376,6 +461,26 @@ function drawBlock(x, wy, w, gold, perfect, alpha){
     ctx.restore();
   }
   ctx.restore();
+}
+function drawLandPulses(){
+  for (const p of landPulses){
+    const palette = neonColor(p.colorIndex);
+    const color = p.gold ? '#ffd83d' : palette.base;
+    const progress = Math.max(0, Math.min(1, p.t / p.dur));
+    const expand = 3 + progress * 13;
+    const sx = p.x * S - expand, sw = p.w * S + expand * 2;
+    const top = sy(p.wy + BH) - expand, sh = BH * S + expand * 2;
+    ctx.save();
+    ctx.globalAlpha = (1 - progress) * (p.perfect ? 0.78 : 0.58);
+    ctx.beginPath();
+    ctx.roundRect(sx, top, sw, sh, Math.min(16, sh * 0.48));
+    ctx.strokeStyle = color;
+    ctx.lineWidth = p.perfect ? 3.2 : 2.4;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 18;
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 function draw(){
   ctx.clearRect(0, 0, W, H);
@@ -423,7 +528,7 @@ function draw(){
   for (let i = 0; i < tower.length; i++){
     const b = tower[i];
     if (sy((i + 1) * BH) < -40 || sy(i * BH) > H + 40) continue;
-    drawBlock(b.x, i * BH, b.w, b.gold, b.perfect);
+    drawBlock(b.x, i * BH, b.w, b.gold, b.perfect, null, b.colorIndex);
     if (b.pad){
       /* landing pad under the base block */
       ctx.fillStyle = '#6b7488';
@@ -431,11 +536,11 @@ function draw(){
     }
   }
   /* falling sheared pieces */
-  for (const f of falling) drawBlock(f.x, f.y, f.w, f.gold, false, 0.9);
+  for (const f of falling) drawBlock(f.x, f.y, f.w, f.gold, false, 0.9, f.colorIndex);
   /* the sliding block + drop guide */
   if (state === 'play' && moving){
     const lvl = tower.length;
-    drawBlock(moving.x, lvl * BH, moving.w, isGoldLevel(height + 1), false);
+    drawBlock(moving.x, lvl * BH, moving.w, isGoldLevel(height + 1), false, null, moving.colorIndex);
     ctx.save();
     ctx.strokeStyle = 'rgba(255,215,106,.35)';
     ctx.setLineDash([5, 7]);
@@ -450,6 +555,7 @@ function draw(){
     const pcx = (below.x + below.w / 2) * S;
     ctx.fillRect(pcx - PERFECT_PX * S, sy(lvl * BH) - 3, PERFECT_PX * 2 * S, 3);
   }
+  drawLandPulses();
   ctx.restore();
   /* combo flash */
   if (flashT > 0){
