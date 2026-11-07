@@ -14,8 +14,35 @@ const OB_SPACING = 45;        // nominal metres between obstacle rows (scaled by
 const SPEED0 = 18, SPEED_MAX = 34, SPEED_RAMP = 0.055; // m/s — Tom: "speed him up"
 const JUMP_V = 13.5;          // tuned so jump airtime matches the faster run
 const GRAV = 34;
-const LOOP_EVERY = 420, LOOP_R = 8.5, LOOP_CIRC = 2 * Math.PI * LOOP_R;
 const COIN_SCORE = 25, STAR_SCORE = 250, DIST_SCORE = 1;
+
+/* ---------------- the S-curve track (Nov 7, owner directive) ----------------
+   The giant loop/tube is GONE. The track now bends left and right in
+   smooth S-curves and the player steers through them with the existing
+   free-steering stick. Bending is done the cheap, crash-safe way this
+   engine already supports: NOTHING in the world is re-meshed — every
+   frame, each visible thing's screen x is offset by (bend at ITS
+   distance ahead − bend at the hero). Near the hero the offset is ~0
+   (the track under you never jumps); far ahead the road visibly curves
+   away, and the hero is carried along by BEND_DRIFT so an untouched
+   stick rides the centre line through the bends.
+   BEND_MAX / SPEED: required lateral drift peaks at ~1.35 m/s while
+   full-stick steering moves ~11 m/s — curves are gentle by design and
+   clearable at the UNCHANGED speed constants (18→34 m/s). */
+const BEND_AMP = 7.5;                       // max lateral offset of the centre line (m)
+const BEND_WL = 340;                        // one full S wavelength (m)
+const BEND_K = (Math.PI * 2) / BEND_WL;
+function trackBend(d) { return BEND_AMP * Math.sin(d * BEND_K); }
+function trackBendVel(d) { return BEND_AMP * BEND_K * Math.cos(d * BEND_K); } // d(bend)/d(dist), unitless
+/* screen-x for a world thing: its own x plus the bend at its distance
+   ahead of the hero (a = metres ahead of the hero; may be negative for
+   things just behind). Hero sits at a=0. */
+let bendHero = 0; // trackBend(S.dist), refreshed once per frame
+function bendX(x, a) { return x + (trackBend(S.dist + a) - bendHero); }
+/* Lanes/pickups/obstacles are stored RELATIVE to the moving centre line
+   (x_rel = screen x − bend at that distance), so collisions and pickups
+   compare like-for-like against S.relX, the hero's own offset from the
+   centre line. S.relX is refreshed once per frame from laneX. */
 
 /* ---------------- state ---------------- */
 const S = {
@@ -24,7 +51,7 @@ const S = {
   speed: 0, time: 0, runTime: 0,
   lane: 1, laneX: 0, steerX: null, y: 0, vy: 0, grounded: true,
   rollT: 0, stumbleT: 0, invulnT: 0, hitFlash: 0,
-  loop: null, nextLoopAt: LOOP_EVERY, loopCount: 0,
+  nextArchAt: 420, archCount: 0, relX: 0,
   pitchChain: 0, muted: false, started: false, pilot: false,
 };
 try { S.muted = localStorage.getItem('luncRush3dMute') === '1'; } catch (e) {}
@@ -62,6 +89,12 @@ scene.fog = new THREE.Fog(0xf7cf9a, 90, 430);
 
 const camera = new THREE.PerspectiveCamera(66, viewSize().w / viewSize().h, 0.1, 1200);
 camera.position.set(0, 5.6, 9.5);
+/* Smoothed camera look-at point (polish pass): the look target is damped
+   on its own faster spring than the camera body, so lane changes pan the
+   view INTO the move instead of the frame swimming after it. Damping is
+   exponential (frame-rate independent) — no jitter/snapping at any fps. */
+const lookPt = new THREE.Vector3(0, 1.1, -12);
+const speedFx = document.getElementById('speedFx'); // $ helper is defined later in the file
 
 const hemi = new THREE.HemisphereLight(0xffe3b8, 0xa2542e, 0.95);
 scene.add(hemi);
@@ -244,9 +277,9 @@ const M = {
   hillFar: new THREE.MeshBasicMaterial({ color: 0xa8502e, fog: true }),
   temple: new THREE.MeshBasicMaterial({ color: 0x8f3d20, fog: true }),
   bird: new THREE.MeshBasicMaterial({ color: 0x22303c, fog: true }),
-  gold: new THREE.MeshPhongMaterial({ color: 0xffc93d, emissive: 0xcf8a00, emissiveIntensity: 0.55, shininess: 90 }),
+  gold: new THREE.MeshPhongMaterial({ color: 0xffc93d, emissive: 0xcf8a00, emissiveIntensity: 0.85, shininess: 110 }),
   goldDark: new THREE.MeshPhongMaterial({ color: 0xe8a90c, emissive: 0x9a6a00, emissiveIntensity: 0.4, shininess: 70 }),
-  ustc: new THREE.MeshPhongMaterial({ color: 0x4da3ff, emissive: 0x1d5fd0, emissiveIntensity: 0.9, shininess: 90 }),
+  ustc: new THREE.MeshPhongMaterial({ color: 0x4da3ff, emissive: 0x1d5fd0, emissiveIntensity: 1.15, shininess: 110 }),
   rock: new THREE.MeshLambertMaterial({ color: 0x9a8f80 }),
   red: new THREE.MeshPhongMaterial({ color: 0xe03131, emissive: 0x700000, emissiveIntensity: 0.35, shininess: 40 }),
   white: new THREE.MeshPhongMaterial({ color: 0xf5f5f5, shininess: 30 }),
@@ -265,12 +298,31 @@ const secGeo = new THREE.BoxGeometry(1, 1, 1);
 
 function makeSection() {
   const g = new THREE.Group();
-  const ground = new THREE.Mesh(secGeo, M.grass); ground.scale.set(90, 1, SECT_LEN); ground.position.y = -0.51; g.add(ground);
-  const track = new THREE.Mesh(secGeo, M.dirt); track.scale.set(8.4, 0.22, SECT_LEN); track.position.y = -0.1; g.add(track);
-  const edgeL = new THREE.Mesh(secGeo, M.sand); edgeL.scale.set(0.5, 0.26, SECT_LEN); edgeL.position.set(-4.45, -0.08, 0); g.add(edgeL);
-  const edgeR = edgeL.clone(); edgeR.position.x = 4.45; g.add(edgeR);
-  const beachL = new THREE.Mesh(secGeo, M.sand); beachL.scale.set(10, 0.5, SECT_LEN); beachL.position.set(-12.5, -0.55, 0); g.add(beachL);
-  const beachR = beachL.clone(); beachR.position.x = 12.5; g.add(beachR);
+  /* CURVED TRACK (Nov 7): each 30 m section is built from SUB (=6) chained
+     sub-slabs laid along the bend, so the road itself visibly curves left
+     and right — the polish step in x per sub-slab is ≤~0.9 m and the seam
+     yaw ≤~5°, and because the ground plane is 90 m wide the strips overlap
+     generously, hiding any seam. Sub-slab LOCAL coordinates: x is centred
+     on the section's own centre line (position.x of the group carries the
+     bend offset at scroll time), z is relative to the section centre.
+     Only the ground parts (ground/track/edges/beaches) are chained; the
+     far scenery (water/cliffs/hills) stays on the section frame — it sits
+     30–195 m out where the bend reads as landscape, not road. */
+  const SUB = 6, SUB_LEN = SECT_LEN / SUB;
+  const chained = [
+    [M.grass, 90, 1, -0.51], [M.dirt, 8.4, 0.22, -0.1],
+    [M.sand, 0.5, 0.26, -0.08, -4.45], [M.sand, 0.5, 0.26, -0.08, 4.45],
+    [M.sand, 10, 0.5, -0.55, -12.5], [M.sand, 10, 0.5, -0.55, 12.5],
+  ];
+  for (let si = 0; si < SUB; si++) {
+    for (const [mat, w, h, y, cx] of chained) {
+      const m = new THREE.Mesh(secGeo, mat);
+      m.scale.set(w, h, SUB_LEN + 0.6);          // slight z overlap kills hairline gaps
+      m.position.set((cx || 0), y, 0);           // z/x/yaw set at scroll time from userData.subs
+      g.add(m);
+      (g.userData.subs = g.userData.subs || []).push({ mesh: m, si, cx: cx || 0 });
+    }
+  }
   const waterL = new THREE.Mesh(secGeo, M.water); waterL.scale.set(120, 0.4, SECT_LEN); waterL.position.set(-75, -0.95, 0); g.add(waterL);
   const waterR = waterL.clone(); waterR.position.x = 75; g.add(waterR);
   const cliffL = new THREE.Mesh(secGeo, M.cliff); cliffL.scale.set(7, 6.5, SECT_LEN); cliffL.position.set(-30, 2.2, 0); g.add(cliffL);
@@ -332,7 +384,7 @@ function crescentGeo() {
   const hole = new THREE.Path();
   hole.absarc(0.22, 0.1, 0.4, 0, Math.PI * 2, true);
   shape.holes.push(hole);
-  const g = new THREE.ExtrudeGeometry(shape, { depth: 0.12, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.03, bevelSegments: 1, curveSegments: 28 });
+  const g = new THREE.ExtrudeGeometry(shape, { depth: 0.12, bevelEnabled: true, bevelThickness: 0.045, bevelSize: 0.045, bevelSegments: 2, curveSegments: 28 });
   g.center(); return g;
 }
 function starGeo() {
@@ -343,7 +395,7 @@ function starGeo() {
     if (i === 0) shape.moveTo(x, y); else shape.lineTo(x, y);
   }
   shape.closePath();
-  const g = new THREE.ExtrudeGeometry(shape, { depth: 0.12, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.03, bevelSegments: 1 });
+  const g = new THREE.ExtrudeGeometry(shape, { depth: 0.12, bevelEnabled: true, bevelThickness: 0.045, bevelSize: 0.045, bevelSegments: 2 });
   g.center(); return g;
 }
 const COIN_N = 90, STAR_N = 8;
@@ -662,13 +714,17 @@ for (const im of [barrierIM, stripeIM, barIM, postIM, rockIM]) { im.instanceMatr
 const obstacles = []; // {kind:'jump'|'roll'|'rock', lane, z, active}
 let nextObZ = 130;
 
-/* ---------------- the giant loop ---------------- */
-const loopGroup = new THREE.Group();
+/* ---------------- the finish arch (was: the giant loop) ----------------
+   The loop/tube is REMOVED (owner, Nov 7: "Get rid of the tube make the
+   track go left and right"). What stays is this free-standing branding
+   arch — the LUNA CLASSIC banner + LUNC DEV STUDIO plate on two posts
+   with a LUNC RUSH top bar — which the track passes UNDER every
+   ARCH_EVERY metres as a distance marker. Pure scenery: no trigger, no
+   collision, no ball form, no framing code — ROO just runs through it,
+   following the bends like everything else. */
+const ARCH_EVERY = 420, ARCH_Y = 8.5;
+const archGroup = new THREE.Group();
 {
-  const tube = new THREE.Mesh(new THREE.TorusGeometry(LOOP_R, 0.55, 12, 64), M.goldDark);
-  tube.position.y = LOOP_R; loopGroup.add(tube);
-  const tubeIn = new THREE.Mesh(new THREE.TorusGeometry(LOOP_R, 0.2, 10, 64), M.gold);
-  tubeIn.position.y = LOOP_R; loopGroup.add(tubeIn);
   // LUNC DEV STUDIO plate on the banner's back face (seen on approach)
   const studioTex = wordTex(1024, 128, (g, w, h) => {
     g.fillStyle = '#17202a'; g.fillRect(0, 0, w, h);
@@ -680,28 +736,21 @@ const loopGroup = new THREE.Group();
   });
   const plate = new THREE.Mesh(new THREE.BoxGeometry(10.5, 1.1, 0.06),
     [M.ink, M.ink, M.ink, M.ink, new THREE.MeshLambertMaterial({ map: studioTex }), M.ink]);
-  plate.position.set(0, LOOP_R * 2 + 1.15, -0.20); loopGroup.add(plate);
-  const jewelGeo = new THREE.OctahedronGeometry(0.30);
-  for (let i = 0; i < 10; i++) {
-    const a = (i / 10) * Math.PI * 2;
-    const j = new THREE.Mesh(jewelGeo, i % 2 ? M.ustc : M.gold);
-    j.position.set(Math.cos(a) * LOOP_R, LOOP_R + Math.sin(a) * LOOP_R, 0.62);
-    loopGroup.add(j);
-  }
-  const postGeo = new THREE.BoxGeometry(0.5, LOOP_R, 0.5);
+  plate.position.set(0, ARCH_Y * 2 + 1.15, -0.20); archGroup.add(plate);
+  const postGeo = new THREE.BoxGeometry(0.5, ARCH_Y, 0.5);
   for (const sx of [-1, 1]) {
     const p = new THREE.Mesh(postGeo, M.ink);
-    p.position.set(sx * LOOP_R * 0.7, LOOP_R / 2, 0);
+    p.position.set(sx * ARCH_Y * 0.7, ARCH_Y / 2, 0);
     p.rotation.z = sx * 0.45;
-    loopGroup.add(p);
+    archGroup.add(p);
   }
   const banner = new THREE.Mesh(new THREE.BoxGeometry(10.5, 1.1, 0.3), bannerMat);
-  banner.position.set(0, LOOP_R * 2 + 1.15, 0); loopGroup.add(banner);
-  const archL = new THREE.Mesh(new THREE.BoxGeometry(0.45, 3.4, 0.45), M.ink); archL.position.set(-5.2, 1.7, 0); loopGroup.add(archL);
-  const archR = archL.clone(); archR.position.x = 5.2; loopGroup.add(archR);
-  const archT = new THREE.Mesh(new THREE.BoxGeometry(10.9, 0.62, 0.45), archMat); archT.position.set(0, 3.45, 0); loopGroup.add(archT);
+  banner.position.set(0, ARCH_Y * 2 + 1.15, 0); archGroup.add(banner);
+  const archL = new THREE.Mesh(new THREE.BoxGeometry(0.45, 3.4, 0.45), M.ink); archL.position.set(-5.2, 1.7, 0); archGroup.add(archL);
+  const archR = archL.clone(); archR.position.x = 5.2; archGroup.add(archR);
+  const archT = new THREE.Mesh(new THREE.BoxGeometry(10.9, 0.62, 0.45), archMat); archT.position.set(0, 3.45, 0); archGroup.add(archT);
 }
-loopGroup.visible = false; scene.add(loopGroup);
+archGroup.visible = false; scene.add(archGroup);
 
 /* ---------------- hero: ROO the kangaroo ----------------
    Upright bounding posture, big hind legs + long feet, thick tail
@@ -780,15 +829,7 @@ function buildHero() {
   const tail1 = add(tailG, new THREE.ConeGeometry(0.20, 1.05, 10), M.orange, 0, -0.16, 0.42, Math.PI / 2 + 0.30);
   const tail2G = new THREE.Group(); tail2G.position.set(0, -0.24, 0.90); tailG.add(tail2G);
   const tail2 = add(tail2G, new THREE.ConeGeometry(0.115, 0.95, 8), M.orangeDk, 0, -0.02, 0.42, Math.PI / 2 + 0.10);
-  // ball form (loop) — coat colours; the ears sticking out give it away
-  const ballG = new THREE.Group(); ballG.visible = false; hero.add(ballG);
-  const ball = add(ballG, new THREE.SphereGeometry(0.52, 18, 14), M.orange, 0, 0.52, 0);
-  add(ballG, new THREE.TorusGeometry(0.5, 0.09, 8, 20), M.cream, 0, 0.52, 0, Math.PI / 2);
-  add(ballG, new THREE.TorusGeometry(0.52, 0.05, 8, 20), M.teal, 0, 0.52, 0, 0, Math.PI / 3);
-  add(ballG, new THREE.ConeGeometry(0.08, 0.34, 6), M.orange, -0.2, 1.02, 0.1, 0, 0, 0.3);
-  add(ballG, new THREE.ConeGeometry(0.08, 0.34, 6), M.orange, 0.2, 1.02, 0.1, 0, 0, -0.3);
-  add(ballG, new THREE.TorusGeometry(0.11, 0.04, 6, 14, Math.PI * 1.45), M.gold, 0, 0.52, -0.5, 0, 0, 2.4);
-  return { group: hero, bodyG, ballG, legL, legR, shinL, shinR, armL, armR, tailG, tail1, tail2, tail2G, headG, earL, earR, scarfTail, ball, joeyG };
+  return { group: hero, bodyG, legL, legR, shinL, shinR, armL, armR, tailG, tail1, tail2, tail2G, headG, earL, earR, scarfTail, joeyG };
 }
 const H = buildHero();
 scene.add(H.group);
@@ -872,6 +913,7 @@ function applyLang() {
   $('boardClose').textContent = T('close');
   $('pauseTitle').textContent = T('paused');
   $('resumeBtn').textContent = T('resume');
+  $('howBtnPause').textContent = T('how');
   $('quitBtn').textContent = T('quit');
   $('overTitle').textContent = T('over');
   $('submitBtn').textContent = T('submit');
@@ -880,6 +922,8 @@ function applyLang() {
   $('nameInput').placeholder = T('namePh');
   $('hudDistLabel').textContent = (T('distWord') || 'DIST').toUpperCase();
   $('muteBtn').textContent = S.muted ? '🔇' : '🔊';
+  const bt = $('bootTxt'); if (bt) bt.textContent = T('loading');
+  const ch = $('ctrlHint'); if (ch && !ch.classList.contains('hidden')) ch.textContent = T('swipeHint');
 }
 const langSel = $('langSel');
 LANGS.forEach(([code, label]) => { const o = document.createElement('option'); o.value = code; o.textContent = label; langSel.appendChild(o); });
@@ -1014,32 +1058,59 @@ function qaPilot(dt) {
   }
 }
 
+/* ---------------- run-start control hint ----------------
+   One calm pill at run start (polish pass): tells a first-time player
+   exactly what the stick does, fades out after a few seconds, and
+   dismisses itself the moment they actually steer / jump / roll. */
+const ctrlHint = $('ctrlHint');
+let hintTimer = null, hintFadeTimer = null;
+function showHint() {
+  if (!ctrlHint) return;
+  clearTimeout(hintTimer); clearTimeout(hintFadeTimer);
+  ctrlHint.textContent = T('swipeHint');
+  ctrlHint.classList.remove('hidden'); ctrlHint.classList.remove('fade');
+  hintTimer = setTimeout(dismissHint, 3600);
+}
+function dismissHint() {
+  if (!ctrlHint || ctrlHint.classList.contains('hidden')) return;
+  clearTimeout(hintTimer);
+  ctrlHint.classList.add('fade');
+  clearTimeout(hintFadeTimer);
+  hintFadeTimer = setTimeout(() => ctrlHint.classList.add('hidden'), 480);
+}
+
 /* ---------------- game flow ---------------- */
 function resetRun() {
   S.dist = 0; S.coins = 0; S.stars = 0; S.score = 0; S.hearts = 3;
   S.speed = SPEED0; S.y = 0; S.vy = 0; S.grounded = true;
   S.lane = 1; S.laneX = 0; S.steerX = null; S.rollT = 0; S.stumbleT = 0; S.invulnT = 0; S.hitFlash = 0;
-  S.loop = null; S.nextLoopAt = LOOP_EVERY; S.loopCount = 0; S.runTime = 0; S.pitchChain = 0;
+  S.nextArchAt = ARCH_EVERY; S.archCount = 0; S.runTime = 0; S.pitchChain = 0;
   for (const c of coins) c.active = false;
   for (const s of stars) s.active = false;
   for (const s of scats) s.active = false;
   obstacles.length = 0;
   nextCoinZ = 55; nextObZ = 120;
-  loopGroup.visible = false;
-  H.ballG.visible = false; H.bodyG.visible = true;
+  archGroup.visible = false;
   updateHUD();
 }
 function startRun() {
   audioInit();
   resetRun();
   S.mode = 'run'; S.started = true;
+  /* snap the camera to the run pose so a run never opens with a swoop
+     in from the menu orbit (polish pass) */
+  camera.position.set(0, 5.4, 9.6);
+  lookPt.set(0, 1.1, -12);
+  camera.fov = 66; camera.updateProjectionMatrix();
   $('menu').classList.add('hidden'); $('overPanel').classList.add('hidden'); $('pausePanel').classList.add('hidden');
   hud.classList.remove('hidden'); touchUI.classList.remove('hidden');
   stickDock.classList.remove('hidden'); stickHome();
-  showBanner(T('go'), T('swipeHint'), 1200);
+  showBanner(T('go'), '', 900);
+  showHint();
 }
 function endRun() {
   S.mode = 'over';
+  dismissHint();
   hud.classList.add('hidden'); touchUI.classList.add('hidden');
   stickDock.classList.add('hidden'); stickReset();
   $('finalScoreLine').textContent = T('finalScore') + ': ' + Math.floor(S.score);
@@ -1071,6 +1142,7 @@ $('tabAll').addEventListener('click', () => { boardTab = 'all'; $('tabAll').clas
 $('tabWeek').addEventListener('click', () => { boardTab = 'week'; $('tabWeek').classList.add('on'); $('tabAll').classList.remove('on'); renderBoard(); });
 $('pauseBtn').addEventListener('click', pauseGame);
 $('resumeBtn').addEventListener('click', resumeGame);
+$('howBtnPause').addEventListener('click', () => $('howPanel').classList.remove('hidden'));
 $('quitBtn').addEventListener('click', () => { $('pausePanel').classList.add('hidden'); $('overPanel').classList.add('hidden'); hud.classList.add('hidden'); touchUI.classList.add('hidden'); stickDock.classList.add('hidden'); stickReset(); $('menu').classList.remove('hidden'); S.mode = 'menu'; });
 $('muteBtn').addEventListener('click', () => {
   S.muted = !S.muted;
@@ -1080,15 +1152,16 @@ $('muteBtn').addEventListener('click', () => {
 });
 
 /* ---------------- input ---------------- */
-function doLeft() { if (S.mode !== 'run') return; if (S.steerX != null) { S.steerX = Math.max(-STEER_MAX, S.steerX - 2.3); S.lane = Math.max(0, Math.round(S.steerX / 2.3) + 1); S.steerTgt = S.steerX; } else if (S.lane > 0) { S.lane--; } }
-function doRight() { if (S.mode !== 'run') return; if (S.steerX != null) { S.steerX = Math.min(STEER_MAX, S.steerX + 2.3); S.lane = Math.min(2, Math.round(S.steerX / 2.3) + 1); S.steerTgt = S.steerX; } else if (S.lane < 2) { S.lane++; } }
+function doLeft() { if (S.mode !== 'run') return; if (S.steerX != null) { S.steerX = Math.max(trackBend(S.dist) - STEER_MAX, S.steerX - 2.3); S.lane = Math.max(0, Math.round((S.steerX - trackBend(S.dist)) / 2.3) + 1); S.steerTgt = S.steerX; } else if (S.lane > 0) { S.lane--; } }
+function doRight() { if (S.mode !== 'run') return; if (S.steerX != null) { S.steerX = Math.min(trackBend(S.dist) + STEER_MAX, S.steerX + 2.3); S.lane = Math.min(2, Math.round((S.steerX - trackBend(S.dist)) / 2.3) + 1); S.steerTgt = S.steerX; } else if (S.lane < 2) { S.lane++; } }
 function doJump() {
   if (S.mode !== 'run') return;
-  if (S.loop) return;
+  dismissHint();
   if (S.grounded) { S.vy = JUMP_V; S.grounded = false; sndJump(); }
 }
 function doRoll() {
-  if (S.mode !== 'run' || S.loop) return;
+  if (S.mode !== 'run') return;
+  dismissHint();
   if (!S.grounded) { S.vy = -26; } // slam down
   S.rollT = 0.62;
 }
@@ -1116,7 +1189,8 @@ bindBtn('btnJump', doJump); bindBtn('btnRoll', doRoll);
    the HUD strip (except on buttons/panels); the dock's knob follows the
    thumb wherever it goes; a second simultaneous touch on the right side
    still hits the ▲/▼ buttons (multi-touch), and steering + ▲ can be held
-   together. Keyboard/qaPilot switch S.lane; the loop below eases laneX
+   together. Keyboard/qaPilot switch S.lane; the animation update below
+   eases laneX
    toward steerX while the stick is active and toward the lane otherwise,
    and re-derives S.lane from steerX so collisions/pickups stay coherent.
    The old window swipe handlers are GONE: a drag now STEERS (it used to
@@ -1152,11 +1226,11 @@ function stickMove(x, y) {
 }
 function stickReset() {
   if (S.steerX != null) {
-    const r = Math.round(S.steerX);
-    if (Math.abs(S.steerX - r) > 0.3) {
-      S.steerX = r; S.lane = Math.max(0, Math.min(2, Math.round(r / 2.3) + 1));
+    const r = Math.round(S.relX); // snap in centre-line-relative space
+    if (Math.abs(S.relX - r) > 0.3) {
+      S.steerX = r + trackBend(S.dist); S.lane = Math.max(0, Math.min(2, Math.round(r / 2.3) + 1));
     } else {
-      S.lane = Math.max(0, Math.min(2, Math.round(S.steerX / 2.3) + 1));
+      S.lane = Math.max(0, Math.min(2, Math.round(S.relX / 2.3) + 1));
     }
   }
   stick.id = null; stick.kind = null; stick.x = 0; stick.nx = 0; stick.ny = 0;
@@ -1165,6 +1239,7 @@ function stickReset() {
 }
 function steerBegin(id, kind, x, y) {
   if (S.mode !== 'run' || stick.id !== null) return false;
+  dismissHint();
   stick.id = id; stick.kind = kind; stickTouch = true;
   S.steerX = S.laneX; S.steerTgt = S.laneX;
   stickShow(x, y);
@@ -1178,8 +1253,8 @@ function steerZoneOK(x, y, target) {
 }
 function steerReleaseSnap() {
   if (S.steerX != null) {
-    S.lane = Math.max(0, Math.min(2, Math.round(S.steerX / 2.3) + 1));
-    S.steerX = LANE_X[S.lane];
+    S.lane = Math.max(0, Math.min(2, Math.round(S.relX / 2.3) + 1));
+    S.steerX = LANE_X[S.lane] + trackBend(S.dist);
     S.steerTgt = S.steerX;
   }
 }
@@ -1254,7 +1329,7 @@ function scatterCoins() {
   for (let i = 0; i < n; i++) {
     const s = scats.find(x => !x.active); if (!s) break;
     s.active = true; s.life = 4.5;
-    s.x = S.laneX; s.y = 1.1; s.z = -2 - Math.random() * 2;
+    s.x = S.relX; s.y = 1.1; s.z = -2 - Math.random() * 2;
     s.vx = (Math.random() - 0.5) * 7; s.vy = 3.5 + Math.random() * 3.5; s.vz = 4 + Math.random() * 6;
     s.spin = Math.random() * 6;
   }
@@ -1281,38 +1356,60 @@ function animate() {
   /* --- difficulty / speed --- */
   if (S.mode === 'run') {
     S.runTime += dt;
-    if (!S.loop) S.speed = Math.min(SPEED_MAX, SPEED0 + S.dist * SPEED_RAMP * 0.30 + S.runTime * 0.16);
-    const inLoopBoost = S.loop ? 1.18 : 1;
-    const effSpeed = S.speed * inLoopBoost * (S.stumbleT > 0 ? 0.45 : 1);
-    if (S.pilot && !S.loop) qaPilot(dt);
+    S.speed = Math.min(SPEED_MAX, SPEED0 + S.dist * SPEED_RAMP * 0.30 + S.runTime * 0.16);
+    const effSpeed = S.speed * (S.stumbleT > 0 ? 0.45 : 1);
+    if (S.pilot) qaPilot(dt);
+    const distPrev = S.dist;
     S.dist += effSpeed * dt;
     S.score += effSpeed * DIST_SCORE * dt;
     if (S.stumbleT > 0) S.stumbleT -= dt;
     if (S.invulnT > 0) S.invulnT -= dt;
     if (S.hitFlash > 0) S.hitFlash -= dt;
+    /* CURVE CARRY: the bends move the centre line sideways at
+       trackBendVel × speed (peak ≈1.35 m/s at top speed). Carry the hero
+       (lane + steering targets together) by exactly that much each frame
+       so holding the centre rides the bends — the player only steers to
+       change lanes or dodge, never to fight the road. */
+    const bendDrift = trackBend(S.dist) - trackBend(distPrev);
+    if (bendDrift !== 0) {
+      S.laneX += bendDrift;
+      if (S.steerX != null) { S.steerX += bendDrift; S.steerTgt += bendDrift; }
+    }
+    S.relX = S.laneX - trackBend(S.dist); // hero offset from the centre line
 
     /* vertical */
-    if (!S.loop) {
+    {
       if (!S.grounded) {
         S.vy -= GRAV * dt; S.y += S.vy * dt;
         if (S.y <= 0) { S.y = 0; S.grounded = true; S.vy = 0; }
       }
       if (S.rollT > 0) S.rollT -= dt;
     }
-    /* lateral movement: free steering while the stick is held (stick.x is
-       the analog push in px: ROO's target follows it across the full
-       track width, so he weaves AROUND obstacles); otherwise ease to the
-       active lane (keyboard / buttons / pilot). */
-    if (S.steerX != null && !S.loop) {
-      const PUSH_FULL = 46, HOLD_VEL = 12.5;
-      if (stick.x !== 0) S.steerTgt = THREE.MathUtils.clamp(S.laneX + (stick.x / PUSH_FULL) * HOLD_VEL * 0.016, -STEER_MAX, STEER_MAX);
-      S.steerX += (S.steerTgt - S.steerX) * Math.min(1, dt * 18);
-      S.laneX += (S.steerX - S.laneX) * Math.min(1, dt * 22);
-      S.lane = Math.max(0, Math.min(2, Math.round(S.laneX / 2.3) + 1));
+    /* lateral movement: free steering while the stick is held. Polish
+       pass response (Nov 7): driven by the NORMALIZED stick axis with a
+       0.14 deadzone (resting-thumb jitter no longer drifts ROO) and a
+       gentle 1.35 power curve — small pushes make small moves, full push
+       still crosses the track fast. Velocity integrates the REAL frame
+       dt (the old code hard-coded a 60 fps step, so steering slowed
+       down on low-fps phones), and the follow springs are exponential
+       (frame-rate independent). On release the snap-to-lane is unchanged. */
+    if (S.steerX != null) {
+      const STEER_VEL = 11, DEAD = 0.14;
+      const a = Math.abs(stick.nx || 0);
+      if (a > DEAD) {
+        const t = (a - DEAD) / (1 - DEAD);
+      S.steerTgt = THREE.MathUtils.clamp(S.steerTgt + Math.sign(stick.nx) * Math.pow(t, 1.35) * STEER_VEL * dt, trackBend(S.dist) - STEER_MAX, trackBend(S.dist) + STEER_MAX);
+      }
+      S.steerX += (S.steerTgt - S.steerX) * (1 - Math.exp(-16 * dt));
+      S.laneX += (S.steerX - S.laneX) * (1 - Math.exp(-20 * dt));
+      S.lane = Math.max(0, Math.min(2, Math.round(S.relX / 2.3) + 1));
     } else {
-      const targetX = LANE_X[S.lane];
-      S.laneX += (targetX - S.laneX) * Math.min(1, dt * 11);
+      /* lane target rides the bend too: lanes are relative to the
+         (moving) centre line, so add the same per-frame drift */
+      const targetX = LANE_X[S.lane] + bendDrift;
+      S.laneX += (targetX - S.laneX) * (1 - Math.exp(-11 * dt)) + bendDrift * Math.exp(-11 * dt);
     }
+    S.relX = S.laneX - trackBend(S.dist);
 
     /* spawning ahead */
     const horizon = S.dist + 300;
@@ -1320,36 +1417,23 @@ function animate() {
     while (nextObZ < horizon) spawnObstacleRow();
     for (let i = obstacles.length - 1; i >= 0; i--) if (obstacles[i].z < S.dist - 25) obstacles.splice(i, 1);
 
-    /* loop scheduling */
-    const loopZ = S.nextLoopAt;
-    if (!S.loop && S.dist > loopZ - 200) { loopGroup.visible = true; }
-    if (!S.loop && S.dist >= loopZ - 1.2) {
-      S.loop = { theta: 0, z: loopZ };
-      S.y = 0; S.grounded = true; S.rollT = 0;
-      H.bodyG.visible = false; H.ballG.visible = true;
+    /* finish-arch marker: pure scenery pass-under, +100 and a cheer —
+       no state change, no collision, the run just flows through it */
+    if (S.dist >= S.nextArchAt) {
+      S.archCount++;
+      S.nextArchAt += ARCH_EVERY;
+      S.score += 100;
+      showBanner('🏁 ' + Math.floor(S.dist) + 'm!', '+100', 900);
       sndWhoosh();
-    }
-    if (S.loop) {
-      S.loop.theta += (effSpeed * dt) / LOOP_R;
-      if (S.loop.theta >= Math.PI * 2) {
-        // theta overshoot past 2π means the ball already rolled that far
-        // along the flat exit — credit it, don't rewind.
-        S.loop = null; S.loopCount++;
-        S.nextLoopAt += LOOP_EVERY;
-        H.ballG.visible = false; H.bodyG.visible = true;
-        showBanner('LOOP!', '+' + (S.loopCount * 100), 900);
-        S.score += 100;
-        sndWhoosh();
-      }
     }
 
     /* collisions: obstacles */
-    if (!S.loop && S.invulnT <= 0) {
+    if (S.invulnT <= 0) {
       for (const o of obstacles) {
         if (!o.active) continue;
         const dz = o.z - S.dist;
         if (dz > 1.4 || dz < -1.4) continue;
-        if (Math.abs(LANE_X[o.lane] - S.laneX) > 0.95) continue;
+        if (Math.abs(LANE_X[o.lane] - S.relX) > 0.95) continue;
         let hit = false;
         if (o.kind === 'jump') hit = S.y < 0.85;
         else if (o.kind === 'roll') hit = S.rollT <= 0 && S.y < 1.6;
@@ -1359,7 +1443,7 @@ function animate() {
     }
     /* pickups */
     const collect = (p, isStar) => {
-      const dz = p.z - S.dist, dx = p.x - S.laneX, dy = p.y - (S.y + 1.05);
+      const dz = p.z - S.dist, dx = p.x - S.relX, dy = p.y - (S.y + 1.05);
       if (Math.abs(dz) < 1.15 && Math.abs(dx) < 0.95 && Math.abs(dy) < 1.35) {
         p.active = false;
         if (isStar) { S.stars++; S.score += STAR_SCORE; sndStar(); showBanner('★ USTC', '+250', 600); }
@@ -1379,7 +1463,7 @@ function animate() {
       s.vy -= 22 * dt;
       s.x += s.vx * dt; s.y += s.vy * dt; s.z += (s.vz - effSpeed) * dt; s.spin += dt * 9;
       if (s.y < 0.35) { s.y = 0.35; s.vy *= -0.45; s.vx *= 0.8; s.vz *= 0.8; }
-      const dz = s.z + S.dist, dx = s.x - S.laneX;
+      const dz = s.z + S.dist, dx = s.x - S.relX;
       if (Math.abs(dz) < 1.1 && Math.abs(dx) < 1.0 && s.y < 1.9 && S.invulnT <= 0.4) {
         s.active = false; S.coins++; S.score += COIN_SCORE; sndCoin(); updateHUD();
       }
@@ -1390,6 +1474,7 @@ function animate() {
 
   /* --- world scroll: sections --- */
   const span = SECT_N * SECT_LEN;
+  bendHero = trackBend(S.dist); // the bend at the hero, all frame offsets hang off this
   for (const sec of sections) {
     let rel = (sec.userData.baseZ - (S.dist % span) + span) % span;
     /* +9 (was -8): the tiling must reach at least ~+6 BEHIND the hero at
@@ -1398,12 +1483,31 @@ function animate() {
        30m cycle, leaving the ground under the camera open to the pale
        sky dome: the once-per-section "flashing light screen" (Nov 7). */
     sec.position.z = -(rel) + SECT_LEN * 0.5 + 9;
+    /* CURVES: lay this section's chained sub-slabs along the bend. a =
+       metres ahead of the hero at the sub-slab's centre; dx = bend there
+       minus bend at the hero; yaw = -(bend slope) so each slab points
+       along the road. All values derive from absolute distance, so a
+       section reads identically however it was recycled. */
+    if (sec.userData.subs) {
+      for (const sub of sec.userData.subs) {
+        const aC = -(sec.position.z - SECT_LEN / 2 + (sub.si + 0.5) * (SECT_LEN / 6)); // metres ahead of hero (screen)
+        const dC = S.dist + aC;
+        sub.mesh.position.x = sub.cx + (trackBend(dC) - bendHero);
+        sub.mesh.position.z = -SECT_LEN / 2 + (sub.si + 0.5) * (SECT_LEN / 6);
+        sub.mesh.rotation.y = -Math.atan(trackBendVel(dC)) * 0.9;
+      }
+    }
+    /* whole-section banking: the ground group rolls gently INTO the bend
+       (bank ∝ bend slope, capped ±7°) — reads as a cambered road on the
+       turns and costs nothing. */
+    sec.rotation.z = THREE.MathUtils.clamp(-trackBendVel(S.dist + rel) * 0.55, -0.12, 0.12);
   }
   /* palms */
   for (let i = 0; i < PALM_N; i++) {
     const p = palmData[i];
     let rel = (p.off + ((i / PALMS_PER_SEC) | 0) * SECT_LEN - (S.dist % span) + span) % span;
-    dummy.position.set(p.bx, 0, -rel + SECT_LEN * 0.5 + 9); // +9: same shift as sections (see above)
+    const pz = -rel + SECT_LEN * 0.5 + 9;
+    dummy.position.set(bendX(p.bx, -pz), 0, pz); // +9: same shift as sections (see above)
     dummy.rotation.set(0, p.rot, p.tilt);
     dummy.scale.setScalar(p.s);
     dummy.updateMatrix();
@@ -1430,16 +1534,18 @@ function animate() {
   {
     const dSpan = 480;
     const relZ = off => -(((off - S.dist) % dSpan + dSpan) % dSpan) + 22;
+    /* every scenery x passes through bx2: bend offset at that thing's z */
+    const bx2 = (x, z) => bendX(x, -z);
     let iBush = 0, iBush2 = 0, iFl = 0, iTuft = 0, iRock = 0, iSand = 0, iGlint = 0;
     for (const d of decoData) {
       const z = relZ(d.off);
       if (d.kind === 0) {
-        dummy.position.set(d.bx, 0, z); dummy.rotation.set(0, d.rot, 0); dummy.scale.setScalar(d.s);
+        dummy.position.set(bx2(d.bx, z), 0, z); dummy.rotation.set(0, d.rot, 0); dummy.scale.setScalar(d.s);
         dummy.updateMatrix();
         if ((iBush + iBush2) % 2 === 0 && iBush < DECO_N) decoBush.setMatrixAt(iBush++, dummy.matrix);
         else if (iBush2 < DECO_N) decoBush2.setMatrixAt(iBush2++, dummy.matrix);
       } else if (d.kind === 1) {
-        dummy.position.set(d.bx, 0, z); dummy.rotation.set(0, d.rot, 0); dummy.scale.setScalar(d.s);
+        dummy.position.set(bx2(d.bx, z), 0, z); dummy.rotation.set(0, d.rot, 0); dummy.scale.setScalar(d.s);
         dummy.updateMatrix();
         const pick = iFl % 3;
         if (pick === 0) decoFlowerP.setMatrixAt((iFl / 3) | 0, dummy.matrix);
@@ -1448,19 +1554,19 @@ function animate() {
         iFl++;
       } else if (d.kind === 2) {
         if (iTuft >= DECO_N * 2) continue;
-        dummy.position.set(d.bx, 0, z); dummy.rotation.set(0, d.rot, 0); dummy.scale.setScalar(d.s);
+        dummy.position.set(bx2(d.bx, z), 0, z); dummy.rotation.set(0, d.rot, 0); dummy.scale.setScalar(d.s);
         dummy.updateMatrix(); decoTuft.setMatrixAt(iTuft++, dummy.matrix);
       } else if (d.kind === 3) {
         if (iRock >= 28) continue;
-        dummy.position.set(d.bx, 0.12, z); dummy.rotation.set(d.rot, d.rot * 1.7, 0); dummy.scale.set(d.s, d.s * 0.7, d.s);
+        dummy.position.set(bx2(d.bx, z), 0.12, z); dummy.rotation.set(d.rot, d.rot * 1.7, 0); dummy.scale.set(d.s, d.s * 0.7, d.s);
         dummy.updateMatrix(); decoRock.setMatrixAt(iRock++, dummy.matrix);
       } else if (d.kind === 4) {
         if (iSand >= 28) continue;
-        dummy.position.set(d.bx, 0.03, z); dummy.rotation.set(-Math.PI / 2, 0, d.rot); dummy.scale.setScalar(d.s);
+        dummy.position.set(bx2(d.bx, z), 0.03, z); dummy.rotation.set(-Math.PI / 2, 0, d.rot); dummy.scale.setScalar(d.s);
         dummy.updateMatrix(); decoSand.setMatrixAt(iSand++, dummy.matrix);
       } else if (d.kind === 5) {
         if (iGlint >= 20) continue;
-        dummy.position.set(d.bx, 0.04, z); dummy.rotation.set(-Math.PI / 2, 0, d.rot); dummy.scale.setScalar(d.s);
+        dummy.position.set(bx2(d.bx, z), 0.04, z); dummy.rotation.set(-Math.PI / 2, 0, d.rot); dummy.scale.setScalar(d.s);
         dummy.updateMatrix(); decoGlint.setMatrixAt(iGlint++, dummy.matrix);
       }
     }
@@ -1470,36 +1576,36 @@ function animate() {
     for (const im of [decoBush, decoBush2, decoFlowerP, decoFlowerY, decoFlowerV, decoTuft, decoRock]) im.instanceMatrix.needsUpdate = true;
 
     /* landmarks */
-    const flick = 1 + Math.sin(globalT * 11) * 0.16;
+    const flick = 1 + Math.sin(globalT * 7.3) * 0.09 + Math.sin(globalT * 13.7) * 0.04;
     LM_OFFS.forEach((off, li) => {
       const z = relZ(off);
       for (const sx of [-1, 1]) {
         const idx = li * 2 + (sx < 0 ? 0 : 1), x = sx * 6.1;
         dummy.rotation.set(0, 0, 0); dummy.scale.setScalar(1);
-        dummy.position.set(x, 0, z); dummy.updateMatrix(); lmTorchPole.setMatrixAt(idx, dummy.matrix);
+        dummy.position.set(bx2(x, z), 0, z); dummy.updateMatrix(); lmTorchPole.setMatrixAt(idx, dummy.matrix);
         dummy.scale.set(1, flick, 1); dummy.updateMatrix(); lmTorchFlame.setMatrixAt(idx, dummy.matrix);
         dummy.scale.setScalar(1);
-        dummy.position.set(sx * 5.6, 0, z + 26); dummy.rotation.set(0, sx * 0.35, 0); dummy.updateMatrix();
+        dummy.position.set(bx2(sx * 5.6, z + 26), 0, z + 26); dummy.rotation.set(0, sx * 0.35, 0); dummy.updateMatrix();
         if (sx < 0) lmSignPost.setMatrixAt(li * 2, dummy.matrix); else lmSignPost.setMatrixAt(li * 2 + 1, dummy.matrix);
         dummy.updateMatrix();
         if (sx < 0) lmSignBoard.setMatrixAt(li * 2, dummy.matrix); else lmSignBoard.setMatrixAt(li * 2 + 1, dummy.matrix);
       }
       dummy.rotation.set(0, li * 1.3, 0); dummy.scale.setScalar(1);
-      dummy.position.set(li === 0 ? -13.5 : 14.5, 0, z + 62); dummy.updateMatrix();
+      dummy.position.set(bx2(li === 0 ? -13.5 : 14.5, z + 62), 0, z + 62); dummy.updateMatrix();
       lmHutWall.setMatrixAt(li, dummy.matrix); lmHutRoof.setMatrixAt(li, dummy.matrix);
       const stX = li === 0 ? 12.5 : -13;
-      dummy.position.set(stX, 0, z + 118); dummy.updateMatrix();
+      dummy.position.set(bx2(stX, z + 118), 0, z + 118); dummy.updateMatrix();
       lmStatueBase.setMatrixAt(li, dummy.matrix); lmStatueBody.setMatrixAt(li, dummy.matrix); lmStatueHead.setMatrixAt(li, dummy.matrix);
       /* gold crescent emblem on the statue's chest, facing the track */
-      dummy.position.set(stX + (stX > 0 ? -0.46 : 0.46), 1.62, z + 118);
+      dummy.position.set(bx2(stX + (stX > 0 ? -0.46 : 0.46), z + 118), 1.62, z + 118);
       dummy.rotation.set(0, stX > 0 ? -Math.PI / 2 : Math.PI / 2, 2.4); dummy.scale.setScalar(1);
       dummy.updateMatrix(); lmStatueCres.setMatrixAt(li, dummy.matrix);
       dummy.rotation.set(0, li * 1.3, 0);
       const az = z + 168;
       dummy.rotation.set(0, 0, 0); dummy.scale.setScalar(1);
-      dummy.position.set(-5.9, 0, az); dummy.updateMatrix(); lmArchPostL.setMatrixAt(li, dummy.matrix);
-      dummy.position.set(5.9, 0, az); dummy.updateMatrix(); lmArchPostR.setMatrixAt(li, dummy.matrix);
-      dummy.position.set(0, 4.35 + Math.sin(globalT * 2.2 + li * 2) * 0.07, az); dummy.updateMatrix(); lmArchCloth.setMatrixAt(li, dummy.matrix);
+      dummy.position.set(bx2(-5.9, az), 0, az); dummy.updateMatrix(); lmArchPostL.setMatrixAt(li, dummy.matrix);
+      dummy.position.set(bx2(5.9, az), 0, az); dummy.updateMatrix(); lmArchPostR.setMatrixAt(li, dummy.matrix);
+      dummy.position.set(bx2(0, az), 4.35 + Math.sin(globalT * 2.2 + li * 2) * 0.07, az); dummy.updateMatrix(); lmArchCloth.setMatrixAt(li, dummy.matrix);
     });
     for (const im of [lmTorchPole, lmTorchFlame, lmSignPost, lmSignBoard, lmHutWall, lmHutRoof, lmStatueBase, lmStatueBody, lmStatueHead, lmArchPostL, lmArchPostR, lmArchCloth, lmStatueCres]) im.instanceMatrix.needsUpdate = true;
 
@@ -1509,22 +1615,22 @@ function animate() {
       BB_SPOTS.forEach((b, bi2) => {
         const z = relZ(b.off), x = b.side * 8.6;
         dummy.rotation.set(0, b.side < 0 ? 0.22 : -0.22, 0); dummy.scale.setScalar(1);
-        dummy.position.set(x - 1.9, 0, z); dummy.updateMatrix(); bbPostIM.setMatrixAt(bi2 * 2, dummy.matrix);
-        dummy.position.set(x + 1.9, 0, z); dummy.updateMatrix(); bbPostIM.setMatrixAt(bi2 * 2 + 1, dummy.matrix);
-        dummy.position.set(x, 0, z); dummy.updateMatrix(); bbBoardIMs[b.v].setMatrixAt(vCount[b.v]++, dummy.matrix);
+        dummy.position.set(bx2(x - 1.9, z), 0, z); dummy.updateMatrix(); bbPostIM.setMatrixAt(bi2 * 2, dummy.matrix);
+        dummy.position.set(bx2(x + 1.9, z), 0, z); dummy.updateMatrix(); bbPostIM.setMatrixAt(bi2 * 2 + 1, dummy.matrix);
+        dummy.position.set(bx2(x, z), 0, z); dummy.updateMatrix(); bbBoardIMs[b.v].setMatrixAt(vCount[b.v]++, dummy.matrix);
       });
       bbPostIM.count = BB_SPOTS.length * 2; bbPostIM.instanceMatrix.needsUpdate = true;
       bbBoardIMs.forEach((im, vi) => { im.count = vCount[vi]; im.instanceMatrix.needsUpdate = true; });
       const sz = relZ(30);
       dummy.rotation.set(0, 0, 0); dummy.scale.setScalar(1);
-      dummy.position.set(-5.5, 0, sz); dummy.updateMatrix(); startPostIM.setMatrixAt(0, dummy.matrix);
-      dummy.position.set(5.5, 0, sz); dummy.updateMatrix(); startPostIM.setMatrixAt(1, dummy.matrix);
-      dummy.position.set(0, 0, sz); dummy.updateMatrix(); startBoardIM.setMatrixAt(0, dummy.matrix);
+      dummy.position.set(bx2(-5.5, sz), 0, sz); dummy.updateMatrix(); startPostIM.setMatrixAt(0, dummy.matrix);
+      dummy.position.set(bx2(5.5, sz), 0, sz); dummy.updateMatrix(); startPostIM.setMatrixAt(1, dummy.matrix);
+      dummy.position.set(bx2(0, sz), 0, sz); dummy.updateMatrix(); startBoardIM.setMatrixAt(0, dummy.matrix);
       startPostIM.instanceMatrix.needsUpdate = true; startBoardIM.instanceMatrix.needsUpdate = true;
     }
 
     /* distant ranges + mesa */
-    for (const fi of farIsles) { fi.g.position.set(fi.x, 0, relZ(fi.off)); }
+    for (const fi of farIsles) { fi.g.position.set(bx2(fi.x, relZ(fi.off)), 0, relZ(fi.off)); }
 
     /* kangaroo-crossing signs: both sides of the track, facing the runner */
     {
@@ -1533,7 +1639,7 @@ function animate() {
         const z = relZ(off);
         for (const sx of [-1, 1]) {
           dummy.rotation.set(0, sx < 0 ? 0.30 : -0.30, 0); dummy.scale.setScalar(1);
-          dummy.position.set(sx * 5.35, 0, z); dummy.updateMatrix(); rooSignPostIM.setMatrixAt(iSign, dummy.matrix);
+          dummy.position.set(bx2(sx * 5.35, z), 0, z); dummy.updateMatrix(); rooSignPostIM.setMatrixAt(iSign, dummy.matrix);
           dummy.rotation.set(0, sx < 0 ? 0.30 : -0.30, Math.PI / 4); dummy.updateMatrix(); rooSignBoardIM.setMatrixAt(iSign, dummy.matrix);
           iSign++;
         }
@@ -1562,7 +1668,7 @@ function animate() {
         m.y + Math.sin(globalT * m.dr + m.ph * 2) * 0.5,
         -((( -m.z + S.dist * 0.92) % 55 + 55) % 55) + 4);
       dummy.rotation.set(0, 0, 0);
-      dummy.scale.setScalar(0.8 + 0.35 * Math.sin(globalT * 2 + m.ph * 3));
+      dummy.scale.setScalar(0.85 + 0.18 * Math.sin(globalT * 2 + m.ph * 3));
       dummy.updateMatrix(); motes.setMatrixAt(i, dummy.matrix);
     }
     motes.instanceMatrix.needsUpdate = true;
@@ -1572,8 +1678,8 @@ function animate() {
     for (let sIdx = 0; sIdx < SECT_N; sIdx++) {
       const secZ = sections[sIdx].position.z - 7.5 + (sIdx % 3) * 9;
       for (const fx of [-18.6, 18.6]) {
-        dummy.position.set(fx, 0.06, secZ); dummy.rotation.set(-Math.PI / 2, 0, 0);
-        dummy.scale.set(1, 1 + 0.25 * Math.sin(globalT * 1.4 + sIdx * 1.7 + (fx > 0 ? 2 : 0)), 1);
+        dummy.position.set(bendX(fx, -secZ), 0.06, secZ); dummy.rotation.set(-Math.PI / 2, 0, 0);
+        dummy.scale.set(1, 1 + 0.15 * Math.sin(globalT * 1.4 + sIdx * 1.7 + (fx > 0 ? 2 : 0)), 1);
         dummy.updateMatrix(); foamIM.setMatrixAt(iFoam++, dummy.matrix);
       }
     }
@@ -1590,7 +1696,7 @@ function animate() {
     if (!o.active) continue;
     const rz = -(o.z - S.dist);
     if (rz > 12 || rz < -330) continue;
-    const x = LANE_X[o.lane];
+    const x = bendX(LANE_X[o.lane], -rz);
     if (o.kind === 'jump' && bi < 24) {
       dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 1, 1);
       dummy.position.set(x, 0.55, rz); dummy.updateMatrix(); barrierIM.setMatrixAt(bi, dummy.matrix);
@@ -1617,7 +1723,7 @@ function animate() {
   for (let i = 0; i < COIN_N; i++) {
     const c = coins[i];
     if (!c.active) { hideIM(coinIM, i); continue; }
-    dummy.position.set(c.x, c.y + Math.sin(globalT * 3 + i) * 0.07, -(c.z - S.dist));
+    dummy.position.set(bendX(c.x, c.z - S.dist), c.y + Math.sin(globalT * 3 + i) * 0.07, -(c.z - S.dist));
     dummy.rotation.set(0, spin + i, 0); dummy.scale.setScalar(1);
     dummy.updateMatrix(); coinIM.setMatrixAt(i, dummy.matrix);
   }
@@ -1625,7 +1731,7 @@ function animate() {
   for (let i = 0; i < STAR_N; i++) {
     const s = stars[i];
     if (!s.active) { hideIM(starIM, i); continue; }
-    dummy.position.set(s.x, s.y + Math.sin(globalT * 2.4 + i * 2) * 0.12, -(s.z - S.dist));
+    dummy.position.set(bendX(s.x, s.z - S.dist), s.y + Math.sin(globalT * 2.4 + i * 2) * 0.12, -(s.z - S.dist));
     dummy.rotation.set(0, -spin * 0.8 + i, 0); dummy.scale.setScalar(1.15);
     dummy.updateMatrix(); starIM.setMatrixAt(i, dummy.matrix);
   }
@@ -1633,37 +1739,37 @@ function animate() {
   for (let i = 0; i < SCAT_N; i++) {
     const s = scats[i];
     if (!s.active) { hideIM(scatIM, i); continue; }
-    dummy.position.set(s.x, s.y, s.z); // s.z is hero-relative (spawned behind, drifts +z)
+    dummy.position.set(bendX(s.x, s.z), s.y, s.z); // s.z is hero-relative (spawned behind, drifts +z)
     dummy.rotation.set(0, s.spin, 0); dummy.scale.setScalar(0.9);
     dummy.updateMatrix(); scatIM.setMatrixAt(i, dummy.matrix);
   }
   scatIM.instanceMatrix.needsUpdate = true;
 
-  /* --- loop placement --- */
-  if (loopGroup.visible) {
-    const lz = S.nextLoopAt;
-    loopGroup.position.z = S.loop ? -(S.loop.z - S.dist) : -(lz - S.dist);
-    if (!S.loop && S.dist > lz + 30) loopGroup.visible = false;
-    if (S.loop) loopGroup.position.z = 0;
+  /* --- finish arch placement: next marker arch ahead, following bends --- */
+  {
+    const az = -(S.nextArchAt - ARCH_EVERY - S.dist); // the arch currently on course
+    const onCourse = az < 12 && az > -480;
+    archGroup.visible = onCourse;
+    if (onCourse) {
+      archGroup.position.set(bendX(0, -az), 0, az);
+      archGroup.rotation.y = -Math.atan(trackBendVel(S.dist - az)) * 0.9;
+      archGroup.rotation.z = THREE.MathUtils.clamp(-trackBendVel(S.dist - az) * 0.55, -0.12, 0.12);
+    }
   }
 
   /* --- hero placement & animation --- */
   const runPhase = globalT * (7 + S.speed * 0.52); // stride rate per m/s held ~constant
   const hopPh = S.dist * 0.52; // hop cycle is DISTANCE-driven: one bound per ~12 m
   const hopRaw = Math.sin(hopPh);
-  const hopLift = S.grounded && S.mode === 'run' && !S.loop ? Math.max(0, hopRaw) * 0.30 : 0;
+  const hopLift = S.grounded && S.mode === 'run' ? Math.max(0, hopRaw) * 0.30 : 0;
   const hopS = THREE.MathUtils.clamp(hopRaw * 1.6, -1, 1); // sharpened: distinct crouch vs full-stretch airborne beats
   const hopC = Math.cos(hopPh);
-  if (S.loop) {
-    const th = S.loop.theta;
-    const cx = S.laneX * 0.3, cy = LOOP_R - Math.cos(th) * LOOP_R, cz = -Math.sin(th) * LOOP_R;
-    H.group.position.set(cx, cy, cz);
-    H.ballG.rotation.x = -th * 1.6;
-    H.ballG.rotation.z = S.laneX * -0.12;
-  } else {
+  {
     H.group.position.set(S.laneX, S.y + hopLift, 0);
-    H.group.rotation.z = (LANE_X[S.lane] - S.laneX) * -0.14;
-    H.group.rotation.x = S.grounded ? (S.mode === 'run' && !S.loop ? -hopRaw * 0.09 : THREE.MathUtils.clamp(S.speed * 0.006, 0, 0.14)) : -0.12;
+    /* lean INTO the bend + the steering lean: the road's slope at the
+       hero tilts ROO up to ~8° on the turns (banking feel) */
+    H.group.rotation.z = (LANE_X[S.lane] - S.relX) * -0.14 + THREE.MathUtils.clamp(-trackBendVel(S.dist) * 0.9, -0.14, 0.14);
+    H.group.rotation.x = S.grounded ? (S.mode === 'run' ? -hopRaw * 0.09 : THREE.MathUtils.clamp(S.speed * 0.006, 0, 0.14)) : -0.12;
     // limbs — a kangaroo HOPS: both hind legs swing together through a
     // crouch -> launch -> airborne stretch -> reach -> land cycle, phased
     // to hopLift (which peaks at hopS = 1). NOT an alternating leg run.
@@ -1671,7 +1777,7 @@ function animate() {
       H.legL.rotation.x = -0.55; H.legR.rotation.x = -0.55; H.shinL.rotation.x = 0.9; H.shinR.rotation.x = 0.9;
       H.armL.rotation.x = -0.9; H.armR.rotation.x = -0.9;
       H.bodyG.position.y = 0;
-      H.group.rotation.z = S.steerX != null ? (S.steerX - S.laneX) * -0.14 : S.group.rotation.z;
+      H.group.rotation.z = S.steerX != null ? (S.steerX - S.laneX) * -0.14 + THREE.MathUtils.clamp(-trackBendVel(S.dist) * 0.9, -0.14, 0.14) : H.group.rotation.z;
     } else if (!S.grounded) { // the player's JUMP: legs reach forward, paws up
       H.legL.rotation.x = -0.85; H.legR.rotation.x = -0.85; H.shinL.rotation.x = 0.35; H.shinR.rotation.x = 0.35;
       H.armL.rotation.x = -2.2; H.armR.rotation.x = -2.2;
@@ -1687,48 +1793,59 @@ function animate() {
       H.bodyG.position.y = Math.sin(globalT * 1.8) * 0.015;
     }
     H.bodyG.rotation.x = S.rollT > 0 ? 0.35 : 0;
-    H.tailG.rotation.x = (S.mode === 'run' && S.grounded && !S.loop) ? hopRaw * 0.16 : -0.08 + Math.sin(globalT * 2.2) * 0.05; // counter-wave against the hop
+    H.tailG.rotation.x = (S.mode === 'run' && S.grounded) ? hopRaw * 0.16 : -0.08 + Math.sin(globalT * 2.2) * 0.05; // counter-wave against the hop
     H.tailG.rotation.y = Math.sin(globalT * 2.6) * 0.10;
-    if (H.tail2G) H.tail2G.rotation.x = (S.mode === 'run' && S.grounded && !S.loop) ? -hopRaw * 0.22 : 0;
-    if (H.joeyG) H.joeyG.rotation.x = (S.mode === 'run' && S.grounded && !S.loop) ? hopRaw * 0.14 : Math.sin(globalT * 2.4) * 0.06; // joey bobs with the hop
-    H.earL.rotation.x = -0.22 - (S.speed / SPEED_MAX) * 0.3 + ((S.mode === 'run' && S.grounded && !S.loop) ? hopC * 0.08 : 0);
-    H.earR.rotation.x = -0.22 - (S.speed / SPEED_MAX) * 0.3 + ((S.mode === 'run' && S.grounded && !S.loop) ? hopC * 0.08 : 0);
+    if (H.tail2G) H.tail2G.rotation.x = (S.mode === 'run' && S.grounded) ? -hopRaw * 0.22 : 0;
+    if (H.joeyG) H.joeyG.rotation.x = (S.mode === 'run' && S.grounded) ? hopRaw * 0.14 : Math.sin(globalT * 2.4) * 0.06; // joey bobs with the hop
+    H.earL.rotation.x = -0.22 - (S.speed / SPEED_MAX) * 0.3 + ((S.mode === 'run' && S.grounded) ? hopC * 0.08 : 0);
+    H.earR.rotation.x = -0.22 - (S.speed / SPEED_MAX) * 0.3 + ((S.mode === 'run' && S.grounded) ? hopC * 0.08 : 0);
     H.scarfTail.rotation.x = 0.5 + (S.speed / SPEED_MAX) * 0.7 + Math.sin(globalT * 9) * 0.12;
-    H.headG.rotation.y = (LANE_X[S.lane] - S.laneX) * -0.2;
+    H.headG.rotation.y = (LANE_X[S.lane] - S.relX) * -0.2;
     // hurt flicker
     const flick = S.invulnT > 0 && ((globalT * 14) | 0) % 2 === 0;
-    H.bodyG.visible = !flick && !S.loop;
+    H.bodyG.visible = !flick;
   }
   H.group.visible = true;
 
   /* --- camera --- */
   const speedT = THREE.MathUtils.clamp((S.speed - SPEED0) / (SPEED_MAX - SPEED0), 0, 1);
-  let camTX = S.laneX * 0.55, camTY = 5.4 + S.y * 0.32, camTZ = 9.6 - speedT * 0.9;
+  /* the camera aims a touch INTO the bend (look lead ∝ bend slope up to
+     ~120 m ahead): the turn is visible coming, not a surprise */
+  const bendLead = trackBend(S.dist + 110) - bendHero;
+  let camTX = S.laneX * 0.55 + bendLead * 0.30, camTY = 5.4 + S.y * 0.32, camTZ = 9.6 - speedT * 0.9;
   let lookY = 1.1 + S.y * 0.3, lookZ = -12;
   let fovT = 66 + speedT * 10;
-  if (S.loop) {
-    const th = S.loop.theta;
-    camTX = S.laneX * 0.3; camTY = LOOP_R - Math.cos(th) * (LOOP_R + 4.6); camTZ = -Math.sin(th) * (LOOP_R + 4.6);
-    lookY = LOOP_R - Math.cos(th + 0.5) * LOOP_R; lookZ = -Math.sin(th + 0.5) * LOOP_R;
-    fovT = 74;
-    camera.up.set(Math.sin(th), Math.cos(th), 0);
-  } else {
-    camera.up.set(0, 1, 0);
-  }
+  camera.up.set(0, 1, 0);
   if (S.mode === 'menu') { // slow menu orbit drift
     camTX = Math.sin(globalT * 0.24) * 3.2; camTY = 3.6; camTZ = 8.6; lookY = 1.0; lookZ = -6; fovT = 60;
   }
-  const lerpK = Math.min(1, rawDt * 5.5);
-  camera.position.x += (camTX - camera.position.x) * lerpK;
-  camera.position.y += (camTY - camera.position.y) * (S.loop ? 1 : lerpK);
-  camera.position.z += (camTZ - camera.position.z) * (S.loop ? 1 : lerpK);
+  const lerpK = 1 - Math.exp(-6.0 * rawDt);
+  const lookK = 1 - Math.exp(-9.0 * rawDt);
+  {
+    camera.position.x += (camTX - camera.position.x) * lerpK;
+    camera.position.y += (camTY - camera.position.y) * lerpK;
+    camera.position.z += (camTZ - camera.position.z) * lerpK;
+    lookPt.x += ((camTX + bendLead * 0.85) * 1.309 - lookPt.x) * lookK;
+    lookPt.y += (lookY - lookPt.y) * lookK;
+    lookPt.z += (lookZ - lookPt.z) * lookK;
+  }
   if (S.hitFlash > 0) camShake = Math.max(camShake, 0.12);
   if (camShake > 0.001) {
     camera.position.x += (Math.random() - 0.5) * camShake;
     camera.position.y += (Math.random() - 0.5) * camShake;
     camShake *= Math.pow(0.001, rawDt * 2.2);
   }
-  camera.lookAt(camera.position.x * 0.72, lookY, lookZ);
+  camera.lookAt(lookPt);
+  /* subtle speed vignette: a soft cool edge glow that only breathes in
+     near top speed (polish pass — speedFx was a dead element before).
+     Owner crash-safety rule: the style write happens ONLY when the
+     rounded value actually changes and never while the value is 0, so
+     this costs zero per-frame layout/paint churn for most of a run. */
+  const fx = S.mode === 'run' ? Math.round(speedT * 10) / 10 : 0;
+  if (fx !== speedFx._last) {
+    speedFx._last = fx;
+    speedFx.style.opacity = fx ? String(Math.min(1, fx * 1.6)) : '0';
+  }
   if (Math.abs(camera.fov - fovT) > 0.05) { camera.fov += (fovT - camera.fov) * Math.min(1, rawDt * 3); camera.updateProjectionMatrix(); }
 
   /* --- water shimmer --- */
@@ -1769,7 +1886,8 @@ applyLang();
 updateHUD();
 $('muteBtn').textContent = S.muted ? '🔇' : '🔊';
 try { $('nameInput').value = localStorage.getItem('luncRush3dName') || ''; } catch (e) {}
+$('boot').classList.add('hidden'); // boot/loading screen hands over to the menu
 animate();
 
 /* QA hook (used by automated checks; harmless in production) */
-window.__rush3d = { S, startRun, H, THREE, scene, camera, renderer, stick, stickDock, stickKnob };
+window.__rush3d = { S, startRun, H, THREE, scene, camera, renderer, stick, stickDock, stickKnob, lookPt };
