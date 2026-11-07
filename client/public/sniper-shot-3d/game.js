@@ -1260,9 +1260,28 @@ scene.add(muzzleLight);
 const game = { phase: 'boot', wave: 0, score: 0, targetsHit: 0, shots: 0, fouls: 0,
   combo: 0, bestCombo: 0, timer: 0, interT: 0, waveShots: 0, waveHits: 0, runT: 0, simT: 0 };
 const MAG = 5;
-const player = { ammo: MAG, chamberT: 0, reloadT: 0, scoped: false, zoomIdx: 0,
+const player = { ammo: MAG, chamberT: 0, reloadT: 0, scoped: false, zoomIdx: 0, zoomFov: 15,
   breath: 1, holding: false, breathLock: false, kick: 0, boltT: -1 };
-const ZOOMS = [15, 10.5, 7.2];
+/* Graded scope (Tom's note, Nov 6): zoom is a CONTINUOUS value, not an
+   in/out toggle. The scope magnifies from ~2.2x (fov 25) up to ~8x
+   (fov 6.8); the ZOOM button steps through three labelled stops
+   (2x / 4x / 8x), the − / + buttons nudge in small smooth steps, the
+   wheel and pinch zoom are smooth, and the setting STAYS where the
+   player leaves it between shots and waves — setScope never touches it. */
+const ZOOMS = [15, 10.5, 7.2]; // QA-friendly stops (fov); kept for harness compat
+const FOV_PLAIN = 55, FOV_WIDE = 25, FOV_MAX = 6.8;
+const ZOOM_STOPS = [{ fov: 24, label: '2X' }, { fov: 12.6, label: '4X' }, { fov: 6.8, label: '8X' }];
+function zoomLabel(fov = player.zoomFov) { return (FOV_WIDE / fov).toFixed(1).replace(/\.0$/, '') + 'X'; }
+function setZoomFov(f) {
+  player.zoomFov = THREE.MathUtils.clamp(f, FOV_MAX, FOV_WIDE);
+  player.zoomIdx = ZOOMS.reduce((bi, z, i) => Math.abs(z - player.zoomFov) < Math.abs(ZOOMS[bi] - player.zoomFov) ? i : bi, 0);
+  updateZoomReadout();
+}
+function cycleZoom() { // ZOOM button: 2x -> 4x -> 8x -> 2x …
+  const next = ZOOM_STOPS.find(s => s.fov < player.zoomFov - 0.6) || ZOOM_STOPS[0];
+  setZoomFov(next.fov);
+}
+function updateZoomReadout() { const el = $('zoomVal'); if (el) el.textContent = zoomLabel(); }
 let aimYaw = 0, aimPitch = -0.13;
 let freezeT = 0, elapsed = 0;
 let qaHold = false, qaDone = false, qaFreeze = false, qaFoulDone = false;
@@ -1302,14 +1321,14 @@ addEventListener('keydown', e => {
   if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) fire(); }
   if (e.code === 'KeyR') startReload();
   if (e.code === 'KeyF' || e.code === 'KeyQ') setScope(!player.scoped);
-  if (e.code === 'Equal' && player.scoped) player.zoomIdx = Math.min(ZOOMS.length - 1, player.zoomIdx + 1);
-  if (e.code === 'Minus' && player.scoped) player.zoomIdx = Math.max(0, player.zoomIdx - 1);
+  if (e.code === 'Equal' && player.scoped) setZoomFov(player.zoomFov * 0.8);
+  if (e.code === 'Minus' && player.scoped) setZoomFov(player.zoomFov * 1.25);
   AudioSys.init();
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 addEventListener('wheel', e => {
   if (!player.scoped || game.phase !== 'fight') return;
-  player.zoomIdx = THREE.MathUtils.clamp(player.zoomIdx + (e.deltaY > 0 ? -1 : 1), 0, ZOOMS.length - 1);
+  setZoomFov(player.zoomFov * (e.deltaY > 0 ? 1.12 : 0.89)); // smooth graded wheel zoom
 }, { passive: true });
 document.body.style.touchAction = 'none';
 
@@ -1331,13 +1350,11 @@ cvs.addEventListener('pointerdown', e => {
 cvs.addEventListener('pointermove', e => {
   if (!pointers.has(e.pointerId)) return;
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  if (pointers.size === 2) { // pinch = zoom
+  if (pointers.size === 2) { // pinch = smooth graded zoom (ratio-based, stops anywhere)
     const [a, b] = [...pointers.values()];
     const d = Math.hypot(a.x - b.x, a.y - b.y);
-    if (player.scoped && Math.abs(d - pinchD) > 46) {
-      player.zoomIdx = THREE.MathUtils.clamp(player.zoomIdx + (d > pinchD ? 1 : -1), 0, ZOOMS.length - 1);
-      pinchD = d;
-    }
+    if (player.scoped && pinchD > 0 && d > 0) setZoomFov(player.zoomFov * (pinchD / d));
+    pinchD = d;
     return;
   }
   if (e.pointerId !== dragId) return;
@@ -1363,7 +1380,9 @@ function bindBtn(id, fn) {
   el.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); AudioSys.init(); fn(); });
 }
 bindBtn('scopeBtn', () => setScope(!player.scoped));
-bindBtn('zoomBtn', () => { if (player.scoped) player.zoomIdx = (player.zoomIdx + 1) % ZOOMS.length; });
+bindBtn('zoomBtn', () => { if (player.scoped) cycleZoom(); });
+bindBtn('zoomOutBtn', () => { if (player.scoped) setZoomFov(player.zoomFov * 1.3); });
+bindBtn('zoomInBtn', () => { if (player.scoped) setZoomFov(player.zoomFov * 0.75); });
 bindBtn('fireBtn', () => fire());
 bindBtn('reloadBtn', () => startReload());
 $('muteBtn').addEventListener('pointerdown', e => {
@@ -1381,7 +1400,10 @@ function setScope(on) {
   player.scoped = on;
   $('scopeBtn').classList.toggle('on', on);
   $('zoomBtn').disabled = !on;
+  $('zoomOutBtn').disabled = !on;
+  $('zoomInBtn').disabled = !on;
   if (!on) player.holding = false;
+  updateZoomReadout();
 }
 
 /* ---------------- shooting ---------------- */
@@ -1653,14 +1675,15 @@ function animate() {
     else tr.line.material.opacity = 0;
   }
 
-  // scope zoom easing
-  const targetFov = player.scoped ? ZOOMS[player.zoomIdx] : 55;
+  // scope zoom easing — glides smoothly to whatever graded level is set
+  const targetFov = player.scoped ? player.zoomFov : FOV_PLAIN;
   if (Math.abs(camera.fov - targetFov) > 0.05) {
     camera.fov += (targetFov - camera.fov) * Math.min(1, rawDt * 11);
     camera.updateProjectionMatrix();
   }
   const scopedNow = player.scoped && camera.fov < 34;
   $('scopeOverlay').style.display = scopedNow ? 'block' : 'none';
+  $('zoomReadout').style.display = scopedNow ? 'block' : 'none';
   $('cross').style.display = (!scopedNow && (game.phase === 'fight' || game.phase === 'waveclear')) ? 'block' : 'none';
   rifle.visible = !scopedNow;
   $('breathWrap').style.display = player.scoped ? 'block' : 'none';
@@ -1785,7 +1808,8 @@ function qaState() {
   return {
     phase: game.phase, wave: game.wave, score: game.score, targetsHit: game.targetsHit,
     hits: game.hits || 0, shots: game.shots, fouls: game.fouls, combo: game.combo,
-    ammo: player.ammo, scoped: player.scoped, zoomIdx: player.zoomIdx, fov: Math.round(camera.fov * 10) / 10,
+    ammo: player.ammo, scoped: player.scoped, zoomIdx: player.zoomIdx, zoomFov: player.zoomFov,
+    zoomX: zoomLabel(), fov: Math.round(camera.fov * 10) / 10,
     timer: Math.round(game.timer), targetsActive: targets.length,
     counts: { cars: cars.length, people: people.length, animals: animals.length, birds: birds.length, ducks: ducks.length, pigeons: pigeons.length },
     life: {
@@ -1845,7 +1869,10 @@ window.__qa = {
   state: qaState,
   aim: (x, y, z) => aimAtPoint(new THREE.Vector3(x, y, z)),
   scope: v => setScope(v !== false),
-  zoom: i => { player.zoomIdx = THREE.MathUtils.clamp(i | 0, 0, ZOOMS.length - 1); },
+  zoom: i => setZoomFov(ZOOMS[THREE.MathUtils.clamp(i | 0, 0, ZOOMS.length - 1)]),
+  zoomSet: f => setZoomFov(f), zoomLabel: () => zoomLabel(),
+  zoomIn: () => setZoomFov(player.zoomFov * 0.75), zoomOut: () => setZoomFov(player.zoomFov * 1.3),
+  zoomCycle: () => cycleZoom(),
   fire: () => fire(),
   reload: () => startReload(),
   aimTarget: () => qaAimTarget(),
