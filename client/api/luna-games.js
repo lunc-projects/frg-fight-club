@@ -50,7 +50,9 @@ const GAMES = {
   tower: { prefix: 'twr', maxScore: 100000, minSec: 10, maxSec: 3600, rateMul: 90, rateBase: 2000 },
   snake: { prefix: 'snake', maxScore: 20000, minSec: 5, maxSec: 3600, rateMul: 25, rateBase: 300 },
   flap: { prefix: 'flap', maxScore: 30000, minSec: 3, maxSec: 3600, rateMul: 16, rateBase: 150 },
-  pinball: { prefix: 'pinball', maxScore: 50000, minSec: 10, maxSec: 3600, rateMul: 30, rateBase: 500 },
+  // pinball rebuilt Nov 7 with classic pinball scoring (missions up to a 250k super
+  // jackpot); a strong 3-ball game lands ~200k-2M, so caps were rescaled like chain-tycoon's.
+  pinball: { prefix: 'pinball', maxScore: 25000000, minSec: 10, maxSec: 3600, rateMul: 20000, rateBase: 250000 },
   racer: { prefix: 'racer', maxScore: 30000, minSec: 5, maxSec: 3600, rateMul: 45, rateBase: 300 },
   cannon: { prefix: 'cannon', maxScore: 1540, minSec: 20, maxSec: 3600, rateMul: 40, rateBase: 600 },
   whack: { prefix: 'whack', maxScore: 3000, minSec: 55, maxSec: 65, rateMul: 50, rateBase: 0 },
