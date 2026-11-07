@@ -22,7 +22,7 @@ const S = {
   mode: 'menu',           // menu | run | pause | over
   dist: 0, coins: 0, stars: 0, score: 0, hearts: 3,
   speed: 0, time: 0, runTime: 0,
-  lane: 1, laneX: 0, y: 0, vy: 0, grounded: true,
+  lane: 1, laneX: 0, steerX: null, y: 0, vy: 0, grounded: true,
   rollT: 0, stumbleT: 0, invulnT: 0, hitFlash: 0,
   loop: null, nextLoopAt: LOOP_EVERY, loopCount: 0,
   pitchChain: 0, muted: false, started: false, pilot: false,
@@ -779,7 +779,7 @@ const sndWhoosh = () => noiseBurst(0.5, 0.35, 700);
 
 /* ---------------- DOM / UI ---------------- */
 const $ = id => document.getElementById(id);
-const hud = $('hud'), touchUI = $('touchUI'), stickZone = $('stickZone');
+const hud = $('hud'), touchUI = $('touchUI'), stickDock = $('stickDock');
 const hudCoins = $('hudCoins'), hudStars = $('hudStars'), hudDist = $('hudDist'), heartsEl = $('hearts');
 const bannerMain = $('bannerMain'), bannerSub = $('bannerSub');
 let bannerTimer = null;
@@ -951,7 +951,7 @@ function qaPilot(dt) {
 function resetRun() {
   S.dist = 0; S.coins = 0; S.stars = 0; S.score = 0; S.hearts = 3;
   S.speed = SPEED0; S.y = 0; S.vy = 0; S.grounded = true;
-  S.lane = 1; S.laneX = 0; S.rollT = 0; S.stumbleT = 0; S.invulnT = 0; S.hitFlash = 0;
+  S.lane = 1; S.laneX = 0; S.steerX = null; S.rollT = 0; S.stumbleT = 0; S.invulnT = 0; S.hitFlash = 0;
   S.loop = null; S.nextLoopAt = LOOP_EVERY; S.loopCount = 0; S.runTime = 0; S.pitchChain = 0;
   for (const c of coins) c.active = false;
   for (const s of stars) s.active = false;
@@ -968,13 +968,13 @@ function startRun() {
   S.mode = 'run'; S.started = true;
   $('menu').classList.add('hidden'); $('overPanel').classList.add('hidden'); $('pausePanel').classList.add('hidden');
   hud.classList.remove('hidden'); touchUI.classList.remove('hidden');
-  stickZone.classList.remove('hidden'); stickZone.classList.add('on');
+  stickDock.classList.remove('hidden'); stickHome();
   showBanner(T('go'), T('swipeHint'), 1200);
 }
 function endRun() {
   S.mode = 'over';
   hud.classList.add('hidden'); touchUI.classList.add('hidden');
-  stickZone.classList.add('hidden'); stickZone.classList.remove('on'); stickReset();
+  stickDock.classList.add('hidden'); stickReset();
   $('finalScoreLine').textContent = T('finalScore') + ': ' + Math.floor(S.score);
   $('finalDetail').textContent = `${S.coins} ${T('coinsWord')} · ${S.stars} ${T('starsWord')} · ${Math.floor(S.dist)}m`;
   $('savedLine').textContent = '';
@@ -1004,7 +1004,7 @@ $('tabAll').addEventListener('click', () => { boardTab = 'all'; $('tabAll').clas
 $('tabWeek').addEventListener('click', () => { boardTab = 'week'; $('tabWeek').classList.add('on'); $('tabAll').classList.remove('on'); renderBoard(); });
 $('pauseBtn').addEventListener('click', pauseGame);
 $('resumeBtn').addEventListener('click', resumeGame);
-$('quitBtn').addEventListener('click', () => { $('pausePanel').classList.add('hidden'); $('overPanel').classList.add('hidden'); hud.classList.add('hidden'); touchUI.classList.add('hidden'); stickZone.classList.add('hidden'); stickZone.classList.remove('on'); stickReset(); $('menu').classList.remove('hidden'); S.mode = 'menu'; });
+$('quitBtn').addEventListener('click', () => { $('pausePanel').classList.add('hidden'); $('overPanel').classList.add('hidden'); hud.classList.add('hidden'); touchUI.classList.add('hidden'); stickDock.classList.add('hidden'); stickReset(); $('menu').classList.remove('hidden'); S.mode = 'menu'; });
 $('muteBtn').addEventListener('click', () => {
   S.muted = !S.muted;
   try { localStorage.setItem('luncRush3dMute', S.muted ? '1' : '0'); } catch (e) {}
@@ -1013,8 +1013,8 @@ $('muteBtn').addEventListener('click', () => {
 });
 
 /* ---------------- input ---------------- */
-function doLeft() { if (S.mode === 'run' && S.lane > 0) { S.lane--; } }
-function doRight() { if (S.mode === 'run' && S.lane < 2) { S.lane++; } }
+function doLeft() { if (S.mode !== 'run') return; if (S.steerX != null) { S.steerX = Math.max(-STEER_MAX, S.steerX - 2.3); S.lane = Math.max(0, Math.round(S.steerX / 2.3) + 1); S.steerTgt = S.steerX; } else if (S.lane > 0) { S.lane--; } }
+function doRight() { if (S.mode !== 'run') return; if (S.steerX != null) { S.steerX = Math.min(STEER_MAX, S.steerX + 2.3); S.lane = Math.min(2, Math.round(S.steerX / 2.3) + 1); S.steerTgt = S.steerX; } else if (S.lane < 2) { S.lane++; } }
 function doJump() {
   if (S.mode !== 'run') return;
   if (S.loop) return;
@@ -1032,118 +1032,143 @@ const bindBtn = (id, fn) => {
 };
 bindBtn('btnJump', doJump); bindBtn('btnRoll', doRoll);
 
-/* ---- Floating joystick (house style) ----------------------------------
-   Base lands under the thumb wherever it touches inside #stickZone
-   (left/lower screen). Discrete flicks only — lanes stay discrete:
-   push past STICK_FIRE re-arms only after returning inside STICK_REARM,
-   so one push = one action and a flick-release-flick = two.
-   Left/right = lane switch, up = jump, down = roll. Touches that begin
-   in the stick zone belong to the stick: the window swipe handlers skip
-   them (stickTouch flag) so a flick never double-fires as a swipe. */
-const STICK_R = 52, STICK_FIRE = 26, STICK_REARM = 12;
+/* ---- Floating joystick — ALWAYS VISIBLE, FREE steering (Nov 7) -------
+   The gold stick sits in its dock (bottom-left) the whole run — the player
+   SEES it before touching anything (Tom asked 4x; the old build only drew
+   it after a press landed inside a 46%-wide invisible zone, and even then
+   only as discrete lane flicks — no left/right steering around objects).
+   Now: the stick's horizontal axis drives SMOOTH continuous lateral
+   movement (S.steerX) across the full track width while held; vertical
+   push past STICK_FIRE = jump (up) / roll (down), edge-triggered.
+   Steering input is captured on THREE independent channels so no webview
+   quirk can starve all of them:
+     (a) pointer events on window (with setPointerCapture on the canvas),
+     (b) touch events on window (catches flows with no pointer events),
+     (c) mouse events on window (desktop).
+   A steering press begins anywhere in the LEFT 2/3 of the screen below
+   the HUD strip (except on buttons/panels); the dock's knob follows the
+   thumb wherever it goes; a second simultaneous touch on the right side
+   still hits the ▲/▼ buttons (multi-touch), and steering + ▲ can be held
+   together. Keyboard/qaPilot switch S.lane; the loop below eases laneX
+   toward steerX while the stick is active and toward the lane otherwise,
+   and re-derives S.lane from steerX so collisions/pickups stay coherent.
+   The old window swipe handlers are GONE: a drag now STEERS (it used to
+   fire one lane hop on release, which fought the stick). */
+const STICK_R = 52, STICK_FIRE = 26, STEER_MAX = 3.1, STEER_SPEED = 13;
 const stickBase = $('stickBase'), stickKnob = $('stickKnob');
-const stick = { id: null, bx: 0, by: 0, armedX: true, armedY: true };
-let stickTouch = false; // a touch owned by the stick is in progress
-function stickShow(x, y) {
-  /* stickBase is absolutely positioned INSIDE #stickZone, and the zone's
-     top-left sits at (0, 38% of screen height) — while pointer clientX/Y
-     are VIEWPORT coords. Feeding them in raw dropped the base one
-     zone-height (~321px on an 844px screen) below the thumb, fully
-     off-screen at the natural thumb spot: the stick steered fine but was
-     never VISIBLE (Tom: "no joystick", Nov 7). Convert into zone space. */
-  const zr = stickZone.getBoundingClientRect();
-  stickBase.style.left = (x - zr.left) + 'px'; stickBase.style.top = (y - zr.top) + 'px';
-  stickBase.style.display = 'block'; stickKnob.style.transform = '';
+const stick = { id: null, kind: null, bx: 0, by: 0, x: 0, nx: 0, ny: 0, armedUp: true, armedDn: true, homeX: 0, homeY: 0 };
+let stickTouch = false; // a steering press is in progress (any channel)
+function stickHome() {
+  const r = stickDock.getBoundingClientRect();
+  stick.homeX = r.left + r.width / 2; stick.homeY = r.top + r.height / 2;
+  stick.bx = stick.homeX; stick.by = stick.homeY;
+  stickBase.style.opacity = '.62';
+  stickKnob.style.transform = 'translate(-50%,-50%)';
 }
-function stickReset() {
-  stick.id = null; stick.armedX = true; stick.armedY = true;
-  stickBase.style.display = 'none'; stickKnob.style.transform = '';
+function stickShow(x, y) {
+  stick.bx = x; stick.by = y; stick.x = 0; stick.nx = 0; stick.ny = 0;
+  stick.armedUp = true; stick.armedDn = true;
+  stickBase.style.opacity = '1';
+  stickKnob.style.transform = 'translate(-50%,-50%)';
 }
 function stickMove(x, y) {
   let dx = x - stick.bx, dy = y - stick.by;
   const d = Math.hypot(dx, dy);
+  stick.x = dx;
   if (d > STICK_R) { dx *= STICK_R / d; dy *= STICK_R / d; }
-  stickKnob.style.transform = `translate(${dx}px,${dy}px)`;
-  const ax = Math.abs(dx), ay = Math.abs(dy);
-  if (ax < STICK_REARM && ay < STICK_REARM) { stick.armedX = true; stick.armedY = true; }
-  if (ax >= ay) {
-    if (stick.armedX && ax >= STICK_FIRE) { dx > 0 ? doRight() : doLeft(); stick.armedX = false; }
-  } else if (stick.armedY && ay >= STICK_FIRE) {
-    dy > 0 ? doRoll() : doJump(); stick.armedY = false;
+  stick.nx = dx / STICK_R; stick.ny = dy / STICK_R;
+  stickKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+  const ay = Math.abs(dy);
+  if (ay < 12) { stick.armedUp = true; stick.armedDn = true; }
+  else if (dy < 0 && stick.armedUp && ay >= STICK_FIRE) { doJump(); stick.armedUp = false; }
+  else if (dy > 0 && stick.armedDn && ay >= STICK_FIRE) { doRoll(); stick.armedDn = false; }
+}
+function stickReset() {
+  if (S.steerX != null) {
+    const r = Math.round(S.steerX);
+    if (Math.abs(S.steerX - r) > 0.3) {
+      S.steerX = r; S.lane = Math.max(0, Math.min(2, Math.round(r / 2.3) + 1));
+    } else {
+      S.lane = Math.max(0, Math.min(2, Math.round(S.steerX / 2.3) + 1));
+    }
+  }
+  stick.id = null; stick.kind = null; stick.x = 0; stick.nx = 0; stick.ny = 0;
+  S.steerX = null; stickTouch = false;
+  stickHome();
+}
+function steerBegin(id, kind, x, y) {
+  if (S.mode !== 'run' || stick.id !== null) return false;
+  stick.id = id; stick.kind = kind; stickTouch = true;
+  S.steerX = S.laneX; S.steerTgt = S.laneX;
+  stickShow(x, y);
+  return true;
+}
+function steerZoneOK(x, y, target) {
+  if (target && target.closest && target.closest('button,select,input,.panel,.screen')) return false;
+  const vv = window.visualViewport;
+  const W = (vv && vv.width) || innerWidth, H = (vv && vv.height) || innerHeight;
+  return x < W * 2 / 3 && y > H * 0.14;
+}
+function steerReleaseSnap() {
+  if (S.steerX != null) {
+    S.lane = Math.max(0, Math.min(2, Math.round(S.steerX / 2.3) + 1));
+    S.steerX = LANE_X[S.lane];
+    S.steerTgt = S.steerX;
   }
 }
-stickZone.addEventListener('pointerdown', e => {
-  if (S.mode !== 'run' || stick.id !== null) return;
-  stick.id = e.pointerId; stickTouch = true; window.__stickPtrAt = performance.now();
-  stick.bx = e.clientX; stick.by = e.clientY;
-  stick.armedX = true; stick.armedY = true;
-  try { stickZone.setPointerCapture(e.pointerId); } catch (err) {}
-  stickShow(e.clientX, e.clientY);
-  e.preventDefault();
+/* (a) pointer channel */
+addEventListener('pointerdown', e => {
+  if (e.pointerType === 'mouse') return;
+  if (!steerZoneOK(e.clientX, e.clientY, e.target)) return;
+  if (steerBegin(e.pointerId, 'ptr', e.clientX, e.clientY)) {
+    window.__stickPtrAt = performance.now();
+    try { renderer.domElement.setPointerCapture(e.pointerId); } catch (err) {}
+  }
 });
-stickZone.addEventListener('pointermove', e => {
-  if (e.pointerId !== stick.id) return;
-  stickMove(e.clientX, e.clientY);
+addEventListener('pointermove', e => {
+  if (stick.kind === 'ptr' && e.pointerId === stick.id) stickMove(e.clientX, e.clientY);
 });
-const stickEnd = e => {
-  if (e.pointerId !== stick.id) return;
-  stickReset(); stickTouch = false;
+const ptrEnd = e => {
+  if (stick.kind === 'ptr' && e.pointerId === stick.id) { steerReleaseSnap(); stickReset(); }
 };
-stickZone.addEventListener('pointerup', stickEnd);
-stickZone.addEventListener('pointercancel', stickEnd);
-// Swallow the raw touch events of a stick touch so nothing else sees them.
-// TOUCH FALLBACK (Nov 7): if a browser delivers touch without pointer
-// events, drive the same stick from touchstart/move/end on the zone.
-stickZone.addEventListener('touchstart', e => {
-  e.preventDefault();
-  if (S.mode !== 'run' || stick.id !== null) return;
-  // Pointer events own the stick when they fire (they precede touchstart
-  // by ~0ms; touchstart follows pointerdown). If a pointer just claimed
-  // the stick for this same press, stand down — never double-own.
-  if (window.__stickPtrAt && performance.now() - window.__stickPtrAt < 500) return;
-  const t = e.changedTouches[0]; if (!t) return;
-  stick.id = 'touch:' + t.identifier; stickTouch = true;
-  stick.bx = t.clientX; stick.by = t.clientY;
-  stick.armedX = true; stick.armedY = true;
-  stickShow(t.clientX, t.clientY);
-}, { passive: false });
-stickZone.addEventListener('touchmove', e => {
-  e.preventDefault();
-  if (stick.id === null || typeof stick.id !== 'string') return;
-  for (const t of e.changedTouches) if ('touch:' + t.identifier === stick.id) stickMove(t.clientX, t.clientY);
-}, { passive: false });
-stickZone.addEventListener('touchend', e => {
-  e.preventDefault();
-  if (stick.id === null || typeof stick.id !== 'string') return;
-  for (const t of e.changedTouches) if ('touch:' + t.identifier === stick.id) { stickReset(); stickTouch = false; }
-}, { passive: false });
-stickZone.addEventListener('touchcancel', e => {
-  if (stick.id !== null && typeof stick.id === 'string') { stickReset(); stickTouch = false; }
-}, { passive: true });
-
-let tsX = 0, tsY = 0, tsT = 0;
+addEventListener('pointerup', ptrEnd);
+addEventListener('pointercancel', ptrEnd);
+/* (b) touch channel — for webviews that deliver touch without pointer */
 addEventListener('touchstart', e => {
-  if (stickTouch) return;
-  if (e.target.closest('button,select,input,.panel')) return;
-  const t = e.changedTouches[0]; tsX = t.clientX; tsY = t.clientY; tsT = performance.now();
-}, { passive: true });
-addEventListener('touchend', e => {
-  if (stickTouch) return;
-  if (e.target.closest('button,select,input,.panel')) return;
-  const t = e.changedTouches[0], dx = t.clientX - tsX, dy = t.clientY - tsY;
-  if (performance.now() - tsT > 600) return;
-  if (Math.abs(dx) < 24 && Math.abs(dy) < 24) return;
-  if (Math.abs(dx) > Math.abs(dy)) { dx > 0 ? doRight() : doLeft(); }
-  else { dy > 0 ? doRoll() : doJump(); }
-}, { passive: true });
-let mX = 0, mY = 0, mDown = false;
-addEventListener('pointerdown', e => { if (e.pointerType === 'mouse' && !e.target.closest('button,select,input,.panel')) { mDown = true; mX = e.clientX; mY = e.clientY; } });
-addEventListener('pointerup', e => {
-  if (!mDown) return; mDown = false;
-  const dx = e.clientX - mX, dy = e.clientY - mY;
-  if (Math.abs(dx) < 24 && Math.abs(dy) < 24) return;
-  if (Math.abs(dx) > Math.abs(dy)) { dx > 0 ? doRight() : doLeft(); } else { dy > 0 ? doRoll() : doJump(); }
+  if (stick.id !== null) return;
+  if (window.__stickPtrAt && performance.now() - window.__stickPtrAt < 700 && stick.kind === 'ptr') return;
+  for (const t of e.changedTouches) {
+    if (steerZoneOK(t.clientX, t.clientY, e.target)) {
+      if (steerBegin('touch:' + t.identifier, 'touch', t.clientX, t.clientY)) e.preventDefault();
+      break;
+    }
+  }
+}, { passive: false });
+addEventListener('touchmove', e => {
+  if (stick.kind !== 'touch' || stick.id === null) return;
+  for (const t of e.changedTouches) if ('touch:' + t.identifier === stick.id) { stickMove(t.clientX, t.clientY); e.preventDefault(); }
+}, { passive: false });
+const touchEnd = e => {
+  if (stick.kind !== 'touch' || stick.id === null) return;
+  for (const t of e.changedTouches) if ('touch:' + t.identifier === stick.id) { steerReleaseSnap(); stickReset(); }
+};
+addEventListener('touchend', touchEnd);
+addEventListener('touchcancel', touchEnd);
+/* (c) mouse channel (desktop drag) */
+let mDown = false;
+addEventListener('pointerdown', e => {
+  if (e.pointerType !== 'mouse') return;
+  if (!steerZoneOK(e.clientX, e.clientY, e.target)) return;
+  if (steerBegin(e.pointerId, 'mouse', e.clientX, e.clientY)) mDown = true;
 });
+addEventListener('pointermove', e => {
+  if (mDown && stick.kind === 'mouse' && e.pointerId === stick.id) stickMove(e.clientX, e.clientY);
+});
+addEventListener('pointerup', e => {
+  if (mDown && stick.kind === 'mouse' && e.pointerId === stick.id) { steerReleaseSnap(); stickReset(); }
+  mDown = false;
+});
+
 addEventListener('keydown', e => {
   const k = e.code;
   if (k === 'ArrowLeft' || k === 'KeyA') doLeft();
@@ -1207,9 +1232,20 @@ function animate() {
       }
       if (S.rollT > 0) S.rollT -= dt;
     }
-    /* lane easing */
-    const targetX = LANE_X[S.lane];
-    S.laneX += (targetX - S.laneX) * Math.min(1, dt * 11);
+    /* lateral movement: free steering while the stick is held (stick.x is
+       the analog push in px: COMET's target follows it across the full
+       track width, so he weaves AROUND obstacles); otherwise ease to the
+       active lane (keyboard / buttons / pilot). */
+    if (S.steerX != null && !S.loop) {
+      const PUSH_FULL = 46, HOLD_VEL = 12.5;
+      if (stick.x !== 0) S.steerTgt = THREE.MathUtils.clamp(S.laneX + (stick.x / PUSH_FULL) * HOLD_VEL * 0.016, -STEER_MAX, STEER_MAX);
+      S.steerX += (S.steerTgt - S.steerX) * Math.min(1, dt * 18);
+      S.laneX += (S.steerX - S.laneX) * Math.min(1, dt * 22);
+      S.lane = Math.max(0, Math.min(2, Math.round(S.laneX / 2.3) + 1));
+    } else {
+      const targetX = LANE_X[S.lane];
+      S.laneX += (targetX - S.laneX) * Math.min(1, dt * 11);
+    }
 
     /* spawning ahead */
     const horizon = S.dist + 300;
@@ -1545,6 +1581,7 @@ function animate() {
     const amp = S.grounded ? 0.85 : 0.25;
     if (S.rollT > 0) { // tucked sprint
       H.legL.rotation.x = 0.9; H.legR.rotation.x = 0.5; H.armL.rotation.x = -1.4; H.armR.rotation.x = -1.1;
+      H.group.rotation.z = S.steerX != null ? (S.steerX - S.laneX) * -0.14 : S.group.rotation.z;
     } else if (!S.grounded) {
       H.legL.rotation.x = -0.7; H.legR.rotation.x = 0.55; H.armL.rotation.x = -2.4; H.armR.rotation.x = -2.0;
     } else {
@@ -1636,4 +1673,4 @@ try { $('nameInput').value = localStorage.getItem('luncRush3dName') || ''; } cat
 animate();
 
 /* QA hook (used by automated checks; harmless in production) */
-window.__rush3d = { S, startRun, H, THREE, scene, camera, renderer, stick, stickZone };
+window.__rush3d = { S, startRun, H, THREE, scene, camera, renderer, stick, stickDock, stickKnob };
