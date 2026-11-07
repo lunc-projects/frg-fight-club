@@ -29,7 +29,7 @@
   .iconbtn{pointer-events:auto;background:rgba(6,24,44,.78);border:2px solid rgba(255,255,255,.35);color:#fff;border-radius:999px;width:40px;height:40px;font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none}
   .iconbtn:active{transform:scale(.93)}
   /* progress bar: you vs champion */
-  #progWrap{position:absolute;top:calc(env(safe-area-inset-top,0px) + 56px);left:50%;transform:translateX(-50%);width:min(62vw,430px);height:12px;background:rgba(6,24,44,.66);border:2px solid rgba(255,255,255,.35);border-radius:999px}
+  #progWrap{position:absolute;top:calc(env(safe-area-inset-top,0px) + 96px);left:50%;transform:translateX(-50%);width:min(62vw,430px);height:12px;background:rgba(6,24,44,.66);border:2px solid rgba(255,255,255,.35);border-radius:999px}
   #progYou{position:absolute;top:50%;width:15px;height:15px;border-radius:50%;background:#ffd23e;border:2px solid #fff3c4;transform:translate(-50%,-50%);left:0%;box-shadow:0 0 8px rgba(255,210,62,.9);z-index:2}
   #progChamp{position:absolute;top:50%;width:13px;height:13px;border-radius:50%;background:#e33; border:2px solid #ffb3b3;transform:translate(-50%,-50%);left:0%;box-shadow:0 0 8px rgba(255,60,60,.8)}
   #progFlag{position:absolute;right:-4px;top:50%;transform:translateY(-50%);font-size:13px}
@@ -1015,6 +1015,8 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputEncoding = THREE.sRGBEncoding;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.12;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 container.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0x2a3350, 190, 1500);
@@ -1051,6 +1053,12 @@ const ENV = (function makeEnv() {
 scene.add(new THREE.HemisphereLight(0x9db9e8, 0x4a3b28, 0.68));
 const sun = new THREE.DirectionalLight(0xffd9a0, 1.35);
 sun.position.set(120, 180, -260);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -45; sun.shadow.camera.right = 45;
+sun.shadow.camera.top = 45; sun.shadow.camera.bottom = -45;
+sun.shadow.camera.near = 10; sun.shadow.camera.far = 700;
+sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.03;
 scene.add(sun); scene.add(sun.target);
 const fill = new THREE.DirectionalLight(0x7d9fd4, 0.30);
 fill.position.set(-90, 60, 120); scene.add(fill);
@@ -1229,9 +1237,13 @@ function ribbonGeo(latOff, width, yOff, vScale) {
   tex.encoding = THREE.sRGBEncoding;
   const roadMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.94, metalness: 0, side: THREE.DoubleSide });
   roadMat.envMap = ENV; roadMat.envMapIntensity = 0.22;
-  scene.add(new THREE.Mesh(ribbonGeo(0, ROAD_HALF * 2, 0.02, 11), roadMat));
+  const roadMesh = new THREE.Mesh(ribbonGeo(0, ROAD_HALF * 2, 0.02, 11), roadMat);
+  roadMesh.receiveShadow = true;
+  scene.add(roadMesh);
   const shMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(0x8a7a58).convertSRGBToLinear(), roughness: 1, side: THREE.DoubleSide });
-  scene.add(new THREE.Mesh(ribbonGeo(0, ROAD_HALF * 2 + 7, -0.16, 11), shMat));
+  const shMesh = new THREE.Mesh(ribbonGeo(0, ROAD_HALF * 2 + 7, -0.16, 11), shMat);
+  shMesh.receiveShadow = true;
+  scene.add(shMesh);
   /* barriers: red/white band, both edges */
   const bc = makeCanvas(128, 32), bx = bc.getContext('2d');
   bx.fillStyle = '#d8262c'; bx.fillRect(0, 0, 64, 32); bx.fillStyle = '#e9edf2'; bx.fillRect(64, 0, 64, 32);
@@ -1578,7 +1590,7 @@ function onModelReady(kind, gltf) {
     if (p) { p.userData.spin = wrap.getObjectByName('__ws' + k); wheels.push(p); }
   }
   grp.userData.wheels = wheels;
-  grp.traverse(o => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
+  grp.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = false; } });
   paintGLB(grp, cfg);
   addLivery(grp, cfg, kind === 'champ');
   carState[kind] = grp;
@@ -1728,6 +1740,9 @@ function readSteer() {
 
 /* ================= physics ================= */
 const TOP_SPEED = 41, CHAMP_TOP = 40.2;
+/* Launch ramp: acceleration builds over the first 5 s after GO so a start
+   feels like a start (0 -> building speed), not a slingshot to top speed. */
+function launchRamp() { return state === 'race' ? 0.35 + 0.65 * Math.min(1, raceTime / 5) : 1; }
 function jumpCheck(car) {
   if (car.air) return null;
   for (const j of JUMPS) if (car.s >= j.s0 && car.s <= j.s1) return j;
@@ -1759,7 +1774,7 @@ function stepPlayer(dt) {
   if (braking) P.v -= 27 * dt;
   else {
     const dragTop = TOP_SPEED * (Math.abs(P.lat) > ROAD_HALF ? 0.45 : 1);
-    P.v += 13.5 * (1 - P.v / (dragTop * 1.12)) * dt;
+    P.v += 13.5 * launchRamp() * (1 - P.v / (dragTop * 1.12)) * dt;
     if (Math.abs(P.lat) > ROAD_HALF) P.v -= 11 * dt;
   }
   if (Math.abs(P.steer) > 0.72 && P.v > 30) P.v -= 2.0 * dt; /* tyre scrub */
@@ -1800,7 +1815,8 @@ function stepChamp(dt) {
   if (C.finished) { C.v = Math.max(0, C.v - 20 * dt); }
   else {
     const tgt = champTargetSpeed();
-    C.v += clamp(tgt - C.v, -16 * dt * 3, 9.5 * dt * 3) / 3;
+    const dv = clamp(tgt - C.v, -16 * dt * 3, 9.5 * dt * 3) / 3;
+    C.v += dv > 0 ? dv * launchRamp() : dv;
   }
   C.s += C.v * dt;
   const lineLat = clamp(-frameAt(C.s + 14).kappaS * 3000, -3.3, 3.3);
@@ -1917,6 +1933,7 @@ function showScreen(id) {
 }
 function startRace() {
   resetRace();
+  clock.getDelta(); /* zero the clock: no stale delta leaks into the launch */
   showScreen(null);
   $('hud').classList.remove('hidden');
   $('touchUI').classList.remove('hidden');
@@ -2027,7 +2044,7 @@ function stepCountdown(dt) {
     if (step < 3) { el.textContent = String(3 - step); el.classList.remove('go'); beep(440, 0.12, 'square', 0.06); }
     else { el.textContent = T('go'); el.classList.add('go'); beep(880, 0.3, 'square', 0.07); }
   }
-  if (cdT >= 3.4) { $('cdWrap').classList.add('hidden'); state = 'race'; showBanner(T('ready'), '', 1.2); }
+  if (cdT >= 3.4) { $('cdWrap').classList.add('hidden'); state = 'race'; clock.getDelta(); showBanner(T('ready'), '', 1.2); }
 }
 
 /* ================= main loop ================= */
@@ -2036,7 +2053,7 @@ let spinT = 0;
 const _ry = new THREE.Quaternion(), _yAxis = new THREE.Vector3(0, 1, 0);
 function animate() {
   requestAnimationFrame(animate);
-  const dt = Math.min(clock.getDelta(), 0.05);
+  const dt = Math.min(clock.getDelta(), 1 / 30);
   const t = clock.elapsedTime;
   spinT += dt;
   for (const pk of pickups) {
@@ -2049,13 +2066,22 @@ function animate() {
     if (bannerT <= 0) { $('bannerMain').classList.add('fadeout'); $('bannerSub').classList.add('fadeout'); }
   }
   if (window.__holdSim === true) { /* QA time-warp holds the live loop */ }
-  else if (state === 'count') { stepCountdown(dt); stepPlayer(dt); stepChamp(dt); }
-  else if (state === 'race') {
-    raceTime += dt;
-    stepPlayer(dt); stepChamp(dt);
-    score = liveScore();
-    checkPickups(); updateHUD();
-    if (P.finished && C.finished) finishRace();
+  else if (state === 'count' || state === 'race') {
+    /* Physics runs in fixed substeps of at most 1/60 s: a long or jittery
+       frame (phone warmup at the start) can never become one big step. */
+    let rem = dt;
+    while (rem > 1e-6) {
+      const h = Math.min(rem, 1 / 60);
+      if (state === 'count') { stepCountdown(h); stepPlayer(h); stepChamp(h); }
+      else if (state === 'race') { raceTime += h; stepPlayer(h); stepChamp(h); }
+      else break;
+      rem -= h;
+    }
+    if (state === 'race') {
+      score = liveScore();
+      checkPickups(); updateHUD();
+      if (P.finished && C.finished) finishRace();
+    }
   }
   else if (state === 'menu' || state === 'over') {
     placeCar(playerCar, P.s, P.lat, 0, 0, 0);
