@@ -306,15 +306,9 @@ for (let i = 0; i < 22; i++) cloudData.push({ x: (Math.random() - 0.5) * 320, y:
 const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, color: 0xffe9a0, transparent: true, opacity: 0.9, fog: false, depthWrite: false, depthTest: false }));
 sunSprite.scale.set(90, 45, 1); sunSprite.position.set(-70, 60, -260); sunSprite.renderOrder = -6; scene.add(sunSprite);
 
-/* sun light shafts — two soft additive planes angled like the sun's rays.
-   Kept SHORT and high: a 130-long plane clipped through the camera frustum
-   as a hard white diagonal (seen in QA), so these hug the sky instead. */
-const shaftMat = new THREE.MeshBasicMaterial({ color: 0xfff2b8, transparent: true, opacity: 0.05, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, side: THREE.DoubleSide, fog: false });
-for (const [sx, srz] of [[-26, 0.42], [24, 0.34]]) {
-  const shaft = new THREE.Mesh(new THREE.PlaneGeometry(9, 46), shaftMat);
-  shaft.position.set(sx, 34, -120); shaft.rotation.z = srz;
-  shaft.frustumCulled = false; shaft.renderOrder = -5; scene.add(shaft);
-}
+/* sun light shafts: REMOVED (Nov 7) — even shortened, the additive planes
+   read as broad white diagonal beams across the sky on real phone GPUs
+   (Tom's report). Deleted entirely; no replacement effect. */
 
 /* ---------------- pickups ---------------- */
 function crescentGeo() {
@@ -489,13 +483,17 @@ birdL.material.side = THREE.DoubleSide; birdR.material.side = THREE.DoubleSide;
 const birds = [];
 for (let i = 0; i < 6; i++) birds.push({ x0: -70 - Math.random() * 90, y: 15 + Math.random() * 11, sp: 5.5 + Math.random() * 3.5, ph: Math.random() * 6.3, z: -55 - Math.random() * 130 });
 
-/* floating pollen / sparkle motes around the runner */
+/* floating pollen / sparkle motes around the runner.
+   Nov 7: was THREE.Points — point sprites render as hard WHITE SQUARES on
+   phone GPUs (point-size attenuation; Tom's report), so the motes are now
+   tiny instanced SPHERES (real geometry): soft gold glints on every GPU,
+   zero squares possible. */
 const MOTE_N = 90;
-const moteGeo = new THREE.BufferGeometry();
-const motePos = new Float32Array(MOTE_N * 3);
-moteGeo.setAttribute('position', new THREE.BufferAttribute(motePos, 3));
-moteGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 2, -25), 80);
-const motes = new THREE.Points(moteGeo, new THREE.PointsMaterial({ color: 0xfff3b0, size: 0.17, transparent: true, opacity: 0.75, depthWrite: false, sizeAttenuation: true }));
+const motes = new THREE.InstancedMesh(
+  new THREE.SphereGeometry(0.055, 6, 5),
+  new THREE.MeshBasicMaterial({ color: 0xffe9a0, transparent: true, opacity: 0.5, depthWrite: false, fog: true }),
+  MOTE_N);
+motes.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 motes.frustumCulled = false; scene.add(motes);
 const moteData = [];
 for (let i = 0; i < MOTE_N; i++) moteData.push({ x: (Math.random() - 0.5) * 17, y: 0.4 + Math.random() * 4.6, z: -Math.random() * 55, ph: Math.random() * 6.3, dr: 0.4 + Math.random() * 0.9 });
@@ -729,7 +727,7 @@ const streaks = [];
   const g = new THREE.BufferGeometry();
   const pos = new Float32Array(40 * 2 * 3);
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const lines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 }));
+  const lines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0xfdf6dd, transparent: true, opacity: 0 }));
   lines.frustumCulled = false; scene.add(lines);
   for (let i = 0; i < 40; i++) streaks.push({ x: (Math.random() - 0.5) * 16, y: 0.5 + Math.random() * 5, z: -Math.random() * 60, len: 1.5 + Math.random() * 2.5 });
   streaks.lines = lines; streaks.pos = pos;
@@ -1402,15 +1400,18 @@ function animate() {
     }
     birdL.instanceMatrix.needsUpdate = true; birdR.instanceMatrix.needsUpdate = true;
 
-    /* pollen motes drifting around the runner */
+    /* pollen motes drifting around the runner (instanced spheres) */
     for (let i = 0; i < MOTE_N; i++) {
       const m = moteData[i];
-      const j = i * 3;
-      motePos[j] = m.x + Math.sin(globalT * 0.7 + m.ph) * 0.8 + S.laneX * 0.4;
-      motePos[j + 1] = m.y + Math.sin(globalT * m.dr + m.ph * 2) * 0.5;
-      motePos[j + 2] = -((( -m.z + S.dist * 0.92) % 55 + 55) % 55) + 4;
+      dummy.position.set(
+        m.x + Math.sin(globalT * 0.7 + m.ph) * 0.8 + S.laneX * 0.4,
+        m.y + Math.sin(globalT * m.dr + m.ph * 2) * 0.5,
+        -((( -m.z + S.dist * 0.92) % 55 + 55) % 55) + 4);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.setScalar(0.8 + 0.35 * Math.sin(globalT * 2 + m.ph * 3));
+      dummy.updateMatrix(); motes.setMatrixAt(i, dummy.matrix);
     }
-    moteGeo.attributes.position.needsUpdate = true;
+    motes.instanceMatrix.needsUpdate = true;
 
     /* beach foam at the water lines */
     let iFoam = 0;
@@ -1562,7 +1563,7 @@ function animate() {
 
   /* --- streaks --- */
   {
-    const op = S.mode === 'run' ? THREE.MathUtils.clamp((S.speed - 16) / 9, 0, 1) * 0.55 : 0;
+    const op = S.mode === 'run' ? THREE.MathUtils.clamp((S.speed - 16) / 9, 0, 1) * 0.3 : 0;
     streaks.lines.material.opacity += (op - streaks.lines.material.opacity) * Math.min(1, rawDt * 4);
     const pos = streaks.pos;
     for (let i = 0; i < streaks.length; i++) {
