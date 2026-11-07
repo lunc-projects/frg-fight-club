@@ -15,8 +15,16 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const LANE_X = [-2.35, 0, 2.35];
 const STEP_Z = 3.05;               // distance between chart steps
 const BLOCK_W = 2.15, BLOCK_D = 2.3;
-const SPEED0 = 8.6, SPEED_MAX = 15.5;
-const GRAV = 34, JUMP_V = 13.8;
+/* Control-ease tuning (Nov 7, owner: "hard to control — easier movement").
+   Everything below is about forgiveness: slower opening pace, floatier
+   jump with coyote time + input buffering, stronger air steering, a
+   wider landing catch and a green-favoured boundary rule. */
+const SPEED0 = 7.6, SPEED_MAX = 15.5, SPEED_RAMP = 0.0042;
+const GRAV = 34, GRAV_RISE = 26, JUMP_V = 15.2;
+const COYOTE_MS = 150;             // jump still fires just after an edge
+const BUFFER_MS = 160;             // jump pressed just before landing fires
+const STICK_DEAD = 0.06;           // stick deadzone (was: none on a raw value)
+const CATCH_BELOW = 1.35;          // landing catch depth under the top plane
 const AUTO_STEP = 1.05;            // rises <= this are stepped up freely
 const GEN_AHEAD = 44;              // steps kept ahead of the player
 const CRESCENT_SCORE = 50, STAR_SCORE = 150;
@@ -28,6 +36,7 @@ const S = {
   speed: 0, runTime: 0, time: 0,
   x: 0, y: 0, z: 0, vx: 0, vy: 0, grounded: true,
   curBlock: null, lastBlock: null, fallStartY: 0, airTime: 0, bumped: false,
+  lastGroundedT: -9, jumpBufferT: -9,   // coyote / input-buffer timestamps
   dieT: 0, dieKind: null, muted: false, best: 0, submitted: false,
 };
 try {
@@ -293,6 +302,43 @@ const rimGroup = new THREE.Group();
   rimGroup.position.z = 60;
   scene.add(rimGroup);
 }
+/* Mid-distance skyline tier (premium-depth pass): a nearer, taller,
+   warmer-lit city band between the flat lit plane and the rim blocks —
+   the three-tier depth (bright near rim / warm mid band / tiny far
+   windows) that top runner titles use to sell scale. Own canvas art. */
+const midGroup = new THREE.Group();
+{
+  const midTex = canvasTex(256, 512, (g, w, h) => {
+    g.fillStyle = '#0b1226'; g.fillRect(0, 0, w, h);
+    const cols = ['#ffd9a0', '#ffca7a', '#a8d4ff', '#fff3d6'];
+    for (let y = 10; y < h - 8; y += 14) for (let x = 8; x < w - 8; x += 13) {
+      if (Math.random() < 0.38) continue;
+      g.fillStyle = cols[(Math.random() * cols.length) | 0];
+      g.globalAlpha = 0.5 + Math.random() * 0.5;
+      g.fillRect(x, y, 6.2, 8);
+    }
+    g.globalAlpha = 1;
+    // rooftop beacon dots — a couple of red aircraft lights per tower
+    for (let i = 0; i < 5; i++) {
+      g.fillStyle = 'rgba(255,70,80,0.95)';
+      g.beginPath(); g.arc(12 + Math.random() * (w - 24), 5 + Math.random() * 8, 2.4, 0, Math.PI * 2); g.fill();
+    }
+    g.fillStyle = 'rgba(150,190,255,0.22)'; g.fillRect(0, 0, w, 4);
+  });
+  const midMat = new THREE.MeshBasicMaterial({ map: midTex, fog: false });
+  const midGeo = new THREE.BoxGeometry(11, 1, 7);
+  for (let i = 0; i < 26; i++) {
+    const m = new THREE.Mesh(midGeo, midMat);
+    const side = i % 2 === 0 ? -1 : 1;
+    const bh = 13 + Math.random() * 17;
+    m.scale.y = bh;
+    m.position.set(side * (58 + Math.random() * 26), -26 + bh / 2, -i * 15 - Math.random() * 8);
+    m.rotation.y = (Math.random() - 0.5) * 0.35;
+    midGroup.add(m);
+  }
+  midGroup.position.z = 40;
+  scene.add(midGroup);
+}
 
 const chartGroup = new THREE.Group();
 {
@@ -370,6 +416,15 @@ const chartGroup = new THREE.Group();
     d.position.set(-80 + i * 20, [8, 18, 28][i % 3], 1.8);
     chartGroup.add(d);
   }
+  // Warm horizon glow behind the chart wall (premium pass, Alto-style):
+  // a huge soft peach bloom low on the sky that every silhouette rim —
+  // skyline, chart wall, candles — reads against. Our own gradient art.
+  const horizon = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff9a4d, transparent: true, opacity: 0.30, fog: false, depthWrite: false }));
+  horizon.scale.set(300, 130, 1); horizon.position.set(-10, 2, -8);
+  chartGroup.add(horizon);
+  const horizonCore = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffcf8a, transparent: true, opacity: 0.30, fog: false, depthWrite: false }));
+  horizonCore.scale.set(150, 66, 1); horizonCore.position.set(-14, 0, -7);
+  chartGroup.add(horizonCore);
   // rising/falling arrow pair — the classic chart glyphs
   const arrowShape = new THREE.Shape();
   arrowShape.moveTo(0, 2.6); arrowShape.lineTo(1.5, 0.4); arrowShape.lineTo(0.65, 0.4);
@@ -475,7 +530,7 @@ for (let i = 0; i < 72; i++) {
   scene.add(m);
   chunks.push({ m, vx: 0, vy: 0, vz: 0, rx: 0, rz: 0, life: 0 });
 }
-const EMBERS = 160;
+const EMBERS = 240;
 const emberPos = new Float32Array(EMBERS * 3);
 const emberVel = new Float32Array(EMBERS * 3);
 const emberLife = new Float32Array(EMBERS);
@@ -669,6 +724,25 @@ function blockAt(x, z) {
   }
   return best;
 }
+function landBlockAt(x, z, y) {
+  // Landing-only resolver: judge what the runner's CENTRE is over, with
+  // a wider catch — a rim landing on a GREEN candle counts as long as
+  // the centre is on it. Between candles of similar height (a normal
+  // straddle) GREEN wins the tie: a boundary graze should not kill.
+  // A clearly-taller RED still wins — standing in RED is still death.
+  let best = null, bestScore = -Infinity;
+  for (const b of blocksNear(z)) {
+    const dx = Math.abs(x - b.x), dz = Math.abs(z - b.z);
+    if (dx <= BLOCK_W / 2 + 0.30 && dz <= BLOCK_D / 2 + 0.55) {
+      let s = b.top - (dx + dz) * 0.35;
+      if (b.top > y + AUTO_STEP) s -= 2.5;                       // a wall, not a floor
+      if (best && b.color === 'G' && best.color === 'R' &&
+          Math.abs(b.top - best.top) <= 0.35 && b.top <= best.top + 0.05) s = bestScore + 0.01;
+      if (s > bestScore) { bestScore = s; best = b; }
+    }
+  }
+  return best;
+}
 
 /* ---------------- the runner (procedural, crescent-emblem hoodie mascot) ---------------- */
 const runner = new THREE.Group();
@@ -841,11 +915,20 @@ window.addEventListener('keyup', (e) => {
 $('btnJump').addEventListener('pointerdown', (e) => { e.preventDefault(); if (S.mode === 'run') doJump(); });
 
 function doJump() {
-  if (!S.grounded || S.mode !== 'run') return;
+  if (S.mode !== 'run') return;
+  if (S.grounded) { fireJump(); return; }
+  // Coyote time: he stepped off an edge a moment ago — still jump.
+  if ((performance.now() - S.lastGroundedT) / 1000 <= COYOTE_MS / 1000) { fireJump(); return; }
+  // Otherwise remember the press: if he lands within the buffer window,
+  // the jump fires on touchdown instead of being eaten.
+  S.jumpBufferT = performance.now();
+}
+function fireJump() {
   S.grounded = false;
   S.vy = JUMP_V;
   S.fallStartY = S.y;
   S.airTime = 0;
+  S.jumpBufferT = -9;
   sfx.jump();
 }
 
@@ -862,7 +945,12 @@ function onLand(block) {
     spawnChunks(block.x, block.top + 0.12, block.z, block.color, 3, 1.6);
     spawnEmbers(S.x, block.top + 0.25, S.z, 2, 'G');
   }
-  if (block.crumbleAt === Infinity) block.crumbleAt = S.time + 2.6; // standing pressure
+  if (block.crumbleAt === Infinity) {
+    // Standing pressure. Early in a run — and on the opening candles,
+    // whose timer starts at spawn — the floor is patient; it tightens
+    // as you get further in.
+    block.crumbleAt = S.time + (S.dist < 60 || block.step < 24 ? 3.6 : 2.6);
+  }
   S.curBlock = block;
   S.bumped = false;
   sfx.land(S.streak);
@@ -883,10 +971,18 @@ function die(kind) {
 
 /* ---------------- physics step ---------------- */
 function stepPhysics(dt) {
-  S.speed = Math.min(SPEED_MAX, SPEED0 + S.dist * 0.006);
-  const inputX = stick.active ? stick.x : (keys.left ? -1 : 0) + (keys.right ? 1 : 0);
-  const targetVx = clamp(inputX, -1, 1) * 10.5;
-  S.vx = lerp(S.vx, targetVx, clamp(dt * 13, 0, 1));
+  S.speed = Math.min(SPEED_MAX, SPEED0 + S.dist * SPEED_RAMP);
+  // Gentle input curve: small stick movements already steer usefully,
+  // full deflection stays full. Tiny deadzone kills thumb jitter.
+  let inputX = stick.active ? stick.x : (keys.left ? -1 : 0) + (keys.right ? 1 : 0);
+  inputX = clamp(inputX, -1, 1);
+  if (Math.abs(inputX) < STICK_DEAD) inputX = 0;
+  const ax = Math.abs(inputX);
+  inputX = Math.sign(inputX) * (ax * (0.55 + 0.45 * ax));
+  // Air steering is stronger than ground steering — a jump can be
+  // corrected mid-flight instead of being a one-way ticket.
+  const targetVx = inputX * (S.grounded ? 11.5 : 13.5);
+  S.vx = lerp(S.vx, targetVx, clamp(dt * (S.grounded ? 11 : 9), 0, 1));
   S.x = clamp(S.x + S.vx * dt, -3.55, 3.55);
   const prevY = S.y;
 
@@ -900,6 +996,7 @@ function stepPhysics(dt) {
       if (support.top < S.y - 0.55) {
         // stepped off a ledge — become airborne and fall to it
         S.grounded = false; S.vy = 0; S.fallStartY = S.y; S.airTime = 0; S.curBlock = null;
+        S.lastGroundedT = performance.now();
       } else {
         S.y = support.top;
         if (support !== S.curBlock) onLand(support); else S.curBlock = support;
@@ -912,23 +1009,28 @@ function stepPhysics(dt) {
     } else {
       // nothing underfoot: walked off an edge or over a gap
       S.grounded = false; S.vy = 0; S.fallStartY = S.y; S.airTime = 0; S.curBlock = null;
+      S.lastGroundedT = performance.now();
     }
   }
   if (!S.grounded && S.mode === 'run') {
     S.airTime += dt;
-    S.vy -= GRAV * dt;
+    // Lighter gravity on the rise = a floatier, more generous jump;
+    // full gravity on the way down keeps it snappy, not floaty-forever.
+    S.vy -= (S.vy > 0 ? GRAV_RISE : GRAV) * dt;
     S.y += S.vy * dt;
     S.z -= S.speed * dt;
     if (S.vy <= 0) {
-      const b = blockAt(S.x, S.z);
+      const b = landBlockAt(S.x, S.z, prevY);
       // Land when we were above the top last frame and have now reached
-      // it (catch window 1.0 below the plane so fast falls and seam
-      // entries at low frame rates still catch instead of tunnelling).
-      if (b && prevY >= b.top - 0.02 && S.y <= b.top + 0.02 && S.y >= b.top - 1.0) {
+      // it (catch window under the plane so fast falls and seam entries
+      // at low frame rates still catch instead of tunnelling).
+      if (b && prevY >= b.top - 0.02 && S.y <= b.top + 0.02 && S.y >= b.top - CATCH_BELOW) {
         if (b.color === 'R') { S.y = b.top; die('red'); return; }
         S.y = b.top; S.grounded = true; S.vy = 0;
         onLand(b);
-      } else if (b && b.top > S.y + 0.35) {
+        // Buffered jump: a press just before touchdown fires now.
+        if ((performance.now() - S.jumpBufferT) / 1000 <= BUFFER_MS / 1000) fireJump();
+      } else if (b && b.top > prevY + AUTO_STEP) {
         // slammed into the side of a taller candle: slide back to its edge
         S.z = Math.max(S.z, b.z + BLOCK_D / 2 + 0.19);
         S.bumped = true;
@@ -949,7 +1051,9 @@ function updateBlocks(dt) {
       if (!b) continue;
       if (b.state === 'idle') {
         if (S.z < b.z - 1.5 && b.crumbleAt === Infinity) {
-          b.crumbleAt = S.time + clamp(2.3 - (S.speed - 9) * 0.08, 1.35, 2.3);
+          // Patient early (first ~60 m), tightening as the run deepens.
+          const base = S.dist < 60 ? 3.1 : clamp(2.3 - (S.speed - 9) * 0.08, 1.35, 2.3);
+          b.crumbleAt = S.time + base;
         }
         if (S.time >= b.crumbleAt) {
           b.state = 'cracking'; b.crackT = 0;
@@ -1132,6 +1236,7 @@ function resetWorld() {
   S.speed = 0; S.runTime = 0;
   S.x = 0; S.z = -2 * STEP_Z; S.vx = 0; S.vy = 0;
   S.grounded = true; S.bumped = false; S.airTime = 0;
+  S.lastGroundedT = -9; S.jumpBufferT = -9;
   S.submitted = false; S.dieKind = null;
   runner.rotation.set(0, 0, 0);
   ensureSteps();
@@ -1222,6 +1327,7 @@ function updateCamera(dt) {
   chartGroup.position.z = S.z - 165;
   chartGroup.position.y = clamp(S.y - 2, -4, 6);
   rimGroup.position.z = S.z + 130 - (((-S.z) % 12) + 12) % 12;
+  midGroup.position.z = S.z + 118 - (((-S.z) % 15) + 15) % 15;
   moonLight.position.set(S.x + 9, S.y + 20, S.z + 7);
   moonLight.target.position.set(S.x, S.y, S.z - 6);
   glowLight.position.set(S.x, S.y + 2.6, S.z - 1.5);
@@ -1258,8 +1364,9 @@ function loop() {
   }
   updateChunks(dt);
   updateEmbers(dt);
-  // ambient flame sparks drifting up from the nearby candles
-  if ((S.mode === 'run' || S.mode === 'menu') && Math.random() < dt * 7) {
+  // ambient flame sparks drifting up from the nearby candles —
+  // denser since the premium pass: a living scene should breathe
+  if ((S.mode === 'run' || S.mode === 'menu') && Math.random() < dt * 11) {
     const nb = blocksNear(S.z - 6 - Math.random() * 10);
     if (nb.length) {
       const b = nb[(Math.random() * nb.length) | 0];
@@ -1332,6 +1439,66 @@ window.CCQA = {
     const d = $('stickDock');
     return !d.classList.contains('hidden') && d.getBoundingClientRect().width > 0;
   },
+  /* Scripted forgiveness probes for the control-ease pass. Each one
+     arranges a precise scenario with deterministic steps and reports
+     PASS/FAIL — see qa/ease_tests.py. */
+  findStepGapAhead() {
+    const ci = Math.floor(-S.z / STEP_Z);
+    for (let i = ci + 1; i < ci + 60; i++) {
+      const st = steps.get(i);
+      if (st && st.gap) return i;
+    }
+    return -1;
+  },
+  placeRunway(gapStep) {
+    // stand the runner grounded on the candle just before the gap,
+    // in the safe lane, near its front edge, low fall state
+    const st = steps.get(gapStep - 1);
+    if (!st) return false;
+    let b = null;
+    for (const bb of st.blocks) if (bb && bb.color === 'G' && (!b || bb.top > b.top)) b = bb;
+    if (!b) return false;
+    S.x = b.x; S.z = b.z - BLOCK_D / 2 - 0.15; S.y = b.top;
+    S.vx = 0; S.vy = 0; S.grounded = true; S.curBlock = b; S.bumped = false;
+    S.jumpBufferT = -9;
+    return true;
+  },
+  placeStraddle(pct) {
+    // airborne just above a spot where GREEN and RED candles of the
+    // same step sit at (nearly) the same height; the runner's centre
+    // lands pct of the way from the green centre toward the red one.
+    const ci = Math.floor(-S.z / STEP_Z);
+    for (let i = ci + 1; i < ci + 90; i++) {
+      const st = steps.get(i); if (!st) continue;
+      for (let a = 0; a < 2; a++) {
+        const g = st.blocks[a], r = st.blocks[a + 1];
+        if (g && r && g.color === 'G' && r.color === 'R' &&
+            Math.abs(g.top - r.top) <= 0.3 && r.top >= g.top - 0.05) {
+          S.x = g.x + (r.x - g.x) * pct;
+          S.z = g.z + 1.1; S.y = Math.max(g.top, r.top) + 0.35;
+          S.vx = 0; S.vy = -3; S.grounded = false; S.curBlock = null;
+          S.fallStartY = S.y; S.jumpBufferT = -9;
+          return { step: i, gx: g.x, rx: r.x, top: Math.max(g.top, r.top) };
+        }
+      }
+    }
+    return null;
+  },
+  placeDrop(yOff, vy0) {
+    // airborne above the block the runner is currently standing on —
+    // a controlled short drop for the jump-buffer probe
+    if (!S.curBlock) return false;
+    S.y = S.curBlock.top + yOff; S.vy = vy0; S.grounded = false;
+    S.fallStartY = S.y; S.jumpBufferT = -9;
+    return true;
+  },
+  state() {
+    return {
+      mode: S.mode, grounded: S.grounded, x: +S.x.toFixed(3), y: +S.y.toFixed(3),
+      z: +S.z.toFixed(3), vy: +S.vy.toFixed(2), dist: Math.floor(S.dist),
+      block: S.curBlock ? { color: S.curBlock.color, step: S.curBlock.step } : null,
+    };
+  },
   /* Advance the simulation deterministically (no rendering) — the
      render loop runs far too slowly under software GL for real-time
      bot play. auto() steers toward the nearest green candle and jumps
@@ -1374,7 +1541,9 @@ window.CCQA = {
       stick.active = true;
       stick.x = target ? clamp((target.x - S.x) * 0.85, -1, 1) : 0;
       if (S.grounded) {
-        const ahead = blockAt(S.x, S.z - 2.4);
+        // look further ahead (3.0) so the bot commits to edges/gaps
+        // early enough for the forgiving jump to carry it
+        const ahead = blockAt(S.x, S.z - 3.0);
         if (!ahead || ahead.top > S.y + AUTO_STEP) doJump();
       }
       S.time += dt; S.runTime += dt;
