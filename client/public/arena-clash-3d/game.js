@@ -476,18 +476,36 @@ let embers = null;
   arena.add(galleryTrim);
   const stepMat = stoneMatT;
   const trimMat = new THREE.MeshStandardMaterial({ color: 0x1a0d05, emissive: 0xff7a26, emissiveIntensity: 0.9, roughness: 0.5, fog: false });
-  for (const [rt, rb, hh, top] of [[8.4, 8.8, 0.75, 0.25], [11.4, 11.8, 1.5, 0.62], [14.4, 14.8, 2.25, 1.0]]) {
-    const st = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, hh, 56), stepMat);
-    st.position.y = top - hh / 2; st.receiveShadow = true;
-    arena.add(st);
-    const trim = new THREE.Mesh(new THREE.TorusGeometry(rt + 0.01, 0.028, 8, 72), trimMat);
+  /* Seating tiers are RINGS (tread + inner riser), never solid discs:
+     the first build used full cylinders, whose largest disc topped out
+     at y=1.0 across the WHOLE arena — burying the platform (top y=0)
+     and the fighters' lower halves inside the stone (waist-deep
+     fighters, knock/death poses showing only a head and an arm above
+     the "floor"). Each tier is an annulus OUTSIDE the platform: a flat
+     tread ring at its top height plus a riser band dropping from its
+     inner edge to the tier below. A base disc at ground level closes
+     the bowl out to the wall. */
+  const stepMatD = stepMat.clone(); stepMatD.side = THREE.DoubleSide;
+  {
+    const base = new THREE.Mesh(new THREE.CircleGeometry(17.8, 56), stepMatD);
+    base.rotation.x = -Math.PI / 2; base.position.y = -0.49; base.receiveShadow = true;
+    arena.add(base);
+  }
+  for (const [inner, outer, top, dropTo] of [[5.35, 8.4, 0.25, -0.49], [8.4, 11.4, 0.62, 0.25], [11.4, 14.4, 1.0, 0.62]]) {
+    const tread = new THREE.Mesh(new THREE.RingGeometry(inner, outer, 56), stepMatD);
+    tread.rotation.x = -Math.PI / 2; tread.position.y = top; tread.receiveShadow = true;
+    arena.add(tread);
+    const riser = new THREE.Mesh(new THREE.CylinderGeometry(inner, inner, top - dropTo, 56, 1, true), stepMatD);
+    riser.position.y = (top + dropTo) / 2;
+    arena.add(riser);
+    const trim = new THREE.Mesh(new THREE.TorusGeometry(outer + 0.01, 0.028, 8, 72), trimMat);
     trim.rotation.x = Math.PI / 2; trim.position.y = top + 0.01;
     arena.add(trim);
   }
   {
     const N2 = 340, pos2 = new Float32Array(N2 * 3);
     for (let i = 0; i < N2; i++) {
-      const r = 6.6 + Math.random() * 8.6, a = Math.random() * Math.PI * 2;
+      const r = 6.6 + Math.random() * 7.7, a = Math.random() * Math.PI * 2;
       const top = r < 8.4 ? 0.25 : r < 11.4 ? 0.62 : 1.0;
       pos2[i * 3] = Math.cos(a) * r;
       pos2[i * 3 + 1] = top + 0.12 + Math.random() * 0.5;
@@ -1870,10 +1888,26 @@ function updateCamera(dt, t) {
   // FOV 38->41 / 50->52, margin 0.85*sep+1.45 -> 0.80*sep+1.10, base
   // 2.65+0.56*sep -> 2.05+0.50*sep, floor 4.0 -> 3.1 (landscape). At
   // fighting range the camera sits ~25-28% closer than the specials
-  // build; the portrait cap stays 14.
+  // build. (Portrait cap/fit rules corrected Nov 7 — see below.)
   const fitK = 2 * Math.tan(camera.fov * Math.PI / 360) * (innerWidth / innerHeight);
-  const distFit = THREE.MathUtils.clamp(sep * 0.80 + 1.10, 2.6, 8.8) / fitK;
-  const distC = THREE.MathUtils.clamp(Math.max(2.05 + sep * 0.50, distFit), 3.1, isPortrait ? 14 : 7.4);
+  // the fit width must cover the FULL span of both bodies around the
+  // anchor (the camera looks at mid*0.75, not mid): a standing body
+  // reaches ~0.48 from its root, but a KNOCKED-DOWN or dead body lies
+  // ~1.55 long — a knockdown at the stage edge used to slide half out
+  // of frame. The old 0.80*sep+1.10 budget is also less than the
+  // separation itself past sep ~5.5, which pushed edge fighters out.
+  const ext = f => (f.state === 'knock' || f.state === 'death') ? 1.55 : 0.48;
+  const spanL = Math.min(P1.x - ext(P1), P2.x - ext(P2));
+  const spanR = Math.max(P1.x + ext(P1), P2.x + ext(P2));
+  const anchor0 = mid * 0.75;
+  const needSpan = 2 * Math.max(anchor0 - spanL, spanR - anchor0);
+  const needW = Math.max(sep * 0.80 + 1.10, needSpan);
+  const distFit = THREE.MathUtils.clamp(needW, 2.6, 10.4) / fitK;
+  // the portrait cap must never override distFit: on narrow phones
+  // (aspect ~0.41) a full stage-width separation needs ~17 units, and
+  // the old flat 14 cap pushed both fighters out of the frame — the
+  // cap now only ever RAISES the fit distance, never lowers it
+  const distC = THREE.MathUtils.clamp(Math.max(2.05 + sep * 0.50, distFit), 3.1, isPortrait ? Math.max(14, distFit) : 7.4);
   // Camera MOTION (owner, Nov 4: "move the camera around — 360 or even
   // 180"): the camera orbits an anchor point by angle theta. During the
   // FIGHT it only sways +-13 deg on a slow 26 s cycle and NEVER crosses
