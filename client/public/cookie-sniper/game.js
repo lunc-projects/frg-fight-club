@@ -527,7 +527,7 @@ const BREACH_Z = 11.6;
 let enemySeq = 0;
 const KINDS = {
   chip:   { scale: 0.62, hp: 1, speedF: 1.5,  dough: 0xe0b06a, rBase: 0.36 },
-  cookie: { scale: 1.0,  hp: 2, speedF: 1.0,  dough: 0xd9a45f, rBase: 0.36 },
+cookie: <redacted>
   chunk:  { scale: 1.5,  hp: 3, speedF: 0.58, dough: 0xbf8742, rBase: 0.34 },
 };
 const chipMatShared = new THREE.MeshStandardMaterial({ color: 0x3a2110, roughness: .6 });
@@ -1056,27 +1056,27 @@ class DoughBoss {
    dough down in a stream of crumbs but can't place a shot. */
 const GUNS = [
   { id: 'chip', name: 'CHIP SHOT', tag: 'The balanced all-rounder. A fine first rifle.',
-    dmg: 1, bolt: 1.0, mag: 8, zooms: [23, 15, 10.5, 7.2, 5.6], sway: 1.0, reload: 1.6,
+    dmg: 1, bolt: 1.0, mag: 8, zooms: [55, 23, 15, 10.5, 7.2, 5.6], sway: 1.0, reload: 1.6,
     barrel: 0.52, barrelR: 0.016, scopeLen: 0.24, scopeR: 0.026, stock: null },
   { id: 'piercer', name: 'DOUGH PIERCER', tag: 'Monster damage and a huge scope — but a slow bolt and only 5 rounds.',
-    dmg: 2, bolt: 1.7, mag: 5, zooms: [20, 13, 9, 6, 4.6, 3.6], sway: 1.4, reload: 1.6,
+    dmg: 2, bolt: 1.7, mag: 5, zooms: [55, 20, 13, 9, 6, 4.6, 3.6], sway: 1.4, reload: 1.6,
     barrel: 0.74, barrelR: 0.014, scopeLen: 0.36, scopeR: 0.036, stock: 0x23211e },
   { id: 'cannon', name: 'CRUMB CANNON', tag: 'Fastest bolt and a fat mag — but it only chips the dough.',
-    dmg: 0.5, bolt: 0.5, mag: 12, zooms: [25, 16, 11, 8.6], sway: 1.2, reload: 1.6,
+    dmg: 0.5, bolt: 0.5, mag: 12, zooms: [55, 25, 16, 11, 8.6], sway: 1.2, reload: 1.6,
     barrel: 0.38, barrelR: 0.024, scopeLen: 0.15, scopeR: 0.02, stock: 0x9c3226 },
   { id: 'guard', name: 'JAR GUARD', tag: 'Rock-steady aim and a quick bolt — with a modest little scope.',
-    dmg: 1, bolt: 0.8, mag: 10, zooms: [23, 15, 10.5, 8.2], sway: 0.45, reload: 1.6,
+    dmg: 1, bolt: 0.8, mag: 10, zooms: [55, 23, 15, 10.5, 8.2], sway: 0.45, reload: 1.6,
     barrel: 0.6, barrelR: 0.017, scopeLen: 0.2, scopeR: 0.023, stock: 0x20655e },
   { id: 'cutter', name: 'COOKIE CUTTER', tag: 'FULL AUTO — hold FIRE and hose. A drum of little bites, no aiming required. Almost.',
-    dmg: 0.35, bolt: 0.16, mag: 24, zooms: [24, 15.5, 11, 8.6], sway: 1.1, auto: true, reload: 1.9,
+    dmg: 0.35, bolt: 0.16, mag: 24, zooms: [55, 24, 15.5, 11, 8.6], sway: 1.1, auto: true, reload: 1.9,
     barrel: 0.34, barrelR: 0.03, scopeLen: 0.15, scopeR: 0.021, stock: 0x7a4a21,
     magStyle: 'drum', boltVisual: false },
   { id: 'storm', name: 'SPRINKLE STORM', tag: 'FULL AUTO and furious — the fastest trigger in the bakery, the weakest bite, wild as weather.',
-    dmg: 0.25, bolt: 0.11, mag: 36, zooms: [27, 17.2, 13.4], sway: 1.5, auto: true, reload: 1.9,
+    dmg: 0.25, bolt: 0.11, mag: 36, zooms: [55, 27, 17.2, 13.4], sway: 1.5, auto: true, reload: 1.9,
     barrel: 0.44, barrelR: 0.02, scopeLen: 0.1, scopeR: 0.016, stock: 0xd94f8f,
     magStyle: 'drum', boltVisual: false },
   { id: 'launcher', name: 'JAR BREAKER', tag: 'ROCKET LAUNCHER — a direct hit flattens anything (×4) and the blast crumbs everything near it (×2). Rockets hit the dough mass — no eye bonus, just boom.',
-    dmg: 4, bolt: 2.4, mag: 2, zooms: [27, 17.2, 13.4], sway: 0.8, reload: 2.2,
+    dmg: 4, bolt: 2.4, mag: 2, zooms: [55, 27, 17.2, 13.4], sway: 0.8, reload: 2.2,
     projectile: 'rocket', launcher: true, kickMul: 2.4, boltVisual: false,
     barrel: 0.5, barrelR: 0.055, scopeLen: 0, scopeR: 0, stock: 0x5a4632 },
 ];
@@ -1098,9 +1098,9 @@ const PARTS = {
     { id: 'drum', name: 'DRUM', mag: 30, magStyle: 'drum' },
   ],
   scope: [
-    { id: 'scout', name: 'SCOUT', zooms: [25, 16, 11, 8.6], swayAdd: 0 },
-    { id: 'hunter', name: 'HUNTER', zooms: [23, 15, 10.5, 7.2, 5.6], swayAdd: 0 },
-    { id: 'longshot', name: 'LONGSHOT', zooms: [20, 13, 9, 6, 4.6, 3.6], swayAdd: 0.3 },
+    { id: 'scout', name: 'SCOUT', zooms: [55, 25, 16, 11, 8.6], swayAdd: 0 },
+    { id: 'hunter', name: 'HUNTER', zooms: [55, 23, 15, 10.5, 7.2, 5.6], swayAdd: 0 },
+    { id: 'longshot', name: 'LONGSHOT', zooms: [55, 20, 13, 9, 6, 4.6, 3.6], swayAdd: 0.3 },
   ],
   stock: [
     { id: 'steady', name: 'STEADY', swayMul: 0.5, spdMul: 1.0, color: 0x23211e },
@@ -1496,7 +1496,12 @@ document.body.style.touchAction = 'none';
    whole scene, then crank right in. zoomStep now picks the ADJACENT
    stop in both directions (the shipped loops scanned from the wrong
    end, so the buttons jumped straight from entry zoom to the deepest
-   stop instead of stepping). */
+   stop instead of stepping).
+   Nov 7 (owner: "zoom all the way back to zero"): every ladder now
+   starts at FOV 55 = 1.0x - no magnification, the full normal view
+   through the scope. Scoped entry lands on it, ZOOM -/pinch-out
+   clamp there, and the scope mask stays up at 1.0x (it keys off
+   player.scoped now, not a fov threshold). */
 function zoomTargetFov() { return player.zoomFov != null ? player.zoomFov : ZOOMS[player.zoomIdx]; }
 function zoomStep(dir) { // dir +1 = zoom in (next stop down the ladder), −1 = out
   if (!player.scoped) return;
@@ -2419,7 +2424,7 @@ function animate() {
     $('zoomMag').textContent = magTxt;
     $('retMag').textContent = magTxt;
   }
-  const scopedNow = player.scoped && camera.fov < 34;
+  const scopedNow = player.scoped;
   $('scopeOverlay').style.display = scopedNow ? 'block' : 'none';
   $('cross').style.display = (!scopedNow && (game.phase === 'fight' || game.phase === 'boss' || game.phase === 'levelclear')) ? 'block' : 'none';
   rifle.visible = !scopedNow;
