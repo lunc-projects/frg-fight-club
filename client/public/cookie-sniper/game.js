@@ -1368,6 +1368,7 @@ function selectGun(i) {
   MAG = playerGun.mag;
   ZOOMS = playerGun.zooms;
   player.zoomIdx = Math.min(player.zoomIdx, ZOOMS.length - 1);
+  player.zoomFov = null; // back on the ladder for the new gun
   if (player.ammo > MAG) player.ammo = MAG;
   lastAmmo = -1;
   setViewmodel(playerGun);
@@ -1416,7 +1417,7 @@ const game = { phase: 'boot', wave: 0, level: 0, boss: null, trickleT: 0,
   waveShots: 0, waveHits: 0, interT: 0, timerExpired: false, simT: 0 };
 let enemies = [];
 let MAG = GUNS[0].mag;
-const player = { ammo: MAG, chamberT: 0, reloadT: 0, scoped: false, zoomIdx: 0,
+const player = { ammo: MAG, chamberT: 0, reloadT: 0, scoped: false, zoomIdx: 0, zoomFov: null,
   breath: 1, holding: false, breathLock: false, kick: 0, boltT: -1, bloom: 0,
   grenades: 3, throwT: 0 };
 let triggerHeld = false;   // FIRE held down — only the full-autos keep shooting
@@ -1471,26 +1472,80 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyR') startReload();
   if (e.code === 'KeyG') throwGrenade();
   if (e.code === 'KeyF' || e.code === 'KeyQ') setScope(!player.scoped);
-  if (e.code === 'Equal' && player.scoped) player.zoomIdx = Math.min(ZOOMS.length - 1, player.zoomIdx + 1);
-  if (e.code === 'Minus' && player.scoped) player.zoomIdx = Math.max(0, player.zoomIdx - 1);
+  if (e.code === 'Equal' && player.scoped) zoomStep(1);
+  if (e.code === 'Minus' && player.scoped) zoomStep(-1);
   AudioSys.init();
 });
 addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'Space') triggerHeld = false; });
 addEventListener('wheel', e => {
   if (!player.scoped || (game.phase !== 'fight' && game.phase !== 'boss')) return;
-  player.zoomIdx = THREE.MathUtils.clamp(player.zoomIdx + (e.deltaY > 0 ? -1 : 1), 0, ZOOMS.length - 1);
+  zoomStep(e.deltaY > 0 ? -1 : 1);
 }, { passive: true });
 document.body.style.touchAction = 'none';
 
+/* ------- adjustable scope zoom (owner, Nov 7: graded, not all-in/all-out) -------
+   ZOOMS is the gun's FOV ladder (descending FOV = ascending magnification).
+   zoomFov === null means "sit exactly on ZOOMS[zoomIdx]". The +/− buttons,
+   wheel and +/− keys STEP between ladder stops (the render loop eases the
+   FOV, so steps sweep smoothly); a two-finger PINCH slides zoomFov
+   continuously between the ladder's ends. Magnification = 55 / fov. */
+function zoomTargetFov() { return player.zoomFov != null ? player.zoomFov : ZOOMS[player.zoomIdx]; }
+function zoomStep(dir) { // dir +1 = zoom in (next stop down the ladder), −1 = out
+  if (!player.scoped) return;
+  const cur = zoomTargetFov();
+  let pick = -1;
+  if (dir > 0) { for (let i = ZOOMS.length - 1; i >= 0; i--) { if (ZOOMS[i] < cur - 0.01) { pick = i; break; } } }
+  else { for (let i = 0; i < ZOOMS.length; i++) { if (ZOOMS[i] > cur + 0.01) { pick = i; break; } } }
+  if (pick < 0) pick = dir > 0 ? ZOOMS.length - 1 : 0;
+  player.zoomIdx = pick;
+  player.zoomFov = ZOOMS[pick];
+}
+function zoomSetFov(f) { // continuous (pinch): clamp to the ladder's range
+  const hi = ZOOMS[0], lo = ZOOMS[ZOOMS.length - 1];
+  player.zoomFov = THREE.MathUtils.clamp(f, lo, hi);
+  let best = 0, bd = Infinity;
+  ZOOMS.forEach((z, i) => { const d = Math.abs(z - player.zoomFov); if (d < bd) { bd = d; best = i; } });
+  player.zoomIdx = best;
+}
+
 let dragId = null, dragX = 0, dragY = 0, dragMoved = 0, dragT0 = 0, canvasDown = false;
 const cvs = renderer.domElement;
+/* pinch-to-zoom: two pointers on the field. While pinching, aim drag,
+   tap-to-shoot, breath-hold and auto-fire are all suspended; pointers that
+   took part in a pinch stay ignored until they lift, so the leftover
+   finger can't fire or yank the aim when the pinch ends. */
+const activePtrs = new Map(), pinchGhosts = new Set();
+let pinching = false, pinchDist0 = 0, pinchFov0 = 0;
+function pinchDist() {
+  const p = [...activePtrs.values()];
+  return Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+}
 cvs.addEventListener('pointerdown', e => {
   AudioSys.init();
+  activePtrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinching || pinchGhosts.has(e.pointerId)) return;
+  if (activePtrs.size === 2 && player.scoped) {
+    pinching = true;
+    pinchGhosts.add(dragId); pinchGhosts.add(e.pointerId);
+    dragId = null; canvasDown = false; triggerHeld = false;
+    pinchDist0 = pinchDist(); pinchFov0 = zoomTargetFov();
+    return;
+  }
+  if (dragId !== null) return; // a second finger never steals the aim drag
   dragId = e.pointerId; dragX = e.clientX; dragY = e.clientY; dragMoved = 0; dragT0 = performance.now();
   canvasDown = true;
   triggerHeld = true;   // holding the field keeps an auto firing; bolt guns ignore it
 });
 cvs.addEventListener('pointermove', e => {
+  const rec = activePtrs.get(e.pointerId);
+  if (rec) { rec.x = e.clientX; rec.y = e.clientY; }
+  if (pinching) {
+    if (activePtrs.size === 2 && pinchDist0 > 0) {
+      const d = pinchDist();
+      if (d > 0) zoomSetFov(pinchFov0 * pinchDist0 / d);
+    }
+    return;
+  }
   if (e.pointerId !== dragId) return;
   const dx = e.clientX - dragX, dy = e.clientY - dragY;
   dragX = e.clientX; dragY = e.clientY;
@@ -1500,6 +1555,11 @@ cvs.addEventListener('pointermove', e => {
   aimPitch = THREE.MathUtils.clamp(aimPitch - dy * sens, -0.34, 0.18);
 });
 const dragEnd = e => {
+  const wasPinch = pinching;
+  activePtrs.delete(e.pointerId);
+  if (activePtrs.size < 2) pinching = false;
+  if (pinchGhosts.has(e.pointerId)) { pinchGhosts.delete(e.pointerId); return; }
+  if (wasPinch) return;
   if (e.pointerId !== dragId) return;
   canvasDown = false;
   triggerHeld = false;
@@ -1514,6 +1574,8 @@ function bindBtn(id, fn) {
   el.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); AudioSys.init(); fn(); });
 }
 bindBtn('scopeBtn', () => setScope(!player.scoped));
+bindBtn('zoomInBtn', () => zoomStep(1));
+bindBtn('zoomOutBtn', () => zoomStep(-1));
 { // FIRE is a hold, not just a tap — full-autos keep shooting while it is down
   const fb = $('fireBtn');
   fb.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); AudioSys.init(); triggerHeld = true; fire(); });
@@ -1541,7 +1603,7 @@ function setScope(on) {
   if (game.phase !== 'fight' && game.phase !== 'boss' && game.phase !== 'levelclear') on = false;
   player.scoped = on;
   $('scopeBtn').classList.toggle('on', on);
-  if (!on) player.holding = false;
+  if (!on) { player.holding = false; player.zoomFov = null; pinching = false; }
 }
 
 /* ---------------- shooting ---------------- */
@@ -2128,6 +2190,8 @@ function qaState() {
     shots: game.shots, hits: game.hits, headshots: game.headshots, breaches: game.breaches,
     combo: game.combo, ammo: player.ammo, chamberT: Math.round(player.chamberT * 100) / 100,
     gun: playerGun.id, magSize: MAG, zoomSteps: ZOOMS.length, dmg: playerGun.dmg,
+    zoomIdx: player.zoomIdx, zoomTarget: Math.round(zoomTargetFov() * 100) / 100,
+    zoomFov: Math.round(camera.fov * 100) / 100, mag: Math.round(55 / camera.fov * 10) / 10, pinching,
     auto: !!playerGun.auto, bolt: playerGun.bolt, sway: playerGun.sway,
     trigger: triggerHeld, bloom: Math.round(player.bloom * 100) / 100,
     grenades: player.grenades, throwT: Math.round(player.throwT * 100) / 100,
@@ -2210,6 +2274,9 @@ window.__qa = {
   slots: () => SLOT_COUNT,
   state: qaState,
   scope: v => setScope(v !== false),
+  zoomStep: d => { zoomStep(d < 0 ? -1 : 1); return player.zoomIdx; },
+  zoomTo: i => { player.zoomIdx = THREE.MathUtils.clamp(i | 0, 0, ZOOMS.length - 1); player.zoomFov = ZOOMS[player.zoomIdx]; return player.zoomIdx; },
+  zoomFovTo: f => { zoomSetFov(f); return player.zoomFov; },
   fire: () => fire(),
   reload: () => startReload(),
   aimAt: zone => qaAimAt(zone || 'body'),
@@ -2329,10 +2396,18 @@ function animate() {
   updateSparks(rawDt); updatePuffs(rawDt); updateTracers(rawDt); updateProjectiles(rawDt);
 
   // scope zoom easing
-  const targetFov = player.scoped ? ZOOMS[player.zoomIdx] : 55;
+  const targetFov = player.scoped ? zoomTargetFov() : 55;
   if (Math.abs(camera.fov - targetFov) > 0.05) {
     camera.fov += (targetFov - camera.fov) * Math.min(1, rawDt * 11);
     camera.updateProjectionMatrix();
+  }
+  // adjustable-zoom HUD: cluster visible only while scoped; both readouts
+  // show the LIVE magnification (55 / fov), so they sweep as the zoom eases
+  $('zoomCtl').style.display = player.scoped ? 'flex' : 'none';
+  if (player.scoped) {
+    const magTxt = (55 / camera.fov).toFixed(1) + '×';
+    $('zoomMag').textContent = magTxt;
+    $('retMag').textContent = magTxt;
   }
   const scopedNow = player.scoped && camera.fov < 34;
   $('scopeOverlay').style.display = scopedNow ? 'block' : 'none';
