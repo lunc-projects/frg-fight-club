@@ -26,11 +26,12 @@ const DECK_W = 15;              // deck length in x
 const DEPTH = 3.4;              // deck depth in z (structure centred z=0)
 const PLAY_Z = 0.7;             // gameplay plane
 const PLAY_MIN = -6.9, PLAY_MAX = 6.9;
-const LV_H = 3.0;               // vertical gap between decks
+const LV_H = 3.6;               // vertical gap between decks (was 3.0 — one deck removed, taller gaps so the scene reads bigger)
 const SLOPE_DY = 0.9;           // high-end minus low-end over a deck
-const TOP = 5;                  // top deck index (decks 0..5)
+const TOP = 4;                  // top deck index (decks 0..4 — one deck removed Nov 7 at Tom's request: "reduce one level so the screen size can grow")
+const HERO_SCALE = 1.35;        // hero visual scale (Tom Nov 7: "make the character a little bit bigger") — visual only; physics stay in world units
 const HALF = DECK_W / 2;
-const deckDir = (i) => (i === TOP ? 0 : (i % 2 === 0 ? 1 : -1)); // +1: rises toward +x
+const deckDir = (i) => (i === TOP ? 0 : (i % 2 === 0 ? -1 : 1)); // +1: rises toward +x — parity flipped vs the old 6-deck tower so the deck under the flat top (deck 3) still receives barrels on its HIGH end; every deck keeps barrel traffic
 const yAt = (i, x) => i * LV_H + deckDir(i) * (x / DECK_W) * SLOPE_DY + SLOPE_DY / 2;
 const DECK_T = 0.28;            // deck slab thickness
 const DECK_TILT = Math.atan2(SLOPE_DY, DECK_W);
@@ -38,9 +39,9 @@ const DECK_TILT = Math.atan2(SLOPE_DY, DECK_W);
 /* Ladders: per lower deck i (0..TOP-1) one full ladder joins deck i to i+1.
    (x position, and whether it is a short decoy on this level — decoys are
    extra short ladders that stop halfway; the full one always works.) */
-function ladderX(i) { return [4.9, -4.9, 3.9, -3.9, 4.6][i]; }
+function ladderX(i) { return [4.9, -4.9, 3.9, -3.9][i]; }
 const FILL_XS = [0.4];                      // one mid fill ladder per gap (front layer)
-function decoyX(i) { return [-1.2, 1.6, -2.2, 2.4, -0.8][i]; }
+function decoyX(i) { return [-1.2, 1.6, -2.2, 2.4][i]; }
 
 const APE_X = -4.6;             // ape stands left on the top deck
 const GOAL_X = 3.2;             // reach this x on the top deck to clear
@@ -122,7 +123,7 @@ moonLight.position.set(14, 26, 10);
 moonLight.castShadow = true;
 moonLight.shadow.mapSize.set(2048, 2048);
 moonLight.shadow.camera.left = -16; moonLight.shadow.camera.right = 16;
-moonLight.shadow.camera.top = 24; moonLight.shadow.camera.bottom = -4;
+moonLight.shadow.camera.top = 21; moonLight.shadow.camera.bottom = -4;
 moonLight.shadow.camera.far = 70; moonLight.shadow.bias = -0.0006;
 scene.add(moonLight);
 const fillLight = new THREE.DirectionalLight(0xffd9a0, 0.28);
@@ -513,9 +514,9 @@ function buildTower() {
     if (i < TOP) { hangingLamp(g, -3.4 + i * 0.7, (i + 1) * LV_H + 0.35, 1.1); hangingLamp(g, 3.8 - i * 0.6, (i + 1) * LV_H + 0.35, 1.1); }
     /* set dressing: cones + crates on some decks */
     if (i === 1 || i === 3) makeCone(g, 5.9 - i, yAt(i, 5.9 - i), 1.15);
-    if (i === 2 || i === 4) makeCone(g, -6.1 + i * 0.4, yAt(i, -6.1 + i * 0.4), 1.15);
+    if (i === 2) makeCone(g, -6.1 + i * 0.4, yAt(i, -6.1 + i * 0.4), 1.15);
     if (i === 2) { const c = makeCrate(0.95); c.position.set(-5.6, yAt(2, -5.6) + 0.48, -0.9); g.add(c); }
-    if (i === 4) { const c = makeCrate(0.95); c.position.set(5.7, yAt(4, 5.7) + 0.48, -0.9); g.add(c); const c2 = makeCrate(0.7); c2.position.set(5.7, yAt(4, 5.7) + 1.3, -0.9); g.add(c2); }
+    if (i === 3) { const c = makeCrate(0.95); c.position.set(5.7, yAt(3, 5.7) + 0.48, -0.9); g.add(c); const c2 = makeCrate(0.7); c2.position.set(5.7, yAt(3, 5.7) + 1.3, -0.9); g.add(c2); }
   }
   /* side safety rails on the top deck front (concept key art) */
   const tg = deckGroups[TOP];
@@ -647,8 +648,7 @@ function layoutPickups() {
     [1, -2.2, 'cres'], [1, 0.8, 'cres'], [1, 4.4, 'cres'],
     [2, -4.6, 'star'], [2, -0.6, 'cres'], [2, 3.2, 'cres'],
     [3, -3.0, 'cres'], [3, 1.4, 'star'], [3, 5.2, 'cres'],
-    [4, -1.6, 'cres'], [4, 2.2, 'cres'], [4, -5.2, 'star'],
-    [5, -1.4, 'cres'], [5, 0.6, 'cres'],
+    [4, -5.2, 'star'], [4, -1.6, 'cres'], [4, 0.6, 'cres'], [4, 2.2, 'cres'],
   ];
   for (const [deck, x, kind] of spots) {
     const grp = new THREE.Group();
@@ -794,6 +794,7 @@ function buildHero() {
   lamp.position.set(0, 0.1, 0.24); hat.add(lamp);
   const beam = new THREE.PointLight(0xffd9a0, 3.5, 4.5, 2); beam.position.set(0, 0.1, 0.35); hat.add(beam);
   hero.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = false; } });
+  hero.scale.setScalar(HERO_SCALE);   // visual only — jump/gravity/collision stay in world units (hazard + pickup tests retuned to the taller body)
   world.add(hero);
 }
 const P = {  // player kinematics
@@ -1122,7 +1123,7 @@ function trySpawn(cfg) {
   const h = freeHazard(kind) || freeHazard('barrel');
   if (!h) return;
   h.active = true; h.deck = TOP; h.dir = -deckDir(TOP - 1) || 1;
-  h.dir = 1;  // top deck is flat: the ape rolls barrels toward +x, they drop at the right edge onto deck 4's high end
+  h.dir = 1;  // top deck is flat: the ape rolls barrels toward +x, they drop at the right edge onto deck 3's high end
   h.x = APE_X + 1.6; h.yOff = 0; h.falling = 0; h.passedBy = false;
   h.grp.visible = true;
   apeAnim.t = 0;
@@ -1258,7 +1259,7 @@ function updateHazards(dt, cfg) {
     /* collision with the player */
     if (!P.dead && S.invulnT <= 0 && S.mode === 'run' && !P.climbing) {
       const py = yAt(P.deck, P.x) + P.y;
-      if (h.deck === P.deck && Math.abs(h.x - P.x) < 0.52 && Math.abs((gy + 0.3) - (py + 0.45)) < 0.72) {
+      if (h.deck === P.deck && Math.abs(h.x - P.x) < 0.52 && Math.abs((gy + 0.3) - (py + 0.61)) < 0.97) {
         if (P.y > 0.42 && !P.grounded) {
           /* cleared it — award once per pass */
           if (!h.passedBy) { h.passedBy = true; S.score += 100; burst(P.x, py + 0.25, PLAY_Z, 0xd9c9a8, 10, 1.3, 1.1); popup(new THREE.Vector3(P.x, py + 1.5, PLAY_Z), '+100'); sfx.hop(); updateHUD(); }
@@ -1277,8 +1278,8 @@ function updatePickups(dt, t) {
     p.grp.rotation.y += dt * 2.4;
     p.grp.position.y = yAt(p.deck, p.x) + 0.62 + Math.sin(t * 2.4 + p.ph) * 0.09;
     if (S.mode === 'run' && !P.dead && !P.climbing && p.deck === P.deck) {
-      const py = yAt(P.deck, P.x) + P.y + 0.55;
-      if (Math.abs(p.x - P.x) < 0.55 && Math.abs(p.grp.position.y - py) < 0.85) {
+      const py = yAt(P.deck, P.x) + P.y + 0.74;
+      if (Math.abs(p.x - P.x) < 0.62 && Math.abs(p.grp.position.y - py) < 1.0) {
         p.taken = true; p.grp.visible = false;
         if (p.kind === 'cres') { S.cres++; S.score += 50; sfx.coin(); burst(p.x, py + 0.7, PLAY_Z, 0xffc93d, 12, 1.6, 1.6); popup(new THREE.Vector3(p.x, py + 0.7, PLAY_Z), '+50'); }
         else { S.stars++; S.score += 250; sfx.star(); burst(p.x, py + 0.7, PLAY_Z, 0x63e6d8, 16, 1.9, 1.9); popup(new THREE.Vector3(p.x, py + 0.7, PLAY_Z), '+250', '#8ff5e8'); }
@@ -1323,13 +1324,13 @@ const camTarget = new THREE.Vector3();
 function updateCamera(dt, t) {
   let focusY, dist, fovK = 1;
   if (S.mode === 'menu') {
-    focusY = 9.6; dist = 27;
+    focusY = 8.2; dist = 24;
     camTarget.set(Math.sin(t * 0.11) * 1.4, focusY, 0);
-    camera.position.lerp(new THREE.Vector3(Math.sin(t * 0.11) * 3.4, 9.2, dist), 1 - Math.pow(0.01, dt));
+    camera.position.lerp(new THREE.Vector3(Math.sin(t * 0.11) * 3.4, 7.8, dist), 1 - Math.pow(0.01, dt));
   } else {
     const py = P.climbing ? P.y : yAt(P.deck, P.x) + P.y;
-    focusY = clamp(py * 0.8 + 1.6, 5.2, 15.4);
-    dist = 24.5;
+    focusY = clamp(py * 0.8 + 1.7, 4.6, 13.6);
+    dist = 21.5;
     camTarget.set(P.x * 0.16, focusY, 0);
     camera.position.lerp(new THREE.Vector3(P.x * 0.16, focusY + 0.3, dist), 1 - Math.pow(0.001, dt));
   }
