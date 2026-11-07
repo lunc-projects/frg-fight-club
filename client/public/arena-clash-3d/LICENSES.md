@@ -28,6 +28,23 @@ Notes on use:
 - Hairstyles are the packs' own "Rigged to Head Bone" variants, re-attached
   to the character's Head bone at runtime via their inverse-bind matrix.
 
+## Visual pass + roster expansion (2026-11-06)
+
+No new third-party assets were added. The richer colosseum (arcade wall,
+seating tiers, rune pylons, braziers, war banners, painted crescent moon,
+impact-flash star) is procedural geometry + canvas textures drawn in
+code, original to this project. The two added fighters — CAPTAIN BURN
+and MS NOVA — are original characters for this project built on the same
+CC0 Quaternius rigs listed above: BURN reuses the male body with the
+pack's beard hairstyle and an ember-red material tint; NOVA reuses the
+female body with no hair attachment and a violet material tint. Tints
+are runtime material colours over the CC0 textures — no new art assets.
+A later same-day addition (texture-richness pass) painted an ashlar
+stone-block canvas texture (+ a matching procedural bump map) onto the
+seating tiers, gallery band, pillars, rune pylons and braziers, and
+painted masonry block joints into the arcade wall texture — again all
+procedural canvas work original to this project, no new assets.
+
 ## Engine — three.js r160 (MIT)
 
 Vendored under `lib/` (`three.module.js`, GLTFLoader + BufferGeometryUtils

@@ -26,20 +26,20 @@ renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.12;
+renderer.toneMappingExposure = 1.16;
 document.getElementById('game').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x0a0818, 0.028);
 
 let isPortrait = innerWidth < innerHeight;
-const camera = new THREE.PerspectiveCamera(isPortrait ? 50 : 38, innerWidth / innerHeight, 0.1, 200);
+const camera = new THREE.PerspectiveCamera(isPortrait ? 52 : 41, innerWidth / innerHeight, 0.1, 200);
 camera.position.set(0, 1.5, 7.2);
 
 addEventListener('resize', () => {
   isPortrait = innerWidth < innerHeight;
   camera.aspect = innerWidth / innerHeight;
-  camera.fov = isPortrait ? 50 : 38;
+  camera.fov = isPortrait ? 52 : 41;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
   layoutArena();
@@ -58,6 +58,11 @@ scene.add(keyLight);
 const rimLight = new THREE.DirectionalLight(0x5e8bff, 2.0);
 rimLight.position.set(-5, 4.5, -6);
 scene.add(rimLight);
+// soft frontal fill (visual pass, Nov 6): lifts faces/chests toward the
+// closer camera so the fighters read with more presence
+const fillLight = new THREE.DirectionalLight(0xbfd0ff, 0.55);
+fillLight.position.set(-3.5, 2.2, 6.5);
+scene.add(fillLight);
 const underGlow = new THREE.PointLight(0xff7a26, 12, 12, 1.8);
 underGlow.position.set(0, 0.7, -2.5);
 scene.add(underGlow);
@@ -98,6 +103,15 @@ const floorTex = canvasTex(1024, 1024, (x, w, h) => {
     x.fillStyle = `rgba(255,255,255,${Math.random() * 0.05})`;
     x.fillRect(Math.random() * w, Math.random() * h, 2, 2);
   }
+  // Visual pass (Nov 6): edge vignette + metal inlay rings around the
+  // emblem, so the floor reads as a finished arena surface, not bare stone
+  const rg = x.createRadialGradient(w / 2, h / 2, 120, w / 2, h / 2, 512);
+  rg.addColorStop(0, 'rgba(0,0,0,0)'); rg.addColorStop(1, 'rgba(0,0,0,0.42)');
+  x.fillStyle = rg; x.fillRect(0, 0, w, h);
+  x.strokeStyle = 'rgba(255,179,64,0.20)'; x.lineWidth = 5;
+  x.beginPath(); x.arc(w / 2, h / 2, 318, 0, 7); x.stroke();
+  x.strokeStyle = 'rgba(120,190,255,0.13)'; x.lineWidth = 3;
+  x.beginPath(); x.arc(w / 2, h / 2, 296, 0, 7); x.stroke();
   // BIG LUNA CLASSIC canvas print (owner, Nov 4): a worn ring-paint
   // emblem at the arena centre — crescent + the words LUNA CLASSIC
   // (branding rule: the words must be there, crescent alone is not
@@ -121,9 +135,23 @@ const floorTex = canvasTex(1024, 1024, (x, w, h) => {
   x.fillStyle = 'rgba(242,237,224,0.6)';
   x.textAlign = 'center'; x.textBaseline = 'middle';
   x.font = '900 96px Arial, sans-serif';
-  x.fillText('LUNA', 0, 66);
+  x.fillText('LUNA', 0, 60);
   x.font = '900 82px Arial, sans-serif';
-  x.fillText('CLASSIC', 0, 158);
+  x.fillText('CLASSIC', 0, 146);
+  x.font = '700 37px Arial, sans-serif';
+  x.fillStyle = 'rgba(255,196,77,0.55)';
+  x.fillText('LUNC DEV STUDIO', 0, 196);
+  x.restore();
+  // sponsor rim band around the mat: LUNC wordmarks repeated like a real
+  // branded ring canvas (painted in the same rotated frame as the emblem)
+  x.save();
+  x.translate(w / 2, h / 2); x.rotate(-Math.PI / 2);
+  x.fillStyle = 'rgba(242,237,224,0.13)';
+  x.font = '900 44px Arial, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2;
+    x.save(); x.rotate(a); x.translate(0, -424); x.fillText('LUNC', 0, 0); x.restore();
+  }
   x.restore();
   // scuff the print so it reads as worn paint, not a fresh sticker
   x.save();
@@ -159,11 +187,263 @@ const glowTex = canvasTex(128, 128, (x, w, h) => {
   g.addColorStop(1, 'rgba(255,255,255,0)');
   x.fillStyle = g; x.fillRect(0, 0, w, h);
 }, { nearest: true });
+/* Visual pass (Nov 6) — new procedural textures, all original: a painted
+   crescent moon (the old flat disc read as a sticker), the colosseum
+   arcade wall (arches + torch glow + upper windows), and the two war
+   banners that flank the gate (gold crescent for LUNC, azure star for
+   USTC). */
+const moonTex = canvasTex(512, 512, (x, w, h) => {
+  x.clearRect(0, 0, w, h);
+  const g = x.createRadialGradient(256, 256, 60, 256, 256, 250);
+  g.addColorStop(0, 'rgba(170,195,255,0.30)'); g.addColorStop(0.55, 'rgba(140,165,255,0.10)'); g.addColorStop(1, 'rgba(140,165,255,0)');
+  x.fillStyle = g; x.fillRect(0, 0, w, h);
+  const lg = x.createLinearGradient(120, 100, 380, 420);
+  lg.addColorStop(0, '#f4f7ff'); lg.addColorStop(0.6, '#dbe4f7'); lg.addColorStop(1, '#b9c6e4');
+  x.fillStyle = lg;
+  x.beginPath(); x.arc(256, 256, 148, 0, 7); x.fill();
+  x.fillStyle = 'rgba(140,155,190,0.25)';
+  for (const [cx, cy, r] of [[205, 205, 16], [238, 300, 11], [185, 275, 8], [225, 160, 7], [270, 235, 9]]) {
+    x.beginPath(); x.arc(cx, cy, r, 0, 7); x.fill();
+  }
+  x.globalCompositeOperation = 'destination-out';
+  x.beginPath(); x.arc(322, 208, 128, 0, 7); x.fill();
+  x.globalCompositeOperation = 'source-over';
+}, { nearest: true });
+const wallTex = canvasTex(2048, 512, (x, w, h) => {
+  const g = x.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, '#251a31'); g.addColorStop(0.55, '#1c1425'); g.addColorStop(1, '#110b19');
+  x.fillStyle = g; x.fillRect(0, 0, w, h);
+  const bays = 16, bw = w / bays;
+  for (let i = 0; i < bays; i++) {
+    const bx = i * bw;
+    x.fillStyle = 'rgba(0,0,0,0.35)'; x.fillRect(bx, 0, 5, h); x.fillRect(bx + bw - 5, 0, 5, h);
+    x.fillStyle = 'rgba(255,220,170,0.05)'; x.fillRect(bx + 5, 0, 3, h);
+    const aw = bw * 0.58, ah = h * 0.52, ax = bx + (bw - aw) / 2, ay = h * 0.30;
+    x.fillStyle = '#090614';
+    x.beginPath();
+    x.moveTo(ax, ay + ah); x.lineTo(ax, ay + ah * 0.38);
+    x.arc(bx + bw / 2, ay + ah * 0.38, aw / 2, Math.PI, 0);
+    x.lineTo(ax + aw, ay + ah); x.closePath(); x.fill();
+    const ag = x.createRadialGradient(bx + bw / 2, ay + ah * 0.55, 8, bx + bw / 2, ay + ah * 0.55, aw * 0.85);
+    ag.addColorStop(0, 'rgba(255,150,60,0.32)'); ag.addColorStop(0.6, 'rgba(120,50,30,0.16)'); ag.addColorStop(1, 'rgba(0,0,0,0)');
+    x.fillStyle = ag; x.fill();
+    x.strokeStyle = 'rgba(255,190,120,0.28)'; x.lineWidth = 4;
+    x.beginPath();
+    x.moveTo(ax, ay + ah); x.lineTo(ax, ay + ah * 0.38);
+    x.arc(bx + bw / 2, ay + ah * 0.38, aw / 2, Math.PI, 0);
+    x.lineTo(ax + aw, ay + ah); x.stroke();
+    x.fillStyle = 'rgba(0,0,0,0.4)'; x.fillRect(bx, ay + ah, bw, 7);
+    x.fillStyle = 'rgba(255,220,170,0.07)'; x.fillRect(bx, ay + ah + 7, bw, 3);
+  }
+  for (let i = 0; i < bays * 2; i++) {
+    const bx = i * (w / (bays * 2));
+    x.fillStyle = 'rgba(255,170,80,0.13)';
+    x.fillRect(bx + 10, h * 0.10, w / (bays * 2) - 20, h * 0.09);
+    x.fillStyle = 'rgba(0,0,0,0.3)'; x.fillRect(bx + 10, h * 0.10, w / (bays * 2) - 20, 3);
+  }
+  // house wordmarks painted over the upper windows (venue branding,
+  // Tom Nov 6): alternating LUNC / LUNA CLASSIC in worn gold, like
+  // sponsor boards mounted on the arena wall
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  for (let i = 0; i < bays; i++) {
+    const cx = i * bw + bw / 2;
+    x.font = '900 30px Arial, sans-serif';
+    x.fillStyle = 'rgba(255,196,77,0.34)';
+    x.fillText(i % 2 ? 'LUNA CLASSIC' : 'LUNC', cx, h * 0.145);
+    x.font = '700 15px Arial, sans-serif';
+    x.fillStyle = 'rgba(240,235,220,0.20)';
+    x.fillText('LUNC DEV STUDIO', cx, h * 0.205);
+  }
+  for (let i = 0; i < bays; i++) { // ashlar block joints across each bay — real masonry, not a flat wash
+    const bx = i * bw;
+    x.strokeStyle = 'rgba(5,3,10,0.55)'; x.lineWidth = 2.5;
+    for (const fy of [0.06, 0.62, 0.80, 0.93]) { x.beginPath(); x.moveTo(bx + 4, h * fy); x.lineTo(bx + bw - 4, h * fy); x.stroke(); }
+    for (const fx of [0.28, 0.55, 0.8]) {
+      x.beginPath(); x.moveTo(bx + bw * fx, h * 0.62); x.lineTo(bx + bw * fx, h * 0.80); x.stroke();
+      x.beginPath(); x.moveTo(bx + bw * fx + 12, h * 0.80); x.lineTo(bx + bw * fx + 12, h * 0.93); x.stroke();
+    }
+    x.strokeStyle = 'rgba(255,225,180,0.06)'; x.lineWidth = 1;
+    for (const fy of [0.06, 0.62, 0.80, 0.93]) { x.beginPath(); x.moveTo(bx + 4, h * fy + 2.5); x.lineTo(bx + bw - 4, h * fy + 2.5); x.stroke(); }
+    const v = (Math.random() - 0.5) * 14; // per-block tonal shift
+    x.fillStyle = `rgba(${v > 0 ? 255 : 0},${v > 0 ? 240 : 0},${v > 0 ? 210 : 8},${Math.abs(v) / 255})`;
+    x.fillRect(bx + 4, h * 0.62, bw - 8, h * 0.31);
+  }
+  x.fillStyle = 'rgba(0,0,0,0.45)'; x.fillRect(0, h * 0.235, w, 6);
+  x.fillStyle = 'rgba(255,220,170,0.06)'; x.fillRect(0, h * 0.235 + 6, w, 3);
+  x.fillStyle = 'rgba(0,0,0,0.5)'; x.fillRect(0, h - 4, w, 4);
+  for (let i = 0; i < 5200; i++) {
+    x.fillStyle = `rgba(255,255,255,${Math.random() * 0.045})`;
+    x.fillRect(Math.random() * w, Math.random() * h, 2, 2);
+  }
+  for (let i = 0; i < 700; i++) {
+    x.fillStyle = `rgba(0,0,0,${Math.random() * 0.16})`;
+    x.fillRect(Math.random() * w, Math.random() * h, 3, 2);
+  }
+});
+wallTex.repeat.set(3, 1);
+/* Texture-richness pass (Nov 6, Tom's bar: "max these games out — rich
+   textured graphics, not flat colours"): a painted ashlar stone-block
+   texture shared by the steps, gallery band, pillars, pylons and
+   braziers (they were flat colour fills), plus a bump map derived from
+   the same painting. All procedural canvas work, original. */
+function paintStone(x, w, h, base, joint) {
+  x.fillStyle = base; x.fillRect(0, 0, w, h);
+  const rows = 6, rh = h / rows;
+  for (let r = 0; r < rows; r++) {
+    const off = (r % 2) * 0.5;
+    const cols = 4;
+    for (let cix = -1; cix < cols + 1; cix++) {
+      const bx = (cix + off) * (w / cols), by = r * rh, bw2 = w / cols, bh2 = rh;
+      const v = (Math.random() - 0.5) * 26;
+      x.fillStyle = `rgba(${v > 0 ? 255 : 0},${v > 0 ? 240 : 0},${v > 0 ? 220 : 10},${Math.abs(v) / 255})`;
+      x.fillRect(bx + 2, by + 2, bw2 - 4, bh2 - 4);
+      const grd = x.createLinearGradient(bx, by, bx, by + bh2);
+      grd.addColorStop(0, 'rgba(255,235,200,0.07)'); grd.addColorStop(1, 'rgba(0,0,0,0.20)');
+      x.fillStyle = grd; x.fillRect(bx + 2, by + 2, bw2 - 4, bh2 - 4);
+      x.fillStyle = 'rgba(0,0,0,0.30)'; x.fillRect(bx + 2, by + bh2 - 6, bw2 - 4, 3); // worn lower lip
+    }
+  }
+  x.strokeStyle = joint; x.lineWidth = 3;
+  for (let r = 0; r <= rows; r++) { x.beginPath(); x.moveTo(0, r * rh); x.lineTo(w, r * rh); x.stroke(); }
+  for (let r = 0; r < rows; r++) {
+    const off = (r % 2) * 0.5;
+    for (let cix = 0; cix <= 4; cix++) {
+      const bx = (cix + off) * (w / 4);
+      x.beginPath(); x.moveTo(bx, r * rh); x.lineTo(bx, (r + 1) * rh); x.stroke();
+    }
+  }
+  x.strokeStyle = 'rgba(255,230,190,0.10)'; x.lineWidth = 1;
+  for (let r = 0; r < rows; r++) { x.beginPath(); x.moveTo(0, r * rh + 2); x.lineTo(w, r * rh + 2); x.stroke(); }
+  for (let i = 0; i < 46; i++) { // cracks
+    x.strokeStyle = `rgba(0,0,0,${0.18 + Math.random() * 0.22})`; x.lineWidth = 1 + Math.random();
+    let px = Math.random() * w, py = Math.random() * h;
+    x.beginPath(); x.moveTo(px, py);
+    const segs = 2 + (Math.random() * 3 | 0);
+    for (let sg = 0; sg < segs; sg++) { px += (Math.random() - 0.5) * 46; py += Math.random() * 30; x.lineTo(px, py); }
+    x.stroke();
+  }
+  for (let i = 0; i < 30; i++) { // damp / soot stains
+    const sx = Math.random() * w, sy = Math.random() * h, sr = 22 + Math.random() * 70;
+    const sg2 = x.createRadialGradient(sx, sy, 0, sx, sy, sr);
+    sg2.addColorStop(0, `rgba(8,4,14,${0.10 + Math.random() * 0.14})`); sg2.addColorStop(1, 'rgba(0,0,0,0)');
+    x.fillStyle = sg2; x.beginPath(); x.arc(sx, sy, sr, 0, 7); x.fill();
+  }
+  for (let i = 0; i < 5200; i++) { // grain
+    x.fillStyle = `rgba(255,255,255,${Math.random() * 0.05})`;
+    x.fillRect(Math.random() * w, Math.random() * h, 2, 2);
+  }
+  for (let i = 0; i < 2600; i++) {
+    x.fillStyle = `rgba(0,0,0,${Math.random() * 0.13})`;
+    x.fillRect(Math.random() * w, Math.random() * h, 2, 2);
+  }
+}
+const stoneTex = canvasTex(512, 512, (x, w, h) => paintStone(x, w, h, '#2b2138', 'rgba(6,3,12,0.85)'));
+const stoneBump = canvasTex(512, 512, (x, w, h) => paintStone(x, w, h, '#808080', 'rgba(0,0,0,0.9)'));
+const stoneMatT = new THREE.MeshStandardMaterial({ map: stoneTex, bumpMap: stoneBump, bumpScale: 0.6, roughness: 0.94, metalness: 0.04, envMapIntensity: 0.25, fog: false });
+function bannerTex(kind) {
+  return canvasTex(256, 448, (x, w, h) => {
+    const g = x.createLinearGradient(0, 0, 0, h);
+    if (kind === 'lunc') { g.addColorStop(0, '#16264d'); g.addColorStop(1, '#0a1226'); }
+    else { g.addColorStop(0, '#0d2f4d'); g.addColorStop(1, '#081a2c'); }
+    x.fillStyle = g; x.fillRect(0, 0, w, h);
+    const main = kind === 'lunc' ? '#ffc44d' : '#8fd0ff';
+    x.strokeStyle = main; x.globalAlpha = 0.85; x.lineWidth = 5;
+    x.strokeRect(14, 14, w - 28, h - 28);
+    x.globalAlpha = 1;
+    x.save(); x.translate(w / 2, 150);
+    if (kind === 'lunc') {
+      x.fillStyle = main;
+      x.beginPath(); x.arc(0, 0, 74, 0, 7); x.fill();
+      x.globalCompositeOperation = 'destination-out';
+      x.beginPath(); x.arc(30, -22, 62, 0, 7); x.fill();
+      x.globalCompositeOperation = 'source-over';
+      x.beginPath();
+      const sx = 0, sy = 118;
+      x.moveTo(sx, sy - 26); x.lineTo(sx + 7, sy - 7); x.lineTo(sx + 26, sy); x.lineTo(sx + 7, sy + 7);
+      x.lineTo(sx, sy + 26); x.lineTo(sx - 7, sy + 7); x.lineTo(sx - 26, sy); x.lineTo(sx - 7, sy - 7);
+      x.closePath(); x.fillStyle = main; x.fill();
+    } else {
+      x.fillStyle = main;
+      x.beginPath();
+      x.moveTo(0, -78); x.lineTo(16, -16); x.lineTo(78, 0); x.lineTo(16, 16);
+      x.lineTo(0, 78); x.lineTo(-16, 16); x.lineTo(-78, 0); x.lineTo(-16, -16);
+      x.closePath(); x.fill();
+      x.strokeStyle = main; x.lineWidth = 7; x.globalAlpha = 0.8;
+      for (const wy of [104, 126]) {
+        x.beginPath();
+        for (let px = -86; px <= 86; px += 4) {
+          const py = wy + Math.sin(px * 0.06) * 8;
+          if (px === -86) x.moveTo(px, py); else x.lineTo(px, py);
+        }
+        x.stroke();
+      }
+      x.globalAlpha = 1;
+    }
+    x.restore();
+    // venue branding worked into the cloth (Tom, Nov 6): the house name
+    // under the emblem, DEV STUDIO along the foot — real sponsored-arena
+    // dressing, painted into the fabric like the rest of the banner
+    x.fillStyle = main; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.font = '900 44px Arial, sans-serif';
+    x.fillText(kind === 'lunc' ? 'LUNC' : 'USTC', w / 2, 322);
+    x.font = '700 21px Arial, sans-serif'; x.globalAlpha = 0.85;
+    x.fillText('L U N C   D E V   S T U D I O', w / 2, h - 82);
+    x.globalAlpha = 1;
+    x.fillStyle = main;
+    for (let i = 0; i < 5; i++) x.fillRect(28 + i * 42, h - 52, 22, 26);
+  }, { nearest: true });
+}
+const bannerTexL = bannerTex('lunc');
+const bannerTexR = bannerTex('ustc');
+/* Entrance sign over the gate (venue branding, Tom Nov 6): a stone
+   plaque painted with the house marks — LUNA CLASSIC in gold, LUNC DEV
+   STUDIO beneath, crescents flanking. Procedural canvas, original. */
+const signTex = canvasTex(1024, 256, (x, w, h) => {
+  paintStone(x, w, h, '#241a30', 'rgba(6,3,12,0.85)');
+  const grd = x.createLinearGradient(0, 0, 0, h);
+  grd.addColorStop(0, 'rgba(0,0,0,0.12)'); grd.addColorStop(1, 'rgba(0,0,0,0.42)');
+  x.fillStyle = grd; x.fillRect(0, 0, w, h);
+  x.strokeStyle = 'rgba(255,196,77,0.75)'; x.lineWidth = 6; x.strokeRect(14, 14, w - 28, h - 28);
+  x.strokeStyle = 'rgba(255,196,77,0.30)'; x.lineWidth = 2; x.strokeRect(26, 26, w - 52, h - 52);
+  for (const sgn of [-1, 1]) { // twin crescents flanking the name
+    x.save(); x.translate(w / 2 + sgn * 372, 108);
+    x.fillStyle = '#ffc44d';
+    x.beginPath(); x.arc(0, 0, 52, 0, 7); x.fill();
+    x.globalCompositeOperation = 'destination-out';
+    x.beginPath(); x.arc(21, -15, 43, 0, 7); x.fill();
+    x.globalCompositeOperation = 'source-over';
+    x.restore();
+  }
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.font = '900 104px Arial, sans-serif';
+  x.fillStyle = 'rgba(0,0,0,0.55)'; x.fillText('LUNA CLASSIC', w / 2 + 3, 111);
+  const tg = x.createLinearGradient(0, 56, 0, 166);
+  tg.addColorStop(0, '#ffe9a8'); tg.addColorStop(0.55, '#ffc44d'); tg.addColorStop(1, '#c77f1a');
+  x.fillStyle = tg; x.fillText('LUNA CLASSIC', w / 2, 108);
+  x.font = '700 40px Arial, sans-serif';
+  x.fillStyle = 'rgba(240,235,220,0.88)';
+  x.fillText('L U N C   D E V   S T U D I O', w / 2, 204);
+}, { nearest: true });
+/* Image-based lighting baked from the game's own sky: gives the suits,
+   hair and eyes believable specular life under the closer camera. */
+{
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const envScene = new THREE.Scene();
+  envScene.add(new THREE.Mesh(new THREE.SphereGeometry(50, 16, 12),
+    new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide })));
+  const envSun = new THREE.Mesh(new THREE.SphereGeometry(4, 8, 8), new THREE.MeshBasicMaterial());
+  envSun.material.color.setRGB(4, 3, 1.8);
+  envSun.position.set(18, 22, 14);
+  envScene.add(envSun);
+  scene.environment = pmrem.fromScene(envScene, 0.05).texture;
+  pmrem.dispose();
+}
 
 /* ---------------- arena ---------------- */
 let gateRing, gateGlowSpr, moonMesh, moonGlowSpr;
 const arena = new THREE.Group(); scene.add(arena);
 const flames = [];
+const banners = [];
 let embers = null;
 {
   const sky = new THREE.Mesh(new THREE.SphereGeometry(80, 32, 20),
@@ -171,9 +451,52 @@ let embers = null;
   arena.add(sky);
 
   const platform = new THREE.Mesh(new THREE.CylinderGeometry(5.4, 5.9, 0.5, 48),
-    new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.85, metalness: 0.08 }));
+    new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.85, metalness: 0.08, envMapIntensity: 0.3 }));
   platform.position.y = -0.25; platform.receiveShadow = true;
   arena.add(platform);
+
+  /* Visual pass (Nov 6) — the colosseum itself: a painted arcade wall
+     ringing the arena, three stone seating tiers stepping up to it with
+     ember-lit trim, and a dusting of distant crowd lights on the tiers.
+     All procedural geometry + canvas textures, original to this project. */
+  const wall = new THREE.Mesh(new THREE.CylinderGeometry(17, 17.6, 7.6, 48, 1, true),
+    new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.95, metalness: 0.04, side: THREE.BackSide, envMapIntensity: 0.2, fog: false }));
+  wall.position.y = 3.0;
+  arena.add(wall);
+  // upper gallery band: a second, plainer ring above the arcade so the
+  // wall's silhouette reaches higher into the sky (the fog used to eat
+  // everything past the arch tops and the bowl read flat)
+  const gallery = new THREE.Mesh(new THREE.CylinderGeometry(17.3, 17.1, 3.4, 48, 1, true),
+    new THREE.MeshStandardMaterial({ map: stoneTex, bumpMap: stoneBump, bumpScale: 0.5, roughness: 0.95, metalness: 0.03, side: THREE.BackSide, envMapIntensity: 0.15, fog: false }));
+  gallery.position.y = 8.4;
+  arena.add(gallery);
+  const galleryTrim = new THREE.Mesh(new THREE.TorusGeometry(17.2, 0.05, 8, 72),
+    new THREE.MeshStandardMaterial({ color: 0x1a0d05, emissive: 0xff7a26, emissiveIntensity: 0.7, roughness: 0.5, fog: false }));
+  galleryTrim.rotation.x = Math.PI / 2; galleryTrim.position.y = 6.72;
+  arena.add(galleryTrim);
+  const stepMat = stoneMatT;
+  const trimMat = new THREE.MeshStandardMaterial({ color: 0x1a0d05, emissive: 0xff7a26, emissiveIntensity: 0.9, roughness: 0.5, fog: false });
+  for (const [rt, rb, hh, top] of [[8.4, 8.8, 0.75, 0.25], [11.4, 11.8, 1.5, 0.62], [14.4, 14.8, 2.25, 1.0]]) {
+    const st = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, hh, 56), stepMat);
+    st.position.y = top - hh / 2; st.receiveShadow = true;
+    arena.add(st);
+    const trim = new THREE.Mesh(new THREE.TorusGeometry(rt + 0.01, 0.028, 8, 72), trimMat);
+    trim.rotation.x = Math.PI / 2; trim.position.y = top + 0.01;
+    arena.add(trim);
+  }
+  {
+    const N2 = 340, pos2 = new Float32Array(N2 * 3);
+    for (let i = 0; i < N2; i++) {
+      const r = 6.6 + Math.random() * 8.6, a = Math.random() * Math.PI * 2;
+      const top = r < 8.4 ? 0.25 : r < 11.4 ? 0.62 : 1.0;
+      pos2[i * 3] = Math.cos(a) * r;
+      pos2[i * 3 + 1] = top + 0.12 + Math.random() * 0.5;
+      pos2[i * 3 + 2] = Math.sin(a) * r;
+    }
+    const cg = new THREE.BufferGeometry();
+    cg.setAttribute('position', new THREE.BufferAttribute(pos2, 3));
+    arena.add(new THREE.Points(cg, new THREE.PointsMaterial({ map: glowTex, color: 0xffc98a, size: 0.07, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending })));
+  }
 
   const rim = new THREE.Mesh(new THREE.TorusGeometry(5.4, 0.045, 10, 90),
     new THREE.MeshStandardMaterial({ color: 0x1a0d05, emissive: 0xff7a26, emissiveIntensity: 2.6 }));
@@ -184,21 +507,37 @@ let embers = null;
   rim2.rotation.x = Math.PI / 2; rim2.position.y = 0.012;
   arena.add(rim2);
 
-  const gate = new THREE.Mesh(new THREE.TorusGeometry(3.1, 0.16, 14, 64),
-    new THREE.MeshStandardMaterial({ color: 0x140a06, emissive: 0xe04a08, emissiveIntensity: 1.6, roughness: .4 }));
+  const gateMat = new THREE.MeshStandardMaterial({ color: 0x140a06, emissive: 0xe04a08, emissiveIntensity: 1.6, roughness: .4 });
+  const gate = new THREE.Group();
+  gate.add(new THREE.Mesh(new THREE.TorusGeometry(3.1, 0.16, 14, 64), gateMat));
+  gate.add(new THREE.Mesh(new THREE.TorusGeometry(2.52, 0.06, 10, 56),
+    new THREE.MeshStandardMaterial({ color: 0x06121f, emissive: 0x2e9bff, emissiveIntensity: 1.9, roughness: .4 })));
+  const studMat = new THREE.MeshStandardMaterial({ color: 0x140b04, emissive: 0xffb340, emissiveIntensity: 2.2, roughness: .35 });
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const stud = new THREE.Mesh(new THREE.SphereGeometry(0.085, 10, 8), studMat);
+    stud.position.set(Math.cos(a) * 3.1, Math.sin(a) * 3.1, 0);
+    gate.add(stud);
+  }
   gate.position.set(0, 3.0, -9.5);
   arena.add(gate);
+  const sign = new THREE.Mesh(new THREE.BoxGeometry(5.6, 1.4, 0.22),
+    [stoneMatT, stoneMatT, stoneMatT, stoneMatT,
+     new THREE.MeshStandardMaterial({ map: signTex, roughness: 0.7, metalness: 0.05, envMapIntensity: 0.35, fog: false }), stoneMatT]);
+  sign.position.set(0, 6.9, -9.5);
+  arena.add(sign);
   const gateGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff8b3d, transparent: true, opacity: 0.5, depthWrite: false }));
   gateGlow.scale.set(11, 11, 1); gateGlow.position.copy(gate.position);
   arena.add(gateGlow);
-  const moon = new THREE.Mesh(new THREE.CircleGeometry(1.15, 40),
-    new THREE.MeshBasicMaterial({ color: 0xe8eeff, fog: false }));
-  moon.position.set(-10.5, 8.4, -30); arena.add(moon);
+  const moon = new THREE.Sprite(new THREE.SpriteMaterial({ map: moonTex, transparent: true, fog: false, depthWrite: false }));
+  moon.position.set(-9.5, 11.5, -25);
+  moon.scale.setScalar(7);
+  arena.add(moon);
   const moonGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0x9db8ff, transparent: true, opacity: .55, depthWrite: false, fog: false }));
   moonGlow.scale.set(7, 7, 1); moonGlow.position.copy(moon.position); arena.add(moonGlow);
   gateRing = gate; gateGlowSpr = gateGlow; moonMesh = moon; moonGlowSpr = moonGlow;
 
-  const stoneMat = new THREE.MeshStandardMaterial({ color: 0x191423, roughness: .95 });
+  const stoneMat = new THREE.MeshStandardMaterial({ map: stoneTex, bumpMap: stoneBump, bumpScale: 0.6, roughness: .95, envMapIntensity: 0.2 });
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2 + 0.4;
     const px = Math.cos(a) * 9.5, pz = Math.sin(a) * 9.5 - 2;
@@ -210,6 +549,50 @@ let embers = null;
     const flame = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffa63d, transparent: true, opacity: .85, depthWrite: false }));
     flame.scale.set(1.5, 1.9, 1); flame.position.set(px, 5.9 + (i % 3), pz);
     arena.add(flame); flames.push(flame);
+  }
+  /* Visual pass (Nov 6) — gate-side set dressing: twin rune pylons with
+     flames (gold left / azure right), four low braziers, and the two war
+     banners flanking the gate. Same stone family as the pillars. */
+  for (const side of [-1, 1]) {
+    const py = new THREE.Group();
+    const shaft = new THREE.Mesh(new THREE.BoxGeometry(1.05, 4.4, 1.05), stoneMat);
+    shaft.position.y = 2.2;
+    const capP = new THREE.Mesh(new THREE.CylinderGeometry(0.86, 0.62, 0.5, 4), stoneMat);
+    capP.position.y = 4.62; capP.rotation.y = Math.PI / 4;
+    const rune = new THREE.Mesh(new THREE.BoxGeometry(0.16, 3.1, 0.06),
+      new THREE.MeshStandardMaterial({ color: 0x0a0a12, emissive: side < 0 ? 0xffb340 : 0x2e9bff, emissiveIntensity: 2.0, roughness: .4 }));
+    rune.position.set(0, 2.25, 0.56);
+    const pflame = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffa63d, transparent: true, opacity: .85, depthWrite: false }));
+    pflame.scale.set(1.3, 1.7, 1); pflame.position.y = 5.25; pflame.userData.base = 1.25;
+    py.add(shaft, capP, rune, pflame); flames.push(pflame);
+    py.position.set(side * 5.4, 0, -8.8);
+    arena.add(py);
+  }
+  for (const [bx, bz] of [[-5.6, -3.4], [5.6, -3.4], [-5.6, 3.6], [5.6, 3.6]]) {
+    const bg = new THREE.Group();
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.11, 0.62, 8), stoneMat);
+    stem.position.y = 0.31;
+    const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.16, 0.26, 12), stoneMat);
+    bowl.position.y = 0.72;
+    const bflame = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffa63d, transparent: true, opacity: .85, depthWrite: false }));
+    bflame.scale.set(1.05, 1.35, 1); bflame.position.y = 1.05; bflame.userData.base = 1.0;
+    bg.add(stem, bowl, bflame); flames.push(bflame);
+    bg.position.set(bx, 0.25, bz);
+    arena.add(bg);
+  }
+  for (const [side, tex] of [[-1, bannerTexL], [1, bannerTexR]]) {
+    const bg2 = new THREE.Group();
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 5.4, 8), stoneMat);
+    pole.position.y = 2.7;
+    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1.7, 8), stoneMat);
+    bar.rotation.z = Math.PI / 2; bar.position.y = 5.15;
+    const cloth = new THREE.Mesh(new THREE.PlaneGeometry(1.45, 2.5, 6, 10),
+      new THREE.MeshStandardMaterial({ map: tex, side: THREE.DoubleSide, roughness: .9, envMapIntensity: 0.2 }));
+    cloth.position.y = 3.82;
+    bg2.add(pole, bar, cloth);
+    bg2.position.set(side * 3.6, 0, -9.2);
+    arena.add(bg2);
+    banners.push({ cloth, phase: side * 1.7 });
   }
   const N = 240, pos = new Float32Array(N * 3);
   for (let i = 0; i < N; i++) {
@@ -228,14 +611,14 @@ function layoutArena() {
   if (isPortrait) {
     gateRing.position.set(0, 3.7, -11.5); gateRing.scale.setScalar(0.78);
     gateGlowSpr.position.copy(gateRing.position); gateGlowSpr.scale.set(8.5, 8.5, 1);
-    moonMesh.position.set(-3.8, 7.2, -26); moonMesh.scale.setScalar(0.85);
+    moonMesh.position.set(-3.6, 8.6, -26); moonMesh.scale.setScalar(3.6);
     moonGlowSpr.position.copy(moonMesh.position); moonGlowSpr.scale.set(5.5, 5.5, 1);
     scene.fog.density = 0.02;
   } else {
     gateRing.position.set(0, 3.0, -9.5); gateRing.scale.setScalar(1);
     gateGlowSpr.position.copy(gateRing.position); gateGlowSpr.scale.set(11, 11, 1);
-    moonMesh.position.set(-10.5, 8.4, -30); moonMesh.scale.setScalar(1);
-    moonGlowSpr.position.copy(moonMesh.position); moonGlowSpr.scale.set(7, 7, 1);
+    moonMesh.position.set(-9.5, 11.5, -25); moonMesh.scale.setScalar(7);
+    moonGlowSpr.position.copy(moonMesh.position); moonGlowSpr.scale.set(9, 9, 1);
     scene.fog.density = 0.028;
   }
 }
@@ -323,6 +706,14 @@ class Fighter {
     this.roundsWon = 0; this.aiTimer = 0; this.aiHoldT = 0; this.aiAction = null; this.aiBlockT = 0; this.aiRot = {};
   }
   async load() {
+    // re-entry (character select swap): retire the old model + mixer
+    if (this.model) {
+      if (this.mixer) this.mixer.stopAllAction();
+      scene.remove(this.group);
+      this.group = new THREE.Group();
+      this.model = null; this.mixer = null; this.actions = {}; this.current = null;
+      this.state = 'idle'; this.stateT = 0; this.atk = null; this.ult = null; this.specKind = null; this.react = null;
+    }
     const g = await loader.loadAsync(this.cfg.model);
     this.model = g.scene;
     // measure from raw geometry bounds (bind space) — Box3.setFromObject is
@@ -340,6 +731,41 @@ class Fighter {
     this.model.scale.setScalar(s);
     this.model.position.y = -bb.min.y * s;
     this.model.traverse(o => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
+    // Visual pass (Nov 6): image-based-lighting response per material —
+    // glossy eyes, satin hair, a light sheen on the suits. Materials only;
+    // geometry, rig and animation are untouched.
+    const seenMats = new Set();
+    this.model.traverse(o => {
+      if (!o.isMesh) return;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      for (const m of mats) {
+        if (!m || seenMats.has(m) || !('envMapIntensity' in m)) continue;
+        seenMats.add(m);
+        const n = m.name || '';
+        if (n.includes('Eyes')) { m.envMapIntensity = 1.0; m.roughness = Math.min(m.roughness, 0.22); }
+        else if (n.includes('Hair')) { m.envMapIntensity = 0.7; m.roughness = 0.62; }
+        else { m.envMapIntensity = 0.5; m.roughness = Math.min(m.roughness || 1, 0.85); }
+      }
+    });
+    // Roster identity (Nov 6): the new fighters wear a tinted suit — the
+    // material colour multiplies the baked CC0 texture (clone first: the
+    // loader cache shares materials across loads of the same rig).
+    if (this.cfg.suitTint) {
+      const seenSuit = new Set();
+      this.model.traverse(o => {
+        if (!o.isMesh) return;
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (let i = 0; i < mats.length; i++) {
+          const m = mats[i];
+          if (!m || seenSuit.has(m)) continue;
+          seenSuit.add(m);
+          const n = m.name || '';
+          if (n.includes('Eyes') || n.includes('Hair')) continue;
+          const cm = m.clone(); cm.color.set(this.cfg.suitTint);
+          if (Array.isArray(o.material)) o.material[i] = cm; else o.material = cm;
+        }
+      });
+    }
     this.group.add(this.model);
     this.group.position.x = this.x;
     scene.add(this.group);
@@ -370,6 +796,7 @@ class Fighter {
             const hm = new THREE.Mesh(o.geometry, o.material);
             hm.castShadow = true; hm.frustumCulled = false;
             if (this.cfg.hairTint) { hm.material = o.material.clone(); hm.material.color.set(this.cfg.hairTint); }
+            if ('envMapIntensity' in hm.material) { hm.material.envMapIntensity = 0.7; hm.material.roughness = 0.62; }
             hm.applyMatrix4(o.skeleton.boneInverses[hi]);
             this.headBone.add(hm);
           }
@@ -477,6 +904,53 @@ function updatePuffs(dt) {
     if (o.life <= 0) { fxGroup.remove(o.s); o.s.material.dispose(); puffs.splice(i, 1); }
   }
 }
+// impact flash (visual pass, Nov 6): a hot star-burst that pops on the
+// contact point, tinted with the attacker's energy colour, plus one
+// shared point light that re-pops per hit — strikes land with real pop.
+const flashTex = canvasTex(256, 256, (x, w, h) => {
+  x.clearRect(0, 0, w, h);
+  x.translate(128, 128);
+  const g = x.createRadialGradient(0, 0, 2, 0, 0, 60);
+  g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.4, 'rgba(255,255,255,.55)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = g; x.beginPath(); x.arc(0, 0, 60, 0, 7); x.fill();
+  x.fillStyle = 'rgba(255,255,255,.9)';
+  for (let i = 0; i < 4; i++) {
+    x.save(); x.rotate(i * Math.PI / 2 + 0.4);
+    x.beginPath(); x.moveTo(0, -7); x.lineTo(122, 0); x.lineTo(0, 7); x.closePath(); x.fill(); x.restore();
+  }
+  x.fillStyle = 'rgba(255,255,255,.55)';
+  for (let i = 0; i < 4; i++) {
+    x.save(); x.rotate(i * Math.PI / 2 + 0.4 + Math.PI / 4);
+    x.beginPath(); x.moveTo(0, -4.5); x.lineTo(76, 0); x.lineTo(0, 4.5); x.closePath(); x.fill(); x.restore();
+  }
+}, { nearest: true });
+const flashes = [];
+const impactLight = new THREE.PointLight(0xffffff, 0, 5.2, 1.7);
+fxGroup.add(impactLight);
+function impactFlash(pos, colorHex, scale = 0.9) {
+  const m = new THREE.SpriteMaterial({ map: flashTex, color: colorHex, transparent: true, opacity: .95, depthWrite: false, blending: THREE.AdditiveBlending });
+  const s = new THREE.Sprite(m);
+  s.position.copy(pos); s.position.z += 0.3;
+  s.scale.set(scale, scale, 1);
+  s.material.rotation = Math.random() * Math.PI;
+  fxGroup.add(s); flashes.push({ s, life: 0.11, max: 0.11, sc: scale });
+}
+function impactLightPop(pos, colorHex, power) {
+  impactLight.color.set(colorHex);
+  impactLight.position.set(pos.x, pos.y, pos.z + 0.5);
+  impactLight.intensity = power;
+}
+function updateFlashes(dt) {
+  for (let i = flashes.length - 1; i >= 0; i--) {
+    const o = flashes[i]; o.life -= dt;
+    const k = Math.max(0, o.life / o.max);
+    o.s.material.opacity = 0.95 * k;
+    const sc = o.sc * (1 + (1 - k) * 0.7); o.s.scale.set(sc, sc, 1);
+    if (o.life <= 0) { fxGroup.remove(o.s); o.s.material.dispose(); flashes.splice(i, 1); }
+  }
+  if (impactLight.intensity > 0.01) impactLight.intensity *= Math.pow(0.00005, dt);
+  else impactLight.intensity = 0;
+}
 // slash arc sprite
 const slashTex = canvasTex(256, 256, (x, w, h) => {
   x.clearRect(0, 0, w, h);
@@ -508,14 +982,17 @@ function updateSlashes(dt) {
 const projectiles = [];
 function spawnOrb(owner, pos, dmg = 12, homing = false) {
   const grp = new THREE.Group();
+  const col = owner.cfg.sparkColor; // orbs carry their owner's energy colour (gold LUNC / azure USTC / ember BURN / mint NOVA)
   const core = new THREE.Mesh(new THREE.SphereGeometry(0.11, 16, 12),
-    new THREE.MeshStandardMaterial({ color: 0x220a12, emissive: 0xff5577, emissiveIntensity: 4 }));
-  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff7799, transparent: true, opacity: .8, depthWrite: false, blending: THREE.AdditiveBlending }));
+    new THREE.MeshStandardMaterial({ color: 0x101418, emissive: col, emissiveIntensity: 4 }));
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: col, transparent: true, opacity: .8, depthWrite: false, blending: THREE.AdditiveBlending }));
   glow.scale.set(0.85, 0.85, 1);
-  const light = new THREE.PointLight(0xff5577, 6, 3.4, 1.8);
+  const light = new THREE.PointLight(col, 6, 3.4, 1.8);
   grp.add(core, glow, light); grp.position.copy(pos);
   fxGroup.add(grp);
-  projectiles.push({ grp, owner, vx: owner.face * 6.4, life: 2.2, dmg, homing });
+  // orb speed/range are kit numbers: the zoner's flies far and fast, the
+  // brawler's is a short heavy lob, the speedster's darts out quick
+  projectiles.push({ grp, owner, vx: owner.face * owner.cfg.kit.orbPow, life: owner.cfg.kit.orbLife, dmg, homing });
   AudioSys.zap();
 }
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3();
@@ -676,13 +1153,13 @@ function startSpecial(f, kind) {
   f.meter -= SPEC_COST;
   beginSpecial(f, kind || 'dash');
 }
-function dashClipKey(f) { return f === P1 ? 'special' : 'dashAlt'; } // both rigs carry Sword_Dash
+function dashClipKey(f) { return f.cfg.dashKey; } // both rigs carry Sword_Dash, under the fighter's own clip key
 function beginSpecial(f, kind) {
   f.state = 'special'; f.stateT = 0; f.atkHitDone = false; f.specDone = false;
   f.specKind = kind;
   f.prevLimb = null; f.atkMinSurf = 99;
   if (kind === 'dash') { f.play(dashClipKey(f), { loop: false, clamp: true, fade: 0.05 }); AudioSys.dash(); f.stats.specDash++; }
-  else if (kind === 'rise') { f.play('heavy', { loop: false, clamp: true, fade: 0.05 }); f.vy = 6.2; AudioSys.swing(); f.stats.specRise++; }
+  else if (kind === 'rise') { f.play('heavy', { loop: false, clamp: true, fade: 0.05 }); f.vy = f.cfg.kit.riseHop; AudioSys.swing(); f.stats.specRise++; }
   else if (kind === 'sweep') { f.play('kick1', { loop: false, clamp: true, fade: 0.05 }); AudioSys.dash(); f.stats.specSweep++; }
   else { f.play('throw', { loop: false, clamp: true, fade: 0.05 }); f.stats.specOrb++; }
 }
@@ -690,9 +1167,11 @@ function startUltimate(f) {
   f.meter = 0;
   f.stats.ult++;
   f.specKind = null;
-  f.ult = { kind: f === P1 ? 'combo' : 'barrage', step: 0, stepT: 0, finisher: false, clipDone: false };
+  f.ult = { kind: f.cfg.ultKind, step: 0, stepT: 0, finisher: false, clipDone: false };
   showBanner('ULTIMATE', f.cfg.name, 1.1);
   burst(f.bonePos(f.chestBone, _v1).clone(), f.cfg.sparkColor, 30, 3.4, 1.6);
+  impactFlash(f.bonePos(f.chestBone, _v1).clone(), f.cfg.sparkColor, 2.0);
+  impactLightPop(f.bonePos(f.chestBone, _v1), f.cfg.sparkColor, 34);
   AudioSys.zap(); AudioSys.bell();
 }
 /* Ultimate driver — runs at the end of the owner's fighterUpdate.
@@ -732,19 +1211,22 @@ function updateUltimate(att, dt) {
     if (u.stepT > 5) end(); // safety
     return;
   }
-  // barrage
+  // barrage — orb count / pace / damage are per-fighter kit numbers
   att.state = 'ultimate';
-  if (u.step < 3 && u.stepT >= u.step * 0.24) {
+  const orbN = att.cfg.kit.ultOrbCount, orbGap = orbN > 3 ? 0.17 : 0.24;
+  if (u.step < orbN && u.stepT >= u.step * orbGap) {
     att.play('throw', { loop: false, clamp: true, fade: 0.03 });
     att.bonePos(att.handBone, _v1); _v1.y = Math.max(_v1.y, 1.25); _v1.z = 0;
-    spawnOrb(att, _v1.clone(), 8, true); // barrage orbs track the target — a knockback lean must not dodge 2 of 3
+    spawnOrb(att, _v1.clone(), att.cfg.kit.ultOrbDmg, true); // barrage orbs track the target — a knockback lean must not dodge 2 of 3
     u.step++;
   }
-  if (u.step >= 3 && u.stepT > 3 * 0.24 + 0.6) end();
+  if (u.step >= orbN && u.stepT > orbN * orbGap + 0.6) end();
 }
 // contact: { point, zone } from limbContact (or null for projectiles ->
 // chest-height body contact). opts: { gain, hitstop, shake, heavy, kind }
 function resolveHit(att, def, dmg, push, opts = {}) {
+  if (!opts.rawDmg) dmg = Math.max(1, Math.round(dmg * att.cfg.kit.dmgMul)); // per-fighter power (roster kits, Nov 6)
+  if (opts.gain) opts.gain = Math.round(opts.gain * att.cfg.kit.meterGainMul);
   const blocked = def.blocking && def.state !== 'attack' && def.state !== 'hitstun' && def.state !== 'special';
   const contact = opts.contact || null;
   const zone = contact ? contact.zone : 'body';
@@ -757,7 +1239,9 @@ function resolveHit(att, def, dmg, push, opts = {}) {
     def.hp = Math.max(1, def.hp - chip);
     def.state = 'blockstun'; def.stateT = 0;
     def.vx = att.face * push * 0.45; // guard absorbs: small push, stays planted
-    burst(pt, 0x9db8dd, 8, 1.5, 0.5);
+    burst(pt, 0x9db8dd, 12, 1.5, 0.5);
+    impactFlash(pt, 0x9db8dd, 0.55);
+    impactLightPop(pt, 0x9db8dd, 5);
     puff(pt, 0.34, 0x8fa3c8, 0.3);
     setReaction(def, 'guard', att.face, 0.5, true);
     AudioSys.block();
@@ -771,9 +1255,12 @@ function resolveHit(att, def, dmg, push, opts = {}) {
   if (att.ult && att.ult.kind === 'combo') pushV *= 0.45; // the ultimate juggles — the victim stays in the pocket for the chain
   def.vx = att.face * pushV;
   const heavy = !!opts.heavy;
-  burst(pt, att.cfg.sparkColor, heavy ? 26 : 16, heavy ? 3.4 : 2.5, 1.3);
+  burst(pt, att.cfg.sparkColor, heavy ? 38 : 22, heavy ? 3.4 : 2.5, 1.3);
+  burst(pt, 0xffffff, heavy ? 10 : 6, 1.7, 0.9);
   puff(pt, heavy ? 0.62 : 0.46, 0xcfc4b0, 0.42);
-  if (heavy) slashArc(pt, att.cfg.sparkColor, att.face < 0);
+  impactFlash(pt, att.cfg.sparkColor, heavy ? 1.3 : 0.85);
+  impactLightPop(pt, att.cfg.sparkColor, heavy ? 30 : 15);
+  if (heavy || opts.kind === 'kick' || opts.kind === 'special') slashArc(pt, att.cfg.sparkColor, att.face < 0);
   setReaction(def, zone, att.face, heavy ? 1.0 : (opts.kind === 'kick' ? 0.8 : 0.6), false);
   AudioSys.hit(opts.kind === 'heavy' || heavy ? 'heavy' : (opts.kind === 'kick' ? 'kick' : 'jab'));
   hitstopT = Math.max(hitstopT, (opts.hitstop || 0.05) + (counter ? 0.025 : 0));
@@ -802,26 +1289,144 @@ const CLIPMAP = {
   hitL: 'Hit_Chest', hitH: 'Hit_Head', knock: 'Hit_Knockback', death: 'Death01',
   win: 'Idle_FoldArms_Loop',
 };
-const P1 = new Fighter({
-  name: 'MR LUNC', model: 'models/ryker/char.gltf', startX: -1.7, handBone: 'hand_r',
-  sparkColor: 0x7fd8ff,
-  hair: ['models/ryker/Hair_SimpleParted.gltf', 'models/ryker/Hair_Beard.gltf'],
-  // heavy was 'Melee_Hook' until Nov 4: that clip is a lunging overhead
-  // weapon swing — the body pitches ~0.6 m forward, the fist peaks 0.55 m
-  // off-axis at head height, then chops down to 1.35 m out at belly
-  // height, so the hit registered mid-chop through the defender and read
-  // as a flying tackle. 'Punch_Cross' (same clip as P2's heavy) drives
-  // the fist straight to ~0.68 m at chin height, inside the tuned window.
-  clips: { ...CLIPMAP, heavy: 'Punch_Cross', special: 'Sword_Dash', throw: 'OverhandThrow' },
-});
-const P2 = new Fighter({
-  name: 'MRS USTC', model: 'models/sable/char.gltf', startX: 1.7, handBone: 'hand_l',
-  sparkColor: 0xff8095,
-  hair: ['models/sable/Hair_Long.gltf'], hairTint: 0x6e4a34,
-  clips: { ...CLIPMAP, heavy: 'Punch_Cross', special: 'Spell_Simple_Shoot', throw: 'Spell_Simple_Shoot', dashAlt: 'Sword_Dash' },
-});
+/* Roster of FOUR pickable fighters (owner, Nov 6): MR LUNC and MRS USTC
+   stay; CAPTAIN BURN (heavy) and MS NOVA (speedster) join. All four are
+   original to this project on the same CC0 Quaternius rigs — identity
+   comes from hair setup, suit palette, energy colour, their own special
+   NAMES, and a per-fighter KIT (damage / speed / special tuning below).
+   The control scheme never changes: ↑ RISE · ↓ SWEEP · → DASH · ← ORB ·
+   full meter = ULTIMATE, 25 meter per special — only the numbers,
+   names and behaviour of each fighter's versions differ. */
+const ROSTER = [
+  {
+    id: 'lunc', name: 'MR LUNC', title: 'LUNA CLASSIC', style: 'BALANCED ALL-ROUNDER — the classic kit, honest numbers everywhere.',
+    stats: { power: 3, speed: 3, range: 3 },
+    model: 'models/ryker/char.gltf', handBone: 'hand_r', sparkColor: 0xffc44d,
+    hair: ['models/ryker/Hair_SimpleParted.gltf', 'models/ryker/Hair_Beard.gltf'],
+    clips: { heavy: 'Punch_Cross', special: 'Sword_Dash', throw: 'OverhandThrow' },
+    dashKey: 'special',
+    specNames: { rise: 'SOLAR RISE', sweep: 'ECLIPSE SWEEP', dash: 'COMET DASH', orb: 'NOVA ORB' },
+    ultKind: 'combo',
+    kit: { dmgMul: 1.0, moveMul: 1.0, dashPow: 7.6, dashDmg: 16, riseDmg: 14, riseHop: 6.2, sweepPow: 6.2, sweepDmg: 13, orbDmg: 12, orbPow: 6.4, orbLife: 2.2, ultOrbDmg: 8, ultOrbCount: 3, meterGainMul: 1.0 },
+  },
+  {
+    id: 'ustc', name: 'MRS USTC', title: 'TERRA CLASSIC', style: 'ZONER — her ORB flies far and fast and hits hard; her DASH is short. Keep away and shoot.',
+    stats: { power: 3, speed: 2, range: 5 },
+    model: 'models/sable/char.gltf', handBone: 'hand_l', sparkColor: 0x4da6ff,
+    hair: ['models/sable/Hair_Long.gltf'], hairTint: 0x6e4a34,
+    clips: { heavy: 'Punch_Cross', special: 'Spell_Simple_Shoot', throw: 'Spell_Simple_Shoot', dashAlt: 'Sword_Dash' },
+    dashKey: 'dashAlt',
+    specNames: { rise: 'AZURE RISE', sweep: 'TIDE SWEEP', dash: 'SURGE DASH', orb: 'LAGOON ORB' },
+    ultKind: 'barrage',
+    kit: { dmgMul: 0.92, moveMul: 0.94, dashPow: 5.6, dashDmg: 13, riseDmg: 12, riseHop: 6.2, sweepPow: 5.4, sweepDmg: 11, orbDmg: 15, orbPow: 8.6, orbLife: 2.9, ultOrbDmg: 8, ultOrbCount: 3, meterGainMul: 1.0 },
+  },
+  {
+    id: 'burn', name: 'CAPTAIN BURN', title: 'THE BURN WALLET', style: 'HEAVY BRAWLER — slow feet, huge hits. Every special lands like a truck; his ULTIMATE combo is the biggest in the game.',
+    stats: { power: 5, speed: 1, range: 2 },
+    model: 'models/ryker/char.gltf', handBone: 'hand_r', sparkColor: 0xff5a26,
+    hair: ['models/ryker/Hair_Beard.gltf'], suitTint: 0xd8542e,
+    clips: { heavy: 'Punch_Cross', special: 'Sword_Dash', throw: 'OverhandThrow' },
+    dashKey: 'special',
+    specNames: { rise: 'INFERNO RISE', sweep: 'ASH SWEEP', dash: 'EMBER CHARGE', orb: 'FIREBALL' },
+    ultKind: 'combo',
+    kit: { dmgMul: 1.3, moveMul: 0.8, dashPow: 6.6, dashDmg: 21, riseDmg: 19, riseHop: 5.4, sweepPow: 5.2, sweepDmg: 17, orbDmg: 15, orbPow: 5.6, orbLife: 1.9, ultOrbDmg: 8, ultOrbCount: 3, meterGainMul: 0.95 },
+  },
+  {
+    id: 'nova', name: 'MS NOVA', title: 'THE COMET', style: 'SPEEDSTER — the fastest feet and specials in the arena. Light hits, but she is everywhere at once.',
+    stats: { power: 2, speed: 5, range: 3 },
+    model: 'models/sable/char.gltf', handBone: 'hand_l', sparkColor: 0x38f2c8,
+    hair: [], hairTint: 0x2a7f8f, suitTint: 0x8f7fe8,
+    clips: { heavy: 'Punch_Cross', special: 'Spell_Simple_Shoot', throw: 'Spell_Simple_Shoot', dashAlt: 'Sword_Dash' },
+    dashKey: 'dashAlt',
+    specNames: { rise: 'COMET RISE', sweep: 'TAIL SWEEP', dash: 'BLINK DASH', orb: 'STAR SHARD' },
+    ultKind: 'barrage',
+    kit: { dmgMul: 0.8, moveMul: 1.22, dashPow: 10.2, dashDmg: 11, riseDmg: 10, riseHop: 7.4, sweepPow: 8.4, sweepDmg: 9, orbDmg: 9, orbPow: 7.8, orbLife: 2.2, ultOrbDmg: 5, ultOrbCount: 5, meterGainMul: 1.1 },
+  },
+];
+/* Both slots spawn as the classic pair; the character select re-skins a
+   slot via load() (see applySelection). dashKey names the FIGHTER's rig
+   dash clip: the ryker loadout dashes on 'special', the sable loadout on
+   'dashAlt' — both are Sword_Dash on disk. (It must follow the fighter,
+   not the slot: a ryker in slot 2 has no 'dashAlt' action, and a sable
+   in slot 1 dashing on her 'special' cast pose whiffed the body-contact
+   test the dash was tuned on — both found in roster QA, Nov 6.) */
+const SLOT_DEFS = [
+  { startX: -1.7, rosterIx: 0 },
+  { startX: 1.7, rosterIx: 1 },
+];
+function slotCfg(slot) {
+  const r = ROSTER[SLOT_DEFS[slot].rosterIx];
+  return {
+    ...r, startX: SLOT_DEFS[slot].startX, dashKey: r.dashKey,
+    clips: { ...CLIPMAP, ...r.clips },
+  };
+}
+let P1 = new Fighter(slotCfg(0));
+let P2 = new Fighter(slotCfg(1));
 const FIGHTERS = [P1, P2];
 function foe(f) { return f === P1 ? P2 : P1; }
+/* Character select: pickFighter = the player's roster index; the CPU
+   opponent is drawn from the other three at boot (and re-drawn by the
+   QA roster scenes). */
+let pickFighter = 0;
+let cpuFighter = 1;
+function hexCss(c) { return '#' + c.toString(16).padStart(6, '0'); }
+function refreshFaceoff() {
+  const a = ROSTER[pickFighter], b = ROSTER[cpuFighter];
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('vsName1', a.name); set('vsTitle1', a.title);
+  set('vsName2', b.name); set('vsTitle2', b.title);
+  set('name1', a.name); set('title1', a.title);
+  set('name2', b.name); set('title2', b.title);
+  const lg = (id, r) => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = `↑ ${r.specNames.rise} ↓ ${r.specNames.sweep}<br>→ ${r.specNames.dash} ← ${r.specNames.orb}`;
+  };
+  lg('legend1', a); lg('legend2', b);
+  const root = document.documentElement.style;
+  root.setProperty('--p1', hexCss(a.sparkColor));
+  root.setProperty('--p2', hexCss(b.sparkColor));
+  root.setProperty('--p1a', hexCss(a.sparkColor));
+  root.setProperty('--p1b', hexCss(a.sparkColor));
+  root.setProperty('--p2a', hexCss(b.sparkColor));
+  root.setProperty('--p2b', hexCss(b.sparkColor));
+  document.querySelectorAll('#selectRow .fcard').forEach((card, i) => {
+    card.classList.toggle('sel', i === pickFighter);
+    card.classList.toggle('cpu', i === cpuFighter);
+  });
+}
+async function applySelection() {
+  SLOT_DEFS[0].rosterIx = pickFighter;
+  SLOT_DEFS[1].rosterIx = cpuFighter;
+  const jobs = [];
+  if (P1.cfg.id !== ROSTER[pickFighter].id) { P1.cfg = slotCfg(0); jobs.push(P1.load()); }
+  if (P2.cfg.id !== ROSTER[cpuFighter].id) { P2.cfg = slotCfg(1); jobs.push(P2.load()); }
+  if (jobs.length) await Promise.all(jobs);
+  refreshFaceoff();
+}
+function buildSelectCards() {
+  const row = document.getElementById('selectRow');
+  if (!row) return;
+  row.innerHTML = '';
+  ROSTER.forEach((r, i) => {
+    const card = document.createElement('button');
+    card.className = 'fcard';
+    const col = hexCss(r.sparkColor);
+    const bar = (lab, v) => `<div class="frow"><span class="flab">${lab}</span><span class="fbar"><span class="ffill" style="display:block;width:${v * 20}%;background:${col}"></span></span></div>`;
+    card.innerHTML = `<div class="fn" style="color:${col}">${r.name}</div><div class="ft2">${r.title}</div>` +
+      `<div class="fsty">${r.style}</div>` +
+      bar('POWER', r.stats.power) + bar('SPEED', r.stats.speed) + bar('RANGE', r.stats.range) +
+      `<div class="cpuTag">CPU PICK</div>`;
+    card.addEventListener('click', () => {
+      AudioSys.init();
+      pickFighter = i;
+      if (cpuFighter === pickFighter) cpuFighter = (pickFighter + 1) % ROSTER.length;
+      refreshFaceoff();
+    });
+    row.appendChild(card);
+  });
+  refreshFaceoff();
+}
 
 /* ---------------- input ---------------- */
 const keys = {};
@@ -994,7 +1599,7 @@ function fighterUpdate(f, dt, input) {
     else if (input.kickHit) startAttack(f, 'kick');
     else if (toward || away) {
       const dir = toward ? f.face : -f.face;
-      f.x += dir * 1.75 * dt;
+      f.x += dir * 1.75 * f.cfg.kit.moveMul * dt;
       if (f.state !== 'walk') { f.state = 'walk'; f.play('walk', { timeScale: toward ? 1 : -1, fade: 0.08 }); }
       else if (f.current) f.current.timeScale = toward ? 1 : -1;
     } else if (f.state !== 'idle') { f.state = 'idle'; f.play('idle'); }
@@ -1032,13 +1637,13 @@ function fighterUpdate(f, dt, input) {
   if (f.state === 'special') {
     if (f.specKind === 'dash') {
       const total = f.dur(dashClipKey(f));
-      if (f.stateT < 0.34) f.x += f.face * 7.6 * dt;
+      if (f.stateT < 0.34) f.x += f.face * f.cfg.kit.dashPow * dt;
       if (!f.atkHitDone && f.stateT > 0.1 && dist(f, o) < 1.9) {
         const c = limbContact(f, o, 'body', 0.22); // the whole body is the weapon on a dash; 0.22 because a clean pass at the 0.62 floor measured +0.02..+0.03 short at 0.16 — the visible torso mass reaches past the spine point
         if (c) {
           f.atkHitDone = true;
-          const fin = f.ult && f.ult.finisher; // ultimate's finisher dash is a light 4-dmg cap
-          resolveHit(f, o, fin ? 4 : 16, 2.4, { gain: 8, hitstop: 0.13, shake: 0.16, heavy: true, knock: true, kind: 'special', contact: c });
+          const fin = f.ult && f.ult.finisher; // ultimate's finisher dash is a light 4-dmg cap (rawDmg: never kit-scaled)
+          resolveHit(f, o, fin ? 4 : f.cfg.kit.dashDmg, 2.4, { gain: 8, hitstop: 0.13, shake: 0.16, heavy: true, knock: true, kind: 'special', contact: c, rawDmg: !!fin });
         }
       }
       if (f.stateT >= total * 0.95) { f.state = 'idle'; f.play('idle', { fade: 0.08 }); }
@@ -1053,7 +1658,7 @@ function fighterUpdate(f, dt, input) {
           const c = limbContact(f, o, 'heavy', 0.10);
           if (c) {
             f.atkHitDone = true;
-            resolveHit(f, o, 14, 1.5, { gain: 10, hitstop: 0.12, shake: 0.15, heavy: true, knock: true, kind: 'special', contact: c });
+            resolveHit(f, o, f.cfg.kit.riseDmg, 1.5, { gain: 10, hitstop: 0.12, shake: 0.15, heavy: true, knock: true, kind: 'special', contact: c, rawDmg: true });
             if (o.state === 'knock') o.vy = Math.max(o.vy, 7.6); // LAUNCH — the pop-up is the point of the move
           }
         } else if (f.stateT < 0.10) {
@@ -1068,7 +1673,7 @@ function fighterUpdate(f, dt, input) {
       // trips (knock). Dust puffs trail the slide along the floor.
       if (f.stateT > 0.14 && f.currentKey !== 'kick2' && !f.atkHitDone) f.play('kick2', { loop: false, clamp: true, fade: 0.03 });
       if (f.stateT > 0.06 && f.stateT < 0.55) {
-        f.x += f.face * 6.2 * dt;
+        f.x += f.face * f.cfg.kit.sweepPow * dt;
         f.specFxT = (f.specFxT || 0) + dt;
         if (f.specFxT > 0.05) { f.specFxT = 0; puff(_v1.set(f.x + f.face * 0.3, 0.12, 0), 0.4, 0xbfb096, 0.35); }
       }
@@ -1077,7 +1682,7 @@ function fighterUpdate(f, dt, input) {
           const c = limbContact(f, o, 'kick', 0.10);
           if (c) {
             f.atkHitDone = true;
-            resolveHit(f, o, 13, 2.1, { gain: 10, hitstop: 0.11, shake: 0.13, heavy: true, knock: true, kind: 'special', contact: c });
+            resolveHit(f, o, f.cfg.kit.sweepDmg, 2.1, { gain: 10, hitstop: 0.11, shake: 0.13, heavy: true, knock: true, kind: 'special', contact: c, rawDmg: true });
             puff(_v1.set(o.x, 0.15, 0), 0.75, 0xcfc4b0, 0.5); // dust burst at the tripped feet
           }
         } else if (f.stateT < 0.12) {
@@ -1089,7 +1694,7 @@ function fighterUpdate(f, dt, input) {
       if (!f.specDone && f.stateT >= 0.34) {
         f.specDone = true;
         f.bonePos(f.handBone, _v1); _v1.y = Math.max(_v1.y, 1.25); _v1.z = 0;
-        spawnOrb(f, _v1.clone());
+        spawnOrb(f, _v1.clone(), f.cfg.kit.orbDmg);
       }
       if (f.stateT >= f.dur('throw') * 0.95) { f.state = 'idle'; f.play('idle', { fade: 0.08 }); }
     }
@@ -1105,7 +1710,7 @@ function fighterUpdate(f, dt, input) {
   f.group.position.x = f.x;
   f.group.position.y = f.y;
   if (f.state !== 'death') { f.face = foe(f).x >= f.x ? 1 : -1; f.applyFacing(); }
-  f.mixer.update(dt);
+  if (f.mixer) f.mixer.update(dt); // null while a select swap is mid-load
 }
 
 /* ---------------- AI ---------------- */
@@ -1134,14 +1739,20 @@ function aiInput(f, dt) {
     const specTotal = f.stats.specDash + f.stats.specOrb + f.stats.specRise + f.stats.specSweep;
     const canSpec = f.meter >= SPEC_COST && (f.meter >= 100 || specTotal < 8);
     const rot = (band, arr) => { const i = f.aiRot[band] || 0; f.aiRot[band] = i + 1; return arr[i % arr.length]; };
+    // per-fighter AI flavour (roster kits): the zoner hangs back and
+    // shoots, the brawler walks you down, the speedster darts in and out
+    const fid = f.cfg.id;
+    const farArr = fid === 'burn' ? ['dash', 'orb', 'dash'] : fid === 'nova' ? ['dash', 'orb', 'dash', 'orb'] : ['orb', 'dash', 'orb'];
+    const midArr = fid === 'nova' ? ['dash', 'dash', 'orb', 'rise'] : fid === 'burn' ? ['dash', 'rise', 'dash', 'sweep'] : ['dash', 'orb', 'rise', 'dash'];
     if (d > 2.7) {
       // long range: ORB leads the rotation, DASH is the surprise closer;
       // a full bar means ULTIMATE — spend it, direction moot
-      if (canSpec && Math.random() < (f.meter >= 100 ? 0.55 : 0.42)) { inp.specHit = true; inp.specDir = rot('far', ['orb', 'dash', 'orb']); }
+      if (canSpec && Math.random() < (f.meter >= 100 ? 0.55 : 0.42)) { inp.specHit = true; inp.specDir = rot('far', farArr); }
+      else if (fid === 'ustc' && Math.random() < 0.45) { f.aiAction = awayKey; f.aiHoldT = 0.22; } // zoner keeps her range
       else { f.aiAction = towardKey; f.aiHoldT = 0.24; }
     } else if (d > 1.18) {
       const r = Math.random();
-      if (canSpec && (f.meter >= 100 ? r < 0.4 : r < 0.32)) { inp.specHit = true; inp.specDir = rot('mid', ['dash', 'orb', 'rise', 'dash']); }
+      if (canSpec && (f.meter >= 100 ? r < 0.4 : r < 0.32)) { inp.specHit = true; inp.specDir = rot('mid', midArr); }
       else if (r < 0.24) { inp.kickHit = true; }
       else if (r < 0.34 && hurt) { f.aiAction = awayKey; f.aiHoldT = 0.3; }
       else { f.aiAction = towardKey; f.aiHoldT = 0.2; }
@@ -1152,7 +1763,7 @@ function aiInput(f, dt) {
       else if (r < 0.42) inp.jabHit = true;
       else if (r < 0.64) inp.hookHit = true;
       else if (r < 0.78) inp.kickHit = true;
-      else if (r < 0.88) { f.aiAction = awayKey; f.aiHoldT = 0.26; }
+      else if (r < (fid === 'burn' ? 0.82 : 0.88)) { f.aiAction = awayKey; f.aiHoldT = 0.26; } // the brawler rarely backs off
       else { inp.blockKey = true; inp._aiBlock = true; f.aiBlockT = 0.3; }
     }
   }
@@ -1255,9 +1866,14 @@ function updateCamera(dt, t) {
   // fit margin and floor were tightened ~15-18% at fighting range in both
   // orientations. The portrait wide cap (14) is untouched, so the
   // full-separation pull-back behaves exactly as before.
+  // Visual pass (Nov 6): tightened again for the reference framing —
+  // FOV 38->41 / 50->52, margin 0.85*sep+1.45 -> 0.80*sep+1.10, base
+  // 2.65+0.56*sep -> 2.05+0.50*sep, floor 4.0 -> 3.1 (landscape). At
+  // fighting range the camera sits ~25-28% closer than the specials
+  // build; the portrait cap stays 14.
   const fitK = 2 * Math.tan(camera.fov * Math.PI / 360) * (innerWidth / innerHeight);
-  const distFit = THREE.MathUtils.clamp(sep * 0.85 + 1.45, 3.23, 8.8) / fitK;
-  const distC = THREE.MathUtils.clamp(Math.max(2.65 + sep * 0.56, distFit), 4.0, isPortrait ? 14 : 7.4);
+  const distFit = THREE.MathUtils.clamp(sep * 0.80 + 1.10, 2.6, 8.8) / fitK;
+  const distC = THREE.MathUtils.clamp(Math.max(2.05 + sep * 0.50, distFit), 3.1, isPortrait ? 14 : 7.4);
   // Camera MOTION (owner, Nov 4: "move the camera around — 360 or even
   // 180"): the camera orbits an anchor point by angle theta. During the
   // FIGHT it only sways +-13 deg on a slow 26 s cycle and NEVER crosses
@@ -1265,7 +1881,7 @@ function updateCamera(dt, t) {
   // big arcs play where they can't hurt play: a fly-in arc on the round
   // intro, a 165 deg sweep around the winner on round/match end, and a
   // slow +-35 deg arc on the menu.
-  let anchorX = mid * 0.75, baseX = mid * 0.6, baseY = isPortrait ? 1.95 : 1.34, dist = distC, theta = 0;
+  let anchorX = mid * 0.75, baseX = mid * 0.6, baseY = isPortrait ? 1.9 : 1.32, dist = distC, theta = 0;
   if (game.phase === 'menu') {
     anchorX = 0; baseX = 0; baseY = isPortrait ? 1.8 : 1.35;
     // menu keeps the wider establishing distance (old fit): at +-1.7 the
@@ -1276,7 +1892,7 @@ function updateCamera(dt, t) {
   } else if (game.phase === 'roundEnd' || game.phase === 'matchEnd') {
     const w = game.winner || P1;
     anchorX = w.x; baseX = w.x; baseY = isPortrait ? 1.8 : 1.3;
-    dist = isPortrait ? 7.0 : 4.4;
+    dist = isPortrait ? 7.0 : 4.0;
     const k = Math.min(1, game.phaseT / 4.2); // phaseT runs 0-2.8 in roundEnd, keeps counting in matchEnd
     const ease = k * k * (3 - 2 * k);
     theta = THREE.MathUtils.degToRad(165) * ease * (w.face > 0 ? 1 : -1); // sweep toward the fallen foe's side
@@ -1333,9 +1949,33 @@ function animate() {
   }
   ep.needsUpdate = true;
   flames.forEach((fl, i) => {
-    const s = 1.4 + Math.sin(elapsed * 9 + i * 1.7) * 0.18 + Math.sin(elapsed * 23 + i) * 0.08;
+    const b = fl.userData.base || 1.4;
+    const s = b + Math.sin(elapsed * 9 + i * 1.7) * 0.18 * (b / 1.4) + Math.sin(elapsed * 23 + i) * 0.08;
     fl.scale.set(s, s * 1.3, 1);
   });
+  // banner cloth wave (visual pass): cheap vertex sway, hem swings most
+  for (const b of banners) {
+    const posA = b.cloth.geometry.attributes.position;
+    for (let i = 0; i < posA.count; i++) {
+      const vx = posA.getX(i), vy = posA.getY(i);
+      const hang = (1.25 - vy) / 2.5;
+      posA.setZ(i, Math.sin(elapsed * 2.2 + b.phase + vx * 2.4 + hang * 3.2) * 0.09 * hang);
+    }
+    posA.needsUpdate = true;
+  }
+  if (gateRing) gateRing.rotation.z -= rawDt * 0.06;
+  // energy trails (visual pass): dash/sweep specials drag their colour;
+  // orbs shed sparks as they fly
+  for (const f of FIGHTERS) {
+    if (f.state === 'special' && (f.specKind === 'dash' || f.specKind === 'sweep')) {
+      f.fxTrailT = (f.fxTrailT || 0) + rawDt;
+      if (f.fxTrailT > 0.028) {
+        f.fxTrailT = 0;
+        puff(_v1.set(f.x - f.face * 0.15, 0.95 + f.y, 0), 0.55, f.cfg.sparkColor, 0.4);
+      }
+    }
+  }
+  for (const p of projectiles) if (Math.random() < 0.65) burst(p.grp.position, p.owner.cfg.sparkColor, 1, 0.5, 0.15);
   underGlow.intensity = 11 + Math.sin(elapsed * 2.3) * 2.2;
 
   const SUB = QA_MODE === 'auto' ? 6 : 1; // QA-only: substep the sim so a full match completes under slow software rendering
@@ -1415,12 +2055,12 @@ function animate() {
           p.life = 0;
         }
         if (p.life <= 0 || Math.abs(p.grp.position.x) > 5.2) {
-          burst(p.grp.position, 0xff7799, 10, 1.8, 0.8);
+          burst(p.grp.position, p.owner.cfg.sparkColor, 10, 1.8, 0.8);
           fxGroup.remove(p.grp); projectiles.splice(i, 1);
         }
       }
     } else {
-      P1.mixer.update(0); P2.mixer.update(0);
+      if (P1.mixer) P1.mixer.update(0); if (P2.mixer) P2.mixer.update(0);
     }
     updateHUD();
   }
@@ -1428,6 +2068,7 @@ function animate() {
   updateSparks(rawDt);
   updateSlashes(rawDt);
   updatePuffs(rawDt);
+  updateFlashes(rawDt);
   for (const f of FIGHTERS) applyReaction(f);
   updateCamera(rawDt, elapsed);
   renderer.render(scene, camera);
@@ -1441,7 +2082,9 @@ function animate() {
       hp: [Math.round(P1.hp), Math.round(P2.hp)], wins: [P1.roundsWon, P2.roundsWon],
       states: [P1.state, P2.state], xs: [Math.round(P1.x * 100) / 100, Math.round(P2.x * 100) / 100], errors: window.__errs,
       spec: [{ dash: P1.stats.specDash, orb: P1.stats.specOrb, rise: P1.stats.specRise, sweep: P1.stats.specSweep, ult: P1.stats.ult, meter: Math.round(P1.meter), kind: P1.specKind, inUlt: !!P1.ult }, { dash: P2.stats.specDash, orb: P2.stats.specOrb, rise: P2.stats.specRise, sweep: P2.stats.specSweep, ult: P2.stats.ult, meter: Math.round(P2.meter), kind: P2.specKind, inUlt: !!P2.ult }], ultCam: game.ultCamT > 0,
+      roster: [P1.cfg.id, P2.cfg.id], orbs: projectiles.map(p => ({ vx: Math.round(p.vx * 10) / 10, life: Math.round(p.life * 10) / 10, dmg: p.dmg, owner: p.owner.cfg.id })),
       lastHit: window.__lastHit || null, surf: Math.round(P1.atkMinSurf * 100) / 100, surf2: Math.round(P2.atkMinSurf * 100) / 100,
+      draws: renderer.info.render.calls, tris: renderer.info.render.triangles,
       dbg: { cam: camera.position.toArray().map(v => Math.round(v * 100) / 100), mh: [P1.measuredH, P2.measuredH], mn: [P1.measuredMin, P2.measuredMin], gs: [P1.group.scale.x, P2.group.scale.x], ph: [P1.posedH, P2.posedH], arm: [P1.armInfo, P2.armInfo] },
     });
   }
@@ -1461,8 +2104,14 @@ function animate() {
     setLoad(1, 'READY');
     document.getElementById('loading').style.display = 'none';
     document.getElementById('hud').style.display = 'block';
-    if (QA_MODE) { setupQA(QA_MODE); }
+    if (QA_MODE) { await setupQA(QA_MODE); }
     else {
+      // character select: the CPU draws a random opponent from the
+      // other three fighters each visit
+      const others = ROSTER.map((r, i) => i).filter(i => i !== pickFighter);
+      cpuFighter = others[Math.floor(Math.random() * others.length)];
+      buildSelectCards();
+      await applySelection(); // must finish before animate(): load() nulls the mixer mid-swap
       game.phase = 'menu';
       document.getElementById('menu').style.display = 'flex';
     }
@@ -1474,8 +2123,14 @@ function animate() {
     console.error(err);
   }
 })();
-document.getElementById('fightBtn').addEventListener('click', () => {
+document.getElementById('fightBtn').addEventListener('click', async () => {
   AudioSys.init(); AudioSys.bell();
+  const btn = document.getElementById('fightBtn');
+  btn.disabled = true;
+  const old = btn.textContent;
+  btn.textContent = 'LOADING…';
+  try { await applySelection(); } catch (e) { console.warn('fighter load failed', e); }
+  btn.disabled = false; btn.textContent = old;
   document.getElementById('menu').style.display = 'none';
   startMatch();
 });
@@ -1510,9 +2165,30 @@ function qaProbeSummary() {
 function freezePose(f, key, at) {
   f.play(key, { loop: false, clamp: true, fade: 0 });
   if (f.current) f.current.time = at;
-  f.mixer.update(0.001);
+  if (f.mixer) f.mixer.update(0.001);
 }
-function setupQA(mode) {
+async function setupQA(mode) {
+  // roster QA scenes: ?qa=roster:<playerIx>:<scene> (CPU = next fighter)
+  // or ?qa=cpu:<cpuIx>:<scene> — loads the picked fighters first, then
+  // runs the inner scene against them
+  if (mode.indexOf('roster:') === 0 || mode.indexOf('cpu:') === 0) {
+    const parts = mode.split(':');
+    const ix = parseInt(parts[1], 10) || 0;
+    if (parts[0] === 'roster') { pickFighter = ix; cpuFighter = (ix + 1) % ROSTER.length; }
+    else { cpuFighter = ix; pickFighter = (ix + 1) % ROSTER.length; }
+    await applySelection();
+    return setupQA(parts.slice(2).join(':') || 'exchange');
+  }
+  if (mode === 'select') {
+    // character-select screen QA: menu up, cards built, CPU drawn
+    const others = ROSTER.map((r, i) => i).filter(i => i !== pickFighter);
+    cpuFighter = others[1 % others.length];
+    buildSelectCards();
+    await applySelection();
+    game.phase = 'menu';
+    document.getElementById('menu').style.display = 'flex';
+    return;
+  }
   document.getElementById('menu').style.display = 'none';
   document.getElementById('hud').style.display = 'block';
   if (mode === 'auto') { game.phase = 'menu'; startMatch(); return; }
@@ -1610,18 +2286,18 @@ function setupQA(mode) {
     freezePose(P1, 'jab', 0.16);
     freezePose(P2, 'hitL', 0.07);
     P2.hp = 93; P2.meter = 88;
-    P2.bonePos(P2.chestBone, _v1); burst(_v1, 0x7fd8ff, 22, 3, 1.3);
-    slashArc(_v1, 0x7fd8ff, false);
+    P2.bonePos(P2.chestBone, _v1); burst(_v1, 0xffc44d, 22, 3, 1.3);
+    slashArc(_v1, 0xffc44d, false);
     game.phase = 'frozen';
   } else if (mode === 'specdash') {
     P1.x = -0.9; P2.x = 0.62;
     P1.group.position.x = P1.x; P2.group.position.x = P2.x;
     P1.face = 1; P2.face = -1; P1.applyFacing(); P2.applyFacing();
-    freezePose(P1, 'special', 0.3);
+    freezePose(P1, dashClipKey(P1), 0.3);
     freezePose(P2, 'hitH', 0.1);
     P2.hp = 61;
-    P2.bonePos(P2.chestBone, _v1); burst(_v1, 0x7fd8ff, 26, 3.4, 1.4);
-    slashArc(_v1, 0x7fd8ff, false);
+    P2.bonePos(P2.chestBone, _v1); burst(_v1, P1.cfg.sparkColor, 26, 3.4, 1.4);
+    slashArc(_v1, P1.cfg.sparkColor, false);
     game.phase = 'frozen';
   } else if (mode === 'specorb') {
     P1.x = -0.7; P2.x = 1.5;
@@ -1630,7 +2306,7 @@ function setupQA(mode) {
     freezePose(P2, 'throw', 0.4);
     freezePose(P1, 'idle', 0.3);
     P2.bonePos(P2.handBone, _v1);
-    spawnOrb(P2, new THREE.Vector3(0.35, 1.35, 0));
+    spawnOrb(P2, new THREE.Vector3(0.35, 1.35, 0), P2.cfg.kit.orbDmg);
     const p = projectiles[0]; if (p) { p.grp.position.set(0.35, 1.35, 0); p.life = 99; }
     game.phase = 'frozen';
   } else if (mode === 'ko') {
@@ -1664,8 +2340,8 @@ function setupQA(mode) {
     freezePose(P1, 'jab', 0.16);
     freezePose(P2, 'knock', 0.12);
     P2.hp = 84;
-    P2.bonePos(P2.chestBone, _v1); burst(_v1, 0x7fd8ff, 20, 3, 1.3);
-    slashArc(_v1, 0x7fd8ff, false);
+    P2.bonePos(P2.chestBone, _v1); burst(_v1, 0xffc44d, 20, 3, 1.3);
+    slashArc(_v1, 0xffc44d, false);
     game.phase = 'frozen';
   }
   updateHUD();
