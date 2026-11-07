@@ -33,6 +33,9 @@ try { S.muted = localStorage.getItem('luncRush3dMute') === '1'; } catch (e) {}
 const container = document.getElementById('game');
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+/* explicit opaque sky-blue clear colour: any pixel the dome ever misses
+   clears to sky, never black/white (flash hygiene, Nov 7) */
+renderer.setClearColor(0x69b7ff, 1);
 container.appendChild(renderer.domElement);
 
 /* Size from the REAL visible viewport. innerHeight/innerWidth can lag the
@@ -302,9 +305,11 @@ scene.add(cloudIM);
 const cloudData = [];
 for (let i = 0; i < 22; i++) cloudData.push({ x: (Math.random() - 0.5) * 320, y: 26 + Math.random() * 44, off: -Math.random() * 480, s: 0.55 + Math.random() * 1.25 });
 
-/* sun billboard glow */
-const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, color: 0xffe9a0, transparent: true, opacity: 0.9, fog: false, depthWrite: false, depthTest: false }));
-sunSprite.scale.set(90, 45, 1); sunSprite.position.set(-70, 60, -260); sunSprite.renderOrder = -6; scene.add(sunSprite);
+/* sun billboard glow: REMOVED (Nov 7 hotfix) — a 90x45-unit, 0.9-opacity,
+   depthTest-off glow sprite glued to the camera painted a broad bright
+   wash over the play view and swept across the screen in the loop.
+   Tom reported "flashing light screen" three times; the bar is ZERO
+   large-area light effects. The painted sky dome + clouds carry the sky. */
 
 /* sun light shafts: REMOVED (Nov 7) — even shortened, the additive planes
    read as broad white diagonal beams across the sky on real phone GPUs
@@ -721,17 +726,10 @@ function buildHero() {
 const H = buildHero();
 scene.add(H.group);
 
-/* speed streaks */
-const streaks = [];
-{
-  const g = new THREE.BufferGeometry();
-  const pos = new Float32Array(40 * 2 * 3);
-  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const lines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0xfdf6dd, transparent: true, opacity: 0 }));
-  lines.frustumCulled = false; scene.add(lines);
-  for (let i = 0; i < 40; i++) streaks.push({ x: (Math.random() - 0.5) * 16, y: 0.5 + Math.random() * 5, z: -Math.random() * 60, len: 1.5 + Math.random() * 2.5 });
-  streaks.lines = lines; streaks.pos = pos;
-}
+/* speed streaks: REMOVED (Nov 7 hotfix) — 40 pale lines whipping past the
+   camera at speed+26 m/s recycled constantly across the whole view and
+   read as light streaks flashing on a phone (Tom's report). Deleted with
+   their per-frame update below; the wind AUDIO still carries the speed. */
 
 /* ---------------- audio (procedural, guarded) ---------------- */
 const AU = { ctx: null, master: null, windGain: null, windFilter: null };
@@ -1047,7 +1045,14 @@ const stickBase = $('stickBase'), stickKnob = $('stickKnob');
 const stick = { id: null, bx: 0, by: 0, armedX: true, armedY: true };
 let stickTouch = false; // a touch owned by the stick is in progress
 function stickShow(x, y) {
-  stickBase.style.left = x + 'px'; stickBase.style.top = y + 'px';
+  /* stickBase is absolutely positioned INSIDE #stickZone, and the zone's
+     top-left sits at (0, 38% of screen height) — while pointer clientX/Y
+     are VIEWPORT coords. Feeding them in raw dropped the base one
+     zone-height (~321px on an 844px screen) below the thumb, fully
+     off-screen at the natural thumb spot: the stick steered fine but was
+     never VISIBLE (Tom: "no joystick", Nov 7). Convert into zone space. */
+  const zr = stickZone.getBoundingClientRect();
+  stickBase.style.left = (x - zr.left) + 'px'; stickBase.style.top = (y - zr.top) + 'px';
   stickBase.style.display = 'block'; stickKnob.style.transform = '';
 }
 function stickReset() {
@@ -1167,7 +1172,7 @@ function animate() {
     S.score += effSpeed * DIST_SCORE * dt;
     if (S.stumbleT > 0) S.stumbleT -= dt;
     if (S.invulnT > 0) S.invulnT -= dt;
-    if (S.hitFlash > 0) { S.hitFlash -= dt; if (S.hitFlash <= 0) renderer.setClearColor(0x000000, 0); }
+    if (S.hitFlash > 0) S.hitFlash -= dt;
 
     /* vertical */
     if (!S.loop) {
@@ -1259,13 +1264,18 @@ function animate() {
   const span = SECT_N * SECT_LEN;
   for (const sec of sections) {
     let rel = (sec.userData.baseZ - (S.dist % span) + span) % span;
-    sec.position.z = -(rel) + SECT_LEN * 0.5 - 8;
+    /* +9 (was -8): the tiling must reach at least ~+6 BEHIND the hero at
+       every phase — the camera's bottom ray lands at z≈+4..+6, and with
+       -8 the rearmost section's back edge dipped to -8 for ~12m of every
+       30m cycle, leaving the ground under the camera open to the pale
+       sky dome: the once-per-section "flashing light screen" (Nov 7). */
+    sec.position.z = -(rel) + SECT_LEN * 0.5 + 9;
   }
   /* palms */
   for (let i = 0; i < PALM_N; i++) {
     const p = palmData[i];
     let rel = (p.off + ((i / PALMS_PER_SEC) | 0) * SECT_LEN - (S.dist % span) + span) % span;
-    dummy.position.set(p.bx, 0, -rel + SECT_LEN * 0.5 - 8);
+    dummy.position.set(p.bx, 0, -rel + SECT_LEN * 0.5 + 9); // +9: same shift as sections (see above)
     dummy.rotation.set(0, p.rot, p.tilt);
     dummy.scale.setScalar(p.s);
     dummy.updateMatrix();
@@ -1426,9 +1436,8 @@ function animate() {
     foamIM.count = iFoam; foamIM.instanceMatrix.needsUpdate = true;
   }
 
-  /* sky dome + sun follow the camera so the backdrop never ends */
+  /* sky dome follows the camera so the backdrop never ends */
   skyDome.position.set(camera.position.x, 6, camera.position.z - 120);
-  sunSprite.position.set(camera.position.x - 70, 60, camera.position.z - 120);
 
   /* --- obstacles render --- */
   let bi = 0, si = 0, bai = 0, pi = 0, ri = 0;
@@ -1561,23 +1570,6 @@ function animate() {
   camera.lookAt(camera.position.x * 0.72, lookY, lookZ);
   if (Math.abs(camera.fov - fovT) > 0.05) { camera.fov += (fovT - camera.fov) * Math.min(1, rawDt * 3); camera.updateProjectionMatrix(); }
 
-  /* --- streaks --- */
-  {
-    const op = S.mode === 'run' ? THREE.MathUtils.clamp((S.speed - 16) / 9, 0, 1) * 0.3 : 0;
-    streaks.lines.material.opacity += (op - streaks.lines.material.opacity) * Math.min(1, rawDt * 4);
-    const pos = streaks.pos;
-    for (let i = 0; i < streaks.length; i++) {
-      const st = streaks[i];
-      st.z += (S.speed + 26) * rawDt * (S.mode === 'run' ? 1 : 0.25);
-      if (st.z > 6) { st.z = -60 - Math.random() * 20; st.x = (Math.random() - 0.5) * 16; st.y = 0.5 + Math.random() * 5; }
-      const j = i * 6;
-      pos[j] = st.x; pos[j + 1] = st.y; pos[j + 2] = st.z;
-      pos[j + 3] = st.x; pos[j + 4] = st.y; pos[j + 5] = st.z + st.len * (0.5 + speedT);
-    }
-    streaks.lines.geometry.attributes.position.needsUpdate = true;
-    streaks.lines.position.x = camera.position.x * 0.9;
-  }
-
   /* --- water shimmer --- */
   waterTex.offset.y -= rawDt * 0.02;
   grassTex.offset.y = dirtTex.offset.y = 0; // static; sections scroll instead
@@ -1588,8 +1580,9 @@ function animate() {
     AU.windGain.gain.setTargetAtTime(S.muted ? 0 : target, AU.ctx.currentTime, 0.15);
     AU.windFilter.frequency.setTargetAtTime(350 + speedT * 750, AU.ctx.currentTime, 0.2);
   }
-  /* hit red flash: tint the sky dome (scene.background is the dome now) */
-  skyDome.material.color.setHex(S.hitFlash > 0 ? 0xe88a8a : 0xffffff);
+  /* hit feedback is the camera shake + heart loss only (Nov 7 hotfix):
+     the old full-screen sky-dome tint flash is REMOVED — zero flash
+     overlays. */
 
   renderer.render(scene, camera);
 }
