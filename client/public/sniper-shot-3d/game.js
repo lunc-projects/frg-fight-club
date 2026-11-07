@@ -98,6 +98,52 @@ const skyTex = canvasTex(1024, 512, (x, w, h) => {
   g.addColorStop(0.75, '#a8cdf2'); g.addColorStop(0.92, '#dceefb'); g.addColorStop(1, '#fdf3d8');
   x.fillStyle = g; x.fillRect(0, 0, w, h);
 }, { clamp: true });
+/* ---------------- house branding: the city advertises LUNC ---------------- */
+function drawCrescent(x, cx, cy, r, gold) {
+  x.save();
+  x.fillStyle = gold;
+  x.beginPath(); x.arc(cx, cy, r, 0, 7); x.fill();
+  x.globalCompositeOperation = 'destination-out';
+  x.beginPath(); x.arc(cx + r * 0.42, cy - r * 0.1, r * 0.82, 0, 7); x.fill();
+  x.restore();
+}
+function brandPanel(w, h, bg, lines, opts = {}) {
+  return canvasTex(w, h, (x) => {
+    x.fillStyle = bg; x.fillRect(0, 0, w, h);
+    x.strokeStyle = opts.frame || '#f5c542'; x.lineWidth = Math.max(4, h * 0.03);
+    x.strokeRect(x.lineWidth / 2, x.lineWidth / 2, w - x.lineWidth, h - x.lineWidth);
+    const hasC = opts.crescent !== false;
+    if (hasC) drawCrescent(x, w * 0.16, h * 0.5, h * 0.3, '#f5c542');
+    x.textAlign = 'left'; x.textBaseline = 'middle';
+    const tx = hasC ? w * 0.30 : w * 0.07;
+    const n = lines.length;
+    lines.forEach((ln, i) => {
+      x.fillStyle = ln.color || '#ffffff';
+      x.font = `900 ${ln.size}px 'Arial Black',Arial,sans-serif`;
+      x.fillText(ln.text, tx, h * (n === 1 ? 0.52 : (0.30 + i * 0.40)));
+    });
+  }, { clamp: true, aniso: true });
+}
+const brandMats = {
+  billboard: new THREE.MeshStandardMaterial({ map: brandPanel(1024, 384, '#12233d', [
+    { text: 'LUNA CLASSIC', size: 118, color: '#ffffff' },
+    { text: 'LUNC · LUNC DEV STUDIO', size: 56, color: '#f5c542' }]), roughness: 0.55 }),
+  banner: new THREE.MeshStandardMaterial({ map: brandPanel(1024, 256, '#f5c542', [
+    { text: 'LUNA CLASSIC', size: 104, color: '#12233d' }]), roughness: 0.7, side: THREE.DoubleSide }),
+  signGold: new THREE.MeshStandardMaterial({ map: brandPanel(512, 128, '#12233d', [
+    { text: 'LUNC', size: 72, color: '#f5c542' }]), roughness: 0.6 }),
+  signWhite: new THREE.MeshStandardMaterial({ map: brandPanel(512, 128, '#f4f6f8', [
+    { text: 'LUNA CLASSIC', size: 46, color: '#12233d' }], { crescent: false }), roughness: 0.6 }),
+  signStudio: new THREE.MeshStandardMaterial({ map: brandPanel(512, 128, '#1d3f2a', [
+    { text: 'LUNC DEV STUDIO', size: 44, color: '#ffffff' }], { crescent: false }), roughness: 0.6 }),
+  truck: new THREE.MeshStandardMaterial({ map: brandPanel(1024, 256, '#f4f6f8', [
+    { text: 'LUNA CLASSIC', size: 84, color: '#12233d' },
+    { text: 'LUNC DEV STUDIO', size: 48, color: '#b8860b' }]), roughness: 0.5 }),
+  roof: new THREE.MeshStandardMaterial({ map: brandPanel(512, 512, '#3a3f45', [
+    { text: 'LUNC', size: 150, color: '#f5c542' }]), roughness: 0.95 }),
+};
+const shopSignMats = [brandMats.signGold, brandMats.signWhite, brandMats.signStudio];
+
 const glowTex = canvasTex(128, 128, (x, w, h) => {
   const g = x.createRadialGradient(64, 64, 2, 64, 64, 62);
   g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.35, 'rgba(255,255,255,.5)');
@@ -355,6 +401,26 @@ function tree(parent, x, z, s = 1) {
         b.scale.set(bw, h, bd); b.position.set(cx, h / 2, zc + rr(-1, 1));
         b.castShadow = bi < 4; b.receiveShadow = true;
         scene.add(b); regOcc(b);
+        /* --- house branding worked into the streetscape --- */
+        if (bi === 0 && h >= 13) { // ground-floor shop sign facing the avenue
+          const sg = mesh(GEO.box, pick(shopSignMats), scene, cx, 3.4, b.position.z + bd / 2 + 0.35, Math.min(bw * 0.62, 11), 1.5, 0.5);
+          sg.castShadow = true;
+        }
+        if (bi <= 1 && h >= 21 && rng() < 0.45) { // rooftop billboard on a pole frame
+          const bg2 = new THREE.Group();
+          bg2.position.set(cx + bw * rr(-0.15, 0.15), h, b.position.z);
+          scene.add(bg2);
+          const poleMat = M.std(0x3c4148, 0.7);
+          mesh(GEO.cyl, poleMat, bg2, -3.4, 1.6, 0, 0.22, 3.2, 0.22);
+          mesh(GEO.cyl, poleMat, bg2, 3.4, 1.6, 0, 0.22, 3.2, 0.22);
+          const panel = mesh(GEO.box, brandMats.billboard, bg2, 0, 5.4, 0, 13, 4.9, 0.35);
+          panel.castShadow = true;
+          mesh(GEO.box, poleMat, bg2, 0, 5.4, -0.3, 13.4, 5.3, 0.15);
+        }
+        if (bi === 1 && rng() < 0.4) { // banner strung across the facade
+          const bn = mesh(GEO.plane, brandMats.banner, scene, cx, h * 0.62, b.position.z + bd / 2 + 0.12, Math.min(bw * 0.8, 15), 3.4, 1);
+          bn.rotation.y = 0;
+        }
         if (bi <= 2 && h <= 26) { // dress near roofs: props + target spots
           const ry = h, rz = b.position.z;
           if (rng() < 0.55) { // water tower
@@ -441,6 +507,8 @@ const pigeonSpots = [];
   b.scale.set(34, 28.4, 22); b.position.set(0, 14.2, 50.6); b.receiveShadow = true; scene.add(b); regOcc(b);
   const slab = mesh(GEO.box, M.std(0x74777c, 1), g, 0, 28.55, 50.4, 35, 0.5, 23);
   slab.receiveShadow = true;
+  const roofBrand = mesh(GEO.plane, brandMats.roof, g, 7.5, 28.83, 52, 9, 9, 1); // LUNC painted on your own roof
+  roofBrand.rotation.x = -Math.PI / 2;
   const parMat = M.std(0x8d9299, 1);
   const front = mesh(GEO.box, parMat, g, 0, 29.4, 39.7, 35, 1.2, 0.55); regOcc(front);
   mesh(GEO.box, parMat, g, -17.2, 29.4, 50.6, 0.55, 1.2, 22);
@@ -504,25 +572,34 @@ function loopWalker(route) {
 /* ---------------- cars ---------------- */
 const cars = [];
 const carPaints = [0xe74c3c, 0x3498db, 0xf5c542, 0x2ecc71, 0xff8c42, 0x9b59b6, 0xecf0f1, 0xe91e63, 0x1abc9c, 0xf39c12, 0x5d8aa8, 0xd35400];
-function makeCar(route, dist0, speed, withSign) {
+function makeCar(route, dist0, speed, withSign, kind = 'car') {
   const g = new THREE.Group(); scene.add(g);
   const paint = new THREE.MeshStandardMaterial({ color: pick(carPaints), roughness: 0.32, metalness: 0.55 });
   const glass = new THREE.MeshStandardMaterial({ color: 0x2a3d4f, roughness: 0.12, metalness: 0.6 });
   const car = { g, speed, baseSpeed: speed, dist: dist0, walker: loopWalker(route), fleeT: 0, wheels: [], sign: null, signT: 0, honkCd: 0 };
-  const body = mesh(GEO.box, paint, g, 0, 0.62, 0, 1.9, 0.62, 4.3); body.castShadow = true;
-  const cabin = mesh(GEO.box, glass, g, 0, 1.16, -0.25, 1.7, 0.55, 2.1); cabin.castShadow = true;
-  mesh(GEO.box, new THREE.MeshStandardMaterial({ color: 0xffe9a8, emissive: 0xffca55, emissiveIntensity: 0.55, roughness: 0.4 }), g, -0.6, 0.66, 2.16, 0.34, 0.16, 0.05);
-  mesh(GEO.box, new THREE.MeshStandardMaterial({ color: 0xffe9a8, emissive: 0xffca55, emissiveIntensity: 0.55, roughness: 0.4 }), g, 0.6, 0.66, 2.16, 0.34, 0.16, 0.05);
-  mesh(GEO.box, M.std(0xd23b47, 0.4), g, -0.6, 0.66, -2.16, 0.34, 0.16, 0.05);
-  mesh(GEO.box, M.std(0xd23b47, 0.4), g, 0.6, 0.66, -2.16, 0.34, 0.16, 0.05);
+  let body;
+  if (kind === 'truck') { // delivery truck wearing the LUNA CLASSIC livery
+    body = new THREE.Mesh(GEO.box, [brandMats.truck, brandMats.truck, M.std(0xdfe3e8, 0.6), M.std(0x9aa0a8, 0.8), paint, paint]);
+    body.scale.set(2.3, 2.5, 5.6); body.position.set(0, 1.65, -0.4); body.castShadow = true; g.add(body);
+    const cab = mesh(GEO.box, paint, g, 0, 0.95, 2.9, 2.1, 1.15, 1.3); cab.castShadow = true;
+    mesh(GEO.box, glass, g, 0, 1.2, 3.56, 1.8, 0.5, 0.06);
+    regHit(body, 'foul', { kind: 'car', car }); regHit(cab, 'foul', { kind: 'car', car });
+  } else {
+    body = mesh(GEO.box, paint, g, 0, 0.62, 0, 1.9, 0.62, 4.3); body.castShadow = true;
+    const cabin = mesh(GEO.box, glass, g, 0, 1.16, -0.25, 1.7, 0.55, 2.1); cabin.castShadow = true;
+    regHit(body, 'foul', { kind: 'car', car });
+    regHit(cabin, 'foul', { kind: 'car', car });
+  }
+  mesh(GEO.box, new THREE.MeshStandardMaterial({ color: 0xffe9a8, emissive: 0xffca55, emissiveIntensity: 0.55, roughness: 0.4 }), g, -0.6, 0.66, kind === 'truck' ? 3.56 : 2.16, 0.34, 0.16, 0.05);
+  mesh(GEO.box, new THREE.MeshStandardMaterial({ color: 0xffe9a8, emissive: 0xffca55, emissiveIntensity: 0.55, roughness: 0.4 }), g, 0.6, 0.66, kind === 'truck' ? 3.56 : 2.16, 0.34, 0.16, 0.05);
+  mesh(GEO.box, M.std(0xd23b47, 0.4), g, -0.6, 0.66, kind === 'truck' ? -3.21 : -2.16, 0.34, 0.16, 0.05);
+  mesh(GEO.box, M.std(0xd23b47, 0.4), g, 0.6, 0.66, kind === 'truck' ? -3.21 : -2.16, 0.34, 0.16, 0.05);
   const wheelGeo = new THREE.CylinderGeometry(0.37, 0.37, 0.24, 12);
   const wheelMat = M.std(0x1c1e22, 0.9);
-  for (const [wx, wz] of [[-0.88, 1.4], [0.88, 1.4], [-0.88, -1.4], [0.88, -1.4]]) {
+  for (const [wx, wz] of (kind === 'truck' ? [[-1.0, 2.2], [1.0, 2.2], [-1.0, -2.2], [1.0, -2.2]] : [[-0.88, 1.4], [0.88, 1.4], [-0.88, -1.4], [0.88, -1.4]])) {
     const w = mesh(wheelGeo, wheelMat, g, wx, 0.37, wz);
     w.rotation.z = Math.PI / 2; car.wheels.push(w);
   }
-  regHit(body, 'foul', { kind: 'car', car });
-  regHit(cabin, 'foul', { kind: 'car', car });
   if (withSign) {
     const sg = new THREE.Group(); sg.position.set(0, 1.44, -0.25); g.add(sg);
     mesh(GEO.cyl, M.std(0x555b63, 0.6), sg, 0, 0.25, 0, 0.09, 0.5, 0.09);
@@ -537,8 +614,8 @@ function makeCar(route, dist0, speed, withSign) {
 {
   const R1 = roundedRectRoute(-33, -6, 33, 26), R2 = roundedRectRoute(-66, -38, -33, -6),
         R3 = roundedRectRoute(33, -70, 66, -38), R4 = roundedRectRoute(-33, -102, 33, -70);
-  makeCar(R1, 0, 8.5, true); makeCar(R1, 70, 9.5, false); makeCar(R1, 150, 8, false); makeCar(R1, 210, 10, false);
-  makeCar(R2, 20, 9, true); makeCar(R2, 110, 8.2, false); makeCar(R2, 190, 9.8, false);
+  makeCar(R1, 0, 8.5, true); makeCar(R1, 70, 9.5, false); makeCar(R1, 150, 8, false, 'truck'); makeCar(R1, 210, 10, false);
+  makeCar(R2, 20, 9, true); makeCar(R2, 110, 8.2, false); makeCar(R2, 190, 9.8, false, 'truck');
   makeCar(R3, 40, 8.8, true); makeCar(R3, 130, 9.4, false); makeCar(R3, 200, 8.4, false);
   makeCar(R4, 60, 10.5, false); makeCar(R4, 190, 9.2, false);
 }

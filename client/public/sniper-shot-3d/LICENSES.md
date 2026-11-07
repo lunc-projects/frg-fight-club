@@ -5,7 +5,11 @@ cars, people, animals, targets, rifle and every texture are generated
 procedurally at runtime by the game's own code (canvas textures + three.js
 geometry) — original work for this project, in the same house style as
 Arena Clash 3D and the original Sniper Shot. No name, character, level,
-map, or asset from any commercial shooting game is used.
+map, or asset from any commercial shooting game is used. The city's
+advertising (LUNC / LUNA CLASSIC / LUNC DEV STUDIO billboards, shop
+signs, banners, truck livery, roof paint) is the studio's own house
+branding, drawn procedurally the same way — the crescent mark is drawn
+in code, not copied from any file.
 
 ## Engine — three.js (MIT)
 
