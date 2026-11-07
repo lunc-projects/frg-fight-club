@@ -424,11 +424,40 @@ const SCOPE_TESTERS_KEY = 'scope:testers:submitted';
 const SCOPE_TESTER_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 export async function scopeTesterHandler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ ok: false, error: 'method not allowed' });
-  }
   if (!process.env.NEONRUSH_UPSTASH_URL || !process.env.NEONRUSH_UPSTASH_TOKEN) {
     return res.status(500).json({ ok: false, error: 'storage not configured' });
+  }
+  /* GET is a minimal health probe for this route: it reports ONLY the
+     signup count and — when ?check=<email> is given — whether that one
+     address is on the list (and removes it when it is the reserved
+     .example check domain, so verification runs never leave residue).
+     The list itself is never returned here; the owner reads it from
+     Upstash directly (SMEMBERS scope:testers:submitted). */
+  if (req.method === 'GET') {
+    const check = typeof (req.query && req.query.check) === 'string'
+      ? req.query.check.trim().toLowerCase() : '';
+    try {
+      const cmds = [['SCARD', SCOPE_TESTERS_KEY]];
+      if (check) cmds.push(['SISMEMBER', SCOPE_TESTERS_KEY, check]);
+      const out = await upstashPipeline(cmds);
+      const resp = { ok: true, count: Number(out[0] && out[0].result) || 0 };
+      if (check) {
+        resp.checked = check;
+        resp.present = Number(out[1] && out[1].result) === 1;
+        if (resp.present && check.endsWith('@example.com')) {
+          await upstashPipeline([['SREM', SCOPE_TESTERS_KEY, check]]);
+          resp.removedTestEntry = true;
+          resp.count -= 1;
+        }
+      }
+      return res.status(200).json(resp);
+    } catch (e) {
+      console.error('scope tester probe failed', e && e.message);
+      return res.status(500).json({ ok: false, error: 'storage read failed' });
+    }
+  }
+  if (req.method !== 'POST') {
+    return res.status(405).json({ ok: false, error: 'method not allowed' });
   }
   let body = req.body;
   if (typeof body === 'string') {
