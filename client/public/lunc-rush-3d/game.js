@@ -1,7 +1,7 @@
 /* ============================================================
    LUNC RUSH 3D — Luna Classic endless runner (Three.js r160)
-   Hero: COMET the moon-fox (original character, procedural model)
-   Run: 3-lane behind-view runner on a tropical island course.
+   Hero: ROO the kangaroo (original character, procedural model)
+   Run: 3-lane behind-view runner through the Australian outback.
    Coins are LUNC crescents, rare pickups are USTC stars.
    ============================================================ */
 import * as THREE from 'three';
@@ -35,7 +35,7 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'hi
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 /* explicit opaque sky-blue clear colour: any pixel the dome ever misses
    clears to sky, never black/white (flash hygiene, Nov 7) */
-renderer.setClearColor(0x69b7ff, 1);
+renderer.setClearColor(0xffc98a, 1);
 container.appendChild(renderer.domElement);
 
 /* Size from the REAL visible viewport. innerHeight/innerWidth can lag the
@@ -57,19 +57,19 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.08;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x69b7ff);
-scene.fog = new THREE.Fog(0x9fd4ff, 90, 430);
+scene.background = new THREE.Color(0xffc98a);
+scene.fog = new THREE.Fog(0xf7cf9a, 90, 430);
 
 const camera = new THREE.PerspectiveCamera(66, viewSize().w / viewSize().h, 0.1, 1200);
 camera.position.set(0, 5.6, 9.5);
 
-const hemi = new THREE.HemisphereLight(0xcfe8ff, 0x3d7a3a, 0.95);
+const hemi = new THREE.HemisphereLight(0xffe3b8, 0xa2542e, 0.95);
 scene.add(hemi);
-const sun = new THREE.DirectionalLight(0xfff2cf, 1.9);
-sun.position.set(28, 46, -30);
+const sun = new THREE.DirectionalLight(0xffdf9e, 2.0);
+sun.position.set(-24, 26, -46);
 scene.add(sun);
-const fill = new THREE.DirectionalLight(0x9fd0ff, 0.35);
-fill.position.set(-20, 18, 30);
+const fill = new THREE.DirectionalLight(0xffc9a0, 0.35);
+fill.position.set(20, 16, 30);
 scene.add(fill);
 
 /* ---------------- procedural canvas textures ---------------- */
@@ -82,23 +82,28 @@ function canvasTex(w, h, draw, rx = 1, ry = 1) {
   return t;
 }
 const grassTex = canvasTex(512, 512, (g, w, h) => {
-  /* painted grass: layered wash patches, then thousands of blade strokes */
-  g.fillStyle = '#3f9e46'; g.fillRect(0, 0, w, h);
-  const wash = ['#35903f', '#48ab52', '#2f8a3a', '#55b364', '#3a9a48'];
+  /* painted red-centre earth: ochre washes, spinifex dots, pebble speckle */
+  g.fillStyle = '#c96f35'; g.fillRect(0, 0, w, h);
+  const wash = ['#b85f2b', '#d67f3e', '#a85424', '#e08f4a', '#bd6530'];
   for (let i = 0; i < 46; i++) {
     g.fillStyle = wash[i % wash.length]; g.globalAlpha = 0.24;
     g.beginPath(); g.ellipse(Math.random() * w, Math.random() * h, 26 + Math.random() * 70, 16 + Math.random() * 44, Math.random() * 3, 0, 7); g.fill();
   }
   g.globalAlpha = 1;
-  for (let i = 0; i < 5200; i++) {
-    const x = Math.random() * w, y = Math.random() * h, l = 3 + Math.random() * 6;
-    g.strokeStyle = `rgba(${18 + Math.random() * 40 | 0},${105 + Math.random() * 80 | 0},${34 + Math.random() * 26 | 0},0.55)`;
-    g.lineWidth = 1;
-    g.beginPath(); g.moveTo(x, y); g.lineTo(x + (Math.random() - 0.5) * 2.4, y - l); g.stroke();
+  for (let i = 0; i < 3800; i++) { /* spinifex tuft dots: dry straw + olive */
+    const x = Math.random() * w, y = Math.random() * h, r = 1 + Math.random() * 2.6;
+    g.fillStyle = Math.random() < 0.55 ? 'rgba(198,164,80,0.5)' : 'rgba(128,124,58,0.45)';
+    g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
   }
-  for (let i = 0; i < 340; i++) { /* dry flecks */
-    g.fillStyle = 'rgba(214,196,110,0.20)';
-    g.fillRect(Math.random() * w, Math.random() * h, 2.4, 1.4);
+  for (let i = 0; i < 900; i++) { /* pebbles + pale grit */
+    g.fillStyle = Math.random() < 0.5 ? 'rgba(120,66,30,0.35)' : 'rgba(255,214,160,0.28)';
+    g.fillRect(Math.random() * w, Math.random() * h, 2, 1.6);
+  }
+  g.strokeStyle = 'rgba(140,74,32,0.30)'; g.lineWidth = 2; /* dry cracks */
+  for (let i = 0; i < 12; i++) {
+    g.beginPath(); let x = Math.random() * w, y = Math.random() * h; g.moveTo(x, y);
+    for (let k = 0; k < 3; k++) { x += (Math.random() - 0.5) * 44; y += (Math.random() - 0.5) * 30; g.lineTo(x, y); }
+    g.stroke();
   }
 }, 1, 15);
 const dirtTex = canvasTex(256, 256, (g, w, h) => {
@@ -111,8 +116,8 @@ const dirtTex = canvasTex(256, 256, (g, w, h) => {
   for (let i = 0; i < 160; i++) g.fillRect(Math.random() * w, Math.random() * h, 2, 2);
 }, 2, 15);
 const cliffTex = canvasTex(256, 256, (g, w, h) => {
-  /* rock strata — horizontal bands, cracks and speckle (no checkerboard) */
-  const bands = ['#b49b78', '#a8906c', '#c0aa84', '#9c8464', '#b8a27c', '#a58a66', '#c4ae88', '#98835f'];
+  /* red-rock strata — rust bands, cracks and speckle (no checkerboard) */
+  const bands = ['#b5502a', '#a34724', '#c05e31', '#9c3f20', '#b95630', '#a84a26', '#c46438', '#96401f'];
   for (let j = 0; j < 8; j++) {
     g.fillStyle = bands[j]; g.fillRect(0, j * 32, w, 32);
     g.fillStyle = 'rgba(70,52,32,0.35)'; g.fillRect(0, j * 32, w, 2);
@@ -129,29 +134,31 @@ const cliffTex = canvasTex(256, 256, (g, w, h) => {
   }
 }, 3, 2);
 const barkTex = canvasTex(128, 256, (g, w, h) => {
-  g.fillStyle = '#8a6a45'; g.fillRect(0, 0, w, h);
-  g.fillStyle = 'rgba(60,40,20,0.45)';
-  for (let i = 0; i < 26; i++) g.fillRect(Math.random() * w, 0, 3, h);
-  g.fillStyle = 'rgba(120,90,55,0.5)';
-  for (let i = 0; i < 20; i++) g.fillRect(Math.random() * w, 0, 2, h);
+  /* gum bark: pale smooth trunk with peeling rust-and-charcoal ribbons */
+  g.fillStyle = '#d9c6a8'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 30; i++) {
+    g.fillStyle = Math.random() < 0.5 ? 'rgba(168,104,62,0.4)' : 'rgba(110,96,84,0.35)';
+    const x = Math.random() * w; g.fillRect(x, Math.random() * h * 0.4, 3 + Math.random() * 5, 30 + Math.random() * 90);
+  }
+  g.fillStyle = 'rgba(240,228,205,0.5)';
+  for (let i = 0; i < 22; i++) g.fillRect(Math.random() * w, 0, 2, h);
 });
 const waterTex = canvasTex(512, 512, (g, w, h) => {
-  /* painted water: depth gradient + caustic web + sparkle */
+  /* cracked claypan flats: pale cracked earth where the far plains run */
   const gr = g.createLinearGradient(0, 0, w, h);
-  gr.addColorStop(0, '#25b3e8'); gr.addColorStop(0.5, '#1493d8'); gr.addColorStop(1, '#0e7cc4');
+  gr.addColorStop(0, '#dfae72'); gr.addColorStop(0.5, '#d59e5e'); gr.addColorStop(1, '#cb9250');
   g.fillStyle = gr; g.fillRect(0, 0, w, h);
-  g.strokeStyle = 'rgba(190,240,255,0.16)'; g.lineWidth = 1.6;
-  for (let i = 0; i < 130; i++) {
-    const x = Math.random() * w, y = Math.random() * h, r = 7 + Math.random() * 20;
-    g.beginPath(); g.arc(x, y, r, Math.random() * 3, Math.random() * 2 + 1.2); g.stroke();
+  g.strokeStyle = 'rgba(122,74,36,0.4)'; g.lineWidth = 1.6;
+  for (let i = 0; i < 90; i++) { /* polygonal crack web */
+    let x = Math.random() * w, y = Math.random() * h;
+    g.beginPath(); g.moveTo(x, y);
+    for (let k = 0; k < 5; k++) { x += (Math.random() - 0.5) * 64; y += (Math.random() - 0.5) * 64; g.lineTo(x, y); }
+    g.stroke();
   }
-  g.strokeStyle = 'rgba(255,255,255,0.38)'; g.lineWidth = 2;
-  for (let i = 0; i < 30; i++) {
-    g.beginPath(); const y = Math.random() * h; g.moveTo(Math.random() * w, y);
-    g.bezierCurveTo(Math.random() * w, y - 6, Math.random() * w, y + 6, Math.random() * w, y); g.stroke();
+  for (let i = 0; i < 2600; i++) { /* grit + salt flecks */
+    g.fillStyle = Math.random() < 0.5 ? 'rgba(150,96,48,0.3)' : 'rgba(255,238,205,0.32)';
+    g.fillRect(Math.random() * w, Math.random() * h, 2.2, 1.6);
   }
-  g.fillStyle = 'rgba(210,245,255,0.55)';
-  for (let i = 0; i < 260; i++) g.fillRect(Math.random() * w, Math.random() * h, 3, 1);
 }, 8, 60);
 /* painted sand: grain, shells, pebbles */
 const sandTex = canvasTex(256, 256, (g, w, h) => {
@@ -165,38 +172,41 @@ const sandTex = canvasTex(256, 256, (g, w, h) => {
     g.beginPath(); g.ellipse(Math.random() * w, Math.random() * h, 2 + Math.random() * 3, 1.4 + Math.random() * 2, Math.random() * 3, 0, 7); g.fill();
   }
 }, 4, 12);
-/* palm frond sprite — a real feathered frond, alpha-cut */
+/* gum-leaf canopy sprite — drooping eucalyptus leaf sprays, alpha-cut */
 const frondTex = (() => {
   const c = document.createElement('canvas'); c.width = 256; c.height = 128;
   const g = c.getContext('2d'); g.clearRect(0, 0, 256, 128);
   g.lineCap = 'round';
-  const frond = (ox, oy, ang, len, colA, colB) => {
+  const spray = (ox, oy, ang, len, colA, colB) => {
     const dx = Math.cos(ang), dy = Math.sin(ang), px = -dy, py = dx;
-    g.strokeStyle = colA; g.lineWidth = 5;
+    g.strokeStyle = 'rgba(112,96,78,0.9)'; g.lineWidth = 3;
     g.beginPath(); g.moveTo(ox, oy);
-    g.quadraticCurveTo(ox + dx * len * 0.55, oy + dy * len * 0.55 + len * 0.10, ox + dx * len, oy + dy * len + len * 0.30); g.stroke();
-    for (let t = 0.16; t < 0.98; t += 0.055) {
-      const bx = ox + dx * len * t, by = oy + dy * len * t + len * 0.30 * t * t;
-      const ll = len * 0.30 * (1 - t * 0.55);
-      g.strokeStyle = t % 0.11 < 0.055 ? colA : colB; g.lineWidth = 2.4;
-      g.beginPath(); g.moveTo(bx, by); g.lineTo(bx + px * ll * 0.4 + dx * ll * 0.3, by + py * ll * 0.4 + ll * 0.75); g.stroke();
-      g.beginPath(); g.moveTo(bx, by); g.lineTo(bx - px * ll * 0.4 + dx * ll * 0.3, by - py * ll * 0.4 + ll * 0.75); g.stroke();
+    g.quadraticCurveTo(ox + dx * len * 0.55, oy + dy * len * 0.55 + len * 0.06, ox + dx * len, oy + dy * len + len * 0.22); g.stroke();
+    for (let t = 0.14; t < 0.98; t += 0.05) {
+      const bx = ox + dx * len * t, by = oy + dy * len * t + len * 0.22 * t * t;
+      const ll = len * 0.16 * (1 - t * 0.4);
+      for (const sgn of [-1, 1]) { /* lance-shaped gum leaves, alternating */
+        g.fillStyle = (t * 20 | 0) % 2 ? colA : colB;
+        g.beginPath();
+        g.ellipse(bx + px * ll * sgn + dx * ll * 0.4, by + py * ll * sgn + ll * 0.55, ll * 0.30, ll * 0.95, ang + sgn * 0.5, 0, 7);
+        g.fill();
+      }
     }
   };
-  frond(22, 26, -0.10, 205, '#2e9e44', '#3cb54f');
-  frond(22, 62, 0.16, 195, '#27893c', '#35a647');
-  frond(22, 98, 0.42, 180, '#2e9e44', '#46bd5c');
+  spray(22, 22, -0.08, 208, '#5d7350', '#71865e');
+  spray(22, 62, 0.18, 196, '#54683f', '#667c50');
+  spray(22, 100, 0.44, 178, '#5d7350', '#7d9268');
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
   return t;
 })();
-/* fox-fur detail for the hero: subtle painted stripes + speckle */
+/* roo-coat detail for the hero: sandy speckle over a rust-brown base */
 const furTex = canvasTex(256, 256, (g, w, h) => {
-  g.fillStyle = '#f07f13'; g.fillRect(0, 0, w, h);
+  g.fillStyle = '#b06a38'; g.fillRect(0, 0, w, h);
   for (let i = 0; i < 3000; i++) {
-    g.fillStyle = Math.random() < 0.5 ? 'rgba(200,95,10,0.20)' : 'rgba(255,175,80,0.20)';
+    g.fillStyle = Math.random() < 0.5 ? 'rgba(140,80,40,0.20)' : 'rgba(216,158,102,0.20)';
     g.fillRect(Math.random() * w, Math.random() * h, 2.2, 1.3);
   }
-  g.strokeStyle = 'rgba(178,80,8,0.30)'; g.lineWidth = 7; g.lineCap = 'round';
+  g.strokeStyle = 'rgba(146,86,44,0.25)'; g.lineWidth = 7; g.lineCap = 'round';
   for (let i = 0; i < 5; i++) {
     g.beginPath(); const y = 28 + i * 52;
     g.moveTo(-8, y); g.bezierCurveTo(w * 0.3, y + 14, w * 0.7, y - 14, w + 8, y + 4); g.stroke();
@@ -215,13 +225,13 @@ const M = {
   dirt: new THREE.MeshLambertMaterial({ map: dirtTex }),
   sand: new THREE.MeshLambertMaterial({ map: sandTex }),
   cliff: new THREE.MeshLambertMaterial({ map: cliffTex }),
-  water: new THREE.MeshPhongMaterial({ map: waterTex, shininess: 90, color: 0xbfeaff }),
+  water: new THREE.MeshPhongMaterial({ map: waterTex, shininess: 24, color: 0xf2d9b0 }),
   bark: new THREE.MeshLambertMaterial({ map: barkTex }),
-  leaf: new THREE.MeshLambertMaterial({ color: 0x2f9e44 }),
-  leaf2: new THREE.MeshLambertMaterial({ color: 0x37b24d }),
+  leaf: new THREE.MeshLambertMaterial({ color: 0x5d7350 }),
+  leaf2: new THREE.MeshLambertMaterial({ color: 0x71865e }),
   /* scenery pack materials (shared, reused by every instanced prop) */
-  sandDk: new THREE.MeshLambertMaterial({ color: 0xdcc384 }),
-  thatch: new THREE.MeshLambertMaterial({ color: 0xc9a35a }),
+  sandDk: new THREE.MeshLambertMaterial({ color: 0xd98d4e }),
+  thatch: new THREE.MeshLambertMaterial({ color: 0xb9a06a }),
   woodDk: new THREE.MeshLambertMaterial({ color: 0x6e4f2a }),
   stone: new THREE.MeshLambertMaterial({ color: 0x8d8578 }),
   stoneDk: new THREE.MeshLambertMaterial({ color: 0x6f6a5e }),
@@ -231,8 +241,8 @@ const M = {
   yellow: new THREE.MeshLambertMaterial({ color: 0xffd43b }),
   whiteF: new THREE.MeshLambertMaterial({ color: 0xf8f9fa }),
   glint: new THREE.MeshPhongMaterial({ color: 0x9fd8ef, shininess: 120, transparent: true, opacity: 0.75 }),
-  hillFar: new THREE.MeshBasicMaterial({ color: 0x5b9bd5, fog: true }),
-  temple: new THREE.MeshBasicMaterial({ color: 0x4a86c5, fog: true }),
+  hillFar: new THREE.MeshBasicMaterial({ color: 0xa8502e, fog: true }),
+  temple: new THREE.MeshBasicMaterial({ color: 0x8f3d20, fog: true }),
   bird: new THREE.MeshBasicMaterial({ color: 0x22303c, fog: true }),
   gold: new THREE.MeshPhongMaterial({ color: 0xffc93d, emissive: 0xcf8a00, emissiveIntensity: 0.55, shininess: 90 }),
   goldDark: new THREE.MeshPhongMaterial({ color: 0xe8a90c, emissive: 0x9a6a00, emissiveIntensity: 0.4, shininess: 70 }),
@@ -241,9 +251,9 @@ const M = {
   red: new THREE.MeshPhongMaterial({ color: 0xe03131, emissive: 0x700000, emissiveIntensity: 0.35, shininess: 40 }),
   white: new THREE.MeshPhongMaterial({ color: 0xf5f5f5, shininess: 30 }),
   orange: new THREE.MeshPhongMaterial({ map: furTex, shininess: 35 }),
-  orangeDk: new THREE.MeshPhongMaterial({ color: 0xb35c08, shininess: 35 }),
-  cream: new THREE.MeshPhongMaterial({ color: 0xfff3d6, shininess: 35 }),
-  teal: new THREE.MeshPhongMaterial({ color: 0x12b5a5, shininess: 50 }),
+  orangeDk: new THREE.MeshPhongMaterial({ color: 0x8a4f26, shininess: 35 }),
+  cream: new THREE.MeshPhongMaterial({ color: 0xf3e3c2, shininess: 35 }),
+  teal: new THREE.MeshPhongMaterial({ color: 0xb03a1e, shininess: 50 }),
   ink: new THREE.MeshPhongMaterial({ color: 0x2b2b33, shininess: 20 }),
   nose: new THREE.MeshPhongMaterial({ color: 0x33231a, shininess: 60 }),
 };
@@ -263,9 +273,9 @@ function makeSection() {
   const beachR = beachL.clone(); beachR.position.x = 12.5; g.add(beachR);
   const waterL = new THREE.Mesh(secGeo, M.water); waterL.scale.set(120, 0.4, SECT_LEN); waterL.position.set(-75, -0.95, 0); g.add(waterL);
   const waterR = waterL.clone(); waterR.position.x = 75; g.add(waterR);
-  const cliffL = new THREE.Mesh(secGeo, M.cliff); cliffL.scale.set(7, 13, SECT_LEN); cliffL.position.set(-30, 4.4, 0); g.add(cliffL);
+  const cliffL = new THREE.Mesh(secGeo, M.cliff); cliffL.scale.set(7, 6.5, SECT_LEN); cliffL.position.set(-30, 2.2, 0); g.add(cliffL);
   const cliffR = cliffL.clone(); cliffR.position.x = 30; g.add(cliffR);
-  const hillL = new THREE.Mesh(secGeo, M.grass); hillL.scale.set(16, 5, SECT_LEN); hillL.position.set(-20, 1.6, 0); hillL.rotation.y = 0.06; g.add(hillL);
+  const hillL = new THREE.Mesh(secGeo, M.cliff); hillL.scale.set(16, 2.6, SECT_LEN); hillL.position.set(-20, 0.75, 0); hillL.rotation.y = 0.06; g.add(hillL);
   const hillR = hillL.clone(); hillR.position.x = 20; hillR.rotation.y = -0.09; g.add(hillR);
   g.userData.baseZ = 0;
   world.add(g);
@@ -443,8 +453,8 @@ const lmArchCloth = decoIM(archClothGeo, null, 2); // branded banner texture, se
 /* sky dome — painted gradient backdrop (fog-exempt, follows the camera) */
 const skyTex = canvasTex(1024, 512, (g, w, h) => {
   const gr = g.createLinearGradient(0, 0, 0, h);
-  gr.addColorStop(0, '#2f7fe0'); gr.addColorStop(0.42, '#69b7ff'); gr.addColorStop(0.62, '#a8dcff');
-  gr.addColorStop(0.74, '#ffe3ae'); gr.addColorStop(0.82, '#cfeeff'); gr.addColorStop(1, '#9fd4ff');
+  gr.addColorStop(0, '#3f74c9'); gr.addColorStop(0.40, '#7fb0e6'); gr.addColorStop(0.58, '#c9e2f2');
+  gr.addColorStop(0.72, '#ffe0a0'); gr.addColorStop(0.82, '#ffd9a0'); gr.addColorStop(1, '#f7cf9a');
   g.fillStyle = gr; g.fillRect(0, 0, w, h);
   const sun = g.createRadialGradient(w * 0.30, h * 0.60, 4, w * 0.30, h * 0.60, 190);
   sun.addColorStop(0, 'rgba(255,252,225,0.95)'); sun.addColorStop(0.12, 'rgba(255,240,180,0.75)'); sun.addColorStop(1, 'rgba(255,240,180,0)');
@@ -460,24 +470,23 @@ const skyDome = new THREE.Mesh(
   new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false, depthWrite: false, depthTest: false }));
 skyDome.frustumCulled = false; skyDome.renderOrder = -10;
 scene.add(skyDome);
-scene.background = new THREE.Color(0x69b7ff); // clear color behind the dome (menu frames)
+scene.background = new THREE.Color(0xffc98a); // clear color behind the dome (menu frames)
 
-/* distant islands across the water + a temple silhouette (static in z, wrap) */
+/* distant outback ranges + the great mesa (Uluru-style, flat top, static in z, wrap) */
 function farIsle(hgt, wid, mat, capMat) {
   const grp = new THREE.Group();
-  const hill = new THREE.Mesh(new THREE.ConeGeometry(wid, hgt, 7), mat);
-  hill.scale.z = 0.45; grp.add(hill);
-  if (capMat) {
-    const t1 = new THREE.Mesh(new THREE.BoxGeometry(wid * 0.34, hgt * 0.20, wid * 0.16), capMat); t1.position.y = hgt * 0.52; grp.add(t1);
-    const t2 = new THREE.Mesh(new THREE.BoxGeometry(wid * 0.22, hgt * 0.34, wid * 0.13), capMat); t2.position.y = hgt * 0.66; grp.add(t2);
-    const t3 = new THREE.Mesh(new THREE.BoxGeometry(wid * 0.10, hgt * 0.16, wid * 0.10), capMat); t3.position.y = hgt * 0.86; grp.add(t3);
+  const hill = new THREE.Mesh(new THREE.CylinderGeometry(wid * 0.86, wid, hgt, 9), mat);
+  hill.position.y = hgt * 0.5; hill.scale.z = 0.42; grp.add(hill);
+  if (capMat) { /* long flat summit slab — the mesa cap */
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(wid * 1.02, hgt * 0.10, wid * 0.30), capMat);
+    cap.position.y = hgt * 1.02; grp.add(cap);
   }
   scene.add(grp); return grp;
 }
 const farIsles = [
-  { g: farIsle(26, 60, M.hillFar, null), x: -120, off: 40 },
-  { g: farIsle(34, 74, M.hillFar, M.temple), x: 132, off: 230 },
-  { g: farIsle(20, 52, M.hillFar, null), x: 118, off: 390 },
+  { g: farIsle(15, 64, M.hillFar, null), x: -120, off: 40 },
+  { g: farIsle(21, 80, M.hillFar, M.temple), x: 132, off: 230 },
+  { g: farIsle(12, 56, M.hillFar, null), x: 118, off: 390 },
 ];
 
 /* birds — two-wing flapping silhouettes crossing the sky */
@@ -488,7 +497,7 @@ birdL.material.side = THREE.DoubleSide; birdR.material.side = THREE.DoubleSide;
 const birds = [];
 for (let i = 0; i < 6; i++) birds.push({ x0: -70 - Math.random() * 90, y: 15 + Math.random() * 11, sp: 5.5 + Math.random() * 3.5, ph: Math.random() * 6.3, z: -55 - Math.random() * 130 });
 
-/* floating pollen / sparkle motes around the runner.
+/* floating dust motes around the runner, golden in the low sun.
    Nov 7: was THREE.Points — point sprites render as hard WHITE SQUARES on
    phone GPUs (point-size attenuation; Tom's report), so the motes are now
    tiny instanced SPHERES (real geometry): soft gold glints on every GPU,
@@ -503,7 +512,29 @@ motes.frustumCulled = false; scene.add(motes);
 const moteData = [];
 for (let i = 0; i < MOTE_N; i++) moteData.push({ x: (Math.random() - 0.5) * 17, y: 0.4 + Math.random() * 4.6, z: -Math.random() * 55, ph: Math.random() * 6.3, dr: 0.4 + Math.random() * 0.9 });
 
-/* beach foam lines at both water edges (scroll with the world) */
+/* kangaroo-crossing road signs — Aussie diamond warning signs (yellow board,
+   black border, hopping-roo silhouette) on posts both sides of the track */
+const rooSignTex = wordTex(128, 128, (g, w, h) => {
+  g.fillStyle = '#f7b500'; g.fillRect(0, 0, w, h);
+  g.strokeStyle = '#141414'; g.lineWidth = 7; g.strokeRect(5, 5, w - 10, h - 10);
+  g.save(); g.translate(w / 2, h / 2 + 6); g.rotate(Math.PI / 4); g.translate(-w / 2, -(h / 2 + 6));
+  g.strokeStyle = '#141414'; g.lineWidth = 9; g.strokeRect(14, 14, w - 28, h - 28);
+  g.restore();
+  g.fillStyle = '#141414';
+  g.beginPath(); g.ellipse(58, 66, 21, 13, -0.5, 0, 7); g.fill();           // body
+  g.beginPath(); g.ellipse(80, 44, 8.5, 6.5, -0.6, 0, 7); g.fill();        // head
+  g.fillRect(80, 22, 4.6, 15); g.fillRect(88, 25, 4.2, 13);                // ears
+  g.beginPath(); g.moveTo(44, 74); g.quadraticCurveTo(24, 80, 14, 96); g.lineTo(22, 100); g.quadraticCurveTo(32, 86, 48, 82); g.fill(); // tail
+  g.beginPath(); g.moveTo(66, 74); g.lineTo(56, 100); g.lineTo(66, 100); g.lineTo(76, 80); g.fill();   // hind leg + big foot
+  g.beginPath(); g.moveTo(76, 56); g.lineTo(88, 66); g.lineTo(84, 70); g.lineTo(74, 62); g.fill();   // forearm
+});
+const rooSignPostGeo = new THREE.BoxGeometry(0.14, 2.2, 0.14); rooSignPostGeo.translate(0, 1.1, 0);
+const rooSignBoardGeo = new THREE.BoxGeometry(1.25, 1.25, 0.06); rooSignBoardGeo.translate(0, 2.5, 0);
+const rooSignPostIM = decoIM(rooSignPostGeo, M.ink, 12);
+const rooSignBoardIM = decoIM(rooSignBoardGeo, new THREE.MeshLambertMaterial({ map: rooSignTex, side: THREE.DoubleSide }), 12);
+const ROO_SIGN_OFFS = [48, 120, 205, 285, 360, 445];
+
+/* dust lines along the claypan edges (scroll with the world) */
 const foamIM = decoIM(new THREE.PlaneGeometry(2.6, 1.15), M.whiteF, SECT_N * 2);
 foamIM.material.transparent = true; foamIM.material.opacity = 0.5;
 
@@ -524,7 +555,7 @@ function crescentPath(g, cx, cy, r) {
 }
 function paintCrescent(g, cx, cy, r, col) { g.fillStyle = col; crescentPath(g, cx, cy, r); g.fill('evenodd'); }
 const bannerTex = wordTex(1024, 128, (g, w, h) => {
-  const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#0e5a6e'); gr.addColorStop(1, '#083344');
+  const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#7c2d12'); gr.addColorStop(1, '#431407');
   g.fillStyle = gr; g.fillRect(0, 0, w, h);
   g.strokeStyle = '#ffcf3d'; g.lineWidth = 6; g.strokeRect(5, 5, w - 10, h - 10);
   paintCrescent(g, 74, h / 2, 40, '#ffcf3d'); paintCrescent(g, w - 74, h / 2, 40, '#ffcf3d');
@@ -541,7 +572,7 @@ const archTex = wordTex(1024, 96, (g, w, h) => {
   g.fillText('LUNC RUSH 3D', w / 2, h / 2 + 2);
 });
 const bbTexA = wordTex(512, 256, (g, w, h) => {
-  const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#7cc7ee'); gr.addColorStop(1, '#2b7fc4');
+  const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#e8b06a'); gr.addColorStop(1, '#b45a24');
   g.fillStyle = gr; g.fillRect(0, 0, w, h);
   g.strokeStyle = '#ffffff'; g.lineWidth = 8; g.strokeRect(6, 6, w - 12, h - 12);
   paintCrescent(g, w / 2, 78, 52, '#ffcf3d');
@@ -638,6 +669,18 @@ const loopGroup = new THREE.Group();
   tube.position.y = LOOP_R; loopGroup.add(tube);
   const tubeIn = new THREE.Mesh(new THREE.TorusGeometry(LOOP_R, 0.2, 10, 64), M.gold);
   tubeIn.position.y = LOOP_R; loopGroup.add(tubeIn);
+  // LUNC DEV STUDIO plate on the banner's back face (seen on approach)
+  const studioTex = wordTex(1024, 128, (g, w, h) => {
+    g.fillStyle = '#17202a'; g.fillRect(0, 0, w, h);
+    g.strokeStyle = '#ffcf3d'; g.lineWidth = 6; g.strokeRect(5, 5, w - 10, h - 10);
+    paintCrescent(g, 74, h / 2, 40, '#ffcf3d'); paintCrescent(g, w - 74, h / 2, 40, '#ffcf3d');
+    g.fillStyle = '#ffe9a8'; g.font = '900 60px "Segoe UI",system-ui,sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText('LUNC DEV STUDIO', w / 2, h / 2 + 3);
+  });
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(10.5, 1.1, 0.06),
+    [M.ink, M.ink, M.ink, M.ink, new THREE.MeshLambertMaterial({ map: studioTex }), M.ink]);
+  plate.position.set(0, LOOP_R * 2 + 1.15, -0.20); loopGroup.add(plate);
   const jewelGeo = new THREE.OctahedronGeometry(0.30);
   for (let i = 0; i < 10; i++) {
     const a = (i / 10) * Math.PI * 2;
@@ -660,68 +703,92 @@ const loopGroup = new THREE.Group();
 }
 loopGroup.visible = false; scene.add(loopGroup);
 
-/* ---------------- hero: COMET the moon-fox ---------------- */
+/* ---------------- hero: ROO the kangaroo ----------------
+   Upright bounding posture, big hind legs + long feet, thick tail
+   trailing to the ground behind, pouch with a joey, long ears,
+   sandy rust-brown coat with a cream belly. Built from primitives
+   in the same style as the old hero; the ANIMATION (below) is a
+   real hop cycle, not a leg-swing run. */
 function buildHero() {
   const hero = new THREE.Group();
   const bodyG = new THREE.Group(); hero.add(bodyG);
   const add = (parent, geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) => {
     const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, rz); parent.add(m); return m;
   };
-  // torso (capsule) leaning forward
-  const torso = add(bodyG, new THREE.CapsuleGeometry(0.34, 0.55, 6, 12), M.orange, 0, 0.95, 0.05, 0.5);
-  add(bodyG, new THREE.SphereGeometry(0.27, 12, 10), M.cream, 0, 0.82, -0.17, 0.5).scale.set(0.85, 1.05, 0.6); // chest patch
-  // head
-  const headG = new THREE.Group(); headG.position.set(0, 1.52, -0.3); bodyG.add(headG);
-  add(headG, new THREE.SphereGeometry(0.30, 14, 12), M.orange, 0, 0, 0).scale.set(1, 0.92, 0.95);
-  add(headG, new THREE.SphereGeometry(0.16, 10, 8), M.cream, 0, -0.10, -0.17).scale.set(1.1, 0.7, 0.8); // cheek/muzzle patch
-  add(headG, new THREE.ConeGeometry(0.13, 0.34, 8), M.orange, 0, -0.05, -0.36, -Math.PI / 2 + 0.25); // snout
-  add(headG, new THREE.SphereGeometry(0.055, 8, 8), M.nose, 0, -0.01, -0.52); // nose
-  add(headG, new THREE.SphereGeometry(0.045, 8, 8), M.ink, -0.13, 0.09, -0.24); // eyes (visible in balance cam)
-  add(headG, new THREE.SphereGeometry(0.045, 8, 8), M.ink, 0.13, 0.09, -0.24);
-  // ears with dark tips
-  const earGeo = new THREE.ConeGeometry(0.11, 0.42, 6);
-  const tipGeo = new THREE.ConeGeometry(0.055, 0.2, 6);
+  // hips — the wide kangaroo pelvis everything hangs off
+  add(bodyG, new THREE.SphereGeometry(0.40, 14, 12), M.orange, 0, 0.98, 0.10).scale.set(1.0, 0.92, 1.05);
+  // torso (capsule) — leaning forward over the hips
+  const torso = add(bodyG, new THREE.CapsuleGeometry(0.35, 0.55, 6, 12), M.orange, 0, 1.42, -0.02, 0.42);
+  add(bodyG, new THREE.SphereGeometry(0.29, 12, 10), M.cream, 0, 1.28, -0.20, 0.42).scale.set(0.88, 1.15, 0.62); // cream belly
+  // pouch + joey (front of the belly: a cream mound and a tiny head)
+  add(bodyG, new THREE.SphereGeometry(0.20, 10, 8), M.cream, 0, 1.06, -0.33, 0.30).scale.set(1, 0.9, 0.62);
+  const joeyG = new THREE.Group(); joeyG.position.set(0, 1.22, -0.40); bodyG.add(joeyG);
+  add(joeyG, new THREE.SphereGeometry(0.105, 10, 8), M.orange, 0, 0, 0);
+  add(joeyG, new THREE.ConeGeometry(0.045, 0.16, 6), M.orange, -0.055, 0.13, 0);
+  add(joeyG, new THREE.ConeGeometry(0.045, 0.16, 6), M.orange, 0.055, 0.13, 0);
+  add(joeyG, new THREE.SphereGeometry(0.035, 8, 8), M.nose, 0, -0.03, -0.09);
+  // head — taller skull, long roo muzzle
+  const headG = new THREE.Group(); headG.position.set(0, 2.02, -0.28); bodyG.add(headG);
+  add(headG, new THREE.SphereGeometry(0.285, 14, 12), M.orange, 0, 0, 0).scale.set(0.88, 1.05, 0.95);
+  add(headG, new THREE.SphereGeometry(0.15, 10, 8), M.cream, 0, -0.14, -0.16).scale.set(1.05, 0.72, 0.85); // muzzle patch
+  add(headG, new THREE.ConeGeometry(0.115, 0.40, 8), M.orange, 0, -0.09, -0.34, -Math.PI / 2 + 0.18); // long muzzle
+  add(headG, new THREE.SphereGeometry(0.06, 8, 8), M.nose, 0, -0.05, -0.53); // nose
+  add(headG, new THREE.SphereGeometry(0.048, 8, 8), M.ink, -0.125, 0.10, -0.22); // eyes
+  add(headG, new THREE.SphereGeometry(0.048, 8, 8), M.ink, 0.125, 0.10, -0.22);
+  // long ears with dark tips
+  const earGeo = new THREE.ConeGeometry(0.105, 0.56, 6);
+  const tipGeo = new THREE.ConeGeometry(0.05, 0.22, 6);
   const earL = new THREE.Group(), earR = new THREE.Group();
-  earL.position.set(-0.16, 0.24, 0.02); earR.position.set(0.16, 0.24, 0.02);
-  add(earL, earGeo, M.orange, 0, 0.18, 0); add(earL, tipGeo, M.ink, 0, 0.4, 0);
-  add(earR, earGeo, M.orange, 0, 0.18, 0); add(earR, tipGeo, M.ink, 0, 0.4, 0);
-  earL.rotation.z = 0.18; earR.rotation.z = -0.18;
+  earL.position.set(-0.15, 0.26, 0.02); earR.position.set(0.15, 0.26, 0.02);
+  add(earL, earGeo, M.orange, 0, 0.24, 0); add(earL, tipGeo, M.ink, 0, 0.55, 0);
+  add(earR, earGeo, M.orange, 0, 0.24, 0); add(earR, tipGeo, M.ink, 0, 0.55, 0);
+  earL.rotation.z = 0.16; earR.rotation.z = -0.16;
   headG.add(earL, earR);
-  // crescent stud on left ear + chest charm
-  add(earL, new THREE.TorusGeometry(0.05, 0.018, 6, 12, Math.PI * 1.4), M.gold, -0.06, 0.1, -0.08, 0, 0, 2.2);
-  add(bodyG, new THREE.TorusGeometry(0.09, 0.032, 6, 14, Math.PI * 1.45), M.gold, 0, 1.02, -0.33, 0.35, 0, 2.4);
-  // scarf (torus + tail flap)
-  add(bodyG, new THREE.TorusGeometry(0.21, 0.075, 8, 14), M.teal, 0, 1.38, -0.18, Math.PI / 2 - 0.35);
-  const scarfTail = add(bodyG, new THREE.BoxGeometry(0.16, 0.42, 0.045), M.teal, 0.1, 1.22, 0.22, 0.5);
-  // arms
-  const armGeo = new THREE.CapsuleGeometry(0.085, 0.3, 4, 8);
+  // crescent stud on left ear + chest charm (house branding on the hero)
+  add(earL, new THREE.TorusGeometry(0.05, 0.018, 6, 12, Math.PI * 1.4), M.gold, -0.06, 0.14, -0.08, 0, 0, 2.2);
+  add(bodyG, new THREE.TorusGeometry(0.09, 0.032, 6, 14, Math.PI * 1.45), M.gold, 0, 1.48, -0.34, 0.35, 0, 2.4);
+  // neckerchief (torus + tail flap) — outback rust-red
+  add(bodyG, new THREE.TorusGeometry(0.22, 0.075, 8, 14), M.teal, 0, 1.86, -0.16, Math.PI / 2 - 0.35);
+  const scarfTail = add(bodyG, new THREE.BoxGeometry(0.16, 0.42, 0.045), M.teal, 0.1, 1.70, 0.22, 0.5);
+  // small forearms, held tucked at the chest (classic roo)
+  const armGeo = new THREE.CapsuleGeometry(0.07, 0.26, 4, 8);
   const armL = new THREE.Group(), armR = new THREE.Group();
-  armL.position.set(-0.4, 1.2, -0.05); armR.position.set(0.4, 1.2, -0.05);
-  add(armL, armGeo, M.orange, 0, -0.2, 0); add(armR, armGeo, M.orange, 0, -0.2, 0);
-  add(armL, new THREE.SphereGeometry(0.085, 8, 8), M.cream, 0, -0.42, 0); add(armR, new THREE.SphereGeometry(0.085, 8, 8), M.cream, 0, -0.42, 0);
+  armL.position.set(-0.33, 1.62, -0.16); armR.position.set(0.33, 1.62, -0.16);
+  add(armL, armGeo, M.orange, 0, -0.16, 0); add(armR, armGeo, M.orange, 0, -0.16, 0);
+  add(armL, new THREE.SphereGeometry(0.07, 8, 8), M.cream, 0, -0.34, 0); add(armR, new THREE.SphereGeometry(0.07, 8, 8), M.cream, 0, -0.34, 0);
   bodyG.add(armL, armR);
-  // legs with teal shoes
-  const legGeo = new THREE.CapsuleGeometry(0.1, 0.34, 4, 8);
-  const shoeGeo = new THREE.BoxGeometry(0.17, 0.11, 0.3);
+  // BIG hind legs: thigh + shin pivoting at the hip, long flat feet.
+  // Rest pose = the hop launch pose (group rotation 0): thigh swept
+  // back-down, shin reaching forward-down, foot flat on the ground.
+  const thighGeo = new THREE.CapsuleGeometry(0.155, 0.42, 4, 10);
+  const shinGeo = new THREE.CapsuleGeometry(0.095, 0.40, 4, 8);
+  const footGeo = new THREE.BoxGeometry(0.16, 0.09, 0.62);
   const legL = new THREE.Group(), legR = new THREE.Group();
-  legL.position.set(-0.17, 0.62, 0.02); legR.position.set(0.17, 0.62, 0.02);
-  add(legL, legGeo, M.orangeDk, 0, -0.22, 0); add(legR, legGeo, M.orangeDk, 0, -0.22, 0);
-  add(legL, shoeGeo, M.teal, 0, -0.5, -0.05); add(legR, shoeGeo, M.teal, 0, -0.5, -0.05);
-  add(legL, new THREE.BoxGeometry(0.18, 0.05, 0.32), M.white, 0, -0.56, -0.05); add(legR, new THREE.BoxGeometry(0.18, 0.05, 0.32), M.white, 0, -0.56, -0.05);
+  legL.position.set(-0.21, 0.95, 0.06); legR.position.set(0.21, 0.95, 0.06);
+  const mkLeg = leg => {
+    add(leg, thighGeo, M.orangeDk, 0, -0.28, 0.10, -0.5); // thigh, angled back
+    const shin = new THREE.Group(); shin.position.set(0, -0.55, 0.26); leg.add(shin);
+    add(shin, shinGeo, M.orange, 0, -0.26, -0.06, 0.22);
+    add(shin, footGeo, M.orangeDk, 0, -0.52, -0.30); // long foot, toe forward
+    return shin;
+  };
+  const shinL = mkLeg(legL), shinR = mkLeg(legR);
   bodyG.add(legL, legR);
-  // big tail plume with cream tip — streams behind (+Z)
-  const tailG = new THREE.Group(); tailG.position.set(0, 1.0, 0.32); bodyG.add(tailG);
-  const tail1 = add(tailG, new THREE.ConeGeometry(0.21, 0.85, 10), M.orange, 0, 0, 0.36, Math.PI / 2 + 0.35);
-  const tail2 = add(tailG, new THREE.ConeGeometry(0.115, 0.4, 8), M.cream, 0, -0.13, 0.78, Math.PI / 2 + 0.35);
-  // ball form
+  // long thick tail — tapering segments trailing behind to the ground (+Z),
+  // the roo's third leg; waved by the hop cycle
+  const tailG = new THREE.Group(); tailG.position.set(0, 0.92, 0.34); bodyG.add(tailG);
+  const tail1 = add(tailG, new THREE.ConeGeometry(0.20, 1.05, 10), M.orange, 0, -0.16, 0.42, Math.PI / 2 + 0.30);
+  const tail2G = new THREE.Group(); tail2G.position.set(0, -0.24, 0.90); tailG.add(tail2G);
+  const tail2 = add(tail2G, new THREE.ConeGeometry(0.115, 0.95, 8), M.orangeDk, 0, -0.02, 0.42, Math.PI / 2 + 0.10);
+  // ball form (loop) — coat colours; the ears sticking out give it away
   const ballG = new THREE.Group(); ballG.visible = false; hero.add(ballG);
   const ball = add(ballG, new THREE.SphereGeometry(0.52, 18, 14), M.orange, 0, 0.52, 0);
   add(ballG, new THREE.TorusGeometry(0.5, 0.09, 8, 20), M.cream, 0, 0.52, 0, Math.PI / 2);
   add(ballG, new THREE.TorusGeometry(0.52, 0.05, 8, 20), M.teal, 0, 0.52, 0, 0, Math.PI / 3);
-  add(ballG, new THREE.ConeGeometry(0.09, 0.26, 6), M.ink, -0.2, 1.0, 0.1, 0, 0, 0.3);
-  add(ballG, new THREE.ConeGeometry(0.09, 0.26, 6), M.ink, 0.2, 1.0, 0.1, 0, 0, -0.3);
+  add(ballG, new THREE.ConeGeometry(0.08, 0.34, 6), M.orange, -0.2, 1.02, 0.1, 0, 0, 0.3);
+  add(ballG, new THREE.ConeGeometry(0.08, 0.34, 6), M.orange, 0.2, 1.02, 0.1, 0, 0, -0.3);
   add(ballG, new THREE.TorusGeometry(0.11, 0.04, 6, 14, Math.PI * 1.45), M.gold, 0, 0.52, -0.5, 0, 0, 2.4);
-  return { group: hero, bodyG, ballG, legL, legR, armL, armR, tailG, tail1, tail2, headG, earL, earR, scarfTail, ball };
+  return { group: hero, bodyG, ballG, legL, legR, shinL, shinR, armL, armR, tailG, tail1, tail2, tail2G, headG, earL, earR, scarfTail, ball, joeyG };
 }
 const H = buildHero();
 scene.add(H.group);
@@ -841,7 +908,7 @@ function renderBoard() {
     `<tr><td>${i + 1}.</td><td class="nm">${String(r.name || '').replace(/</g, '&lt;')}</td><td class="sc">${r.score}</td></tr>`).join('') + '</table>';
 }
 async function submitScore() {
-  const name = ($('nameInput').value || '').trim() || 'COMET';
+  const name = ($('nameInput').value || '').trim() || 'ROO';
   try { localStorage.setItem('luncRush3dName', name); } catch (e) {}
   $('submitBtn').disabled = true;
   try {
@@ -1233,7 +1300,7 @@ function animate() {
       if (S.rollT > 0) S.rollT -= dt;
     }
     /* lateral movement: free steering while the stick is held (stick.x is
-       the analog push in px: COMET's target follows it across the full
+       the analog push in px: ROO's target follows it across the full
        track width, so he weaves AROUND obstacles); otherwise ease to the
        active lane (keyboard / buttons / pilot). */
     if (S.steerX != null && !S.loop) {
@@ -1456,8 +1523,24 @@ function animate() {
       startPostIM.instanceMatrix.needsUpdate = true; startBoardIM.instanceMatrix.needsUpdate = true;
     }
 
-    /* distant islands */
+    /* distant ranges + mesa */
     for (const fi of farIsles) { fi.g.position.set(fi.x, 0, relZ(fi.off)); }
+
+    /* kangaroo-crossing signs: both sides of the track, facing the runner */
+    {
+      let iSign = 0;
+      for (const off of ROO_SIGN_OFFS) {
+        const z = relZ(off);
+        for (const sx of [-1, 1]) {
+          dummy.rotation.set(0, sx < 0 ? 0.30 : -0.30, 0); dummy.scale.setScalar(1);
+          dummy.position.set(sx * 5.35, 0, z); dummy.updateMatrix(); rooSignPostIM.setMatrixAt(iSign, dummy.matrix);
+          dummy.rotation.set(0, sx < 0 ? 0.30 : -0.30, Math.PI / 4); dummy.updateMatrix(); rooSignBoardIM.setMatrixAt(iSign, dummy.matrix);
+          iSign++;
+        }
+      }
+      rooSignPostIM.count = iSign; rooSignBoardIM.count = iSign;
+      rooSignPostIM.instanceMatrix.needsUpdate = true; rooSignBoardIM.instanceMatrix.needsUpdate = true;
+    }
 
     /* birds: cross the sky, wrap around */
     for (let i = 0; i < birds.length; i++) {
@@ -1471,7 +1554,7 @@ function animate() {
     }
     birdL.instanceMatrix.needsUpdate = true; birdR.instanceMatrix.needsUpdate = true;
 
-    /* pollen motes drifting around the runner (instanced spheres) */
+    /* dust motes drifting around the runner (instanced spheres) */
     for (let i = 0; i < MOTE_N; i++) {
       const m = moteData[i];
       dummy.position.set(
@@ -1484,7 +1567,7 @@ function animate() {
     }
     motes.instanceMatrix.needsUpdate = true;
 
-    /* beach foam at the water lines */
+    /* dust lines along the claypan edges */
     let iFoam = 0;
     for (let sIdx = 0; sIdx < SECT_N; sIdx++) {
       const secZ = sections[sIdx].position.z - 7.5 + (sIdx % 3) * 9;
@@ -1566,6 +1649,11 @@ function animate() {
 
   /* --- hero placement & animation --- */
   const runPhase = globalT * (7 + S.speed * 0.52); // stride rate per m/s held ~constant
+  const hopPh = S.dist * 0.52; // hop cycle is DISTANCE-driven: one bound per ~12 m
+  const hopRaw = Math.sin(hopPh);
+  const hopLift = S.grounded && S.mode === 'run' && !S.loop ? Math.max(0, hopRaw) * 0.30 : 0;
+  const hopS = THREE.MathUtils.clamp(hopRaw * 1.6, -1, 1); // sharpened: distinct crouch vs full-stretch airborne beats
+  const hopC = Math.cos(hopPh);
   if (S.loop) {
     const th = S.loop.theta;
     const cx = S.laneX * 0.3, cy = LOOP_R - Math.cos(th) * LOOP_R, cz = -Math.sin(th) * LOOP_R;
@@ -1573,27 +1661,38 @@ function animate() {
     H.ballG.rotation.x = -th * 1.6;
     H.ballG.rotation.z = S.laneX * -0.12;
   } else {
-    H.group.position.set(S.laneX, S.y, 0);
+    H.group.position.set(S.laneX, S.y + hopLift, 0);
     H.group.rotation.z = (LANE_X[S.lane] - S.laneX) * -0.14;
-    H.group.rotation.x = S.grounded ? THREE.MathUtils.clamp(S.speed * 0.006, 0, 0.14) : -0.12;
-    // limbs
-    const sw = S.grounded && S.mode === 'run' ? Math.sin(runPhase) : 0;
-    const amp = S.grounded ? 0.85 : 0.25;
-    if (S.rollT > 0) { // tucked sprint
-      H.legL.rotation.x = 0.9; H.legR.rotation.x = 0.5; H.armL.rotation.x = -1.4; H.armR.rotation.x = -1.1;
+    H.group.rotation.x = S.grounded ? (S.mode === 'run' && !S.loop ? -hopRaw * 0.09 : THREE.MathUtils.clamp(S.speed * 0.006, 0, 0.14)) : -0.12;
+    // limbs — a kangaroo HOPS: both hind legs swing together through a
+    // crouch -> launch -> airborne stretch -> reach -> land cycle, phased
+    // to hopLift (which peaks at hopS = 1). NOT an alternating leg run.
+    if (S.rollT > 0) { // tucked sprint (duck under the bar)
+      H.legL.rotation.x = -0.55; H.legR.rotation.x = -0.55; H.shinL.rotation.x = 0.9; H.shinR.rotation.x = 0.9;
+      H.armL.rotation.x = -0.9; H.armR.rotation.x = -0.9;
+      H.bodyG.position.y = 0;
       H.group.rotation.z = S.steerX != null ? (S.steerX - S.laneX) * -0.14 : S.group.rotation.z;
-    } else if (!S.grounded) {
-      H.legL.rotation.x = -0.7; H.legR.rotation.x = 0.55; H.armL.rotation.x = -2.4; H.armR.rotation.x = -2.0;
-    } else {
-      H.legL.rotation.x = sw * amp; H.legR.rotation.x = -sw * amp;
-      H.armL.rotation.x = -sw * amp * 0.8; H.armR.rotation.x = sw * amp * 0.8;
+    } else if (!S.grounded) { // the player's JUMP: legs reach forward, paws up
+      H.legL.rotation.x = -0.85; H.legR.rotation.x = -0.85; H.shinL.rotation.x = 0.35; H.shinR.rotation.x = 0.35;
+      H.armL.rotation.x = -2.2; H.armR.rotation.x = -2.2;
+      H.bodyG.position.y = 0;
+    } else if (S.mode === 'run') { // THE HOP CYCLE
+      H.legL.rotation.x = -hopS * 0.62; H.legR.rotation.x = -hopS * 0.62;      // swing fwd as he rises, trail at the top, drive down to land
+      H.shinL.rotation.x = 0.55 - hopC * 0.5; H.shinR.rotation.x = 0.55 - hopC * 0.5; // folded at crouch/apex, extended at launch/land
+      H.armL.rotation.x = -0.35 - hopS * 0.3; H.armR.rotation.x = -0.35 - hopS * 0.3; // paws pump gently, together
+      H.bodyG.position.y = -Math.max(0, -hopRaw) * 0.10; // crouch squash in the bottom half of the cycle
+    } else { // menu idle: gentle breathing, feet planted
+      H.legL.rotation.x = 0; H.legR.rotation.x = 0; H.shinL.rotation.x = 0.55; H.shinR.rotation.x = 0.55;
+      H.armL.rotation.x = -0.35; H.armR.rotation.x = -0.35;
+      H.bodyG.position.y = Math.sin(globalT * 1.8) * 0.015;
     }
-    H.bodyG.position.y = S.grounded && S.mode === 'run' ? Math.abs(Math.sin(runPhase)) * 0.07 : 0;
     H.bodyG.rotation.x = S.rollT > 0 ? 0.35 : 0;
-    H.tailG.rotation.x = -0.25 - (S.speed / SPEED_MAX) * 0.5 + Math.sin(globalT * 7) * 0.07;
-    H.tailG.rotation.y = Math.sin(globalT * 2.6) * 0.16;
-    H.earL.rotation.x = -0.3 - (S.speed / SPEED_MAX) * 0.35;
-    H.earR.rotation.x = -0.3 - (S.speed / SPEED_MAX) * 0.35;
+    H.tailG.rotation.x = (S.mode === 'run' && S.grounded && !S.loop) ? hopRaw * 0.16 : -0.08 + Math.sin(globalT * 2.2) * 0.05; // counter-wave against the hop
+    H.tailG.rotation.y = Math.sin(globalT * 2.6) * 0.10;
+    if (H.tail2G) H.tail2G.rotation.x = (S.mode === 'run' && S.grounded && !S.loop) ? -hopRaw * 0.22 : 0;
+    if (H.joeyG) H.joeyG.rotation.x = (S.mode === 'run' && S.grounded && !S.loop) ? hopRaw * 0.14 : Math.sin(globalT * 2.4) * 0.06; // joey bobs with the hop
+    H.earL.rotation.x = -0.22 - (S.speed / SPEED_MAX) * 0.3 + ((S.mode === 'run' && S.grounded && !S.loop) ? hopC * 0.08 : 0);
+    H.earR.rotation.x = -0.22 - (S.speed / SPEED_MAX) * 0.3 + ((S.mode === 'run' && S.grounded && !S.loop) ? hopC * 0.08 : 0);
     H.scarfTail.rotation.x = 0.5 + (S.speed / SPEED_MAX) * 0.7 + Math.sin(globalT * 9) * 0.12;
     H.headG.rotation.y = (LANE_X[S.lane] - S.laneX) * -0.2;
     // hurt flicker
