@@ -486,6 +486,23 @@ function buildWalls(){
   W(292, 652, 258, 688, .3);
   // Trough funnels to the drain
   W(14, 700, 96, 742, .25); W(352, 700, 300, 742, .25);
+  // Cabinet floor (anti-stall round 2): the table used to be OPEN below
+  // the funnels — a slow ball dropping between the flippers sank to
+  // y=758, under the drain line (PH-22), and rested there forever,
+  // invisible to every check. This floor spans the outlane mouths too,
+  // so anything reaching the bottom lands on it and the drain check
+  // (y > PH-52) collects it. It sits below the flipper swing (tips
+  // bottom out at y~730), so live play never touches it.
+  W(8, 759, 356, 759, .1);
+  // Anti-pocket wedges (anti-stall round 2): the old watchdog's nudge
+  // proved too weak to escape four wall pockets where a ball balances
+  // forever — these short steep deflectors remove the flat rest spots,
+  // so a ball physically cannot balance there; it sheds downhill.
+  W(100, 652, 120, 640, .3);    // left sling/inlane corner pocket
+  W(292, 652, 272, 640, .3);    // right sling/inlane corner pocket
+  W(20, 420, 44, 436, .3);      // orbit-exit deflector pocket (left wall)
+  W(318, 112, 336, 128, .3);    // top-right: guide / lane-divider-tip pocket
+  W(38, 556, 52, 572, .3);      // left post-at-584 cradle: ball trickled over the post and fell back forever
   // Shooter one-way spring gate visual anchor post
   post(370, 235, 4);
   // Bumper area posts
@@ -563,15 +580,61 @@ function physicsStep(b, dt){
     for (const tg of luncTargets){ if (!tg.down){ const hit = segCollide(b, tg, .45); if (hit) onLuncTarget(b, tg); } else segCollide(b, { x1: tg.x1, y1: tg.y1 + 7, x2: tg.x2, y2: tg.y2 + 7, rest: .4 }); }
     for (const tg of ustcTargets){ const hit = segCollide(b, tg, .45); if (hit) onUstcTarget(b, tg); }
     for (const f of flippers) flipperCollide(b, f);
-    // Anti-stall (owner fix, Nov 7): a ball sitting near-motionless in
-    // open play for >2s is wedged on geometry — knock it back into play,
-    // or re-seat it on the plunger if it fell back into the shooter lane.
-    // The flipper/drain zone (y >= 685) is exempt: cradling is real play.
-    if (b.y < 685 && Math.hypot(b.vx, b.vy) < 30){ b.stallT = (b.stallT || 0) + dt; } else b.stallT = 0;
+    // Anti-stall (owner fix, Nov 7 — round 2): a ball that stays slow for
+    // >2s ANYWHERE on the table is wedged — the first watchdog missed two
+    // ways: (1) it ignored y >= 685 entirely, so balls resting in the
+    // inlane/outlane divider pockets and between the flippers were never
+    // seen; (2) its gentle 150/200 nudge is absorbed by the wall pockets
+    // (sling/inlane corners, orbit-exit deflector, lane-divider tips): the
+    // ball never moved a pixel, stallT reset, and the nudge looped forever
+    // (proven in simulation: 25s traces, position never changed).
+    // Now the watchdog covers the whole table and ESCALATES:
+    //   rescue 1 — hard kick out of the pocket toward open play;
+    //   rescue 2+ within 6s — teleport-rescue: re-seat on the plunger
+    //   (the 82% launch floor guarantees it goes back around), or, during
+    //   multiball, drop it into open play above the flippers instead so a
+    //   second ball is never stacked onto the plunger.
+    // The ONLY exemptions: seated on the plunger ('shooter' mode — not
+    // this branch) and a ball cradled on a HELD flipper (touching a raised
+    // flipper is real play). A ball resting on a lowered flipper or
+    // between the flippers is NOT a cradle and gets rescued.
+    const spNow = Math.hypot(b.vx, b.vy);
+    let cradled = false;
+    if (spNow < 90){
+      for (const f of flippers){
+        if (!f.pressed || G.tilted) continue;
+        const tx = f.px + Math.cos(f.ang) * f.len, ty = f.py + Math.sin(f.ang) * f.len;
+        const fdx = tx - f.px, fdy = ty - f.py, fL2 = fdx * fdx + fdy * fdy || 1;
+        let ft = ((b.x - f.px) * fdx + (b.y - f.py) * fdy) / fL2; ft = Math.max(0, Math.min(1, ft));
+        if (Math.hypot(b.x - (f.px + fdx * ft), b.y - (f.py + fdy * ft)) < BALL_R + f.r + 5){ cradled = true; break; }
+      }
+    }
+    // Stall detection: a ball is TRAPPED when it is slow (under 90 px/s)
+    // or has stayed within 25px of its anchor for 2s+ — the anchor clause
+    // catches balls trickling in a tiny loop (e.g. dribbling over a post
+    // and falling back into the same cradle at ~100 px/s: never slow
+    // enough for a speed-only check, never going anywhere either). The
+    // anchor only re-seats while the ball is moving freely (>200 px/s
+    // and 45px+ away), so a trickling ball can never re-anchor itself
+    // out of the check, and free-rolling play never accumulates time.
+    if (b.anchorX == null || (spNow > 200 && Math.hypot(b.x - b.anchorX, b.y - b.anchorY) > 45)){ b.anchorX = b.x; b.anchorY = b.y; b.anchorT = 0; }
+    else b.anchorT = (b.anchorT || 0) + dt;
+    const trapped = (spNow < 90 || b.anchorT > 2) && Math.hypot(b.x - b.anchorX, b.y - b.anchorY) < 25 && b.anchorT > 0;
+    if (trapped && !cradled){ b.stallT = (b.stallT || 0) + dt; } else b.stallT = 0;
+    if (b.rescueT > 0) b.rescueT -= dt;
     if (b.stallT > 2){
       b.stallT = 0;
-      if (b.x > 360){ b.mode = 'shooter'; b.x = 388; b.y = 726; b.vx = 0; b.vy = 0; b.settled = true; return; }
-      b.vx = b.x < CX ? 150 : -150; b.vy = 200;
+      if (b.x > 360){ b.mode = 'shooter'; b.x = 388; b.y = 726; b.vx = 0; b.vy = 0; b.settled = true; b.rescues = 0; b.rescueT = 0; return; }
+      b.rescues = (b.rescueT > 0) ? (b.rescues || 0) + 1 : 1;
+      b.rescueT = 6;
+      if (b.rescues >= 2){
+        // decisive: the pocket ate the kick — take the ball out of it
+        b.rescues = 0; b.rescueT = 0;
+        if (G.inMultiball){ b.x = CX; b.y = 600; b.vx = 0; b.vy = 120; }
+        else { b.mode = 'shooter'; b.x = 388; b.y = 726; b.vx = 0; b.vy = 0; b.settled = true; return; }
+      } else {
+        b.vx = (b.x < CX ? 380 : -380); b.vy = 420;
+      }
     }
     featureChecks(b);
   } else if (b.mode === 'saucer'){
@@ -596,7 +659,7 @@ const G = {
   skillLane: 1, moonHits: 0, plunger: 0, plungerHeld: false, serveTimer: 0,
   shake: 0, flashMsg: '', attractT: 0, paused: false
 };
-function newBall(){ return { x: 388, y: 726, vx: 0, vy: 0, mode: 'shooter', settled: true, saucerT: 0, dead: false, stallT: 0 }; }
+function newBall(){ return { x: 388, y: 726, vx: 0, vy: 0, mode: 'shooter', settled: true, saucerT: 0, dead: false, stallT: 0, rescues: 0, rescueT: 0, anchorX: null, anchorY: 0, anchorT: 0 }; }
 function addScore(n, x, y, label){
   G.score += n;
   if (x != null){ popups.push({ x, y, text: '+' + fmt(n) + (label ? ' ' + label : ''), t: 0, color: '#ffdf7e' }); if (popups.length > 12) popups.splice(0, popups.length - 12); }
@@ -806,8 +869,12 @@ function featureChecks(b){
     b.mode = 'shooter'; b.x = 388; b.y = 726; b.vx = 0; b.vy = 0; b.settled = true;
     return;
   }
-  // Drain
-  if (b.y > PH - 22 && b.mode === 'play'){ onDrain(b); }
+  // Drain — the line sits just above the new cabinet floor (y=759 minus
+  // ball radius = 750): a ball that reaches the bottom funnel gap or an
+  // outlane lands on the floor and drains, instead of sinking past the
+  // old line (PH-22 = 758, level with where the ball came to rest) and
+  // sitting dead under the flippers.
+  if (b.y > PH - 52 && b.mode === 'play'){ onDrain(b); }
   // Escape failsafe
   if (b.x < -20 || b.x > PW + 20 || b.y < -40){ b.dead = true; onBallGone(b); }
 }
