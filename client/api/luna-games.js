@@ -111,6 +111,14 @@ const GAMES = {
      the house rule. rateMul is sized from that same ceiling: a 36s
      perfect run must fit seconds*rateMul + rateBase. */
   'pipe-hero': { prefix: 'pipe', maxScore: 250000, minSec: 5, maxSec: 3600, rateMul: 4000, rateBase: 5000 },
+  /* Sniper Shot 3D (the rooftop city rebuild of Sniper Shot): score =
+     target base (50–150) + distance bonus (~30–160) times a combo
+     multiplier up to x2.75, in 60s waves, minus fouls; runs end on the
+     3rd foul, so length varies a lot. Caps stay generous per the house
+     rule: a strong 10-minute run lands around ~60–80k. The original
+     /sniper-shot/ never had a board; the 3D build introduces the
+     'sniper-shot' key fresh (prefix 'snip'). */
+  'sniper-shot': { prefix: 'snip', maxScore: 500000, minSec: 10, maxSec: 3600, rateMul: 400, rateBase: 3000 },
   /* LUNC Rush (momentum speed-platformer): score = LUNC coins x10 +
      USTC stars x50 + bot smashes x100 + per-zone time bonuses
      (<= par*15 x3). Zones doubled in length (Nov 5): 323 coins,
@@ -120,6 +128,12 @@ const GAMES = {
      every real run inside it; caps stay generous per the house rule
      so no real run is ever rejected. (Coin census: 328 total.) */
   'lunc-rush': { prefix: 'lrush', maxScore: 60000, minSec: 20, maxSec: 3600, rateMul: 120, rateBase: 8000 },
+  /* LUNC Rush 3D (behind-view endless runner): score = distance in
+     metres x1 + LUNC coins x25 + USTC stars x250. A long survival run
+     (~10 min at full speed) covers ~11km + ~600 coins + ~10 stars =
+     ~29k, so the cap stays generous per the house rule; rateMul is
+     sized from the same ceiling (~85/s at max speed incl. pickups). */
+  'lunc-rush-3d': { prefix: 'lr3d', maxScore: 500000, minSec: 10, maxSec: 7200, rateMul: 120, rateBase: 5000 },
 };
 
 function weekKey(d = new Date()) {

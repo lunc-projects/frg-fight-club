@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>LUNC Dev Wallet Scope — Sponsored by LUNC Dev Studio</title>
-<meta name="description" content="LUNC Dev Wallet Scope, sponsored by LUNC Dev Studio — read-only wallet lookup for Terra Classic, DO Chain, Cosmos Hub and Osmosis. Type an address — no wallet connection, no signing — and see balances, tokens, staking, rewards, NFTs and recent transactions, verified on-chain.">
+<meta name="description" content="LUNC Dev Wallet Scope, sponsored by LUNC Dev Studio — read-only wallet lookup for Terra Classic, DO Chain, Cosmos Hub, Osmosis, Solana, Ethereum and Kava. Type an address — no wallet connection, no signing — and see balances, tokens, staking, rewards, NFTs and recent transactions, verified on-chain.">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#070b09">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
@@ -218,6 +218,8 @@
 'use strict';
 /* ── Endpoints (all public, read-only) ─────────────────────────── */
 var LCD_T = 'https://terra-classic-lcd.publicnode.com';
+var LCD_KAVA = 'https://api.kava.io';
+var LCD_KAVA_ALT = 'https://api.data.kava.io';
 var FCD_T = 'https://terra-classic-fcd.publicnode.com';
 var SCAN  = 'https://luncscan.com/api';
 var LCD_DO= 'https://do-chain.com/lcd';
@@ -249,6 +251,19 @@ var CHAINS = {
     addrRe: /^osmo1[a-z0-9]{38}$/, stakeDenom: 'uosmo', nativeSymbol: 'OSMO', priceKey: 'OSMO',
     generic: true, explorer: 'https://www.mintscan.io/osmosis/account/',
     sections: { tokens: false, platforms: false, nfts: false, txs: false } },
+  /* Kava is a Cosmos SDK chain on its Cosmos side (balances, staking,
+     distribution, authz); its EVM side is a different address format
+     and is NOT read here — a note in the staking section says so.
+     LCD endpoints verified live (balances / staking / distribution /
+     authz, CORS open) on 2026-11-06. The feegrant LIST query returns
+     HTTP 501 on every public Kava LCD (same honest-gap case as
+     Osmosis), so the fee section states that instead of faking it.
+     LCD failover: getJSON retries once on lcdAlt when the primary
+     fails at the network/HTTP level. */
+  kava: { name: 'Kava', icon: '🔶', prefix: 'kava1', lcd: LCD_KAVA, lcdAlt: LCD_KAVA_ALT,
+    addrRe: /^kava1[a-z0-9]{38}$/, stakeDenom: 'ukava', nativeSymbol: 'KAVA', priceKey: 'KAVA',
+    generic: true, explorer: 'https://www.mintscan.io/kava/account/',
+    sections: { tokens: false, platforms: false, nfts: false, txs: false } },
   /* Solana is NOT a Cosmos chain: no LCD, no bech32. It runs on its own
      JSON-RPC path (loadSolana below) and fills the same sections. */
   solana: { name: 'Solana', icon: '◎', prefix: '', solana: true,
@@ -263,7 +278,7 @@ var CHAINS = {
     generic: true, explorer: 'https://etherscan.io/address/',
     sections: { tokens: true, platforms: false, nfts: false, txs: false } }
 };
-var CHAIN_ORDER = ['terra', 'do', 'cosmos', 'osmosis', 'solana', 'ethereum'];
+var CHAIN_ORDER = ['terra', 'do', 'cosmos', 'osmosis', 'kava', 'solana', 'ethereum'];
 function cfg(){ return CHAINS[chain] || CHAINS.terra; }
 
 /* Garuda regular staking pools (61) — per-wallet stake query answers on the
@@ -306,13 +321,36 @@ function reqRelease(){
 }
 function getJSON(url, timeoutMs){
   return reqAcquire().then(function(){
-    var ctl = ('AbortController' in window) ? new AbortController() : null;
-    var t = ctl ? setTimeout(function(){ ctl.abort(); }, timeoutMs || 20000) : null;
-    function done(){ if (t) clearTimeout(t); reqRelease(); }
-    return fetch(url, ctl ? {signal: ctl.signal} : {}).then(function(r){
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    }).then(function(j){ done(); return j; }, function(e){ done(); throw e; });
+    var released = false;
+    function done(){ if (!released){ released = true; reqRelease(); } }
+    function attempt(u){
+      var ctl = ('AbortController' in window) ? new AbortController() : null;
+      var t = ctl ? setTimeout(function(){ ctl.abort(); }, timeoutMs || 20000) : null;
+      return fetch(u, ctl ? {signal: ctl.signal} : {}).then(function(r){
+        if (t) clearTimeout(t);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      }, function(e){ if (t) clearTimeout(t); throw e; });
+    }
+    return attempt(url).then(function(j){ done(); return j; }, function(e){
+      /* LCD failover (chains that configure lcdAlt — Kava): retry the
+         same path once on the fallback LCD when the primary failed at
+         the network/HTTP level. An HTTP 501 ("not implemented") is a
+         property of the chain's public APIs, not of one host, so it is
+         NOT retried — the honest-gap wording depends on seeing it.
+         The lookup's chain config is captured NOW: cfg() follows the
+         selected tab, which the user can switch mid-lookup. */
+      var C = (typeof chain !== 'undefined' && CHAINS[chain]) || {};
+      var alt = C.lcdAlt, base = C.lcd;
+      if (url.indexOf('api.coinpaprika.com/') >= 0 || url.indexOf('api.coingecko.com/') >= 0){
+        done(); throw e; /* price feeds: both providers already tried — never rewrite a price URL onto an LCD host */
+      }
+      if (alt && base && url.indexOf(base) === 0 && String((e && e.message) || e).indexOf('501') < 0){
+        return attempt(alt + url.slice(base.length)).then(function(j){ done(); return j; },
+          function(e2){ done(); throw e; });
+      }
+      done(); throw e;
+    });
   });
 }
 /* run fn over items with limited concurrency */
@@ -360,7 +398,7 @@ function amtNum(raw, dec){ return rawNum(raw) / Math.pow(10, dec); }
 var FIAT = { uluna:['LUNC','Luna Classic'], uusd:['USTC','TerraClassic USD'], ukrw:['KRT',''], uaud:['AUT',''],
   ucad:['CAT',''], uchf:['CHT',''], ucny:['CNT',''], udkk:['DKT',''], ueur:['EUT',''], ugbp:['GBT',''],
   uhkd:['HKT',''], uidr:['IDRT',''], uinr:['INT',''], ujpy:['JPT',''], umnt:['MNT',''], umyr:['MYT',''],
-  unok:['NOT',''], uphp:['PHT',''], usdr:['SDT',''], usek:['SET',''], uthb:['THT',''], uatom:['ATOM','Cosmos Hub'], uosmo:['OSMO','Osmosis'] };
+  unok:['NOT',''], uphp:['PHT',''], usdr:['SDT',''], usek:['SET',''], uthb:['THT',''], uatom:['ATOM','Cosmos Hub'], uosmo:['OSMO','Osmosis'], ukava:['KAVA','Kava'] };
 /* IBC denom labels. Resolved from the Skip chain asset index for
    columbus-5 (the same source the Garuda DEX pages use for USDC.inj /
    USDC.n / SLAYER) plus three traces computed directly from this chain's
@@ -533,6 +571,7 @@ function priceNative(denom){
   if (denom === 'udo') return priceCoinGecko('lunc-cookie-do-coin', 'DO');
   if (denom === 'uatom') return priceMajor('atom-cosmos', 'cosmos', 'ATOM');
   if (denom === 'uosmo') return priceMajor('osmo-osmosis', 'osmosis', 'OSMO');
+  if (denom === 'ukava') return priceMajor('kava-kava', 'kava', 'KAVA');
   return Promise.resolve(null); /* USTC + others: priced below via pool if possible, else no price */
 }
 /* USTC: implied from the Terraswap USTC/LUNC pool × the LUNC price. */
@@ -651,6 +690,7 @@ var I18N = { en: {
   err_addr_do: 'That does not look like a DO Chain address (do1…). Check it and try again.',
   placeholder_chain: 'Paste a {p}… address',
   err_addr_chain: 'That does not look like a {name} address ({p}…). Check it and try again.',
+  err_addr_checksum: '⚠️ This address has a typing mistake in it — the chain itself rejected it (its built-in error check failed). Copy the address fresh from the wallet app and paste it again — do not type it by hand.',
   note_prices_major: 'Prices: {sym} spot price from CoinPaprika / CoinGecko (whichever answers first); every other denom is shown with no market price and left out of the total. An estimate of market value — not a promise of what a sale would fetch. ',
   no_native: 'No native balances found on-chain for this wallet.', no_price: 'no market price',
   cnt_denom: '· {n} denom', cnt_denoms: '· {n} denoms',
@@ -780,7 +820,7 @@ var I18N = { en: {
   fp_how: '<b>How to read this page:</b> everything shown is read live from public chain data when you tap “{lookup}”. Native balances, staking and rewards come straight from the chain (LCD). Token balances are discovered via an explorer index and then <b>re-verified one by one with direct on-chain queries</b> — only verified balances are shown. Prices come only from the named public sources on the value card; anything without a real price is listed with “{no_price}” and left out of the total.',
   fp_not_shown: 'Not shown yet in this version: NFTs held inside other staking contracts besides FRG NFT Staking, Garuda cross-staking / NFT-factory positions, and LP positions. Sections state their own coverage where it is partial.',
   fp_free_tool: 'is a free community tool.',
-  fp_unofficial: 'Unofficial community tool — not affiliated with Terra, LuncScan, or any project shown. Provided free, as-is, for information only; not financial advice. This page never holds keys or funds, never asks you to connect a wallet or sign anything, and stores nothing you type. Always verify important numbers in your own wallet.'
+kava_note: 'Kava note: this tab reads the Cosmos side of Kava (the kava1… address). Kava also has an EVM side, which uses 0x… addresses — balances held there are not read here.',   fp_unofficial: 'Unofficial community tool — not affiliated with Terra, LuncScan, or any project shown. Provided free, as-is, for information only; not financial advice. This page never holds keys or funds, never asks you to connect a wallet or sign anything, and stores nothing you type. Always verify important numbers in your own wallet.'
 } };
 function tr(key, vars){
   var s = (I18N[LANG] && I18N[LANG][key]) || I18N.en[key] || key;
@@ -847,6 +887,7 @@ I18N.es = {
   err_addr_do: 'Eso no parece una dirección de DO Chain (do1…). Revísala e inténtalo de nuevo.',
   placeholder_chain: 'Pega una dirección {p}…',
   err_addr_chain: 'Eso no parece una dirección de {name} ({p}…). Revísala e inténtalo de nuevo.',
+  err_addr_checksum: '⚠️ This address has a typing mistake in it — the chain itself rejected it (its built-in error check failed). Copy the address fresh from the wallet app and paste it again — do not type it by hand.',
   note_prices_major: 'Precios: precio spot de {sym} de CoinPaprika / CoinGecko (el que responda primero); cualquier otra denom se muestra sin precio de mercado y queda fuera del total. Una estimación del valor de mercado, no una promesa de lo que daría una venta. ',
   no_native: 'No se encontraron saldos nativos en la cadena para esta billetera.', no_price: 'sin precio de mercado',
   cnt_denom: '· {n} denominación', cnt_denoms: '· {n} denominaciones',
@@ -976,7 +1017,7 @@ I18N.es = {
   fp_how: '<b>Cómo leer esta página:</b> todo lo que se muestra se lee en vivo de los datos públicos de la cadena cuando tocas «{lookup}». Los saldos nativos, el staking y las recompensas vienen directamente de la cadena (LCD). Los saldos de tokens se descubren mediante un índice de explorador y luego se <b>vuelven a verificar uno por uno con consultas directas en la cadena</b> — solo se muestran saldos verificados. Los precios vienen solo de las fuentes públicas nombradas en la tarjeta de valor; todo lo que no tenga un precio real aparece con «{no_price}» y queda fuera del total.',
   fp_not_shown: 'Aún no se muestra en esta versión: NFT dentro de otros contratos de staking además de FRG NFT Staking, posiciones de cross-staking / fábrica de NFT de Garuda y posiciones LP. Las secciones indican su propia cobertura cuando es parcial.',
   fp_free_tool: 'es una herramienta comunitaria gratuita.',
-  fp_unofficial: 'Herramienta comunitaria no oficial — sin afiliación con Terra, LuncScan ni ningún proyecto mostrado. Se ofrece gratis, tal cual, solo con fines informativos; no es asesoramiento financiero. Esta página nunca guarda claves ni fondos, nunca te pide conectar una billetera ni firmar nada, y no almacena nada de lo que escribes. Verifica siempre las cifras importantes en tu propia billetera.'
+kava_note: 'Nota sobre Kava: esta pestaña lee el lado Cosmos de Kava (la dirección kava1…). Kava también tiene un lado EVM, que usa direcciones 0x…; los saldos allí no se leen aquí.',   fp_unofficial: 'Herramienta comunitaria no oficial — sin afiliación con Terra, LuncScan ni ningún proyecto mostrado. Se ofrece gratis, tal cual, solo con fines informativos; no es asesoramiento financiero. Esta página nunca guarda claves ni fondos, nunca te pide conectar una billetera ni firmar nada, y no almacena nada de lo que escribes. Verifica siempre las cifras importantes en tu propia billetera.'
 };
 I18N.pt = {
   sponsored_by: 'Patrocinado por', scope_strip: 'Grátis — consulte qualquer carteira', proposal_btn: '📜 Como criar uma proposta na Luna Classic', language_word: 'Idioma', wallet_address_aria: 'Endereço da carteira',
@@ -998,6 +1039,7 @@ I18N.pt = {
   err_addr_do: 'Isso não parece um endereço DO Chain (do1…). Verifique e tente novamente.',
   placeholder_chain: 'Cole um endereço {p}…',
   err_addr_chain: 'Isso não parece um endereço {name} ({p}…). Verifique e tente novamente.',
+  err_addr_checksum: '⚠️ This address has a typing mistake in it — the chain itself rejected it (its built-in error check failed). Copy the address fresh from the wallet app and paste it again — do not type it by hand.',
   note_prices_major: 'Preços: preço spot de {sym} da CoinPaprika / CoinGecko (o que responder primeiro); qualquer outra denom é mostrada sem preço de mercado e fica fora do total. Uma estimativa de valor de mercado — não uma promessa do que uma venda renderia. ',
   no_native: 'Não foram encontrados saldos nativos na cadeia para esta carteira.', no_price: 'sem preço de mercado',
   cnt_denom: '· {n} denominação', cnt_denoms: '· {n} denominações',
@@ -1127,7 +1169,7 @@ I18N.pt = {
   fp_how: '<b>Como ler esta página:</b> tudo o que é mostrado é lido ao vivo a partir de dados públicos da cadeia quando toca em “{lookup}”. Saldos nativos, staking e recompensas vêm diretamente da cadeia (LCD). Os saldos de tokens são descobertos através de um índice de explorador e depois <b>reverificados um a um com consultas diretas na cadeia</b> — só são mostrados saldos verificados. Os preços vêm apenas das fontes públicas nomeadas no cartão de valor; qualquer coisa sem um preço real aparece com “{no_price}” e fica fora do total.',
   fp_not_shown: 'Ainda não mostrado nesta versão: NFTs dentro de outros contratos de staking além do FRG NFT Staking, posições de cross-staking / fábrica de NFTs da Garuda e posições LP. As secções indicam a sua própria cobertura quando é parcial.',
   fp_free_tool: 'é uma ferramenta comunitária gratuita.',
-  fp_unofficial: 'Ferramenta comunitária não oficial — sem afiliação com a Terra, o LuncScan ou qualquer projeto mostrado. Fornecida gratuitamente, tal como está, apenas para informação; não é aconselhamento financeiro. Esta página nunca detém chaves ou fundos, nunca lhe pede para ligar uma carteira ou assinar algo, e não guarda nada do que escreve. Verifique sempre os números importantes na sua própria carteira.'
+kava_note: 'Nota sobre a Kava: este separador lê o lado Cosmos da Kava (o endereço kava1…). A Kava também tem um lado EVM, que usa endereços 0x… — os saldos lá não são lidos aqui.',   fp_unofficial: 'Ferramenta comunitária não oficial — sem afiliação com a Terra, o LuncScan ou qualquer projeto mostrado. Fornecida gratuitamente, tal como está, apenas para informação; não é aconselhamento financeiro. Esta página nunca detém chaves ou fundos, nunca lhe pede para ligar uma carteira ou assinar algo, e não guarda nada do que escreve. Verifique sempre os números importantes na sua própria carteira.'
 };
 I18N.fr = {
   sponsored_by: 'Sponsorisé par', scope_strip: 'Gratuit — vérifiez tout portefeuille', proposal_btn: '📜 Comment créer une proposition sur Luna Classic', language_word: 'Langue', wallet_address_aria: 'Adresse du portefeuille',
@@ -1149,6 +1191,7 @@ I18N.fr = {
   err_addr_do: 'Ceci ne ressemble pas à une adresse DO Chain (do1…). Vérifiez-la et réessayez.',
   placeholder_chain: 'Collez une adresse {p}…',
   err_addr_chain: 'Ceci ne ressemble pas à une adresse {name} ({p}…). Vérifiez-la et réessayez.',
+  err_addr_checksum: '⚠️ This address has a typing mistake in it — the chain itself rejected it (its built-in error check failed). Copy the address fresh from the wallet app and paste it again — do not type it by hand.',
   note_prices_major: 'Prix : prix spot de {sym} via CoinPaprika / CoinGecko (le premier qui répond) ; toute autre dénomination est affichée sans prix de marché et exclue du total. Une estimation de la valeur de marché — pas une promesse de ce qu\'une vente rapporterait. ',
   no_native: 'Aucun solde natif trouvé sur la chaîne pour ce portefeuille.', no_price: 'pas de prix de marché',
   cnt_denom: '· {n} dénomination', cnt_denoms: '· {n} dénominations',
@@ -1278,7 +1321,7 @@ I18N.fr = {
   fp_how: '<b>Comment lire cette page :</b> tout ce qui est affiché est lu en direct depuis les données publiques de la chaîne lorsque vous touchez « {lookup} ». Les soldes natifs, le staking et les récompenses viennent directement de la chaîne (LCD). Les soldes de tokens sont découverts via un index d\'explorateur puis <b>revérifiés un par un avec des requêtes directes sur la chaîne</b> — seuls les soldes vérifiés sont affichés. Les prix proviennent uniquement des sources publiques nommées sur la carte de valeur ; tout élément sans vrai prix est listé avec « {no_price} » et laissé hors du total.',
   fp_not_shown: 'Pas encore affiché dans cette version : les NFT détenus dans d\'autres contrats de staking que FRG NFT Staking, les positions Garuda de cross-staking / usine NFT, et les positions LP. Les sections indiquent leur propre couverture lorsqu\'elle est partielle.',
   fp_free_tool: 'est un outil communautaire gratuit.',
-  fp_unofficial: 'Outil communautaire non officiel — sans affiliation avec Terra, LuncScan ou tout projet affiché. Fourni gratuitement, en l\'état, à titre d\'information uniquement ; ce n\'est pas un conseil financier. Cette page ne détient jamais de clés ni de fonds, ne vous demande jamais de connecter un portefeuille ou de signer quoi que ce soit, et ne stocke rien de ce que vous saisissez. Vérifiez toujours les chiffres importants dans votre propre portefeuille.'
+kava_note: 'Note Kava : cet onglet lit le côté Cosmos de Kava (l\'adresse kava1…). Kava a aussi un côté EVM, qui utilise des adresses 0x… — les soldes qui s\'y trouvent ne sont pas lus ici.',   fp_unofficial: 'Outil communautaire non officiel — sans affiliation avec Terra, LuncScan ou tout projet affiché. Fourni gratuitement, en l\'état, à titre d\'information uniquement ; ce n\'est pas un conseil financier. Cette page ne détient jamais de clés ni de fonds, ne vous demande jamais de connecter un portefeuille ou de signer quoi que ce soit, et ne stocke rien de ce que vous saisissez. Vérifiez toujours les chiffres importants dans votre propre portefeuille.'
 };
 I18N.de = {
   sponsored_by: 'Gesponsert von', scope_strip: 'Gratis — jede Wallet prüfen', proposal_btn: '📜 So erstellen Sie einen Vorschlag auf Luna Classic', language_word: 'Sprache', wallet_address_aria: 'Wallet-Adresse',
@@ -1300,6 +1343,7 @@ I18N.de = {
   err_addr_do: 'Das sieht nicht wie eine DO-Chain-Adresse aus (do1…). Bitte prüfen und erneut versuchen.',
   placeholder_chain: '{p}… Adresse einfügen',
   err_addr_chain: 'Das sieht nicht wie eine {name}-Adresse aus ({p}…). Bitte prüfen und erneut versuchen.',
+  err_addr_checksum: '⚠️ This address has a typing mistake in it — the chain itself rejected it (its built-in error check failed). Copy the address fresh from the wallet app and paste it again — do not type it by hand.',
   note_prices_major: 'Preise: {sym}-Spotpreis von CoinPaprika / CoinGecko (wer zuerst antwortet); jede andere Denom wird ohne Marktpreis angezeigt und bleibt aus der Summe. Eine Schätzung des Marktwerts — kein Versprechen, was ein Verkauf einbringen würde. ',
   no_native: 'Für diese Wallet wurden keine nativen Guthaben on-chain gefunden.', no_price: 'kein Marktpreis',
   cnt_denom: '· {n} Denomination', cnt_denoms: '· {n} Denominationen',
@@ -1429,7 +1473,7 @@ I18N.de = {
   fp_how: '<b>So lesen Sie diese Seite:</b> Alles Angezeigte wird live aus öffentlichen Kettendaten gelesen, wenn Sie auf „{lookup}“ tippen. Native Guthaben, Staking und Belohnungen kommen direkt von der Kette (LCD). Token-Guthaben werden über einen Explorer-Index entdeckt und danach <b>einzeln per direkter On-Chain-Abfrage erneut verifiziert</b> — nur verifizierte Guthaben werden angezeigt. Preise kommen nur aus den benannten öffentlichen Quellen auf der Wertkarte; alles ohne echten Preis wird mit „{no_price}“ aufgeführt und aus der Summe gelassen.',
   fp_not_shown: 'In dieser Version noch nicht angezeigt: NFTs in anderen Staking-Verträgen außer FRG NFT Staking, Garuda-Cross-Staking-/NFT-Factory-Positionen und LP-Positionen. Abschnitte nennen ihre eigene Abdeckung, wo sie teilweise ist.',
   fp_free_tool: 'ist ein kostenloses Community-Werkzeug.',
-  fp_unofficial: 'Inoffizielles Community-Werkzeug — nicht mit Terra, LuncScan oder einem gezeigten Projekt verbunden. Kostenlos und wie besehen bereitgestellt, nur zur Information; keine Finanzberatung. Diese Seite hält niemals Schlüssel oder Gelder, fordert Sie niemals auf, eine Wallet zu verbinden oder etwas zu signieren, und speichert nichts, was Sie eingeben. Prüfen Sie wichtige Zahlen immer in Ihrer eigenen Wallet.'
+kava_note: 'Kava-Hinweis: Dieser Tab liest die Cosmos-Seite von Kava (die kava1…-Adresse). Kava hat auch eine EVM-Seite, die 0x…-Adressen nutzt — dortige Guthaben werden hier nicht gelesen.',   fp_unofficial: 'Inoffizielles Community-Werkzeug — nicht mit Terra, LuncScan oder einem gezeigten Projekt verbunden. Kostenlos und wie besehen bereitgestellt, nur zur Information; keine Finanzberatung. Diese Seite hält niemals Schlüssel oder Gelder, fordert Sie niemals auf, eine Wallet zu verbinden oder etwas zu signieren, und speichert nichts, was Sie eingeben. Prüfen Sie wichtige Zahlen immer in Ihrer eigenen Wallet.'
 };
 I18N.it = {
   sponsored_by: 'Sponsorizzato da', scope_strip: 'Gratis — controlla qualsiasi wallet', proposal_btn: '📜 Come creare una proposta su Luna Classic', language_word: 'Lingua', wallet_address_aria: 'Indirizzo del wallet',
@@ -1451,6 +1495,7 @@ I18N.it = {
   err_addr_do: 'Non sembra un indirizzo DO Chain (do1…). Controllalo e riprova.',
   placeholder_chain: 'Incolla un indirizzo {p}…',
   err_addr_chain: 'Non sembra un indirizzo {name} ({p}…). Controllalo e riprova.',
+  err_addr_checksum: '⚠️ This address has a typing mistake in it — the chain itself rejected it (its built-in error check failed). Copy the address fresh from the wallet app and paste it again — do not type it by hand.',
   note_prices_major: 'Prezzi: prezzo spot di {sym} da CoinPaprika / CoinGecko (il primo che risponde); ogni altra denom è mostrata senza prezzo di mercato e resta fuori dal totale. Una stima del valore di mercato — non una promessa di quanto darebbe una vendita. ',
   no_native: 'Nessun saldo nativo trovato on-chain per questo wallet.', no_price: 'nessun prezzo di mercato',
   cnt_denom: '· {n} denominazione', cnt_denoms: '· {n} denominazioni',
@@ -1580,7 +1625,7 @@ I18N.it = {
   fp_how: '<b>Come leggere questa pagina:</b> tutto ciò che viene mostrato è letto in tempo reale dai dati pubblici della catena quando tocchi «{lookup}». I saldi nativi, lo staking e le ricompense vengono direttamente dalla catena (LCD). I saldi dei token vengono scoperti tramite un indice explorer e poi <b>riverificati uno a uno con query dirette on-chain</b> — vengono mostrati solo i saldi verificati. I prezzi provengono solo dalle fonti pubbliche nominate sulla scheda del valore; tutto ciò che non ha un vero prezzo è elencato con «{no_price}» e lasciato fuori dal totale.',
   fp_not_shown: 'Non ancora mostrato in questa versione: NFT detenuti in contratti di staking diversi da FRG NFT Staking, posizioni Garuda di cross-staking / factory NFT e posizioni LP. Le sezioni indicano la propria copertura quando è parziale.',
   fp_free_tool: 'è uno strumento comunitario gratuito.',
-  fp_unofficial: 'Strumento comunitario non ufficiale — nessuna affiliazione con Terra, LuncScan o qualsiasi progetto mostrato. Fornito gratuitamente così com\'è, solo a scopo informativo; non è consulenza finanziaria. Questa pagina non detiene mai chiavi o fondi, non ti chiede mai di connettere un wallet o firmare nulla e non memorizza nulla di ciò che inserisci. Verifica sempre le cifre importanti nel tuo wallet.'
+kava_note: 'Nota su Kava: questa scheda legge il lato Cosmos di Kava (l\'indirizzo kava1…). Kava ha anche un lato EVM, che usa indirizzi 0x… — i saldi lì non vengono letti qui.',   fp_unofficial: 'Strumento comunitario non ufficiale — nessuna affiliazione con Terra, LuncScan o qualsiasi progetto mostrato. Fornito gratuitamente così com\'è, solo a scopo informativo; non è consulenza finanziaria. Questa pagina non detiene mai chiavi o fondi, non ti chiede mai di connettere un wallet o firmare nulla e non memorizza nulla di ciò che inserisci. Verifica sempre le cifre importanti nel tuo wallet.'
 };
 I18N.nl = {
   sponsored_by: 'Gesponsord door', scope_strip: 'Gratis — controleer elke wallet', proposal_btn: '📜 Zo maakt u een voorstel op Luna Classic', language_word: 'Taal', wallet_address_aria: 'Walletadres',
@@ -1602,6 +1647,7 @@ I18N.nl = {
   err_addr_do: 'Dit lijkt geen DO Chain-adres (do1…). Controleer het en probeer opnieuw.',
   placeholder_chain: 'Plak een {p}… adres',
   err_addr_chain: 'Dit lijkt geen {name}-adres ({p}…). Controleer het en probeer opnieuw.',
+  err_addr_checksum: '⚠️ This address has a typing mistake in it — the chain itself rejected it (its built-in error check failed). Copy the address fresh from the wallet app and paste it again — do not type it by hand.',
   note_prices_major: 'Prijzen: {sym}-spotprijs van CoinPaprika / CoinGecko (wie het eerst antwoordt); elke andere denom wordt zonder marktprijs getoond en blijft buiten het totaal. Een schatting van de marktwaarde — geen belofte van wat een verkoop zou opleveren. ',
   no_native: 'Geen native saldi gevonden on-chain voor deze wallet.', no_price: 'geen marktprijs',
   cnt_denom: '· {n} denominatie', cnt_denoms: '· {n} denominaties',
@@ -1731,7 +1777,7 @@ I18N.nl = {
   fp_how: '<b>Zo leest u deze pagina:</b> alles wat wordt getoond, wordt live uit openbare keten-gegevens gelezen wanneer u op „{lookup}“ tikt. Native saldi, staking en beloningen komen rechtstreeks van de keten (LCD). Tokensaldi worden ontdekt via een explorer-index en daarna <b>stuk voor stuk opnieuw geverifieerd met directe on-chain queries</b> — alleen geverifieerde saldi worden getoond. Prijzen komen alleen uit de benoemde openbare bronnen op de waardekaart; alles zonder echte prijs wordt vermeld met „{no_price}“ en uit het totaal gelaten.',
   fp_not_shown: 'Nog niet getoond in deze versie: NFT\'s in andere stakingcontracten dan FRG NFT Staking, Garuda cross-staking-/NFT-factory-posities en LP-posities. Gedeelten vermelden hun eigen dekking waar die gedeeltelijk is.',
   fp_free_tool: 'is een gratis community-hulpmiddel.',
-  fp_unofficial: 'Onofficieel community-hulpmiddel — niet gelieerd aan Terra, LuncScan of een getoond project. Wordt gratis en in de huidige staat aangeboden, alleen ter informatie; geen financieel advies. Deze pagina bewaart nooit sleutels of gelden, vraagt u nooit om een wallet te verbinden of iets te ondertekenen en slaat niets op van wat u invoert. Controleer belangrijke cijfers altijd in uw eigen wallet.'
+kava_note: 'Kava-opmerking: dit tabblad leest de Cosmos-kant van Kava (het kava1…-adres). Kava heeft ook een EVM-kant, die 0x…-adressen gebruikt — saldi daar worden hier niet gelezen.',   fp_unofficial: 'Onofficieel community-hulpmiddel — niet gelieerd aan Terra, LuncScan of een getoond project. Wordt gratis en in de huidige staat aangeboden, alleen ter informatie; geen financieel advies. Deze pagina bewaart nooit sleutels of gelden, vraagt u nooit om een wallet te verbinden of iets te ondertekenen en slaat niets op van wat u invoert. Controleer belangrijke cijfers altijd in uw eigen wallet.'
 };
 I18N.ru = {
   sponsored_by: 'При поддержке', scope_strip: 'Бесплатно — проверьте любой кошелёк', proposal_btn: '📜 Как создать предложение в Luna Classic', language_word: 'Язык', wallet_address_aria: 'Адрес кошелька',
@@ -1753,6 +1799,7 @@ I18N.ru = {
   err_addr_do: 'Похоже, это не адрес DO Chain (do1…). Проверьте его и попробуйте ещё раз.',
   placeholder_chain: 'Вставьте адрес {p}…',
   err_addr_chain: 'Похоже, это не адрес {name} ({p}…). Проверьте его и попробуйте ещё раз.',
+  err_addr_checksum: '⚠️ This address has a typing mistake in it — the chain itself rejected it (its built-in error check failed). Copy the address fresh from the wallet app and paste it again — do not type it by hand.',
   note_prices_major: 'Цены: спотовая цена {sym} от CoinPaprika / CoinGecko (кто ответит первым); любая другая деноминация показана без рыночной цены и не входит в итог. Оценка рыночной стоимости — не обещание того, что даст продажа. ',
   no_native: 'Нативные балансы для этого кошелька в блокчейне не найдены.', no_price: 'нет рыночной цены',
   cnt_denom: '· {n} номинация', cnt_denoms: '· {n} номинаций',
@@ -1882,7 +1929,7 @@ I18N.ru = {
   fp_how: '<b>Как читать эту страницу:</b> всё показанное читается в реальном времени из публичных данных блокчейна, когда вы нажимаете «{lookup}». Нативные балансы, стейкинг и награды приходят напрямую из блокчейна (LCD). Балансы токенов находятся через индекс обозревателя, а затем <b>перепроверяются по одному прямыми запросами к блокчейну</b> — показаны только подтверждённые балансы. Цены берутся только из названных публичных источников на карточке стоимости; всё без реальной цены указано с пометкой «{no_price}» и не входит в итог.',
   fp_not_shown: 'В этой версии пока не показано: NFT в контрактах стейкинга, отличных от FRG NFT Staking, позиции Garuda кросс-стейкинга / фабрики NFT и LP-позиции. Разделы указывают собственный охват, где он частичный.',
   fp_free_tool: '— бесплатный общественный инструмент.',
-  fp_unofficial: 'Неофициальный общественный инструмент — не связан с Terra, LuncScan или любым показанным проектом. Предоставляется бесплатно, как есть, только для информации; не является финансовой рекомендацией. Эта страница никогда не хранит ключи или средства, никогда не просит подключить кошелёк или подписать что-либо и ничего из введённого вами не сохраняет. Всегда проверяйте важные цифры в собственном кошельке.'
+kava_note: 'Примечание о Kava: эта вкладка читает сторону Cosmos сети Kava (адрес kava1…). У Kava есть и сторона EVM, где используются адреса 0x… — балансы там здесь не читаются.',   fp_unofficial: 'Неофициальный общественный инструмент — не связан с Terra, LuncScan или любым показанным проектом. Предоставляется бесплатно, как есть, только для информации; не является финансовой рекомендацией. Эта страница никогда не хранит ключи или средства, никогда не просит подключить кошелёк или подписать что-либо и ничего из введённого вами не сохраняет. Всегда проверяйте важные цифры в собственном кошельке.'
 };
 I18N.uk = {
   sponsored_by: 'За підтримки', scope_strip: 'Безкоштовно — перевірте будь-який гаманець', proposal_btn: '📜 Як створити пропозицію в Luna Classic', language_word: 'Мова', wallet_address_aria: 'Адреса гаманця',
@@ -1904,6 +1951,7 @@ I18N.uk = {
   err_addr_do: 'Схоже, це не адреса DO Chain (do1…). Перевірте її та спробуйте ще раз.',
   placeholder_chain: 'Вставте адресу {p}…',
   err_addr_chain: 'Схоже, це не адреса {name} ({p}…). Перевірте її та спробуйте ще раз.',
+  err_addr_checksum: '⚠️ This address has a typing mistake in it — the chain itself rejected it (its built-in error check failed). Copy the address fresh from the wallet app and paste it again — do not type it by hand.',
   note_prices_major: 'Ціни: спотова ціна {sym} від CoinPaprika / CoinGecko (хто відповість першим); будь-яка інша деномінація показана без ринкової ціни й не входить до підсумку. Оцінка ринкової вартості — не обіцянка того, що дасть продаж. ',
   no_native: 'Нативні баланси для цього гаманця в блокчейні не знайдено.', no_price: 'немає ринкової ціни',
   cnt_denom: '· {n} номінація', cnt_denoms: '· {n} номінацій',
@@ -2033,7 +2081,7 @@ I18N.uk = {
   fp_how: '<b>Як читати цю сторінку:</b> усе показане читається в реальному часі з публічних даних блокчейну, коли ви натискаєте «{lookup}». Нативні баланси, стейкінг і нагороди надходять безпосередньо з блокчейну (LCD). Баланси токенів знаходяться через індекс оглядача, а потім <b>повторно перевіряються по одному прямими запитами до блокчейну</b> — показані лише підтверджені баланси. Ціни беруться лише з названих публічних джерел на картці вартості; усе без справжньої ціни зазначено з позначкою «{no_price}» і не входить до підсумку.',
   fp_not_shown: 'У цій версії ще не показано: NFT у контрактах стейкінгу, відмінних від FRG NFT Staking, позиції Garuda крос-стейкінгу / фабрики NFT та LP-позиції. Розділи вказують власне охоплення, де воно часткове.',
   fp_free_tool: '— безкоштовний громадський інструмент.',
-  fp_unofficial: 'Неофіційний громадський інструмент — не пов\'язаний із Terra, LuncScan або будь-яким показаним проєктом. Надається безкоштовно, як є, лише для інформації; не є фінансовою порадою. Ця сторінка ніколи не зберігає ключі чи кошти, ніколи не просить підключити гаманець або підписати щось і нічого з введеного вами не зберігає. Завжди перевіряйте важливі цифри у власному гаманці.'
+kava_note: 'Примітка про Kava: ця вкладка читає сторону Cosmos мережі Kava (адреса kava1…). У Kava є й сторона EVM, де використовуються адреси 0x… — баланси там тут не читаються.',   fp_unofficial: 'Неофіційний громадський інструмент — не пов\'язаний із Terra, LuncScan або будь-яким показаним проєктом. Надається безкоштовно, як є, лише для інформації; не є фінансовою порадою. Ця сторінка ніколи не зберігає ключі чи кошти, ніколи не просить підключити гаманець або підписати щось і нічого з введеного вами не зберігає. Завжди перевіряйте важливі цифри у власному гаманці.'
 };
 I18N.tr = {
   sponsored_by: 'Sponsor:', scope_strip: 'Ücretsiz — herhangi bir cüzdanı kontrol edin', proposal_btn: '📜 Luna Classic\'te nasıl teklif oluşturulur', language_word: 'Dil', wallet_address_aria: 'Cüzdan adresi',
@@ -2055,6 +2103,7 @@ I18N.tr = {
   err_addr_do: 'Bu bir DO Chain adresine benzemiyor (do1…). Kontrol edip tekrar deneyin.',
   placeholder_chain: '{p}… adresi yapıştırın',
   err_addr_chain: 'Bu bir {name} adresine benzemiyor ({p}…). Kontrol edip tekrar deneyin.',
+  err_addr_checksum: '⚠️ This address has a typing mistake in it — the chain itself rejected it (its built-in error check failed). Copy the address fresh from the wallet app and paste it again — do not type it by hand.',
   note_prices_major: 'Fiyatlar: CoinPaprika / CoinGecko\'dan {sym} spot fiyatı (hangisi önce yanıt verirse); diğer her denom piyasa fiyatı olmadan gösterilir ve toplama dahil edilmez. Piyasa değerinin bir tahmini — bir satışın getireceğinin sözü değildir. ',
   no_native: 'Bu cüzdan için zincirde yerel bakiye bulunamadı.', no_price: 'piyasa fiyatı yok',
   cnt_denom: '· {n} birim', cnt_denoms: '· {n} birim',
@@ -2184,7 +2233,7 @@ I18N.tr = {
   fp_how: '<b>Bu sayfa nasıl okunur:</b> gösterilen her şey, "{lookup}" düğmesine dokunduğunuzda herkese açık zincir verilerinden canlı okunur. Yerel bakiyeler, staking ve ödüller doğrudan zincirden (LCD) gelir. Token bakiyeleri bir gezgin indeksiyle keşfedilir, ardından <b>doğrudan zincir sorgularıyla tek tek yeniden doğrulanır</b> — yalnızca doğrulanmış bakiyeler gösterilir. Fiyatlar yalnızca değer kartında adı geçen herkese açık kaynaklardan gelir; gerçek fiyatı olmayan her şey "{no_price}" ile listelenir ve toplama dahil edilmez.',
   fp_not_shown: 'Bu sürümde henüz gösterilmeyenler: FRG NFT Staking dışındaki staking sözleşmelerindeki NFT\'ler, Garuda çapraz staking / NFT fabrikası pozisyonları ve LP pozisyonları. Bölümler, kapsam kısmi olduğunda kendi kapsamını belirtir.',
   fp_free_tool: 'ücretsiz bir topluluk aracıdır.',
-  fp_unofficial: 'Resmi olmayan topluluk aracı — Terra, LuncScan veya gösterilen hiçbir projeyle bağlantısı yoktur. Ücretsiz ve olduğu gibi, yalnızca bilgilendirme amaçlı sunulur; finansal tavsiye değildir. Bu sayfa asla anahtar veya fon tutmaz, sizden asla cüzdan bağlamanızı veya bir şey imzalamanızı istemez ve girdiğiniz hiçbir şeyi saklamaz. Önemli rakamları her zaman kendi cüzdanınızda doğrulayın.'
+kava_note: 'Kava notu: bu sekme Kava\'nın Cosmos tarafını okur (kava1… adresi). Kava\'nın bir de 0x… adresleri kullanan bir EVM tarafı vardır — oradaki bakiyeler burada okunmaz.',   fp_unofficial: 'Resmi olmayan topluluk aracı — Terra, LuncScan veya gösterilen hiçbir projeyle bağlantısı yoktur. Ücretsiz ve olduğu gibi, yalnızca bilgilendirme amaçlı sunulur; finansal tavsiye değildir. Bu sayfa asla anahtar veya fon tutmaz, sizden asla cüzdan bağlamanızı veya bir şey imzalamanızı istemez ve girdiğiniz hiçbir şeyi saklamaz. Önemli rakamları her zaman kendi cüzdanınızda doğrulayın.'
 };
 I18N.ar = {
   sponsored_by: 'برعاية', scope_strip: 'مجاني — تحقّق من أي محفظة', proposal_btn: '📜 كيفية إنشاء مقترح على Luna Classic', language_word: 'اللغة', wallet_address_aria: 'عنوان المحفظة',
@@ -2206,6 +2255,7 @@ I18N.ar = {
   err_addr_do: 'لا يبدو هذا عنوان DO Chain (do1…). تحقق منه وحاول مرة أخرى.',
   placeholder_chain: 'الصق عنوان {p}…',
   err_addr_chain: 'لا يبدو هذا عنوان {name} ({p}…). تحقق منه وحاول مرة أخرى.',
+  err_addr_checksum: '⚠️ This address has a typing mistake in it — the chain itself rejected it (its built-in error check failed). Copy the address fresh from the wallet app and paste it again — do not type it by hand.',
   note_prices_major: 'الأسعار: السعر الفوري لـ {sym} من CoinPaprika / CoinGecko (أيهما يرد أولًا)؛ كل فئة أخرى تُعرض دون سعر سوق وتُترك خارج الإجمالي. تقدير للقيمة السوقية — وليس وعدًا بما ستجلبه عملية بيع. ',
   no_native: 'لم يتم العثور على أرصدة أصلية على السلسلة لهذه المحفظة.', no_price: 'لا يوجد سعر سوق',
   cnt_denom: '· {n} فئة', cnt_denoms: '· {n} فئة',
@@ -2335,7 +2385,7 @@ I18N.ar = {
   fp_how: '<b>كيفية قراءة هذه الصفحة:</b> كل ما يُعرض يُقرأ مباشرة من بيانات السلسلة العامة عندما تضغط «{lookup}». الأرصدة الأصلية والستيكينغ والمكافآت تأتي مباشرة من السلسلة (LCD). تُكتشف أرصدة الرموز عبر فهرس مستكشف ثم <b>يُعاد التحقق منها واحدًا تلو الآخر باستعلامات مباشرة على السلسلة</b> — تُعرض فقط الأرصدة الموثّقة. تأتي الأسعار فقط من المصادر العامة المسماة على بطاقة القيمة؛ كل ما ليس له سعر حقيقي يُدرج مع «{no_price}» ويُترك خارج الإجمالي.',
   fp_not_shown: 'لا يُعرض بعد في هذا الإصدار: الـ NFT المحفوظة في عقود ستيكينغ غير FRG NFT Staking، ومراكز Garuda للستيكينغ المتقاطع / مصنع NFT، ومراكز LP. تذكر الأقسام تغطيتها الخاصة عندما تكون جزئية.',
   fp_free_tool: 'أداة مجتمعية مجانية.',
-  fp_unofficial: 'أداة مجتمعية غير رسمية — غير تابعة لـ Terra أو LuncScan أو أي مشروع معروض. تُقدَّم مجانًا كما هي، لأغراض المعلومات فقط؛ ليست نصيحة مالية. لا تحمل هذه الصفحة أبدًا مفاتيح أو أموالًا، ولا تطلب منك أبدًا توصيل محفظة أو توقيع أي شيء، ولا تخزن أي شيء تدخله. تحقق دائمًا من الأرقام المهمة في محفظتك الخاصة.'
+kava_note: 'ملاحظة عن Kava: تقرأ علامة التبويب هذه جانب Cosmos من Kava (العنوان kava1…). لدى Kava أيضًا جانب EVM يستخدم عناوين 0x… — الأرصدة الموجودة هناك لا تُقرأ هنا.',   fp_unofficial: 'أداة مجتمعية غير رسمية — غير تابعة لـ Terra أو LuncScan أو أي مشروع معروض. تُقدَّم مجانًا كما هي، لأغراض المعلومات فقط؛ ليست نصيحة مالية. لا تحمل هذه الصفحة أبدًا مفاتيح أو أموالًا، ولا تطلب منك أبدًا توصيل محفظة أو توقيع أي شيء، ولا تخزن أي شيء تدخله. تحقق دائمًا من الأرقام المهمة في محفظتك الخاصة.'
 };
 I18N.hi = {
   sponsored_by: 'प्रायोजित द्वारा', scope_strip: 'मुफ़्त — कोई भी वॉलेट देखें', proposal_btn: '📜 Luna Classic पर प्रस्ताव कैसे बनाएं', language_word: 'भाषा', wallet_address_aria: 'वॉलेट पता',
@@ -2357,6 +2407,7 @@ I18N.hi = {
   err_addr_do: 'यह DO Chain पता नहीं लगता (do1…)। जाँचकर फिर से प्रयास करें।',
   placeholder_chain: '{p}… पता पेस्ट करें',
   err_addr_chain: 'यह {name} पता नहीं लगता ({p}…)। जाँचकर फिर से प्रयास करें।',
+  err_addr_checksum: '⚠️ This address has a typing mistake in it — the chain itself rejected it (its built-in error check failed). Copy the address fresh from the wallet app and paste it again — do not type it by hand.',
   note_prices_major: 'कीमतें: CoinPaprika / CoinGecko से {sym} की spot कीमत (जो पहले जवाब दे); हर अन्य denom बिना बाज़ार कीमत के दिखाया जाता है और कुल से बाहर रहता है। बाज़ार मूल्य का एक अनुमान — यह वादा नहीं कि बिक्री पर कितना मिलेगा। ',
   no_native: 'इस वॉलेट के लिए ऑन-चेन कोई नेटिव बैलेंस नहीं मिला।', no_price: 'कोई बाज़ार मूल्य नहीं',
   cnt_denom: '· {n} डिनॉमिनेशन', cnt_denoms: '· {n} डिनॉमिनेशन',
@@ -2486,7 +2537,7 @@ I18N.hi = {
   fp_how: '<b>इस पेज को कैसे पढ़ें:</b> जो कुछ दिखाया जाता है वह तब लाइव सार्वजनिक चेन डेटा से पढ़ा जाता है जब आप "{lookup}" पर टैप करते हैं। नेटिव बैलेंस, staking और रिवॉर्ड सीधे चेन (LCD) से आते हैं। टोकन बैलेंस एक एक्सप्लोरर इंडेक्स से खोजे जाते हैं और फिर <b>सीधी ऑन-चेन क्वेरी से एक-एक करके फिर सत्यापित किए जाते हैं</b> — केवल सत्यापित बैलेंस दिखाए जाते हैं। कीमतें केवल मूल्य कार्ड पर नामित सार्वजनिक स्रोतों से आती हैं; बिना वास्तविक कीमत वाली हर चीज़ "{no_price}" के साथ सूचीबद्ध होती है और कुल से बाहर रहती है।',
   fp_not_shown: 'इस संस्करण में अभी नहीं दिखाया गया: FRG NFT Staking के अलावा अन्य staking कॉन्ट्रैक्ट में रखे NFT, Garuda क्रॉस-staking / NFT फ़ैक्टरी पोज़िशन, और LP पोज़िशन। अनुभाग जहाँ कवरेज आंशिक है वहाँ अपनी कवरेज बताते हैं।',
   fp_free_tool: 'एक मुफ़्त सामुदायिक उपकरण है।',
-  fp_unofficial: 'अनौपचारिक सामुदायिक उपकरण — Terra, LuncScan या दिखाए गए किसी प्रोजेक्ट से संबद्ध नहीं। मुफ़्त और जैसा है वैसा, केवल जानकारी के लिए प्रदान किया गया; वित्तीय सलाह नहीं। यह पेज कभी कुंजियाँ या फंड नहीं रखता, आपसे कभी वॉलेट कनेक्ट करने या कुछ साइन करने को नहीं कहता, और आप जो डालते हैं उसका कुछ भी संग्रहीत नहीं करता। महत्वपूर्ण आंकड़े हमेशा अपने वॉलेट में सत्यापित करें।'
+kava_note: 'Kava नोट: यह टैब Kava के Cosmos पक्ष को पढ़ता है (kava1… पता)। Kava का एक EVM पक्ष भी है, जो 0x… पतों का उपयोग करता है — वहाँ की शेष राशि यहाँ नहीं पढ़ी जाती।',   fp_unofficial: 'अनौपचारिक सामुदायिक उपकरण — Terra, LuncScan या दिखाए गए किसी प्रोजेक्ट से संबद्ध नहीं। मुफ़्त और जैसा है वैसा, केवल जानकारी के लिए प्रदान किया गया; वित्तीय सलाह नहीं। यह पेज कभी कुंजियाँ या फंड नहीं रखता, आपसे कभी वॉलेट कनेक्ट करने या कुछ साइन करने को नहीं कहता, और आप जो डालते हैं उसका कुछ भी संग्रहीत नहीं करता। महत्वपूर्ण आंकड़े हमेशा अपने वॉलेट में सत्यापित करें।'
 };
 I18N.id = {
   sponsored_by: 'Disponsori oleh', scope_strip: 'Gratis — periksa dompet apa pun', proposal_btn: '📜 Cara membuat proposal di Luna Classic', language_word: 'Bahasa', wallet_address_aria: 'Alamat dompet',
@@ -2508,6 +2559,7 @@ I18N.id = {
   err_addr_do: 'Ini tidak terlihat seperti alamat DO Chain (do1…). Periksa dan coba lagi.',
   placeholder_chain: 'Tempel alamat {p}…',
   err_addr_chain: 'Ini tidak terlihat seperti alamat {name} ({p}…). Periksa dan coba lagi.',
+  err_addr_checksum: '⚠️ This address has a typing mistake in it — the chain itself rejected it (its built-in error check failed). Copy the address fresh from the wallet app and paste it again — do not type it by hand.',
   note_prices_major: 'Harga: harga spot {sym} dari CoinPaprika / CoinGecko (mana yang menjawab lebih dulu); denom lain ditampilkan tanpa harga pasar dan tidak masuk total. Perkiraan nilai pasar — bukan janji hasil penjualan. ',
   no_native: 'Tidak ada saldo native yang ditemukan on-chain untuk dompet ini.', no_price: 'tidak ada harga pasar',
   cnt_denom: '· {n} denominasi', cnt_denoms: '· {n} denominasi',
@@ -2637,7 +2689,7 @@ I18N.id = {
   fp_how: '<b>Cara membaca halaman ini:</b> semua yang ditampilkan dibaca langsung dari data rantai publik saat Anda mengetuk "{lookup}". Saldo native, staking, dan hadiah datang langsung dari rantai (LCD). Saldo token ditemukan melalui indeks penjelajah lalu <b>diverifikasi ulang satu per satu dengan kueri on-chain langsung</b> — hanya saldo terverifikasi yang ditampilkan. Harga hanya berasal dari sumber publik yang disebutkan pada kartu nilai; apa pun tanpa harga nyata dicantumkan dengan "{no_price}" dan tidak dimasukkan ke total.',
   fp_not_shown: 'Belum ditampilkan dalam versi ini: NFT yang disimpan dalam kontrak staking selain FRG NFT Staking, posisi cross-staking / pabrik NFT Garuda, dan posisi LP. Bagian-bagian menyebutkan cakupannya sendiri ketika bersifat parsial.',
   fp_free_tool: 'adalah alat komunitas gratis.',
-  fp_unofficial: 'Alat komunitas tidak resmi — tidak berafiliasi dengan Terra, LuncScan, atau proyek mana pun yang ditampilkan. Disediakan gratis apa adanya, hanya untuk informasi; bukan nasihat keuangan. Halaman ini tidak pernah menyimpan kunci atau dana, tidak pernah meminta Anda menghubungkan dompet atau menandatangani apa pun, dan tidak menyimpan apa pun yang Anda masukkan. Selalu verifikasi angka penting di dompet Anda sendiri.'
+kava_note: 'Catatan Kava: tab ini membaca sisi Cosmos dari Kava (alamat kava1…). Kava juga memiliki sisi EVM, yang menggunakan alamat 0x… — saldo di sana tidak dibaca di sini.',   fp_unofficial: 'Alat komunitas tidak resmi — tidak berafiliasi dengan Terra, LuncScan, atau proyek mana pun yang ditampilkan. Disediakan gratis apa adanya, hanya untuk informasi; bukan nasihat keuangan. Halaman ini tidak pernah menyimpan kunci atau dana, tidak pernah meminta Anda menghubungkan dompet atau menandatangani apa pun, dan tidak menyimpan apa pun yang Anda masukkan. Selalu verifikasi angka penting di dompet Anda sendiri.'
 };
 I18N.vi = {
   sponsored_by: 'Được tài trợ bởi', scope_strip: 'Miễn phí — kiểm tra bất kỳ ví nào', proposal_btn: '📜 Cách tạo đề xuất trên Luna Classic', language_word: 'Ngôn ngữ', wallet_address_aria: 'Địa chỉ ví',
@@ -2659,6 +2711,7 @@ I18N.vi = {
   err_addr_do: 'Đây không giống địa chỉ DO Chain (do1…). Kiểm tra lại và thử lại.',
   placeholder_chain: 'Dán địa chỉ {p}…',
   err_addr_chain: 'Đây không giống địa chỉ {name} ({p}…). Kiểm tra lại và thử lại.',
+  err_addr_checksum: '⚠️ This address has a typing mistake in it — the chain itself rejected it (its built-in error check failed). Copy the address fresh from the wallet app and paste it again — do not type it by hand.',
   note_prices_major: 'Giá: giá spot {sym} từ CoinPaprika / CoinGecko (bên nào trả lời trước); mọi denom khác được hiển thị không có giá thị trường và để ngoài tổng. Ước tính giá trị thị trường — không phải lời hứa về số tiền bán được. ',
   no_native: 'Không tìm thấy số dư native on-chain cho ví này.', no_price: 'không có giá thị trường',
   cnt_denom: '· {n} mệnh giá', cnt_denoms: '· {n} mệnh giá',
@@ -2788,7 +2841,7 @@ I18N.vi = {
   fp_how: '<b>Cách đọc trang này:</b> mọi thứ hiển thị đều được đọc trực tiếp từ dữ liệu chuỗi công khai khi bạn chạm vào "{lookup}". Số dư native, staking và phần thưởng đến trực tiếp từ chuỗi (LCD). Số dư token được khám phá qua chỉ mục trình khám phá rồi <b>xác minh lại từng cái bằng truy vấn on-chain trực tiếp</b> — chỉ số dư đã xác minh mới được hiển thị. Giá chỉ đến từ các nguồn công khai được nêu trên thẻ giá trị; bất cứ thứ gì không có giá thực đều được liệt kê với "{no_price}" và để ngoài tổng.',
   fp_not_shown: 'Chưa hiển thị trong phiên bản này: NFT giữ trong các hợp đồng staking khác ngoài FRG NFT Staking, vị thế cross-staking / nhà máy NFT của Garuda và vị thế LP. Các mục nêu phạm vi của riêng chúng khi phạm vi là một phần.',
   fp_free_tool: 'là một công cụ cộng đồng miễn phí.',
-  fp_unofficial: 'Công cụ cộng đồng không chính thức — không liên kết với Terra, LuncScan hay bất kỳ dự án nào hiển thị. Được cung cấp miễn phí nguyên trạng, chỉ để tham khảo; không phải lời khuyên tài chính. Trang này không bao giờ giữ khóa hay tiền, không bao giờ yêu cầu bạn kết nối ví hay ký bất cứ thứ gì, và không lưu trữ bất cứ thứ gì bạn nhập. Luôn xác minh các con số quan trọng trong ví của riêng bạn.'
+kava_note: 'Lưu ý về Kava: tab này đọc phía Cosmos của Kava (địa chỉ kava1…). Kava còn có phía EVM, dùng địa chỉ 0x… — số dư ở đó không được đọc tại đây.',   fp_unofficial: 'Công cụ cộng đồng không chính thức — không liên kết với Terra, LuncScan hay bất kỳ dự án nào hiển thị. Được cung cấp miễn phí nguyên trạng, chỉ để tham khảo; không phải lời khuyên tài chính. Trang này không bao giờ giữ khóa hay tiền, không bao giờ yêu cầu bạn kết nối ví hay ký bất cứ thứ gì, và không lưu trữ bất cứ thứ gì bạn nhập. Luôn xác minh các con số quan trọng trong ví của riêng bạn.'
 };
 I18N.th = {
   sponsored_by: 'สนับสนุนโดย', scope_strip: 'ฟรี — ตรวจสอบกระเป๋าเงินใดก็ได้', proposal_btn: '📜 วิธีสร้างข้อเสนอบน Luna Classic', language_word: 'ภาษา', wallet_address_aria: 'ที่อยู่กระเป๋าเงิน',
@@ -2810,6 +2863,7 @@ I18N.th = {
   err_addr_do: 'นี่ไม่เหมือนที่อยู่ DO Chain (do1…) โปรดตรวจสอบแล้วลองอีกครั้ง',
   placeholder_chain: 'วางที่อยู่ {p}…',
   err_addr_chain: 'นี่ไม่เหมือนที่อยู่ {name} ({p}…) โปรดตรวจสอบแล้วลองอีกครั้ง',
+  err_addr_checksum: '⚠️ This address has a typing mistake in it — the chain itself rejected it (its built-in error check failed). Copy the address fresh from the wallet app and paste it again — do not type it by hand.',
   note_prices_major: 'ราคา: ราคา spot ของ {sym} จาก CoinPaprika / CoinGecko (เจ้าไหนตอบก่อน) denom อื่น ๆ จะแสดงโดยไม่มีราคาตลาดและไม่นับในยอดรวม เป็นการประมาณมูลค่าตลาด — ไม่ใช่คำสัญญาว่าจะขายได้เท่าใด ',
   no_native: 'ไม่พบยอดคงเหลือแบบ native บนเชนสำหรับกระเป๋าเงินนี้', no_price: 'ไม่มีราคาตลาด',
   cnt_denom: '· {n} หน่วย', cnt_denoms: '· {n} หน่วย',
@@ -2939,7 +2993,7 @@ I18N.th = {
   fp_how: '<b>วิธีอ่านหน้านี้:</b> ทุกอย่างที่แสดงถูกอ่านสดจากข้อมูลเชนสาธารณะเมื่อคุณแตะ "{lookup}" ยอดคงเหลือแบบ native สเตกกิ้ง และรางวัลมาจากเชนโดยตรง (LCD) ยอดคงเหลือโทเคนถูกค้นพบผ่านดัชนี explorer จากนั้น<b>ยืนยันซ้ำทีละรายการด้วยการสอบถามบนเชนโดยตรง</b> — แสดงเฉพาะยอดที่ยืนยันแล้ว ราคามาจากแหล่งสาธารณะที่ระบุไว้บนการ์ดมูลค่าเท่านั้น สิ่งใดไม่มีราคาจริงจะแสดงพร้อม "{no_price}" และถูกตัดออกจากยอดรวม',
   fp_not_shown: 'ยังไม่แสดงในเวอร์ชันนี้: NFT ที่เก็บในสัญญาสเตกกิ้งอื่นนอกจาก FRG NFT Staking ตำแหน่ง cross-staking / โรงงาน NFT ของ Garuda และตำแหน่ง LP แต่ละส่วนจะระบุขอบเขตของตัวเองเมื่อเป็นบางส่วน',
   fp_free_tool: 'เป็นเครื่องมือชุมชนฟรี',
-  fp_unofficial: 'เครื่องมือชุมชนอย่างไม่เป็นทางการ — ไม่เกี่ยวข้องกับ Terra, LuncScan หรือโครงการใดที่แสดง ให้บริการฟรีตามสภาพ เพื่อข้อมูลเท่านั้น ไม่ใช่คำแนะนำทางการเงิน หน้านี้ไม่เคยกักเก็บกุญแจหรือเงินทุน ไม่เคยขอให้คุณเชื่อมต่อกระเป๋าเงินหรือเซ็นอะไร และไม่เก็บสิ่งที่คุณป้อน โปรดยืนยันตัวเลขสำคัญในกระเป๋าเงินของคุณเองเสมอ'
+kava_note: 'หมายเหตุ Kava: แท็บนี้อ่านด้าน Cosmos ของ Kava (ที่อยู่ kava1…) Kava ยังมีด้าน EVM ซึ่งใช้ที่อยู่ 0x… — ยอดคงเหลือที่นั่นจะไม่อ่านที่นี่',   fp_unofficial: 'เครื่องมือชุมชนอย่างไม่เป็นทางการ — ไม่เกี่ยวข้องกับ Terra, LuncScan หรือโครงการใดที่แสดง ให้บริการฟรีตามสภาพ เพื่อข้อมูลเท่านั้น ไม่ใช่คำแนะนำทางการเงิน หน้านี้ไม่เคยกักเก็บกุญแจหรือเงินทุน ไม่เคยขอให้คุณเชื่อมต่อกระเป๋าเงินหรือเซ็นอะไร และไม่เก็บสิ่งที่คุณป้อน โปรดยืนยันตัวเลขสำคัญในกระเป๋าเงินของคุณเองเสมอ'
 };
 I18N.ko = {
   sponsored_by: '후원', scope_strip: '무료 — 모든 지갑 조회', proposal_btn: '📜 Luna Classic에서 제안 만드는 방법', language_word: '언어', wallet_address_aria: '지갑 주소',
@@ -2961,6 +3015,7 @@ I18N.ko = {
   err_addr_do: 'DO Chain 주소처럼 보이지 않습니다 (do1…). 확인 후 다시 시도하세요.',
   placeholder_chain: '{p}… 주소를 붙여넣으세요',
   err_addr_chain: '{name} 주소처럼 보이지 않습니다 ({p}…). 확인 후 다시 시도하세요.',
+  err_addr_checksum: '⚠️ This address has a typing mistake in it — the chain itself rejected it (its built-in error check failed). Copy the address fresh from the wallet app and paste it again — do not type it by hand.',
   note_prices_major: '가격: CoinPaprika / CoinGecko의 {sym} 현물 가격(먼저 응답하는 쪽); 다른 모든 단위는 시장 가격 없이 표시되고 합계에서 제외됩니다. 시장 가치의 추정이며 판매 시 받을 금액에 대한 약속이 아닙니다. ',
   no_native: '이 지갑의 네이티브 잔액이 온체인에서 발견되지 않았습니다.', no_price: '시장 가격 없음',
   cnt_denom: '· {n}개 단위', cnt_denoms: '· {n}개 단위',
@@ -3090,7 +3145,7 @@ I18N.ko = {
   fp_how: '<b>이 페이지를 읽는 방법:</b> 표시되는 모든 것은 "{lookup}"을 누를 때 공개 체인 데이터에서 실시간으로 읽어옵니다. 네이티브 잔액, 스테이킹, 보상은 체인(LCD)에서 직접 가져옵니다. 토큰 잔액은 탐색기 인덱스를 통해 발견된 후 <b>직접 온체인 쿼리로 하나씩 다시 확인됩니다</b> — 확인된 잔액만 표시됩니다. 가격은 가치 카드에 명시된 공개 출처에서만 가져옵니다. 실제 가격이 없는 것은 모두 "{no_price}"로 나열되고 합계에서 제외됩니다.',
   fp_not_shown: '이 버전에서 아직 표시되지 않는 것: FRG NFT Staking 이외의 스테이킹 계약에 보관된 NFT, Garuda 크로스 스테이킹 / NFT 팩토리 포지션, LP 포지션. 섹션은 범위가 부분적일 때 자체 범위를 명시합니다.',
   fp_free_tool: '무료 커뮤니티 도구입니다.',
-  fp_unofficial: '비공식 커뮤니티 도구 — Terra, LuncScan 또는 표시된 어떤 프로젝트와도 제휴하지 않습니다. 무료로 있는 그대로 제공되며 정보 제공만을 목적으로 합니다. 재정 조언이 아닙니다. 이 페이지는 키나 자금을 절대 보관하지 않으며, 지갑 연결이나 서명을 절대 요구하지 않고, 입력한 어떤 것도 저장하지 않습니다. 중요한 수치는 항상 본인의 지갑에서 확인하세요.'
+kava_note: 'Kava 참고: 이 탭은 Kava의 Cosmos 측(kava1… 주소)을 읽습니다. Kava에는 0x… 주소를 사용하는 EVM 측도 있습니다 — 그곳의 잔액은 여기서 읽지 않습니다.',   fp_unofficial: '비공식 커뮤니티 도구 — Terra, LuncScan 또는 표시된 어떤 프로젝트와도 제휴하지 않습니다. 무료로 있는 그대로 제공되며 정보 제공만을 목적으로 합니다. 재정 조언이 아닙니다. 이 페이지는 키나 자금을 절대 보관하지 않으며, 지갑 연결이나 서명을 절대 요구하지 않고, 입력한 어떤 것도 저장하지 않습니다. 중요한 수치는 항상 본인의 지갑에서 확인하세요.'
 };
 I18N.ja = {
   sponsored_by: '提供', scope_strip: '無料 — どのウォレットでも確認', proposal_btn: '📜 Luna Classicで提案を作成する方法', language_word: '言語', wallet_address_aria: 'ウォレットアドレス',
@@ -3112,6 +3167,7 @@ I18N.ja = {
   err_addr_do: 'DO Chain のアドレスのようには見えません（do1…）。確認して再試行してください。',
   placeholder_chain: '{p}… アドレスを貼り付け',
   err_addr_chain: '{name} のアドレスのようには見えません（{p}…）。確認して再試行してください。',
+  err_addr_checksum: '⚠️ This address has a typing mistake in it — the chain itself rejected it (its built-in error check failed). Copy the address fresh from the wallet app and paste it again — do not type it by hand.',
   note_prices_major: '価格：CoinPaprika / CoinGecko の {sym} スポット価格（先に応答した方）。他のすべての denom は市場価格なしで表示され、合計には含まれません。市場価値の見積もりであり、売却で得られる金額の約束ではありません。 ',
   no_native: 'このウォレットのネイティブ残高はオンチェーンで見つかりませんでした。', no_price: '市場価格なし',
   cnt_denom: '· {n} 単位', cnt_denoms: '· {n} 単位',
@@ -3241,7 +3297,7 @@ I18N.ja = {
   fp_how: '<b>このページの読み方：</b>表示されるものはすべて、「{lookup}」をタップしたときに公開チェーンデータからライブで読み取られます。ネイティブ残高、ステーキング、報酬はチェーン（LCD）から直接取得します。トークン残高はエクスプローラーのインデックス経由で探索され、その後<b>直接のオンチェーンクエリで1つずつ再確認されます</b> — 確認済みの残高のみ表示されます。価格は価値カードに記載された公開ソースからのみ取得します。実際の価格がないものはすべて「{no_price}」と表示され、合計には含まれません。',
   fp_not_shown: 'このバージョンでまだ表示されないもの：FRG NFT Staking 以外のステーキングコントラクトに保管された NFT、Garuda のクロスステーキング / NFT ファクトリーのポジション、LP ポジション。セクションは対象範囲が部分的な場合、その旨を明記します。',
   fp_free_tool: 'は無料のコミュニティツールです。',
-  fp_unofficial: '非公式のコミュニティツール — Terra、LuncScan、表示されているいずれのプロジェクトとも提携していません。無料で現状のまま提供され、情報提供のみを目的とします。投資助言ではありません。このページはキーや資金を保持することは決してなく、ウォレットの接続や署名を求めることも決してなく、入力した内容を保存することもありません。重要な数値は必ずご自身のウォレットで確認してください。'
+kava_note: 'Kavaに関する注意：このタブはKavaのCosmos側（kava1…アドレス）を読み取ります。Kavaには0x…アドレスを使うEVM側もあります — そちらの残高はここでは読み取りません。',   fp_unofficial: '非公式のコミュニティツール — Terra、LuncScan、表示されているいずれのプロジェクトとも提携していません。無料で現状のまま提供され、情報提供のみを目的とします。投資助言ではありません。このページはキーや資金を保持することは決してなく、ウォレットの接続や署名を求めることも決してなく、入力した内容を保存することもありません。重要な数値は必ずご自身のウォレットで確認してください。'
 };
 I18N.zh = {
   sponsored_by: '赞助方', scope_strip: '免费 — 查看任何钱包', proposal_btn: '📜 如何在 Luna Classic 上创建提案', language_word: '语言', wallet_address_aria: '钱包地址',
@@ -3263,6 +3319,7 @@ I18N.zh = {
   err_addr_do: '这看起来不像 DO Chain 地址（do1…）。请检查后重试。',
   placeholder_chain: '粘贴 {p}… 地址',
   err_addr_chain: '这看起来不像 {name} 地址（{p}…）。请检查后重试。',
+  err_addr_checksum: '⚠️ This address has a typing mistake in it — the chain itself rejected it (its built-in error check failed). Copy the address fresh from the wallet app and paste it again — do not type it by hand.',
   note_prices_major: '价格：{sym} 现货价格来自 CoinPaprika / CoinGecko（以先响应者为准）；其他所有面额均以无市场价格显示，不计入总额。这是市场价值的估算，并非出售所得的承诺。 ',
   no_native: '未在链上找到此钱包的原生余额。', no_price: '无市场价格',
   cnt_denom: '· {n} 个面额', cnt_denoms: '· {n} 个面额',
@@ -3392,7 +3449,7 @@ I18N.zh = {
   fp_how: '<b>如何阅读本页面：</b>当你点击"{lookup}"时，显示的所有内容都从公开链上数据实时读取。原生余额、质押和奖励直接来自链（LCD）。代币余额通过浏览器索引发现，然后<b>通过直接链上查询逐一重新验证</b>——只显示已验证的余额。价格仅来自价值卡上注明的公开来源；任何没有真实价格的内容都以"{no_price}"列出，并排除在总额之外。',
   fp_not_shown: '此版本尚未显示：保存在 FRG NFT Staking 以外质押合约中的 NFT、Garuda 跨质押 / NFT 工厂持仓以及 LP 持仓。各部分在覆盖范围为部分时会注明其覆盖范围。',
   fp_free_tool: '是一个免费的社区工具。',
-  fp_unofficial: '非官方社区工具——与 Terra、LuncScan 或任何显示的项目无关。免费按原样提供，仅供参考；不是财务建议。本页面永远不会持有密钥或资金，永远不会要求你连接钱包或签署任何内容，也不会存储你输入的任何内容。请始终在自己的钱包中验证重要数字。'
+kava_note: 'Kava 说明：此标签读取 Kava 的 Cosmos 侧（kava1… 地址）。Kava 还有使用 0x… 地址的 EVM 侧——那里的余额不在此处读取。',   fp_unofficial: '非官方社区工具——与 Terra、LuncScan 或任何显示的项目无关。免费按原样提供，仅供参考；不是财务建议。本页面永远不会持有密钥或资金，永远不会要求你连接钱包或签署任何内容，也不会存储你输入的任何内容。请始终在自己的钱包中验证重要数字。'
 };
 
 /* ── Lookup orchestration ──────────────────────────────────────── */
@@ -3434,11 +3491,41 @@ function validAddr(a){
    tested on the raw text, never lowercased. */
 function detectChain(raw){
   var low = raw.toLowerCase();
-  var ids = ['terra', 'do', 'cosmos', 'osmosis'];
+  var ids = ['terra', 'do', 'cosmos', 'osmosis', 'kava'];
   for (var i = 0; i < ids.length; i++) if (CHAINS[ids[i]].addrRe.test(low)) return ids[i];
   if (CHAINS.ethereum.addrRe.test(low)) return 'ethereum';
   if (CHAINS.solana.addrRe.test(raw)) return 'solana';
   return null;
+}
+/* Bech32 checksum (BIP-173) — catches a mistyped address BEFORE the
+   silent-zero trap: the LCD rejects a bad-checksum address and the
+   sections would otherwise show empty. */
+var BECH32_CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+function bech32Polymod(values){
+  var GEN = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+  var chk = 1;
+  for (var i = 0; i < values.length; i++){
+    var top = chk >> 25;
+    chk = ((chk & 0x1ffffff) << 5) ^ values[i];
+    for (var j = 0; j < 5; j++) if ((top >> j) & 1) chk ^= GEN[j];
+  }
+  return chk;
+}
+function bech32Valid(addr){
+  if (!addr || addr.length > 90) return false;
+  var pos = addr.lastIndexOf('1');
+  if (pos < 1 || pos + 7 > addr.length) return false;
+  var data = [];
+  var hrp = addr.slice(0, pos);
+  for (var i = 0; i < hrp.length; i++) data.push(hrp.charCodeAt(i) >> 5);
+  data.push(0);
+  for (var k = 0; k < hrp.length; k++) data.push(hrp.charCodeAt(k) & 31);
+  for (var m = pos + 1; m < addr.length; m++){
+    var v = BECH32_CHARSET.indexOf(addr.charAt(m));
+    if (v < 0) return false;
+    data.push(v);
+  }
+  return bech32Polymod(data) === 1;
 }
 function lookup(){
   var rawIn = $('addrInput').value.trim();
@@ -3451,6 +3538,11 @@ function lookup(){
       : chain === 'solana' ? tr('err_addr_solana')
       : chain === 'ethereum' ? tr('err_addr_eth')
       : tr('err_addr_chain', { name: cfg().name, p: cfg().prefix }));
+    return;
+  }
+  var BECH32_CHAINS = { terra:1, do:1, cosmos:1, osmosis:1, kava:1 };
+  if (BECH32_CHAINS[chain] && !bech32Valid(a)){
+    showErr(tr('err_addr_checksum'));
     return;
   }
   showErr('');
@@ -3719,6 +3811,7 @@ function loadStaking(run){
           '<span class="v">' + fmtAmt(r.amount, 6) + '</span></div>';
       });
     }
+    if (chain === 'kava') html += '<p class="small">' + tr('kava_note') + '</p>';
     $('stkBody').innerHTML = html;
     $('stkCnt').textContent = rows.length ? '· ' + fmtAmt(String(totalStaked), 6) + ' ' + cfg().nativeSymbol : '';
     renderClaimable(run);
