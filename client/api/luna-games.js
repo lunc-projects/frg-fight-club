@@ -1008,6 +1008,94 @@ export async function tokenSlotHandler(req, res) {
 }
 /* token-slot:end */
 
+/* hussy-signals:start — DEV STUDIO SIGNALS chain-token candle relay,
+   folded into this router for the same 12-function-cap reason as the
+   fx-signal relay above. Reached via ?hsig=<TOKEN> (the signals page
+   calls /api/luna-games?hsig=<TOKEN> directly — no vercel.json
+   rewrite needed, same as ?fxpair=). Why: the DEV STUDIO SIGNALS page
+   (client/public/fx-signals-h7q2/) needs 1-minute candles for chain
+   tokens from Yahoo Finance, which sends no CORS header, so the page
+   cannot read Yahoo from a browser. This relay fetches Yahoo
+   SERVER-side and returns trimmed candles only — timestamps plus
+   OHLC, null closes dropped, exactly the shape the page's engine
+   consumes (same MACD 12,26,9 + DeMarker 7 engine as the Forex bot).
+   Allowlist: ONLY the tokens below, each verified server-side on
+   2026-11-08 to serve real 1-minute Yahoo candles (token -> Yahoo
+   symbol). Anything else is a 400, so the relay can never be used
+   as an open Yahoo proxy. Terra Classic CW20s (FRG, GDEX, ...) have
+   NO Yahoo feed and are NOT in this allowlist — the page lists them
+   UNAVAILABLE rather than guessing. It holds no keys, signs
+   nothing, stores nothing, and never logs the request. */
+const HSIG_SYMBOLS = {
+  /* Luna Classic (Terra Classic) */
+  LUNC: 'LUNC-USD', USTC: 'USTC-USD',
+  /* Ethereum */
+  ETH: 'ETH-USD', LINK: 'LINK-USD', UNI: 'UNI7083-USD', AAVE: 'AAVE-USD',
+  SHIB: 'SHIB-USD', PEPE: 'PEPE24478-USD', CRV: 'CRV-USD', LDO: 'LDO-USD',
+  /* Solana */
+  SOL: 'SOL-USD', RAY: 'RAY-USD', BONK: 'BONK-USD', WIF: 'WIF-USD',
+  JTO: 'JTO-USD', ORCA: 'ORCA-USD', PYTH: 'PYTH-USD',
+  /* BNB Chain */
+  BNB: 'BNB-USD', CAKE: 'CAKE-USD', TWT: 'TWT-USD', XVS: 'XVS-USD',
+  /* Cosmos */
+  ATOM: 'ATOM-USD', OSMO: 'OSMO-USD', INJ: 'INJ-USD', TIA: 'TIA-USD',
+  SEI: 'SEI-USD', KUJI: 'KUJI-USD', AKT: 'AKT-USD',
+  /* Kava */
+  KAVA: 'KAVA-USD',
+};
+const HSIG_UPSTREAM = 'https://query1.finance.yahoo.com/v8/finance/chart/';
+
+export async function hsPairHandler(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'method not allowed' });
+  const token = String((req.query && req.query.hsig) || '').toUpperCase();
+  const symbol = HSIG_SYMBOLS[token];
+  if (!symbol) return res.status(400).json({ error: 'token not allowed' });
+  const url = HSIG_UPSTREAM + encodeURIComponent(symbol) + '?interval=1m&range=1d';
+  try {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 12000);
+    const r = await fetch(url, {
+      headers: { 'user-agent': 'Mozilla/5.0 (compatible; dev-studio-signals-relay)' },
+      signal: ctl.signal,
+    });
+    clearTimeout(t);
+    if (!r.ok) return res.status(502).json({ error: 'price source unavailable (HTTP ' + r.status + ')' });
+    const data = await r.json();
+    const result = data && data.chart && Array.isArray(data.chart.result) ? data.chart.result[0] : null;
+    const q = result && result.indicators && Array.isArray(result.indicators.quote) ? result.indicators.quote[0] : null;
+    if (!result || !Array.isArray(result.timestamp) || !q || !Array.isArray(q.close)) {
+      return res.status(502).json({ error: 'price source returned no candle data' });
+    }
+    const candles = [];
+    for (let i = 0; i < result.timestamp.length; i++) {
+      const c = q.close[i];
+      if (c === null || c === undefined) continue;
+      candles.push({
+        t: result.timestamp[i],
+        o: (q.open && q.open[i] != null) ? q.open[i] : c,
+        h: (q.high && q.high[i] != null) ? q.high[i] : c,
+        l: (q.low && q.low[i] != null) ? q.low[i] : c,
+        c,
+      });
+    }
+    if (!candles.length) return res.status(502).json({ error: 'price source returned no candles' });
+    res.setHeader('Cache-Control', 's-maxage=30, stale-while-revalidate=30');
+    return res.status(200).json({
+      ok: true,
+      token,
+      symbol,
+      source: 'Yahoo Finance (site server)',
+      fetchedAt: Date.now(),
+      regularMarketTime: (result.meta && result.meta.regularMarketTime) || null,
+      candles,
+    });
+  } catch (e) {
+    console.error('hsig relay failed', token, e && e.message);
+    return res.status(502).json({ error: 'price source unavailable' });
+  }
+}
+/* hussy-signals:end */
+
 export default async function handler(req, res) {
   /* Wallet Scope counter: /api/scope-count is rewritten to
      /api/luna-games?scope=1 (see the wallet-scope block above). Runs
@@ -1034,6 +1122,10 @@ export default async function handler(req, res) {
      ?fxpair=<PAIR> directly (see the fx-signal block above). Runs
      before game dispatch; game requests never carry ?fxpair. */
   if (req.query && req.query.fxpair !== undefined) return fxPairHandler(req, res);
+  /* DEV STUDIO SIGNALS chain-token candle relay: the signals page
+     calls ?hsig=<TOKEN> directly (see the hussy-signals block above).
+     Runs before game dispatch; game requests never carry ?hsig. */
+  if (req.query && req.query.hsig !== undefined) return hsPairHandler(req, res);
   const game = String((req.query && req.query.game) || '');
   let cfg = GAMES[game];
   if (!cfg) return res.status(400).json({ error: 'unknown game' });
