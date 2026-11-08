@@ -527,7 +527,7 @@ const BREACH_Z = 11.6;
 let enemySeq = 0;
 const KINDS = {
   chip:   { scale: 0.62, hp: 1, speedF: 1.5,  dough: 0xe0b06a, rBase: 0.36 },
-cookie: <redacted>
+  cookie: { scale: 1.0,  hp: 2, speedF: 1.0,  dough: 0xd9a45f, rBase: 0.36 },
   chunk:  { scale: 1.5,  hp: 3, speedF: 0.58, dough: 0xbf8742, rBase: 0.34 },
 };
 const chipMatShared = new THREE.MeshStandardMaterial({ color: 0x3a2110, roughness: .6 });
