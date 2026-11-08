@@ -765,6 +765,11 @@ function onBumper(b, bm){
 }
 function onSling(b, sl){ addScore(500, (sl.x1 + sl.x2) / 2, sl.y1); G.bonusPool += 50; sfx('sling'); }
 function onLuncTarget(b, tg){
+  // ROUND-4: a hit registers REGARDLESS of the lamp bookkeeping below. The
+  // counter increment used to sit after the lamp-state write; any throw in
+  // between silently ate the hit and the letter looked frozen (the owner's
+  // "left letter seems frozen" — the L target is the first/leftmost drop).
+  if (tg.down) return;
   tg.down = true; tg.flash = 1; G.luncDone++;
   addScore(2500, tg.cx + 16, tg.cy, tg.letter); G.bonusPool += 500; sfx('target'); spark(tg.cx + 10, tg.cy, '#f5c542', 7);
   if (G.luncDone >= 4){
@@ -821,14 +826,18 @@ function checkMoonMaster(){
   G.moonHits = (G.moonHits || 0);
 }
 function startMultiball(triggerBall){
+  // ROUND-4 CAP: live balls can never exceed 4 (2 held locks + the trigger
+  // ball + ONE served ball). The old code ALSO queued two serveBall timers,
+  // which piled the table to 5+ balls — draining a ball then left the array
+  // over-full, and the stacked serves are what the owner filmed (4+ balls
+  // live, table lights chasing, game over in ~15 s).
   G.inMultiball = true; G.locks = 0; G.jackpots = 0;
   heldBalls.forEach(h => { h.dead = false; h.held = false; h.mode = 'saucer'; h.saucerT = .4; h.saucerAge = 0; h.saucerCool = 1.6; h.x = SAUCER.x; h.y = SAUCER.y; if (!G.balls.includes(h)) G.balls.push(h); });
   heldBalls = [];
   if (triggerBall && !G.balls.includes(triggerBall)) G.balls.push(triggerBall);
   dmdShow(T('dmMulti'), { dur: 2400, big: true, prio: 2 }); sfx('multi');
   spark(SAUCER.x, SAUCER.y, '#f5c542', 26);
-  setTimeout(() => { if (G.state === 'playing') serveBall(true); }, 500);
-  setTimeout(() => { if (G.state === 'playing') serveBall(true); }, 1200);
+  setTimeout(() => { if (G.state === 'playing' && G.balls.filter(x => !x.dead && !x.held).length < 4) serveBall(true); }, 500);
   G.saveUntil = performance.now() + 15000; // generous save at MB start
 }
 let heldBalls = [];
@@ -1200,7 +1209,7 @@ function draw(now){
     ctx.fillStyle = pg2; ctx.beginPath(); ctx.arc(wp.x, wp.y, wr, 0, 7); ctx.fill();
     ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.beginPath(); ctx.arc(wp.x - wr * .3, wp.y - wr * .3, wr * .32, 0, 7); ctx.fill(); }
   // lane dividers caps drawn via posts already; lane inserts
-  const attract = (G.state === 'menu' || G.state === 'over');
+  const attract = (G.state === 'menu' || G.state === 'over' || G.state === 'coinwait'); // ROUND-4: coinwait is an idle state too — without it, the coin tap that moved menu→coinwait killed the chase, so the L/U/N lamps read as a frozen letter while waiting for START (owner: "left letter seems frozen").
   lanes.forEach((l, i) => {
     const chase = attract && ((nowMs / 240 + i) % 3 < 1);
     drawInsertLabel(l.x, l.y, l.letter, l.lit || chase || l.skill, l.skill ? '#ff5d7a' : '#ffd968', 14);
@@ -1485,6 +1494,12 @@ function bindHold(el, down, up, isPlungerBtn){
 function setFlip(side, on){
   const f = flippers[side === 'L' ? 0 : 1];
   if (G.tilted) on = false;
+  // ROUND-4: while paused NO press may latch. A press during pause set
+  // f.pressed with no running loop to clear it on some paths, and the bat
+  // then sat at its UP angle after resume — the owner's video shows both
+  // flippers RESTING ANGLED UP between bursts. On resume the loop targets
+  // rest again only if pressed is false, so never let it stick here.
+  if (G.paused) on = false;
   if (on && !f.pressed){ sfx('flip'); if (G.state === 'playing'){ laneChange(side === 'L' ? -1 : 1); } if (G.state === 'bonus') skipBonus(); }
   f.pressed = on;
 }
@@ -1655,7 +1670,12 @@ function hideAllScreens(){ screens.forEach(s => $(s).classList.remove('show')); 
 function updateCredits(){ $('creditNum').textContent = G.credits; $('creditNum2').textContent = G.credits; $('startBtn').disabled = G.credits <= 0; }
 $('coinBtn').addEventListener('click', () => {
   audio(); sfx('coin'); G.credits = Math.min(9, G.credits + 1); updateCredits();
-  if (G.state === 'menu'){ G.state = 'coinwait'; hideAllScreens(); }
+  // ROUND-4: do NOT hide the menu/game-over screen on coin insert. The old
+  // handler flipped state to 'coinwait' and hid every screen — on the
+  // game-over screen that made the INSERT COIN AGAIN button vanish and left
+  // taps landing on a bare table until a credit finally registered (owner's
+  // video: ~10 s of dead taps, credits 0→1 late, then →2, START only after).
+  // Credits now count instantly on whichever screen is up; START spends one.
   dmdShow(T('dmCredit').replace('{n}', G.credits) + ' · ' + T('dmStart'), { dur: 1500 });
 });
 $('startBtn').addEventListener('click', () => { audio(); startGame(); });
@@ -1664,12 +1684,17 @@ $('howClose').addEventListener('click', () => showScreen(G.state === 'over' ? 'o
 $('boardBtn').addEventListener('click', () => { showScreen('boardScreen'); loadBoard(); });
 $('boardClose').addEventListener('click', () => showScreen(G.state === 'over' ? 'overScreen' : 'menuScreen'));
 $('overBoardBtn').addEventListener('click', () => { showScreen('boardScreen'); loadBoard(); });
-$('againBtn').addEventListener('click', () => { if (G.credits > 0){ startGame(); } else { G.state = 'menu'; showScreen('menuScreen'); } });
+$('againBtn').addEventListener('click', () => { if (G.credits > 0){ startGame(); } else { $('coinBtn').click(); if (G.credits > 0) startGame(); } }); // ROUND-4: INSERT COIN AGAIN with no credits now inserts AND starts in one tap (was: bounced to the menu, forcing the coin/START dance the owner filmed)
 $('tabAll').addEventListener('click', () => { boardTab = 'all'; $('tabAll').classList.add('on'); $('tabWeek').classList.remove('on'); renderBoard(); });
 $('tabWeek').addEventListener('click', () => { boardTab = 'week'; $('tabWeek').classList.add('on'); $('tabAll').classList.remove('on'); renderBoard(); });
 function togglePause(){
   if (G.state !== 'playing' && G.state !== 'bonus') return;
   G.paused = !G.paused;
+  // ROUND-4: entering pause drops every flipper input — a bat held up by a
+  // press that lands (or is released unseen) during the pause overlay must
+  // come back DOWN, and clearing here guarantees the resume frame targets
+  // rest for both bats.
+  if (G.paused){ flippers.forEach(f => f.pressed = false); touchFlip.L = null; touchFlip.R = null; }
   if (G.paused) showScreen('pauseScreen'); else hideAllScreens();
 }
 $('pauseBtn').addEventListener('click', togglePause);
