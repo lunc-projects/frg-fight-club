@@ -1404,10 +1404,14 @@ function animate() {
       S.laneX += (S.steerX - S.laneX) * (1 - Math.exp(-20 * dt));
       S.lane = Math.max(0, Math.min(2, Math.round(S.relX / 2.3) + 1));
     } else {
-      /* lane target rides the bend too: lanes are relative to the
-         (moving) centre line, so add the same per-frame drift */
-      const targetX = LANE_X[S.lane] + bendDrift;
-      S.laneX += (targetX - S.laneX) * (1 - Math.exp(-11 * dt)) + bendDrift * Math.exp(-11 * dt);
+      /* lane target rides the bend: lanes are relative to the (moving)
+         centre line. The per-frame bend drift is NOT added again here —
+         the CURVE CARRY block above already folds bendDrift into laneX
+         exactly once (the old code added it a second time inside this
+         branch, which drained relX by one bendDrift per frame and slid
+         the hero sideways off the road on every bend). */
+      const targetX = trackBend(S.dist) + LANE_X[S.lane];
+      S.laneX += (targetX - S.laneX) * (1 - Math.exp(-11 * dt));
     }
     S.relX = S.laneX - trackBend(S.dist);
 
