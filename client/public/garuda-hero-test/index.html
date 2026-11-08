@@ -508,7 +508,7 @@ function musicNote(freq, t, dur, type, vol){
 }
 function musicTick(){
   try {
-    if (!AC) return;
+    if (!AC || AC.state !== 'running') return;
     const M = MOODS[music.mood];
     const stepDur = 60 / M.bpm / 2; /* eighth notes */
     while (music.next < AC.currentTime + 0.25){
@@ -538,6 +538,37 @@ function stopMusic(){
   if (music.timer){ clearInterval(music.timer); music.timer = null; }
   try { if (music.master) music.master.disconnect(); } catch (e) {}
   music.master = null;
+}
+/* ================= audio auto-shutdown (runaway-music fix) =================
+   Tom's bug (Nov 8): close the game and the music keeps playing from the
+   background tab. Garuda was the ONLY game on the site with this bug —
+   Pinball AUTO-PAUSES on visibilitychange (its line 1814) and Candle Chaos
+   has no looping music at all (one-shot tones only). Garuda's
+   visibilitychange handler only cleared the touch stick, so the music
+   setInterval kept scheduling notes into a live AudioContext forever.
+   Defence in depth below: hide -> sequencer stopped + context suspended;
+   close/unload -> context hard-closed; return -> music restarts ONLY
+   inside an active run, never on the menu. */
+function suspendAudio(){
+  stopMusic();
+  try { if (AC && AC.state === 'running' && AC.suspend) AC.suspend().catch(() => {}); } catch (e) {}
+}
+function hardStopAudio(){
+  stopMusic();
+  try {
+    if (AC){
+      if (AC.close) AC.close().catch(() => {});
+      else if (AC.suspend) AC.suspend().catch(() => {});
+    }
+  } catch (e) {}
+  AC = null; /* a closed context is unusable — the next tap builds a fresh one */
+}
+function resumeAudioIfRunning(){
+  if (muted || !running || preview.on) return;
+  try {
+    if (AC && AC.state === 'suspended' && AC.resume) AC.resume().catch(() => {});
+  } catch (e) {}
+  ensureMusic();
 }
 function setMood(n){ music.mood = moodFor(n); }
 function ensureMusic(){ if (!muted) startMusic(); }
@@ -1576,6 +1607,7 @@ function resetRun(n){
 }
 function levelComplete(){
   running = false;
+  stopMusic(); /* between levels — NEXT restarts the music via ensureMusic */
   const _mr = recordMedal(level, levelTime);
   lastMedal = _mr.medal; lastMedalBest = _mr.isBest;
   const par = 60 + (level - 1) * 5;
@@ -1616,6 +1648,7 @@ function levelComplete(){
 }
 function showOver(kind){
   running = false;
+  stopMusic(); /* run over — menu stays silent until PLAY is tapped again */
   saveProgress();
   const best = +(localStorage.getItem('garudaBest') || 0);
   const won = kind === 'complete';
@@ -4242,6 +4275,7 @@ function enterPreview(){
   startPreviewLevel(1);
 }
 function exitPreview(){
+  stopMusic();
   preview.on = false;
   $('pvUi').style.display = 'none';
   $('ui').style.display = '';
@@ -4403,7 +4437,12 @@ $('btnS').addEventListener('pointerdown', e => { e.preventDefault(); tryScreech(
 /* global anti-stick safety net: focus loss or a hidden tab kills all touch
    input state, even if some pointer event never reached us */
 addEventListener('blur', stickClear);
-document.addEventListener('visibilitychange', () => { if (document.hidden) stickClear(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden){ stickClear(); suspendAudio(); }
+  else resumeAudioIfRunning();
+});
+addEventListener('pagehide', hardStopAudio);
+addEventListener('beforeunload', hardStopAudio);
 cv.addEventListener('touchstart', e => {
   e.preventDefault();
   if (intro.on){ hideIntro(); return; }
@@ -4560,6 +4599,7 @@ $('levelEndBtn').onclick = () => {
   showOver('ended');
 };
 $('againBtn').onclick = () => {
+  stopMusic();
   $('overScreen').style.display = 'none';
   renderPicker();
   $('startScreen').style.display = 'flex';
