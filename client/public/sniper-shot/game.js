@@ -1263,21 +1263,25 @@ const MAG = 5;
 const player = { ammo: MAG, chamberT: 0, reloadT: 0, scoped: false, zoomIdx: 0, zoomFov: 15,
   breath: 1, holding: false, breathLock: false, kick: 0, boltT: -1 };
 /* Graded scope (Tom's note, Nov 6): zoom is a CONTINUOUS value, not an
-   in/out toggle. The scope magnifies from ~2.2x (fov 25) up to ~8x
-   (fov 6.8); the ZOOM button steps through three labelled stops
-   (2x / 4x / 8x), the − / + buttons nudge in small smooth steps, the
-   wheel and pinch zoom are smooth, and the setting STAYS where the
-   player leaves it between shots and waves — setScope never touches it. */
+   in/out toggle. The scope magnifies from 1x (fov 55 — the plain
+   unscoped view, zero extra zoom) up to ~8x (fov 6.8); the ZOOM button
+   steps through four labelled stops (1x / 2x / 4x / 8x), the − / +
+   buttons nudge in small smooth steps, the wheel and pinch zoom are
+   smooth, and the setting STAYS where the player leaves it between
+   shots and waves — setScope never touches it.
+   (Tom, Nov 7: "all the Scopes that we use make it go from 2x to 0" —
+   the zoom floor is 1x, so the player can always zoom all the way back
+   out to the plain view without leaving the scope.) */
 const ZOOMS = [15, 10.5, 7.2]; // QA-friendly stops (fov); kept for harness compat
-const FOV_PLAIN = 55, FOV_WIDE = 25, FOV_MAX = 6.8;
-const ZOOM_STOPS = [{ fov: 24, label: '2X' }, { fov: 12.6, label: '4X' }, { fov: 6.8, label: '8X' }];
+const FOV_PLAIN = 55, FOV_WIDE = 55, FOV_MAX = 6.8; // FOV_WIDE (widest scoped view / min zoom) = FOV_PLAIN itself: 1x, zero extra zoom (Tom, Nov 7)
+const ZOOM_STOPS = [{ fov: 55, label: '1X' }, { fov: 24, label: '2X' }, { fov: 12.6, label: '4X' }, { fov: 6.8, label: '8X' }];
 function zoomLabel(fov = player.zoomFov) { return (FOV_PLAIN / fov).toFixed(1).replace(/\.0$/, '') + 'X'; } // magnification vs the plain unscoped view
 function setZoomFov(f) {
   player.zoomFov = THREE.MathUtils.clamp(f, FOV_MAX, FOV_WIDE);
   player.zoomIdx = ZOOMS.reduce((bi, z, i) => Math.abs(z - player.zoomFov) < Math.abs(ZOOMS[bi] - player.zoomFov) ? i : bi, 0);
   updateZoomReadout();
 }
-function cycleZoom() { // ZOOM button: 2x -> 4x -> 8x -> 2x …
+function cycleZoom() { // ZOOM button: 1x -> 2x -> 4x -> 8x -> 1x …
   const next = ZOOM_STOPS.find(s => s.fov < player.zoomFov - 0.6) || ZOOM_STOPS[0];
   setZoomFov(next.fov);
 }
