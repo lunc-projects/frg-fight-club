@@ -341,7 +341,7 @@ function dmdShow(text, opts){
   const item = { text: String(text), dur: opts.dur || 1900, big: !!opts.big, prio: opts.prio || 0 };
   if (item.prio >= 2){ dmdCurrent = item; dmdUntil = performance.now() + item.dur; dmdQueue.length = 0; return; }
   if (!dmdCurrent || performance.now() > dmdUntil){ dmdCurrent = item; dmdUntil = performance.now() + item.dur; }
-  else dmdQueue.push(item);
+  else { dmdQueue.push(item); if (dmdQueue.length > 3) dmdQueue.splice(0, dmdQueue.length - 3); }
 }
 function dmdDefault(){
   if (G.state === 'menu' || G.state === 'over') return '★ LUNA PINBALL ★';
@@ -566,6 +566,7 @@ function flipperCollide(b, f){
 }
 const GRAV = 1060, STEP = 1 / 240;
 function physicsStep(b, dt){
+  if (b.saucerCool > 0) b.saucerCool -= dt;
   if (b.mode === 'play'){
     b.vy += GRAV * dt;
     const sp = Math.hypot(b.vx, b.vy), MAX = 1750;
@@ -638,9 +639,16 @@ function physicsStep(b, dt){
     }
     featureChecks(b);
   } else if (b.mode === 'saucer'){
-    b.saucerT -= dt;
+    b.saucerT -= dt; b.saucerAge = (b.saucerAge || 0) + dt;
     b.x += (SAUCER.x - b.x) * .35; b.y += (SAUCER.y - b.y) * .35;
-    if (b.saucerT <= 0){ b.mode = 'play'; b.vx = (Math.random() * 60 - 30); b.vy = 430; onSaucerEject(b); }
+    // Eject is timer-based and hard-bounded (failsafe at 3s): the award
+    // sequence ALWAYS returns the ball, whatever state the table is in.
+    // saucerCool makes the ball capture-proof while it leaves the hole —
+    // without it the capture check re-fired the instant the ball ejected
+    // (still inside the radius), re-capturing it forever: endless
+    // JACKPOT/SUPER awards, the ball visibly parked in the saucer, the
+    // DMD queue flooding — Tom's "frozen glitching on the bonus".
+    if (b.saucerT <= 0 || b.saucerAge > 3){ b.mode = 'play'; b.saucerAge = 0; b.saucerCool = 1.6; b.vx = (Math.random() * 60 - 30); b.vy = 430; onSaucerEject(b); }
   } else if (b.mode === 'shooter'){
     b.x = 388; if (b.y > 726){ b.y = 726; b.vy = 0; }
     b.vy += GRAV * dt; b.y += b.vy * dt;
@@ -659,10 +667,19 @@ const G = {
   skillLane: 1, moonHits: 0, plunger: 0, plungerHeld: false, serveTimer: 0,
   shake: 0, flashMsg: '', attractT: 0, paused: false
 };
-function newBall(){ return { x: 388, y: 726, vx: 0, vy: 0, mode: 'shooter', settled: true, saucerT: 0, dead: false, stallT: 0, rescues: 0, rescueT: 0, anchorX: null, anchorY: 0, anchorT: 0 }; }
+function newBall(){ return { x: 388, y: 726, vx: 0, vy: 0, mode: 'shooter', settled: true, saucerT: 0, saucerCool: 0, saucerAge: 0, dead: false, stallT: 0, rescues: 0, rescueT: 0, anchorX: null, anchorY: 0, anchorT: 0 }; }
 function addScore(n, x, y, label){
   G.score += n;
-  if (x != null){ popups.push({ x, y, text: '+' + fmt(n) + (label ? ' ' + label : ''), t: 0, color: '#ffdf7e' }); if (popups.length > 12) popups.splice(0, popups.length - 12); }
+  if (x != null){
+    if (label === 'JACKPOT' || label === 'SUPER'){ for (let i = popups.length - 1; i >= 0; i--) if (popups[i].text.endsWith(' ' + label)) popups.splice(i, 1); }
+    // Cascade clustered awards upward: saucer JACKPOT/SUPER texts all spawn
+    // at the same point, so offset each new popup above any still-live one
+    // nearby instead of printing them on top of each other.
+    let yy = y, guard = 0;
+    while (guard < 6 && popups.some(p => Math.abs(p.x - x) < 76 && Math.abs(p.y - yy) < 18)){ yy -= 20; guard++; }
+    popups.push({ x, y: yy, text: '+' + fmt(n) + (label ? ' ' + label : ''), t: 0, color: '#ffdf7e' });
+    if (popups.length > 12) popups.splice(0, popups.length - 12);
+  }
 }
 const popups = [], sparks = [];
 function spark(x, y, color, n){ for (let i = 0; i < (n || 8); i++){ const a = Math.random() * 6.28, s = 60 + Math.random() * 200; sparks.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 60, t: 0, life: .35 + Math.random() * .3, color }); } if (sparks.length > 90) sparks.splice(0, sparks.length - 90); } // hard particle cap — effects can never pile up and choke a weak phone GPU
@@ -703,13 +720,18 @@ function endBall(){
   G.state = 'bonus';
   const bonus = Math.floor(G.bonusPool) * G.bonusMult;
   let counted = 0; const total = bonus;
+  // Run token + state guard: quitting to the menu mid-count-up must not
+  // let this timer fire nextBall() behind the menu.
+  const run = (G._bonusRun = (G._bonusRun || 0) + 1);
+  const finish = (ms) => setTimeout(() => { if (run === G._bonusRun && G.state === 'bonus') nextBall(); }, ms);
   dmdShow(T('dmBonus') + ' ×' + G.bonusMult, { dur: 1200 });
   const iv = setInterval(() => {
+    if (run !== G._bonusRun || G.state !== 'bonus'){ clearInterval(iv); return; }
     counted += Math.max(50, Math.floor(total / 18));
-    if (counted >= total){ counted = total; clearInterval(iv); G.score += 0; setTimeout(nextBall, 350); }
+    if (counted >= total){ counted = total; clearInterval(iv); G.score += 0; finish(350); }
     else { G.score += Math.max(50, Math.floor(total / 18)); sfx('bonus'); if (counted > total) counted = total; }
   }, 55);
-  if (total <= 0){ clearInterval(iv); setTimeout(nextBall, 500); }
+  if (total <= 0){ clearInterval(iv); finish(500); }
   G._bonusTotal = total;
 }
 function nextBall(){
@@ -763,7 +785,7 @@ function onUstcTarget(b, tg){
   }
 }
 function onSaucer(b){
-  b.mode = 'saucer'; b.saucerT = .95; b.vx = 0; b.vy = 0; SAUCER.flash = 1;
+  b.mode = 'saucer'; b.saucerT = .95; b.saucerAge = 0; b.vx = 0; b.vy = 0; SAUCER.flash = 1;
   sfx('saucer');
   if (G.inMultiball){
     // SUPER JACKPOT is collected at the Moon saucer (it used to ride the
@@ -800,7 +822,7 @@ function checkMoonMaster(){
 }
 function startMultiball(triggerBall){
   G.inMultiball = true; G.locks = 0; G.jackpots = 0;
-  heldBalls.forEach(h => { h.dead = false; h.held = false; h.mode = 'saucer'; h.saucerT = .4; h.x = SAUCER.x; h.y = SAUCER.y; if (!G.balls.includes(h)) G.balls.push(h); });
+  heldBalls.forEach(h => { h.dead = false; h.held = false; h.mode = 'saucer'; h.saucerT = .4; h.saucerAge = 0; h.saucerCool = 1.6; h.x = SAUCER.x; h.y = SAUCER.y; if (!G.balls.includes(h)) G.balls.push(h); });
   heldBalls = [];
   if (triggerBall && !G.balls.includes(triggerBall)) G.balls.push(triggerBall);
   dmdShow(T('dmMulti'), { dur: 2400, big: true, prio: 2 }); sfx('multi');
@@ -837,7 +859,7 @@ function featureChecks(b){
     if (G.moonHits > 0 && G.moonHits % 12 === 0){ addScore(50000, MOON.x, MOON.y - 60, 'MOON MASTER'); dmdShow(T('dmMoon'), { dur: 1700, big: true, prio: 1 }); G.missionsDone++; }
   }
   // Saucer capture
-  if (Math.hypot(b.x - SAUCER.x, b.y - SAUCER.y) < SAUCER.r + 3 && b.mode === 'play'){ onSaucer(b); return; }
+  if (Math.hypot(b.x - SAUCER.x, b.y - SAUCER.y) < SAUCER.r + 3 && b.mode === 'play' && !(b.saucerCool > 0)){ onSaucer(b); return; }
   // Top lanes
   for (const l of lanes){ if (l.cool > 0) l.cool -= STEP; if (Math.hypot(b.x - l.x, b.y - l.y) < 17) onLane(l, b); }
   // Spinner
@@ -883,7 +905,9 @@ function onDrain(b){
   const alive = G.balls.filter(x => !x.dead && !x.held);
   if (G.inMultiball){
     if (alive.length <= 1){ G.inMultiball = false; }
-    return;
+    // If that drained ball was the LAST live ball, do not strand the
+    // table ball-less in 'playing': fall through to ball-save/endBall.
+    if (alive.length > 0) return;
   }
   if (saveActive() && !G.saveUsed && !G.tilted){
     G.saveUsed = true; if (G.saveExtra) G.saveExtra = false;
@@ -994,9 +1018,9 @@ function drawBG(){
   // --- (b) SATURATED COLOR BLOCKS under the feature zones --------------
   const blob = (x, y, r2, col) => { const bg2 = c.createRadialGradient(x, y, 4, x, y, r2); bg2.addColorStop(0, col); bg2.addColorStop(1, 'rgba(0,0,0,0)'); c.fillStyle = bg2; c.fillRect(x - r2, y - r2, r2 * 2, r2 * 2); };
   blob(196, 150, 150, 'rgba(30,110,230,.34)');   // orbit crown — cobalt
-  blob(96, 262, 105, 'rgba(150,60,235,.32)');    // left bank — violet
+  blob(96, 262, 105, 'rgba(110,70,200,.20)');    // left bank — softened violet-blue
   blob(296, 262, 105, 'rgba(20,190,215,.30)');   // right bank — cyan
-  blob(196, 300, 130, 'rgba(235,60,160,.18)');   // moon zone — magenta halo
+  blob(196, 300, 130, 'rgba(235,60,160,.08)');   // moon zone — faint magenta halo
   blob(52, 500, 95, 'rgba(235,50,80,.30)');      // LUNC bank — hot crimson
   blob(330, 505, 95, 'rgba(20,215,170,.28)');    // USTC stars — teal-green
   blob(196, 700, 150, 'rgba(250,180,30,.24)');   // flipper apron — warm gold
@@ -1009,7 +1033,7 @@ function drawBG(){
   c.fillStyle = zg; c.fillRect(0, 0, PW, 420);
   // Moon zone — violet nebula bloom behind the centerpiece
   zg = c.createRadialGradient(196, 300, 10, 196, 300, 175);
-  zg.addColorStop(0, 'rgba(122,66,205,.40)'); zg.addColorStop(.6, 'rgba(88,44,165,.20)'); zg.addColorStop(1, 'rgba(88,44,165,0)');
+  zg.addColorStop(0, 'rgba(70,80,180,.22)'); zg.addColorStop(.6, 'rgba(50,60,150,.12)'); zg.addColorStop(1, 'rgba(50,60,150,0)');
   c.fillStyle = zg; c.fillRect(20, 110, 352, 380);
   // Left bank — deep magenta wash behind the LUNC targets
   zg = c.createLinearGradient(14, 0, 120, 0);
@@ -1024,7 +1048,7 @@ function drawBG(){
   zg.addColorStop(0, 'rgba(24,140,160,.26)'); zg.addColorStop(1, 'rgba(24,140,160,0)');
   c.fillStyle = zg; c.fillRect(0, 470, PW, 310);
   // Printed art rings + rays around the Moon
-  c.save(); c.strokeStyle = 'rgba(160,120,255,.22)'; c.lineWidth = 9;
+  c.save(); c.strokeStyle = 'rgba(140,150,230,.16)'; c.lineWidth = 9;
   c.beginPath(); c.arc(196, 298, 62, 0, 7); c.stroke();
   c.strokeStyle = 'rgba(245,197,66,.16)'; c.lineWidth = 3;
   c.beginPath(); c.arc(196, 298, 82, 0, 7); c.stroke();
@@ -1049,7 +1073,7 @@ function drawBG(){
   c.beginPath(); c.moveTo(96, 350); c.quadraticCurveTo(150, 420, 130, 520); c.stroke();
   c.restore();
   // starfield + nebula
-  const neb = c.createRadialGradient(90, 180, 10, 90, 180, 190); neb.addColorStop(0, 'rgba(90,60,180,.30)'); neb.addColorStop(1, 'rgba(90,60,180,0)');
+  const neb = c.createRadialGradient(90, 180, 10, 90, 180, 190); neb.addColorStop(0, 'rgba(70,70,170,.18)'); neb.addColorStop(1, 'rgba(70,70,170,0)');
   c.fillStyle = neb; c.fillRect(0, 0, PW, PH);
   const neb2 = c.createRadialGradient(330, 560, 10, 330, 560, 210); neb2.addColorStop(0, 'rgba(20,140,160,.18)'); neb2.addColorStop(1, 'rgba(20,140,160,0)');
   c.fillStyle = neb2; c.fillRect(0, 0, PW, PH);
@@ -1301,7 +1325,7 @@ function draw(now){
     // PREMIUM: glossy plastic — lit gradient face with a hot core when flashing
     const sgp = ctx.createLinearGradient(p1.x, p1.y, p3.x, p3.y);
     if (sl.flash > .2){ sgp.addColorStop(0, '#fff3c4'); sgp.addColorStop(.55, '#ffd968'); sgp.addColorStop(1, '#e8a81c'); }
-    else { sgp.addColorStop(0, 'rgba(196,150,255,.72)'); sgp.addColorStop(.55, 'rgba(120,90,200,.55)'); sgp.addColorStop(1, 'rgba(56,36,120,.62)'); }
+    else { sgp.addColorStop(0, 'rgba(140,170,235,.66)'); sgp.addColorStop(.55, 'rgba(70,100,180,.55)'); sgp.addColorStop(1, 'rgba(30,44,110,.62)'); }
     ctx.fillStyle = sgp; ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.lineWidth = 1.5; ctx.stroke();
     const cp = warpPt((sl.x1 + sl.x2) / 2, (sl.y1 + sl.y2) / 2 + 12);
