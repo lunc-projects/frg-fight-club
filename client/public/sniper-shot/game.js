@@ -11,6 +11,10 @@ import * as THREE from 'three';
    engine: three.js r160 (MIT). See LICENSES.md.
    Mechanics carried from Sniper Shot (drag aim, scope zooms,
    hold-breath steady, bolt-action mag, combo multiplier, waves).
+
+   City pass (Tom, Nov 7): ~1/3 of the towers removed for open lots
+   and sightlines, more people + cars, denser targets at all ranges.
+   People and animals are NEVER targets — hitting one is a FOUL.
    ============================================================ */
 
 const QA = new URLSearchParams(location.search);
@@ -321,6 +325,7 @@ function regOcc(m) { regHit(m, 'occ', null); occluders.push(m); return m; }
 const boardSpots = [];   // {pos:Vector3, ry} places a target board can stand
 const canSpots = [];     // {pos:Vector3} ledges for cans
 const pinSpots = [];     // {pos:Vector3, ry} pinwheel mounts
+const roofPeopleSpots = []; // {ax,az,bx,bz,y} rooftop stroller paths (people — fouls, never targets)
 
 { // sky dome + sun + clouds
   const sky = new THREE.Mesh(new THREE.SphereGeometry(420, 28, 16),
@@ -377,10 +382,10 @@ function tree(parent, x, z, s = 1) {
   return g;
 }
 { // buildings
-  const bands = [
-    { z0: -0.5, z1: 20.5, h: [11, 19] }, { z0: -32.5, z1: -11.5, h: [14, 24] },
-    { z0: -64.5, z1: -43.5, h: [16, 28] }, { z0: -96.5, z1: -75.5, h: [20, 34] },
-    { z0: -126, z1: -107.5, h: [26, 46] },
+  const bands = [ // height ranges widened Nov 7 (Tom) — a varied skyline, not a grid of clones
+    { z0: -0.5, z1: 20.5, h: [10, 21] }, { z0: -32.5, z1: -11.5, h: [13, 27] },
+    { z0: -64.5, z1: -43.5, h: [15, 31] }, { z0: -96.5, z1: -75.5, h: [18, 38] },
+    { z0: -126, z1: -107.5, h: [24, 50] },
   ];
   const slots = [[-128, -71.5], [-60.5, -38.5], [-27.5, 27.5], [38.5, 60.5], [71.5, 128]];
   const wtMat = M.std(0x9a6b46, 0.95), acMat = M.std(0xb9c0c7, 0.7);
@@ -392,7 +397,23 @@ function tree(parent, x, z, s = 1) {
         const px0 = sx0 + (w / n) * i, px1 = sx0 + (w / n) * (i + 1);
         const cx = (px0 + px1) / 2;
         if (bi === 2 && cx > PARK.x0 - 4 && cx < PARK.x1 + 4) continue; // park block
-        const bw = (px1 - px0) * rr(0.8, 0.92), bd = depth * rr(0.85, 1);
+        const bw = (px1 - px0) * rr(0.66, 0.94), bd = depth * rr(0.85, 1);
+        /* Tom (Nov 7): thin the city out — roughly a third of the towers become
+           open lots (plaza + crate + ground-level target spots), opening up
+           sightlines and sky and adding street-level targets. */
+        const slotI = slots.findIndex(s => s[0] === sx0);
+        const isLot = bi === 0 ? ((slotI + i) % 4 === 3) : ((slotI + i + bi) % 3 === 2);
+        if (isLot) {
+          const plaza = mesh(GEO.box, M.std(0xa79b7e, 1), scene, cx, 0.07, zc, bw, 0.14, bd);
+          plaza.receiveShadow = true; regOcc(plaza);
+          const crate = mesh(GEO.box, M.std(0x8a6642, 1), scene, cx + bw * 0.25, 0.55, zc, 1.1, 1.1, 1.1);
+          crate.castShadow = true; regOcc(crate);
+          canSpots.push({ pos: new THREE.Vector3(crate.position.x, 1.1, crate.position.z) });
+          boardSpots.push({ pos: new THREE.Vector3(cx - bw * 0.2, 0, zc + bd * 0.2), ry: rr(-0.2, 0.2) });
+          pinSpots.push({ pos: new THREE.Vector3(cx + bw * 0.35, 0, zc - bd * 0.25), ry: 0 });
+          if (rng() < 0.55) tree(scene, cx - bw * 0.35, zc - bd * 0.2, rr(0.9, 1.25));
+          continue;
+        }
         const h = rr(band.h[0], band.h[1]);
         const fm = pick(facadeMats).clone();
         fm.map = fm.map.clone(); fm.map.needsUpdate = true;
@@ -405,8 +426,12 @@ function tree(parent, x, z, s = 1) {
         if (bi === 0 && h >= 13) { // ground-floor shop sign facing the avenue
           const sg = mesh(GEO.box, pick(shopSignMats), scene, cx, 3.4, b.position.z + bd / 2 + 0.35, Math.min(bw * 0.62, 11), 1.5, 0.5);
           sg.castShadow = true;
+          if (rng() < 0.75) { // canvas awning over the shop front — street-level life
+            const aw = mesh(GEO.box, M.std(pick([0xc4553b, 0x3f7d5d, 0x38618f, 0xd9a441]), 0.9), scene, cx, 2.5, b.position.z + bd / 2 + 0.6, Math.min(bw * 0.6, 10.5), 0.08, 1.6);
+            aw.rotation.x = 0.3;
+          }
         }
-        if (bi <= 1 && h >= 21 && rng() < 0.45) { // rooftop billboard on a pole frame
+        if (bi <= 1 && h >= 21 && rng() < 0.6) { // rooftop billboard on a pole frame (chance up Nov 7 — fewer towers, branding stays prominent)
           const bg2 = new THREE.Group();
           bg2.position.set(cx + bw * rr(-0.15, 0.15), h, b.position.z);
           scene.add(bg2);
@@ -417,7 +442,7 @@ function tree(parent, x, z, s = 1) {
           panel.castShadow = true;
           mesh(GEO.box, poleMat, bg2, 0, 5.4, -0.3, 13.4, 5.3, 0.15);
         }
-        if (bi === 1 && rng() < 0.4) { // banner strung across the facade
+        if (bi === 1 && rng() < 0.5) { // banner strung across the facade
           const bn = mesh(GEO.plane, brandMats.banner, scene, cx, h * 0.62, b.position.z + bd / 2 + 0.12, Math.min(bw * 0.8, 15), 3.4, 1);
           bn.rotation.y = 0;
         }
@@ -439,7 +464,14 @@ function tree(parent, x, z, s = 1) {
           boardSpots.push({ pos: new THREE.Vector3(cx + bw * 0.18, ry, rz + bd * 0.28), ry: 0, roof: true });
           pinSpots.push({ pos: new THREE.Vector3(cx - bw * 0.34, ry, rz + bd * 0.42), ry: 0 });
           canSpots.push({ pos: new THREE.Vector3(cx + bw * 0.3, ry, rz + bd * 0.45) });
+          /* Tom (Nov 7): more to shoot at per roof — second board / pin / can on many roofs */
+          if (rng() < 0.5) boardSpots.push({ pos: new THREE.Vector3(cx - bw * 0.3, ry, rz - bd * 0.3), ry: rr(-0.3, 0.3), roof: true });
+          if (rng() < 0.4) pinSpots.push({ pos: new THREE.Vector3(cx + bw * 0.36, ry, rz - bd * 0.38), ry: 0 });
+          if (rng() < 0.35) canSpots.push({ pos: new THREE.Vector3(cx - bw * 0.05, ry, rz - bd * 0.45) });
+          if (bi <= 1 && h <= 26 && rng() < 0.55) roofPeopleSpots.push({ ax: cx - bw * 0.3, az: rz + bd * 0.1, bx: cx + bw * 0.3, bz: rz + bd * 0.1, y: ry });
         }
+        if (bi === 3 && rng() < 0.5) // far roofs carry boards too — scoped targets at distance
+          boardSpots.push({ pos: new THREE.Vector3(cx, h, b.position.z + bd * 0.3), ry: 0, roof: true });
       }
     }
   });
@@ -494,7 +526,7 @@ function tree(parent, x, z, s = 1) {
   boardSpots.push({ pos: new THREE.Vector3(44, 0.18, 1), ry: -0.1 });
 }
 /* sidewalk trees along the near avenues */
-for (const z of [19.6, -12.9]) for (let x = -58; x <= 58; x += 23) {
+for (const z of [19.6, -12.9]) for (let x = -58; x <= 58; x += 15.5) { // denser street trees (Nov 7)
   if (Math.abs(x) < 8) continue;
   tree(scene, x + rr(-2, 2), z + (z > 0 ? 0.9 : -0.9), rr(0.7, 0.95));
 }
@@ -574,6 +606,7 @@ const cars = [];
 const carPaints = [0xe74c3c, 0x3498db, 0xf5c542, 0x2ecc71, 0xff8c42, 0x9b59b6, 0xecf0f1, 0xe91e63, 0x1abc9c, 0xf39c12, 0x5d8aa8, 0xd35400];
 function makeCar(route, dist0, speed, withSign, kind = 'car') {
   const g = new THREE.Group(); scene.add(g);
+  g.scale.setScalar(kind === 'truck' ? 1.1 : 1.16); // slightly bigger (Nov 7) — traffic must read from the rooftop perch
   const paint = new THREE.MeshStandardMaterial({ color: pick(carPaints), roughness: 0.32, metalness: 0.55 });
   const glass = new THREE.MeshStandardMaterial({ color: 0x2a3d4f, roughness: 0.12, metalness: 0.6 });
   const car = { g, speed, baseSpeed: speed, dist: dist0, walker: loopWalker(route), fleeT: 0, wheels: [], sign: null, signT: 0, honkCd: 0 };
@@ -613,11 +646,17 @@ function makeCar(route, dist0, speed, withSign, kind = 'car') {
 }
 {
   const R1 = roundedRectRoute(-33, -6, 33, 26), R2 = roundedRectRoute(-66, -38, -33, -6),
-        R3 = roundedRectRoute(33, -70, 66, -38), R4 = roundedRectRoute(-33, -102, 33, -70);
+        R3 = roundedRectRoute(33, -70, 66, -38), R4 = roundedRectRoute(-33, -102, 33, -70),
+        R5 = roundedRectRoute(-66, -102, 66, -70); // outer loop on the far avenues (Nov 7)
   makeCar(R1, 0, 8.5, true); makeCar(R1, 70, 9.5, false); makeCar(R1, 150, 8, false, 'truck'); makeCar(R1, 210, 10, false);
+  makeCar(R1, 100, 9.2, false); makeCar(R1, 260, 8.6, false);
   makeCar(R2, 20, 9, true); makeCar(R2, 110, 8.2, false); makeCar(R2, 190, 9.8, false, 'truck');
+  makeCar(R2, 160, 9.6, true);
   makeCar(R3, 40, 8.8, true); makeCar(R3, 130, 9.4, false); makeCar(R3, 200, 8.4, false);
+  makeCar(R3, 90, 10.2, false);
   makeCar(R4, 60, 10.5, false); makeCar(R4, 190, 9.2, false);
+  makeCar(R4, 130, 8.8, false, 'truck');
+  makeCar(R5, 30, 9.0, true); makeCar(R5, 170, 9.7, false);
 }
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3();
 function updateCars(dt) {
@@ -648,7 +687,7 @@ function makePerson(path) {
   const g = new THREE.Group(); scene.add(g);
   const shirt = M.std(pick(shirtPalette), 0.95), pants = M.std(pick([0x33506e, 0x59452e, 0x3e3e46, 0x6e3333, 0x2e5e4e]), 0.95);
   const skin = M.std(pick(skinPalette), 0.8);
-  const p = { g, path, t: rng(), dir: rng() < 0.5 ? 1 : -1, speed: rr(1.05, 1.65), phase: rr(0, 6), startleT: 0, yaw: 0 };
+  const p = { g, path, t: rng(), dir: rng() < 0.5 ? 1 : -1, speed: rr(1.05, 1.65), phase: rr(0, 6), startleT: 0, yaw: 0, baseY: 0 };
   const legGeo = GEO.box;
   p.legL = new THREE.Group(); p.legL.position.set(-0.13, 0.86, 0); g.add(p.legL);
   p.legR = new THREE.Group(); p.legR.position.set(0.13, 0.86, 0); g.add(p.legR);
@@ -678,9 +717,18 @@ function wanderPath(x0, z0, x1, z1, avoid) { return { kind: 'wd', x0, z0, x1, z1
     pingpongPath(-58, -31.6, 58, -31.6), pingpongPath(-58, -31.6, 58, -31.6), pingpongPath(-58, -31.6, 58, -31.6),
     pingpongPath(-56, -63.4, 2, -63.4), pingpongPath(-56, -63.4, 2, -63.4),
     pingpongPath(27.6, -28, 27.6, 14), pingpongPath(27.6, -28, 27.6, 14),
+    pingpongPath(-58, 32.7, 58, 32.7), pingpongPath(-58, 32.7, 58, 32.7),
+    pingpongPath(-58, -44.7, 58, -44.7), pingpongPath(-58, -44.7, 58, -44.7),
+    pingpongPath(-58, -76.7, 58, -76.7), pingpongPath(-58, -76.7, 58, -76.7),
+    pingpongPath(-39.7, 14, -39.7, -60), pingpongPath(-39.7, 14, -39.7, -60),
+    pingpongPath(39.7, 14, 39.7, -60),
   ];
   for (const L of lines) makePerson(L);
-  for (let i = 0; i < 4; i++) makePerson(wanderPath(PARK.x0 + 2, PARK.z0 + 2, PARK.x1 - 2, PARK.z1 - 2, POND));
+  for (let i = 0; i < 6; i++) makePerson(wanderPath(PARK.x0 + 2, PARK.z0 + 2, PARK.x1 - 2, PARK.z1 - 2, POND));
+  for (const s of roofPeopleSpots) { // rooftop strollers — fouls like everyone else, never targets
+    const p = makePerson(pingpongPath(s.ax, s.az, s.bx, s.bz));
+    p.baseY = s.y; p.g.position.y = s.y;
+  }
 }
 function personStep(p, dt) {
   const path = p.path;
@@ -718,7 +766,7 @@ function updatePeople(dt, t) {
     if (p.startleT > 0) {
       p.startleT -= dt;
       const k = Math.max(0, p.startleT / 0.7);
-      p.g.position.y = Math.sin((1 - k) * Math.PI) * 0.34;
+      p.g.position.y = p.baseY + Math.sin((1 - k) * Math.PI) * 0.34;
       p.armL.rotation.z = 2.6 * (1 - k); p.armR.rotation.z = -2.6 * (1 - k);
       p.armL.rotation.x = 0; p.armR.rotation.x = 0;
     } else if (moving) {
@@ -727,11 +775,11 @@ function updatePeople(dt, t) {
       p.legL.rotation.x = s * 0.55; p.legR.rotation.x = -s * 0.55;
       p.armL.rotation.x = -s * 0.45; p.armR.rotation.x = s * 0.45;
       p.armL.rotation.z = 0.08; p.armR.rotation.z = -0.08;
-      p.g.position.y = Math.abs(Math.cos(p.phase)) * 0.045;
+      p.g.position.y = p.baseY + Math.abs(Math.cos(p.phase)) * 0.045;
     } else {
       p.legL.rotation.x *= 0.8; p.legR.rotation.x *= 0.8;
       p.armL.rotation.x *= 0.8; p.armR.rotation.x *= 0.8;
-      p.g.position.y = Math.sin(t * 1.8 + p.phase) * 0.012;
+      p.g.position.y = p.baseY + Math.sin(t * 1.8 + p.phase) * 0.012;
     }
   }
 }
@@ -1155,11 +1203,15 @@ const canState = { made: false };
 function seedStaticTargets() {
   if (canState.made) return; canState.made = true;
   const spots = [...canSpots];
-  for (let i = 0; i < Math.min(6, spots.length); i++) {
+  for (let i = 0; i < Math.min(10, spots.length); i++) { // 6 -> 10 cans (Nov 7)
     const j = (rng() * spots.length) | 0;
     spawnCan(spots.splice(j, 1)[0]);
   }
-  for (const s of pinSpots) spawnPinwheel(s);
+  /* pin spots grew with the extra roof/lot mounts — seed a shuffled subset
+     (24) so pinwheel draw calls stay capped on phones */
+  const pinList = [...pinSpots];
+  for (let i = pinList.length - 1; i > 0; i--) { const j = (rng() * (i + 1)) | 0;[pinList[i], pinList[j]] = [pinList[j], pinList[i]]; }
+  for (const s of pinList.slice(0, 24)) spawnPinwheel(s);
   spawnBall(); spawnBall();
   spawnKite();
 }
@@ -1167,12 +1219,12 @@ function director(dt) {
   const w = game.wave || 1;
   const count = ty => targets.reduce((n, t) => n + (t.type === ty && t.alive ? 1 : 0), 0);
   director._bt = (director._bt || 0) - dt;
-  if (count('balloon') < Math.min(3 + w, 6) && director._bt <= 0) { spawnBalloon(); director._bt = 0.7; }
-  if (count('board') < 3 && director._bt <= 0) { spawnBoard(nextBoardSpot()); director._bt = 0.4; }
+  if (count('balloon') < Math.min(4 + w, 7) && director._bt <= 0) { spawnBalloon(); director._bt = 0.7; }
+  if (count('board') < 5 && director._bt <= 0) { spawnBoard(nextBoardSpot()); director._bt = 0.4; }
   director._dt2 = (director._dt2 || 0) - dt;
-  if (count('drone') < Math.min(w, 3) && director._dt2 <= 0) { spawnDrone(); director._dt2 = rr(2.5, 5); }
+  if (count('drone') < Math.min(w + 1, 4) && director._dt2 <= 0) { spawnDrone(); director._dt2 = rr(2.5, 5); }
   if (count('ball') < 2) spawnBall();
-  if (count('kite') < 1 && w >= 1) spawnKite();
+  if (count('kite') < 2) spawnKite();
 }
 function updateTargets(dt, now) {
   for (const t of [...targets]) if (t.alive) t.update(dt, now);
