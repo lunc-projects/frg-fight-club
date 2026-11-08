@@ -77,10 +77,20 @@
   .cbtn.gold:active { background:rgba(255,183,0,.35); }
   .cbtn.screech { width:72px; height:72px; font-size:30px; }
   .screen {
-    position:fixed; inset:0; z-index:10; display:flex; flex-direction:column; align-items:center; justify-content:center;
-    gap:13px; text-align:center; padding:22px; background:rgba(8,18,38,.55); pointer-events:auto;
+    position:fixed; inset:0; z-index:10; display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
+    gap:13px; text-align:center; background:rgba(8,18,38,.55); pointer-events:auto;
     overflow-y:auto;
+    /* safe-area aware padding + auto margins on the first/last child:
+       the column stays centred when the content fits, and top-aligns
+       (fully scrollable) when it does not. The old justify-content:
+       center + overflow combo pushed the TOP of tall menus (the ▶ PLAY
+       button) above the scroll origin — half-clipped and unreachable
+       (Tom's phone screenshot, Nov 8). PLAY stays in its top position;
+       it is now always rendered whole. */
+    padding:max(22px, env(safe-area-inset-top)) max(22px, env(safe-area-inset-right)) max(22px, env(safe-area-inset-bottom)) max(22px, env(safe-area-inset-left));
   }
+  .screen > :first-child { margin-top:auto; }
+  .screen > :last-child { margin-bottom:auto; }
   .screen img.emblem { width:172px; height:172px; border-radius:50%; box-shadow:0 0 42px rgba(255,0,160,.35), 0 0 24px rgba(57,230,255,.3); animation:emblemPulse 2.6s ease-in-out infinite; }
   /* v2: blue neon eagle game logo at the top of the start screen
      (replaces the old emblem there; square art with its own dark
@@ -322,6 +332,10 @@
     <div class="nftRow" id="nftSelRow" style="display:none">
       <button class="play alt" id="nftStandardBtn" style="flex:1">🦅 PLAY STANDARD EAGLE</button>
     </div>
+    <div class="nftRow" id="nftPlayRow">
+      <button class="play" id="nftPlayBtn" style="flex:1" disabled>🎨 PLAY WITH YOUR NFT</button>
+    </div>
+    <div id="nftPlayHint" style="font-size:12.5px; opacity:.85; text-align:center">Connect or paste a wallet holding a GARUDA to play as your NFT.</div>
   </div>
   <button class="play alt menubtn" id="howBtn">📖 HOW TO PLAY</button>
   <button class="play alt menubtn" id="levelBtn">🎯 LEVEL SELECT · LV 1</button>
@@ -4017,27 +4031,33 @@ function eagleLeg(pal, hx, hy, leg){
   ctx.moveTo(fx, fy); ctx.lineTo(fx + 1.8, fy + 2.4);
   ctx.stroke();
 }
-/* ================= NFT character sprite (extracted pack) =========
-   When a Garuda is selected, the in-world hero is the EXTRACTED
-   CHARACTER from the GARUDA character pack — the NFT's foreground
-   character cut out of its portrait (background removal + QC run
-   offline over the whole 500-token collection), served as a
-   transparent PNG from GD_CHAR_BASE. The character is drawn WHOLE
-   (the pack PNGs are already trimmed to the character, aspect
-   preserved): NO frame, NO square crop, NO glow box — just the
-   character itself, a soft rarity-colour shadow under its feet and
-   the flight motion (bob, lean, dive tilt, landing squash) plus a
-   gentle breathing/hover pulse so it reads as a living character,
-   not a pasted sticker. The art is NOT mirrored when the hero turns:
-   several outfits carry readable text (e.g. the GARUDA jersey) that a
-   mirror flip would reverse. Only tokens whose pack entry is
-   characters.json ok:true get a sprite; a token that failed QC, a
-   missing file or a failed load keeps the standard eagle for that
-   run — never a blank or broken hero. Selection powers (shield /
-   power dive) are untouched by which sprite is drawn. The menu cards
-   and the HUD portrait keep the ORIGINAL NFT art (framed portraits
-   are correct in UI). */
-const GD_CHAR_BASE = '../garuda-characters/';
+/* ================= NFT character sprite (full-body pack) =========
+   When a Garuda is selected, the in-world hero is the FULL-BODY
+   character built offline from the GARUDA extraction pack (GD_CHAR_
+   BASE): the NFT's own extracted bust (its real art — the originals
+   are bust portraits, cropped mid-torso by the artwork itself; no
+   legs exist in the source art) completed with a palette-matched
+   lower body drawn in the same flat outline style — waist/shorts in
+   the outfit colour, a side-stride pair of legs (outfit thighs, bare
+   eagle shins + talon feet in the beak colour), tail feathers and a
+   folded wing behind, and a mechanical turn toward the facing side
+   (squeeze + forward lean + beak shift). Tom's ruling, Nov 8:
+   "Characters look great we just need to add legs to them" + "Turn
+   their body sideways so they are facing the game direction."
+   The sprite is drawn WHOLE (aspect preserved): NO frame, NO square
+   crop, NO glow box — feet anchored exactly at the hitbox bottom so
+   the character stands ON the ground, mirrored with P.face so it
+   faces the direction of travel (jersey text mirrors on leftward
+   runs — accepted trade). A soft rarity-colour shadow sits under
+   its feet, plus the flight motion (bob, lean, dive tilt, landing
+   squash) and a gentle breathing/hover pulse. Only tokens whose
+   pack entry is characters.json ok:true get a sprite; a token that
+   failed QC, a missing file or a failed load keeps the standard
+   eagle for that run — never a blank or broken hero. Selection
+   powers (shield / power dive) are untouched by which sprite is
+   drawn. The menu cards and the HUD portrait keep the ORIGINAL NFT
+   art (framed portraits are correct in UI). */
+const GD_CHAR_BASE = '../garuda-characters-full/';
 let gdCharManifest = null;   /* null = not loaded yet */
 function gdEnsureCharManifest(){
   if (gdCharManifest !== null && !gdCharManifest.__inflight) return;
@@ -4105,7 +4125,14 @@ function drawNftHero(){
   const aspect = iw > 0 && ih > 0 ? iw / ih : 1;
   const S = GD_HERO_SIZE;                 /* character height in px */
   const dw = S * aspect, dh = S;
-  const cx = P.x + P.w / 2, bcy = P.y + P.h / 2;
+  /* FEET-ON-GROUND anchor (Tom, Nov 8): the full-body sprite's feet sit
+     exactly at the bottom of the hitbox (P.y + P.h) — the same anchor
+     drawEagle uses. The old centre anchor sank the legless bust ~23px
+     INTO the dirt. The sprite is also MIRRORED with P.face so the
+     side-facing character faces the direction of travel (the pack
+     sprites face right; moving left flips them — the GARUDA jersey
+     text mirrors too, the accepted trade for facing the run). */
+  const cx = P.x + P.w / 2, feetY = P.y + P.h;
   const bob = P.onGround ? Math.sin(runTime * 2.2) * 0.8 : Math.sin(runTime * 5) * 2.2;
   const squash = landT > 0 ? 1 + (landT / 0.12) * 0.14 : 1;
   const lean = Math.max(-0.20, Math.min(0.20, P.vx * 0.00045));
@@ -4116,17 +4143,17 @@ function drawNftHero(){
   const breathe = 1 + Math.sin(runTime * 2.6) * 0.018 + (P.onGround ? 0 : Math.sin(runTime * 7.3) * 0.012);
   const col = gdRarityColor(gdChar.rarity);
   ctx.save();
-  ctx.translate(cx + flinchX, bcy + bob);
-  ctx.rotate(lean + P.face * pitch);
-  ctx.scale((1 / Math.sqrt(squash)) * breathe, squash * breathe);
-  /* soft rarity-colour ground shadow under the character (no box) */
+  ctx.translate(cx + flinchX, feetY + bob);
+  ctx.scale(P.face * (1 / Math.sqrt(squash)) * breathe, squash * breathe);
+  ctx.rotate(lean + pitch);
+  /* soft rarity-colour ground shadow at the feet (no box) */
   ctx.save();
   ctx.shadowColor = col; ctx.shadowBlur = 14;
   ctx.fillStyle = col; ctx.globalAlpha = 0.28;
-  ctx.beginPath(); ctx.ellipse(0, dh * 0.46, dw * 0.34, dh * 0.075, 0, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(0, -1, dw * 0.34, dh * 0.075, 0, 0, 7); ctx.fill();
   ctx.restore();
-  /* the extracted character, whole — no frame, no crop, no glow box */
-  ctx.drawImage(im, -dw / 2, -dh / 2, dw, dh);
+  /* the full-body character, whole — no frame, no crop, no glow box */
+  ctx.drawImage(im, -dw / 2, -dh, dw, dh);
   ctx.restore();
 }
 function drawEagle(){
@@ -4618,13 +4645,19 @@ function renderPicker(){
   const mt = $('medalTotals'); if (mt) mt.textContent = medalTotalsLine();
   const lb = $('levelBtn'); if (lb) lb.textContent = '🎯 LEVEL SELECT · LV ' + selLevel;
 }
-$('startBtn').onclick = () => {
+function gdStartRun(){
   $('startScreen').style.display = 'none';
   $('overScreen').style.display = 'none';
   resetRun(selLevel);
   running = true;
   ensureMusic();
-};
+}
+$('startBtn').onclick = gdStartRun;
+/* PLAY WITH YOUR NFT (Tom, Nov 8): starts the run with the SELECTED
+   NFT character. With nothing selected the button is DISABLED in the
+   panel (see gdRenderPanel) and this handler double-guards — it can
+   never silently start the standard eagle. */
+$('nftPlayBtn').onclick = () => { if (gdChar) gdStartRun(); };
 $('nextBtn').onclick = () => {
   $('levelScreen').style.display = 'none';
   startLevel(level + 1, false, true);
@@ -4842,6 +4875,15 @@ function gdRenderPanel(msg){
     grid.appendChild(b);
   }
   $('nftSelRow').style.display = gdChar ? 'flex' : 'none';
+  /* PLAY WITH YOUR NFT sits directly under PLAY STANDARD EAGLE:
+     enabled + named when a character is selected; disabled/greyed
+     with an honest hint when none is (never a silent eagle start). */
+  const pb = $('nftPlayBtn');
+  if (pb){
+    pb.disabled = !gdChar;
+    pb.textContent = gdChar ? ('🎨 PLAY WITH YOUR NFT — ' + gdChar.name) : '🎨 PLAY WITH YOUR NFT';
+    $('nftPlayHint').style.display = gdChar ? 'none' : 'block';
+  }
   $('nftConnectBtn').textContent = gdWalletConnected ? ('✅ ' + gdShortAddr(gdWallet)) : '🔗 CONNECT WALLET';
   const cb = $('nftCharBtn');
   if (cb) cb.textContent = gdChar ? ('🦅 YOUR CHARACTER: ' + gdChar.name) : '🦅 YOUR CHARACTER';
