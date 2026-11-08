@@ -308,6 +308,9 @@
   <div class="small">🦅 MY GARUDA — NFT BONUS CHARACTER</div>
   <div id="nftPanel">
     <div class="nftRow">
+      <button class="play" id="nftCharBtn" style="flex:1">🦅 YOUR CHARACTER</button>
+    </div>
+    <div class="nftRow">
       <button class="play" id="nftConnectBtn" style="flex:1">🔗 CONNECT WALLET</button>
     </div>
     <div class="nftRow">
@@ -4014,20 +4017,83 @@ function eagleLeg(pal, hx, hy, leg){
   ctx.moveTo(fx, fy); ctx.lineTo(fx + 1.8, fy + 2.4);
   ctx.stroke();
 }
-/* ================= NFT hero sprite =================
-   When a Garuda is selected, the NFT's OWN artwork is the hero: the
-   square portrait is cropped to the character bust (the collection's
-   template centres the Garuda in the lower-middle of the frame), drawn
-   at GD_HERO_SIZE px in a rounded frame with a soft glow in the rarity
-   colour (cyan Common / blue Rare / gold Legendary). Flight feel comes
-   from a gentle bob, a lean into the velocity and a nose-down tilt on
-   the dive. The art is NOT mirrored when the hero turns: several
-   outfits carry readable text (e.g. the GARUDA jersey) that a mirror
-   flip would reverse. If the art has not loaded yet or failed to load,
-   gdNftHeroReady() is false and draw() falls back to the standard
-   eagle for that run — never a blank or broken hero. Selection powers
-   (shield / power dive) are untouched by which sprite is drawn. */
-const GD_HERO_SIZE = 60;
+/* ================= NFT character sprite (extracted pack) =========
+   When a Garuda is selected, the in-world hero is the EXTRACTED
+   CHARACTER from the GARUDA character pack — the NFT's foreground
+   character cut out of its portrait (background removal + QC run
+   offline over the whole 500-token collection), served as a
+   transparent PNG from GD_CHAR_BASE. The character is drawn WHOLE
+   (the pack PNGs are already trimmed to the character, aspect
+   preserved): NO frame, NO square crop, NO glow box — just the
+   character itself, a soft rarity-colour shadow under its feet and
+   the flight motion (bob, lean, dive tilt, landing squash) plus a
+   gentle breathing/hover pulse so it reads as a living character,
+   not a pasted sticker. The art is NOT mirrored when the hero turns:
+   several outfits carry readable text (e.g. the GARUDA jersey) that a
+   mirror flip would reverse. Only tokens whose pack entry is
+   characters.json ok:true get a sprite; a token that failed QC, a
+   missing file or a failed load keeps the standard eagle for that
+   run — never a blank or broken hero. Selection powers (shield /
+   power dive) are untouched by which sprite is drawn. The menu cards
+   and the HUD portrait keep the ORIGINAL NFT art (framed portraits
+   are correct in UI). */
+const GD_CHAR_BASE = '../garuda-characters/';
+let gdCharManifest = null;   /* null = not loaded yet */
+function gdEnsureCharManifest(){
+  if (gdCharManifest !== null && !gdCharManifest.__inflight) return;
+  if (gdCharManifest && gdCharManifest.__inflight) return;   /* fetch already running */
+  gdCharManifest = { __inflight: true };       /* in-flight marker */
+  /* cache: 'no-cache' — a returning player's browser must revalidate the
+     manifest instead of serving a stale cached copy (a token extracted
+     after their first visit would otherwise look ok:false to them). */
+  fetch(GD_CHAR_BASE + 'characters.json', { cache: 'no-cache' })
+    .then(r => { if (!r.ok) throw new Error('manifest http ' + r.status); return r.json(); })
+    .then(j => {
+      /* Only a REAL manifest (an object with token keys) may replace the
+         in-flight marker. A short/empty/failed body must never be cached
+         as if it were the manifest — that once wedged every selection
+         into the 'manifest' waiting state forever. On a bad body, reset
+         to null so the next selection RETRIES the fetch. */
+      if (!j || typeof j !== 'object' || !Object.keys(j).length){
+        gdCharManifest = null;
+        return;
+      }
+      gdCharManifest = j;
+      /* if a selection is still waiting on the manifest — or one was
+         resolved as 'skip' while the fetch was in flight — (re)start
+         its load against the real manifest */
+      if (gdChar && (gdChar.imgState === 'manifest' || gdChar.imgState === 'skip')) gdLoadCharSprite(gdChar.tokenId);
+    })
+    .catch(() => { gdCharManifest = null; });
+}
+/* Debug/test hook: expose the loader state so the QA harness can verify
+   manifest behaviour (the manifest binding itself is module-scoped). */
+window.__gdCharManifestState = () => gdCharManifest;
+function gdLoadCharSprite(tokenId){
+  const g = gdChar;
+  if (!g || g.tokenId !== String(tokenId)) return;
+  if (!gdCharManifest || gdCharManifest.__inflight){
+    /* the manifest has not landed yet — stay in the waiting state; the
+       fetch handler re-fires this load when the real manifest arrives,
+       and gdSelectChar retries the fetch whenever one is not running */
+    g.imgState = 'manifest';
+    gdEnsureCharManifest();
+    return;
+  }
+  const entry = gdCharManifest[String(tokenId)];
+  if (!entry || !entry.ok){
+    g.imgState = 'skip'; g.imgEl = null;   /* failed QC / no file → eagle, powers kept */
+    return;
+  }
+  g.imgState = 'loading';
+  const im = new Image();
+  im.onload = () => { if (gdChar && gdChar.tokenId === g.tokenId) gdChar.imgState = 'ok'; };
+  im.onerror = () => { if (gdChar && gdChar.tokenId === g.tokenId){ gdChar.imgState = 'error'; gdChar.imgEl = null; } };
+  im.src = GD_CHAR_BASE + String(tokenId) + '.png';
+  g.imgEl = im;
+  if (im.complete && im.naturalWidth > 0) g.imgState = 'ok';
+}
+const GD_HERO_SIZE = 76;
 function gdNftHeroReady(){
   return typeof gdChar !== 'undefined' && !!gdChar && !!gdChar.imgEl && gdChar.imgState === 'ok' && gdChar.imgEl.naturalWidth > 0;
 }
@@ -4036,43 +4102,31 @@ function drawNftHero(){
   if (invuln > 0 && Math.floor(invuln * 12) % 2 === 0) return;   /* hurt flicker, same as the eagle */
   const im = gdChar.imgEl;
   const iw = im.naturalWidth, ih = im.naturalHeight;
-  /* crop to the character bust: centred horizontally, 27%→97% of the
-     frame height — drops most of the baked-in backdrop while keeping
-     the head, outfit and any hat / glasses traits */
-  const sx = iw * 0.15, sw = iw * 0.70, sy = ih * 0.27, sh = ih * 0.70;
-  const S = GD_HERO_SIZE;
-  const cx = P.x + P.w / 2, cy = P.y + P.h / 2;
+  const aspect = iw > 0 && ih > 0 ? iw / ih : 1;
+  const S = GD_HERO_SIZE;                 /* character height in px */
+  const dw = S * aspect, dh = S;
+  const cx = P.x + P.w / 2, bcy = P.y + P.h / 2;
   const bob = P.onGround ? Math.sin(runTime * 2.2) * 0.8 : Math.sin(runTime * 5) * 2.2;
   const squash = landT > 0 ? 1 + (landT / 0.12) * 0.14 : 1;
   const lean = Math.max(-0.20, Math.min(0.20, P.vx * 0.00045));
   const pitch = input.fastFall && !P.onGround ? 0.28 : P.gliding ? -0.04 : Math.max(-0.14, Math.min(0.22, P.vy * 0.00022));
   const flinchX = flinchT > 0 ? Math.sin(runTime * 55) * 1.6 * Math.min(1, flinchT / 0.3) : 0;
+  /* breathing + hover pulse: a slow 1.8% swell, and a quicker faint
+     shimmer while airborne — keeps the character alive in the air */
+  const breathe = 1 + Math.sin(runTime * 2.6) * 0.018 + (P.onGround ? 0 : Math.sin(runTime * 7.3) * 0.012);
   const col = gdRarityColor(gdChar.rarity);
   ctx.save();
-  ctx.translate(cx + flinchX, cy + bob);
+  ctx.translate(cx + flinchX, bcy + bob);
   ctx.rotate(lean + P.face * pitch);
-  ctx.scale(1 / Math.sqrt(squash), squash);
-  /* soft rarity glow behind the frame */
+  ctx.scale((1 / Math.sqrt(squash)) * breathe, squash * breathe);
+  /* soft rarity-colour ground shadow under the character (no box) */
   ctx.save();
-  ctx.shadowColor = col; ctx.shadowBlur = 18;
-  ctx.fillStyle = col; ctx.globalAlpha = 0.30;
-  ctx.beginPath(); ctx.arc(0, 0, S * 0.52, 0, 7); ctx.fill();
+  ctx.shadowColor = col; ctx.shadowBlur = 14;
+  ctx.fillStyle = col; ctx.globalAlpha = 0.28;
+  ctx.beginPath(); ctx.ellipse(0, dh * 0.46, dw * 0.34, dh * 0.075, 0, 0, 7); ctx.fill();
   ctx.restore();
-  /* the NFT art itself, clipped to a rounded frame */
-  ctx.save();
-  ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(-S / 2, -S / 2, S, S, 11); else ctx.rect(-S / 2, -S / 2, S, S);
-  ctx.clip();
-  ctx.drawImage(im, sx, sy, sw, sh, -S / 2, -S / 2, S, S);
-  ctx.restore();
-  /* frame ring in the rarity colour */
-  ctx.save();
-  ctx.shadowColor = col; ctx.shadowBlur = 9;
-  ctx.strokeStyle = col; ctx.lineWidth = 2.4;
-  ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(-S / 2, -S / 2, S, S, 11); else ctx.rect(-S / 2, -S / 2, S, S);
-  ctx.stroke();
-  ctx.restore();
+  /* the extracted character, whole — no frame, no crop, no glow box */
+  ctx.drawImage(im, -dw / 2, -dh / 2, dw, dh);
   ctx.restore();
 }
 function drawEagle(){
@@ -4769,6 +4823,7 @@ function gdRenderPanel(msg){
   if (msg) st.textContent = msg;
   const grid = $('nftGrid');
   grid.innerHTML = '';
+  grid.style.display = 'flex';
   for (const g of gdOwned){
     const b = document.createElement('button');
     b.className = 'nftcard' + (gdChar && gdChar.tokenId === g.tokenId ? ' sel' : '');
@@ -4788,22 +4843,47 @@ function gdRenderPanel(msg){
   }
   $('nftSelRow').style.display = gdChar ? 'flex' : 'none';
   $('nftConnectBtn').textContent = gdWalletConnected ? ('✅ ' + gdShortAddr(gdWallet)) : '🔗 CONNECT WALLET';
+  const cb = $('nftCharBtn');
+  if (cb) cb.textContent = gdChar ? ('🦅 YOUR CHARACTER: ' + gdChar.name) : '🦅 YOUR CHARACTER';
+}
+/* ---- YOUR CHARACTER button (Tom's order, Nov 8): the character picker
+   sits one tap away at the top of MY GARUDA — no digging through the
+   menu toggles. With Garudas owned it opens straight onto their cards
+   (direct + ⛓ STAKED, each tappable to fly as that Garuda); with none
+   loaded yet it points at CONNECT / VIEW right below. ---- */
+function gdToggleCharPicker(){
+  const grid = $('nftGrid');
+  if (!gdOwned.length){
+    $('nftStatus').textContent = gdWallet
+      ? 'No GARUDA NFTs found for ' + gdShortAddr(gdWallet) + ' — the standard eagle is yours, free as always. 🦅'
+      : 'Connect your wallet (or paste an address and tap VIEW) and your Garudas will appear here to pick from.';
+    grid.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    return;
+  }
+  /* gdRenderPanel always re-renders the grid visible, so derive the
+     open state from the grid's ACTUAL visibility, never a stale flag. */
+  const isOpen = grid.style.display !== 'none';
+  if (isOpen){
+    grid.style.display = 'none';
+    $('nftStatus').textContent = gdChar ? (gdChar.name + ' selected — ' + gdPowerLine(gdChar.rarity) + '. Bonus is live in your run!') : 'Standard eagle selected.';
+  } else {
+    grid.style.display = 'flex';
+    $('nftStatus').textContent = 'Pick your character — tap a Garuda to play as it:';
+    grid.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
 }
 function gdSelectChar(tokenId){
   const g = gdOwned.find(x => x.tokenId === String(tokenId));
   if (!g) return;
-  gdChar = { ...g, imgEl: null, imgState: g.image ? 'loading' : 'error' };
-  if (g.image){
-    const im = new Image();
-    /* Hero art state: 'ok' swaps the in-game hero to this NFT's own art
-       (drawNftHero); 'error' keeps the standard eagle for the run —
-       the selection, shield and dive powers apply either way. */
-    im.onload = () => { if (gdChar && gdChar.tokenId === g.tokenId) gdChar.imgState = 'ok'; };
-    im.onerror = () => { if (gdChar && gdChar.tokenId === g.tokenId){ gdChar.imgState = 'error'; gdChar.imgEl = null; } };
-    im.src = g.image;
-    gdChar.imgEl = im;
-    if (im.complete && im.naturalWidth > 0) gdChar.imgState = 'ok';
-  }
+  /* The menu card + HUD portrait keep the ORIGINAL NFT art (g.image).
+     The in-world hero sprite is the EXTRACTED character from the pack
+     (GD_CHAR_BASE + <id>.png), loaded manifest-gated by
+     gdLoadCharSprite: 'ok' → the extracted character flies;
+     'skip'/'error'/'loading' → the standard eagle for that run, with
+     the selection's shield / dive powers applying either way. */
+  gdChar = { ...g, imgEl: null, imgState: 'manifest' };
+  gdEnsureCharManifest();
+  if (gdCharManifest && !gdCharManifest.__inflight && gdCharManifest[String(g.tokenId)]) gdLoadCharSprite(g.tokenId);
   GD_EAGLE_BOUNCE = gdPowerDive() ? GD_DIVE_BOUNCE : DIVE_BOUNCE;
   gdRefillShield();
   gdRenderPanel(g.name + ' selected — ' + gdPowerLine(g.rarity) + '. Bonus is live in your run!');
@@ -4906,6 +4986,7 @@ function gdShockwave(cx, cy){
 }
 /* ---- panel wiring ---- */
 $('nftConnectBtn').onclick = gdConnectKeplr;
+$('nftCharBtn').onclick = gdToggleCharPicker;
 $('nftViewBtn').onclick = () => {
   const a = $('nftAddrInput').value.trim();
   if (!/^terra1[0-9a-z]{38}$/.test(a)){ $('nftStatus').textContent = 'That does not look like a Terra Classic address (terra1…).'; return; }
