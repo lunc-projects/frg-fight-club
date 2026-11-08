@@ -19,6 +19,17 @@
   body.playing .cabinet{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
   body.playing .pfbox{flex:1 1 auto;min-height:0}
   body.playing .topbar{margin-bottom:2px}
+  /* header-hide during play (owner Nov 7): reclaim the top of the screen for the field */
+  body.playing .topbar{display:none}
+  body.playing .marquee{display:none}
+  body.playing .pfbox{aspect-ratio:auto}
+  /* shrink the play box to the drawn world's aspect so no dark band
+     remains inside the canvas element (fit() reads clientWidth/Height) */
+  #game.playfit{aspect-ratio:800/920}
+  body.playing .strip,body.playing .hintline,body.playing .foot{display:none}
+  body.playing .hud{margin-top:0;padding:4px 12px}
+  body.playing .cabinet{padding:6px 8px}
+  body.playing .pfbox{margin-top:4px}
   .wrap{max-width:452px;margin:0 auto;position:relative;z-index:3}
   .topbar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:2px 2px 8px}
   .topbar .brand{font-weight:800;letter-spacing:.14em;font-size:12px;color:var(--gold);text-transform:uppercase}
@@ -70,6 +81,11 @@
   .statsline{font-size:13px;color:var(--dim)}
   /* Strips + footer */
   .strip{margin-top:12px;background:linear-gradient(90deg,rgba(20,60,44,.85),rgba(13,40,30,.85));border:1px solid #1f7a4d;border-radius:11px;padding:9px 12px;font-size:12.5px;line-height:1.45;text-align:center;color:#c9f5dd}
+  /* floating strip + tools during play: security note + pause/sound/lang stay on top of the taller field */
+  body.playing .strip{display:block;position:fixed;left:6px;right:6px;bottom:4px;margin-top:0;padding:5px 10px;font-size:10.5px;border-radius:9px;background:linear-gradient(90deg,rgba(20,60,44,.92),rgba(13,40,30,.92));z-index:30;pointer-events:none}
+  body.playing .tools{position:fixed;top:6px;right:6px;z-index:30}
+  body.playing .tools select{background:rgba(19,26,58,.9)}
+  body.playing .tools .iconbtn{background:rgba(19,26,58,.9)}
   .strip b{color:#7dffb0}
   .hintline{text-align:center;color:var(--dim);font-size:12px;margin-top:9px;line-height:1.5}
   .foot{text-align:center;color:#5d6794;font-size:11px;margin-top:12px;letter-spacing:.06em}
@@ -200,23 +216,80 @@ function applyI18n(){
 /* ================= SETUP ================= */
 const $ = id => document.getElementById(id);
 const cv = $('game'), ctx = cv.getContext('2d');
-const VH = 540;                       /* virtual world height */
+const VH = 540;                       /* virtual world height — base (menu/letterbox) */
+let VH_now = VH;                      /* live world height — grows during play (see fit()) */
+let PADDLE_Y = VH - 30;               /* paddle line — re-anchored by updateWorldHeight() */
 const IW = 800;                       /* virtual world width — fixed */
 let W = IW, H = VH, SCALE = 1, OX = 0, OY = 0;
 function fit(){
   /* Buffer = canvas CSS box x devicePixelRatio (capped at 2). The ENTIRE
      800x540 world is letterboxed inside it: one uniform SCALE plus centering
      offsets (OX, OY) — every column, every row and the paddle zone visible. */
-  const cw = cv.clientWidth || 0, ch = cv.clientHeight || 0;
+  let cw = cv.clientWidth || 0, ch = cv.clientHeight || 0;
+  if (document.body.classList.contains('playing')){
+    /* No vertical letterbox during play (owner Nov 7: "remove the stuff
+       at the top so that there is room to play") — the old fixed 800x540
+       fit left huge dark bands on a tall phone. Compute the viewport and
+       grow the WORLD height instead: VH_now = 800 x (boxH/boxW) keeps the
+       same uniform SCALE as the menu, so balloons keep their size/proportions
+       and the freed vertical space becomes real play room above the paddle.
+       Row positions ride in the fixed top grid; walls/paddle/pops re-anchor
+       from VH_now every frame. Height is capped at 920 world units so
+       absurdly tall screens stay playable.
+       FIRST PASS problem: the .pfbox flex-grows to the full column height,
+       so clientHeight is the TALL box and VH_now would peg at the cap with
+       the world letterboxed inside it anyway. So first size the canvas
+       element to the capped world's aspect (class playfit) and re-measure
+       against THAT height — the box then matches the world exactly. */
+    if (!cv.classList.contains('playfit')){
+      cv.classList.add('playfit');
+      cw = cv.clientWidth || cw; ch = cv.clientHeight || ch;
+    }
+    const cbw = cw, cbh = ch;
+    let vhN = Math.round(800 * (cbh / Math.max(1, cbw)));
+    vhN = Math.max(VH, Math.min(920, vhN));
+    if (vhN !== VH_now){
+      VH_now = vhN;
+      updateWorldHeight();
+    }
+  } else {
+    if (cv.classList.contains('playfit')) cv.classList.remove('playfit');
+    if (VH_now !== VH){
+      VH_now = VH;
+      updateWorldHeight();
+    }
+  }
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   if (cw > 0 && ch > 0){
     const bw = Math.round(cw * dpr), bh = Math.round(ch * dpr);
     if (cv.width !== bw || cv.height !== bh){ cv.width = bw; cv.height = bh; }
   }
   W = cv.width; H = cv.height;
-  SCALE = Math.min(W / IW, H / VH);
+  SCALE = Math.min(W / IW, H / VH_now);
   OX = (W - IW * SCALE) / 2;
-  OY = (H - VH * SCALE) / 2;
+  OY = (H - VH_now * SCALE) / 2;
+}
+function updateWorldHeight(){
+  /* Re-anchor everything that hangs off the world height. Balls live in
+     world coords, so a height change mid-flight maps them proportionally —
+     they keep their relative spot instead of jumping. Called by fit()
+     only when VH_now actually changed. */
+  const ratio = VH_now / (updateWorldHeight._prev || VH);
+  updateWorldHeight._prev = VH_now;
+  PADDLE_Y = VH_now - 30;
+  if (typeof balls !== 'undefined' && Array.isArray(balls)){
+    for (const b of balls){ b.y *= ratio; }
+  }
+  if (typeof capsule !== 'undefined' && capsule){ capsule.y *= ratio; }
+  if (typeof state !== 'undefined' && state === 'serve' && typeof resetBallOnPaddle === 'function'){
+    resetBallOnPaddle();
+  }
+}
+function refit(){
+  /* fit() once on the next frame (layout settled after the class
+     toggle), again shortly after for late layout/visualViewport settle */
+  requestAnimationFrame(fit);
+  setTimeout(fit, 250);
 }
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 function mulberry(seed){
@@ -289,7 +362,7 @@ const FL = 16, FR = IW - 16, FT = 14;            /* field walls (virtual px) */
 const ROW_COLORS = ['#2dd4bf', '#38bdf8', '#a78bfa', '#fb7185', '#f5c542', '#a3e635', '#f472b6', '#34d399'];
 const COLS = 10, BCX = 36, BCY = 31, BGAP = 4, BX0 = 22, BY0 = 48;   /* grid x 22..778 inside walls 16..784; 7-row bottom = 506, above paddle 510 */
 const BALL_R = 7;
-const PADDLE_Y = VH - 30, PADDLE_H = 13, PADDLE_BASE_W = 112;
+const PADDLE_H = 13, PADDLE_BASE_W = 112;
 const MIN_VY_FRAC = 0.27;
 
 let state = 'menu';        /* menu | serve | play | over */
@@ -460,7 +533,7 @@ function startRun(){
   $('submitBtn').disabled = false;
   $('submitStatus').textContent = '';
   document.body.classList.add('playing');
-  requestAnimationFrame(fit); setTimeout(fit, 250);
+  refit();
   resetBallOnPaddle();
   hud();
   toast(T('lvl').replace('{l}', 1));
@@ -476,7 +549,7 @@ function advanceLevel(){
 }
 function loseBall(ballObj){
   balls = balls.filter(b => b !== ballObj);
-  burst(ballObj.x, VH - 8, '#fb7185', 10);
+  burst(ballObj.x, VH_now - 8, '#fb7185', 10);
   if (balls.length) return;           /* other balls still flying — play on */
   lives--;
   sndLose();
@@ -489,7 +562,7 @@ function loseBall(ballObj){
 function gameOver(){
   state = 'over'; runActive = false;
   document.body.classList.remove('playing');
-  requestAnimationFrame(fit);
+  refit();
   localStorage.setItem('lunaBreakoutBest', Math.max(+(localStorage.getItem('lunaBreakoutBest') || 0), score));
   $('finalScore').textContent = score;
   $('overStats').textContent = T('overStats').replace('{l}', level).replace('{p}', popped);
@@ -620,7 +693,7 @@ function stepBall(b, dt){
     }
     enforceAngle(b);
 
-    if (b.y - BALL_R > VH + 12){ loseBall(b); return; }
+    if (b.y - BALL_R > VH_now + 12){ loseBall(b); return; }
   }
 }
 
@@ -676,7 +749,7 @@ function update(dt){
       paddle.w = PADDLE_BASE_W * 1.5; wideT = 12;
       capsule = null; sndPower(); toast(T('wideOn'));
       paddle.x = clamp(paddle.x, FL + paddle.w / 2, FR - paddle.w / 2);
-    } else if (capsule.y > VH + 16) capsule = null;
+    } else if (capsule.y > VH_now + 16) capsule = null;
   }
 
   for (const b of [...balls]) stepBall(b, dt);
@@ -847,13 +920,13 @@ function draw(){
   ctx.fillStyle = '#070b22'; ctx.fillRect(0, 0, W, H);
   ctx.setTransform(SCALE, 0, 0, SCALE, OX, OY);
   /* dusk carnival sky */
-  const g = ctx.createLinearGradient(0, 0, 0, VH);
+  const g = ctx.createLinearGradient(0, 0, 0, VH_now);
   g.addColorStop(0, '#131c48'); g.addColorStop(0.45, '#1c1440'); g.addColorStop(0.75, '#33163f'); g.addColorStop(1, '#4a1e35');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, IW, VH);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, IW, VH_now);
   /* warm carnival glow rising from the fairground below the field */
-  const cg = ctx.createRadialGradient(IW / 2, VH + 90, 60, IW / 2, VH + 90, 470);
+  const cg = ctx.createRadialGradient(IW / 2, VH_now + 90, 60, IW / 2, VH_now + 90, 470);
   cg.addColorStop(0, 'rgba(255,150,70,.20)'); cg.addColorStop(0.55, 'rgba(255,110,80,.07)'); cg.addColorStop(1, 'rgba(255,110,80,0)');
-  ctx.fillStyle = cg; ctx.fillRect(0, VH - 470, IW, 470);
+  ctx.fillStyle = cg; ctx.fillRect(0, VH_now - 470, IW, 470);
   /* gentle light shaft falling from the moon */
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
@@ -875,11 +948,12 @@ function draw(){
   drawCrescent(724, 40, 17, false);
   /* distant skyline silhouette */
   ctx.fillStyle = 'rgba(8,8,26,.55)';
+  const skyOff = VH_now - VH;
   const skyline = [[0, 470, 70], [62, 448, 52], [108, 478, 84], [186, 440, 46], [226, 466, 96], [316, 452, 60], [370, 474, 88], [452, 444, 54], [500, 470, 92], [586, 450, 62], [642, 476, 80], [716, 446, 84]];
-  for (const [x, y, w] of skyline) ctx.fillRect(x, y, w, VH - y + 400);
+  for (const [x, y, w] of skyline) ctx.fillRect(x, y + skyOff, w, VH_now - (y + skyOff) + 400);
   ctx.fillStyle = 'rgba(255,205,110,.5)';
   for (let i = 0; i < 26; i++){
-    const wx = (i * 173) % 780 + 8, wy = 452 + ((i * 89) % 52);
+    const wx = (i * 173) % 780 + 8, wy = 452 + ((i * 89) % 52) + skyOff;
     if (Math.sin(drawT * 0.7 + i * 2.3) > -0.2) ctx.fillRect(wx, wy, 3.4, 4.6);
   }
   /* drifting clouds */
@@ -906,13 +980,13 @@ function draw(){
   ctx.globalAlpha = 0.13;
   ctx.fillStyle = '#ffe9a8';
   ctx.font = '900 44px system-ui, sans-serif'; ctx.textAlign = 'center';
-  ctx.fillText('LUNA CLASSIC', IW / 2, 414);
+  ctx.fillText('LUNA CLASSIC', IW / 2, 414 + skyOff);
   ctx.font = '800 15px system-ui, sans-serif';
-  ctx.fillText('L U N C   D E V   S T U D I O', IW / 2, 440);
+  ctx.fillText('L U N C   D E V   S T U D I O', IW / 2, 440 + skyOff);
   ctx.restore();
   /* walls */
   ctx.fillStyle = 'rgba(64,224,208,.5)';
-  ctx.fillRect(FL - 3, FT, 3, VH - FT); ctx.fillRect(FR, FT, 3, VH - FT); ctx.fillRect(FL - 3, FT - 3, FR - FL + 6, 3);
+  ctx.fillRect(FL - 3, FT, 3, VH_now - FT); ctx.fillRect(FR, FT, 3, VH_now - FT); ctx.fillRect(FL - 3, FT - 3, FR - FL + 6, 3);
 
   /* balloons */
   for (const b of balloons) if (b.alive) drawBalloon(b);
@@ -1041,18 +1115,18 @@ function draw(){
     ctx.font = '900 27px system-ui, sans-serif'; ctx.textAlign = 'center';
     ctx.fillStyle = '#ffd76a';
     ctx.shadowColor = 'rgba(255,183,0,.8)'; ctx.shadowBlur = 16;
-    ctx.fillText(toastTxt, IW / 2, VH * 0.42);
+    ctx.fillText(toastTxt, IW / 2, VH_now * 0.42);
     ctx.shadowBlur = 0;
   }
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   /* vignette — darker corners pull focus to the center of the field (premium depth cue) */
   ctx.save();
   ctx.setTransform(SCALE, 0, 0, SCALE, OX, OY);
-  const vg = ctx.createRadialGradient(IW / 2, VH * 0.44, VH * 0.34, IW / 2, VH * 0.52, VH * 0.86);
+  const vg = ctx.createRadialGradient(IW / 2, VH_now * 0.44, VH_now * 0.34, IW / 2, VH_now * 0.52, VH_now * 0.86);
   vg.addColorStop(0, 'rgba(4,2,16,0)');
   vg.addColorStop(1, 'rgba(4,2,16,.38)');
   ctx.fillStyle = vg;
-  ctx.fillRect(0, 0, IW, VH);
+  ctx.fillRect(0, 0, IW, VH_now);
   ctx.restore();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
 }
@@ -1165,7 +1239,7 @@ $('resumeBtn').onclick = togglePause;
 $('quitBtn').onclick = () => {
   paused = false; state = 'menu'; balls = [];
   document.body.classList.remove('playing');
-  requestAnimationFrame(fit);
+  refit();
   showScreen('menuScreen');
 };
 document.addEventListener('visibilitychange', () => {
