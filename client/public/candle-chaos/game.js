@@ -2,8 +2,8 @@
    CANDLE CHAOS — 3D chart-runner (Three.js r160)
    LUNC Dev Studio original. Leap candle to candle along a living
    candlestick chart: GREEN is safe, RED is death, and the candles
-   behind you crack and fall away. Pickups are LUNC crescents and
-   USTC stars only. Free game — no wallet, no signing, ever.
+   behind you crack and fall away. Pickups are Luna Classic
+   tickets and USTC stars only. Free game — no wallet, no signing, ever.
    ============================================================ */
 import * as THREE from 'three';
 
@@ -493,9 +493,79 @@ const haloMatR = new THREE.SpriteMaterial({ map: glowTex, color: 0xff5030, trans
 const chunkMatG = new THREE.MeshStandardMaterial({ color: 0x1ed760, roughness: 0.5 });
 const chunkMatR = new THREE.MeshStandardMaterial({ color: 0xe02334, roughness: 0.5 });
 
-/* crescent pickup geometry (gold torus arc) + star */
-const crescentGeo = new THREE.TorusGeometry(0.42, 0.15, 10, 22, 4.15);
-const matCrescent = new THREE.MeshStandardMaterial({ color: 0xffcf3d, emissive: 0xa87400, emissiveIntensity: 0.7, roughness: 0.22, metalness: 0.75 });
+/* Luna Classic TICKET pickup (Nov 7 re-skin of the old gold crescent:
+   same spawn rates, same +50, same collect box — the internal kind id
+   stays 'crescent' so scoring / leaderboard contracts are untouched).
+   A flat ticket: rounded-rect outline with a punched notch in each
+   short edge, a thin gold core for the edge, and the canvas face on
+   BOTH sides — the back face is turned 180° so LUNA CLASSIC reads
+   correctly from any spin angle. */
+const TICKET_W = 0.95, TICKET_H = 0.60;
+const ticketTex = canvasTex(512, 320, (g, w, h) => {
+  // deep navy body with a soft centre glow
+  const rg = g.createRadialGradient(w / 2, h / 2, 30, w / 2, h / 2, w * 0.62);
+  rg.addColorStop(0, '#1c316f'); rg.addColorStop(0.55, '#101f52'); rg.addColorStop(1, '#081238');
+  g.fillStyle = rg; g.fillRect(0, 0, w, h);
+  // gold double border
+  g.strokeStyle = '#ffcf3d'; g.lineWidth = 9; g.strokeRect(13, 13, w - 26, h - 26);
+  g.strokeStyle = 'rgba(255,207,61,0.55)'; g.lineWidth = 2.5; g.strokeRect(31, 31, w - 62, h - 62);
+  // perforation line + stub (stub carries a small rotated LUNC)
+  g.strokeStyle = 'rgba(255,207,61,0.9)'; g.lineWidth = 4; g.setLineDash([11, 9]);
+  g.beginPath(); g.moveTo(448, 20); g.lineTo(448, h - 20); g.stroke(); g.setLineDash([]);
+  g.save(); g.translate(480, h / 2); g.rotate(-Math.PI / 2);
+  g.fillStyle = '#ffdf7e'; g.font = '700 27px Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('LUNC ★', 0, 0); g.restore();
+  // gold crescent (drawn on a scratch canvas so the cut stays clean)
+  const cc = document.createElement('canvas'); cc.width = cc.height = 150;
+  const cg = cc.getContext('2d');
+  cg.fillStyle = '#ffcf3d'; cg.beginPath(); cg.arc(75, 75, 58, 0, Math.PI * 2); cg.fill();
+  cg.globalCompositeOperation = 'destination-out';
+  cg.beginPath(); cg.arc(101, 57, 48, 0, Math.PI * 2); cg.fill();
+  g.save(); g.translate(112, 150); g.rotate(-0.32); g.drawImage(cc, -75, -75); g.restore();
+  // the words
+  g.textAlign = 'left'; g.textBaseline = 'middle';
+  g.fillStyle = '#ffdf7e'; g.font = '900 54px Arial, sans-serif';
+  g.fillText('LUNA', 198, 118);
+  g.fillText('CLASSIC', 198, 178);
+  g.fillStyle = 'rgba(255,223,126,0.88)'; g.font = '700 23px Arial, sans-serif';
+  g.fillText('★ ADMIT ONE ★', 198, 240);
+});
+const ticketShape = (() => {
+  const a = TICKET_W / 2, b = TICKET_H / 2, r = 0.07, nr = 0.085;
+  const s = new THREE.Shape();
+  s.moveTo(-a + r, b);
+  s.lineTo(a - r, b);
+  s.quadraticCurveTo(a, b, a, b - r);
+  s.lineTo(a, nr);
+  s.absarc(a, 0, nr, Math.PI / 2, Math.PI * 1.5, false);   // right notch (dips inward)
+  s.lineTo(a, -b + r);
+  s.quadraticCurveTo(a, -b, a - r, -b);
+  s.lineTo(-a + r, -b);
+  s.quadraticCurveTo(-a, -b, -a, -b + r);
+  s.lineTo(-a, -nr);
+  s.absarc(-a, 0, nr, -Math.PI / 2, Math.PI / 2, false);   // left notch (dips inward)
+  s.lineTo(-a, b - r);
+  s.quadraticCurveTo(-a, b, -a + r, b);
+  s.closePath();
+  return s;
+})();
+const ticketFaceGeo = (() => {
+  const geo = new THREE.ShapeGeometry(ticketShape, 24);
+  const pos = geo.attributes.position, uv = geo.attributes.uv;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, (pos.getX(i) + TICKET_W / 2) / TICKET_W, (pos.getY(i) + TICKET_H / 2) / TICKET_H);
+  return geo;
+})();
+const ticketCoreGeo = new THREE.ExtrudeGeometry(ticketShape, { depth: 0.045, bevelEnabled: false, curveSegments: 24 });
+ticketCoreGeo.translate(0, 0, -0.0225);
+const matTicketEdge = new THREE.MeshStandardMaterial({ color: 0xd9a72e, emissive: 0x6b4c00, emissiveIntensity: 0.5, roughness: 0.3, metalness: 0.85 });
+const matTicketFace = new THREE.MeshStandardMaterial({ map: ticketTex, emissive: 0xffffff, emissiveMap: ticketTex, emissiveIntensity: 0.38, roughness: 0.35, metalness: 0.1 });
+function makeTicket() {
+  const grp = new THREE.Group();
+  grp.add(new THREE.Mesh(ticketCoreGeo, matTicketEdge));
+  const front = new THREE.Mesh(ticketFaceGeo, matTicketFace); front.position.z = 0.024; grp.add(front);
+  const back = new THREE.Mesh(ticketFaceGeo, matTicketFace); back.rotation.y = Math.PI; back.position.z = -0.024; grp.add(back);
+  return grp;
+}
 const starGeo = (() => {
   const s = new THREE.Shape();
   for (let i = 0; i < 10; i++) {
@@ -730,7 +800,7 @@ function genStep(i) {
 
 function addPickup(kind, x, y, z, step) {
   const mesh = new THREE.Group();
-  const coreMesh = new THREE.Mesh(kind === 'crescent' ? crescentGeo : starGeo, kind === 'crescent' ? matCrescent : matStar);
+  const coreMesh = kind === 'crescent' ? makeTicket() : new THREE.Mesh(starGeo, matStar);
   coreMesh.userData.spin = true;
   mesh.add(coreMesh);
   const halo = new THREE.Sprite(new THREE.SpriteMaterial({
