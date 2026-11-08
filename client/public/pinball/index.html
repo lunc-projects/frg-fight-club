@@ -502,6 +502,16 @@ function buildWalls(){
   W(292, 652, 272, 640, .3);    // right sling/inlane corner pocket
   W(20, 420, 44, 436, .3);      // orbit-exit deflector pocket (left wall)
   W(318, 112, 336, 128, .3);    // top-right: guide / lane-divider-tip pocket
+  // ROUND-5: the owner filmed a ball FROZEN at the top on the live build,
+  // resting on the inner arc right at the 25° lane-divider tip — the one
+  // gate spot the round-2 wedge above does not cover (the wedge guards
+  // the slot ABOVE the arc; the ball can still balance ON the arc itself,
+  // pinned between the arc and the divider tip, ~13px of level curve with
+  // no escape slope). This short steep chord sits just under that spot on
+  // the playfield side of the arc: anything resting there is shed down
+  // into the N lane / playfield. It is 18px clear of the arc everywhere,
+  // so orbit and lane traffic never touch it.
+  W(324, 128, 312, 146, .3);    // ROUND-5: inner-arc / N-divider-tip rest spot
   W(38, 556, 52, 572, .3);      // left post-at-584 cradle: ball trickled over the post and fell back forever
   // Shooter one-way spring gate visual anchor post
   post(370, 235, 4);
@@ -516,7 +526,17 @@ function segCollide(b, s, rest){
   let t = ((b.x - s.x1) * dx + (b.y - s.y1) * dy) / L2; t = Math.max(0, Math.min(1, t));
   const cx = s.x1 + dx * t, cy = s.y1 + dy * t;
   let nx = b.x - cx, ny = b.y - cy, d = Math.hypot(nx, ny);
-  if (d >= BALL_R || d === 0) return null;
+  // ROUND-5: same exact-centre trap as circCollide — a ball landing
+  // exactly ON a segment (d === 0) had no normal and was never pushed
+  // out; it rested inside the wall line indefinitely. Push it out along
+  // the segment's DOWNWARD normal (gravity side) so it drops into play.
+  if (d === 0){
+    const sl = Math.hypot(dx, dy) || 1;
+    let dnx = -dy / sl, dny = dx / sl; if (dny < 0){ dnx = -dnx; dny = -dny; }
+    b.x += dnx * BALL_R; b.y += dny * BALL_R;
+    return { nx: dnx, ny: dny, speed: 0, cx, cy };
+  }
+  if (d >= BALL_R) return null;
   nx /= d; ny /= d;
   b.x += nx * (BALL_R - d); b.y += ny * (BALL_R - d);
   const vn = b.vx * nx + b.vy * ny;
@@ -530,7 +550,15 @@ function segCollide(b, s, rest){
 }
 function circCollide(b, c, rest, kick){
   let nx = b.x - c.x, ny = b.y - c.y, d = Math.hypot(nx, ny), min = BALL_R + c.r;
-  if (d >= min || d === 0) return null;
+  // ROUND-5: a ball whose centre EXACTLY equals a circle's centre used to
+  // be skipped forever (d === 0 returned null — no normal, no push-out):
+  // the ball sat inside the circle, nothing ever touched it, and the
+  // watchdog's rescues could not help either (its teleport puts a
+  // multiball ball at (CX,600), dead centre of MOON's column, one bad
+  // landing from the same trap). Push straight DOWN out of the circle —
+  // the one direction that always returns the ball to play.
+  if (d === 0){ b.y = c.y + min; b.vy = Math.abs(b.vy) + 60; return { nx: 0, ny: 1, speed: 0 }; }
+  if (d >= min) return null;
   nx /= d; ny /= d;
   b.x = c.x + nx * min; b.y = c.y + ny * min;
   const vn = b.vx * nx + b.vy * ny;
@@ -622,6 +650,29 @@ function physicsStep(b, dt){
     else b.anchorT = (b.anchorT || 0) + dt;
     const trapped = (spNow < 90 || b.anchorT > 2) && Math.hypot(b.x - b.anchorX, b.y - b.anchorY) < 25 && b.anchorT > 0;
     if (trapped && !cradled){ b.stallT = (b.stallT || 0) + dt; } else b.stallT = 0;
+    // ROUND-5 (owner's frozen top-lane ball): the watchdog above is
+    // invisible to a ball that is not finite (NaN position/velocity —
+    // every speed/distance test against NaN is false, so stallT could
+    // never accumulate and no rescue could ever fire) and to a ball
+    // pinned EXACTLY on a surface, where the collision functions had no
+    // normal to push it out with. The NaN case is killed in
+    // featureChecks and the exact-centre cases now push out in
+    // segCollide/circCollide; this is the belt-and-braces net for the
+    // same class: a 'play' ball that has not moved a full pixel in 4s
+    // ANYWHERE on the table — plunger lane included (a ball resting in
+    // the lane in 'play' mode is a failed launch, not a held ball) —
+    // while the game is live gets dropped straight back into play.
+    // 'shooter' balls never reach this branch, saucer balls run their
+    // own branch, and held locks are dead+held (never stepped), so no
+    // legitimate hold can ever trigger it.
+    if (cradled){ b._r5t = 0; b._r5x = b.x; b._r5y = b.y; }
+    else if (b._r5x == null || Math.hypot(b.x - b._r5x, b.y - b._r5y) > 1){ b._r5x = b.x; b._r5y = b.y; b._r5t = 0; }
+    else b._r5t = (b._r5t || 0) + dt;
+    if (b._r5t > 4 && G.state === 'playing'){
+      b._r5t = 0; b.stallT = 0; b.anchorX = null;
+      if (G.inMultiball){ b.x = CX; b.y = 600; b.vx = 0; b.vy = 120; }
+      else { b.mode = 'shooter'; b.x = 388; b.y = 726; b.vx = 0; b.vy = 0; b.settled = true; return; }
+    }
     if (b.rescueT > 0) b.rescueT -= dt;
     if (b.stallT > 2){
       b.stallT = 0;
@@ -908,6 +959,17 @@ function featureChecks(b){
   if (b.y > PH - 52 && b.mode === 'play'){ onDrain(b); }
   // Escape failsafe
   if (b.x < -20 || b.x > PW + 20 || b.y < -40){ b.dead = true; onBallGone(b); }
+  // ROUND-5: NaN failsafe — the draw code already defends against a ball
+  // carrying NaN ("off-table failsafe balls can carry NaN for a frame"),
+  // but nothing RECOVERED one: every comparison against NaN is false, so
+  // a NaN ball is invisible to the drain check, the escape check above
+  // and the watchdog, and it is never drawn — the table just sits
+  // ball-less with a phantom ball in the array (exactly the owner's
+  // round-5 screenshot: ball in play, credits fine, no ball anywhere).
+  // On a real phone one non-finite step (a physics throw is caught by
+  // frame(), a wild dt/interrupt is not) is enough. Kill it here and let
+  // the normal ball-gone flow re-serve / end the ball like any loss.
+  if (!isFinite(b.x) || !isFinite(b.y) || !isFinite(b.vx) || !isFinite(b.vy)){ b.dead = true; onBallGone(b); }
 }
 function onDrain(b){
   b.dead = true; sfx('drain');
