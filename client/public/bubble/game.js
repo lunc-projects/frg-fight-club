@@ -147,13 +147,13 @@ try {
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, GFX_TIERS[gfxTier].dpr));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.12;
+renderer.toneMappingExposure = 1.38;
 renderer.domElement.addEventListener('webglcontextlost', ev => { ev.preventDefault(); gfxFail('WebGL context lost'); }, false);
 container.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x04040f);
-scene.fog = new THREE.FogExp2(0x05060f, 0.0075);
+scene.background = new THREE.Color(0x0a1130);
+scene.fog = new THREE.FogExp2(0x0a1130, 0.0016);
 
 const camera = new THREE.PerspectiveCamera(42, 3 / 4, 0.1, 400);
 let view = { w: 0, h: 0, scale: 1 };
@@ -174,15 +174,15 @@ function layout() {
 }
 window.addEventListener('resize', layout);
 
-/* lights — dim ambient + a cool key + warm fill; bursts add their own flashes */
-scene.add(new THREE.AmbientLight(0x334466, 0.85));
-const keyLight = new THREE.DirectionalLight(0xbfe0ff, 1.5);
+/* lights — bright ambient + a cool key + warm fill; bursts add their own flashes */
+scene.add(new THREE.AmbientLight(0x8fa8e8, 1.15));
+const keyLight = new THREE.DirectionalLight(0xbfe0ff, 2.1);
 keyLight.position.set(-14, 26, 30);
 scene.add(keyLight);
-const fillLight = new THREE.DirectionalLight(0xffd9a0, 0.45);
+const fillLight = new THREE.DirectionalLight(0xffd9a0, 0.85);
 fillLight.position.set(18, -8, 24);
 scene.add(fillLight);
-const rimLight = new THREE.PointLight(0x7a5cff, 60, 120);
+const rimLight = new THREE.PointLight(0x7a5cff, 90, 120);
 rimLight.position.set(0, 30, -14);
 scene.add(rimLight);
 
@@ -198,17 +198,17 @@ function canvasTex(w, h, draw) {
 /* equirect environment: dark room + softbox strips (reflections only) */
 const envTex = canvasTex(1024, 512, (g, w, h) => {
   const grad = g.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, '#1a2450'); grad.addColorStop(0.5, '#070a20'); grad.addColorStop(1, '#03040c');
+  grad.addColorStop(0, '#33479e'); grad.addColorStop(0.5, '#16236b'); grad.addColorStop(1, '#0a1236');
   g.fillStyle = grad; g.fillRect(0, 0, w, h);
   const blob = (x, y, r, col, a) => {
     const rg = g.createRadialGradient(x, y, 0, x, y, r);
     rg.addColorStop(0, col); rg.addColorStop(1, 'rgba(0,0,0,0)');
     g.globalAlpha = a; g.fillStyle = rg; g.fillRect(x - r, y - r, r * 2, r * 2); g.globalAlpha = 1;
   };
-  blob(220, 120, 190, '#9fd8ff', 0.95); blob(800, 100, 170, '#ffe9a8', 0.8);
-  blob(520, 60, 130, '#b388ff', 0.65); blob(90, 300, 120, '#3fe0c8', 0.4); blob(940, 320, 120, '#ff6b9d', 0.35);
-  g.fillStyle = 'rgba(255,255,255,0.9)';
-  g.fillRect(120, 66, 260, 20); g.fillRect(640, 52, 300, 18);
+  blob(220, 120, 190, '#9fd8ff', 1.0); blob(800, 100, 170, '#ffe9a8', 0.95);
+  blob(520, 60, 130, '#b388ff', 0.85); blob(90, 300, 120, '#3fe0c8', 0.6); blob(940, 320, 120, '#ff6b9d', 0.55);
+  g.fillStyle = 'rgba(255,255,255,0.95)';
+  g.fillRect(120, 66, 260, 20); g.fillRect(640, 52, 300, 18); g.fillRect(380, 130, 240, 16);
 });
 if (GFX_TIERS[gfxTier].env) {
   try {
@@ -220,7 +220,7 @@ if (GFX_TIERS[gfxTier].env) {
 /* deep-space backdrop: gradient + nebula wash + star points, far behind play */
 const bgTex = canvasTex(1024, 1536, (g, w, h) => {
   const grad = g.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, '#0a1030'); grad.addColorStop(0.45, '#060818'); grad.addColorStop(1, '#02030a');
+  grad.addColorStop(0, '#1a2a78'); grad.addColorStop(0.45, '#0d1748'); grad.addColorStop(1, '#060d2e');
   g.fillStyle = grad; g.fillRect(0, 0, w, h);
   let seed = 1234567;
   const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
@@ -229,8 +229,8 @@ const bgTex = canvasTex(1024, 1536, (g, w, h) => {
     rg.addColorStop(0, col); rg.addColorStop(1, 'rgba(0,0,0,0)');
     g.globalAlpha = a; g.fillStyle = rg; g.fillRect(x - r, y - r, r * 2, r * 2); g.globalAlpha = 1;
   };
-  blob(240, 260, 420, '#233a8f', 0.55); blob(820, 420, 460, '#3d1e6e', 0.5);
-  blob(520, 900, 520, '#0d3a4a', 0.42); blob(160, 1250, 380, '#4a1030', 0.3); blob(880, 1180, 400, '#123a6e', 0.4);
+  blob(240, 260, 420, '#233a8f', 0.8); blob(820, 420, 460, '#3d1e6e', 0.72);
+  blob(520, 900, 520, '#0d3a4a', 0.62); blob(160, 1250, 380, '#4a1030', 0.45); blob(880, 1180, 400, '#123a6e', 0.6);
   for (let i = 0; i < 900; i++) {
     const x = rnd() * w, y = rnd() * h, r = rnd() * 1.7 + 0.3;
     g.globalAlpha = 0.25 + rnd() * 0.75;
@@ -260,7 +260,7 @@ for (let i = 0; i < DUST_N; i++) {
 const dustGeo = new THREE.BufferGeometry();
 dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
 const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({
-  color: 0x8fb8ff, size: 0.32, transparent: true, opacity: 0.5,
+  color: 0x8fb8ff, size: 0.42, transparent: true, opacity: 0.8,
   blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
 }));
 scene.add(dust);
@@ -322,11 +322,11 @@ function bubbleMaterial(t) {
      (No transmission pass — it renders black under software GL and costs a
      full scene render; the env/clearcoat stack gives the same glass read.) */
   return new THREE.MeshPhysicalMaterial({
-    color: c.clone().multiplyScalar(0.82), metalness: 0.05, roughness: 0.08,
+    color: c.clone(), metalness: 0.05, roughness: 0.08,
     transparent: true, opacity: 0.96,
     clearcoat: 1, clearcoatRoughness: 0.08,
-    envMapIntensity: GFX_TIERS[gfxTier].env ? 2.1 : 0.9,
-    emissive: d, emissiveIntensity: 0.85,
+    envMapIntensity: GFX_TIERS[gfxTier].env ? 2.4 : 1.3,
+    emissive: c.clone().lerp(d, 0.3), emissiveIntensity: 0.6,
   });
 }
 const bubbleMats = TYPES.map((_, t) => bubbleMaterial(t));
@@ -359,12 +359,12 @@ function makeBubbleMesh(type) {
   grp.add(glass);
   const core = new THREE.Mesh(coreGeo, new THREE.MeshBasicMaterial({
     color: isWild ? 0xffe9a8 : isStar ? 0x9fd8ff : TYPES[type].color,
-    transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false,
+    transparent: true, opacity: 0.62, blending: THREE.AdditiveBlending, depthWrite: false,
   }));
   grp.add(core);
   const halo = new THREE.Mesh(haloGeo, new THREE.MeshBasicMaterial({
     map: glowTex, color: isWild ? 0xffcf3d : isStar ? 0x54b8ff : TYPES[type].color,
-    transparent: true, opacity: 0.34, blending: THREE.AdditiveBlending, depthWrite: false,
+    transparent: true, opacity: 0.44, blending: THREE.AdditiveBlending, depthWrite: false,
   }));
   halo.position.z = -0.4;
   grp.add(halo);
@@ -380,7 +380,7 @@ function makeBubbleMesh(type) {
 const playGroup = new THREE.Group();
 scene.add(playGroup);
 {
-  const steel = new THREE.MeshStandardMaterial({ color: 0x2a3350, metalness: 0.85, roughness: 0.35, envMapIntensity: 1.1 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0x46548c, metalness: 0.85, roughness: 0.35, envMapIntensity: 1.5 });
   const goldTrim = new THREE.MeshStandardMaterial({ color: 0xc9971c, metalness: 0.9, roughness: 0.28, envMapIntensity: 1.4, emissive: 0x4a3000, emissiveIntensity: 0.5 });
   const mkBar = (w, h, x, y, mat) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, 1.6), mat || steel);
@@ -400,18 +400,21 @@ scene.add(playGroup);
   }
   /* back panel: subtle printed branding, deep behind the bubbles */
   const panelTex = canvasTex(1024, 1600, (g, w, h) => {
-    g.fillStyle = 'rgba(10,14,34,0.92)'; g.fillRect(0, 0, w, h);
-    g.strokeStyle = 'rgba(90,120,220,0.10)'; g.lineWidth = 2;
+    g.fillStyle = 'rgba(16,24,58,0.92)'; g.fillRect(0, 0, w, h);
+    const pg = g.createRadialGradient(w / 2, h * 0.38, 40, w / 2, h * 0.38, 560);
+    pg.addColorStop(0, 'rgba(255,207,61,0.20)'); pg.addColorStop(0.55, 'rgba(80,140,255,0.10)'); pg.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = pg; g.fillRect(0, 0, w, h);
+    g.strokeStyle = 'rgba(90,120,220,0.18)'; g.lineWidth = 2;
     for (let x = 0; x <= w; x += 64) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
     for (let y = 0; y <= h; y += 64) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }
     g.textAlign = 'center';
-    g.fillStyle = 'rgba(255,233,168,0.13)';
+    g.fillStyle = 'rgba(255,233,168,0.32)';
     g.font = '900 92px system-ui, sans-serif';
     g.fillText('LUNA CLASSIC', w / 2, h * 0.47);
     g.font = '800 54px system-ui, sans-serif';
-    g.fillStyle = 'rgba(159,216,255,0.11)';
+    g.fillStyle = 'rgba(159,216,255,0.28)';
     g.fillText('LUNC DEV STUDIO', w / 2, h * 0.47 + 92);
-    g.strokeStyle = 'rgba(255,207,61,0.16)'; g.lineWidth = 5;
+    g.strokeStyle = 'rgba(255,207,61,0.36)'; g.lineWidth = 5;
     g.beginPath(); g.arc(w / 2, h * 0.36, 92, Math.PI * 0.5, Math.PI * 1.5, false);
     g.arc(w / 2 + 44, h * 0.36, 70, Math.PI * 1.5, Math.PI * 0.5, false);
     g.closePath(); g.stroke();
@@ -465,7 +468,7 @@ const shooterGroup = new THREE.Group();
 let shooterBarrel, loadedMesh = null, nextMesh = null;
 {
   const gold = new THREE.MeshStandardMaterial({ color: 0xd9a821, metalness: 0.9, roughness: 0.25, envMapIntensity: 1.6, emissive: 0x533a00, emissiveIntensity: 0.55 });
-  const steel = new THREE.MeshStandardMaterial({ color: 0x2a3350, metalness: 0.85, roughness: 0.35, envMapIntensity: 1.1 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0x46548c, metalness: 0.85, roughness: 0.35, envMapIntensity: 1.5 });
   const base = new THREE.Mesh(new THREE.CylinderGeometry(4.6, 5.4, 1.7, 36), steel);
   base.position.y = -1.2; shooterGroup.add(base);
   const trim = new THREE.Mesh(new THREE.TorusGeometry(4.6, 0.3, 10, 40), gold);
@@ -492,7 +495,7 @@ let shooterBarrel, loadedMesh = null, nextMesh = null;
 }
 /* next-bubble pedestal (bottom-left, under the DOM swap orb) */
 {
-  const steel = new THREE.MeshStandardMaterial({ color: 0x2a3350, metalness: 0.85, roughness: 0.35, envMapIntensity: 1.1 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0x46548c, metalness: 0.85, roughness: 0.35, envMapIntensity: 1.5 });
   const gold = new THREE.MeshStandardMaterial({ color: 0xd9a821, metalness: 0.9, roughness: 0.25, envMapIntensity: 1.5, emissive: 0x533a00, emissiveIntensity: 0.5 });
   const ped = new THREE.Mesh(new THREE.CylinderGeometry(3.3, 3.9, 1.1, 28), steel);
   ped.position.set(px2wx(52), px2wy(724), -0.2);
