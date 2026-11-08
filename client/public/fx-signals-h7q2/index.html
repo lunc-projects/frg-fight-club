@@ -52,6 +52,17 @@
   .bar{height:10px;background:#0a0616;border-radius:99px;overflow:hidden;border:1px solid var(--line)}
   .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--violet),var(--teal));width:0%}
   .scanline{color:var(--muted);font-size:11px;line-height:1.5;margin-top:10px;text-align:left}
+  /* PLAN LEVELS */
+  .levels{margin-top:12px;text-align:left;background:#0d0920;border:1px solid var(--line);
+    border-radius:10px;padding:10px 12px}
+  .levels .lr{display:flex;justify-content:space-between;gap:8px;font-size:13px;
+    padding:3px 0;font-variant-numeric:tabular-nums}
+  .levels .lk{color:var(--muted);font-weight:700}
+  .levels .lval{font-weight:800}
+  .levels .lval.sl{color:var(--red)} .levels .lval.tp{color:var(--green)}
+  .levels .rr{margin-top:6px;font-size:12px;color:var(--gold);font-weight:700}
+  .levels .lnote{margin-top:6px;font-size:12px;color:var(--muted);line-height:1.55}
+  .recsub{color:var(--muted);font-size:10px;line-height:1.45}
   /* SCAN LIST */
   .srow{display:flex;align-items:center;gap:9px;padding:10px 8px;border-bottom:1px solid #241a44;cursor:pointer;border-radius:8px}
   .srow:last-child{border-bottom:none}
@@ -119,6 +130,7 @@
     <div class="kick">⭐ BEST OPTION — ALL CHAINS</div>
     <div class="big" id="globalBig">⏳ SCANNING…</div>
     <div class="sub" id="globalSub">Checking every chain's tokens against MACD (12,26,9) + DeMarker (7)…</div>
+    <div id="globalLevels"></div>
     <div class="strength">
       <div class="lbl"><span>Indicator strength (not a win probability)</span><span id="globalStrVal">—</span></div>
       <div class="bar"><i id="globalStrBar"></i></div>
@@ -136,6 +148,7 @@
     <div class="kick">🏆 BEST TRADE NOW</div>
     <div class="big" id="bestBig">⏳ SCANNING…</div>
     <div class="sub" id="bestSub">Checking this chain's tokens…</div>
+    <div id="bestLevels"></div>
     <div class="strength">
       <div class="lbl"><span>Indicator strength (not a win probability)</span><span id="bestStrVal">—</span></div>
       <div class="bar"><i id="bestStrBar"></i></div>
@@ -177,9 +190,17 @@
   </div>
 
   <div class="card">
+    <h3>🎯 Trade plan — stop &amp; targets</h3>
+    <div id="planBody"><div class="note">Levels appear here when the selected token has a live, strong signal.</div></div>
+  </div>
+
+  <div class="card">
     <h3>📋 Paper record — this chain, real results only</h3>
-    <div class="note">Starts at zero. Every BEST TRADE signal for this chain is written down here,
-      then checked against the real next 1-minute candle. Nothing is backfilled.</div>
+    <div class="note">Starts at zero. Every BEST TRADE signal for this chain is written down here
+      with its stop-loss and take-profit prices, then checked against the real candles that follow:
+      stop touched first = LOSS, first target touched first = WIN, second target = BIG WIN.
+      If neither is touched within 15 minutes, it is closed at the next candle's price, like before.
+      Nothing is backfilled.</div>
     <div class="record-stats" style="margin-top:12px">
       <div><div class="v" id="stTotal">0</div><div class="k">SIGNALS</div></div>
       <div><div class="v" style="color:var(--green)" id="stWins">0</div><div class="k">WINS</div></div>
@@ -342,6 +363,36 @@ function demarker(cs, period){
   return cs.map((_,i)=>{ const a=sma(dmax,i), b=sma(dmin,i);
     return (a+b) > 0 ? a/(a+b) : 0.5; });
 }
+/* ATR(14), Wilder smoothing, on the same 1-minute candles.
+   True range of candle j uses the previous candle's close; the
+   series is seeded with the simple average of the first 14 true
+   ranges, then ATR = (ATRprev*13 + TR) / 14. Returns an array
+   aligned with cs (null before the seed completes). */
+function atrCalc(cs, period){
+  period = period || 14;
+  const out = new Array(cs.length).fill(null);
+  let atr = null, trSum = 0;
+  for (let j=0;j<cs.length;j++){
+    let tr;
+    if (j===0) tr = cs[j].h - cs[j].l;
+    else {
+      const pc = cs[j-1].c;
+      tr = Math.max(cs[j].h - cs[j].l, Math.abs(cs[j].h - pc), Math.abs(cs[j].l - pc));
+    }
+    if (j < period){ trSum += tr; if (j === period-1){ atr = trSum/period; out[j] = atr; } }
+    else { atr = (atr*(period-1) + tr)/period; out[j] = atr; }
+  }
+  return out;
+}
+/* Plan levels from volatility: stop 1.5xATR beyond entry, first
+   target 1.5xATR in favour, second target 3xATR in favour — so
+   the plan risks 1 to make 1 (TP1) or 2 (TP2). SELL mirrors BUY. */
+function planLevels(dir, entry, atr){
+  if (!isFinite(entry) || !isFinite(atr) || !(atr > 0)) return null;
+  if (dir === "BUY")  return { sl: entry - 1.5*atr, tp1: entry + 1.5*atr, tp2: entry + 3*atr };
+  if (dir === "SELL") return { sl: entry + 1.5*atr, tp1: entry - 1.5*atr, tp2: entry - 3*atr };
+  return null;
+}
 
 /* ---------- price formatting (magnitude-based, works from
    $75k BTC-scale down to micro-priced tokens) ---------- */
@@ -364,22 +415,78 @@ function lsKey(secId){ return LS_PREFIX + secId; }
 function loadRec(secId){ try { return JSON.parse(localStorage.getItem(lsKey(secId))) || []; }
   catch(e){ return []; } }
 function saveRec(secId, r){ try { localStorage.setItem(lsKey(secId), JSON.stringify(r)); } catch(e){} }
-function logSignal(secId, tokenId, dir, entry, candleT){
+function logSignal(secId, tokenId, dir, entry, candleT, ev){
   const rec = loadRec(secId);
   const id = tokenId + ":" + candleT;
   if (rec.some(r => r.id === id)) return;
-  rec.push({ id, token: tokenId, dir, entry, candleT, tLogged: Date.now(), status:"OPEN", exit:null });
+  rec.push({ id, token: tokenId, dir, entry, candleT, tLogged: Date.now(), status:"OPEN", exit:null,
+             sl: ev ? ev.sl : null, tp1: ev ? ev.tp1 : null, tp2: ev ? ev.tp2 : null });
   saveRec(secId, rec);
 }
+const SETTLE_WINDOW = 15; /* candles (minutes) after a signal during which
+   its stop / targets are watched before the trade falls back to the
+   plain next-candle close, exactly like the original rule */
 function resolveOpen(secId, tokenId, cs){
   const rec = loadRec(secId); let changed = false;
-  const byT = {}; cs.forEach(c => byT[c.t] = c.c);
+  const byT = {}; cs.forEach(c => byT[c.t] = c);
   rec.forEach(r => {
     if (r.token !== tokenId || r.status !== "OPEN") return;
-    const exit = byT[r.candleT + 60];
-    if (exit === undefined) return;
-    r.exit = exit;
-    r.status = (r.dir === "BUY" ? exit > r.entry : exit < r.entry) ? "WIN" : "LOSS";
+    const hasLevels = typeof r.sl === "number" && typeof r.tp1 === "number" && typeof r.tp2 === "number";
+    if (!hasLevels){
+      /* Records written before plan levels existed settle exactly
+         as they always did: the close of the next 1-minute candle. */
+      const nc = byT[r.candleT + 60];
+      if (!nc) return;
+      r.exit = nc.c;
+      r.status = (r.dir === "BUY" ? r.exit > r.entry : r.exit < r.entry) ? "WIN" : "LOSS";
+      r.how = "closed at next candle";
+      changed = true;
+      return;
+    }
+    /* With levels: walk the candles after the signal candle in
+       order, up to SETTLE_WINDOW of them. First touch decides:
+       stop first = LOSS, TP1 first = WIN, TP2 (before the stop,
+       within the window) = BIG WIN. One candle whose range covers
+       both the stop and the pending target counts as the STOP
+       first — the order inside a single candle cannot be known,
+       so the conservative reading wins. */
+    const buy = r.dir === "BUY";
+    let tp1Hit = false, done = false, missing = false;
+    for (let k = 1; k <= SETTLE_WINDOW && !done; k++){
+      const c = byT[r.candleT + 60*k];
+      if (!c){ missing = true; break; } /* later candles not fetched yet — cannot decide honestly */
+      const stopHit = buy ? c.l <= r.sl : c.h >= r.sl;
+      if (!tp1Hit){
+        const tp1 = buy ? c.h >= r.tp1 : c.l <= r.tp1;
+        if (stopHit && tp1){ r.status = "LOSS"; r.exit = r.sl; r.how = "stop hit (same candle as target — stop counted first)"; done = true; }
+        else if (stopHit){ r.status = "LOSS"; r.exit = r.sl; r.how = "stop hit"; done = true; }
+        else if (tp1){
+          tp1Hit = true;
+          const tp2 = buy ? c.h >= r.tp2 : c.l <= r.tp2;
+          if (tp2){ r.status = "WIN"; r.bigWin = true; r.exit = r.tp2; r.how = "take profit 2 hit"; done = true; }
+        }
+      } else {
+        const tp2 = buy ? c.h >= r.tp2 : c.l <= r.tp2;
+        if (tp2 && !stopHit){ r.status = "WIN"; r.bigWin = true; r.exit = r.tp2; r.how = "take profit 2 hit"; done = true; }
+        else if (stopHit || tp2){ r.status = "WIN"; r.exit = r.tp1; r.how = "take profit 1 hit"; done = true; }
+      }
+    }
+    if (done){ changed = true; return; }
+    if (missing) return; /* window not fully fetched yet — decide on a later scan */
+    if (tp1Hit){
+      /* TP1 was touched and the whole window passed without the
+         stop or TP2 ending the trade — the win at TP1 stands. */
+      r.status = "WIN"; r.exit = r.tp1; r.how = "take profit 1 hit";
+      changed = true; return;
+    }
+    /* Neither the stop nor TP1 was touched in the window: fall
+       back to the plain next-candle close, exactly like the
+       original rule — never invent an outcome. */
+    const nc = byT[r.candleT + 60];
+    if (!nc) return;
+    r.exit = nc.c;
+    r.status = (buy ? r.exit > r.entry : r.exit < r.entry) ? "WIN" : "LOSS";
+    r.how = "closed at next candle (no level touched in 15 min)";
     changed = true;
   });
   if (changed) saveRec(secId, rec);
@@ -474,9 +581,12 @@ function evaluate(cs){
   const demScore  = Math.min(1, Math.abs(demV - 0.5) * 2);
   const strength  = Math.round(100 * (0.5*macdScore + 0.5*demScore));
   const stale = (Date.now() - cnd.t*1000) > FRESH_MS;
+  const atr = atrCalc(cs, 14)[i];
+  const lv = (signal === "BUY" || signal === "SELL") ? planLevels(signal, price, atr) : null;
   return { signal, macd:m.line[i], sig:m.sig[i], hist, dem:demV,
            macdSide, demSide, strength, candleT:cnd.t, entry:price,
-           lastClose:closes[cs.length-1], stale };
+           lastClose:closes[cs.length-1], stale,
+           atr, sl: lv ? lv.sl : null, tp1: lv ? lv.tp1 : null, tp2: lv ? lv.tp2 : null };
 }
 
 /* ---------- scanning ---------- */
@@ -529,7 +639,7 @@ function finishSectionScan(secId, logIt){
   st.scanAt = Date.now();
   if (logIt){
     if (st.best && !st.best.stale && !st.best.staleDisplay)
-      logSignal(secId, st.best.token, st.best.signal, st.best.entry, st.best.candleT);
+      logSignal(secId, st.best.token, st.best.signal, st.best.entry, st.best.candleT, st.best);
     if (!st.firstDone && st.best && !st.best.staleDisplay)
       selectedToken[secId] = st.best.token;
     st.firstDone = true;
@@ -566,6 +676,22 @@ async function scanAllChains(){
 
 /* ---------- rendering ---------- */
 const $ = id => document.getElementById(id);
+/* The four plan prices for a fired signal. Only called when the
+   eval actually carries levels (BUY/SELL with a positive ATR);
+   NO TRADE and stale readings never reach it. */
+function levelsHTML(ev){
+  if (!ev || ev.sl === null || ev.sl === undefined || !isFinite(ev.sl)) return "";
+  return '<div class="levels">' +
+    '<div class="lr"><span class="lk">Entry</span><span class="lval">' + fmtPrice(ev.entry) + "</span></div>" +
+    '<div class="lr"><span class="lk">Stop loss</span><span class="lval sl">' + fmtPrice(ev.sl) + "</span></div>" +
+    '<div class="lr"><span class="lk">Take profit 1</span><span class="lval tp">' + fmtPrice(ev.tp1) + "</span></div>" +
+    '<div class="lr"><span class="lk">Take profit 2</span><span class="lval tp">' + fmtPrice(ev.tp2) + "</span></div>" +
+    '<div class="rr">Risk : reward — 1 : 1 to take profit 1 · 1 : 2 to take profit 2</div>' +
+    '<div class="lnote">Calculated from the last 14 minutes of price movement (ATR) — ' +
+    "planning levels, not guarantees. Stop-loss and take-profit are worked out from how " +
+    "much the price has been moving — plan your size so the stop is a small loss you " +
+    "can afford.</div></div>";
+}
 function secStale(secId){
   const st = S[secId], sec = SEC_BY_ID[secId];
   const evals = sec.tokens.map(t => st.state[t.id]).filter(x => x && !x.unavailable);
@@ -593,6 +719,7 @@ function renderGlobal(){
       " (" + g.secName + "), MACD and DeMarker (7) agree " +
       (g.signal === "BUY" ? "UP" : "DOWN") + " on the last completed 1-minute candle at " +
       fmtPrice(g.entry) + ". Tap the " + g.secName + " button below for its full scan.";
+    $("globalLevels").innerHTML = levelsHTML(g);
     $("globalStrVal").textContent = g.strength + " / 100";
     $("globalStrBar").style.width = g.strength + "%";
   } else if (allScanned()){
@@ -606,9 +733,11 @@ function renderGlobal(){
         "money — the bot stays out. Each chain's own readings are behind its button above."
       : "Every chain was scanned and on no token do MACD and DeMarker agree at the moment. " +
         "The bot stays out instead of guessing — check back after the next candles.";
+    $("globalLevels").innerHTML = "";
     $("globalStrVal").textContent = "—"; $("globalStrBar").style.width = "0%";
   } else {
     card.className = "card best global wait";
+    $("globalLevels").innerHTML = "";
     big.textContent = "⏳ SCANNING ALL CHAINS…";
     sub.textContent = "Checking every chain's tokens against MACD (12,26,9) + DeMarker (7)…";
     $("globalStrVal").textContent = "—"; $("globalStrBar").style.width = "0%";
@@ -647,6 +776,7 @@ function renderBest(){
         " — shown for testing only. No signal is logged from old candles."
       : "This market is shut right now, and in the last session no token here had MACD and " +
         "DeMarker agreeing strongly. No signal is logged from old candles.";
+    $("bestLevels").innerHTML = ""; /* a closed market shows no live levels */
     $("bestStrVal").textContent = best ? best.strength + " / 100" : "—";
     $("bestStrBar").style.width = best ? best.strength + "%" : "0%";
   } else if (best && !best.staleDisplay){
@@ -656,6 +786,7 @@ function renderBest(){
     sub.textContent = "Strongest set-up on " + sec.name + ": on " + best.label +
       ", MACD and DeMarker (7) agree " + (best.signal === "BUY" ? "UP" : "DOWN") +
       " on the last completed 1-minute candle at " + fmtPrice(best.entry) + ".";
+    $("bestLevels").innerHTML = levelsHTML(best);
     $("bestStrVal").textContent = best.strength + " / 100";
     $("bestStrBar").style.width = best.strength + "%";
   } else if (st.firstDone){
@@ -667,9 +798,11 @@ function renderBest(){
         BEST_MIN_STRENGTH + "+). Weak set-ups lose money — the bot stays out."
       : "The scan ran, but on no token here do MACD and DeMarker agree at the moment. " +
         "The bot stays out instead of guessing.";
+    $("bestLevels").innerHTML = "";
     $("bestStrVal").textContent = "—"; $("bestStrBar").style.width = "0%";
   } else {
     card.className = "card best local wait";
+    $("bestLevels").innerHTML = "";
     big.textContent = "⏳ SCANNING…";
     sub.textContent = "Checking this chain's tokens…";
     $("bestStrVal").textContent = "—"; $("bestStrBar").style.width = "0%";
@@ -741,6 +874,25 @@ function renderDetail(){
     $("macdSide").className = "side flat";
     $("demVal").textContent = "—"; $("demSide").textContent = "—"; $("demSide").className = "side flat";
   }
+  /* Trade plan for the selected token — only a live, strong,
+     fresh signal earns levels; everything else says why not. */
+  const pb = $("planBody");
+  if (e && !e.unavailable && (e.signal === "BUY" || e.signal === "SELL") &&
+      e.strength >= BEST_MIN_STRENGTH && !e.stale && e.sl !== null && e.sl !== undefined){
+    pb.innerHTML = '<div class="note">' + tok.label + " has a live " + e.signal +
+      " signal (strength " + e.strength + "/100). The plan, if you acted on it:</div>" +
+      levelsHTML(e);
+  } else if (e && !e.unavailable && e.stale){
+    pb.innerHTML = '<div class="note">This market is closed — the reading above is the ' +
+      "last session, so no live levels are shown.</div>";
+  } else if (e && !e.unavailable && (e.signal === "BUY" || e.signal === "SELL")){
+    pb.innerHTML = '<div class="note">' + tok.label + " is reading " + e.signal +
+      " but at strength " + e.strength + "/100 — below the " + BEST_MIN_STRENGTH +
+      " bar, so no plan is shown. Weak set-ups lose money — the bot stays out.</div>";
+  } else {
+    pb.innerHTML = '<div class="note">No live signal on ' + tok.label +
+      " right now — levels appear here when a strong signal fires.</div>";
+  }
   drawSpark(cs);
 }
 function tokenLabel(secId, tokenId){
@@ -761,11 +913,16 @@ function renderRecord(){
   body.innerHTML = rec.slice(0,12).map(r => {
     const time = new Date(r.tLogged).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
     const res = r.status === "OPEN" ? '<span class="tag open">OPEN</span>'
-      : '<span class="tag ' + (r.status==="WIN" ? "win" : "loss") + '">' + r.status + "</span>";
+      : '<span class="tag ' + (r.status==="WIN" ? "win" : "loss") + '">' +
+        (r.bigWin ? "BIG WIN" : r.status) + "</span>";
+    const lvl = (r.sl !== null && r.sl !== undefined)
+      ? '<div class="recsub">SL ' + fmtPrice(r.sl) + " · TP1 " + fmtPrice(r.tp1) +
+        " · TP2 " + fmtPrice(r.tp2) + "</div>" : "";
+    const how = r.how ? '<div class="recsub">' + r.how + "</div>" : "";
     return "<tr><td>" + time + "</td><td>" + tokenLabel(curSec, r.token) + "</td>" +
       '<td><span class="tag ' + (r.dir==="BUY" ? "buy" : "sell") + '">' + r.dir + "</span></td>" +
-      "<td>" + fmtPrice(r.entry) + "</td><td>" +
-      (r.exit === null ? "—" : fmtPrice(r.exit)) + "</td><td>" + res + "</td></tr>";
+      "<td>" + fmtPrice(r.entry) + lvl + "</td><td>" +
+      (r.exit === null ? "—" : fmtPrice(r.exit)) + how + "</td><td>" + res + "</td></tr>";
   }).join("");
 }
 function renderHow(){
@@ -778,6 +935,10 @@ function renderHow(){
     "clears <b>70/100</b>. The <b>⭐ BEST OPTION</b> at the very top is the single strongest " +
     "qualifying signal across <b>all</b> chains, ranked on this same strength scale. " +
     "If nothing qualifies strongly enough, the bot says <b>NO TRADE</b>.<br><br>" +
+    "When a signal does fire, its card shows a <b>trade plan</b>: the entry, a stop-loss " +
+    "and two take-profit prices worked out from the last 14 minutes of price movement " +
+    "(ATR) — the stop sits 1.5× that movement beyond the entry, the targets 1.5× and 3× " +
+    "in favour. Planning levels, not guarantees.<br><br>" +
     sec.note + "<br><br>" +
     "Signals only — the bot never touches any trading account. You place your own trades.";
 }
