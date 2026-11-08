@@ -15,6 +15,13 @@ import * as THREE from 'three';
    City pass (Tom, Nov 7): ~1/3 of the towers removed for open lots
    and sightlines, more people + cars, denser targets at all ranges.
    People and animals are NEVER targets — hitting one is a FOUL.
+
+   Bright-targets pass (Tom, Nov 7): every target type carries a
+   bright emissive treatment + a pulsing additive halo so the little
+   targets pop against the lit windows, and a TARGET HIT throws a
+   big unmissable flash + ring + star spray at the hit point with a
+   bigger, brighter score popup. Fouls get none of it (resolveFoul
+   is untouched). Hit logic, scoring and the foul law unchanged.
    ============================================================ */
 
 const QA = new URLSearchParams(location.search);
@@ -311,6 +318,12 @@ function mesh(geo, mat, parent, x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1) {
 const hitList = [];       // all raycast candidates (targets + fouls + occluders)
 function regHit(m, cat, ref) { m.userData.hit = { cat, ref }; hitList.push(m); return m; }
 function unregHit(m) { const i = hitList.indexOf(m); if (i >= 0) hitList.splice(i, 1); }
+
+/* target-glow registries (bright-targets pass, Tom Nov 7) — declared this
+   early because makeCar runs at module scope BELOW and car-roof signs get
+   their halos at build time; the helpers live in the EFFECTS section. */
+const haloMats = [];
+const haloPulse = []; // {sp, seed} — pulsing distance-aware halos (targets + car signs)
 
 /* ============================================================
    THE CITY
@@ -636,9 +649,10 @@ function makeCar(route, dist0, speed, withSign, kind = 'car') {
   if (withSign) {
     const sg = new THREE.Group(); sg.position.set(0, 1.44, -0.25); g.add(sg);
     mesh(GEO.cyl, M.std(0x555b63, 0.6), sg, 0, 0.25, 0, 0.09, 0.5, 0.09);
-    const disc = mesh(GEO.circ, new THREE.MeshStandardMaterial({ map: bullTex, roughness: 0.6 }), sg, 0, 0.95, 0, 1.5, 1.5, 1);
+    const disc = mesh(GEO.circ, new THREE.MeshStandardMaterial({ map: bullTex, roughness: 0.6, emissive: 0xffffff, emissiveMap: bullTex, emissiveIntensity: 0.4 }), sg, 0, 0.95, 0, 1.5, 1.5, 1);
     disc.material.side = THREE.DoubleSide;
     car.sign = disc; car.signGroup = sg;
+    trackHalo(addHalo(sg, 0xffd76a, 2.6, 0, 0.95, -0.3), rr(0, 6.28));
     regHit(disc, 'target', { type: 'sign', car, pts: 100 });
   }
   cars.push(car);
@@ -998,6 +1012,90 @@ function updatePuffs(dt) {
     p.sp.material.opacity = 0.5 * (1 - k);
   }
 }
+
+/* ============================================================
+   TARGET GLOW + HIT FLASH (Tom, Nov 7) — targets ONLY.
+   Every shootable target gets a soft additive halo (pooled sprite
+   materials, per-instance mesh) whose size breathes with distance
+   so it reads at 1x across the map; every confirmed TARGET HIT
+   throws a bright flash + expanding ring at the hit point. Fouls
+   never touch any of this (resolveFoul does not call these).
+   ============================================================ */
+const _starTex = canvasTex(64, 64, x => {
+  x.translate(32, 32); x.fillStyle = '#ffffff';
+  x.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const a = i * Math.PI / 4, r = i % 2 ? 8 : 27;
+    x[i ? 'lineTo' : 'moveTo'](Math.cos(a) * r, Math.sin(a) * r);
+  }
+  x.closePath(); x.fill();
+  x.beginPath(); x.arc(0, 0, 9, 0, 7); x.fill();
+}, { clamp: true });
+const _ringGeo = new THREE.RingGeometry(0.82, 1, 40);
+const _ringMat = new THREE.MeshBasicMaterial({ color: 0xffe27a, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+function haloMat(color) {
+  const m = new THREE.SpriteMaterial({ map: glowTex, color, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending });
+  haloMats.push(m); return m;
+}
+function addHalo(parent, color, size, x = 0, y = 0, z = 0) {
+  const sp = new THREE.Sprite(haloMat(color));
+  sp.position.set(x, y, z); sp.scale.setScalar(size);
+  sp.userData.haloBase = size;
+  parent.add(sp);
+  return sp;
+}
+function trackHalo(sp, seed) { haloPulse.push({ sp, seed }); return sp; }
+function untrackHalo(sp) { const i = haloPulse.findIndex(h => h.sp === sp); if (i >= 0) haloPulse.splice(i, 1); }
+/* TARGET-GLOW pulses were 0.5..0.95 opacity — dimmed Nov 7 (Tom: too bright) */
+const TARGET_GLOW_MIN = 0.5, TARGET_GLOW_MAX = 0.95;
+const _gv = new THREE.Vector3(); // own temp — _pv below belongs to updatePopups
+function updateTargetGlow(now) {
+  const pulse = 0.5 + 0.5 * Math.sin(now * 2.6);
+  for (const m of haloMats) m.opacity = TARGET_GLOW_MIN + (TARGET_GLOW_MAX - TARGET_GLOW_MIN) * pulse;
+  for (let i = haloPulse.length - 1; i >= 0; i--) {
+    const h = haloPulse[i];
+    if (!h.sp.parent) { haloPulse.splice(i, 1); continue; }
+    h.sp.getWorldPosition(_gv);
+    const d = Math.max(1, _gv.distanceTo(camera.position));
+    h.sp.scale.setScalar(h.sp.userData.haloBase * (0.55 + d * 0.016) * (1 + 0.1 * Math.sin(now * 3.1 + h.seed)));
+  }
+}
+/* pooled hit flashes: additive sprite flash + expanding world-space ring */
+const flashes = [];
+{
+  for (let i = 0; i < 6; i++) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: _starTex, color: 0xffe27a, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+    sp.frustumCulled = false; scene.add(sp);
+    const ring = new THREE.Mesh(_ringGeo, _ringMat.clone());
+    ring.visible = false; scene.add(ring);
+    flashes.push({ sp, ring, t: 1e9 });
+  }
+}
+let flashIdx = 0;
+function hitFlash(pos, color = 0xffe27a) {
+  const f = flashes[flashIdx++ % flashes.length];
+  f.sp.position.copy(pos); f.sp.material.color.set(color);
+  f.ring.position.copy(pos); f.ring.quaternion.copy(camera.quaternion);
+  f.ring.material.color.set(color);
+  f.t = 0;
+}
+/* HIT-FX brightness dial (Tom, Nov 7) — ONE place to tune the hit flash.
+   The pooled effects were too bright: sun-scale flash + ring + a 38-spark
+   spray washing out the view right after a hit. Start the flash and ring
+   small, peak them lower, and cap the whole show at HIT_FX_TIME seconds. */
+const HIT_FX_TIME = 0.45, HIT_FLASH_PEAK = 0.55, HIT_RING_PEAK = 0.5;
+function updateHitFx(dt) {
+  for (const f of flashes) {
+    if (f.t > HIT_FX_TIME) { f.sp.material.opacity = 0; f.ring.visible = false; continue; }
+    f.t += dt;
+    const k = Math.min(1, f.t / HIT_FX_TIME);
+    f.sp.scale.setScalar(0.7 + k * 3.4);
+    f.sp.material.opacity = HIT_FLASH_PEAK * (1 - k);
+    f.ring.visible = true;
+    f.ring.scale.setScalar(0.6 + k * 5.2);
+    f.ring.material.opacity = HIT_RING_PEAK * (1 - k);
+  }
+}
 /* score popups (DOM, projected) */
 const popPool = [];
 {
@@ -1014,6 +1112,11 @@ function popup(worldPos, text, cls = 'good', size = 21) {
   p.world.copy(worldPos); p.t = 0;
   p.el.textContent = text; p.el.className = 'pop ' + cls;
   p.el.style.fontSize = size + 'px';
+  // hit popups (Tom, Nov 7): brighter gold + a hot glow halo so a scored
+  // hit reads across the map; foul popups keep the plain .pop styling.
+  p.el.style.textShadow = cls === 'good'
+    ? '0 0 6px #fff2b0, 0 0 18px #ffc63d, 0 2px 10px #000'
+    : '';
 }
 const _pv = new THREE.Vector3();
 function updatePopups(dt) {
@@ -1037,6 +1140,7 @@ function addTarget(t) { targets.push(t); return t; }
 function killTarget(t) {
   t.alive = false;
   for (const px of t.proxies) unregHit(px);
+  if (t.glowSp) untrackHalo(t.glowSp);
   if (t.root) scene.remove(t.root);
   const i = targets.indexOf(t); if (i >= 0) targets.splice(i, 1);
 }
@@ -1044,9 +1148,9 @@ const balloonCols = [0xff5d5d, 0xffd93b, 0x3fa7ff, 0x5dd95d, 0xff9ff3, 0xff9f2e]
 function spawnBalloon() {
   const g = new THREE.Group();
   const col = pick(balloonCols);
-  const ball = mesh(GEO.sph, new THREE.MeshStandardMaterial({ color: col, roughness: 0.35 }), g, 0, 0, 0, 1.15, 1.32, 1.15);
+  const ball = mesh(GEO.sph, new THREE.MeshStandardMaterial({ color: col, roughness: 0.35, emissive: col, emissiveIntensity: 0.55 }), g, 0, 0, 0, 1.15, 1.32, 1.15);
   ball.castShadow = true;
-  mesh(GEO.cone, M.std(col, 0.5), g, 0, -0.78, 0, 0.16, 0.22, 0.16).rotation.x = Math.PI;
+  trackHalo(addHalo(g, col, 3.4), rr(0, 6.28));
   mesh(GEO.cyl, M.std(0xdddddd, 1), g, 0, -1.25, 0, 0.025, 0.8, 0.025);
   g.position.set(rr(-72, 72), rr(1, 6), rr(-92, 8));
   scene.add(g);
@@ -1062,7 +1166,8 @@ function spawnBoard(spot) {
   scene.add(g);
   mesh(GEO.box, M.std(0x6e5136, 1), g, 0, 0.8, -0.09, 0.14, 1.6, 0.14);
   mesh(GEO.box, M.std(0x8a6642, 1), g, 0, 1.62, -0.1, 2.1, 2.1, 0.1);
-  const disc = mesh(GEO.circ, new THREE.MeshStandardMaterial({ map: bullTex, roughness: 0.6 }), g, 0, 1.62, 0, 1.95, 1.95, 1);
+  const disc = mesh(GEO.circ, new THREE.MeshStandardMaterial({ map: bullTex, roughness: 0.6, emissive: 0xffffff, emissiveMap: bullTex, emissiveIntensity: 0.4 }), g, 0, 1.62, 0, 1.95, 1.95, 1);
+  trackHalo(addHalo(g, 0xffd76a, 3.2, 0, 1.62, -0.35), rr(0, 6.28));
   const t = { type: 'board', root: g, proxies: [disc], alive: true, life: rr(13, 17), phase: rr(0, 6.28), pts: 100,
     aimPos: out => disc.getWorldPosition(out),
     update(dt, now) { t.life -= dt; g.rotation.z = Math.sin(now * 0.9 + t.phase) * 0.03; if (t.life <= 0) killTarget(t); } };
@@ -1072,11 +1177,14 @@ function spawnBoard(spot) {
 const canCols = [0xd23b47, 0x2e8fd8, 0x37c978, 0xf5c542, 0xe8e8ec];
 function spawnCan(spot) {
   const g = new THREE.Group(); g.position.copy(spot.pos); scene.add(g);
-  const can = mesh(GEO.cyl, new THREE.MeshStandardMaterial({ color: pick(canCols), roughness: 0.3, metalness: 0.65 }), g, 0, 0.21, 0, 0.34, 0.42, 0.34);
+  const canCol = pick(canCols);
+  const can = mesh(GEO.cyl, new THREE.MeshStandardMaterial({ color: canCol, roughness: 0.3, metalness: 0.65, emissive: canCol, emissiveIntensity: canCol === 0xe8e8ec ? 0.22 : 0.5 }), g, 0, 0.24, 0, 0.42, 0.5, 0.42);
   can.castShadow = true;
-  const t = { type: 'can', root: g, proxies: [can], alive: true, state: 'idle', flyT: 0, vel: new THREE.Vector3(), spin: rr(6, 11), pts: 75,
-    aimPos: out => { out.copy(g.position); out.y += 0.21; return out; },
+  const glowSp = trackHalo(addHalo(g, canCol, 1.5, 0, 0.24, 0), rr(0, 6.28));
+  const t = { type: 'can', root: g, proxies: [can], glowSp, alive: true, state: 'idle', flyT: 0, vel: new THREE.Vector3(), spin: rr(6, 11), pts: 75,
+    aimPos: out => { out.copy(g.position); out.y += 0.24; return out; },
     update(dt) {
+      glowSp.visible = t.state !== 'flying';
       if (t.state !== 'flying') return;
       t.flyT += dt;
       t.vel.y -= 20 * dt;
@@ -1093,7 +1201,7 @@ function spawnCan(spot) {
 function spawnDrone() {
   const g = new THREE.Group(); scene.add(g);
   const dir = rng() < 0.5 ? 1 : -1;
-  const bodyM = M.std(0x3c4148, 0.4);
+  const bodyM = new THREE.MeshStandardMaterial({ color: 0x3c4148, roughness: 0.4, emissive: 0xff8c2e, emissiveIntensity: 0.35 });
   mesh(GEO.box, bodyM, g, 0, 0, 0, 0.55, 0.2, 0.55).castShadow = true;
   const rotors = [];
   for (const [ax, az] of [[-0.42, -0.42], [0.42, -0.42], [-0.42, 0.42], [0.42, 0.42]]) {
@@ -1103,9 +1211,10 @@ function spawnDrone() {
   }
   const lamp = mesh(GEO.sph, new THREE.MeshStandardMaterial({ color: 0xff4444, emissive: 0xff2222, emissiveIntensity: 2 }), g, 0, -0.14, 0, 0.13, 0.13, 0.13);
   const proxy = mesh(GEO.box, hitMat, g, 0, 0, 0, 0.95, 0.6, 0.95);
+  const glowSp = trackHalo(addHalo(g, 0xffa63d, 2.6), rr(0, 6.28));
   const y0 = rr(23, 34);
   g.position.set(dir > 0 ? -125 : 125, y0, rr(-70, -2));
-  const t = { type: 'drone', root: g, proxies: [proxy], alive: true, vx: dir * rr(6, 10), y0, phase: rr(0, 6.28), state: 'fly', vy: 0, pts: 150,
+  const t = { type: 'drone', root: g, proxies: [proxy], glowSp, alive: true, vx: dir * rr(6, 10), y0, phase: rr(0, 6.28), state: 'fly', vy: 0, pts: 150,
     aimPos: out => out.copy(g.position),
     update(dt, now) {
       for (const r of rotors) r.rotation.z += dt * 42;
@@ -1126,8 +1235,9 @@ function spawnDrone() {
 }
 function spawnBall() {
   const g = new THREE.Group(); scene.add(g);
-  const ball = mesh(GEO.sph, new THREE.MeshStandardMaterial({ map: ballTex, roughness: 0.5 }), g, 0, 0, 0, 1, 1, 1);
+  const ball = mesh(GEO.sph, new THREE.MeshStandardMaterial({ map: ballTex, roughness: 0.5, emissive: 0xffffff, emissiveMap: ballTex, emissiveIntensity: 0.45 }), g, 0, 0, 0, 1, 1, 1);
   ball.castShadow = true;
+  trackHalo(addHalo(g, 0x7fd8ff, 2.8), rr(0, 6.28));
   g.position.set(rr(PARK.x0 + 4, PARK.x1 - 4), 3, rr(PARK.z0 + 4, PARK.z1 - 4));
   const t = { type: 'ball', root: g, proxies: [ball], alive: true, vel: new THREE.Vector3(rr(-2.4, 2.4), 0, rr(-2.4, 2.4)), pts: 100,
     aimPos: out => out.copy(g.position),
@@ -1150,17 +1260,19 @@ function spawnPinwheel(spot) {
   mesh(GEO.cyl, M.std(0x777d85, 0.6), g, 0, 0.55, 0, 0.07, 1.1, 0.07);
   const hub = new THREE.Group(); hub.position.set(0, 1.25, 0.1); g.add(hub);
   for (let i = 0; i < 4; i++) {
-    const blade = mesh(GEO.plane, new THREE.MeshStandardMaterial({ color: pinCols[i], roughness: 0.6, side: THREE.DoubleSide }), hub, 0, 0.3, 0, 0.3, 0.62, 1);
+    const blade = mesh(GEO.plane, new THREE.MeshStandardMaterial({ color: pinCols[i], roughness: 0.6, side: THREE.DoubleSide, emissive: pinCols[i], emissiveIntensity: 0.6 }), hub, 0, 0.3, 0, 0.36, 0.36, 0.74, 1);
     const holder = new THREE.Group(); holder.rotation.z = i * Math.PI / 2; hub.add(holder);
-    holder.add(blade); blade.position.set(0.1, 0.32, 0); blade.rotation.y = 0.6;
+    holder.add(blade); blade.position.set(0.12, 0.38, 0); blade.rotation.y = 0.6;
   }
-  mesh(GEO.sph, M.std(0xffffff, 0.4), hub, 0, 0, 0.03, 0.14, 0.14, 0.14);
+  mesh(GEO.sph, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4, emissive: 0xffffff, emissiveIntensity: 0.5 }), hub, 0, 0, 0.03, 0.17, 0.17, 0.17);
+  const glowSp = trackHalo(addHalo(hub, 0xffe27a, 2.2, 0, 0, -0.3), rr(0, 6.28));
   const proxy = mesh(GEO.cyl, hitMat, hub, 0, 0, 0, 1.15, 0.24, 1.15);
   proxy.rotation.x = Math.PI / 2;
-  const t = { type: 'pin', root: g, proxies: [proxy], alive: true, hub, downT: 0, pts: 125,
+  const t = { type: 'pin', root: g, proxies: [proxy], glowSp, alive: true, hub, downT: 0, pts: 125,
     aimPos: out => hub.getWorldPosition(out),
     update(dt) {
-      if (t.downT > 0) { t.downT -= dt; if (t.downT <= 0) { hub.visible = true; proxy.visible = true; } return; }
+      if (t.downT > 0) { t.downT -= dt; glowSp.visible = false; if (t.downT <= 0) { hub.visible = true; proxy.visible = true; } return; }
+      glowSp.visible = true;
       hub.rotation.z += dt * 5.5;
     } };
   regHit(proxy, 'target', { type: 'pin', ref: t, pts: 125 });
@@ -1168,11 +1280,12 @@ function spawnPinwheel(spot) {
 }
 function spawnKite() {
   const g = new THREE.Group(); scene.add(g);
-  const sail = mesh(GEO.plane, new THREE.MeshStandardMaterial({ map: kiteTex, roughness: 0.7, side: THREE.DoubleSide }), g, 0, 0, 0, 1.5, 1.5, 1);
+  const sail = mesh(GEO.plane, new THREE.MeshStandardMaterial({ map: kiteTex, roughness: 0.7, side: THREE.DoubleSide, emissive: 0xffffff, emissiveMap: kiteTex, emissiveIntensity: 0.4 }), g, 0, 0, 0, 1.5, 1.5, 1);
   sail.rotation.z = Math.PI / 4;
+  trackHalo(addHalo(g, 0xffd76a, 3.0), rr(0, 6.28));
   const tailBits = [];
   for (let i = 1; i <= 4; i++) {
-    const b = mesh(GEO.box, M.std(pinCols[i % 4], 0.7), g, 0, -0.6 - i * 0.34, -0.05 * i, 0.16, 0.1, 0.03);
+    const b = mesh(GEO.box, new THREE.MeshStandardMaterial({ color: pinCols[i % 4], roughness: 0.7, emissive: pinCols[i % 4], emissiveIntensity: 0.55 }), g, 0, -0.6 - i * 0.34, -0.05 * i, 0.16, 0.1, 0.03);
     tailBits.push(b);
   }
   const proxy = mesh(GEO.box, hitMat, g, 0, 0, 0, 1.35, 1.35, 0.25);
@@ -1228,6 +1341,7 @@ function director(dt) {
 }
 function updateTargets(dt, now) {
   for (const t of [...targets]) if (t.alive) t.update(dt, now);
+  updateTargetGlow(now);
 }
 
 /* ============================================================
@@ -1495,6 +1609,7 @@ function fire() {
   for (const h of hits) { if (!hitInactive(h)) { hit = h; break; } }
   const muzzle = muzzleTip.getWorldPosition(new THREE.Vector3());
   if (!hit) {
+    if (QA_MODE) window.__lastHit = { cat: 'miss' };
     _hp.copy(_dir).multiplyScalar(280).add(camera.position);
     tracer(muzzle, _hp);
     game.combo = 0;
@@ -1503,9 +1618,11 @@ function fire() {
   }
   tracer(muzzle, hit.point);
   const hd = hit.object.userData.hit;
+  if (QA_MODE) window.__lastHit = { cat: hd.cat, type: hd.ref && hd.ref.type, kind: hd.ref && hd.ref.kind, d: Math.round(hit.distance) };
   if (hd.cat === 'target') resolveTargetHit(hit, hd.ref);
   else if (hd.cat === 'foul') resolveFoul(hit, hd.ref);
   else { // occluder — dust where it lands, combo lost
+    puff(hit.point, 0.5, 0xbfb49c);
     puff(hit.point, 0.5, 0xbfb49c);
     burst(hit.point, 0xd8cdb2, 4, 1.4, 0.35, 0.7);
     game.combo = 0;
@@ -1522,11 +1639,18 @@ function resolveTargetHit(hit, p) {
   game.combo++; game.bestCombo = Math.max(game.bestCombo, game.combo);
   const pts = Math.round((base + Math.round(hit.distance)) * comboMult());
   game.score += pts; game.targetsHit++; game.hits = (game.hits || 0) + 1; game.waveHits++;
-  popup(hit.point, '+' + pts, 'good', p.type === 'board' && base === 150 ? 27 : 21);
+  popup(hit.point, '+' + pts, 'good', p.type === 'board' && base === 150 ? 40 : 32);
   showHitmarker(false);
   showCombo();
   freezeT = 0.03;
   const P = hit.point;
+  // TARGET HIT FLASH (Tom, Nov 7): big star flash + expanding ring + a
+  // denser gold spray at the hit point — target hits ONLY. Brightness
+  // tuned down Nov 7 (Tom: the first pass washed out the view). Fouls
+  // never reach this code (resolveFoul is separate).
+  hitFlash(P, 0xffe27a);
+  burst(P, 0xffe27a, 10, 3.2, 0.45, 1.2);
+  burst(P, 0xffffff, 4, 2, 0.3, 0.9);
   switch (p.type) {
     case 'balloon':
       AudioSys.popS(); burst(P, 0xffe27a, 16, 3.8, 0.6, 1.4); burst(P, 0xffffff, 6, 2.4, 0.4, 1);
@@ -1725,7 +1849,7 @@ function animate() {
   if (dt > 0 || game.phase !== 'fight') simUpdate(dt);
 
   for (const c of clouds) { c.g.position.x += c.v * rawDt; if (c.g.position.x > 230) c.g.position.x = -230; }
-  updateSparks(rawDt); updatePuffs(rawDt); updatePopups(rawDt);
+  updateSparks(rawDt); updatePuffs(rawDt); updatePopups(rawDt); updateHitFx(rawDt);
   for (const tr of tracers) {
     if (tr.t < 0.09) { tr.t += rawDt; tr.line.material.opacity = 0.9 * (1 - tr.t / 0.09); }
     else tr.line.material.opacity = 0;
@@ -1756,7 +1880,10 @@ function animate() {
   camera.rotation.order = 'YXZ';
   camera.rotation.y = yaw + swX;
   camera.rotation.x = pitch + swY + player.kick;
-  camera.rotation.z = 0;
+  // QA (headless drivers only): pin the rendered camera to the exact aim
+  // the QA helpers set — a driver's fire() between frames otherwise races
+  // this block, which re-derives rotation from aimYaw/aimPitch each frame.
+  if (window.__qaPinCam) { camera.rotation.y = window.__qaPinCam[0]; camera.rotation.x = window.__qaPinCam[1]; }
   rifle.position.x = 0.32 + swX * 1.4;
   if (player.boltT < 0) rifle.position.y = -0.33 + swY * 1.2;
 
@@ -1892,14 +2019,67 @@ function qaAimTarget() {
   aimAtPoint(best);
   return bestKind + '@' + Math.round(bestD);
 }
+/* QA only: aim at a target whose line of fire is CLEAR — the first
+   non-inactive hit along the ray is the target itself (nothing, not even
+   the home building's front face, in the way). Mirrors qaAimFoul. */
+function qaAimClearTarget() {
+  const rc = new THREE.Raycaster(); rc.far = 280;
+  // Acceptance matches fire() EXACTLY: the first hit along the camera ray —
+  // computed from the CLAMPED aim, the same direction fire() will use —
+  // must be the target's own proxy. (Aiming the test ray at the raw
+  // aimPos instead gives false "clear" verdicts in the aim-clamp sliver:
+  // qaAimable's 0.76 vs aimAtPoint's 0.78 yaw clamps.)
+  // NOTE: this deliberately diverges from the ORIGINAL acceptance (raw ray
+  // to aimPos + qaAimable), which could hand back targets the real shot
+  // can never reach — the shipped autopilot tolerates those misses.
+  const clear = t => {
+    t.aimPos(_av);
+    aimAtPoint(_av.clone()); // sets camera.rotation to the clamped aim
+    camera.updateMatrixWorld(true);
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    rc.set(camera.position, dir);
+    const hs = rc.intersectObjects(hitList, false);
+    const first = hs.find(h => !hitInactive(h));
+    return !!first && first.object === t.proxies[0];
+  };
+  for (const t of targets) {
+    if (!t.alive) continue;
+    if (t.type === 'pin' && t.downT > 0) continue;
+    if (t.type === 'drone' && t.state !== 'fly') continue;
+    if (t.type === 'kite' && t.state !== 'fly') continue;
+    if (clear(t)) return t.type; // camera already left aimed at it
+  }
+  for (const c of cars) if (c.signGroup && c.signGroup.visible) {
+    c.sign.getWorldPosition(_av); aimAtPoint(_av.clone()); camera.updateMatrixWorld(true);
+    const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
+    rc.set(camera.position, dir);
+    const first = rc.intersectObjects(hitList, false).find(h => !hitInactive(h));
+    if (first && first.object === c.sign) return 'sign';
+  }
+  return false;
+}
 function qaAimFoul() { // a stroller with a CLEAR line — no building in the way
   let best = null, bestD = 1e9;
   const rc = new THREE.Raycaster(); rc.far = 280;
   for (const p of people) {
     _av.copy(p.g.position); _av.y += 1.15;
+    // UNINITIALIZED-WALKER GUARD (pre-existing quirk, QA-verification find):
+    // people are created at the group origin (0,0,0) and only placed on
+    // their paths by the first personStep — which never runs while the
+    // sim is frozen (frozen QA drivers) and lags in slow renderers. An
+    // unplaced walker stands inside the park lawn's occluder box, where
+    // no ray can reach it; worse, it can shadow the acceptance tests of
+    // walkers behind it. Path endpoints are never both at the origin,
+    // so "exactly on the spawn origin" identifies the state — skip them.
+    if (Math.abs(p.g.position.x) < 0.01 && Math.abs(p.g.position.z) < 0.01) continue;
     if (!qaAimable(_av)) continue;
-    scene.updateMatrixWorld(true);
-    const dir = _av.clone().sub(camera.position).normalize();
+    // Acceptance matches fire() EXACTLY (see qaAimClearTarget): ray along
+    // the CLAMPED camera aim; first hit must be this person's proxy.
+    aimAtPoint(_av.clone());
+    camera.updateMatrixWorld(true);
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
     rc.set(camera.position, dir);
     const hs = rc.intersectObjects(hitList, false);
     const first = hs.find(h => !hitInactive(h));
@@ -1923,6 +2103,25 @@ function qaAimCar() { // nearest car visible over the parapet (streets you can s
 window.__qa = {
   start: () => startGame(),
   state: qaState,
+  glowAudit: () => {
+    const out = { haloSprites: haloPulse.length, haloMats: haloMats.length, byType: {}, foulGlows: 0, flashes: flashes.length };
+    const hasGlow = o => { let f = false; o.traverse(n => { if (n.isSprite) f = true; }); return f; };
+    for (const t of targets) { const k = t.type; out.byType[k] = out.byType[k] || { n: 0, glow: 0, glowInScene: 0 }; out.byType[k].n++; if (hasGlow(t.root)) out.byType[k].glow++; }
+    for (const c of cars) if (c.signGroup && hasGlow(c.signGroup)) { out.byType.sign = out.byType.sign || { n: 0, glow: 0, glowInScene: 0 }; out.byType.sign.n++; out.byType.sign.glow++; }
+    const counted = new Set();
+    scene.traverse(o => { if (o.isSprite && o.material && o.material.blending === THREE.AdditiveBlending && flashes.every(f => f.sp !== o) && o !== scene.children.find(c => c.isSprite && c.material === undefined)) counted.add(o); });
+    for (const t of targets) t.root.traverse(n => { if (n.isSprite) { out.byType[t.type].glowInScene++; counted.delete(n); } });
+    for (const c of cars) if (c.signGroup) c.signGroup.traverse(n => { if (n.isSprite) { if (out.byType.sign) out.byType.sign.glowInScene++; counted.delete(n); } });
+    out.unattributedGlowSprites = counted.size;
+    let foulSprites = 0;
+    for (const p of people) p.g.traverse(n => { if (n.isSprite) foulSprites++; });
+    for (const a of animals) a.g.traverse(n => { if (n.isSprite) foulSprites++; });
+    for (const c of cars) c.g.traverse(n => { if (n.isSprite && !(c.signGroup && c.signGroup.children.includes(n))) foulSprites++; });
+    out.foulGlows = foulSprites;
+    return out;
+  },
+  fxState: () => flashes.map(f => ({ t: Math.round(f.t * 100) / 100, op: Math.round(f.sp.material.opacity * 100) / 100, ring: f.ring.visible, ringOp: Math.round(f.ring.material.opacity * 100) / 100, scale: Math.round(f.sp.scale.x * 10) / 10 })),
+  popState: () => popPool.filter(p => p.t <= 0.95).map(p => ({ text: p.el.textContent, cls: p.el.className, size: p.el.style.fontSize, shadow: p.el.style.textShadow })),
   aim: (x, y, z) => aimAtPoint(new THREE.Vector3(x, y, z)),
   scope: v => setScope(v !== false),
   zoom: i => setZoomFov(ZOOMS[THREE.MathUtils.clamp(i | 0, 0, ZOOMS.length - 1)]),
@@ -1930,8 +2129,49 @@ window.__qa = {
   zoomIn: () => setZoomFov(player.zoomFov * 0.75), zoomOut: () => setZoomFov(player.zoomFov * 1.3),
   zoomCycle: () => cycleZoom(),
   fire: () => fire(),
+  pinCam: on => { // hold the rendered camera on the current aim (QA drivers)
+    if (on) { window.__qaPinCam = [aimYaw, aimPitch]; }
+    else { window.__qaPinCam = null; }
+  },
   reload: () => startReload(),
   aimTarget: () => qaAimTarget(),
+  aimClear: () => qaAimClearTarget(),
+  diagFoul: () => { // per-person version of qaAimFoul's acceptance test
+    const rc = new THREE.Raycaster(); rc.far = 280;
+    return people.map(p => {
+      _av.copy(p.g.position); _av.y += 1.15;
+      const aimable = qaAimable(_av);
+      const origin = Math.abs(p.g.position.x) < 0.01 && Math.abs(p.g.position.z) < 0.01;
+      aimAtPoint(_av.clone()); camera.updateMatrixWorld(true);
+      const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
+      rc.set(camera.position, dir);
+      const hs = rc.intersectObjects(hitList, false);
+      const first = hs.find(h => !hitInactive(h));
+      const fref = first && first.object.userData.hit && first.object.userData.hit.ref;
+      const fo = fref && fref.center ? fref.center : null;
+      const fwp = fo ? { c: [Math.round(fo.x * 10) / 10, Math.round(fo.y * 10) / 10, Math.round(fo.z * 10) / 10], keys: Object.keys(fref) } : null;
+      return { wp: [Math.round(p.g.position.x), Math.round(p.g.position.z)], aimable, origin, firstIsProxy: !!first && first.object === p.proxy, firstCat: first ? (first.object.userData.hit || {}).cat : null, firstKind: first ? (first.object.userData.hit || {}).ref && first.object.userData.hit.ref.kind : null, firstD: first ? Math.round(first.distance * 10) / 10 : null, firstWP: fwp };
+    });
+  },
+  probeList: () => hitList.map(o => { const p = new THREE.Vector3(); o.getWorldPosition(p); const hd = o.userData.hit || {}; return { cat: hd.cat, type: hd.ref && hd.ref.type, kind: hd.ref && hd.ref.kind, wp: [Math.round(p.x), Math.round(p.y * 10) / 10, Math.round(p.z)], dCam: Math.round(p.distanceTo(camera.position)) }; }),
+  rayTo: (x, y, z) => { const rc = new THREE.Raycaster(); rc.far = 280; const dir = new THREE.Vector3(x, y, z).sub(camera.position).normalize(); rc.set(camera.position, dir); scene.updateMatrixWorld(true); return rc.intersectObjects(hitList, false).slice(0, 8).map(h => { const hd = h.object.userData.hit || {}; const wp = new THREE.Vector3(); h.object.getWorldPosition(wp); return { cat: hd.cat, type: hd.ref && hd.ref.type, kind: hd.ref && hd.ref.kind, d: Math.round(h.distance * 10) / 10, wp: [Math.round(wp.x * 10) / 10, Math.round(wp.y * 10) / 10, Math.round(wp.z * 10) / 10], sc: h.object.scale ? [Math.round(h.object.scale.x * 100) / 100, Math.round(h.object.scale.y * 100) / 100] : null }; }); },
+  diagClear: () => { // re-run qaAimClearTarget's acceptance test per target, verbatim
+    const rc = new THREE.Raycaster(); rc.far = 280;
+    const out = [];
+    for (const t of targets) {
+      if (!t.alive) continue;
+      t.aimPos(_av);
+      const pos = _av.clone();
+      const aimable = qaAimable(pos);
+      scene.updateMatrixWorld(true);
+      const dir = pos.clone().sub(camera.position).normalize();
+      rc.set(camera.position, dir);
+      const hs = rc.intersectObjects(hitList, false);
+      const first = hs.find(h => !hitInactive(h));
+      out.push({ type: t.type, aimable, pos: [Math.round(pos.x), Math.round(pos.y * 10) / 10, Math.round(pos.z)], firstIsProxy: !!first && first.object === t.proxies[0], firstCat: first ? (first.object.userData.hit || {}).cat : null, firstD: first ? Math.round(first.distance) : null, nHits: hs.length });
+    }
+    return out;
+  },
   aimFoul: () => qaAimFoul(),
   aimCar: () => qaAimCar(),
   holdBreath: v => { qaHold = !!v; },
