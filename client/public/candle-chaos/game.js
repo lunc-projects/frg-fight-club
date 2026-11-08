@@ -15,12 +15,17 @@ const lerp = (a, b, t) => a + (b - a) * t;
 /* Wide-field layout (Nov 7, owner: "make a row of eight — the spaces
    are bigger than the jumping"). Eight candles across, tight pitch:
    lane spacing 1.20 with BLOCK_W 1.08 = 0.12 m lateral edge gap, and
-   STEP_Z 2.40 with BLOCK_D 1.95 = 0.45 m forward edge gap. Measured
-   jump range at the opening speed (JUMP_V 15.2 against GRAV_RISE 26 /
-   GRAV 34: 0.585 s up + 0.511 s down = 1.10 s airborne; x 7.6 m/s =
-   8.3 m) — so a normal row hop is 2.40 m centre-to-centre (29% of
-   range) and even a full missing row is 4.80 m (58% of range, under
-   the 70% ceiling). Every intended hop is comfortably makeable. */
+   STEP_Z 2.40 with BLOCK_D 1.95 = 0.45 m forward edge gap.
+   Ground model (Nov 7, owner: "you should be able to just run
+   without the block falling, jumping over the red ones"): the field
+   is a CONTINUOUS carpet — every row has all eight candles, the path
+   height holds dead level for long plateaus and only ever moves on
+   a gentle RAMP_DY ramp (0.16 m/step: auto-stepped going up, snapped
+   going down — never airborne). Running the green line needs NO
+   jumps and has NO falls. The jump (range 8.3 m at opening speed:
+   JUMP_V 15.2 against GRAV_RISE 26 / GRAV 34 = 1.10 s airborne)
+   exists for one thing only: clearing a RED candle in your lane —
+   a red is 1.95 m deep at path height, a small fraction of range. */
 const LANE_X = [-4.2, -3.0, -1.8, -0.6, 0.6, 1.8, 3.0, 4.2];
 const LANES = LANE_X.length;       // 8 candles across
 const STEP_Z = 2.40;               // distance between chart steps
@@ -37,6 +42,7 @@ const STICK_DEAD = 0.10;           // stick deadzone (was 0.06 — small thumb t
 const CATCH_BELOW = 1.35;          // landing catch depth under the top plane
 const AUTO_STEP = 1.05;            // rises <= this are stepped up freely
 const GEN_AHEAD = 44;              // steps kept ahead of the player
+const RAMP_DY = 0.16;              // path-height change per step on a plateau-to-plateau ramp
 const CRESCENT_SCORE = 50, STAR_SCORE = 150;
 
 /* ---------------- state ---------------- */
@@ -613,73 +619,110 @@ function updateChunks(dt) {
 }
 
 /* ---------------- path generation ---------------- */
-const gen = { next: 0, price: 2.0, safeLane: 3, gapNext: false, lastGap: -9, lastWall: -9 };
-const steps = new Map();   // i -> {i, z, price, gap, blocks:[block|null x8]}
+const gen = { next: 0, price: 2.0, safeLane: 3, prevSafeLane: 3, pathY: 2.0, pathTarget: 2.0, flatLeft: 56 };
+const steps = new Map();   // i -> {i, z, price, gap:false, blocks:[block x8]}
 const pickups = [];        // {kind, mesh, x, y, z, taken, step}
 
 function stepZ(i) { return -i * STEP_Z; }
 
+/* Turn a placed RED candle GREEN in place (materials only — used by
+   the golden-crossing guard in genStep). Child order from makeCandle:
+   0 body, 1 top disc, 2 wick (unchanged), 3 tail wick, 4 flame, 5 halo. */
+function recolorGreen(b) {
+  b.color = 'G';
+  const kids = b.grp.children;
+  if (!kids || kids.length < 6) return;
+  kids[0].material = matGreen;
+  kids[1].material = matDiscG;
+  kids[3].material = matDiscG;
+  kids[4].material = flameMatG;
+  kids[5].material = haloMatG;
+}
+
 function genStep(i) {
   const z = stepZ(i);
-  let gap = false;
-  if (gen.gapNext) {
-    // price right after a gap stays close to the pre-gap price so the jump lands
-    gen.price = clamp(gen.price + (Math.random() - 0.5) * 0.7 - 0.25, 0.2, 8.6);
-    gen.gapNext = false;
-  } else if (i > 4) {
-    // Per-step height change is capped at ~0.5 m (was ~0.75 + walls to
-    // 2.3): no single step ever asks for more than a fraction of the
-    // jump's 4.4 m apex, so a hop never feels "smaller than the space".
-    let dy = (Math.random() - 0.49) * 0.85 + (3.6 - gen.price) * 0.045;
-    if (i > 25 && i - gen.lastWall > 10 && Math.random() < 0.10) {
-      dy = 0.95 + Math.random() * 0.35; gen.lastWall = i;   // wall step: JUMP! (max 1.3 m)
-    }
-    dy = clamp(dy, -0.5, 1.3);
-    gen.price = clamp(gen.price + dy, 0.2, 8.6);
-    if (i > 34 && i - gen.lastGap > 12 && Math.random() < 0.07) {
-      gap = true; gen.lastGap = i; gen.gapNext = true;
+  /* FLAT-GROUND generator (Nov 7, owner: "you should be able to just
+     run without the block falling, jumping over the red ones").
+     pathY is the height of the whole field. It holds DEAD LEVEL for
+     a plateau of 42–77 steps (~100–185 m; the opening plateau is 56),
+     then ramps to the next plateau at at most RAMP_DY (0.16 m) per
+     step — rises that small are auto-stepped by the grounded physics
+     (AUTO_STEP 1.05) and drops that small snap (the airborne fall
+     threshold is 0.55), so the golden path NEVER makes the runner
+     step, fall, or jump. There are no wall steps, no gap rows and
+     no missing candles: every row is a full carpet of eight, so the
+     safe lane can never be cut. The only obstacle left is the RED
+     candle — always at path height (±0.08 side jitter), always
+     clearable with the jump, still death to touch. */
+  if (i > 4) {
+    if (gen.pathY !== gen.pathTarget) {
+      // move at most RAMP_DY toward the target, landing exactly on it
+      const d = gen.pathTarget - gen.pathY;
+      gen.pathY = Math.abs(d) <= RAMP_DY ? gen.pathTarget : gen.pathY + Math.sign(d) * RAMP_DY;
+    } else if (--gen.flatLeft <= 0) {
+      // pick the next plateau: 0.6–2.2 m away in a random direction;
+      // if that direction is walled by the [1.2, 6.4] bound, go the
+      // other way (the field is 5.2 m tall — one side always has
+      // room, so the path can never pin against a bound)
+      const dir = Math.random() < 0.5 ? -1 : 1;
+      const mag = 0.6 + Math.random() * 1.6;
+      let target = clamp(gen.pathY + dir * mag, 1.2, 6.4);
+      if (Math.abs(target - gen.pathY) < 0.6) target = clamp(gen.pathY - dir * mag, 1.2, 6.4);
+      gen.pathTarget = target;
+      gen.flatLeft = 42 + Math.floor(Math.random() * 36);
     }
   }
+  gen.price = gen.pathY;
   // safe lane wanders by at most one lane per step — a route always exists
   if (i > 0 && Math.random() < 0.5) {
     gen.safeLane = clamp(gen.safeLane + (Math.random() < 0.5 ? -1 : 1), 0, LANES - 1);
   }
-  const step = { i, z, price: gen.price, gap, blocks: new Array(LANES).fill(null) };
-  if (!gap) {
-    const distNow = i * STEP_Z;
-    const redP = i < 10 ? 0 : Math.min(0.10 + distNow * 0.00030, 0.30);
-    const gapP = i < 8 ? 0 : 0.10;
-    for (let lane = 0; lane < LANES; lane++) {
-      let color = null;
-      if (lane === gen.safeLane || i <= 5) color = 'G';
-      else {
-        const r = Math.random();
-        if (r < gapP) color = null;
-        else if (r < gapP + redP) color = 'R';
-        else color = 'G';
-      }
-      if (!color) continue;
-      const top = gen.price + (lane === gen.safeLane ? 0 : (Math.random() - 0.5) * 0.16);
-      const grp = makeCandle(color, lane === gen.safeLane);
-      grp.position.set(LANE_X[lane], top, z);
-      scene.add(grp);
-      const block = {
-        step: i, lane, x: LANE_X[lane], z, top, color, grp,
-        state: 'idle', crumbleAt: Infinity, crackT: 0, vy: 0, rot: (Math.random() - 0.5) * 0.14,
-      };
-      step.blocks[lane] = block;
-      // pickups ride the green line
-      if (color === 'G' && i > 3) {
-        const pr = Math.random();
-        const pk = lane === gen.safeLane
-          ? (pr < 0.30 ? 'crescent' : pr < 0.375 ? 'star' : null)
-          : (pr < 0.13 ? 'crescent' : pr < 0.175 ? 'star' : null);
-        if (pk) addPickup(pk, LANE_X[lane], top + 1.12, z, i);
-      }
+  /* Golden-crossing guards: when the safe lane moves, a grounded
+     runner steering across passes over BOTH diagonal candles of the
+     seam — the one it moves INTO on the previous row (cross early)
+     and the one it moves OUT of on this row (cross late). Either one
+     being red would kill a runner who simply steers across: mid-
+     crossing it can be the ONLY candle inside the support footprint
+     (the old hoppy terrain masked this: crossings were airborne and
+     used the wider landing footprint). So the entry diagonal is
+     recolored green if it rolled red, and the exit lane never rolls
+     red on a move step (see the build loop). The golden path is
+     runnable at any human steering timing; reds stay deadly
+     everywhere else. */
+  const movedFrom = i > 0 && gen.safeLane !== gen.prevSafeLane ? gen.prevSafeLane : -1;
+  if (movedFrom >= 0) {
+    const prev = steps.get(i - 1);
+    const diag = prev && prev.blocks[gen.safeLane];
+    if (diag && diag.color === 'R') recolorGreen(diag);
+  }
+  gen.prevSafeLane = gen.safeLane;
+  const step = { i, z, price: gen.price, gap: false, blocks: new Array(LANES).fill(null) };
+  const distNow = i * STEP_Z;
+  const redP = i < 10 ? 0 : Math.min(0.10 + distNow * 0.00030, 0.30);
+  let reds = 0;
+  for (let lane = 0; lane < LANES; lane++) {
+    let color;
+    if (lane === gen.safeLane || i <= 5) color = 'G';
+    else if (lane === movedFrom) color = 'G';   // exit diagonal of a golden move: never red (crossing guard)
+    else if (reds < 4 && Math.random() < redP) { color = 'R'; reds++; }   // cap: a row never reads as a red wall
+    else color = 'G';
+    const top = gen.price + (lane === gen.safeLane ? 0 : (Math.random() - 0.5) * 0.16);
+    const grp = makeCandle(color, lane === gen.safeLane);
+    grp.position.set(LANE_X[lane], top, z);
+    scene.add(grp);
+    const block = {
+      step: i, lane, x: LANE_X[lane], z, top, color, grp,
+      state: 'idle', crumbleAt: Infinity, crackT: 0, vy: 0, rot: (Math.random() - 0.5) * 0.14,
+    };
+    step.blocks[lane] = block;
+    // pickups ride the green line
+    if (color === 'G' && i > 3) {
+      const pr = Math.random();
+      const pk = lane === gen.safeLane
+        ? (pr < 0.30 ? 'crescent' : pr < 0.375 ? 'star' : null)
+        : (pr < 0.13 ? 'crescent' : pr < 0.175 ? 'star' : null);
+      if (pk) addPickup(pk, LANE_X[lane], top + 1.12, z, i);
     }
-  } else {
-    // a crescent arc over the gap rewards the jump
-    if (Math.random() < 0.55) addPickup('crescent', LANE_X[gen.safeLane], gen.price + 1.75, z, i);
   }
   steps.set(i, step);
   gen.next = i + 1;
@@ -1315,7 +1358,7 @@ function resetWorld() {
   emberLife.fill(0);
   for (let i = 0; i < EMBERS; i++) emberPos[i * 3 + 1] = -999;
   emberGeo.attributes.position.needsUpdate = true;
-  gen.next = 0; gen.price = 2.0; gen.safeLane = 3; gen.gapNext = false; gen.lastGap = -9; gen.lastWall = -9;
+  gen.next = 0; gen.price = 2.0; gen.safeLane = 3; gen.prevSafeLane = 3; gen.pathY = 2.0; gen.pathTarget = 2.0; gen.flatLeft = 56;
   S.score = 0; S.dist = 0; S.crescents = 0; S.stars = 0; S.streak = 0;
   S.speed = 0; S.runTime = 0;
   S.x = LANE_X[3]; S.z = -2 * STEP_Z; S.vx = 0; S.vy = 0;
