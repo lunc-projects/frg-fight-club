@@ -583,32 +583,72 @@ function allStopped(){ return balls.every(b => !b.active || b.sinking > 0 || (b.
 /* cue stick — REBUILT slim + lit + lowered (owner hotfix #2): a real cue's
    forward shaft is pale maple; the old build's single dark shaft, sitting on
    the aim axis at ball height with the camera gliding through its butt,
-   rendered as the screen-filling black wedge on the owner's phone. */
+   rendered as the screen-filling black wedge on the owner's phone.
+   HOTFIX #3 (aim camera): the real wedge was never the stick — the hotfix-#2
+   camera (0.52 behind / 0.30 high) parked its eye INSIDE the butt cap, so the
+   cue's last ~0.9 m, magnified by closeness, filled the lower frame (the
+   scene's true cue mesh measures slim: 10.4 mm tip tapering to 23 mm butt).
+   This pass lifts the eye to 0.64 behind / 0.33 high — clear of the butt —
+   centres the aim camera exactly on the aim line (the old desired carried a
+   ~0.45 m lateral slew because camPos still held menu-orbit x, which flung
+   the close, wide cue across the frame), slims the stick ~13%, raises its
+   strike height to ball-centre, and gives it a true along-length maple grain
+   (the shared woodTexture draws ring grain across a shaft; kept for the
+   table, no longer used on the cue) at full material brightness so the wood
+   reads lit instead of a dark bar. Orientation is built as an explicit
+   roll-free basis in updateAimVisuals (Object3D.lookAt rolled the group
+   around its long axis — the sideways stick in both earlier builds). */
+function cueWoodTexture(){
+  const c = document.createElement('canvas'); c.width = 256; c.height = 1024;
+  const g = c.getContext('2d');
+  const base = g.createLinearGradient(0, 0, 256, 0);
+  base.addColorStop(0, '#d9b47e'); base.addColorStop(0.5, '#eccf9e'); base.addColorStop(1, '#d3a96f');
+  g.fillStyle = base; g.fillRect(0, 0, 256, 1024);
+  /* grain runs ALONG the shaft: near-vertical streaks in canvas space —
+     the cylinder's length axis maps to canvas y after the rotateX below */
+  for (let i = 0; i < 110; i++){
+    const x = Math.random() * 256;
+    g.strokeStyle = `rgba(${120 + Math.random() * 60 | 0},${78 + Math.random() * 40 | 0},30,${0.10 + Math.random() * 0.20})`;
+    g.lineWidth = 0.8 + Math.random() * 2.2;
+    g.beginPath(); g.moveTo(x, 0);
+    for (let y = 0; y <= 1024; y += 128) g.lineTo(x + Math.sin(y * 0.01 + i) * 3, y);
+    g.stroke();
+  }
+  for (let i = 0; i < 34; i++){
+    const x = Math.random() * 256;
+    g.strokeStyle = 'rgba(255,236,190,0.13)'; g.lineWidth = 1 + Math.random() * 2;
+    g.beginPath(); g.moveTo(x, 0); g.lineTo(x + (Math.random() * 8 - 4), 1024); g.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
 const cueGroup = new THREE.Group();
 {
-  const cueTex = woodTexture();
-  const shaftMat = new THREE.MeshPhysicalMaterial({ map: cueTex, color: 0xe8c493, roughness: 0.3, clearcoat: 0.6, clearcoatRoughness: 0.3, envMapIntensity: 0.9, side: THREE.DoubleSide });
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.0052, 0.0085, 1.05, 12), shaftMat);
+  const cueTex = cueWoodTexture();
+  const shaftMat = new THREE.MeshPhysicalMaterial({ map: cueTex, color: 0xffffff, roughness: 0.3, clearcoat: 0.6, clearcoatRoughness: 0.3, envMapIntensity: 0.9, side: THREE.DoubleSide });
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.0046, 0.0074, 1.05, 12), shaftMat);
   shaft.geometry.rotateX(Math.PI / 2);
   shaft.geometry.translate(0, 0, -0.525);
   shaft.castShadow = true;
   cueGroup.add(shaft);
   const wrapMat = new THREE.MeshStandardMaterial({ color: 0x27324a, roughness: 0.85, envMapIntensity: 0.4 });
-  const wrap = new THREE.Mesh(new THREE.CylinderGeometry(0.0085, 0.0115, 0.34, 12), wrapMat);
+  const wrap = new THREE.Mesh(new THREE.CylinderGeometry(0.0074, 0.0100, 0.34, 12), wrapMat);
   wrap.geometry.rotateX(Math.PI / 2);
   wrap.geometry.translate(0, 0, -1.22);
   cueGroup.add(wrap);
   const buttMat = new THREE.MeshPhysicalMaterial({ color: 0x1a1210, roughness: 0.25, clearcoat: 0.8, envMapIntensity: 1 });
-  const buttCap = new THREE.Mesh(new THREE.CylinderGeometry(0.0115, 0.0108, 0.06, 12), buttMat);
+  const buttCap = new THREE.Mesh(new THREE.CylinderGeometry(0.0100, 0.0094, 0.06, 12), buttMat);
   buttCap.geometry.rotateX(Math.PI / 2);
   buttCap.geometry.translate(0, 0, -1.42);
   cueGroup.add(buttCap);
   const ringMat = new THREE.MeshStandardMaterial({ color: 0xffd76a, roughness: 0.25, metalness: 1, envMapIntensity: 1.5 });
-  const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.0088, 0.0088, 0.014, 12), ringMat);
+  const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.0077, 0.0077, 0.014, 12), ringMat);
   ring.geometry.rotateX(Math.PI / 2);
   ring.geometry.translate(0, 0, -1.057);
   cueGroup.add(ring);
-  const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.0058, 0.0058, 0.012, 10), new THREE.MeshStandardMaterial({ color: 0x8a5a34, roughness: 0.7 }));
+  const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.0050, 0.0050, 0.012, 10), new THREE.MeshStandardMaterial({ color: 0x8a5a34, roughness: 0.7 }));
   tip.geometry.rotateX(Math.PI / 2); tip.position.z = 0.004;
   cueGroup.add(tip);
   scene.add(cueGroup);
@@ -709,8 +749,44 @@ function updateAimVisuals(){
   const sx = -d.z, sz = d.x;                       /* aim-right unit vector */
   const px = cue.x + sx * 0.075, pz = cue.z + sz * 0.075;
   const py = BR + 0.055;
-  cueGroup.position.set(px - d.x * (BR * 0.82 + pull), py + 0.004, pz - d.z * (BR * 0.82 + pull));
-  cueGroup.lookAt(px + d.x * BR * 0.3, py - 0.028, pz + d.z * BR * 0.3);
+  /* ORIENTATION (hotfix #3, final form): build the frame from the stick's
+     own geometry instead of Object3D.lookAt. lookAt aims the group's -Z
+     at the target but picks its up-vector from world-up — with the shaft
+     nearly horizontal that up is degenerate, and the group rolls around
+     its long axis; how far it settles depends on how far off-axis the
+     target sits, which is exactly the sideways/diagonal stick seen on
+     screen in both previous builds (the stick VISUAL crossed the aim line
+     at the tip, so every hotfix that moved the eye or the stick height
+     re-rolled it). Here the basis is explicit and roll-free by
+     construction:
+       axis  = the shaft line: from the strike point AHEAD of the group
+               origin (0.953 along the stick) back toward the origin, so
+               the visible stick runs from the raised butt (height 0.667 m
+               at the back anchor) down to the tip near the ball — it lies
+               along the aim direction d, laterally offset like a bridge
+               hand. (Heights: the axis ENDPOINTS are at py and py + 0.0955;
+               the group's local +Z is the tip→butt direction.) NOTE the
+               group's stored quaternion reads as a large X-rotation
+               (lookAt-style: local +Z ends up near world −Y once the
+               frame's up is solved in camera space) — the rendered stick
+               is what matters: its world bbox is thin in x (the 14 mm cue
+               width) and long in z, lying flat along the aim line.
+       right = normalize(component of the aim-right vector (sx, sz)
+               perpendicular to axis) — the stick's flat side faces the
+               player's side, never twisted.
+       up    = right × axis — completes a right-handed frame; the group's
+               local +Z ends up pointing from tip toward butt, which is
+               the direction the cylinder geometry was laid out along. */
+  const tipA = new THREE.Vector3(px - d.x * (BR * 0.82 + pull), py, pz - d.z * (BR * 0.82 + pull));
+  const backA = new THREE.Vector3(px, py + 0.0955, pz);
+  const axis = tipA.clone().sub(backA).normalize();          /* butt → tip */
+  const zAxis = axis.clone().negate();                       /* local +Z: tip → butt */
+  const xRaw = new THREE.Vector3(sx, 0, sz);
+  const yAxis = new THREE.Vector3().crossVectors(zAxis, xRaw).normalize();
+  const xAxis = new THREE.Vector3().crossVectors(yAxis, zAxis).normalize();
+  const m = new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis);
+  cueGroup.quaternion.setFromRotationMatrix(m);
+  cueGroup.position.copy(tipA);
 }
 
 /* ================= physics ================= */
@@ -971,8 +1047,13 @@ function updateCamera(dt){
     tgt.set(0, -0.05, -0.1);
   } else if (phase === 'aim' || phase === 'done'){
     const cue = balls[0], d = aimDir();
-    desired.set(cue.x - d.x * 0.52, 0.30, cue.z - d.z * 0.52);
-    tgt.set(cue.x + d.x * 0.85, -0.02, cue.z + d.z * 0.85);
+    /* aim camera (owner hotfix #3): 0.64 behind the cue ball, 0.33 above the
+       cloth — just clear of the cue's butt end, so the stick reads slim on
+       the aim line instead of looming through the lens. The look target sits
+       1.35 down-line (was 0.85), which puts the whole rack mid-frame with
+       the cue ball low-centre at this portrait aspect. */
+    desired.set(cue.x - d.x * 0.64, 0.33, cue.z - d.z * 0.64);
+    tgt.set(cue.x + d.x * 1.35, -0.02, cue.z + d.z * 1.35);
     _lastAimTgt.copy(tgt);
   } else {
     /* follow the action from behind the shot line */
@@ -1161,7 +1242,18 @@ function frame(){
      the aim pose the moment aim starts removes the transit entirely. */
   const enteredAim = state === 'play' && phase === 'aim' && !(_prevState === 'play' && _prevPhase === 'aim');
   updateCamera(dt);
-  if (enteredAim){ camPos.copy(camera.position); camTgt.copy(_lastAimTgt); }
+  if (enteredAim){
+    /* Snap BOTH smoothers to the aim pose (hotfix #3): the old line copied
+       the lerped output into camPos, which left a sideways-slewed,
+       half-descended aim camera in place indefinitely (the yaw slew swung
+       the laterally-offset cue across the lower frame). Warping camPos AND
+       camTgt straight to the aim desired/target makes the enter-aim snap a
+       real snap; the render below uses camera.position, so set it too. */
+    const cue = balls[0], d = aimDir();
+    camPos.set(cue.x - d.x * 0.64, 0.33, cue.z - d.z * 0.64);
+    camTgt.set(cue.x + d.x * 1.35, -0.02, cue.z + d.z * 1.35);
+    camera.position.copy(camPos); camera.lookAt(camTgt);
+  }
   _prevState = state; _prevPhase = phase;
   renderer.render(scene, camera);
 }
