@@ -652,6 +652,7 @@ const cueGroup = new THREE.Group();
   tip.geometry.rotateX(Math.PI / 2); tip.position.z = 0.004;
   cueGroup.add(tip);
   scene.add(cueGroup);
+  cueGroup.visible = false; /* NO-STICK (owner order): the cue stick never renders — aiming is drag + POWER bar only */
 }
 
 /* aim visuals: dashed line + ghost ring + target tick */
@@ -715,7 +716,8 @@ function computeAim(){
 function updateAimVisuals(){
   const cue = balls[0]; if (!cue) return;
   const show = state === 'play' && phase === 'aim' && cue.active && !cue.sinking;
-  aimLine.visible = tickLine.visible = ghost.visible = cueGroup.visible = aimTrail.visible = !!show;
+  aimLine.visible = tickLine.visible = ghost.visible = aimTrail.visible = !!show;
+  cueGroup.visible = false; /* NO-STICK: stick stays hidden in every state, aim included (was tied to !!show) */
   $('powerRail').style.display = show ? 'block' : 'none';
   $('aimHint').style.display = show ? 'block' : 'none';
   if (!show) return;
