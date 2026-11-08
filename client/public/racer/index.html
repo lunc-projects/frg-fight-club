@@ -58,6 +58,15 @@
   #hudNitroWrap{width:64px;height:8px;border-radius:99px;background:rgba(255,255,255,.20);overflow:hidden;display:inline-block}
   #hudNitroFill{height:100%;width:0%;background:linear-gradient(90deg,#ff9a1f,#ffd23e)}
   @media (pointer:fine){ #touchUI{opacity:.6} }
+  /* camera VIEW button + cockpit dash frame (owner, Nov 7 late) */
+  #btnView{width:66px;height:66px;border-color:rgba(125,184,255,.9);background:rgba(10,40,80,.55);color:#cfe8ff;font-size:13px;flex-direction:column;gap:2px;line-height:1.05}
+  #btnView small{font-size:9px;font-weight:800;color:#ffe9a8;letter-spacing:.4px}
+  #viewKeyHint{display:none}
+  @media (pointer:fine){ #viewKeyHint{display:block} }
+  #btnView:active{transform:scale(.92);background:rgba(40,110,200,.55)}
+  #viewName{font-size:11px;color:#ffd76a;font-weight:900;letter-spacing:.6px}
+  #cockpitFrame{position:fixed;inset:0;z-index:4;pointer-events:none}
+  #cockpitFrame svg{width:100%;height:100%;display:block}
 
   /* ---------- Floating joystick (house style: gold crescent knob) ---------- */
   #stickDock{position:fixed;left:30px;bottom:calc(env(safe-area-inset-bottom,0px) + 26px);width:118px;height:118px;z-index:7;pointer-events:none}
@@ -130,8 +139,29 @@
   <div id="cdWrap" class="hidden"><div id="cdText"></div></div>
 </div>
 
+<!-- COCKPIT frame (dash + wheel overlay, shown only in COCKPIT camera view) -->
+<div id="cockpitFrame" class="hidden" aria-hidden="true">
+  <svg viewBox="0 0 1000 620" preserveAspectRatio="none">
+    <path d="M0,0 H1000 V20 H0 Z" fill="rgba(4,6,10,.5)"/>
+    <path d="M0,0 H118 L34,318 L0,352 Z" fill="rgba(4,6,10,.55)"/>
+    <path d="M1000,0 H882 L966,318 L1000,352 Z" fill="rgba(4,6,10,.55)"/>
+    <path d="M0,620 V486 Q260,446 500,456 Q740,446 1000,486 V620 Z" fill="#0a0d13"/>
+    <path d="M0,486 Q260,446 500,456 Q740,446 1000,486" fill="none" stroke="rgba(255,210,62,.35)" stroke-width="3"/>
+    <ellipse cx="322" cy="520" rx="128" ry="44" fill="#12161f"/>
+    <circle cx="272" cy="518" r="27" fill="none" stroke="#ffd23e" stroke-width="4" opacity=".8"/>
+    <circle cx="372" cy="518" r="27" fill="none" stroke="#7db8ff" stroke-width="4" opacity=".8"/>
+    <circle cx="322" cy="580" r="96" fill="none" stroke="#05070a" stroke-width="30"/>
+    <circle cx="322" cy="580" r="96" fill="none" stroke="rgba(255,210,62,.5)" stroke-width="3"/>
+    <path d="M226,580 H418 M322,580 L322,664 M322,580 L252,516 M322,580 L392,516" stroke="#05070a" stroke-width="17"/>
+    <circle cx="322" cy="580" r="27" fill="#141a24" stroke="rgba(255,210,62,.65)" stroke-width="3"/>
+    <circle cx="322" cy="580" r="13" fill="#ffd23e"/>
+    <circle cx="328" cy="576" r="11" fill="#141a24"/>
+  </svg>
+</div>
+
 <!-- Touch controls -->
 <div id="touchUI" class="hidden">
+  <button class="tbtn" id="btnView">VIEW<span id="viewName">CHASE</span><small id="viewKeyHint">V</small></button>
   <button class="tbtn empty" id="btnNitro">NITRO<span id="nitroMeter"><span id="nitroFill" style="display:block"></span></span><small id="nitroKeyHint">SHIFT</small></button>
   <button class="tbtn" id="btnBrake">BRAKE</button>
 </div>
@@ -1655,6 +1685,52 @@ function spinWheels(grp, v, dt, steerVis) {
     if (w.userData.front) w.rotation.y = -(steerVis || 0) * 0.42;
   });
 }
+
+/* ============ nitrous exhaust flames (owner, Nov 7 late) ============
+   Built once and parented to the PLAYER car group, so placeCar carries
+   them through every steer, jump and landing for free. Per exhaust:
+   outer blue cone + white-blue core cone + additive glow sprite = 6
+   small MeshBasicMaterial objects in total. No lights, no particle
+   system — negligible phone cost. Group stays hidden unless the game
+   script's updateNitroFlames sees P.boosting. There is no normal
+   exhaust effect in this game, so these read unmistakably as nitrous. */
+function makeFlameTexture() {
+  const c = makeCanvas(128, 128), x = c.getContext('2d');
+  const g = x.createRadialGradient(64, 64, 4, 64, 64, 62);
+  g.addColorStop(0, 'rgba(210,235,255,0.95)');
+  g.addColorStop(0.35, 'rgba(90,160,255,0.55)');
+  g.addColorStop(1, 'rgba(30,80,255,0)');
+  x.fillStyle = g; x.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+}
+function makeFlameCone(r, len, color, opacity) {
+  const geo = new THREE.ConeGeometry(r, len, 12, 1, true);
+  geo.rotateX(-Math.PI / 2);     /* cone axis -> -z: tip points backwards */
+  geo.translate(0, 0, -len / 2); /* base sits at the exhaust tip */
+  return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity, blending: THREE.AdditiveBlending,
+    depthWrite: false, side: THREE.DoubleSide, fog: false
+  }));
+}
+const nitroFlames = new THREE.Group();
+const nitroFlameParts = [];
+[-0.52, 0.52].forEach((ex, i) => {
+  const holder = new THREE.Group();
+  holder.position.set(ex, 0.34, -CAR_CFG.player.len / 2 + 0.06);
+  const outer = makeFlameCone(0.17, 1.25, 0x2f7bff, 0.55);
+  const core = makeFlameCone(0.095, 0.9, 0xd6ecff, 0.9);
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: makeFlameTexture(), color: 0x77baff, transparent: true, opacity: 0.6,
+    blending: THREE.AdditiveBlending, depthWrite: false
+  }));
+  glow.scale.set(0.85, 0.85, 1);
+  glow.position.z = -0.25;
+  holder.add(outer); holder.add(core); holder.add(glow);
+  nitroFlames.add(holder);
+  nitroFlameParts.push({ outer, core, glow, phase: i * 2.1 });
+});
+nitroFlames.visible = false;
+playerCar.add(nitroFlames);
 </script>
 <script>
 /* ================= game state ================= */
@@ -1764,7 +1840,9 @@ nitroBtn.addEventListener('touchstart', nitroOn, { passive: false });
 window.addEventListener('pointerup', nitroOff);
 window.addEventListener('touchend', nitroOff);
 window.addEventListener('pointercancel', nitroOff);
+$('btnView').addEventListener('click', () => cycleView());
 window.addEventListener('keydown', e => {
+  if ((e.key === 'v' || e.key === 'V' || e.key === 'c' || e.key === 'C') && !(e.target && e.target.tagName === 'INPUT')) cycleView();
   if (e.key === 'ArrowLeft' || e.key === 'a') input.left = true;
   if (e.key === 'ArrowRight' || e.key === 'd') input.right = true;
   if (e.key === 'ArrowDown' || e.key === 's' || e.key === ' ') input.down = true;
@@ -1916,6 +1994,39 @@ function autoBrake() {
   return P.v > corner + 2;
 }
 
+/* ================= camera views (owner, Nov 7 late) =================
+   The VIEW button (or V / C key) cycles CHASE -> FAR -> HOOD -> COCKPIT.
+   viewMode is deliberately NOT touched by resetRace: the chosen view
+   survives the countdown and race restarts until the player changes it.
+   CHASE keeps the exact framing the game shipped with. HOOD and
+   COCKPIT are rigid (no lerp) so they stay glued to the car. */
+const VIEW_NAMES = ['CHASE', 'FAR', 'HOOD', 'COCKPIT'];
+let viewMode = 0;
+function applyView() {
+  $('viewName').textContent = VIEW_NAMES[viewMode];
+  $('cockpitFrame').classList.toggle('hidden', !(viewMode === 3 && (state === 'race' || state === 'count')));
+}
+function cycleView() { viewMode = (viewMode + 1) % VIEW_NAMES.length; applyView(); }
+function setView(i) { viewMode = ((i % VIEW_NAMES.length) + VIEW_NAMES.length) % VIEW_NAMES.length; applyView(); }
+
+/* Nitrous flames: visible exactly while P.boosting (physics already
+   turns boosting off on button release, empty tank and braking).
+   Flicker is two beating sines; flame length grows with boost speed. */
+let flameT = 0;
+function updateNitroFlames(dt) {
+  const on = !!P.boosting;
+  nitroFlames.visible = on;
+  if (!on) return;
+  flameT += dt;
+  const strength = 0.85 + 0.35 * Math.min(1, P.v / NITRO_TOP);
+  for (const f of nitroFlameParts) {
+    const fl = 0.88 + 0.16 * Math.sin(flameT * 43 + f.phase) + 0.10 * Math.sin(flameT * 97 + f.phase * 1.7);
+    f.outer.scale.set(fl, fl, strength * fl);
+    f.core.scale.set(fl, fl, strength * fl * 0.74);
+    f.glow.material.opacity = 0.45 + 0.25 * (0.5 + 0.5 * Math.sin(flameT * 51 + f.phase));
+  }
+}
+
 /* ================= camera ================= */
 const camPos = new THREE.Vector3(0, 6, -14);
 let menuAng = 0, qaBeauty = -1, qaCam = null;
@@ -1950,11 +2061,25 @@ function stepCamera(dt, t) {
     return;
   }
   const fr = frameAt(P.s);
-  const back = surfPoint(fr, P.lat * 0.55, 3.4 + P.airY * 0.45).addScaledVector(fr.tan, -10.8);
-  camPos.lerp(back, 1 - Math.exp(-6.5 * dt));
-  camera.position.copy(camPos);
-  const look = surfPoint(fr, P.lat * 0.8, 1.15 + P.airY * 0.5).addScaledVector(fr.tan, 9);
-  camera.lookAt(look);
+  if (viewMode === 2) {
+    /* HOOD: rigid on the nose of the car — the track fills the screen */
+    camera.position.copy(surfPoint(fr, P.lat, 1.04 + P.airY).addScaledVector(fr.tan, 1.55));
+    camera.lookAt(surfPoint(fr, P.lat * 0.92, 0.70 + P.airY * 0.6).addScaledVector(fr.tan, 26));
+  } else if (viewMode === 3) {
+    /* COCKPIT: rigid inside the cabin on the driver's side; the dash +
+       wheel overlay (#cockpitFrame) frames the view */
+    camera.position.copy(surfPoint(fr, P.lat - 0.34, 1.14 + P.airY).addScaledVector(fr.tan, 0.42));
+    camera.lookAt(surfPoint(fr, P.lat * 0.92, 0.86 + P.airY * 0.6).addScaledVector(fr.tan, 26));
+  } else {
+    /* CHASE (viewMode 0, the shipped framing) and FAR CHASE (viewMode 1:
+       higher, wider, further back — more of the course ahead) */
+    const far = viewMode === 1;
+    const back = surfPoint(fr, P.lat * 0.55, (far ? 6.4 : 3.4) + P.airY * 0.45).addScaledVector(fr.tan, far ? -17.5 : -10.8);
+    camPos.lerp(back, 1 - Math.exp(-(far ? 5.5 : 6.5) * dt));
+    camera.position.copy(camPos);
+    const look = surfPoint(fr, P.lat * 0.8, (far ? 1.5 : 1.15) + P.airY * 0.5).addScaledVector(fr.tan, far ? 13 : 9);
+    camera.lookAt(look);
+  }
   sun.position.set(fr.pos.x + 120, fr.pos.y + 180, fr.pos.z - 260);
   sun.target.position.copy(fr.pos);
 }
@@ -2016,6 +2141,7 @@ function startRace() {
   dock.classList.remove('hidden');
   state = 'count'; cdT = 0; cdStep = -1;
   $('cdWrap').classList.remove('hidden');
+  applyView();
   updateHUD();
 }
 function pauseGame() {
@@ -2030,6 +2156,7 @@ function quitToMenu() {
   state = 'menu'; showScreen('menu');
   $('hud').classList.add('hidden'); $('touchUI').classList.add('hidden'); dock.classList.add('hidden');
   resetRace();
+  applyView();
 }
 function liveScore() {
   return coins * 40 + stars * 150 + Math.floor(P.airTime) * 100;
@@ -2042,6 +2169,7 @@ function finishRace() {
   score = liveScore() + posBonus + timeBonus;
   score = Math.min(score, Math.floor(45 * Math.max(P.finishTime, 1) + 280));
   state = 'over';
+  applyView();
   $('hud').classList.add('hidden'); $('touchUI').classList.add('hidden'); dock.classList.add('hidden');
   $('overTitle').textContent = won ? T('win') : T('lose');
   $('overTitle').classList.toggle('lose', !won);
@@ -2163,11 +2291,13 @@ function animate() {
     placeCar(playerCar, P.s, P.lat, 0, 0, 0);
     placeCar(champCar, C.s, C.lat, 0, 0, 0);
   }
+  updateNitroFlames(dt);
   stepCamera(dt, t);
   renderer.render(scene, camera);
 }
 applyLang();
 resetRace();
+applyView();
 animate();
 
 /* QA hook (used by automated verification only) */
@@ -2178,6 +2308,9 @@ if (QA) {
     start: () => startRace(),
     beauty: n => { qaBeauty = n; },
     cam: a => { qaCam = a; },
+    cycleView: () => cycleView(),
+    setView: i => setView(i),
+    get view() { return VIEW_NAMES[viewMode]; },
     warp(steps) {
       window.__holdSim = true;
       const dt = 1 / 30;
@@ -2192,7 +2325,7 @@ if (QA) {
       updateHUD();
     },
     shot() {
-      if (!qaCam && qaBeauty < 0 && (state === 'race' || state === 'count')) {
+      if (!qaCam && qaBeauty < 0 && viewMode === 0 && (state === 'race' || state === 'count')) {
         const fr = frameAt(P.s);
         const back = surfPoint(fr, P.lat * 0.55, 3.4 + P.airY * 0.45).addScaledVector(fr.tan, -10.8);
         camPos.copy(back); camera.position.copy(back);
@@ -2218,7 +2351,10 @@ if (QA) {
         pS: +P.s.toFixed(1), pV: +P.v.toFixed(1), pLat: +P.lat.toFixed(2), airY: +P.airY.toFixed(2), airTime: +P.airTime.toFixed(2),
         cS: +C.s.toFixed(1), cV: +C.v.toFixed(1), gap: +(P.s - C.s).toFixed(1),
         coins, stars, score, pFin: P.finished, cFin: C.finished, trackLen: +TRACK_LEN.toFixed(0),
-        nitro: +P.nitro.toFixed(1), boosting: P.boosting
+        nitro: +P.nitro.toFixed(1), boosting: P.boosting,
+        view: VIEW_NAMES[viewMode], flames: nitroFlames.visible,
+        flameLen: nitroFlameParts.length ? +nitroFlameParts[0].outer.scale.z.toFixed(2) : 0,
+        camPos: camera.position.toArray().map(v => +v.toFixed(2))
       };
     }
   };
