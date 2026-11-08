@@ -10,12 +10,17 @@
   :root{
     --gold:#f5c542; --gold2:#ffdf7e; --ink:#0b1026; --panel:#131a3a; --panel2:#0e1430;
     --teal:#37e0c8; --red:#ff5470; --txt:#eef1ff; --dim:#9aa5d8;
+    /* ROUND-6: bottom safe-area inset (Android system nav bar / iPhone home
+       indicator). The page opts into viewport-fit=cover, so without this the
+       system nav draws OVER the bottom bar. One variable feeds the CSS
+       padding below and the fitMachine() probe in JS. */
+    --sab: env(safe-area-inset-bottom, 0px);
   }
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{background:#05070f;color:var(--txt);font-family:'Segoe UI',system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;overflow-x:hidden}
-  body{min-height:100vh;background:radial-gradient(120% 90% at 50% 0%,#101736 0%,#05070f 55%,#02030a 100%);padding:10px 8px 26px;user-select:none;-webkit-user-select:none;touch-action:manipulation}
+  body{min-height:100vh;background:radial-gradient(120% 90% at 50% 0%,#101736 0%,#05070f 55%,#02030a 100%);padding:10px 8px calc(26px + var(--sab));user-select:none;-webkit-user-select:none;touch-action:manipulation}
   body.playing{overflow:hidden;position:fixed;inset:0;width:100%;height:100dvh;padding:0}
-  body.playing .wrap{height:100dvh;display:flex;flex-direction:column;justify-content:center;padding:4px 0}
+  body.playing .wrap{height:100dvh;display:flex;flex-direction:column;justify-content:center;padding:4px 0 calc(4px + var(--sab))}
   body.playing .topbar{margin-bottom:2px}
   .wrap{max-width:452px;margin:0 auto}
   .topbar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:2px 2px 8px}
@@ -1665,14 +1670,45 @@ function launchBall(power){
   b.vy = -(1115 + 760 * eff); b.vx = 0; b.settled = false; b.justLaunched = true;
   sfx('plunge');
 }
+/* ROUND-6 helpers. safeInsetBottom(): the phone's bottom system-nav inset,
+   measured off a probe whose height is var(--sab) so the JS always agrees
+   with the CSS padding that lifts the bottom bar. columnReserve(): the REAL
+   height of everything in the .wrap column that is not the machine (topbar +
+   security strip + foot, margins included, + wrap vertical padding). The old
+   flat 88px reserve ignored the strip and foot (~113px), so the column
+   overflowed the screen: the topbar slid off the top and the LAUNCH strip
+   landed inside the system nav-bar zone at the bottom. */
+let _sabProbe = null;
+function safeInsetBottom(){
+  if (!_sabProbe){
+    _sabProbe = document.createElement('div');
+    _sabProbe.style.cssText = 'position:fixed;left:0;bottom:0;width:0;height:var(--sab);visibility:hidden;pointer-events:none';
+    document.documentElement.appendChild(_sabProbe);
+  }
+  return _sabProbe.getBoundingClientRect().height || 0;
+}
+function columnReserve(){
+  let h = 8;
+  for (const sel of ['.topbar', '.strip', '.hintline', '.foot']){
+    const el = document.querySelector(sel);
+    if (!el) continue;
+    const cs = getComputedStyle(el);
+    h += el.getBoundingClientRect().height + (parseFloat(cs.marginTop) || 0) + (parseFloat(cs.marginBottom) || 0);
+  }
+  return h;
+}
 function fitMachine(){
   /* Fit the whole machine (backbox + playfield + coin door) into short
      viewports by scaling it down — never by letting the page scroll away
      from the controls. Tall screens are untouched (scale 1). */
   const m = document.querySelector('.machine');
   m.style.transform = ''; m.style.zoom = '';
+  const wrapEl = document.querySelector('.wrap');
+  if (wrapEl) wrapEl.style.transform = ''; // ROUND-6: re-measure unshifted
   const pv = window.visualViewport;
-  const vh = pv ? pv.height : window.innerHeight;
+  /* ROUND-6: budget against the height ABOVE the system nav bar, not the
+     full edge-to-edge height (viewport-fit=cover includes the nav zone). */
+  const vh = (pv ? pv.height : window.innerHeight) - safeInsetBottom();
   const vw = pv ? pv.width : window.innerWidth;
   /* Scale source = the canvas. Chromium's CSS zoom does not scale canvas
      backing uniformly (measured: the playfield shrinks LESS than the zoom
@@ -1683,11 +1719,24 @@ function fitMachine(){
   const cr = cv.getBoundingClientRect();
   const chromeH = 360, chromeW = 66;
   let s = 1;
-  if (cr.height > 4) s = Math.min(s, (vh - 88 - chromeH) / cr.height);
+  if (cr.height > 4) s = Math.min(s, (vh - columnReserve() - chromeH) / cr.height);
   if (cr.width > 4) s = Math.min(s, (vw - 12 - chromeW) / cr.width);
   s = Math.min(1, Math.max(.45, s));
   if (s < .999) m.style.zoom = s;
   m.style.transform = 'perspective(1150px) rotateX(' + (s < .999 ? '1.4deg' : '2.2deg') + ')';
+  /* ROUND-6 bottom-bar guarantee: zoom cannot shrink the fluid-width canvas,
+     so on short screens the centred column can still leave the flipper row /
+     LAUNCH strip inside the system nav zone. If so, shift the whole column
+     up by exactly the excess — the top of the column absorbs it, as it
+     already does on short screens; on tall screens this never fires. */
+  if (wrapEl && document.body.classList.contains('playing')){
+    const limit = (pv ? pv.height : window.innerHeight) - safeInsetBottom();
+    let low = 0;
+    for (const el of [launchPlayEl, document.getElementById('ctrlRow')]){
+      if (el && el.getBoundingClientRect().height > 0) low = Math.max(low, el.getBoundingClientRect().bottom);
+    }
+    if (low > limit) wrapEl.style.transform = 'translateY(' + (-(low - limit)).toFixed(1) + 'px)';
+  }
 }
 let fitQueued = false;
 function queueFit(){ if (fitQueued) return; fitQueued = true; requestAnimationFrame(() => { fitQueued = false; fitMachine(); }); }
