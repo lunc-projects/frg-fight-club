@@ -98,16 +98,29 @@ export default async function handler(req, res) {
     playerId = `guest:${slug}`;
   }
 
+  /* Payout wallet (admin panel only): stored ONLY when the run was
+     played on a Keplr-connected wallet — the page sends body.wallet in
+     that case and '' otherwise. Format-validated here; it is written to
+     the admin-only gd:wallets / gd:dates maps and is NEVER returned by
+     the public garuda-board function. */
+  const wallet = /^terra1[0-9a-z]{38}$/.test(String(body.wallet || '')) ? String(body.wallet) : '';
+
   const wk = `gd:week:${weekKey()}`;
   try {
-    const out = await upstashPipeline([
+    const cmds = [
       ['ZADD', 'gd:all', 'GT', score, playerId],
       ['ZADD', wk, 'GT', score, playerId],
       ['HSET', 'gd:names', playerId, name],
       ['EXPIRE', wk, 60 * 60 * 24 * 40],
-      ['ZREVRANK', 'gd:all', playerId],
-    ]);
-    const rank = out[4] && typeof out[4].result === 'number' ? out[4].result + 1 : null;
+    ];
+    if (wallet) {
+      cmds.push(['HSET', 'gd:wallets', playerId, wallet]);
+      cmds.push(['HSET', 'gd:dates', playerId, new Date().toISOString().slice(0, 10)]);
+    }
+    cmds.push(['ZREVRANK', 'gd:all', playerId]);
+    const out = await upstashPipeline(cmds);
+    const rankRes = out[out.length - 1];
+    const rank = rankRes && typeof rankRes.result === 'number' ? rankRes.result + 1 : null;
     return res.status(200).json({ ok: true, name, rank });
   } catch (e) {
     console.error('garuda submit failed', e && e.message);
