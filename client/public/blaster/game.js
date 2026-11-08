@@ -199,8 +199,8 @@ const MAT = {
   bossPanel: new THREE.MeshStandardMaterial({ color: 0x8a5a3a, metalness: 0.75, roughness: 0.4, emissive: 0x331a00, emissiveIntensity: 0.4 }),
   bossRed: new THREE.MeshBasicMaterial({ color: 0xff2e4d }),
   bossCore: new THREE.MeshStandardMaterial({ color: 0xff5d7a, emissive: 0xff1e46, emissiveIntensity: 2.2, roughness: 0.3 }),
-  bullet: new THREE.MeshBasicMaterial({ color: 0xffe98a }),
-  bulletGlow: new THREE.MeshBasicMaterial({ color: 0xffb52e, transparent: true, opacity: 0.4 }),
+  bullet: new THREE.MeshBasicMaterial({ color: 0xfff6c8 }),
+  bulletGlow: new THREE.MeshBasicMaterial({ color: 0xffb52e, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }),
   ebullet: new THREE.MeshBasicMaterial({ color: 0xff4d6e }),
   ebulletCore: new THREE.MeshBasicMaterial({ color: 0xffffff }),
   star:   new THREE.MeshStandardMaterial({ color: 0x63b3ff, metalness: 0.6, roughness: 0.25, emissive: 0x0d4d99, emissiveIntensity: 1.1 }),
@@ -470,8 +470,12 @@ function makePool(n, geo, mat) {
   for (let i = 0; i < n; i++) im.setMatrixAt(i, HIDE_M);
   im.frustumCulled = false; scene.add(im); return im;
 }
-const bulletIM = makePool(90, new THREE.SphereGeometry(0.17, 8, 6), MAT.bullet);
-const bulletGlowIM = makePool(90, new THREE.SphereGeometry(0.42, 8, 6), MAT.bulletGlow);
+/* bolts are long glowing tracers, not dots: a 0.17-radius sphere read as
+   ~5 px on a phone and vanished against the nebula (Tom, Nov 7). The
+   capsule axis is Y — the direction of travel — so the bolt reads as a
+   streak: white-hot core + additive amber halo. */
+const bulletIM = makePool(90, new THREE.CapsuleGeometry(0.30, 1.7, 3, 10), MAT.bullet);
+const bulletGlowIM = makePool(90, new THREE.CapsuleGeometry(0.62, 2.0, 3, 10), MAT.bulletGlow);
 const ebulletIM = makePool(160, new THREE.SphereGeometry(0.27, 8, 6), MAT.ebullet);
 const ebulletCoreIM = makePool(160, new THREE.SphereGeometry(0.13, 8, 6), MAT.ebulletCore);
 const sparkIM = makePool(240, new THREE.OctahedronGeometry(0.16), new THREE.MeshBasicMaterial({ color: 0xffb03d }));
@@ -516,7 +520,14 @@ const S = {
   best: 0, muted: false,
 };
 try { S.best = parseInt(localStorage.getItem('lunaBlasterBest') || '0', 10) || 0; } catch (e) {}
-const P = { x: 0, y: -VH * 0.32, vx: 0, vy: 0, fireT: 0, invuln: 0, shield: false, spread: 0, rapid: 0, tilt: 0 };
+/* SHIP VISIBILITY (Tom, Nov 7): the deck floor is an OPAQUE plane at
+   y=-15.5 and the camera sits above it, so every part of the ship below
+   -15.5 is hidden behind the floor. The old band (home -VH*0.32 ≈ -16.3,
+   clamp down to -VH/2+2.2 ≈ -23.3) sat UNDER the deck — the ship simply
+   vanished on a phone. The band below keeps the whole ship (underside
+   ≈ P.y - 2.4 incl. engine flame) above the deck at all times. */
+const SHIP_MIN_Y = -12.8;
+const P = { x: 0, y: -VH * 0.24, vx: 0, vy: 0, fireT: 0, invuln: 0, shield: false, spread: 0, rapid: 0, tilt: 0 };
 const waves = [];        // { t, count, interval, types, next, left }
 let boss = null, bossWarnT = 0, interT = 0, hintT = 0, shakeT = 0, firstWave = false;
 const enemies = [], pickups = [];
@@ -560,7 +571,7 @@ function dragTarget(e) {
   const iw = Math.max(1, window.innerWidth), ih = Math.max(1, window.innerHeight);
   const offWorld = DRAG_OFF_PX / ih * VH;
   drag.x = clamp((e.clientX / iw - 0.5) * VW, -VW / 2 + 1.6, VW / 2 - 1.6);
-  drag.y = clamp((0.5 - e.clientY / ih) * VH + offWorld, -VH / 2 + 2.2, VH * 0.30);
+  drag.y = clamp((0.5 - e.clientY / ih) * VH + offWorld, SHIP_MIN_Y, VH * 0.30);
 }
 window.addEventListener('pointerdown', e => {
   if (S.mode !== 'playing' || drag.active) return;
@@ -573,8 +584,12 @@ window.addEventListener('pointermove', e => { if (drag.active && e.pointerId ===
 function endDrag(e) { if (drag.active && e.pointerId === drag.id) drag.active = false; }
 window.addEventListener('pointerup', endDrag);
 window.addEventListener('pointercancel', endDrag);
-fireBtn.addEventListener('pointerdown', e => { e.preventDefault(); fireHeld = true; fireBtn.classList.add('on'); novaBurst(); });
-window.addEventListener('pointerup', () => { fireHeld = false; fireBtn.classList.remove('on'); });
+/* multi-touch: FIRE tracks its OWN pointer — lifting the steering
+   finger must not cancel a held FIRE finger (and vice versa) */
+let firePtr = null;
+fireBtn.addEventListener('pointerdown', e => { e.preventDefault(); firePtr = e.pointerId; fireHeld = true; fireBtn.classList.add('on'); novaBurst(); });
+window.addEventListener('pointerup', e => { if (firePtr !== null && e.pointerId === firePtr) { firePtr = null; fireHeld = false; fireBtn.classList.remove('on'); } });
+window.addEventListener('pointercancel', e => { if (firePtr !== null && e.pointerId === firePtr) { firePtr = null; fireHeld = false; fireBtn.classList.remove('on'); } });
 window.addEventListener('keydown', e => {
   keys[e.code] = true;
   if (e.code === 'Space') { if (S.mode === 'playing') { e.preventDefault(); if (!fireHeld) { fireHeld = true; novaBurst(); } } }
@@ -669,7 +684,7 @@ function playerShoot(dt) {
   const offs = P.spread > 0 ? [-0.42, 0, 0.42] : [0];
   offs.forEach((ox, i) => {
     if (bullets.length < 90) bullets.push({ x: P.x + ox, y: P.y + 1.6, vx: ox * 2.2, vy: 46, s: 1 });
-    const f = new THREE.Mesh(new THREE.SphereGeometry(0.16, 6, 6), MAT.flameIn);
+    const f = new THREE.Mesh(new THREE.SphereGeometry(0.34, 8, 8), MAT.flameIn);
     f.position.set(P.x + ox, P.y + 1.55, 0); scene.add(f);
     floaters.push({ s: f, t: 0, flash: true });
   });
@@ -737,7 +752,7 @@ function startGame() {
   if (boss) { scene.remove(boss.mesh); boss = null; }
   $('hpWrap').style.display = 'none';
   Object.assign(S, { score: 0, coins: 0, stars: 0, dist: 0, runTime: 0, hull: 3, wave: 0, sector: 1, kills: 0 });
-  Object.assign(P, { x: 0, y: -VH * 0.32, vx: 0, vy: 0, fireT: 0, invuln: 0, shield: false, spread: 0, rapid: 0 });
+  Object.assign(P, { x: 0, y: -VH * 0.24, vx: 0, vy: 0, fireT: 0, invuln: 0, shield: false, spread: 0, rapid: 0 });
   ship.userData.shieldMesh.visible = false;
   ship.visible = true;
   S.mode = 'playing'; firstWave = true; interT = 1.1; hintT = 5;
@@ -756,7 +771,7 @@ function toMenu() {
   S.mode = 'menu'; show('menuScreen');
   $('hpWrap').style.display = 'none';
   $('hud').classList.add('hidden'); $('controls').classList.add('hidden');
-  ship.visible = true; ship.position.set(0, -VH * 0.32, 0);
+  ship.visible = true; ship.position.set(0, -VH * 0.24, 0);
 }
 function gameOver() {
   S.mode = 'over';
@@ -841,7 +856,7 @@ function update(dt, t) {
 
   if (S.mode === 'menu') {
     ship.position.x = Math.sin(t * 0.6) * 2.2;
-    ship.position.y = -VH * 0.32 + Math.sin(t * 1.3) * 0.5;
+    ship.position.y = -VH * 0.24 + Math.sin(t * 1.3) * 0.5;
     ship.rotation.z = Math.sin(t * 0.6) * -0.14;
     ship.userData.flame.scale.y = 0.8 + Math.sin(t * 22) * 0.18;
   }
@@ -866,7 +881,7 @@ function update(dt, t) {
   P.vx += (ix * SPEED - P.vx) * Math.min(1, dt * 10);
   P.vy += (iy * SPEED - P.vy) * Math.min(1, dt * 10);
   P.x = clamp(P.x + P.vx * dt, -VW / 2 + 1.6, VW / 2 - 1.6);
-  P.y = clamp(P.y + P.vy * dt, -VH / 2 + 2.2, VH * 0.30);
+  P.y = clamp(P.y + P.vy * dt, SHIP_MIN_Y, VH * 0.30);
   P.tilt += ((-P.vx * 0.016) - P.tilt) * Math.min(1, dt * 8);
   ship.position.set(P.x, P.y, 0);
   ship.rotation.z = P.tilt;
@@ -946,12 +961,21 @@ function update(dt, t) {
   /* --- bullets --- */
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
+    const px = b.x, py = b.y;
     b.x += b.vx * dt; b.y += b.vy * dt;
     if (b.y > VH / 2 + 3 || Math.abs(b.x) > VW / 2 + 3) { bullets.splice(i, 1); continue; }
     let consumed = false;
     for (const e of enemies) {
       if (e.dead) continue;
-      if (Math.abs(b.x - e.x) < e.r + 0.3 && Math.abs(b.y - e.y) < e.r + 0.3) { damageEnemy(e, 1); consumed = true; break; }
+      /* swept segment-vs-circle: test the bolt's whole path this step
+         against the hull circle (r + 0.55 grace) — a 46 u/s bolt can
+         never tunnel past a target, at any step rate */
+      const rr = e.r + 0.55;
+      const sx = b.x - px, sy = b.y - py;
+      const L2 = sx * sx + sy * sy || 1;
+      let u = ((e.x - px) * sx + (e.y - py) * sy) / L2; u = u < 0 ? 0 : u > 1 ? 1 : u;
+      const ddx = px + sx * u - e.x, ddy = py + sy * u - e.y;
+      if (ddx * ddx + ddy * ddy < rr * rr) { damageEnemy(e, 1); consumed = true; break; }
     }
     if (!consumed && boss && boss.phase === 'fight') {
       if (Math.abs(b.x - boss.x) < 6.4 && Math.abs(b.y - boss.y) < 3.1) {
@@ -1080,7 +1104,7 @@ resize();
 applyLang();
 updateBestLine();
 try { const n = localStorage.getItem('lunaBlasterName'); if (n) $('nameInput').value = n; } catch (e) {}
-P.y = -VH * 0.32; ship.position.set(0, P.y, 0);
+P.y = -VH * 0.24; ship.position.set(0, P.y, 0);
 drawRocks();
 let lp = 0;
 const loadTick = setInterval(() => {
