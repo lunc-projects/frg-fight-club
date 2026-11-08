@@ -5,7 +5,10 @@
    at the rim of the Shattered Belt. Enemies fly DOWN the screen in
    3D space; your gunship flies a free 2D plane (house joystick).
    Cannons auto-fire; the FIRE button is a Nova Burst that clears
-   enemy shots. Sector boss: the VOID DREADNOUGHT.
+   enemy shots. Sector bosses alternate: the GATE GUARDIAN — a brute
+   squatting in the moon gate's ring who hurls Luna Classic tokens
+   and blocks at you — and the VOID DREADNOUGHT. Shardlings fall
+   AND shoot back (watch the eye flare before they fire).
    Pickups: LUNC gold crescents + USTC blue stars ONLY.
    ============================================================ */
 import * as THREE from 'three';
@@ -24,12 +27,21 @@ try {
   else { const n = (navigator.language || 'en').slice(0, 2); if (I18N[n]) LANG_CUR = n; }
 } catch (e) {}
 function T(k) { return (I18N[LANG_CUR] && I18N[LANG_CUR][k]) || I18N.en[k] || k; }
+/* Gate Guardian strings (Nov 7): English originals registered into the
+   same table so every guardian line rides the normal T() lookup; other
+   languages fall back to English, exactly like any untranslated key.
+   Keys added: guardianName, guardianWarn, guardianSub. */
+Object.assign(I18N.en, {
+  guardianName: 'GATE GUARDIAN',
+  guardianWarn: '⚠ THE GATE GUARDIAN WAKES ⚠',
+  guardianSub: 'He throws Luna Classic tokens — dodge them or blast them!',
+});
 function applyLang() {
   document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = T(el.getAttribute('data-i18n')); });
   document.querySelectorAll('[data-i18n-html]').forEach(el => { el.innerHTML = T(el.getAttribute('data-i18n-html')); });
   $('nameInput').placeholder = T('namePh');
   $('fireBtn').textContent = 'FIRE';
-  $('hpLabel').textContent = T('bossName');
+  $('hpLabel').textContent = guardian ? T('guardianName') : T('bossName');
   updateBestLine();
   document.documentElement.lang = LANG_CUR;
   document.documentElement.dir = LANG_CUR === 'ar' ? 'rtl' : 'ltr';
@@ -179,6 +191,17 @@ const gateRingTex = canvasTex(512, 128, (g, w, h) => {
   g.fillStyle = '#9d86ff'; g.font = '800 26px sans-serif'; g.fillText('LUNC DEV STUDIO', w / 2, 98);
   g.strokeStyle = 'rgba(255,207,61,.8)'; g.lineWidth = 4; g.strokeRect(4, 4, w - 8, h - 8);
 });
+/* the Guardian's ammunition: a Luna Classic token face — gold coin,
+   crescent cut, LUNC lettering (crescent alone doesn't say it) */
+const tokenTex = canvasTex(256, 256, (g, w, h) => {
+  const gr = g.createRadialGradient(104, 96, 10, 128, 128, 126);
+  gr.addColorStop(0, '#ffe98a'); gr.addColorStop(0.75, '#ffcf3d'); gr.addColorStop(1, '#c9971c');
+  g.fillStyle = gr; g.beginPath(); g.arc(128, 128, 126, 0, 7); g.fill();
+  g.strokeStyle = '#8a5f04'; g.lineWidth = 7; g.beginPath(); g.arc(128, 128, 110, 0, 7); g.stroke();
+  g.fillStyle = '#a87b10'; g.beginPath(); g.arc(128, 112, 50, 0, 7); g.fill();
+  g.fillStyle = '#ffcf3d'; g.beginPath(); g.arc(150, 98, 42, 0, 7); g.fill();
+  g.fillStyle = '#7a5200'; g.font = '900 42px sans-serif'; g.textAlign = 'center'; g.fillText('LUNC', 128, 222);
+});
 
 /* materials */
 const MAT = {
@@ -208,6 +231,8 @@ const MAT = {
   shield: new THREE.MeshBasicMaterial({ color: 0x6ee7ff, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false }),
   gate:   new THREE.MeshStandardMaterial({ color: 0x5a4a8a, metalness: 0.8, roughness: 0.35, emissive: 0x1c1040, emissiveIntensity: 0.6 }),
   gateSign: new THREE.MeshBasicMaterial({ map: gateRingTex }),
+  tokenFace: new THREE.MeshStandardMaterial({ map: tokenTex, metalness: 0.75, roughness: 0.3, emissive: 0x664d00, emissiveIntensity: 0.55 }),
+  guardBody: new THREE.MeshStandardMaterial({ map: rockTex, color: 0xb18cff, metalness: 0.25, roughness: 0.8, emissive: 0x2a0a55, emissiveIntensity: 0.7 }),
 };
 
 /* sprite texture for floating score text */
@@ -426,6 +451,83 @@ function buildBoss() {
   return g;
 }
 
+/* ---------------- the GATE GUARDIAN ----------------
+   A rocky violet brute who squats IN the moon gate's gold ring and
+   fights by throwing things: Luna Classic tokens (his weapons — they
+   hurt, they are NOT collectible) and jagged belt blocks. Built from
+   the same kit as everything else; no external assets. */
+function buildGuardian() {
+  const g = new THREE.Group();
+  const bodyGeo = new THREE.IcosahedronGeometry(3.1, 1); bodyGeo.scale(1.15, 0.95, 0.8);
+  const body = new THREE.Mesh(bodyGeo, MAT.guardBody); g.add(body);
+  /* gold belly plate */
+  const bellyGeo = new THREE.SphereGeometry(2.0, 18, 12); bellyGeo.scale(1, 0.95, 0.45);
+  const belly = new THREE.Mesh(bellyGeo, MAT.gold); belly.position.set(0, -0.5, 1.9); g.add(belly);
+  /* heavy brow + twin pink eyes (the shardlings' eye language, bigger) */
+  const brow = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.7, 0.8), MAT.guardBody);
+  brow.position.set(0, 1.55, 2.1); brow.rotation.x = 0.25; g.add(brow);
+  [-0.85, 0.85].forEach(x => {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.42, 12, 10), MAT.violetEye);
+    eye.position.set(x, 1.05, 2.45); g.add(eye);
+  });
+  /* jagged gold grin */
+  for (let i = 0; i < 5; i++) {
+    const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.5, 4), MAT.goldFlat);
+    tooth.rotation.x = Math.PI; tooth.position.set(-0.8 + i * 0.4, -1.15, 2.42); g.add(tooth);
+  }
+  /* horns + the gold crescent crest of the gate he guards */
+  [-1, 1].forEach(s => {
+    const horn = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1.7, 8), MAT.amber);
+    horn.position.set(s * 2.4, 2.6, 0); horn.rotation.z = s * -0.5; g.add(horn);
+  });
+  const crest = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.3, 10, 24), MAT.gold);
+  crest.position.set(0, 3.15, 0.6); crest.rotation.z = 0.5; g.add(crest);
+  /* arms on shoulder pivots — the right arm winds up before every throw */
+  function arm(side) {
+    const sh = new THREE.Group(); sh.position.set(side * 3.3, 0.9, 0.6);
+    const up = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.42, 2.2, 10), MAT.guardBody);
+    up.position.y = -1.0; sh.add(up);
+    const hand = new THREE.Mesh(new THREE.IcosahedronGeometry(0.85, 0), MAT.guardBody);
+    hand.position.y = -2.3; sh.add(hand);
+    for (let i = 0; i < 3; i++) {
+      const claw = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.6, 5), MAT.gold);
+      claw.rotation.x = Math.PI; claw.position.set(-0.4 + i * 0.4, -3.0, 0.25); sh.add(claw);
+    }
+    g.add(sh); return sh;
+  }
+  const armR = arm(1), armL = arm(-1);
+  armR.rotation.z = -0.35; armL.rotation.z = 0.35;
+  /* hover glow — he floats in the ring, legs nowhere, all menace */
+  const glow = new THREE.Mesh(new THREE.SphereGeometry(1.6, 14, 10), MAT.bulletGlow);
+  glow.scale.set(1.4, 0.4, 1); glow.position.y = -3.1; g.add(glow);
+  g.userData.armR = armR; g.userData.armL = armL;
+  return g;
+}
+
+/* Guardian projectiles: pre-built pooled meshes, reused all fight —
+   zero allocation while he throws. Tokens spin face-on (cylinder axis
+   turned to Z so the LUNC face reads); blocks are plain belt rock. */
+function buildTokenMesh() {
+  const g = new THREE.Group();
+  const coinGeo = new THREE.CylinderGeometry(1.05, 1.05, 0.28, 24); coinGeo.rotateX(Math.PI / 2);
+  const coin = new THREE.Mesh(coinGeo, [MAT.gold, MAT.tokenFace, MAT.tokenFace]);
+  g.add(coin);
+  return g;
+}
+const TOKEN_POOL_N = 12, BLOCK_POOL_N = 5;
+const tokenPool = [], blockPool = [], shots = [];   /* shots: live {mesh,kind,x,y,vx,vy,hp,spin,t,dead} */
+for (let i = 0; i < TOKEN_POOL_N; i++) { const m = buildTokenMesh(); m.visible = false; scene.add(m); tokenPool.push(m); }
+for (let i = 0; i < BLOCK_POOL_N; i++) {
+  const m = new THREE.Group();
+  m.add(new THREE.Mesh(new THREE.DodecahedronGeometry(1.25), MAT.rock));
+  m.visible = false; scene.add(m); blockPool.push(m);
+}
+function grabShotMesh(kind) {
+  const pool = kind === 'token' ? tokenPool : blockPool;
+  for (const m of pool) if (!m.visible) return m;
+  return null;
+}
+
 /* ---------------- pickups ---------------- */
 function buildCrescent() {
   const g = new THREE.Group();
@@ -529,7 +631,7 @@ try { S.best = parseInt(localStorage.getItem('lunaBlasterBest') || '0', 10) || 0
 const SHIP_MIN_Y = -12.8;
 const P = { x: 0, y: -VH * 0.24, vx: 0, vy: 0, fireT: 0, invuln: 0, shield: false, spread: 0, rapid: 0, tilt: 0 };
 const waves = [];        // { t, count, interval, types, next, left }
-let boss = null, bossWarnT = 0, interT = 0, hintT = 0, shakeT = 0, firstWave = false;
+let boss = null, guardian = null, bossWarnT = 0, interT = 0, hintT = 0, shakeT = 0, firstWave = false;
 const enemies = [], pickups = [];
 
 /* ---------------- input: joystick + keys ---------------- */
@@ -607,6 +709,15 @@ function novaBurst() {
   ring.position.set(P.x, P.y, 0.5); scene.add(ring); nova.mesh = ring;
   ebullets.forEach(b => { b.dead = true; burst(b.x, b.y, 2, 0xff4d6e); });
   enemies.forEach(en => { damageEnemy(en, 1, true); });
+  /* the Nova also shatters what the Guardian has in the air (tokens
+     outright, blocks take a point) and slams the brute himself —
+     the FIRE button is the heavy answer to his throws */
+  for (const s of shots) {
+    if (s.dead) continue;
+    if (s.kind === 'token') killShot(s, false, true);
+    else { s.hp -= 1; if (s.hp <= 0) killShot(s, false, true); else flashMesh(s.mesh); }
+  }
+  if (guardian && guardian.phase === 'fight') damageGuardian(8, true);
 }
 
 /* ---------------- spawning ---------------- */
@@ -615,7 +726,7 @@ function spawnEnemy(type, x) {
   if (type === 'shard') { mesh = buildShardling(); hp = 2; score = 100; r = 1.1; }
   else if (type === 'lancer') { mesh = buildLancer(); hp = 2; score = 150; r = 1.0; }
   else { mesh = buildWarden(); hp = 6; score = 300; r = 1.5; }
-  const e = { type, mesh, hp, maxHp: hp, score, r, x, y: VH / 2 + 3, z: 0, t: rand(0, 6), fireT: rand(1.2, 2.6), baseX: x, dead: false };
+  const e = { type, mesh, hp, maxHp: hp, score, r, x, y: VH / 2 + 3, z: 0, t: rand(0, 6), fireT: rand(1.2, 2.6), windT: 0, baseX: x, dead: false };
   mesh.position.set(e.x, e.y, 0); scene.add(mesh); enemies.push(e);
 }
 function startWave(n) {
@@ -627,12 +738,58 @@ function startWave(n) {
   if (n >= 4) types.push('warden');
   waves.push({ t: 0.8, count: 5 + n * 2, interval: Math.max(0.5, 1.05 - n * 0.07), types, next: 0 });
 }
+/* the sector gate alternates its keeper: odd sectors the GATE
+   GUARDIAN holds the ring itself; even sectors the DREADNOUGHT comes */
 function spawnBoss() {
+  if (S.sector % 2 === 0) spawnDreadnought(); else spawnGuardian();
+}
+function spawnDreadnought() {
   const mesh = buildBoss();
   boss = { mesh, hp: 130 + (S.sector - 1) * 70, maxHp: 130 + (S.sector - 1) * 70, x: 0, y: VH / 2 + 9, t: 0, fireT: 2, phase: 'enter', dead: false };
   mesh.position.set(0, boss.y, -1); scene.add(mesh);
   $('hpWrap').style.display = 'block'; $('hpLabel').textContent = T('bossName');
   sfx.alarm();
+}
+/* ring centre in world space (gate group is re-parked on resize) */
+function gateCenterY() { return gateGroup.position.y + 1.5; }
+function spawnGuardian() {
+  const mesh = buildGuardian();
+  const hp = 100 + (S.sector - 1) * 40;
+  /* home = the ring's centre, but never so low he can body-block the
+     player's ceiling on short screens */
+  const homeY = Math.max(gateCenterY(), VH * 0.30 + 4.2);
+  guardian = { mesh, hp, maxHp: hp, x: 0, y: homeY + 16, homeY, t: 0, throwT: 2.2, windT: 0, throwN: 0, phase: 'enter', dead: false };
+  mesh.position.set(0, guardian.y, -2); scene.add(mesh);
+  $('hpWrap').style.display = 'block'; $('hpLabel').textContent = T('guardianName');
+  showBanner(T('guardianName'), T('guardianSub'), 2400);
+  sfx.alarm();
+}
+/* one throw: a ballistic lob solved for a fixed flight time, so the
+   token/block arcs DOWN onto the player's position — always readable,
+   always dodgeable at ship speed. Tokens are the main throw (2 of 3);
+   every 3rd throw is a heavy belt block. */
+const SHOT_GRAV = 26;
+function guardianThrow() {
+  const gd = guardian; if (!gd || gd.phase !== 'fight') return;
+  gd.throwN++;
+  const kind = gd.throwN % 3 === 0 ? 'block' : 'token';
+  const mesh = grabShotMesh(kind);
+  if (!mesh) return;
+  const hx = gd.x + 3.6, hy = gd.y - 1.2;   /* his right hand */
+  const T = kind === 'token' ? rand(1.15, 1.35) : rand(0.95, 1.1);
+  shots.push({
+    mesh, kind, x: hx, y: hy, hp: kind === 'block' ? 2 : 1, spin: rand(4, 7), t: 0, dead: false,
+    vx: (P.x - hx) / T, vy: (P.y - hy) / T + 0.5 * SHOT_GRAV * T,
+  });
+  mesh.visible = true; mesh.position.set(hx, hy, 0); mesh.rotation.set(0, rand(0, 3), 0);
+  beep(kind === 'token' ? 520 : 200, kind === 'token' ? 300 : 110, 0.14, 'triangle', 0.04);
+}
+function killShot(s, scored, quiet) {
+  if (s.dead) return;
+  s.dead = true; s.mesh.visible = false;
+  burst(s.x, s.y, s.kind === 'token' ? 10 : 14, s.kind === 'token' ? 0xffcf3d : 0xb46bff);
+  if (scored) addScore(s.kind === 'token' ? 25 : 50, s.x, s.y);
+  if (!quiet) sfx.boom();
 }
 function dropPickup(x, y, kind) {
   let mesh;
@@ -690,9 +847,9 @@ function playerShoot(dt) {
   });
   sfx.shot();
 }
-function enemyShoot(e) {
+function enemyShoot(e, spd) {
   const dx = P.x - e.x, dy = P.y - e.y, d = Math.hypot(dx, dy) || 1;
-  const sp = 13;
+  const sp = spd || 13;
   ebullets.push({ x: e.x, y: e.y - 1, vx: dx / d * sp, vy: dy / d * sp, s: 1 });
   beep(340, 180, 0.09, 'sawtooth', 0.02);
 }
@@ -739,6 +896,7 @@ function updateHUD() {
   $('hudDist').textContent = Math.floor(S.dist) + 'm';
   $('hearts').textContent = '♥'.repeat(Math.max(0, S.hull)) + '♡'.repeat(Math.max(0, 3 - S.hull));
   if (boss) $('hpBar').style.width = Math.max(0, boss.hp / boss.maxHp * 100) + '%';
+  else if (guardian) $('hpBar').style.width = Math.max(0, guardian.hp / guardian.maxHp * 100) + '%';
 }
 function updateBestLine() {
   $('bestLine').textContent = S.best > 0 ? T('best').replace('{n}', S.best) : '';
@@ -750,6 +908,8 @@ function startGame() {
   pickups.forEach(p => scene.remove(p.mesh)); pickups.length = 0;
   bullets.length = 0; ebullets.length = 0; sparks.length = 0; smokes.length = 0; waves.length = 0;
   if (boss) { scene.remove(boss.mesh); boss = null; }
+  if (guardian) { scene.remove(guardian.mesh); guardian = null; }
+  shots.forEach(s => { s.mesh.visible = false; }); shots.length = 0;
   $('hpWrap').style.display = 'none';
   Object.assign(S, { score: 0, coins: 0, stars: 0, dist: 0, runTime: 0, hull: 3, wave: 0, sector: 1, kills: 0 });
   Object.assign(P, { x: 0, y: -VH * 0.24, vx: 0, vy: 0, fireT: 0, invuln: 0, shield: false, spread: 0, rapid: 0 });
@@ -906,14 +1066,14 @@ function update(dt, t) {
     }
   });
   for (let i = waves.length - 1; i >= 0; i--) if (waves[i].next >= waves[i].count) waves.splice(i, 1);
-  const fieldClear = enemies.length === 0 && !boss && bossWarnT <= 0;
+  const fieldClear = enemies.length === 0 && !boss && !guardian && bossWarnT <= 0;
   if (!firstWave && waves.length === 0 && fieldClear) {
     interT -= dt;
     if (interT <= 0) {
-      if (S.wave > 0 && S.wave % 4 === 0) { bossWarnT = 2.2; showBanner(T('bossWarn'), '', 2000); sfx.alarm(); interT = 0; }
+      if (S.wave > 0 && S.wave % 4 === 0) { bossWarnT = 2.2; showBanner(S.sector % 2 === 0 ? T('bossWarn') : T('guardianWarn'), '', 2000); sfx.alarm(); interT = 0; }
       else { startWave(S.wave + 1); interT = 1.6; }
     }
-  } else if (!boss && bossWarnT <= 0) interT = Math.max(interT, 0.4);
+  } else if (!boss && !guardian && bossWarnT <= 0) interT = Math.max(interT, 0.4);
   if (bossWarnT > 0) { bossWarnT -= dt; if (bossWarnT <= 0 && !boss) spawnBoss(); }
 
   /* --- enemies --- */
@@ -924,6 +1084,18 @@ function update(dt, t) {
     if (e.type === 'shard') {
       e.y -= 8.6 * dt; e.x = e.baseX + Math.sin(e.t * 2.6) * 2.1;
       e.mesh.rotation.y += dt * 2.4; e.mesh.rotation.x += dt * 1.7;
+      /* the purple blocks SHOOT BACK (Tom, Nov 7): they fall, and on a
+         slow readable cadence they fire one aimed bolt DOWN at the
+         player. Telegraph first — the white eye-flash (flashMesh) plus
+         a 0.38s wind-up — then a bolt slower than a Warden's (11 vs
+         13) so it is always dodgeable at ship speed. */
+      if (e.windT > 0) {
+        e.windT -= dt;
+        if (e.windT <= 0 && !e.dead) { enemyShoot(e, 11); e.fireT = rand(2.4, 3.8); }
+      } else if (e.y < VH / 2 - 2 && e.y > P.y + 5) {
+        e.fireT -= dt;
+        if (e.fireT <= 0 && ebullets.length < 70) { e.windT = 0.38; flashMesh(e.mesh); }
+      }
     } else if (e.type === 'lancer') {
       e.y -= (e.y > P.y + 9 ? 7.5 : 21) * dt;
       e.mesh.rotation.z = Math.sin(e.t * 3) * 0.1;
@@ -957,6 +1129,7 @@ function update(dt, t) {
     if (Math.hypot(b.x - P.x, b.y - P.y) < 5.6 && P.invuln <= 0) hurtPlayer();
     updateHUD();
   }
+  updateGuardian(dt);
 
   /* --- bullets --- */
   for (let i = bullets.length - 1; i >= 0; i--) {
@@ -983,6 +1156,32 @@ function update(dt, t) {
         if (boss.hp <= 0) killBoss();
       }
     }
+    /* bolts also blast what the Guardian throws (same swept test):
+       a token pops in one hit, a block takes two */
+    if (!consumed) {
+      for (const s of shots) {
+        if (s.dead) continue;
+        const rr = (s.kind === 'block' ? 1.5 : 1.2) + 0.55;
+        const sx = b.x - px, sy = b.y - py;
+        const L2 = sx * sx + sy * sy || 1;
+        let u = ((s.x - px) * sx + (s.y - py) * sy) / L2; u = u < 0 ? 0 : u > 1 ? 1 : u;
+        const ddx = px + sx * u - s.x, ddy = py + sy * u - s.y;
+        if (ddx * ddx + ddy * ddy < rr * rr) {
+          s.hp -= 1; consumed = true;
+          if (s.hp <= 0) killShot(s, true); else flashMesh(s.mesh);
+          break;
+        }
+      }
+    }
+    if (!consumed && guardian && guardian.phase === 'fight') {
+      const gd = guardian;
+      const rr = 3.9 + 0.55;
+      const sx = b.x - px, sy = b.y - py;
+      const L2 = sx * sx + sy * sy || 1;
+      let u = ((gd.x - px) * sx + (gd.y - py) * sy) / L2; u = u < 0 ? 0 : u > 1 ? 1 : u;
+      const ddx = px + sx * u - gd.x, ddy = py + sy * u - gd.y;
+      if (ddx * ddx + ddy * ddy < rr * rr) { burst(b.x, b.y, 2, 0xb46bff); damageGuardian(1); consumed = true; }
+    }
     if (consumed) bullets.splice(i, 1);
   }
   for (let i = ebullets.length - 1; i >= 0; i--) {
@@ -991,6 +1190,23 @@ function update(dt, t) {
     b.x += b.vx * dt; b.y += b.vy * dt;
     if (Math.abs(b.x) > VW / 2 + 4 || Math.abs(b.y) > VH / 2 + 4) { ebullets.splice(i, 1); continue; }
     if (Math.hypot(b.x - P.x, b.y - P.y) < 1.15 && P.invuln <= 0) { ebullets.splice(i, 1); hurtPlayer(); }
+  }
+
+  /* --- guardian shots: thrown tokens + blocks fall ballistically --- */
+  for (let i = shots.length - 1; i >= 0; i--) {
+    const s = shots[i];
+    if (s.dead) { shots.splice(i, 1); continue; }
+    s.t += dt;
+    s.vy -= SHOT_GRAV * dt;
+    s.x += s.vx * dt; s.y += s.vy * dt;
+    s.mesh.position.set(s.x, s.y, 0);
+    s.mesh.rotation.y += s.spin * dt; s.mesh.rotation.x += s.spin * 0.6 * dt;
+    /* his tokens are WEAPONS, never pickups: touching one costs hull,
+       exactly like running into his blocks */
+    if (Math.hypot(s.x - P.x, s.y - P.y) < (s.kind === 'block' ? 1.9 : 1.55)) {
+      killShot(s, false, true); hurtPlayer(); shots.splice(i, 1); continue;
+    }
+    if (s.y < -VH / 2 - 3 || Math.abs(s.x) > VW / 2 + 4) { s.mesh.visible = false; shots.splice(i, 1); }
   }
 
   /* --- pickups --- */
@@ -1036,6 +1252,54 @@ function killBoss() {
   S.sector++; S.wave++;
   showBanner(T('sector').replace('{n}', S.sector), T('go'));
   interT = 2.2; waves.length = 0;
+}
+function damageGuardian(dmg, silent) {
+  const gd = guardian; if (!gd || gd.dead) return;
+  gd.hp -= dmg;
+  if (!silent) flashMesh(gd.mesh);
+  updateHUD();
+  if (gd.hp <= 0) killGuardian();
+}
+function killGuardian() {
+  const gd = guardian; guardian = null;
+  $('hpWrap').style.display = 'none';
+  addScore(2500, gd.x, gd.y);
+  burst(gd.x, gd.y, 60, 0xb46bff); burst(gd.x, gd.y, 40, 0xffcf3d);
+  burst(gd.x, gd.homeY, 30, 0x63d8ff);   /* the gate blows open in a wash of light */
+  sfx.bigBoom(); shakeT = 0.7;
+  scene.remove(gd.mesh);
+  dropPickup(gd.x - 2, gd.y - 4, 'star'); dropPickup(gd.x + 2, gd.y - 4, ['spread', 'rapid', 'shield'][(Math.random() * 3) | 0]);
+  S.sector++; S.wave++;
+  showBanner(T('sector').replace('{n}', S.sector), T('go'));
+  interT = 2.2; waves.length = 0;
+}
+function updateGuardian(dt) {
+  const gd = guardian; if (!gd) return;
+  gd.t += dt;
+  if (gd.phase === 'enter') {
+    gd.y -= 9 * dt;
+    if (gd.y <= gd.homeY) { gd.y = gd.homeY; gd.phase = 'fight'; }
+  } else {
+    gd.x = Math.sin(gd.t * 0.5) * Math.min(VW * 0.18, 5);
+    gd.y = gd.homeY + Math.sin(gd.t * 1.3) * 0.5;
+    /* throw cycle: a 0.45s wind-up — throwing arm hauled back over his
+       head, trembling, with a rising cue — then the lob. Nothing he
+       throws is ever a surprise. */
+    if (gd.windT > 0) {
+      gd.windT -= dt;
+      gd.mesh.userData.armR.rotation.z = -2.2 + Math.sin(gd.t * 30) * 0.06;
+      if (gd.windT <= 0) { guardianThrow(); gd.mesh.userData.armR.rotation.z = 0.9; }
+    } else {
+      gd.mesh.userData.armR.rotation.z += ((-0.35) - gd.mesh.userData.armR.rotation.z) * Math.min(1, dt * 6);
+      gd.throwT -= dt;
+      if (gd.throwT <= 0) { gd.throwT = rand(1.5, 1.9); gd.windT = 0.45; beep(180, 330, 0.12, 'square', 0.03); }
+    }
+    gd.mesh.userData.armL.rotation.z = 0.35 + Math.sin(gd.t * 1.7) * 0.15;
+  }
+  gd.mesh.rotation.z = Math.sin(gd.t * 0.8) * 0.04;
+  gd.mesh.position.set(gd.x, gd.y, -2);
+  if (Math.hypot(gd.x - P.x, gd.y - P.y) < 5 && P.invuln <= 0) hurtPlayer();
+  updateHUD();
 }
 
 /* ---------------- fx render ---------------- */
@@ -1118,4 +1382,4 @@ const loadTick = setInterval(() => {
 }, 120);
 
 /* debug/QA hook (harmless; used by the house QA harness) */
-window.__blaster = { S, P, startGame, gameOver, pauseGame, spawnBoss, spawnEnemy, get enemies() { return enemies; }, get boss() { return boss; }, get bullets() { return bullets; }, get pickups() { return pickups; }, get steps() { return stepCount; }, dmgBoss(n) { if (boss) { boss.hp -= n; if (boss.hp <= 0) killBoss(); } } };
+window.__blaster = { S, P, startGame, gameOver, pauseGame, spawnBoss, spawnGuardian, spawnEnemy, get enemies() { return enemies; }, get boss() { return boss; }, get guardian() { return guardian; }, get bullets() { return bullets; }, get ebullets() { return ebullets; }, get shots() { return shots; }, get pickups() { return pickups; }, get steps() { return stepCount; }, dmgBoss(n) { if (boss) { boss.hp -= n; if (boss.hp <= 0) killBoss(); } }, dmgGuardian(n) { damageGuardian(n, true); } };
