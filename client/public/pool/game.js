@@ -234,7 +234,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.12;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x04061a);
-const camera = new THREE.PerspectiveCamera(60, 1, 0.05, 60);
+const camera = new THREE.PerspectiveCamera(60, 1, 0.02, 60);
 
 /* environment reflections from a procedural equirect "pool hall" */
 function makeEnvTexture(){
@@ -252,6 +252,17 @@ function makeEnvTexture(){
     rg.addColorStop(1, 'rgba(255,244,214,0)');
     g.fillStyle = rg; g.fillRect(x, y, w, 26);
   }
+  /* long warm window band: the broad sheen glossy balls carry */
+  const band = g.createLinearGradient(0, 205, 0, 245);
+  band.addColorStop(0, 'rgba(255,214,150,0)');
+  band.addColorStop(0.5, 'rgba(255,214,150,0.5)');
+  band.addColorStop(1, 'rgba(255,214,150,0)');
+  g.fillStyle = band; g.fillRect(0, 205, 1024, 40);
+  /* cool floor bounce so ball undersides never go dead black */
+  const fl = g.createLinearGradient(0, 400, 0, 512);
+  fl.addColorStop(0, 'rgba(90,140,255,0)');
+  fl.addColorStop(1, 'rgba(90,140,255,0.35)');
+  g.fillStyle = fl; g.fillRect(0, 400, 1024, 112);
   g.fillStyle = 'rgba(120,200,255,0.5)';
   for (let i = 0; i < 26; i++) g.fillRect(Math.random() * 1024, Math.random() * 200, 3, 3);
   const tex = new THREE.CanvasTexture(c);
@@ -261,9 +272,9 @@ function makeEnvTexture(){
 }
 scene.environment = makeEnvTexture();
 
-const hemi = new THREE.HemisphereLight(0xbdd4ff, 0x1a1208, 0.55);
+const hemi = new THREE.HemisphereLight(0xbdd4ff, 0x1a1208, 0.85);
 scene.add(hemi);
-const keyLight = new THREE.DirectionalLight(0xfff1d6, 2.4);
+const keyLight = new THREE.DirectionalLight(0xfff1d6, 2.6);
 keyLight.position.set(1.4, 3.4, 1.8);
 keyLight.castShadow = true;
 keyLight.shadow.mapSize.set(1024, 1024);
@@ -274,6 +285,11 @@ scene.add(keyLight);
 const lampLight = new THREE.PointLight(0xffc873, 5.5, 7, 1.8);
 lampLight.position.set(0, 1.15, 0);
 scene.add(lampLight);
+/* cool rim/fill from behind the rack end: keeps balls + cue edge-lit against
+   the dark room (one extra PointLight — same cost class as lampLight) */
+const rimLight = new THREE.PointLight(0x7fb4ff, 2.6, 8, 1.6);
+rimLight.position.set(0.6, 0.85, -2.6);
+scene.add(rimLight);
 
 /* ================= procedural textures ================= */
 function feltTexture(){
@@ -287,6 +303,21 @@ function feltTexture(){
     g.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,0.028)' : 'rgba(0,0,0,0.05)';
     g.fillRect(Math.random() * 1024, Math.random() * 2048, 1.6, 1.6);
   }
+  /* woven cloth structure + edge vignette + real table markings (baulk line,
+     head/foot spots) — canvas-painted texture only, zero render cost */
+  g.globalAlpha = 0.05; g.fillStyle = '#ffffff';
+  for (let y = 0; y < 2048; y += 3) g.fillRect(0, y, 1024, 1);
+  g.globalAlpha = 0.04;
+  for (let x = 0; x < 1024; x += 3) g.fillRect(x, 0, 1, 2048);
+  g.globalAlpha = 1;
+  const vg = g.createRadialGradient(512, 1024, 500, 512, 1024, 1450);
+  vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(2,10,26,0.34)');
+  g.fillStyle = vg; g.fillRect(0, 0, 1024, 2048);
+  g.strokeStyle = 'rgba(255,255,255,0.20)'; g.lineWidth = 4;
+  g.beginPath(); g.moveTo(30, 1536); g.lineTo(994, 1536); g.stroke();
+  g.fillStyle = 'rgba(255,255,255,0.4)';
+  g.beginPath(); g.arc(512, 1536, 9, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.arc(512, 512, 9, 0, Math.PI * 2); g.fill();
   /* Luna Classic crescent + wording printed on the cloth, classy and faint.
      Canvas y axis runs along table length; foot (rack end) is canvas top. */
   g.save();
@@ -373,8 +404,19 @@ function floorTexture(){
   const c = document.createElement('canvas'); c.width = 512; c.height = 512;
   const g = c.getContext('2d');
   const grad = g.createRadialGradient(256, 256, 40, 256, 256, 256);
-  grad.addColorStop(0, '#101a3e'); grad.addColorStop(0.7, '#080d24'); grad.addColorStop(1, '#03040c');
+  grad.addColorStop(0, '#182a52'); grad.addColorStop(0.55, '#0d1734'); grad.addColorStop(1, '#04060f');
   g.fillStyle = grad; g.fillRect(0, 0, 512, 512);
+  /* plank seams + grain streaks: a dark hall floor, not a void (canvas only) */
+  g.strokeStyle = 'rgba(0,0,0,0.5)'; g.lineWidth = 3;
+  for (let x = 0; x <= 512; x += 64){ g.beginPath(); g.moveTo(x, 0); g.lineTo(x, 512); g.stroke(); }
+  g.strokeStyle = 'rgba(120,150,220,0.05)'; g.lineWidth = 1.4;
+  for (let i = 0; i < 160; i++){
+    const y = Math.random() * 512, x = Math.random() * 512;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + 22 + Math.random() * 42, y); g.stroke();
+  }
+  const pool = g.createRadialGradient(256, 256, 20, 256, 256, 215);
+  pool.addColorStop(0, 'rgba(255,196,110,0.20)'); pool.addColorStop(1, 'rgba(255,196,110,0)');
+  g.fillStyle = pool; g.fillRect(0, 0, 512, 512);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
@@ -392,15 +434,25 @@ const HEAD_Z = 0.92, FOOT_Z = -0.88;
 const tableGroup = new THREE.Group();
 scene.add(tableGroup);
 {
-  const feltMat = new THREE.MeshStandardMaterial({ map: feltTexture(), roughness: 0.88, metalness: 0, envMapIntensity: 0.3 });
+  const feltMat = new THREE.MeshStandardMaterial({ map: feltTexture(), roughness: 0.94, metalness: 0, envMapIntensity: 0.3 });
   const felt = new THREE.Mesh(new THREE.BoxGeometry(HW * 2 + 0.16, 0.05, HL * 2 + 0.16), feltMat);
   felt.position.y = -0.025; felt.receiveShadow = true;
   tableGroup.add(felt);
 
   const woodTex = woodTexture();
-  const woodMat = new THREE.MeshPhysicalMaterial({ map: woodTex, roughness: 0.34, metalness: 0, clearcoat: 0.7, clearcoatRoughness: 0.3, envMapIntensity: 0.9 });
+  const woodMat = new THREE.MeshPhysicalMaterial({ map: woodTex, roughness: 0.3, metalness: 0, clearcoat: 0.85, clearcoatRoughness: 0.22, envMapIntensity: 1.1 });
   const clothMat = new THREE.MeshStandardMaterial({ color: 0x17548f, roughness: 0.95, envMapIntensity: 0.2 });
   const darkMat = new THREE.MeshStandardMaterial({ color: 0x2a1a0e, roughness: 0.6, envMapIntensity: 0.4 });
+  /* brass corner castings: hall-table jewellery at each pocket corner */
+  const brassMat = new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.28, metalness: 1, envMapIntensity: 1.5 });
+  for (const px of [-HW - 0.055, HW + 0.055]) for (const pz of [-HL - 0.055, HL + 0.055]){
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.062, 0.19), brassMat);
+    plate.position.set(px, 0.028, pz); plate.castShadow = true;
+    tableGroup.add(plate);
+    const lip = new THREE.Mesh(new THREE.TorusGeometry(0.062, 0.009, 8, 20), brassMat);
+    lip.rotation.x = Math.PI / 2; lip.position.set(px > 0 ? px - 0.055 : px + 0.055, 0.052, pz > 0 ? pz - 0.055 : pz + 0.055);
+    tableGroup.add(lip);
+  }
 
   function railRun(len, x, z, rotY){
     const grp = new THREE.Group();
@@ -434,9 +486,16 @@ scene.add(tableGroup);
   railRun(HW * 2 - 0.14, 0, (HL + 0.028), Math.PI / 2);
 
   /* apron + branding plate */
-  const apron = new THREE.Mesh(new THREE.BoxGeometry(HW * 2 + 0.44, 0.17, HL * 2 + 0.44), darkMat);
+  const apron = new THREE.Mesh(new THREE.BoxGeometry(HW * 2 + 0.44, 0.17, HL * 2 + 0.44), woodMat);
   apron.position.y = -0.135; apron.castShadow = true;
   tableGroup.add(apron);
+  /* four table legs, so the table stands in the room instead of floating */
+  const legGeo = new THREE.BoxGeometry(0.13, 0.55, 0.13);
+  for (const lx of [-HW - 0.05, HW + 0.05]) for (const lz of [-HL + 0.22, HL - 0.22]){
+    const leg = new THREE.Mesh(legGeo, woodMat);
+    leg.position.set(lx, -0.36, lz); leg.castShadow = true;
+    tableGroup.add(leg);
+  }
 
   /* pockets: black depth + leather rim */
   const holeMat = new THREE.MeshBasicMaterial({ color: 0x010102 });
@@ -451,7 +510,9 @@ scene.add(tableGroup);
   }
 
   /* floor + starfield */
-  const floor = new THREE.Mesh(new THREE.CircleGeometry(9, 40), new THREE.MeshStandardMaterial({ map: floorTexture(), roughness: 1 }));
+  const floorTex = floorTexture();
+  floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping; floorTex.repeat.set(3, 3);
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(9, 40), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.9, envMapIntensity: 0.25 }));
   floor.rotation.x = -Math.PI / 2; floor.position.y = -0.62; floor.receiveShadow = true;
   scene.add(floor);
   const starGeo = new THREE.BufferGeometry();
@@ -464,12 +525,16 @@ scene.add(tableGroup);
   scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xaac4ff, size: 0.045, sizeAttenuation: true })));
 
   /* hanging lamp shades over the table */
-  const shadeMat = new THREE.MeshStandardMaterial({ color: 0x0d3f33, roughness: 0.4, metalness: 0.4, envMapIntensity: 0.8, side: THREE.DoubleSide });
-  const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffdca8 });
+  const shadeMat = new THREE.MeshStandardMaterial({ color: 0x0d3f33, roughness: 0.32, metalness: 0.55, envMapIntensity: 1.1, side: THREE.DoubleSide });
+  const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffe2b0 });
+  const shadeRimMat = new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.3, metalness: 1, envMapIntensity: 1.4 });
   for (const lz of [-0.72, 0, 0.72]){
     const shade = new THREE.Mesh(new THREE.ConeGeometry(0.21, 0.13, 24, 1, true), shadeMat);
     shade.position.set(0, 1.18, lz);
     scene.add(shade);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.21, 0.008, 8, 32), shadeRimMat);
+    rim.rotation.x = Math.PI / 2; rim.position.set(0, 1.115, lz);
+    scene.add(rim);
     const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.028, 12, 10), bulbMat);
     bulb.position.set(0, 1.12, lz);
     scene.add(bulb);
@@ -483,7 +548,7 @@ scene.add(tableGroup);
 const ballGeo = new THREE.SphereGeometry(BR, 40, 28);
 let balls = [];
 function makeBallMesh(n){
-  const mat = new THREE.MeshStandardMaterial({ map: ballTexture(n), roughness: 0.15, metalness: 0, envMapIntensity: 1.2 });
+  const mat = new THREE.MeshPhysicalMaterial({ map: ballTexture(n), roughness: 0.08, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.06, envMapIntensity: 1.35 });
   const m = new THREE.Mesh(ballGeo, mat);
   m.castShadow = true;
   return m;
@@ -515,17 +580,35 @@ function syncMeshes(){
 function moonsLeft(){ return balls.filter(b => !b.cue && b.active).length; }
 function allStopped(){ return balls.every(b => !b.active || b.sinking > 0 || (b.vx === 0 && b.vz === 0)); }
 
-/* cue stick */
+/* cue stick — REBUILT slim + lit + lowered (owner hotfix #2): a real cue's
+   forward shaft is pale maple; the old build's single dark shaft, sitting on
+   the aim axis at ball height with the camera gliding through its butt,
+   rendered as the screen-filling black wedge on the owner's phone. */
 const cueGroup = new THREE.Group();
 {
   const cueTex = woodTexture();
-  const cueMat = new THREE.MeshStandardMaterial({ map: cueTex, roughness: 0.42, envMapIntensity: 0.7 });
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.0058, 0.0135, 1.45, 12), cueMat);
-  shaft.geometry.rotateX(Math.PI / 2);           /* length along Z */
-  shaft.geometry.translate(0, 0, -0.725);        /* tip at local origin, butt at -Z */
+  const shaftMat = new THREE.MeshPhysicalMaterial({ map: cueTex, color: 0xe8c493, roughness: 0.3, clearcoat: 0.6, clearcoatRoughness: 0.3, envMapIntensity: 0.9, side: THREE.DoubleSide });
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.0052, 0.0085, 1.05, 12), shaftMat);
+  shaft.geometry.rotateX(Math.PI / 2);
+  shaft.geometry.translate(0, 0, -0.525);
   shaft.castShadow = true;
   cueGroup.add(shaft);
-  const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.0062, 0.0062, 0.012, 10), new THREE.MeshStandardMaterial({ color: 0x3a6ad8, roughness: 0.6 }));
+  const wrapMat = new THREE.MeshStandardMaterial({ color: 0x27324a, roughness: 0.85, envMapIntensity: 0.4 });
+  const wrap = new THREE.Mesh(new THREE.CylinderGeometry(0.0085, 0.0115, 0.34, 12), wrapMat);
+  wrap.geometry.rotateX(Math.PI / 2);
+  wrap.geometry.translate(0, 0, -1.22);
+  cueGroup.add(wrap);
+  const buttMat = new THREE.MeshPhysicalMaterial({ color: 0x1a1210, roughness: 0.25, clearcoat: 0.8, envMapIntensity: 1 });
+  const buttCap = new THREE.Mesh(new THREE.CylinderGeometry(0.0115, 0.0108, 0.06, 12), buttMat);
+  buttCap.geometry.rotateX(Math.PI / 2);
+  buttCap.geometry.translate(0, 0, -1.42);
+  cueGroup.add(buttCap);
+  const ringMat = new THREE.MeshStandardMaterial({ color: 0xffd76a, roughness: 0.25, metalness: 1, envMapIntensity: 1.5 });
+  const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.0088, 0.0088, 0.014, 12), ringMat);
+  ring.geometry.rotateX(Math.PI / 2);
+  ring.geometry.translate(0, 0, -1.057);
+  cueGroup.add(ring);
+  const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.0058, 0.0058, 0.012, 10), new THREE.MeshStandardMaterial({ color: 0x8a5a34, roughness: 0.7 }));
   tip.geometry.rotateX(Math.PI / 2); tip.position.z = 0.004;
   cueGroup.add(tip);
   scene.add(cueGroup);
@@ -536,13 +619,29 @@ const aimMat = new THREE.LineDashedMaterial({ color: 0xffe9a8, dashSize: 0.035, 
 const aimLineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
 const aimLine = new THREE.Line(aimLineGeo, aimMat);
 aimLine.frustumCulled = false; scene.add(aimLine);
+aimLine.renderOrder = 5;
+/* fading light trail under the aim line: premium aim guides read as light on
+   the cloth, not a bare dashed stroke (one flat quad, negligible cost) */
+function makeTrailTexture(){
+  const c = document.createElement('canvas'); c.width = 32; c.height = 256;
+  const g = c.getContext('2d');
+  const grd = g.createLinearGradient(0, 0, 32, 0);
+  grd.addColorStop(0, 'rgba(255,233,168,0)'); grd.addColorStop(0.5, 'rgba(255,233,168,0.34)'); grd.addColorStop(1, 'rgba(255,233,168,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 32, 256);
+  return new THREE.CanvasTexture(c);
+}
+const aimTrail = new THREE.Mesh(new THREE.PlaneGeometry(0.055, 1),
+  new THREE.MeshBasicMaterial({ map: makeTrailTexture(), transparent: true, depthWrite: false, opacity: 0.85, side: THREE.DoubleSide }));
+aimTrail.rotation.x = -Math.PI / 2; aimTrail.position.y = 0.0035; aimTrail.renderOrder = 4;
+scene.add(aimTrail);
 const tickMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
 const tickGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
 const tickLine = new THREE.Line(tickGeo, tickMat);
 tickLine.frustumCulled = false; scene.add(tickLine);
+tickLine.renderOrder = 5;
 const ghost = new THREE.Mesh(new THREE.RingGeometry(BR * 0.72, BR * 0.98, 32),
   new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, side: THREE.DoubleSide }));
-ghost.rotation.x = -Math.PI / 2; ghost.position.y = 0.006;
+ghost.rotation.x = -Math.PI / 2; ghost.position.y = 0.006; ghost.renderOrder = 6;
 scene.add(ghost);
 
 let aimA = 0;                       /* 0 = straight up-table (-Z) */
@@ -576,18 +675,23 @@ function computeAim(){
 function updateAimVisuals(){
   const cue = balls[0]; if (!cue) return;
   const show = state === 'play' && phase === 'aim' && cue.active && !cue.sinking;
-  aimLine.visible = tickLine.visible = ghost.visible = cueGroup.visible = !!show;
+  aimLine.visible = tickLine.visible = ghost.visible = cueGroup.visible = aimTrail.visible = !!show;
   $('powerRail').style.display = show ? 'block' : 'none';
   $('aimHint').style.display = show ? 'block' : 'none';
   if (!show) return;
   const d = aimDir();
-  const { gx, gz, hitBall } = computeAim();
+  const { gx, gz, hitBall, tEnd } = computeAim();
   const p = aimLineGeo.attributes.position.array;
   p[0] = cue.x + d.x * (BR + 0.004); p[1] = 0.008; p[2] = cue.z + d.z * (BR + 0.004);
   p[3] = gx; p[4] = 0.008; p[5] = gz;
   aimLineGeo.attributes.position.needsUpdate = true;
   aimLine.computeLineDistances();
   ghost.position.set(gx, 0.006, gz);
+  /* stretch the light trail from just past the cue ball to the contact point */
+  aimTrail.scale.y = Math.max(0.05, tEnd - BR);
+  aimTrail.position.x = cue.x + d.x * (BR + tEnd) / 2 + d.x * BR * 0.5;
+  aimTrail.position.z = cue.z + d.z * (BR + tEnd) / 2 + d.z * BR * 0.5;
+  aimTrail.rotation.z = Math.atan2(d.x, -d.z) + Math.PI;
   const tp = tickGeo.attributes.position.array;
   if (hitBall){
     let tx = hitBall.x - gx, tz = hitBall.z - gz;
@@ -597,10 +701,16 @@ function updateAimVisuals(){
     tickLine.visible = true;
   } else tickLine.visible = false;
   tickGeo.attributes.position.needsUpdate = true;
-  /* cue stick behind the ball, pulled back with power */
+  /* cue stick position — bridge-hand placement (owner hotfix #2): the tip
+     strikes a point raised + offset to the player's side of the ball, and
+     the shaft angles in from that side — it never lies on the aim axis and
+     never crosses the camera lens (the old on-axis position WAS the wedge) */
   const pull = 0.015 + power * 0.21;
-  cueGroup.position.set(cue.x - d.x * (BR + pull), BR + 0.018, cue.z - d.z * (BR + pull));
-  cueGroup.lookAt(cue.x, BR - 0.01, cue.z);
+  const sx = -d.z, sz = d.x;                       /* aim-right unit vector */
+  const px = cue.x + sx * 0.075, pz = cue.z + sz * 0.075;
+  const py = BR + 0.055;
+  cueGroup.position.set(px - d.x * (BR * 0.82 + pull), py + 0.004, pz - d.z * (BR * 0.82 + pull));
+  cueGroup.lookAt(px + d.x * BR * 0.3, py - 0.028, pz + d.z * BR * 0.3);
 }
 
 /* ================= physics ================= */
@@ -850,6 +960,7 @@ addEventListener('keydown', e => {
 
 /* ================= camera ================= */
 const camPos = new THREE.Vector3(0, 1.6, 3.2), camTgt = new THREE.Vector3(0, 0, 0);
+const _lastAimTgt = new THREE.Vector3();
 camera.position.copy(camPos);
 let menuAngle = 0.6, shotOrigin = new THREE.Vector3(), shotDirV = new THREE.Vector2(0, -1);
 function updateCamera(dt){
@@ -860,8 +971,9 @@ function updateCamera(dt){
     tgt.set(0, -0.05, -0.1);
   } else if (phase === 'aim' || phase === 'done'){
     const cue = balls[0], d = aimDir();
-    desired.set(cue.x - d.x * 0.36, 0.17, cue.z - d.z * 0.36);
-    tgt.set(cue.x + d.x * 0.45, -0.01, cue.z + d.z * 0.45);
+    desired.set(cue.x - d.x * 0.52, 0.30, cue.z - d.z * 0.52);
+    tgt.set(cue.x + d.x * 0.85, -0.02, cue.z + d.z * 0.85);
+    _lastAimTgt.copy(tgt);
   } else {
     /* follow the action from behind the shot line */
     let cx = 0, cz = 0, wsum = 0;
@@ -1027,6 +1139,7 @@ function checkSettle(){
 
 /* ================= main loop & boot ================= */
 const clock = new THREE.Clock();
+let _prevState = '', _prevPhase = '';
 function frame(){
   requestAnimationFrame(frame);
   const dt = Math.min(0.033, clock.getDelta() || 0.016);
@@ -1042,7 +1155,14 @@ function frame(){
   syncMeshes();
   for (const b of balls) if (b.sinking) b.mesh.position.y = BR - Math.min(1, b.sinking) * 0.085;
   updateAimVisuals();
+  /* ENTER-AIM SNAP (owner hotfix #2): the old build glided the camera in a
+     straight line from the menu orbit through the cue's butt region — on the
+     owner's phone that transit frame IS the giant black wedge. Snapping to
+     the aim pose the moment aim starts removes the transit entirely. */
+  const enteredAim = state === 'play' && phase === 'aim' && !(_prevState === 'play' && _prevPhase === 'aim');
   updateCamera(dt);
+  if (enteredAim){ camPos.copy(camera.position); camTgt.copy(_lastAimTgt); }
+  _prevState = state; _prevPhase = phase;
   renderer.render(scene, camera);
 }
 rackBalls();
