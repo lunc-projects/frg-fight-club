@@ -738,6 +738,78 @@ async function garudaPublicHandler(req, res) {
 }
 /* garuda-public:end */
 
+/* fx-signal:start — Forex Signal Bot candle relay, folded into this
+   router for the same 12-function-cap reason as the relays above.
+   Reached via ?fxpair=EURGBP (the bot page calls
+   /api/luna-games?fxpair=<PAIR> directly — no vercel.json rewrite
+   needed, same as ?tokenslot=1). Why: the bot page
+   (client/public/fx-signal-7k9x/) needs 1-minute Forex candles from
+   Yahoo Finance, which sends no CORS header; the free CORS proxies
+   the page first shipped with failed live (2026-11-08: allOrigins
+   "Failed to fetch", every pair stuck UNAVAILABLE, no prices at
+   all). This relay fetches Yahoo SERVER-side (no CORS problem) and
+   returns trimmed candles only — timestamps plus OHLC, null closes
+   dropped, exactly the shape the page's engine consumes.
+   Allowlist: the 14 pairs the bot scans — anything else is a 400,
+   so the relay can never be used as an open Yahoo proxy. It holds
+   no keys, signs nothing, stores nothing, and never logs the
+   request. KES/USD passes the allowlist on purpose: its Yahoo feed
+   carries only ~20 usable candles/day, and the PAGE's own
+   MIN_CANDLES rule marks it unavailable — the relay serves the real
+   thin data rather than hiding it. */
+const FX_PAIRS = { EURGBP: 1, EURUSD: 1, GBPUSD: 1, USDJPY: 1, AUDCAD: 1, AUDCHF: 1, AUDUSD: 1, CADCHF: 1, CADJPY: 1, CHFJPY: 1, EURTRY: 1, GBPJPY: 1, NZDJPY: 1, KESUSD: 1 };
+const FX_UPSTREAM = 'https://query1.finance.yahoo.com/v8/finance/chart/';
+
+export async function fxPairHandler(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'method not allowed' });
+  const pair = String((req.query && req.query.fxpair) || '').toUpperCase();
+  if (!FX_PAIRS[pair]) return res.status(400).json({ error: 'pair not allowed' });
+  const url = FX_UPSTREAM + encodeURIComponent(pair + '=X') + '?interval=1m&range=1d';
+  try {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 12000);
+    const r = await fetch(url, {
+      headers: { 'user-agent': 'Mozilla/5.0 (compatible; fx-signal-relay)' },
+      signal: ctl.signal,
+    });
+    clearTimeout(t);
+    if (!r.ok) return res.status(502).json({ error: 'price source unavailable (HTTP ' + r.status + ')' });
+    const data = await r.json();
+    const result = data && data.chart && Array.isArray(data.chart.result) ? data.chart.result[0] : null;
+    const q = result && result.indicators && Array.isArray(result.indicators.quote) ? result.indicators.quote[0] : null;
+    if (!result || !Array.isArray(result.timestamp) || !q || !Array.isArray(q.close)) {
+      return res.status(502).json({ error: 'price source returned no candle data' });
+    }
+    const candles = [];
+    for (let i = 0; i < result.timestamp.length; i++) {
+      const c = q.close[i];
+      if (c === null || c === undefined) continue;
+      candles.push({
+        t: result.timestamp[i],
+        o: (q.open && q.open[i] != null) ? q.open[i] : c,
+        h: (q.high && q.high[i] != null) ? q.high[i] : c,
+        l: (q.low && q.low[i] != null) ? q.low[i] : c,
+        c,
+      });
+    }
+    if (!candles.length) return res.status(502).json({ error: 'price source returned no candles' });
+    res.setHeader('Cache-Control', 's-maxage=30, stale-while-revalidate=30');
+    return res.status(200).json({
+      ok: true,
+      pair,
+      symbol: pair + '=X',
+      source: 'Yahoo Finance (site server)',
+      fetchedAt: Date.now(),
+      regularMarketTime: (result.meta && result.meta.regularMarketTime) || null,
+      candles,
+    });
+  } catch (e) {
+    console.error('fx relay failed', pair, e && e.message);
+    return res.status(502).json({ error: 'price source unavailable' });
+  }
+}
+/* fx-signal:end */
+
 /* token-slot:start — Pinball Token Slot burn records, folded into this
    router for the same 12-function-cap reason as the Scope counter and
    the RPC relays above. Reached via ?tokenslot=1 (the page calls
@@ -958,6 +1030,10 @@ export default async function handler(req, res) {
      ?garudapublic=1 directly (see the garuda-public block above).
      Display data only — never a winner wallet. */
   if (req.query && req.query.garudapublic !== undefined) return garudaPublicHandler(req, res);
+  /* Forex Signal Bot candle relay: the bot page calls
+     ?fxpair=<PAIR> directly (see the fx-signal block above). Runs
+     before game dispatch; game requests never carry ?fxpair. */
+  if (req.query && req.query.fxpair !== undefined) return fxPairHandler(req, res);
   const game = String((req.query && req.query.game) || '');
   let cfg = GAMES[game];
   if (!cfg) return res.status(400).json({ error: 'unknown game' });
