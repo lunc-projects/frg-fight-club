@@ -33,7 +33,7 @@ const SPEED0 = 7.6, SPEED_MAX = 15.5, SPEED_RAMP = 0.0042;
 const GRAV = 34, GRAV_RISE = 26, JUMP_V = 15.2;
 const COYOTE_MS = 150;             // jump still fires just after an edge
 const BUFFER_MS = 160;             // jump pressed just before landing fires
-const STICK_DEAD = 0.06;           // stick deadzone (was: none on a raw value)
+const STICK_DEAD = 0.10;           // stick deadzone (was 0.06 — small thumb tremor still steered)
 const CATCH_BELOW = 1.35;          // landing catch depth under the top plane
 const AUTO_STEP = 1.05;            // rises <= this are stepped up freely
 const GEN_AHEAD = 44;              // steps kept ahead of the player
@@ -473,6 +473,11 @@ const chunkGeo = new THREE.BoxGeometry(0.36, 0.32, 0.36);
 const matGreen = new THREE.MeshStandardMaterial({ map: waxTex, color: 0x1ed760, emissive: 0x0a5226, emissiveIntensity: 0.55, roughness: 0.22, metalness: 0.05, envMapIntensity: 0.7 });
 const matRed = new THREE.MeshStandardMaterial({ map: crackTex, color: 0xe02334, emissive: 0x6e0714, emissiveIntensity: 0.6, roughness: 0.26, metalness: 0.05, envMapIntensity: 0.7 });
 const matDiscG = new THREE.MeshStandardMaterial({ map: poolTex, color: 0x9dffb8, emissive: 0x2b9e52, emissiveIntensity: 0.8, roughness: 0.15, metalness: 0.05 });
+/* Safe-lane guide disc (Nov 7 navigation fix): the candle the generator
+   guarantees green gets a warm-gold glowing top so the safe line reads
+   at speed through the sea of green. Reuses the candle's own geometry —
+   no new assets, one shared material, assigned per candle at spawn. */
+const matDiscSafe = new THREE.MeshStandardMaterial({ map: poolTex, color: 0xffe9a8, emissive: 0xffb52e, emissiveIntensity: 1.5, roughness: 0.15, metalness: 0.05 });
 const matDiscR = new THREE.MeshStandardMaterial({ map: poolTex, color: 0xffb09a, emissive: 0xa8230d, emissiveIntensity: 0.8, roughness: 0.15, metalness: 0.05 });
 const matWick = new THREE.MeshStandardMaterial({ color: 0x191008, roughness: 0.9 });
 const flameMatG = new THREE.SpriteMaterial({ map: flameTex, color: 0x51ff85, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
@@ -497,7 +502,7 @@ const starGeo = (() => {
 })();
 const matStar = new THREE.MeshStandardMaterial({ color: 0x3fe0d2, emissive: 0x12998f, emissiveIntensity: 0.7, roughness: 0.2, metalness: 0.4 });
 
-function makeCandle(color) {
+function makeCandle(color, safe = false) {
   const grp = new THREE.Group();
   const bodyH = 1.35 + Math.random() * 1.35;
   const body = new THREE.Mesh(bodyGeo, color === 'G' ? matGreen : matRed);
@@ -505,7 +510,7 @@ function makeCandle(color) {
   body.position.y = -bodyH / 2;
   body.castShadow = true; body.receiveShadow = true;
   grp.add(body);
-  const disc = new THREE.Mesh(discGeo, color === 'G' ? matDiscG : matDiscR);
+  const disc = new THREE.Mesh(discGeo, safe ? matDiscSafe : color === 'G' ? matDiscG : matDiscR);
   disc.position.y = 0.06;
   grp.add(disc);
   const wick = new THREE.Mesh(wickGeo, matWick);
@@ -655,7 +660,7 @@ function genStep(i) {
       }
       if (!color) continue;
       const top = gen.price + (lane === gen.safeLane ? 0 : (Math.random() - 0.5) * 0.16);
-      const grp = makeCandle(color);
+      const grp = makeCandle(color, lane === gen.safeLane);
       grp.position.set(LANE_X[lane], top, z);
       scene.add(grp);
       const block = {
@@ -925,7 +930,12 @@ window.addEventListener('pointercancel', stickEnd);
 let stickJumpArmed = true;
 function stickMove(e) {
   const dx = e.clientX - stick.cx, dy = e.clientY - stick.cy;
-  const max = 40;
+  // Navigation fix (Nov 7): a 40 px throw reached FULL lateral speed, so
+  // normal thumb wander pinned the runner at max speed and any slip past
+  // centre reversed him at full speed too — the weave in Tom's video.
+  // 56 px of travel + a softer input curve below = fine control near
+  // centre, full authority still reachable.
+  const max = 56;
   const len = Math.hypot(dx, dy) || 1;
   const cl = Math.min(len, max);
   const nx = dx / len * cl, ny = dy / len * cl;
@@ -1012,17 +1022,45 @@ function die(kind) {
 /* ---------------- physics step ---------------- */
 function stepPhysics(dt) {
   S.speed = Math.min(SPEED_MAX, SPEED0 + S.dist * SPEED_RAMP);
-  // Gentle input curve: small stick movements already steer usefully,
-  // full deflection stays full. Tiny deadzone kills thumb jitter.
+  // Navigation fix (Nov 7, owner: "hard to navigate"): the raw stick
+  // used to command velocity almost directly — a 0.55-weighted curve
+  // meant a quarter-stick already drove ~2/3 max speed, and the fast
+  // velocity lerp (tau ~0.09 s) tracked every thumb tremor, so holding
+  // a lane was a full-time fight and overshoot whipsawed. Now:
+  //   * softer input curve — a quarter-stick is ~1/4 speed, half-stick
+  //     ~1/2, full stick still full;
+  //   * critically-damped lateral motion (spring + damper): velocity
+  //     builds and bleeds smoothly instead of snapping, so a slip past
+  //     centre costs a gentle return, not a full-speed reversal;
+  //   * lane magnetism: with the stick near centre and the runner near
+  //     a candle centre, a gentle pull settles him onto it (the
+  //     steering twin of the landing catch) — it weakens to nothing at
+  //     full deflection, so deliberate lane changes are never fought.
+  // Max lateral speeds are unchanged (11.5 ground / 13.5 air): crossing
+  // a lane still takes ~0.11 s at full stick vs 0.316 s per row at
+  // opening speed, so the course's drift demand stays ~2.5x covered.
   let inputX = stick.active ? stick.x : (keys.left ? -1 : 0) + (keys.right ? 1 : 0);
   inputX = clamp(inputX, -1, 1);
   if (Math.abs(inputX) < STICK_DEAD) inputX = 0;
   const ax = Math.abs(inputX);
-  inputX = Math.sign(inputX) * (ax * (0.55 + 0.45 * ax));
+  inputX = Math.sign(inputX) * (ax * (0.35 + 0.65 * ax * ax));
   // Air steering is stronger than ground steering — a jump can be
   // corrected mid-flight instead of being a one-way ticket.
   const targetVx = inputX * (S.grounded ? 11.5 : 13.5);
-  S.vx = lerp(S.vx, targetVx, clamp(dt * (S.grounded ? 11 : 9), 0, 1));
+  const STEER_K = S.grounded ? 42 : 34;      // spring toward target velocity
+  const STEER_DAMP = S.grounded ? 13 : 11;  // ~critical damping, no overshoot
+  let steerA = STEER_K * (targetVx - S.vx);
+  // lane magnetism toward the nearest candle centre
+  let laneC = LANE_X[0], laneD = Infinity;
+  for (let li = 0; li < LANES; li++) {
+    const d = Math.abs(S.x - LANE_X[li]);
+    if (d < laneD) { laneD = d; laneC = LANE_X[li]; }
+  }
+  if (laneD < 0.42) {
+    const mag = (1 - laneD / 0.42) * (1 - Math.min(1, Math.abs(inputX) * 1.6));
+    steerA += (laneC - S.x) * 26 * mag - S.vx * 5 * mag;
+  }
+  S.vx += clamp(steerA - STEER_DAMP * S.vx, -260, 260) * dt;
   S.x = clamp(S.x + S.vx * dt, -4.6, 4.6);
   if (S.grounded) S.airPeakY = S.y;
   const prevY = S.y;
