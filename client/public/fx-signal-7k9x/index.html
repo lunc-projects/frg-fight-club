@@ -186,16 +186,21 @@
 <script>
 "use strict";
 /* ============================================================
-   FOREX SIGNAL BOT — market scanner, test-first prototype (v2)
+   FOREX SIGNAL BOT — market scanner, test-first prototype (v3)
    Data source config — SWAPPABLE. Each entry builds the URL for
-   a pair's 1-minute candles. Verified 2026-11-08 (see README):
-   Yahoo Finance chart API works with NO key server-side, but
-   sends no CORS header, so browsers reach it through a proxy.
-   Order = try first to last.
+   a pair's 1-minute candles. Order = try first to last.
+   FIRST is the page's own server: /api/luna-games?fxpair=<PAIR>
+   fetches Yahoo Finance SERVER-side and returns trimmed candles
+   (the "fx" format below). Yahoo sends no CORS header, and the
+   free CORS proxies this page first shipped with FAILED LIVE
+   (2026-11-08: every pair stuck UNAVAILABLE, feed error in the
+   panel) — they remain only as a last-resort fallback.
    ============================================================ */
 const YAHOO = p => "https://query1.finance.yahoo.com/v8/finance/chart/" +
   encodeURIComponent(p + "=X") + "?interval=1m&range=1d";
 const DATA_SOURCES = [
+  { name: "Yahoo Finance (site server)", fx: true,
+    url: p => "/api/luna-games?fxpair=" + encodeURIComponent(p) },
   { name: "Yahoo Finance via corsfix proxy", url: p => "https://proxy.corsfix.com/?" + YAHOO(p) },
   { name: "Yahoo Finance (direct)",          url: p => YAHOO(p) },
   { name: "Yahoo Finance via codetabs proxy",url: p => "https://api.codetabs.com/v1/proxy?quest=" + YAHOO(p) },
@@ -292,14 +297,25 @@ async function fetchCandles(pair){
       clearTimeout(to);
       if (!res.ok) throw new Error("HTTP " + res.status);
       const data = await res.json();
-      const r = data && data.chart && data.chart.result && data.chart.result[0];
-      if (!r || !r.timestamp) throw new Error("bad payload");
-      const q = r.indicators.quote[0], out = [];
-      for (let i=0;i<r.timestamp.length;i++){
-        const c = q.close[i];
-        if (c === null || c === undefined) continue;
-        out.push({ t:r.timestamp[i], o:q.open[i] ?? c, h:q.high[i] ?? c,
-                   l:q.low[i] ?? c, c });
+      let out = [];
+      if (src.fx){
+        /* Site-server format: { ok:true, candles:[{t,o,h,l,c}] },
+           already filtered to real closes by the relay. */
+        if (!data || data.ok !== true || !Array.isArray(data.candles)) throw new Error("bad payload");
+        out = data.candles
+          .filter(c => c && typeof c.t === "number" && typeof c.c === "number")
+          .map(c => ({ t:c.t, o:c.o ?? c.c, h:c.h ?? c.c, l:c.l ?? c.c, c:c.c }));
+      } else {
+        /* Raw Yahoo chart format (fallback proxy routes). */
+        const r = data && data.chart && data.chart.result && data.chart.result[0];
+        if (!r || !r.timestamp) throw new Error("bad payload");
+        const q = r.indicators.quote[0];
+        for (let i=0;i<r.timestamp.length;i++){
+          const c = q.close[i];
+          if (c === null || c === undefined) continue;
+          out.push({ t:r.timestamp[i], o:q.open[i] ?? c, h:q.high[i] ?? c,
+                     l:q.low[i] ?? c, c });
+        }
       }
       if (!out.length) throw new Error("no candles");
       return { candles: out, source: src.name };
@@ -408,7 +424,7 @@ function renderScanLine(){
   el.textContent = "Scanned " + PAIR_ORDER.length + " pairs · " + nQ + " with both indicators agreeing" +
     " · best-pick bar: strength " + BEST_MIN_STRENGTH + "+ · source: " +
     (scanSource || "—") + " · last scan " + new Date(scanAt).toLocaleTimeString() +
-    (anyStale ? " · market closed (weekend) — showing the last session, display only, no signals logged." : "");
+    (anyStale ? " · market closed — showing the last session, display only, no signals logged." : "");
 }
 function renderBest(){
   const card = $("bestCard"), big = $("bestBig"), sub = $("bestSub");
@@ -417,14 +433,35 @@ function renderBest(){
   if (!firstScanDone && !best){ badge.textContent = "TEST VERSION"; badge.className = "badge"; }
   else if (anyStale){ badge.textContent = "MARKET CLOSED — LAST SESSION"; badge.className = "badge closed"; }
   else { badge.textContent = "● LIVE TEST"; badge.className = "badge live"; }
-  if (best){
+  if (anyStale && firstScanDone){
+    /* Market closed: the newest candle is old (weekend / overnight /
+       holiday), so nothing here is a live signal. Say so at the TOP,
+       show the last session's strongest reading as display-only (or
+       the last session's no-trade state), and never log from stale
+       candles (scanAll's logging already checks !best.stale). */
+    card.className = "card best wait";
+    big.textContent = "🌙 MARKET CLOSED — LAST SESSION";
+    sub.textContent = best
+      ? "The market is shut right now. Last session's strongest reading was " +
+        PAIRS[best.pair].label + " " + best.signal + " at " + fmt(best.pair, best.entry) +
+        " — shown for testing only. No signal is logged from old candles."
+      : qualsBelow > 0
+        ? "The market is shut right now. In the last session, " + qualsBelow +
+          (qualsBelow === 1 ? " pair had" : " pairs had") +
+          " MACD and DeMarker agreeing, but none was strong enough to trade " +
+          "(the best-pick bar is strength " + BEST_MIN_STRENGTH + "+). " +
+          "Each pair's own reading is in the scan list below. No signal is logged from old candles."
+        : "The market is shut right now, and in the last session no pair had MACD and " +
+          "DeMarker agreeing. No signal is logged from old candles.";
+    $("bestStrVal").textContent = best ? best.strength + " / 100" : "—";
+    $("bestStrBar").style.width = best ? best.strength + "%" : "0%";
+  } else if (best){
     card.className = "card best " + (best.signal === "BUY" ? "buy" : "sell");
     big.innerHTML = "<small>" + PAIRS[best.pair].label + "</small>" +
       (best.signal === "BUY" ? "🟢 BUY" : "🔴 SELL");
     sub.textContent = "Strongest set-up in the scan: on " + PAIRS[best.pair].label +
       ", MACD and DeMarker (7) agree " + (best.signal === "BUY" ? "UP" : "DOWN") +
-      " on the last completed 1-minute candle at " + fmt(best.pair, best.entry) + "." +
-      (best.stale ? " Market is closed — this is the last session's reading, shown for testing only. No signal is logged from old candles." : "");
+      " on the last completed 1-minute candle at " + fmt(best.pair, best.entry) + ".";
     $("bestStrVal").textContent = best.strength + " / 100";
     $("bestStrBar").style.width = best.strength + "%";
   } else if (firstScanDone){
