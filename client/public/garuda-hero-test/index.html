@@ -406,17 +406,8 @@
   <p style="max-width:520px">Payout worksheet only — this page never pays anyone and never holds keys. The team pays winners by hand from their own wallet.</p>
   <div id="nftPanel" style="margin:0 auto">
     <div class="nftRow">
-      <button class="play" id="adminWalletBtn" style="flex:1">🦅 SIGN IN WITH ADMIN WALLET</button>
-    </div>
-    <p style="font-size:12.5px; opacity:.85; max-width:520px; margin:2px auto 6px">Connect the Garuda team admin wallet in Keplr and sign a login message. The signature is on a message only — never a transaction, no fee, and it cannot move funds.</p>
-    <div class="nftRow">
-      <button class="play alt" id="adminKeyToggle" style="flex:1">Use the admin key instead</button>
-    </div>
-    <div id="adminKeyWrap" style="display:none">
-      <div class="nftRow">
-        <input id="adminKeyInput" type="password" autocomplete="off" placeholder="Admin key">
-        <button class="play" id="adminLoadBtn">LOAD</button>
-      </div>
+      <input id="adminKeyInput" type="password" autocomplete="off" placeholder="Admin key">
+      <button class="play" id="adminLoadBtn">LOAD</button>
     </div>
     <div id="adminStatus" style="font-size:12.5px; min-height:16px; text-align:center"></div>
   </div>
@@ -425,13 +416,8 @@
     <button id="admTabWeek" class="play alt">THIS WEEK</button>
     <button id="adminCopyBtn" class="play alt">📋 COPY ALL WALLETS</button>
   </div>
-  <div id="adminRows"><p style="text-align:center; opacity:.8">Sign in with the admin wallet to load the payout list.</p></div>
-<!-- v4: Timer Payouts box (gdTimerSection) + Restart Leaderboard box
-     (gdRestartSection) are injected here by the admin script after this
-     marker comment's parent loads — built by gdEnsureV4Sections() so the
-     sign-in build's sections stay untouched. -->
+  <div id="adminRows"><p style="text-align:center; opacity:.8">Enter the admin key to load the payout list.</p></div>
   <div id="adminExtras" style="display:none">
-    <div id="gdV4Anchor"></div>
     <div class="admsec">
       <h3>➕ RECORD A PAYOUT</h3>
       <div class="nftRow">
@@ -4723,10 +4709,8 @@ $('againBtn').onclick = () => {
    attaches the wallet to submitted scores, for payouts) or from a
    pasted address (read-only viewing). Nothing is cached as ownership:
    localStorage keeps only the pasted address text for convenience, and
-   the character is re-verified on-chain at every page load. Playing
-   the game never signs anything and never sends a transaction — the
-   only signature anywhere in this game is the optional team admin
-   sign-in further below (a login message, never a transaction). */
+   the character is re-verified on-chain at every page load. This page
+   never signs anything and never sends a transaction. */
 const GD_NFT_CONTRACT = 'terra103skwsk84tu2m33erjxt64p54a08p6ckflfwvg';
 /* LCD base: publicnode. A localStorage override exists ONLY so sandboxed
    QA (no direct browser egress) can relay the same endpoint — production
@@ -5062,94 +5046,25 @@ try {
   }
 } catch (e) {}
 
-/* ================= payout admin (wallet sign-in + key fallback) ====
-   The panel opens two ways, both checked SERVER-side (garuda-admin
-   handler, Bearer pattern — nothing is decided by this page):
-   1. WALLET SIGN-IN (the normal route): the Garuda team admin wallet
-      connects in Keplr and signs a one-time LOGIN MESSAGE (ADR-36).
-      The server verifies the signature against the admin wallet it
-      holds in its own settings and issues a short-lived session
-      token, kept here in memory only. The signature is on a message —
-      never a transaction, no fee, it cannot move funds — and it is
-      the ONLY signature anywhere in this game; playing never signs.
-   2. ADMIN KEY (fallback): the typed key is sent as the Bearer
-      credential, exactly as before; it is never stored either.
-   Either way the panel is a worksheet: rank / name / wallet / score /
-   date, full addresses with copy buttons. It makes NO payments —
-   the Garuda team pays winners by hand from their own wallet.
-   Public board above stays name+score only, unchanged. */
+/* ================= payout admin (key-gated) =================
+   The admin key is checked SERVER-side (garuda-admin function, Bearer
+   pattern — the page never sees or stores a real key; the typed key is
+   only sent with the request). The panel is a worksheet: rank / name /
+   wallet / score / date, full addresses with copy buttons. It makes NO
+   payments — the Garuda team pays winners by hand from their own
+   wallet. Public board above stays name+score only, unchanged. */
 let gdAdminData = null, gdAdminTab = 'all';
-let gdAdminToken = '';   /* wallet sign-in session token (memory only) */
-function gdAdminCred(){ return gdAdminToken || $('adminKeyInput').value.trim(); }
-function gdAdminAuthFailMsg(){
-  const wasToken = !!gdAdminToken;
-  if (wasToken) gdAdminToken = '';
-  return wasToken ? 'Admin session expired — sign in with the wallet again.' : 'Wrong admin key.';
-}
 $('adminBtn').onclick = () => { $('adminScreen').style.display = 'flex'; };
 $('adminClose').onclick = () => { $('adminScreen').style.display = 'none'; };
-$('adminKeyToggle').onclick = () => {
-  const w = $('adminKeyWrap');
-  const open = w.style.display === 'none';
-  w.style.display = open ? '' : 'none';
-  $('adminKeyToggle').textContent = open ? 'Hide the admin key' : 'Use the admin key instead';
-};
-/* Wallet sign-in: connect Keplr -> ask the server for a one-time
-   login challenge for that wallet (the server only issues one to the
-   admin wallet) -> sign the message in Keplr -> the server verifies
-   and returns the session token -> the panel loads as usual. */
-async function gdAdminWalletSignIn(){
-  const st = $('adminStatus');
-  st.textContent = 'Opening Keplr…';
-  let provider = await gdWaitForKeplr(gdIsMobileUA ? 2500 : 1200);
-  if (!provider || !window.keplr){
-    if (gdIsMobileUA){ st.textContent = 'Keplr not found — opening the Keplr app…'; gdDeepLinkKeplrMobile(); return; }
-    provider = await gdWaitForKeplr(4000);
-    if (!window.keplr){ st.textContent = 'Keplr not found. On a phone, open this page inside the Keplr app browser. On a computer, install the Keplr extension.'; return; }
-  }
-  let addr = '';
-  try {
-    await window.keplr.enable(GD_CHAIN_ID);
-    const key = await window.keplr.getKey(GD_CHAIN_ID);
-    if (!key || !key.bech32Address) throw new Error('no key');
-    addr = key.bech32Address;
-  } catch (e) { st.textContent = 'Keplr connection was declined or failed — nothing connected.'; return; }
-  let ch = null;
-  try {
-    const r = await fetch('/api/garuda-admin', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'challenge', address: addr }),
-    });
-    ch = await r.json().catch(() => null);
-    if (!r.ok || !ch || !ch.message || !ch.nonce){ st.textContent = 'This wallet is not the game admin wallet.'; return; }
-  } catch (e) { st.textContent = 'Sign-in unavailable — try again.'; return; }
-  st.textContent = 'Keplr is asking you to sign the login message — it is not a transaction and costs no fee.';
-  let sig = null;
-  try { sig = await window.keplr.signArbitrary(GD_CHAIN_ID, addr, ch.message); }
-  catch (e) { st.textContent = 'The login signature was declined — nothing was signed.'; return; }
-  if (!sig || !sig.signature || !sig.pub_key || !sig.pub_key.value){ st.textContent = 'Sign-in failed — Keplr returned no signature.'; return; }
-  try {
-    const r = await fetch('/api/garuda-admin', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'verify', address: addr, nonce: ch.nonce, pubKey: sig.pub_key.value, signature: sig.signature }),
-    });
-    const d = await r.json().catch(() => null);
-    if (!r.ok || !d || !d.token){ st.textContent = 'Sign-in could not be verified — try again.'; return; }
-    gdAdminToken = d.token;
-  } catch (e) { st.textContent = 'Sign-in could not be verified — try again.'; return; }
-  st.textContent = '✅ Signed in as the admin wallet (' + gdShortAddr(addr) + '). Loading the payout list…';
-  await gdAdminLoad();
-}
-$('adminWalletBtn').onclick = gdAdminWalletSignIn;
 async function gdAdminLoad(){
-  const key = gdAdminCred();
+  const key = $('adminKeyInput').value.trim();
   const st = $('adminStatus');
-  if (!key){ st.textContent = 'Sign in with the admin wallet first — or open "Use the admin key instead".'; return; }
+  if (!key){ st.textContent = 'Enter the admin key first.'; return; }
   st.textContent = 'Loading…';
   try {
     const r = await fetch('/api/garuda-admin', { headers: { Authorization: 'Bearer ' + key } });
     const d = await r.json().catch(() => null);
-    if (r.status === 401){ st.textContent = gdAdminAuthFailMsg(); gdAdminData = null; gdAdminRender(); return; }
+    if (r.status === 401){ st.textContent = 'Wrong admin key.'; gdAdminData = null; gdAdminRender(); return; }
     if (!r.ok || !d){ st.textContent = 'Admin list unavailable — try again.'; return; }
     gdAdminData = d;
     $('burnWalletInput').value = d.burnWallet || '';
@@ -5162,7 +5077,7 @@ function gdAdminRender(){
   $('admTabWeek').className = 'play' + (gdAdminTab === 'week' ? '' : ' alt');
   /* v2 sections appear only after a successful key unlock. */
   $('adminExtras').style.display = gdAdminData ? 'block' : 'none';
-  if (gdAdminData){ gdRenderPayouts(); gdRenderTimer(); }
+  if (gdAdminData) gdRenderPayouts();
   const rows = gdAdminData ? (gdAdminData[gdAdminTab] || []) : [];
   const box = $('adminRows');
   if (!rows.length){
@@ -5205,10 +5120,9 @@ $('adminCopyBtn').onclick = async () => {
 };
 
 /* ================= v2: payout records + burn wallet (admin) ======
-   Saving goes through the SAME gated admin endpoint (POST with the
-   session token or typed key as Bearer — neither is ever stored).
-   Records are payouts the team already made BY HAND; this page never
-   pays anyone. */
+   Saving goes through the SAME key-gated admin endpoint (POST with the
+   typed key as Bearer — the key is never stored). Records are payouts
+   the team already made BY HAND; this page never pays anyone. */
 function gdRenderPayouts(){
   const box = $('payList');
   box.innerHTML = '';
@@ -5231,7 +5145,7 @@ function gdRenderPayouts(){
   }
 }
 async function gdAdminPost(payload){
-  const key = gdAdminCred();
+  const key = $('adminKeyInput').value.trim();
   const r = await fetch('/api/garuda-admin', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
@@ -5254,7 +5168,7 @@ $('payAddBtn').onclick = async () => {
   st.textContent = 'Saving…';
   try {
     const { r, d } = await gdAdminPost({ name, wallet, amount, token, txHash, note: note || undefined });
-    if (r.status === 401){ st.textContent = gdAdminAuthFailMsg(); return; }
+    if (r.status === 401){ st.textContent = 'Wrong admin key.'; return; }
     if (!r.ok){ st.textContent = (d && d.error) ? ('Not saved: ' + d.error) : 'Not saved — try again.'; return; }
     st.textContent = '✅ Payout recorded — it shows on the public strip.';
     $('payName').value = ''; $('payWallet').value = ''; $('payAmount').value = '';
@@ -5270,402 +5184,13 @@ $('burnSaveBtn').onclick = async () => {
   st.textContent = 'Saving…';
   try {
     const { r, d } = await gdAdminPost({ action: 'setBurnWallet', burnWallet: bw });
-    if (r.status === 401){ st.textContent = gdAdminAuthFailMsg(); return; }
+    if (r.status === 401){ st.textContent = 'Wrong admin key.'; return; }
     if (!r.ok){ st.textContent = (d && d.error) ? ('Not saved: ' + d.error) : 'Not saved — try again.'; return; }
     st.textContent = bw ? '✅ Burn wallet saved — the strip now reads it live from the chain.' : '✅ Burn wallet cleared — the strip shows "Burns start soon".';
     if (gdAdminData) gdAdminData.burnWallet = bw || null;
     gdLoadPublicStrip();
   } catch (e) { st.textContent = 'Not saved — try again.'; }
 };
-
-/* ================= v4: Timer Payouts + leaderboard restart =======
-   Built ON TOP of the v3 sign-in: every call below goes through
-   gdAdminPost / gdAdminLoad, so the wallet sign-in session (or the
-   key fallback) gates everything — same as RECORD A PAYOUT.
-   The timer is set once here; the server builds the winner list when
-   a payout comes due; NOTHING is ever sent by the server. RELEASE is
-   one press in this panel: it signs each payment from the signed-in
-   admin wallet, one after another, and records each confirmed send
-   back to the server (recordRunPayout). GRDX is a token (CW20) send;
-   LUNC is a plain send. Pulsing RELEASE again after a stop resumes
-   with RELEASE THE REST — sent rows are locked, nobody is paid twice.
-   RESTART LEADERBOARD clears a board into a saved copy on the server
-   first; payout records and winner wallets are never touched. */
-const GD_GRDX_CONTRACT = 'terra16hzl7lge3jjnlazvut2ypt7upk68z5dycc9rwy608fah8q0y3fuslkenzc';
-const GD_RPC = 'https://terra-classic-rpc.publicnode.com';
-let gdPayRunning = false, gdReleaseArmed = false, gdRestartArmed = false, gdCtlTimer = null;
-function gdEnsureV4Sections(){
-  if ($('gdTimerSection')) return;
-  const anchor = $('gdV4Anchor');
-  if (!anchor) return;
-  const t = document.createElement('div');
-  t.className = 'admsec'; t.id = 'gdTimerSection';
-  t.innerHTML =
-    '<h3>⏰ TIMER PAYOUTS</h3>' +
-    '<p id="gdTimerStatusLine" style="font-size:14px; text-align:center; margin:0 0 2px"></p>' +
-    '<p id="gdTimerCountdown" style="font-size:12.5px; text-align:center; margin:0 0 8px; opacity:.85"></p>' +
-    '<div id="gdRunBox"></div>' +
-    '<div class="nftRow"><span style="align-self:center; font-size:13px">Pay every:</span>' +
-    '<button class="play" id="gdEveryDaily" style="flex:1">DAILY</button>' +
-    '<button class="play alt" id="gdEveryWeekly" style="flex:1">WEEKLY</button></div>' +
-    '<div class="nftRow" id="gdWeekdayRow"><span style="align-self:center; font-size:13px">Day of the week:</span>' +
-    '<select id="gdWeekdaySel" style="flex:1; padding:9px; border-radius:9px; background:rgba(255,255,255,.08); color:#fff; border:1px solid rgba(255,255,255,.25)">' +
-    ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map((d,i)=>'<option value="'+i+'" style="color:#000">'+d+'</option>').join('') +
-    '</select></div>' +
-    '<div class="nftRow"><span style="align-self:center; font-size:13px">Time of day:</span>' +
-    '<input id="gdTimeInput" type="time" value="09:00" style="flex:1"></div>' +
-    '<div class="nftRow"><input id="gdAmountInput" type="text" inputmode="decimal" placeholder="Each winner gets (e.g. 500)">' +
-    '<select id="gdTokenSel" style="padding:9px; border-radius:9px; background:rgba(255,255,255,.08); color:#fff; border:1px solid rgba(255,255,255,.25)">' +
-    '<option value="GRDX" style="color:#000">GRDX</option><option value="LUNC" style="color:#000">LUNC</option></select></div>' +
-    '<div class="nftRow"><span style="align-self:center; font-size:13px">Pay the top</span>' +
-    '<input id="gdTopNInput" type="number" min="1" max="50" value="5" style="max-width:90px">' +
-    '<span style="align-self:center; font-size:13px">players</span></div>' +
-    '<p id="gdTimerTotal" style="font-size:13.5px; text-align:center; margin:2px 0 6px"></p>' +
-    '<div class="nftRow"><button class="play" id="gdTimerStartBtn" style="flex:1">▶ START TIMER</button>' +
-    '<button class="play alt" id="gdTimerStopBtn" style="flex:1">⛔ STOP</button></div>' +
-    '<div id="gdTimerStatus" style="font-size:12.5px; min-height:16px; text-align:center"></div>';
-  const rs = document.createElement('div');
-  rs.className = 'admsec'; rs.id = 'gdRestartSection';
-  rs.innerHTML =
-    '<h3>🔄 RESTART LEADERBOARD</h3>' +
-    '<p style="font-size:12.5px; text-align:center; margin:0 0 6px">Start a board over, empty. A copy of the old board is saved first, so nothing is lost. Payout records and winner wallets are never touched.</p>' +
-    '<div class="nftRow"><button class="play" id="gdRestartWeekBtn" style="flex:1">RESTART THIS WEEK</button>' +
-    '<button class="play alt" id="gdRestartAllBtn" style="flex:1">RESTART ALL-TIME</button></div>' +
-    '<div id="gdRestartConfirm"></div>' +
-    '<div id="gdRestartStatus" style="font-size:12.5px; min-height:16px; text-align:center"></div>';
-  anchor.replaceWith(t, rs);
-  gdWireV4();
-}
-function gdTimerEvery(){ return $('gdEveryDaily').className.indexOf('alt') >= 0 ? 'weekly' : 'daily'; }
-function gdSetEvery(every){
-  $('gdEveryDaily').className = 'play' + (every === 'daily' ? '' : ' alt');
-  $('gdEveryWeekly').className = 'play' + (every === 'weekly' ? '' : ' alt');
-  $('gdWeekdayRow').style.display = every === 'weekly' ? '' : 'none';
-}
-function gdTimerTotalLine(){
-  const a = parseFloat($('gdAmountInput').value || '');
-  const n = parseInt($('gdTopNInput').value || '', 10);
-  const tok = $('gdTokenSel').value;
-  $('gdTimerTotal').textContent = (isFinite(a) && a > 0 && isFinite(n) && n > 0)
-    ? 'Total each payout: ' + +(a * n).toFixed(6) + ' ' + tok : '';
-}
-function gdFmtUntil(ms){
-  if (ms <= 0) return 'due now';
-  const m = Math.floor(ms / 60000), d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), mm = m % 60;
-  if (d > 0) return 'in ' + d + ' day' + (d > 1 ? 's' : '') + (h ? ' ' + h + ' hours' : '');
-  if (h > 0) return 'in ' + h + ' hours ' + mm + ' minutes';
-  return 'in ' + Math.max(mm, 1) + ' minutes';
-}
-function gdWhenText(cfg){
-  const due = new Date(cfg.nextDueUtc);
-  const now = new Date();
-  const sameDay = due.toDateString() === now.toDateString();
-  const tom = new Date(now); tom.setDate(now.getDate() + 1);
-  const isTom = due.toDateString() === tom.toDateString();
-  const t = due.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  if (sameDay) return 'today at ' + t;
-  if (isTom) return 'tomorrow at ' + t;
-  return due.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' }) + ' at ' + t;
-}
-function gdRunTitle(run){
-  if (run.every === 'weekly') return '🟢 PAYOUT READY — week of ' + run.periodKey;
-  const d = new Date(run.periodKey + 'T12:00:00');
-  return '🟢 PAYOUT READY — ' + (isNaN(d) ? run.periodKey : d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' }));
-}
-function gdRenderTimer(){
-  gdEnsureV4Sections();
-  const cfg = gdAdminData && gdAdminData.payTimer;
-  const run = gdAdminData && gdAdminData.payRun;
-  if (cfg){
-    if (document.activeElement !== $('gdAmountInput')) $('gdAmountInput').value = cfg.amount || '';
-    if (document.activeElement !== $('gdTopNInput')) $('gdTopNInput').value = cfg.topN || 5;
-    $('gdTokenSel').value = cfg.token || 'GRDX';
-    if (cfg.timeLocal) $('gdTimeInput').value = cfg.timeLocal;
-    if (cfg.weekday !== undefined) $('gdWeekdaySel').value = String(cfg.weekday);
-    gdSetEvery(cfg.every || 'weekly');
-  }
-  gdTimerTotalLine();
-  const line = $('gdTimerStatusLine'), cd = $('gdTimerCountdown'), box = $('gdRunBox');
-  box.innerHTML = '';
-  if (run && (run.status === 'ready' || run.status === 'paying')){
-    /* Release mutations land on THIS array (see gdPayRows note). */
-    gdPayRows = run.rows; gdPayRunKey = run.periodKey;
-    /* While payments are going out, leave the box exactly as it is —
-       the flow reports in the status line and re-renders at the end. */
-    if (gdPayRunning) return;
-    line.textContent = 'A payout is ready — check the list below and press RELEASE.';
-    cd.textContent = '';
-    const payable = run.rows.filter(r => r.state !== 'skipped');
-    const sent = payable.filter(r => r.state === 'sent');
-    const total = payable.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
-    const tok = run.rows.length ? run.rows[0].token : '';
-    const title = document.createElement('p');
-    title.style.cssText = 'font-size:14.5px; text-align:center; margin:4px 0 6px';
-    title.textContent = gdRunTitle(run);
-    box.appendChild(title);
-    run.rows.forEach((r) => {
-      const row = document.createElement('div'); row.className = 'admrow';
-      const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = r.name;
-      row.appendChild(nm);
-      const wl = document.createElement('span'); wl.className = 'wl';
-      if (r.state === 'skipped'){ wl.textContent = '— no wallet — skipped'; }
-      else if (r.state === 'sent'){ wl.textContent = r.wallet; }
-      else { wl.textContent = r.wallet; }
-      row.appendChild(wl);
-      const am = document.createElement('span'); am.className = 'sc';
-      am.textContent = r.state === 'sent' ? '✅ ' + r.amount + ' ' + r.token : (r.amount + ' ' + r.token);
-      row.appendChild(am);
-      box.appendChild(row);
-    });
-    const tot = document.createElement('p');
-    tot.style.cssText = 'font-size:13.5px; text-align:center; margin:4px 0 2px';
-    tot.textContent = sent.length
-      ? 'Paid so far: ' + sent.length + ' of ' + payable.length + ' players · Total to send: ' + +total.toFixed(6) + ' ' + tok
-      : 'Total to send: ' + +total.toFixed(6) + ' ' + tok + ' to ' + payable.length + ' players' +
-        (run.rows.length > payable.length ? ' (' + (run.rows.length - payable.length) + ' skipped — no wallet)' : '');
-    box.appendChild(tot);
-    const note = document.createElement('p');
-    note.style.cssText = 'font-size:12.5px; text-align:center; margin:0 0 6px';
-    note.textContent = 'Payments go from the wallet you signed in with. You approve the payment run once; each payment then goes out one after another. Nothing is sent until you press RELEASE.';
-    box.appendChild(note);
-    const rb = document.createElement('div'); rb.className = 'nftRow';
-    const rel = document.createElement('button'); rel.className = 'play'; rel.style.flex = '1';
-    if (gdPayRunning){ rel.textContent = '⏳ PAYING…'; rel.disabled = true; }
-    else if (gdReleaseArmed){ rel.textContent = '✅ PRESS AGAIN TO RELEASE — PAY THESE PLAYERS'; }
-    else { rel.textContent = sent.length ? '▶ RELEASE THE REST' : '✅ RELEASE — PAY THESE PLAYERS'; }
-    rel.onclick = () => gdReleasePress(rel);
-    const cx = document.createElement('button'); cx.className = 'play alt'; cx.style.flex = '1';
-    cx.textContent = '✕ Cancel this payout';
-    cx.disabled = gdPayRunning || run.status === 'paying';
-    if (run.status === 'paying') cx.title = 'Some payments already went out — this payout cannot be cancelled now.';
-    cx.onclick = async () => {
-      cx.disabled = true;
-      try {
-        const { r, d } = await gdAdminPost({ action: 'cancelPayRun' });
-        if (r.status === 401){ $('gdTimerStatus').textContent = gdAdminAuthFailMsg(); return; }
-        if (!r.ok){ $('gdTimerStatus').textContent = (d && d.error) || 'Could not cancel — try again.'; cx.disabled = false; return; }
-        gdReleaseArmed = false;
-        $('gdTimerStatus').textContent = 'Payout cancelled. Nothing was sent for it.';
-        await gdAdminLoad();
-      } catch (e) { $('gdTimerStatus').textContent = 'Could not cancel — try again.'; cx.disabled = false; }
-    };
-    rb.append(rel, cx);
-    box.appendChild(rb);
-    return;
-  }
-  if (!cfg || !cfg.on){
-    line.textContent = 'Timer is off. Press START TIMER to begin.';
-    cd.textContent = '';
-    return;
-  }
-  line.textContent = 'Next payout: ' + gdWhenText(cfg) + ' — top ' + cfg.topN + ' players get ' + cfg.amount + ' ' + cfg.token + ' each.';
-  cd.textContent = '⏳ ' + gdFmtUntil(new Date(cfg.nextDueUtc) - new Date()) + ' to go';
-}
-function gdWireV4(){
-  $('gdEveryDaily').onclick = () => gdSetEvery('daily');
-  $('gdEveryWeekly').onclick = () => gdSetEvery('weekly');
-  $('gdAmountInput').oninput = gdTimerTotalLine;
-  $('gdTopNInput').oninput = gdTimerTotalLine;
-  $('gdTokenSel').onchange = gdTimerTotalLine;
-  $('gdTimerStartBtn').onclick = async () => {
-    const st = $('gdTimerStatus');
-    const amount = $('gdAmountInput').value.trim();
-    const topN = parseInt($('gdTopNInput').value || '', 10);
-    if (!/^[0-9]+(\.[0-9]+)?$/.test(amount) || !(+amount > 0)){ st.textContent = 'Type how much each winner gets first.'; return; }
-    if (!isFinite(topN) || topN < 1 || topN > 50){ st.textContent = 'Pick how many top players get paid (1 to 50).'; return; }
-    st.textContent = 'Starting the timer…';
-    try {
-      const { r, d } = await gdAdminPost({
-        action: 'setPayTimer', every: gdTimerEvery(),
-        weekday: parseInt($('gdWeekdaySel').value || '0', 10),
-        timeLocal: $('gdTimeInput').value || '09:00',
-        tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'),
-        amount, token: $('gdTokenSel').value, topN,
-      });
-      if (r.status === 401){ st.textContent = gdAdminAuthFailMsg(); return; }
-      if (!r.ok){ st.textContent = (d && d.error) ? ('Not started: ' + d.error) : 'Not started — try again.'; return; }
-      st.textContent = '✅ Timer started.';
-      await gdAdminLoad();
-    } catch (e) { st.textContent = 'Not started — try again.'; }
-  };
-  $('gdTimerStopBtn').onclick = async () => {
-    const st = $('gdTimerStatus');
-    st.textContent = 'Stopping the timer…';
-    try {
-      const { r, d } = await gdAdminPost({ action: 'stopPayTimer' });
-      if (r.status === 401){ st.textContent = gdAdminAuthFailMsg(); return; }
-      if (!r.ok){ st.textContent = (d && d.error) || 'Could not stop — try again.'; return; }
-      gdReleaseArmed = false;
-      st.textContent = '⛔ Timer stopped. No payout will be built, and a waiting payout was cancelled.';
-      await gdAdminLoad();
-    } catch (e) { st.textContent = 'Could not stop — try again.'; }
-  };
-  $('gdRestartWeekBtn').onclick = () => gdRestartAsk('week');
-  $('gdRestartAllBtn').onclick = () => gdRestartAsk('all');
-  if (!gdCtlTimer){
-    gdCtlTimer = setInterval(() => {
-      if (!gdAdminData) return;
-      if ($('adminScreen').style.display !== 'flex') return;
-      const cfg = gdAdminData.payTimer, run = gdAdminData.payRun;
-      if (run && (run.status === 'ready' || run.status === 'paying')) return;
-      if (!cfg || !cfg.on) return;
-      $('gdTimerCountdown').textContent = '⏳ ' + gdFmtUntil(new Date(cfg.nextDueUtc) - new Date()) + ' to go';
-    }, 30000);
-  }
-}
-/* ---- RELEASE: one press, then every payment goes out on its own -- */
-/* Kept in step with the admin data by gdRenderTimer: gdPayRows is the
-   LIVE row array of the waiting run. RELEASE mutates these objects;
-   gdAdminLoad refreshes them from the server afterwards. The release
-   flow itself never re-renders mid-run (the panel re-render rebuilds
-   the run box) — it updates only the status line until it finishes. */
-let gdPayRows = null, gdPayRunKey = null;
-function gdMicro(amountStr, decimals){
-  const [i, f = ''] = String(amountStr).split('.');
-  return (i + (f + '000000').slice(0, decimals)).replace(/^0+(?=\d)/, '');
-}
-async function gdKeplrSigner(){
-  const p = await gdWaitForKeplr(gdIsMobileUA ? 2500 : 1200);
-  if (!p || !window.keplr) throw new Error('Keplr not found — open this page inside the Keplr app browser.');
-  await window.keplr.enable(GD_CHAIN_ID);
-  if (!window.keplr.getOfflineSignerAuto) throw new Error('This Keplr is too old to send payments — please update Keplr.');
-  return window.keplr.getOfflineSignerAuto(GD_CHAIN_ID);
-}
-async function gdLoadCosm(){
-  if (window.__gdCosm) return window.__gdCosm;
-  const urls = [
-    'https://cdn.jsdelivr.net/npm/@cosmjs/stargate@0.32.4/+esm',
-    'https://esm.run/@cosmjs/stargate@0.32.4',
-  ];
-  for (const u of urls){
-    try { const m = await import(u); if (m && m.SigningStargateClient){ window.__gdCosm = m; return m; } } catch (e) {}
-  }
-  throw new Error('Payment tools could not load — check your connection and press RELEASE again.');
-}
-async function gdReleasePress(btn){
-  if (gdPayRunning) return;
-  if (!gdReleaseArmed){
-    gdReleaseArmed = true;
-    gdRenderTimer();
-    $('gdTimerStatus').textContent = 'Check the list above — pressing RELEASE one more time pays exactly those players.';
-    return;
-  }
-  gdReleaseArmed = false;
-  await gdReleaseRun();
-}
-async function gdReleaseRun(){
-  const st = $('gdTimerStatus');
-  const run = gdAdminData && gdAdminData.payRun;
-  if (!run){ st.textContent = 'No payout is waiting.'; return; }
-  /* Work on the LIVE row array gdRenderTimer published — mutations
-     must survive the gdAdminLoad refreshes below. */
-  const rows = gdPayRows || run.rows;
-  const periodKey = run.periodKey;
-  const waiting = rows.map((r, i) => i).filter((i) => rows[i].state === 'waiting');
-  if (!waiting.length){ st.textContent = 'Everybody on this list is already paid.'; return; }
-  gdPayRunning = true;
-  const snapshot = $('gdRunBox') ? $('gdRunBox').innerHTML : '';
-  gdRenderTimer();   /* swaps the button to PAYING… */
-  try {
-    st.textContent = 'Opening your wallet…';
-    const signer = await gdKeplrSigner();
-    const accounts = await signer.getAccounts();
-    if (!accounts.length) throw new Error('Keplr returned no wallet.');
-    const from = accounts[0].address;
-    const { SigningStargateClient } = await gdLoadCosm();
-    const client = await SigningStargateClient.connectWithSigner(GD_RPC, signer);
-    const memo = 'Garuda Dash payout — ' + periodKey;
-    const total = waiting.length;
-    const failed = [];
-    let doneCount = 0;
-    for (const idx of waiting){
-      const row = rows[idx];
-      const n = doneCount + failed.length + 1;
-      st.textContent = 'Paying ' + n + ' of ' + total + ' — ' + row.name + ', ' + row.amount + ' ' + row.token + '… approve it in Keplr if it asks.';
-      let txHash = '';
-      try {
-        let msg;
-        if (row.token === 'LUNC'){
-          msg = { typeUrl: '/cosmos.bank.v1beta1.MsgSend', value: { fromAddress: from, toAddress: row.wallet, amount: [{ denom: 'uluna', amount: gdMicro(row.amount, 6) }] } };
-        } else {
-          /* CW20 transfer: the exec message is raw JSON bytes. */
-          msg = { typeUrl: '/cosmwasm.wasm.v1.MsgExecuteContract', value: { sender: from, contract: GD_GRDX_CONTRACT, msg: new TextEncoder().encode(JSON.stringify({ transfer: { recipient: row.wallet, amount: gdMicro(row.amount, 6) } })), funds: [] } };
-        }
-        const res = await client.signAndBroadcast(from, [msg], 'auto', memo);
-        if (!res || res.code !== 0 || !res.transactionHash) throw new Error('chain said no' + (res && res.rawLog ? ': ' + String(res.rawLog).slice(0, 80) : ''));
-        txHash = res.transactionHash;
-      } catch (e) {
-        failed.push(row.name + ' (' + ((e && e.message) || 'send failed') + ')');
-        continue;
-      }
-      try {
-        const { r, d } = await gdAdminPost({ action: 'recordRunPayout', periodKey, name: row.name, wallet: row.wallet, amount: row.amount, token: row.token, txHash });
-        if (r.status === 401){ st.textContent = gdAdminAuthFailMsg(); break; }
-        if (!r.ok && !(d && d.alreadyRecorded)){
-          if (r.status === 409 && d && /already recorded/.test(d.error || '')){
-            failed.push(row.name + ' (payment sent, reference ' + txHash.slice(0, 10) + '… — tell Tom this reference so it can be matched by hand)');
-            continue;
-          }
-          failed.push(row.name + ' (paid on chain, saving the record failed — press RELEASE THE REST to save it; nobody will be paid twice)');
-          row.state = 'waiting';
-          continue;
-        }
-        row.state = 'sent'; row.txHash = txHash;
-        doneCount++;
-      } catch (e) {
-        failed.push(row.name + ' (paid on chain, saving the record failed — press RELEASE THE REST to save it; nobody will be paid twice)');
-      }
-      /* no mid-run re-render: the box stays as-is, progress is in the
-         status line; gdAdminLoad in finally repaints the end state */
-    }
-    if (failed.length){
-      st.textContent = 'Stopped with ' + failed.length + ' not finished: ' + failed.join(' · ') + ' — press RELEASE THE REST to finish. Sent payments stay sent; nobody is paid twice.';
-    } else {
-      st.textContent = '✅ All payments sent and recorded.';
-    }
-  } catch (e) {
-    st.textContent = 'Could not pay: ' + ((e && e.message) || 'something went wrong') + ' — press RELEASE to try again.';
-  } finally {
-    gdPayRunning = false;
-    try { await gdAdminLoad(); } catch (e) {}
-    if (snapshot && $('gdRunBox') && !$('gdRunBox').innerHTML) $('gdRunBox').innerHTML = snapshot;
-    gdRenderTimer();
-    gdLoadPublicStrip();
-  }
-}
-/* ---- RESTART LEADERBOARD: pick -> see what clears -> confirm ----- */
-function gdRestartAsk(board){
-  const box = $('gdRestartConfirm');
-  const run = gdAdminData && gdAdminData.payRun;
-  const rows = board === 'all' ? (gdAdminData.all || []) : (gdAdminData.week || []);
-  const names = rows.slice(0, 5).map((r) => r.name).join(', ');
-  let warn = '';
-  if (run && (run.status === 'ready' || run.status === 'paying') &&
-      ((run.every === 'weekly' && board === 'week') || (run.every !== 'weekly' && board === 'all'))){
-    warn = '<p style="font-size:12.5px; color:#ffb3b3; text-align:center; margin:0 0 6px">⚠️ A payout list is waiting, built from this board. Restarting does not cancel it — those players still get paid from the saved list. Restart the board after that payout is released, if you can.</p>';
-  }
-  box.innerHTML =
-    '<p style="font-size:13.5px; text-align:center; margin:4px 0 2px">This clears the <b>' + (board === 'all' ? 'ALL-TIME' : 'THIS WEEK') + '</b> board — ' + rows.length + ' player' + (rows.length === 1 ? '' : 's') + ' on it' + (names ? ' (' + names + (rows.length > 5 ? ', …' : '') + ')' : '') + '.</p>' +
-    '<p style="font-size:12.5px; text-align:center; margin:0 0 6px; opacity:.85">A copy of the board is saved first, so it can be brought back. Payout records and winner wallets stay exactly as they are.</p>' +
-    warn +
-    '<div class="nftRow"><button class="play" id="gdRestartYes" style="flex:1">✅ YES — RESTART THIS BOARD</button>' +
-    '<button class="play alt" id="gdRestartNo" style="flex:1">✕ Keep the board</button></div>';
-  $('gdRestartYes').onclick = () => gdRestartDo(board);
-  $('gdRestartNo').onclick = () => { box.innerHTML = ''; $('gdRestartStatus').textContent = 'Board kept as it is.'; };
-  box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-}
-async function gdRestartDo(board){
-  const st = $('gdRestartStatus');
-  $('gdRestartConfirm').innerHTML = '';
-  st.textContent = 'Restarting the board…';
-  try {
-    const { r, d } = await gdAdminPost({ action: 'restartLeaderboard', board });
-    if (r.status === 401){ st.textContent = gdAdminAuthFailMsg(); return; }
-    if (!r.ok){ st.textContent = (d && d.error) ? ('Not restarted: ' + d.error) : 'Not restarted — try again.'; return; }
-    st.textContent = '✅ Board restarted — ' + d.cleared + ' players cleared, ready for fresh scores. The old board was saved.';
-    await gdAdminLoad();
-  } catch (e) { st.textContent = 'Not restarted — try again.'; }
-}
 
 /* ================= v2: menu cleanup toggles =================
    Easy clean layout: the first screen is logo + strip + PLAY + MY
