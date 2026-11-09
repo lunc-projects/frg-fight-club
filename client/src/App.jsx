@@ -241,7 +241,14 @@ export default function App() {
   return (
     <div className="app">
       <header>
-        <h1>🥊 FRG FIGHT CLUB</h1>
+        <img className="site-logo" src="/lds-games-logo.webp" alt="Lunc Dev Studio Games" />
+        <div className="title-row">
+          <span className="glove" aria-hidden="true">🥊</span>
+          <img className="title-emblem" src="/luna-classic-emblem.webp" alt="Luna Classic" />
+          <h1>LUNC GAMES</h1>
+          <img className="title-emblem" src="/luna-classic-emblem.webp" alt="Luna Classic" />
+          <span className="glove glove-r" aria-hidden="true">🥊</span>
+        </div>
         <p className="tag">Free to play. Climb the board. 🏆</p>
       </header>
 
