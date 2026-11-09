@@ -244,7 +244,7 @@ export default function App() {
         <img className="site-logo" src="/lds-games-logo.webp" alt="Lunc Dev Studio Games" />
         <div className="title-row">
           <img className="title-badge" src="/luna-classic-coin.webp" alt="Luna Classic" />
-          <h1>LUNC GAMES</h1>
+          <h1>🎮 LUNC GAMES 🕹️</h1>
           <img className="title-badge" src="/luna-classic-coin.webp" alt="Luna Classic" />
         </div>
         <p className="tag">Free to play. Climb the board. 🏆</p>
