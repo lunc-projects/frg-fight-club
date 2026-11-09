@@ -859,6 +859,209 @@ function gdLegacyExtend(){
   return (gdLegacyExtend._c = { grounds, platforms: plats, walkers });
 }
 
+/* ================= BIG FLOORS + A BOSS ON EVERY LEVEL =================
+   Tom's orders (Nov 8, evening): (1) a boss at the end of EVERY level;
+   (2) floors are BIG — wide walkable fields, not little mats; (3) the
+   rhythm is: JUMP UP onto the next floor's field -> WALK that field
+   (fight, coins) -> JUMP UP again -> ... -> the boss waits on the top
+   floor. Implementation: a floor transform applied by both builders.
+   Each existing ground segment becomes one FLOOR — same x, same width
+   (420-1410px: real fields) — lifted by a rise that grows along the
+   level. Rise increments are solved so the step UP from each floor to
+   the next lands in the 55-100px band (one reachable jump: apex 112,
+   clamp 108) before a gentle scale caps the total ascent near 300px
+   so the top floor stays in frame (VH 540). Platforms, walkers, the
+   feather, the egg and the movers ride the same rise field (sampled
+   at their centre x) and platforms are re-clamped against the new
+   floors. A fall between floors lands on the floor below — the
+   one-way landing pass already settles on the highest surface under
+   the hero — except over the levels' real pits, exactly as before. */
+const GD_BOSS_TABLE = [
+  null,
+  { name: 'HILLS GUARDIAN',   hp: 2, speed: 22, bonus: 150, body: ['#7fae4c', '#4c7230'], accent: '#ffd76a', crown: '#ffb700' },
+  { name: 'VALLEY GUARDIAN',  hp: 3, speed: 24, bonus: 200, body: ['#c96f3f', '#8a3d2e'], accent: '#ffe8b0', crown: '#ff9a56' },
+  { name: 'TEMPLE GUARDIAN',  hp: 3, speed: 26, bonus: 250, body: ['#2a2a72', '#141438'], accent: '#39e6ff', crown: '#39e6ff' },
+  { name: 'DUNES GUARDIAN',   hp: 4, speed: 27, bonus: 300, body: ['#d9a94f', '#96682f'], accent: '#fff3d6', crown: '#f2d38a' },
+  { name: 'JUNGLE GUARDIAN',  hp: 4, speed: 29, bonus: 350, body: ['#2e7d46', '#1d5c33'], accent: '#b9f0cd', crown: '#58c24a' },
+  { name: 'FROST GUARDIAN',   hp: 5, speed: 30, bonus: 400, body: ['#b9cede', '#5d6d7c'], accent: '#ffffff', crown: '#e6f2ff' },
+  { name: 'CRYSTAL GUARDIAN', hp: 5, speed: 32, bonus: 450, body: ['#4b2f7d', '#241243'], accent: '#c9a8ff', crown: '#b06cff' },
+  { name: 'STORM GUARDIAN',   hp: 6, speed: 33, bonus: 500, body: ['#3d5a66', '#22333b'], accent: '#c3cedd', crown: '#9fb0c4' },
+  { name: 'MAGMA GUARDIAN',   hp: 7, speed: 34, bonus: 600, body: ['#6d1a0c', '#2a0d08'], accent: '#ffb37a', crown: '#ff7a1a' },
+];
+function gdRiseField(grounds){
+  /* grounds: [{x, y, w}] sorted by x -> { riseAt(cx), floorY[] } */
+  const K = grounds.length;
+  const TARGET = Math.min(300, 55 * (K - 1));
+  const inc = [];
+  let tot = 0;
+  for (let i = 0; i < K - 1; i++){
+    const origDiff = grounds[i].y - grounds[i + 1].y;   /* + = next floor already higher */
+    let v = Math.max(22, Math.min(100, 78 - origDiff));
+    inc.push(v); tot += v;
+  }
+  const sc = tot > TARGET ? TARGET / tot : 1;
+  const rise = [0];
+  for (let i = 0; i < K - 1; i++) rise.push(rise[i] + inc[i] * sc);
+  const ctr = grounds.map(g => g.x + g.w / 2);
+  function riseAt(cx){
+    if (cx <= ctr[0]) return rise[0];
+    if (cx >= ctr[K - 1]) return rise[K - 1];
+    for (let i = 0; i < K - 1; i++){
+      if (cx >= ctr[i] && cx <= ctr[i + 1]){
+        const f = (cx - ctr[i]) / Math.max(1, ctr[i + 1] - ctr[i]);
+        return rise[i] + (rise[i + 1] - rise[i]) * f;
+      }
+    }
+    return rise[K - 1];
+  }
+  return { riseAt, floorY: grounds.map((g, i) => Math.round(g.y - rise[i])) };
+}
+function gdMakeBoss(n, finX, finY){
+  if (n === 10){
+    return { x: NEST_X - 300, minX: finX + 60, maxX: NEST_X - 170, y: finY, w: 72, h: 96,
+      hp: 8, maxHp: 8, stun: 0, dir: 1, speed: 34, chargeT: 0, chargeDir: 1, hop: 0, hopV: 0,
+      dead: false, enraged: false, sword: true, name: 'GARUDA SWORDMASTER', bonus: 1500,
+      body: ['#4a4038', '#1a120c'], accent: '#ffd76a', crown: '#ffb700', hitT: 0, dmgT: 0, dmgHp: 8 };
+  }
+  const D = GD_BOSS_TABLE[n];
+  return { x: NEST_X - 300, minX: finX + 60, maxX: NEST_X - 170, y: finY, w: 72, h: 96,
+    hp: D.hp, maxHp: D.hp, stun: 0, dir: 1, speed: D.speed, chargeT: 0, chargeDir: 1, hop: 0, hopV: 0,
+    dead: false, enraged: false, sword: false, name: D.name, bonus: D.bonus,
+    body: D.body, accent: D.accent, crown: D.crown, hitT: 0, dmgT: 0, dmgHp: D.hp };
+}
+/* ================= BOSS ARRIVAL — suspense (Tom, Nov 8) =================
+   Entering a boss arena: the level music drops away into a tense
+   'boss' mood on the SAME sequencer (so the mute button and the
+   visibility/pagehide shutdowns keep working unchanged — nothing
+   here ever restarts audio on its own), a thunder crack hits, the
+   sky flashes, and the arena stays dark under a red pulse for the
+   whole fight (fast and strong on arrival, a slow pulse after).
+   Thunder is a filtered noise burst through the shared AC. */
+MOODS.boss = { bpm: 132, bass: [0, 0, 0, 1], scale: [110.00, 130.81, 146.83, 164.81, 196.00, 220.00], lead: [0, 0, 3, 0, 0, 4, 3, 0], perc: true };
+const bossFx = { active: false, arrival: 0, boltT: 0, boltX: 0, nextBolt: 6, savedMood: 'day' };
+function gdThunder(strength){
+  if (muted) return;
+  try {
+    AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+    if (!AC || AC.state !== 'running') return;
+    const dur = 0.7 + strength * 0.5;
+    const buf = AC.createBuffer(1, Math.floor(AC.sampleRate * dur), AC.sampleRate);
+    const d = buf.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < d.length; i++){
+      const w = Math.random() * 2 - 1;
+      last = (last + 0.03 * w) / 1.03;               /* brown-ish rumble */
+      d[i] = last * 3.2 * (1 - i / d.length);
+    }
+    const src = AC.createBufferSource(); src.buffer = buf;
+    const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 420;
+    const g = AC.createGain();
+    g.gain.setValueAtTime(0.5 * strength, AC.currentTime);
+    g.gain.exponentialRampToValueAtTime(.0001, AC.currentTime + dur);
+    src.connect(f); f.connect(g); g.connect(AC.destination);
+    src.start();
+    beep(1400, 0, 0.05, 'square', 0.05); beep(90, 0.02, 0.4, 'sine', 0.22);
+  } catch (e) {}
+}
+function gdBossEnter(){
+  if (bossFx.active || !boss || boss.dead) return;
+  bossFx.active = true;
+  bossFx.arrival = 2.6;
+  bossFx.savedMood = music.mood === 'boss' ? 'day' : music.mood;
+  music.mood = 'boss'; music.step = 0;
+  try { if (AC) music.next = AC.currentTime + 0.05; } catch (e) {}
+  flashT = 1;
+  bossFx.boltT = 0.5; bossFx.boltX = boss.x + boss.w / 2 + (Math.random() * 160 - 80);
+  bossFx.nextBolt = 5 + Math.random() * 4;
+  gdThunder(boss.sword ? 1 : 0.8);
+  beep(55, 0, 1.1, 'sine', 0.24); beep(58.27, 0.12, 1.0, 'sine', 0.2); beep(110, 0.24, 0.7, 'triangle', 0.12);
+  addFloater(boss.x + boss.w / 2, boss.y - boss.h - 64, '⚠ ' + (boss.name || 'GUARDIAN') + ' ⚠', '#ff5a3c', 19);
+}
+function gdBossExit(){
+  if (!bossFx.active) return;
+  bossFx.active = false; bossFx.arrival = 0; bossFx.boltT = 0;
+  music.mood = bossFx.savedMood;
+}
+function gdBossFxTick(dt){
+  if (!bossFx.active) return;
+  if (bossFx.arrival > 0) bossFx.arrival -= dt;
+  if (bossFx.boltT > 0) bossFx.boltT -= dt;
+  if (boss && !boss.dead){
+    bossFx.nextBolt -= dt;
+    if (bossFx.nextBolt <= 0){
+      bossFx.nextBolt = 5 + Math.random() * 5;
+      flashT = Math.max(flashT, 0.85);
+      bossFx.boltT = 0.45; bossFx.boltX = boss.x + boss.w / 2 + (Math.random() * 260 - 130);
+      gdThunder(0.55);
+    }
+  }
+}
+function drawBossBolt(){
+  if (!boss) return;
+  const bx = bossFx.boltX, endY = Math.max(110, boss.y - boss.h - 46);
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,240,0.95)'; ctx.lineWidth = 3;
+  ctx.shadowColor = '#cfe8ff'; ctx.shadowBlur = 14;
+  ctx.beginPath();
+  ctx.moveTo(bx, 4);
+  const steps = 5;
+  for (let i = 1; i <= steps; i++){
+    const yy = 4 + (endY - 4) * i / steps;
+    const xx = bx + (i === steps ? 0 : (i % 2 ? -9 : 7));
+    ctx.lineTo(xx, yy);
+  }
+  ctx.stroke();
+  ctx.lineWidth = 1.4; ctx.strokeStyle = 'rgba(180,220,255,0.8)';
+  ctx.beginPath(); ctx.moveTo(bx + 4, endY * 0.45); ctx.lineTo(bx + 26, endY * 0.62); ctx.lineTo(bx + 15, endY * 0.66); ctx.stroke();
+  ctx.restore();
+}
+/* ============ POWER BAR above the boss's head (Tom, Nov 8) ============
+   The primary health readout: attached to the boss, moves with him.
+   The bar drops the moment damage lands — the chunk just lost stays
+   lit (ghost) for half a second — and the remaining power shows as a
+   number (6/8) right on the bar, readable in a still screenshot. */
+function drawBossPowerBar(b){
+  const cx = b.x + b.w / 2, topY = b.y - b.hop - b.h;
+  const bw = 118, bh = 13, bx = cx - bw / 2, by = topY - 46;
+  const maxHp = b.maxHp || b.hp || 1;
+  const frac = Math.max(0, b.hp / maxHp);
+  const ghost = (b.dmgT > 0 && b.dmgHp != null) ? Math.max(frac, Math.min(1, b.dmgHp / maxHp)) : frac;
+  ctx.save();
+  ctx.font = '900 11px system-ui'; ctx.textAlign = 'center';
+  ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(20,8,0,0.78)';
+  ctx.strokeText(b.name || 'GUARDIAN', cx, by - 6);
+  ctx.fillStyle = b.accent || '#ffd76a';
+  ctx.fillText(b.name || 'GUARDIAN', cx, by - 6);
+  ctx.fillStyle = 'rgba(12,6,4,0.80)';
+  if (ctx.roundRect){ ctx.beginPath(); ctx.roundRect(bx - 2.5, by - 2.5, bw + 5, bh + 5, 6); ctx.fill(); }
+  else ctx.fillRect(bx - 2.5, by - 2.5, bw + 5, bh + 5);
+  ctx.strokeStyle = b.enraged ? '#ff3b30' : (b.crown || '#ffb700'); ctx.lineWidth = 2;
+  if (ctx.roundRect){ ctx.beginPath(); ctx.roundRect(bx - 2.5, by - 2.5, bw + 5, bh + 5, 6); ctx.stroke(); }
+  else ctx.strokeRect(bx - 2.5, by - 2.5, bw + 5, bh + 5);
+  if (ghost > frac){
+    ctx.fillStyle = 'rgba(255,244,205,0.95)';
+    ctx.fillRect(bx + bw * frac, by, bw * (ghost - frac), bh);
+  }
+  if (frac > 0){
+    const fg = ctx.createLinearGradient(bx, by, bx, by + bh);
+    if (b.enraged){ fg.addColorStop(0, '#ff8a5c'); fg.addColorStop(1, '#e62e00'); }
+    else { fg.addColorStop(0, '#ffe98a'); fg.addColorStop(0.55, '#ffb700'); fg.addColorStop(1, '#e07b00'); }
+    ctx.fillStyle = fg;
+    ctx.fillRect(bx, by, bw * frac, bh);
+  }
+  /* segment ticks */
+  ctx.fillStyle = 'rgba(20,10,0,0.35)';
+  for (let i = 1; i < maxHp; i++) ctx.fillRect(bx + bw * i / maxHp - 0.75, by + 1.5, 1.5, bh - 3);
+  /* the number, on the bar */
+  ctx.font = '900 11.5px system-ui';
+  ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(30,15,0,0.85)';
+  const label = b.hp + '/' + maxHp;
+  ctx.strokeText(label, cx, by + bh - 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(label, cx, by + bh - 2);
+  ctx.restore();
+}
+
 function buildLegacy(n){
   gdSetWorld(n);
   const T1 = n === 1 ? gdLegacyExtend() : null;
@@ -956,19 +1159,37 @@ function buildLegacy(n){
       });
     }
   }
-  /* boss (L10 only) — stationed on the final ground segment, before the nest */
-  let boss = null;
-  if (n === 10){
-    const fin = grounds[grounds.length - 1];
-    boss = { x: NEST_X - 300, minX: fin[0] + 60, maxX: NEST_X - 170, y: GROUND_Y, w: 72, h: 96,
-      hp: 8, stun: 0, dir: 1, speed: 34, chargeT: 0, chargeDir: 1, hop: 0, hopV: 0, dead: false, enraged: false, sword: true };
+  /* BIG FLOORS (Tom, Nov 8) — the floor transform: every ground
+     segment becomes a wide floor field, each higher than the last */
+  const _gsL = grounds.map(([x, w]) => ({ x, y: GROUND_Y, w }));
+  const _FL = gdRiseField(_gsL);
+  const floorY = _FL.floorY;
+  for (const p of plats){ p.y = Math.round(p.y - _FL.riseAt(p.x + p.w / 2)); }
+  clampPlatforms(plats, _gsL.map((g, i) => ({ x: g.x, y: floorY[i], w: g.w })));
+  for (const wd of walkerDefs) wd.y = Math.round(wd.y - _FL.riseAt((wd.minX + wd.maxX) / 2));
+  if (feather) feather.y = Math.round(feather.y - _FL.riseAt(feather.x));
+  if (egg) egg.y = Math.round(egg.y - _FL.riseAt(egg.x));
+  for (const mv of movers){
+    /* movers live INSIDE a pit: key the height off the pit's LOWER
+       edge so the jump up onto the mover stays the original 80-90px */
+    let ly = null, ry = null;
+    _gsL.forEach((g, i) => {
+      if (g.x + g.w <= mv.baseX + 2) ly = floorY[i];
+      if (g.x >= mv.baseX + mv.w - 2 && ry === null) ry = floorY[i];
+    });
+    const edge = Math.max(ly == null ? -1e9 : ly, ry == null ? -1e9 : ry);
+    if (edge > -1e8){ mv.baseY = edge - (mv.axis === 'v' ? 90 : 80); mv.y = mv.baseY; }
   }
-  const hFeathers = placeHiddenFeathers(grounds.map(([x, w]) => [x, GROUND_Y, w]), plats.map(p => [p.x, p.y, p.w]), walkerDefs, movers, feather);
-  const updrafts = placeUpdrafts(grounds.map(([x, w]) => [x, GROUND_Y, w]), plats.map(p => [p.x, p.y, p.w]), movers, hFeathers);
-  const batDefs = placeBats(grounds.map(([x, w]) => [x, GROUND_Y, w]), plats.map(p => [p.x, p.y, p.w]), walkerDefs, movers, feather, hFeathers, updrafts, n);
+  /* a boss on EVERY level (Tom, Nov 8) — the Guardian waits on the
+     final (top) floor, before the nest */
+  const _finL = grounds[grounds.length - 1];
+  const boss = gdMakeBoss(n, _finL[0], floorY[floorY.length - 1]);
+  const hFeathers = placeHiddenFeathers(grounds.map(([x, w], gi) => [x, floorY[gi], w]), plats.map(p => [p.x, p.y, p.w]), walkerDefs, movers, feather);
+  const updrafts = placeUpdrafts(grounds.map(([x, w], gi) => [x, floorY[gi], w]), plats.map(p => [p.x, p.y, p.w]), movers, hFeathers);
+  const batDefs = placeBats(grounds.map(([x, w], gi) => [x, floorY[gi], w]), plats.map(p => [p.x, p.y, p.w]), walkerDefs, movers, feather, hFeathers, updrafts, n);
   gClimb = grounds.map(([x, w]) => w === 900 && (x === 1440 || x === 3800));
-  const alcoveDef = placeAlcoves(grounds.map(([x, w]) => [x, GROUND_Y, w]), plats.map(p => [p.x, p.y, p.w]), walkerDefs, feather, egg, hFeathers, updrafts, movers, batDefs, n);
-  return { grounds: grounds.map(([x, w]) => [x, GROUND_Y, w]), platforms: plats.map(p => [p.x, p.y, p.w]), walkerDefs, nestX: NEST_X, feather, egg, movers, boss, hFeathers, updrafts, batDefs, alcove: alcoveDef };
+  const alcoveDef = placeAlcoves(grounds.map(([x, w], gi) => [x, floorY[gi], w]), plats.map(p => [p.x, p.y, p.w]), walkerDefs, feather, egg, hFeathers, updrafts, movers, batDefs, n);
+  return { grounds: grounds.map(([x, w], gi) => [x, floorY[gi], w]), platforms: plats.map(p => [p.x, p.y, p.w]), walkerDefs, nestX: NEST_X, feather, egg, movers, boss, hFeathers, updrafts, batDefs, alcove: alcoveDef };
 }
 
 /* ================= per-world layout archetypes (L2–L10) =================
@@ -1127,13 +1348,31 @@ function buildLevel(n){
       phase: ms.phase || 0, prevX: bx, prevY: by, dx: 0, dy: 0, isMover: true, ground: false,
     });
   }
-  /* boss (L10 only) — on the final segment, before the nest (unchanged) */
-  let boss = null;
-  if (n === 10){
-    const fin = grounds[grounds.length - 1];
-    boss = { x: NEST_X - 300, minX: fin[0] + 60, maxX: NEST_X - 170, y: fin[1], w: 72, h: 96,
-      hp: 8, stun: 0, dir: 1, speed: 34, chargeT: 0, chargeDir: 1, hop: 0, hopV: 0, dead: false, enraged: false, sword: true };
+  /* BIG FLOORS (Tom, Nov 8) — the floor transform: every ground
+     segment becomes a wide floor field, each higher than the last */
+  const _gsA = grounds.map(([x, y, w]) => ({ x, y, w }));
+  const _FA = gdRiseField(_gsA);
+  grounds.forEach((g, i) => { g[1] = _FA.floorY[i]; });
+  for (const p of plats){ p.y = Math.round(p.y - _FA.riseAt(p.x + p.w / 2)); }
+  clampPlatforms(plats, grounds.map(([x, y, w]) => ({ x, y, w })));
+  for (const wd of walkerDefs) wd.y = Math.round(wd.y - _FA.riseAt((wd.minX + wd.maxX) / 2));
+  if (feather) feather.y = Math.round(feather.y - _FA.riseAt(feather.x));
+  if (egg) egg.y = Math.round(egg.y - _FA.riseAt(egg.x));
+  for (const mv of movers){
+    /* movers live INSIDE a pit: key the height off the pit's LOWER
+       edge so the jump up onto the mover stays the original 80-90px */
+    let ly = null, ry = null;
+    for (const [gx, gy, gw] of grounds){
+      if (gx + gw <= mv.baseX + 2) ly = gy;
+      if (gx >= mv.baseX + mv.w - 2 && ry === null) ry = gy;
+    }
+    const edge = Math.max(ly == null ? -1e9 : ly, ry == null ? -1e9 : ry);
+    if (edge > -1e8){ mv.baseY = edge - (mv.axis === 'v' ? 90 : 80); mv.y = mv.baseY; }
   }
+  /* a boss on EVERY level (Tom, Nov 8) — a themed Guardian on the
+     final (top) floor; L10 keeps the Garuda Swordmaster */
+  const fin = grounds[grounds.length - 1];
+  const boss = gdMakeBoss(n, fin[0], fin[1]);
   const hFeathers = placeHiddenFeathers(grounds, plats.map(p => [p.x, p.y, p.w]), walkerDefs, movers, feather);
   const updrafts = placeUpdrafts(grounds, plats.map(p => [p.x, p.y, p.w]), movers, hFeathers);
   const batDefs = placeBats(grounds, plats.map(p => [p.x, p.y, p.w]), walkerDefs, movers, feather, hFeathers, updrafts, n);
@@ -1270,7 +1509,7 @@ function placeUpdrafts(groundsA, platsA, movers, hFeathers){
    L10 keeps the boss arena (final segment) bat-free. */
 function placeBats(groundsA, platsA, walkerDefs, movers, feather, hFeathers, updrafts, n){
   const want = n <= 1 ? 1 : n <= 3 ? 2 : n <= 6 ? 3 : 4;
-  const finX = (n === 10 && groundsA.length) ? groundsA[groundsA.length - 1][0] : Infinity;
+  const finX = groundsA.length ? groundsA[groundsA.length - 1][0] : Infinity;   /* every level's boss arena stays bat-free */
   function surfaceBelow(x, fromY){
     let best = 648;
     for (const g of groundsA) if (x >= g[0] && x <= g[0] + g[2] && g[1] > fromY) best = Math.min(best, g[1]);
@@ -1363,7 +1602,7 @@ function placeAlcoves(groundsA, platsA, walkerDefs, feather, egg, hFeathers, upd
     return true;
   }
   const segs = groundsA.map((g, i) => ({ i, x: g[0], y: g[1], w: g[2] }))
-    .filter(s => s.w >= 430 && !gClimb[s.i] && !(n === 10 && s.i === groundsA.length - 1))
+    .filter(s => s.w >= 430 && !gClimb[s.i] && s.i !== groundsA.length - 1   /* the boss arena segment never hosts the alcove */)
     .sort((a, b) => b.w - a.w);
   /* scan each segment (longest first) in 10px steps — a fixed handful
      of fractions is too coarse: on the tight levels every fraction
@@ -1430,6 +1669,7 @@ let bestLevel = +(localStorage.getItem('garudaBestLevel') || 0);
 let standMover = null;
 const intro = { on: false, t: 0 };
 let cam = 0, checkpoint = 40, runTime = 0;
+let checkpointY = GROUND_Y;   /* top of the floor the checkpoint sits on */
 let screechCd = 0, screechFx = null, invuln = 0;
 /* SWORD COMBAT (Tom's ruling, Nov 8): the screech button is now the
    SWORD button — same slot, same press. A swing is a fast arc in the
@@ -1738,6 +1978,7 @@ function startLevel(n, quiet, withIntro){
   egg = L.egg ? { ...L.egg } : null;
   boss = L.boss ? { ...L.boss } : null;
   bossDefeated = false;
+  bossFx.active = false; bossFx.arrival = 0; bossFx.boltT = 0;
   barrierX = L_NESTX - 90;
   standMover = null;
   levelTime = 0;
@@ -1751,7 +1992,7 @@ function startLevel(n, quiet, withIntro){
   stompChain = 0;
   gdRefillShield();
   P.x = 40; P.y = 380; P.vx = 0; P.vy = 0; P.face = 1; P.onGround = false; P.gliding = false;
-  cam = 0; checkpoint = 40; screechCd = 0; screechFx = null; invuln = 0; flinchT = 0;
+  cam = 0; checkpoint = 40; checkpointY = L_GROUNDS.length ? L_GROUNDS[0][1] : GROUND_Y; screechCd = 0; screechFx = null; invuln = 0; flinchT = 0;
   particles = []; floaters = []; landT = 0; shakeT = 0;
   hitStopT = 0; coinChain = 0; coinChainT = 0;
   ambientT = 0; flashT = 0; nextFlash = 3 + Math.random() * 4;
@@ -1775,8 +2016,8 @@ function levelComplete(){
   lastTimeBonus = Math.min(600, Math.max(0, Math.ceil(par - levelTime)) * 10);
   score += lastTimeBonus;
   totalTimeBonus += lastTimeBonus;
-  confettiAt(L_NESTX + 26, GROUND_Y - 66);
-  addFloater(L_NESTX + 26, GROUND_Y - 90, '⏱ TIME BONUS +' + lastTimeBonus, '#bffbff', 16);
+  confettiAt(L_NESTX + 26, (boss ? boss.y : GROUND_Y) - 66);
+  addFloater(L_NESTX + 26, (boss ? boss.y : GROUND_Y) - 90, '⏱ TIME BONUS +' + lastTimeBonus, '#bffbff', 16);
   beep(660, 0, 0.1, 'sine', 0.1); beep(880, 0.09, 0.12, 'sine', 0.1); beep(1320, 0.18, 0.16, 'sine', 0.09);
   const prevTier = skinTier(bestLevel);
   bestLevel = Math.max(bestLevel, level);
@@ -1851,7 +2092,7 @@ function hurt(fromPit){
   if (lives <= 0){ showOver('dead'); return; }
   if (fromPit){
     sealAlcove();
-    P.x = checkpoint; P.y = 360; P.vx = 0; P.vy = 0;
+    P.x = checkpoint; P.y = checkpointY - P.h - 30; P.vx = 0; P.vy = 0;   /* respawn just above the checkpoint floor */
   } else {
     P.vy = -270; P.vx = -P.face * 190;
     shakeT = Math.max(shakeT, 0.85);   /* damage: bigger shake than a stomp, no freeze */
@@ -2006,7 +2247,7 @@ function update(dt){
          able to land on the far ledge instead of falling through it */
       if (P.x + P.w > s.x + 2 && P.x < s.x + s.w - 2 && prevBottom <= s.y + (s.ground ? 40 : 8) && P.y + P.h >= s.y){
         P.y = s.y - P.h; P.vy = 0; P.onGround = true;
-        if (s.ground) checkpoint = s.x + 14;
+        if (s.ground){ checkpoint = s.x + 14; checkpointY = s.y; }
         standMover = s.isMover ? s : null;
       }
     }
@@ -2235,8 +2476,13 @@ function update(dt){
       }
     }
   }
-  /* boss — the Inferno Guardian (L10 only) */
+  /* boss — a Guardian on every level, the Swordmaster on L10.
+     Crossing into the arena starts the arrival sequence. */
+  if (boss && !boss.dead && P.x + P.w > boss.minX - 260) gdBossEnter();
+  if (boss) gdBossFxTick(dt);
   if (boss && !boss.dead){
+    if (boss.hitT > 0) boss.hitT -= dt;
+    if (boss.dmgT > 0) boss.dmgT -= dt;
     if (boss.stun > 0) boss.stun -= dt;
     else {
       if (boss.chargeT > 0) boss.chargeT -= dt;
@@ -2265,17 +2511,15 @@ function update(dt){
       const bDive = bStomp && input.fastFall && P.vy > (gdPowerDive() ? GD_DIVE_VY : 720);
       if (bStomp){
         boss.hp--;
+        boss.dmgHp = boss.hp + 1; boss.dmgT = 0.55; boss.hitT = 0.18;
         P.vy = bDive ? GD_EAGLE_BOUNCE : -360;
         shakeT = Math.max(shakeT, 0.6);
         doHitStop(0.06);
         burst(boss.x + boss.w / 2, bTop, 14, '#9a8d7c', 180, 0.5, 2.8, 340);
         if (boss.hp <= 0){
           gbDefeat(boss);
-          burst(barrierX, GROUND_Y - 40, 12, '#8a8a92', 120, 0.8, 3, -40); /* barrier smoke puff */
-          addFloater(boss.x + boss.w / 2, bTop - 20, 'BOSS DOWN +500', '#ffd76a', 20);
-          beep(220, 0, 0.1, 'square', 0.12); beep(440, 0.1, 0.14, 'square', 0.11); beep(660, 0.2, 0.18, 'square', 0.1);
         } else {
-          if (boss.hp <= (boss.sword ? 3 : 2)) boss.enraged = true;
+          if (boss.hp <= Math.ceil(boss.maxHp / 3)) boss.enraged = true;
           addFloater(boss.x + boss.w / 2, bTop - 16, 'HIT! ' + boss.hp + ' HP', '#ffe9a8', 16);
           if (bDive) gdShockwave(boss.x + boss.w / 2, bTop);
           beep(140, 0, 0.12, 'square', 0.12);
@@ -2339,14 +2583,16 @@ function update(dt){
       if (boss && !boss.dead){
         const bcx2 = boss.x + boss.w / 2, pcx2 = P.x + P.w / 2;
         if (Math.abs(bcx2 - pcx2) < 108){
-          if (boss.sword && (boss.hopV > 0 || (boss.hop === 0 && boss.chargeT > 1.1))){
+          const inWindow = !boss.sword || boss.hopV > 0 || (boss.hop === 0 && boss.chargeT > 1.1);
+          if (inWindow){
             boss.hp--;
+            boss.dmgHp = boss.hp + 1; boss.dmgT = 0.55; boss.hitT = 0.18;
             shakeT = Math.max(shakeT, 0.6); doHitStop(0.06);
             burst(boss.x + boss.w / 2, boss.y - boss.hop - boss.h + 40, 16, '#ffd76a', 200, 0.5, 3, 340);
             if (boss.hp <= 0){
               gbDefeat(boss);
             } else {
-              if (boss.hp <= 3) boss.enraged = true;
+              if (boss.hp <= Math.ceil(boss.maxHp / 3)) boss.enraged = true;
               addFloater(boss.x + boss.w / 2, boss.y - boss.hop - boss.h - 16, 'HIT! ' + boss.hp + ' HP', '#ffe9a8', 17);
               beep(140, 0, 0.12, 'square', 0.12);
             }
@@ -2362,8 +2608,8 @@ function update(dt){
     if (swingT >= SWING_DUR) swingT = -1;
   }
   /* flame barrier: a wall while the boss lives (no damage, just no passing) */
-  if (level === 10 && boss && !boss.dead && P.x + P.w > barrierX) P.x = barrierX - P.w;
-  if (P.x + P.w > L_NESTX && P.onGround && !(level === 10 && boss && !boss.dead)){ levelComplete(); return; }
+  if (boss && !boss.dead && P.x + P.w > barrierX) P.x = barrierX - P.w;
+  if (P.x + P.w > L_NESTX && P.onGround && !(boss && !boss.dead)){ levelComplete(); return; }
   /* ambient weather + lightning */
   const T = THEMES[level - 1];
   ambientT -= dt;
@@ -3208,12 +3454,12 @@ function drawEgg(e){
    recovering from a lunge; a swing at any other moment is PARRIED. */
 function gbDefeat(b){
   b.dead = true; bossDefeated = true;
-  const fin = b.sword;
-  const pay = fin ? 1500 : 500;
+  const pay = b.bonus || (b.sword ? 1500 : 500);
   score += pay; hud();
+  gdBossExit();
   confettiAt(b.x + b.w / 2, b.y - b.hop - b.h);
-  burst(barrierX, GROUND_Y - 40, 12, '#8a8a92', 120, 0.8, 3, -40);
-  addFloater(b.x + b.w / 2, b.y - b.hop - b.h - 20, fin ? 'SWORDMASTER DOWN +1500' : 'BOSS DOWN +500', '#ffd76a', 20);
+  burst(barrierX, b.y - 40, 12, '#8a8a92', 120, 0.8, 3, -40);
+  addFloater(b.x + b.w / 2, b.y - b.hop - b.h - 20, (b.name || 'BOSS') + ' DOWN +' + pay, '#ffd76a', 20);
   beep(220, 0, 0.1, 'square', 0.12); beep(440, 0.1, 0.14, 'square', 0.11); beep(660, 0.2, 0.18, 'square', 0.1);
 }
 function drawSwordmaster(b){
@@ -3362,25 +3608,10 @@ function drawSwordmaster(b){
   ctx.beginPath(); ctx.moveTo(-1, -7.5); ctx.lineTo(9, -4.5); ctx.stroke();
   ctx.restore();
   ctx.restore();
-  /* HP pips — flame pips for the Guardian's 5; the Swordmaster shows 8 */
-  const maxHp = b.sword ? 8 : 5;
-  for (let i = 0; i < maxHp; i++){
-    const px = cx - (maxHp - 1) * 10 + i * 20, py = feetY - H - 26;
-    if (i < b.hp){
-      ctx.fillStyle = '#ff7a1a';
-      ctx.shadowColor = '#ff7a1a'; ctx.shadowBlur = 8;
-      ctx.beginPath();
-      ctx.moveTo(px, py + 8);
-      ctx.quadraticCurveTo(px - 5, py - 2, px, py - 9);
-      ctx.quadraticCurveTo(px + 5, py - 2, px, py + 8);
-      ctx.closePath(); ctx.fill();
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = '#ffe259';
-      ctx.beginPath(); ctx.arc(px, py + 2, 2.2, 0, 7); ctx.fill();
-    } else {
-      ctx.strokeStyle = 'rgba(200,200,210,0.5)'; ctx.lineWidth = 1.6;
-      ctx.beginPath(); ctx.arc(px, py, 5, 0, 7); ctx.stroke();
-    }
+  /* (health lives in the above-head POWER BAR now — drawBossPowerBar) */
+  if (b.hitT > 0){
+    ctx.fillStyle = `rgba(255,255,255,${(0.5 * Math.max(0, b.hitT) / 0.18).toFixed(3)})`;
+    ctx.beginPath(); ctx.ellipse(cx, feetY - H / 2, 30, H / 2, 0, 0, 7); ctx.fill();
   }
   if (stunned){
     ctx.fillStyle = '#ffe066';
@@ -3393,21 +3624,22 @@ function drawSwordmaster(b){
 }
 
 function drawBarrier(){
-  if (level !== 10 || !boss || boss.dead) return;
+  if (!boss || boss.dead) return;
+  const gy = boss.y;
   ctx.save();
   ctx.fillStyle = 'rgba(255,60,0,0.16)';
-  ctx.fillRect(barrierX - 3, GROUND_Y - 96, 10, 96);
+  ctx.fillRect(barrierX - 3, gy - 96, 10, 96);
   ctx.shadowColor = '#ff7a1a'; ctx.shadowBlur = 16;
   for (let i = 0; i < 4; i++){
     const fx = barrierX - 2 + i * 3;
     const fh = 44 + Math.sin(runTime * 11 + i * 1.9) * 14 + (i % 2) * 12;
-    const fg = ctx.createLinearGradient(0, GROUND_Y - fh, 0, GROUND_Y);
+    const fg = ctx.createLinearGradient(0, gy - fh, 0, gy);
     fg.addColorStop(0, '#ffe259'); fg.addColorStop(0.5, '#ff7a1a'); fg.addColorStop(1, '#e64a00');
     ctx.fillStyle = fg;
     ctx.beginPath();
-    ctx.moveTo(fx, GROUND_Y);
-    ctx.quadraticCurveTo(fx - 3, GROUND_Y - fh * 0.6, fx + 1.5, GROUND_Y - fh);
-    ctx.quadraticCurveTo(fx + 5, GROUND_Y - fh * 0.55, fx + 3, GROUND_Y);
+    ctx.moveTo(fx, gy);
+    ctx.quadraticCurveTo(fx - 3, gy - fh * 0.6, fx + 1.5, gy - fh);
+    ctx.quadraticCurveTo(fx + 5, gy - fh * 0.55, fx + 3, gy);
     ctx.closePath(); ctx.fill();
   }
   ctx.shadowBlur = 0;
@@ -3423,16 +3655,23 @@ function drawBoss(b){
   ctx.save();
   if (stunned) ctx.translate(Math.sin(runTime * 34) * 2, 0);
   const bg = ctx.createLinearGradient(0, top, 0, b.y - b.hop);
-  bg.addColorStop(0, '#4a4038'); bg.addColorStop(1, '#1a120c');
+  bg.addColorStop(0, (b.body || ['#4a4038', '#1a120c'])[0]); bg.addColorStop(1, (b.body || ['#4a4038', '#1a120c'])[1]);
   ctx.fillStyle = bg;
   ctx.beginPath();
   if (ctx.roundRect) ctx.roundRect(b.x + 2, top, b.w - 4, b.h, 14); else ctx.rect(b.x + 2, top, b.w - 4, b.h);
   ctx.fill();
   ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(10,6,4,0.9)';
   ctx.stroke();
-  /* big gold crown */
-  ctx.fillStyle = '#ffb700';
-  ctx.shadowColor = '#ffb700'; ctx.shadowBlur = 10;
+  /* hit flash — the body whites out for a beat on the strike frame */
+  if (b.hitT > 0){
+    ctx.fillStyle = `rgba(255,255,255,${(0.55 * Math.max(0, b.hitT) / 0.18).toFixed(3)})`;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(b.x + 2, top, b.w - 4, b.h, 14); else ctx.rect(b.x + 2, top, b.w - 4, b.h);
+    ctx.fill();
+  }
+  /* big crown in the boss's own theme colour */
+  ctx.fillStyle = b.crown || '#ffb700';
+  ctx.shadowColor = b.crown || '#ffb700'; ctx.shadowBlur = 10;
   ctx.beginPath();
   ctx.moveTo(b.x + 10, top);
   ctx.lineTo(b.x + 22, top - 18); ctx.lineTo(b.x + 36, top - 4);
@@ -3467,7 +3706,7 @@ function drawBoss(b){
   ctx.closePath(); ctx.fill();
   ctx.shadowBlur = 0;
   /* cracks deepen as HP falls (stage = 5 − hp) */
-  const stage = 5 - b.hp;
+  const stage = (b.maxHp || 5) - b.hp;
   if (stage >= 1){
     ctx.strokeStyle = 'rgba(255,230,180,0.9)'; ctx.lineWidth = 2.2;
     ctx.beginPath();
@@ -3478,25 +3717,7 @@ function drawBoss(b){
     ctx.stroke();
   }
   ctx.restore();
-  /* HP flame pips */
-  for (let i = 0; i < 5; i++){
-    const px = cx - 40 + i * 20, py = top - 30;
-    if (i < b.hp){
-      ctx.fillStyle = '#ff7a1a';
-      ctx.shadowColor = '#ff7a1a'; ctx.shadowBlur = 8;
-      ctx.beginPath();
-      ctx.moveTo(px, py + 8);
-      ctx.quadraticCurveTo(px - 5, py - 2, px, py - 9);
-      ctx.quadraticCurveTo(px + 5, py - 2, px, py + 8);
-      ctx.closePath(); ctx.fill();
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = '#ffe259';
-      ctx.beginPath(); ctx.arc(px, py + 2, 2.2, 0, 7); ctx.fill();
-    } else {
-      ctx.strokeStyle = 'rgba(200,200,210,0.5)'; ctx.lineWidth = 1.6;
-      ctx.beginPath(); ctx.arc(px, py, 5, 0, 7); ctx.stroke();
-    }
-  }
+  /* (health lives in the above-head POWER BAR now — drawBossPowerBar) */
   if (stunned){
     ctx.fillStyle = '#ffe066';
     ctx.font = '900 17px system-ui'; ctx.textAlign = 'center';
@@ -3852,7 +4073,8 @@ function draw(){
   if (feather && !feather.taken) drawFeather(feather);
   for (const hf of hFeathers) if (!hf.taken) drawHiddenFeather(hf);
   if (egg && !egg.taken) drawEgg(egg);
-  if (boss && !boss.dead){ drawBarrier(); if (boss.sword) drawSwordmaster(boss); else drawBoss(boss); }
+  if (boss && !boss.dead){ drawBarrier(); if (boss.sword) drawSwordmaster(boss); else drawBoss(boss); drawBossPowerBar(boss); }
+  if (bossFx.boltT > 0 && boss) drawBossBolt();
   /* coins */
   for (const c of coins){
     if (c.taken) continue;
@@ -3958,6 +4180,20 @@ function draw(){
   vgr.addColorStop(1, T.dark ? 'rgba(0,0,10,0.34)' : 'rgba(20,40,90,0.16)');
   ctx.fillStyle = vgr;
   ctx.fillRect(0, 0, viewW, VH);
+  /* BOSS FIGHT atmosphere: the arena darkens and the screen edges
+     pulse red — fast and strong during the arrival, a slow pulse
+     for the rest of the fight. Never covers the boss or his bar. */
+  if (bossFx.active && boss && !boss.dead){
+    ctx.fillStyle = 'rgba(8,0,0,0.30)';
+    ctx.fillRect(0, 0, viewW, VH);
+    const arr = bossFx.arrival > 0;
+    const pulse = arr ? (0.34 + 0.30 * Math.sin(runTime * 18)) : (0.16 + 0.09 * Math.sin(runTime * 3.4));
+    const rg = ctx.createRadialGradient(viewW / 2, VH * 0.46, VH * 0.34, viewW / 2, VH * 0.52, VH * 0.92);
+    rg.addColorStop(0, 'rgba(255,0,0,0)');
+    rg.addColorStop(1, `rgba(255,26,0,${Math.max(0, pulse).toFixed(3)})`);
+    ctx.fillStyle = rg;
+    ctx.fillRect(0, 0, viewW, VH);
+  }
   ctx.restore();
   /* lightning flash */
   if (flashT > 0){
@@ -3967,7 +4203,7 @@ function draw(){
 }
 
 function drawNest(){
-  const nx = L_NESTX, ny = GROUND_Y;
+  const nx = L_NESTX, ny = L_GROUNDS.length ? L_GROUNDS[L_GROUNDS.length - 1][1] : GROUND_Y;   /* the nest sits on the top floor */
   ctx.save();
   ctx.translate(nx, ny);
   ctx.shadowColor = '#ffb700'; ctx.shadowBlur = 26;
