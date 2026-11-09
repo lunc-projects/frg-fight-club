@@ -244,9 +244,7 @@ export default function App() {
         <img className="site-logo" src="/lds-games-logo.webp" alt="Lunc Dev Studio Games" />
         <div className="title-row">
           <span className="glove" aria-hidden="true">🥊</span>
-          <img className="title-emblem" src="/luna-classic-emblem.webp" alt="Luna Classic" />
-          <h1>LUNC GAMES</h1>
-          <img className="title-emblem" src="/luna-classic-emblem.webp" alt="Luna Classic" />
+          <h1>L<span className="slot">U<img className="cres u-cres" src="/luna-crescent.png" alt="" aria-hidden="true" /></span>NC G<span className="slot">A<img className="cres a-cres" src="/luna-crescent.png" alt="" aria-hidden="true" /></span>MES</h1>
           <span className="glove glove-r" aria-hidden="true">🥊</span>
         </div>
         <p className="tag">Free to play. Climb the board. 🏆</p>
