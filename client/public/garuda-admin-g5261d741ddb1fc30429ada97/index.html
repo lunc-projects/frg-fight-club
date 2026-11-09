@@ -409,15 +409,6 @@
       <button class="play" id="adminWalletBtn" style="flex:1">🦅 SIGN IN WITH ADMIN WALLET</button>
     </div>
     <p style="font-size:12.5px; opacity:.85; max-width:520px; margin:2px auto 6px">Connect the Garuda team admin wallet in Keplr and sign a login message. The signature is on a message only — never a transaction, no fee, and it cannot move funds.</p>
-    <div class="nftRow">
-      <button class="play alt" id="adminKeyToggle" style="flex:1">Use the admin key instead</button>
-    </div>
-    <div id="adminKeyWrap" style="display:none">
-      <div class="nftRow">
-        <input id="adminKeyInput" type="password" autocomplete="off" placeholder="Admin key">
-        <button class="play" id="adminLoadBtn">LOAD</button>
-      </div>
-    </div>
     <div id="adminStatus" style="font-size:12.5px; min-height:16px; text-align:center"></div>
   </div>
   <div class="tabs">
@@ -5072,28 +5063,23 @@ try {
       token, kept here in memory only. The signature is on a message —
       never a transaction, no fee, it cannot move funds — and it is
       the ONLY signature anywhere in this game; playing never signs.
-   2. ADMIN KEY (fallback): the typed key is sent as the Bearer
-      credential, exactly as before; it is never stored either.
+   2. ADMIN KEY (fallback): a typed key can be sent as the Bearer
+      credential when the server has one set — server-side only; this
+      private page shows no key field (wallet sign-in is the way in,
+      per the admin guide). The token is the only credential here.
    Either way the panel is a worksheet: rank / name / wallet / score /
    date, full addresses with copy buttons. It makes NO payments —
    the Garuda team pays winners by hand from their own wallet.
    Public board above stays name+score only, unchanged. */
 let gdAdminData = null, gdAdminTab = 'all';
 let gdAdminToken = '';   /* wallet sign-in session token (memory only) */
-function gdAdminCred(){ return gdAdminToken || $('adminKeyInput').value.trim(); }
+function gdAdminCred(){ return gdAdminToken; }
 function gdAdminAuthFailMsg(){
-  const wasToken = !!gdAdminToken;
-  if (wasToken) gdAdminToken = '';
-  return wasToken ? 'Admin session expired — sign in with the wallet again.' : 'Wrong admin key.';
+  if (gdAdminToken) gdAdminToken = '';
+  return 'Admin session expired — sign in with the wallet again.';
 }
 $('adminBtn').onclick = () => { $('adminScreen').style.display = 'flex'; };
 $('adminClose').onclick = () => { $('adminScreen').style.display = 'none'; };
-$('adminKeyToggle').onclick = () => {
-  const w = $('adminKeyWrap');
-  const open = w.style.display === 'none';
-  w.style.display = open ? '' : 'none';
-  $('adminKeyToggle').textContent = open ? 'Hide the admin key' : 'Use the admin key instead';
-};
 /* Wallet sign-in: connect Keplr -> ask the server for a one-time
    login challenge for that wallet (the server only issues one to the
    admin wallet) -> sign the message in Keplr -> the server verifies
@@ -5144,7 +5130,7 @@ $('adminWalletBtn').onclick = gdAdminWalletSignIn;
 async function gdAdminLoad(){
   const key = gdAdminCred();
   const st = $('adminStatus');
-  if (!key){ st.textContent = 'Sign in with the admin wallet first — or open "Use the admin key instead".'; return; }
+  if (!key){ st.textContent = 'Sign in with the admin wallet first.'; return; }
   st.textContent = 'Loading…';
   try {
     const r = await fetch('/api/garuda-admin', { headers: { Authorization: 'Bearer ' + key } });
@@ -5192,7 +5178,6 @@ function gdAdminRender(){
     box.appendChild(row);
   });
 }
-$('adminLoadBtn').onclick = gdAdminLoad;
 $('admTabAll').onclick = () => { gdAdminTab = 'all'; gdAdminRender(); };
 $('admTabWeek').onclick = () => { gdAdminTab = 'week'; gdAdminRender(); };
 $('adminCopyBtn').onclick = async () => {
@@ -5531,7 +5516,10 @@ async function gdKeplrSigner(){
   return window.keplr.getOfflineSignerAuto(GD_CHAIN_ID);
 }
 async function gdLoadCosm(){
-  if (window.__gdCosm) return window.__gdCosm;
+  /* An already-present client (loaded by the page earlier, or injected
+     by a test harness) is used as-is. */
+  if (window.__gdCosm && window.__gdCosm.SigningStargateClient) return window.__gdCosm;
+  if (window.__fakeCosm && window.__fakeCosm.SigningStargateClient) return window.__fakeCosm;
   const urls = [
     'https://cdn.jsdelivr.net/npm/@cosmjs/stargate@0.32.4/+esm',
     'https://esm.run/@cosmjs/stargate@0.32.4',
