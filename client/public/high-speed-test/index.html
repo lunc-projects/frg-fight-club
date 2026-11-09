@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>LUNC HIGH SPEED — LUNC Dev Studio</title>
+<meta name="description" content="LUNC HIGH SPEED — an original first-person cockpit traffic driving game from LUNC Dev Studio. Weave through city highway traffic at 200+ km/h.">
+<meta name="theme-color" content="#05070d">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><path d='M62 8a40 40 0 1 0 30 58A44 44 0 0 1 62 8z' fill='%23ffcf3d'/></svg>">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{width:100%;height:100%;height:100dvh;overflow:hidden;background:#05070d;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;color:#fff;touch-action:none;user-select:none;-webkit-user-select:none}
+  #game{position:fixed;inset:0;height:100dvh}
+  canvas{display:block;width:100%;height:100%}
+  .hidden{display:none !important}
+
+  /* ================= HUD ================= */
+  #hud{position:fixed;inset:0;pointer-events:none;z-index:5}
+  #scoreBox{position:absolute;top:calc(env(safe-area-inset-top,0px) + 10px);left:10px;background:rgba(6,14,24,.74);border:2px solid #f2b63c;border-radius:14px;padding:6px 14px;min-width:118px}
+  #scoreBox .lab{font-size:10px;font-weight:800;letter-spacing:2px;color:#ffd76a}
+  #scoreBox .val{font-size:26px;font-weight:900;line-height:1.05;text-shadow:0 2px 0 #7a5200}
+  #scoreBox .sub{font-size:11.5px;font-weight:700;color:#bfe9ff}
+  #nearBox{position:absolute;top:calc(env(safe-area-inset-top,0px) + 10px);right:64px;background:rgba(6,14,24,.74);border:2px solid #27d8c8;border-radius:14px;padding:6px 12px;text-align:center;min-width:74px}
+  #nearBox .lab{font-size:10px;font-weight:800;letter-spacing:1px;color:#aef7ef}
+  #nearBox .val{font-size:24px;font-weight:900;line-height:1.05;color:#fff}
+  #muteBtn{position:absolute;top:calc(env(safe-area-inset-top,0px) + 10px);right:10px;width:44px;height:44px;border-radius:50%;pointer-events:auto;border:2px solid rgba(255,255,255,.35);background:rgba(6,14,24,.74);color:#fff;font-size:20px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+  #spdBox{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 148px);text-align:center;text-shadow:0 2px 10px #000}
+  #spdBox .spd{font-size:44px;font-weight:900;line-height:1;color:#fff}
+  #spdBox .spd small{font-size:15px;color:#ffd76a;letter-spacing:2px}
+  #popup{position:absolute;top:24%;left:50%;transform:translate(-50%,-50%) scale(.8);text-align:center;opacity:0;transition:opacity .12s,transform .12s}
+  #popup.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+  #popup .big{font-size:34px;font-weight:900;color:#ffd76a;text-shadow:0 3px 0 #7a5200,0 0 22px rgba(255,190,40,.65);letter-spacing:1px}
+  #popup .pts{font-size:20px;font-weight:900;color:#7dfcd8;text-shadow:0 2px 6px #000}
+  #bumpTag{position:absolute;top:34%;left:50%;transform:translate(-50%,-50%);font-size:24px;font-weight:900;color:#ff9d5c;text-shadow:0 2px 8px #000;opacity:0;transition:opacity .15s}
+  #bumpTag.show{opacity:1}
+  /* ⚡ NITROUS button — big, right thumb; grey until charged, gold + pulsing when ready */
+  #nitroBtn{position:absolute;right:16px;bottom:calc(env(safe-area-inset-bottom,0px) + 118px);width:98px;height:98px;border-radius:50%;pointer-events:auto;border:3px solid rgba(127,216,255,.4);background:radial-gradient(circle at 35% 30%,rgba(34,64,94,.92),rgba(8,18,32,.95));color:#7d94b8;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;overflow:hidden}
+  #nitroBtn .zap{font-size:34px;line-height:1}
+  #nitroBtn .cap{font-size:9.5px;font-weight:900;letter-spacing:1.5px;margin-top:2px}
+  #nitroBtn .fillbar{position:absolute;left:0;bottom:0;width:100%;height:0%;background:linear-gradient(180deg,rgba(255,205,61,.28),rgba(255,150,20,.5));pointer-events:none}
+  #nitroBtn.ready{border-color:#ffcf3d;color:#ffd76a;box-shadow:0 0 22px rgba(255,190,40,.75);animation:pulse .7s infinite alternate}
+  #nitroBtn.firing{border-color:#fff;color:#fff;background:radial-gradient(circle at 35% 30%,rgba(255,170,30,.95),rgba(160,70,0,.95));box-shadow:0 0 34px rgba(255,160,30,.95)}
+  @keyframes pulse{from{transform:scale(1)}to{transform:scale(1.07)}}
+  /* Joystick */
+  #joyBase{position:absolute;left:22px;bottom:calc(env(safe-area-inset-bottom,0px) + 104px);width:128px;height:128px;border-radius:50%;pointer-events:auto;background:radial-gradient(circle,rgba(20,40,66,.42),rgba(8,16,30,.6));border:2px solid rgba(140,200,255,.4)}
+  #joyKnob{position:absolute;left:50%;top:50%;width:58px;height:58px;border-radius:50%;transform:translate(-50%,-50%);background:radial-gradient(circle at 35% 30%,#5f87b8,#223c5e);border:2px solid rgba(255,255,255,.55);box-shadow:0 4px 12px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;font-size:20px;color:#cfe8ff}
+  #joyHint{position:absolute;left:22px;bottom:calc(env(safe-area-inset-bottom,0px) + 84px);width:128px;text-align:center;font-size:10px;font-weight:800;letter-spacing:1.5px;color:rgba(200,230,255,.75)}
+  #flash{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:8}
+  #dmgVig{position:fixed;inset:0;pointer-events:none;z-index:4;background:radial-gradient(ellipse at center,transparent 55%,rgba(255,30,0,.55) 100%);opacity:0;transition:opacity .1s}
+
+  /* ================= Screens ================= */
+  .screen{position:fixed;inset:0;z-index:10;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;overflow-y:auto;padding:calc(env(safe-area-inset-top,0px) + 22px) 18px calc(env(safe-area-inset-bottom,0px) + 20px);background:linear-gradient(180deg,rgba(4,10,22,.88),rgba(4,8,18,.94))}
+  .logoCres{width:74px;height:74px;filter:drop-shadow(0 0 16px rgba(255,200,50,.55))}
+  h1.title{font-size:44px;font-weight:900;letter-spacing:1px;text-align:center;line-height:1.02;margin-top:8px;background:linear-gradient(180deg,#fff2c0,#ffcf3d 55%,#e08b00);-webkit-background-clip:text;background-clip:text;color:transparent;text-shadow:none}
+  .tagline{margin-top:8px;font-size:15px;font-weight:700;color:#bfe9ff;text-align:center;max-width:330px}
+  .studioLine{margin-top:5px;font-size:11px;font-weight:800;letter-spacing:3px;color:#ffd76a}
+  .bestLine{margin-top:14px;background:rgba(10,24,44,.8);border:1.5px solid rgba(255,205,61,.5);border-radius:12px;padding:7px 16px;font-size:13.5px;font-weight:800;color:#ffe9a8}
+  .bigBtn{margin-top:18px;pointer-events:auto;background:linear-gradient(180deg,#ffd76a,#f0a500);color:#231500;font-size:23px;font-weight:900;letter-spacing:1px;border:none;border-radius:16px;padding:15px 52px;cursor:pointer;box-shadow:0 6px 0 #8a5c00,0 12px 26px rgba(0,0,0,.5)}
+  .bigBtn:active{transform:translateY(3px);box-shadow:0 3px 0 #8a5c00}
+  .howCard{margin-top:20px;width:100%;max-width:352px;background:rgba(8,18,34,.85);border:1.5px solid rgba(120,190,255,.35);border-radius:16px;padding:14px 16px}
+  .howCard h2{font-size:14px;letter-spacing:2px;color:#7dfcd8;margin-bottom:8px}
+  .howCard p{font-size:13.5px;line-height:1.55;color:#dcefff;white-space:pre-line}
+  .localNote{margin-top:14px;font-size:11.5px;color:rgba(200,220,255,.65);text-align:center;max-width:320px;line-height:1.5}
+  #langSel{margin-top:16px;pointer-events:auto;background:rgba(8,18,34,.9);color:#fff;border:1.5px solid rgba(255,205,61,.55);border-radius:12px;font-size:15px;font-weight:700;padding:9px 14px;max-width:280px}
+  .statRows{margin-top:16px;width:100%;max-width:320px}
+  .statRow{display:flex;justify-content:space-between;background:rgba(8,18,34,.85);border:1px solid rgba(120,190,255,.3);border-radius:12px;padding:10px 16px;margin-top:8px;font-size:15px;font-weight:800}
+  .statRow .v{color:#ffd76a;font-weight:900}
+  #newBest{display:none;margin-top:12px;background:linear-gradient(180deg,#ffd76a,#f0a500);color:#231500;font-weight:900;font-size:14px;border-radius:20px;padding:6px 18px;letter-spacing:1px}
+  h1.overTitle{font-size:40px;font-weight:900;color:#ff6b57;text-shadow:0 3px 0 #6e1300,0 0 24px rgba(255,60,30,.5);text-align:center;margin-top:6px}
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="dmgVig"></div>
+<div id="flash"></div>
+
+<!-- ================= HUD ================= -->
+<div id="hud" class="hidden">
+  <div id="scoreBox"><div class="lab" data-i="score">SCORE</div><div class="val" id="hudScore">0</div><div class="sub"><span id="hudDist">0</span> m</div></div>
+  <div id="nearBox"><div class="lab" data-i="near">NEAR MISS</div><div class="val" id="hudNear">0</div></div>
+  <div id="muteBtn">🔊</div>
+  <div id="popup"><div class="big" data-i="nearBig">NEAR MISS!</div><div class="pts" id="popupPts">+0</div></div>
+  <div id="bumpTag">💥 BUMP!</div>
+  <div id="spdBox"><div class="spd"><span id="hudSpd">0</span> <small>KM/H</small></div></div>
+  <div id="joyBase"><div id="joyKnob">✥</div></div>
+  <div id="joyHint" data-i="joyHint">STEER · GAS · BRAKE</div>
+  <div id="nitroBtn"><div class="fillbar" id="nitroFill"></div><div class="zap">⚡</div><div class="cap" data-i="nitro">NITROUS</div></div>
+</div>
+
+<!-- ================= MENU ================= -->
+<div id="menu" class="screen">
+  <svg class="logoCres" viewBox="0 0 100 100"><path d="M62 8a40 40 0 1 0 30 58A44 44 0 0 1 62 8z" fill="#ffcf3d"/></svg>
+  <h1 class="title">LUNC<br>HIGH SPEED</h1>
+  <div class="tagline" data-i="tag">First-person cockpit driving. Weave through city traffic at 200+ km/h — one crash ends the run.</div>
+  <div class="studioLine">LUNC DEV STUDIO</div>
+  <div class="bestLine" id="menuBest">🏆 0</div>
+  <button class="bigBtn" id="btnPlay">▶ <span data-i="play">DRIVE</span></button>
+  <div class="howCard"><h2 data-i="howTitle">HOW TO PLAY</h2><p data-i="how">🕹️ Joystick: push UP = gas, DOWN = brake, LEFT / RIGHT = steer
+⚡ Near misses charge your NITROUS — tap the ⚡ button to boost
+💥 Sideswipes bump traffic aside and cost speed — a head-on crash ends the run
+🏆 Score = distance + near-miss bonuses. Faster passes pay more!</p></div>
+  <select id="langSel" aria-label="Language"></select>
+  <div class="localNote" data-i="local">Leaderboard is local to this device (best score &amp; distance saved on your phone only).</div>
+</div>
+
+<!-- ================= RESULTS ================= -->
+<div id="over" class="screen hidden">
+  <svg class="logoCres" viewBox="0 0 100 100"><path d="M62 8a40 40 0 1 0 30 58A44 44 0 0 1 62 8z" fill="#ff6b57"/></svg>
+  <h1 class="overTitle" data-i="over">WRECKED!</h1>
+  <div id="newBest">★ <span data-i="newBest">NEW BEST!</span> ★</div>
+  <div class="statRows">
+    <div class="statRow"><span data-i="score">SCORE</span><span class="v" id="ovScore">0</span></div>
+    <div class="statRow"><span data-i="dist">DISTANCE</span><span class="v" id="ovDist">0 m</span></div>
+    <div class="statRow"><span data-i="near">NEAR MISS</span><span class="v" id="ovNear">0</span></div>
+    <div class="statRow"><span data-i="top">TOP SPEED</span><span class="v" id="ovTop">0</span></div>
+    <div class="statRow"><span data-i="best">BEST</span><span class="v" id="ovBest">0</span></div>
+  </div>
+  <button class="bigBtn" id="btnAgain">↻ <span data-i="again">DRIVE AGAIN</span></button>
+  <button class="bigBtn" id="btnMenu" style="background:linear-gradient(180deg,#9fd8ff,#3f8fd2);color:#06263f;box-shadow:0 6px 0 #1d4f73,0 12px 26px rgba(0,0,0,.5);font-size:18px;padding:12px 40px">☰ <span data-i="menuB">MENU</span></button>
+  <div class="localNote" data-i="local">Leaderboard is local to this device (best score &amp; distance saved on your phone only).</div>
+</div>
+
+<script type="importmap">
+{"imports":{"three":"./lib/three.module.js"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from './lib/GLTFLoader.js';
+
+/* ================================================================
+   LUNC HIGH SPEED — first-person cockpit traffic driving.
+   Original game by LUNC Dev Studio. Single-file Three.js build.
+   ================================================================ */
+
+/* ---------------- i18n ---------------- */
+const LANGS = [["en","English"],["es","Español"],["pt","Português"],["fr","Français"],["de","Deutsch"],["it","Italiano"],["nl","Nederlands"],["ru","Русский"],["uk","Українська"],["tr","Türkçe"],["ar","العربية"],["hi","हिन्दी"],["id","Bahasa Indonesia"],["vi","Tiếng Việt"],["th","ไทย"],["ko","한국어"],["ja","日本語"],["zh","简体中文"]];
+const I = {
+en:{tag:"First-person cockpit driving. Weave through city traffic at 200+ km/h — one crash ends the run.",play:"DRIVE",howTitle:"HOW TO PLAY",how:"🕹️ Joystick: push UP = gas, DOWN = brake, LEFT / RIGHT = steer\n⚡ Near misses charge your NITROUS — tap the ⚡ button to boost\n💥 Sideswipes bump traffic aside and cost speed — a head-on crash ends the run\n🏆 Score = distance + near-miss bonuses. Faster passes pay more!",score:"SCORE",near:"NEAR MISS",nearBig:"NEAR MISS!",dist:"DISTANCE",top:"TOP SPEED",best:"BEST",over:"WRECKED!",again:"DRIVE AGAIN",menuB:"MENU",newBest:"NEW BEST!",local:"Leaderboard is local to this device (best score & distance saved on your phone only).",nitro:"NITROUS",joyHint:"STEER · GAS · BRAKE"},
+es:{tag:"Conducción en primera persona. Esquiva el tráfico urbano a más de 200 km/h: un choque termina la partida.",play:"CONDUCIR",howTitle:"CÓMO JUGAR",how:"🕹️ Joystick: ARRIBA = acelerar, ABAJO = freno, IZQUIERDA / DERECHA = girar\n⚡ Los adelantamientos justos cargan tu NITRO — toca el botón ⚡ para impulsar\n💥 Los roces apartan el tráfico y cuestan velocidad; un choque frontal termina la partida\n🏆 Puntos = distancia + bonificaciones. ¡A más velocidad, más puntos!",score:"PUNTOS",near:"POR POCO",nearBig:"¡POR POCO!",dist:"DISTANCIA",top:"VEL. MÁX.",best:"RÉCORD",over:"¡CHOCASTE!",again:"OTRA VEZ",menuB:"MENÚ",newBest:"¡NUEVO RÉCORD!",local:"La clasificación es local de este dispositivo (mejor puntuación y distancia guardadas solo en tu teléfono).",nitro:"NITRO",joyHint:"GIRAR · GAS · FRENO"},
+pt:{tag:"Direção em primeira pessoa. Costure o trânsito da cidade a mais de 200 km/h — uma batida encerra a corrida.",play:"DIRIGIR",howTitle:"COMO JOGAR",how:"🕹️ Joystick: CIMA = acelerar, BAIXO = freio, ESQUERDA / DIREITA = virar\n⚡ Passagens raspando carregam seu NITRO — toque no botão ⚡ para turbinar\n💥 Encostadas empurram o trânsito e custam velocidade; batida de frente encerra a corrida\n🏆 Pontos = distância + bônus. Passagens mais rápidas pagam mais!",score:"PONTOS",near:"QUASE!",nearBig:"QUASE!",dist:"DISTÂNCIA",top:"VEL. MÁX.",best:"RECORDE",over:"BATEU!",again:"DE NOVO",menuB:"MENU",newBest:"NOVO RECORDE!",local:"O ranking é local deste aparelho (melhor pontuação e distância salvas só no seu telefone).",nitro:"NITRO",joyHint:"VIRAR · GAS · FREIO"},
+fr:{tag:"Conduite en vue cockpit. Slalomez dans le trafic urbain à plus de 200 km/h — un crash met fin à la course.",play:"CONDUIRE",howTitle:"COMMENT JOUER",how:"🕹️ Joystick : HAUT = gaz, BAS = frein, GAUCHE / DROITE = direction\n⚡ Les dépassements serrés chargent votre NITRO — touchez le bouton ⚡ pour booster\n💥 Les frôlements écartent le trafic et coûtent de la vitesse ; un choc frontal met fin à la course\n🏆 Score = distance + bonus. Plus c'est rapide, plus ça rapporte !",score:"SCORE",near:"FRÔLEMENT",nearBig:"FRÔLEMENT !",dist:"DISTANCE",top:"VITESSE MAX",best:"RECORD",over:"CRASH !",again:"RECOMMENCER",menuB:"MENU",newBest:"NOUVEAU RECORD !",local:"Le classement est local à cet appareil (meilleur score et distance enregistrés sur votre téléphone uniquement).",nitro:"NITRO",joyHint:"DIRECTION · GAZ · FREIN"},
+de:{tag:"Fahren aus der Cockpit-Perspektive. Mit über 200 km/h durch den Stadtverkehr — ein Crash beendet den Lauf.",play:"FAHREN",howTitle:"SO GEHT'S",how:"🕹️ Joystick: OBEN = Gas, UNTEN = Bremse, LINKS / RECHTS = lenken\n⚡ Knappes Überholen lädt dein NITRO — tippe auf den ⚡-Knopf für den Boost\n💥 Streifer schieben Autos beiseite und kosten Tempo — ein Frontalcrash beendet den Lauf\n🏆 Punkte = Strecke + Boni. Schnellere Manöver zahlen mehr!",score:"PUNKTE",near:"KNAPP!",nearBig:"KNAPP DANEBEN!",dist:"STRECKE",top:"TOP-TEMPO",best:"REKORD",over:"CRASH!",again:"NOCHMAL",menuB:"MENÜ",newBest:"NEUER REKORD!",local:"Die Rangliste ist lokal auf diesem Gerät (Bestleistung nur auf deinem Handy gespeichert).",nitro:"NITRO",joyHint:"LENKEN · GAS · BREMSE"},
+it:{tag:"Guida in prima persona. Sfila nel traffico cittadino a oltre 200 km/h: uno schianto chiude la corsa.",play:"GUIDA",howTitle:"COME SI GIOCA",how:"🕹️ Joystick: SU = gas, GIÙ = freno, SINISTRA / DESTRA = sterzo\n⚡ I sorpassi radenti caricano il NITRO — tocca il pulsante ⚡ per il boost\n💥 Le strisciate spingono via il traffico e costano velocità; lo scontro frontale chiude la corsa\n🏆 Punti = distanza + bonus. Più veloce passi, più guadagni!",score:"PUNTI",near:"SFISATO!",nearBig:"PER UN PELO!",dist:"DISTANZA",top:"VEL. MAX",best:"RECORD",over:"DISTRUTTA!",again:"ANCORA",menuB:"MENU",newBest:"NUOVO RECORD!",local:"La classifica è locale su questo dispositivo (miglior punteggio e distanza salvati solo sul tuo telefono).",nitro:"NITRO",joyHint:"STERZO · GAS · FRENO"},
+nl:{tag:"Rijden vanuit de cockpit. Slalom door stadsverkeer met 200+ km/u — één crash beëindigt de rit.",play:"RIJDEN",howTitle:"ZO SPEEL JE",how:"🕹️ Joystick: OMHOOG = gas, OMLAAG = rem, LINKS / RECHTS = sturen\n⚡ Rakelings passeren laadt je NITRO — tik op de ⚡-knop voor boost\n💥 Schampen duwt verkeer opzij en kost snelheid; frontaal botsen beëindigt de rit\n🏆 Score = afstand + bonussen. Sneller passeren betaalt meer!",score:"SCORE",near:"RAKELINGS",nearBig:"RAKELINGS!",dist:"AFSTAND",top:"TOPSNELHEID",best:"RECORD",over:"CRASH!",again:"OPNIEUW",menuB:"MENU",newBest:"NIEUW RECORD!",local:"Het klassement is lokaal op dit apparaat (beste score en afstand alleen op je telefoon opgeslagen).",nitro:"NITRO",joyHint:"STUREN · GAS · REM"},
+ru:{tag:"Вождение от первого лица. Лавируйте в городском потоке на скорости 200+ км/ч — одна авария завершает заезд.",play:"ЕХАТЬ",howTitle:"КАК ИГРАТЬ",how:"🕹️ Джойстик: ВВЕРХ = газ, ВНИЗ = тормоз, ВЛЕВО / ВПРАВО = руль\n⚡ Обгоны впритирку заряжают НИТРО — нажмите кнопку ⚡ для ускорения\n💥 Касания отталкивают машины и снижают скорость; лобовое столкновение завершает заезд\n🏆 Очки = дистанция + бонусы. Чем быстрее обгон, тем больше очков!",score:"ОЧКИ",near:"ВПРИТИРКУ",nearBig:"ВПРИТИРКУ!",dist:"ДИСТАНЦИЯ",top:"МАКС. СКОРОСТЬ",best:"РЕКОРД",over:"АВАРИЯ!",again:"ЕЩЁ РАЗ",menuB:"МЕНЮ",newBest:"НОВЫЙ РЕКОРД!",local:"Таблица рекордов локальна для этого устройства (лучший результат хранится только на вашем телефоне).",nitro:"НИТРО",joyHint:"РУЛЬ · ГАЗ · ТОРМОЗ"},
+uk:{tag:"Водіння від першої особи. Лавіруйте в міському потоці на швидкості 200+ км/год — одна аварія завершує заїзд.",play:"ЇХАТИ",howTitle:"ЯК ГРАТИ",how:"🕹️ Джойстик: ВГОРУ = газ, ВНИЗ = гальмо, ВЛІВО / ВПРАВО = кермо\n⚡ Обгони впритул заряджають НІТРО — натискайте кнопку ⚡ для прискорення\n💥 Дотики відштовхують машини й знижують швидкість; лобове зіткнення завершує заїзд\n🏆 Очки = дистанція + бонуси. Що швидший обгін, то більше очок!",score:"ОЧКИ",near:"ВПритул",nearBig:"ВПритул!",dist:"ДИСТАНЦІЯ",top:"МАКС. ШВИДКІСТЬ",best:"РЕКОРД",over:"АВАРІЯ!",again:"ЩЕ РАЗ",menuB:"МЕНЮ",newBest:"НОВИЙ РЕКОРД!",local:"Таблиця рекордів локальна для цього пристрою (найкращий результат зберігається лише на вашому телефоні).",nitro:"НІТРО",joyHint:"КЕРМО · ГАЗ · ГАЛЬМО"},
+tr:{tag:"Kokpitten sürüş. Şehir trafiğinde 200+ km/s hızla slalom yap — tek kaza yarışı bitirir.",play:"SÜR",howTitle:"NASIL OYNANIR",how:"🕹️ Kumanda: YUKARI = gaz, AŞAĞI = fren, SOL / SAĞ = direksiyon\n⚡ Sıyırarak geçişler NİTRO'nu doldurur — boost için ⚡ düğmesine dokun\n💥 Sürtünmeler trafiği kenara iter ve hız kaybettirir; kafa kafaya çarpma yarışı bitirir\n🏆 Skor = mesafe + bonuslar. Daha hızlı geçiş daha çok kazandırır!",score:"SKOR",near:"SIYIRDI!",nearBig:"SIYIRDI!",dist:"MESAFE",top:"MAKS HIZ",best:"REKOR",over:"KAZA!",again:"TEKRAR",menuB:"MENÜ",newBest:"YENİ REKOR!",local:"Sıralama bu cihaza özeldir (en iyi skor ve mesafe yalnızca telefonunuzda saklanır).",nitro:"NİTRO",joyHint:"DİREKSİYON · GAZ · FREN"},
+ar:{tag:"قيادة من داخل المقصورة. انطلق بين زحام المدينة بسرعة تفوق 200 كم/س — حادث واحد ينهي الجولة.",play:"انطلق",howTitle:"طريقة اللعب",how:"🕹️ عصا التحكم: لأعلى = وقود، لأسفل = فرامل، يسار / يمين = توجيه\n⚡ التجاوزات القريبة تشحن النيترو — اضغط زر ⚡ للانطلاق بقوة\n💥 الاحتكاك يدفع السيارات جانبًا ويكلفك سرعة؛ والاصطدام المباشر ينهي الجولة\n🏆 النقاط = المسافة + مكافآت التجاوز. كلما زادت السرعة زادت المكافأة!",score:"النقاط",near:"تجاوز قريب",nearBig:"!تجاوز قريب",dist:"المسافة",top:"السرعة القصوى",best:"الأفضل",over:"!تحطمت",again:"حاول مجددًا",menuB:"القائمة",newBest:"!رقم قياسي جديد",local:"قائمة الشرف محلية على هذا الجهاز (أفضل نتيجة ومسافة محفوظة على هاتفك فقط).",nitro:"نيترو",joyHint:"توجيه · وقود · فرامل"},
+hi:{tag:"कॉकपिट से ड्राइविंग। शहर के ट्रैफ़िक में 200+ किमी/घंटा की रफ़्तार — एक टक्कर और रन खत्म।",play:"चलाएँ",howTitle:"कैसे खेलें",how:"🕹️ जॉयस्टिक: ऊपर = गैस, नीचे = ब्रेक, बाएँ / दाएँ = स्टीयरिंग\n⚡ पास से निकलने पर नाइट्रो चार्ज होता है — बूस्ट के लिए ⚡ बटन दबाएँ\n💥 हल्की टक्कर ट्रैफ़िक को धकेलती है और रफ़्तार घटाती है; आमने-सामने की टक्कर रन खत्म करती है\n🏆 स्कोर = दूरी + बोनस। जितनी तेज़ पासिंग, उतने ज़्यादा अंक!",score:"स्कोर",near:"बाल-बाल",nearBig:"बाल-बाल बचे!",dist:"दूरी",top:"टॉप स्पीड",best:"सर्वश्रेष्ठ",over:"क्रैश!",again:"फिर से",menuB:"मेनू",newBest:"नया रिकॉर्ड!",local:"लीडरबोर्ड इसी डिवाइस पर है (सर्वश्रेष्ठ स्कोर और दूरी सिर्फ़ आपके फ़ोन में सहेजी जाती है)।",nitro:"नाइट्रो",joyHint:"स्टीयरिंग · गैस · ब्रेक"},
+id:{tag:"Mengemudi dari kokpit. Selap-selip di lalu lintas kota 200+ km/jam — satu tabrakan mengakhiri permainan.",play:"MENGEMUDI",howTitle:"CARA BERMAIN",how:"🕹️ Joystick: ATAS = gas, BAWAH = rem, KIRI / KANAN = setir\n⚡ Lewat mepet mengisi NITRO — ketuk tombol ⚡ untuk boost\n💥 Serempetan mendorong mobil lain dan mengurangi kecepatan; tabrakan depan mengakhiri permainan\n🏆 Skor = jarak + bonus. Makin cepat lewat, makin besar bonusnya!",score:"SKOR",near:"HAMPIR!",nearBig:"HAMPIR KENA!",dist:"JARAK",top:"KEC. MAKS",best:"TERBAIK",over:"TABRAKAN!",again:"LAGI",menuB:"MENU",newBest:"REKOR BARU!",local:"Papan peringkat bersifat lokal di perangkat ini (skor & jarak terbaik hanya tersimpan di ponsel Anda).",nitro:"NITRO",joyHint:"SETIR · GAS · REM"},
+vi:{tag:"Lái xe từ buồng lái. Luồn lách giữa giao thông thành phố ở 200+ km/h — một cú đâm là kết thúc.",play:"LÁI XE",howTitle:"CÁCH CHƠI",how:"🕹️ Cần điều khiển: LÊN = ga, XUỐNG = phanh, TRÁI / PHẢI = lái\n⚡ Vượt sát sạt sạc NITRO — chạm nút ⚡ để tăng tốc\n💥 Va quệt đẩy xe khác sang bên và làm giảm tốc; đâm trực diện là kết thúc\n🏆 Điểm = quãng đường + thưởng. Vượt càng nhanh càng nhiều điểm!",score:"ĐIỂM",near:"SÁT SẠT",nearBig:"SÁT SẠT!",dist:"QUÃNG ĐƯỜNG",top:"TỐC ĐỘ TỐI ĐA",best:"KỶ LỤC",over:"ĐÂM XE!",again:"LÁI LẠI",menuB:"MENU",newBest:"KỶ LỤC MỚI!",local:"Bảng xếp hạng chỉ lưu trên thiết bị này (điểm & quãng đường tốt nhất chỉ lưu trên điện thoại của bạn).",nitro:"NITRO",joyHint:"LÁI · GA · PHANH"},
+th:{tag:"ขับจากห้องคนขับ ลัดเลาะในการจราจรในเมืองที่ 200+ กม./ชม. — ชนครั้งเดียวจบเกม",play:"ขับเลย",howTitle:"วิธีเล่น",how:"🕹️ จอยสติ๊ก: ขึ้น = เร่ง, ลง = เบรก, ซ้าย / ขวา = บังคับเลี้ยว\n⚡ แซงเฉียด ๆ จะชาร์จไนโตร — แตะปุ่ม ⚡ เพื่อบูสต์\n💥 การเฉี่ยวชนจะดันรถคันอื่นออกและลดความเร็ว ส่วนการชนประสานงาจบเกมทันที\n🏆 คะแนน = ระยะทาง + โบนัส ยิ่งแซงเร็วยิ่งได้เยอะ!",score:"คะแนน",near:"เฉียด!",nearBig:"เฉียดไปนิดเดียว!",dist:"ระยะทาง",top:"ความเร็วสูงสุด",best:"สถิติ",over:"ชนแล้ว!",again:"ขับอีกครั้ง",menuB:"เมนู",newBest:"สถิติใหม่!",local:"ตารางคะแนนอยู่บนอุปกรณ์นี้เท่านั้น (คะแนนและระยะทางที่ดีที่สุดบันทึกในโทรศัพท์ของคุณเท่านั้น)",nitro:"ไนโตร",joyHint:"เลี้ยว · เร่ง · เบรก"},
+ko:{tag:"콕핏 1인칭 드라이빙. 시속 200km 이상으로 도심 교통을 누비세요 — 충돌 한 번이면 끝입니다.",play:"운전 시작",howTitle:"플레이 방법",how:"🕹️ 조이스틱: 위 = 가속, 아래 = 브레이크, 좌 / 우 = 조향\n⚡ 아슬아슬한 추월로 니트로 충전 — ⚡ 버튼을 눌러 부스트\n💥 스치는 접촉은 차량을 밀어내고 속도가 줄며, 정면 충돌하면 게임 종료\n🏆 점수 = 거리 + 보너스. 빠르게 추월할수록 보너스가 커집니다!",score:"점수",near:"아슬아슬",nearBig:"아슬아슬!",dist:"거리",top:"최고 속도",best:"최고 기록",over:"충돌!",again:"다시 운전",menuB:"메뉴",newBest:"신기록!",local:"리더보드는 이 기기에만 저장됩니다 (최고 점수와 거리는 휴대폰에만 저장).",nitro:"니트로",joyHint:"조향 · 가속 · 브레이크"},
+ja:{tag:"コックピット視点ドライビング。時速200km超で街の交通をすり抜けよう — クラッシュ1回で終了。",play:"ドライブ",howTitle:"遊び方",how:"🕹️ ジョイスティック：上＝アクセル、下＝ブレーキ、左／右＝ステアリング\n⚡ ギリギリの追い越しでニトロがチャージ — ⚡ボタンでブースト\n💥 かすり接触は相手を押しのけて減速、正面向突でゲーム終了\n🏆 スコア＝距離＋ボーナス。速く追い越すほど高得点！",score:"スコア",near:"ギリギリ",nearBig:"ギリギリ！",dist:"距離",top:"最高速度",best:"ベスト",over:"クラッシュ！",again:"もう一度",menuB:"メニュー",newBest:"新記録！",local:"ランキングはこの端末のみに保存されます（ベストスコアと距離はあなたのスマホだけに保存）。",nitro:"ニトロ",joyHint:"ステア · アクセル · ブレーキ"},
+zh:{tag:"第一人称座舱驾驶。以 200+ 公里/小时穿梭城市车流——撞车一次即结束。",play:"出发",howTitle:"玩法",how:"🕹️ 摇杆：上 = 油门，下 = 刹车，左 / 右 = 转向\n⚡ 擦身超车为氮气充能——点击 ⚡ 按钮加速冲刺\n💥 轻微剐蹭会把车辆推开并降低速度；正面相撞直接结束\n🏆 分数 = 距离 + 超车奖励。速度越快奖励越高！",score:"分数",near:"惊险超车",nearBig:"惊险超车！",dist:"距离",top:"最高速度",best:"最佳",over:"撞毁了！",again:"再来一局",menuB:"菜单",newBest:"新纪录！",local:"排行榜仅保存在本设备（最佳分数和距离只保存在您的手机上）。",nitro:"氮气",joyHint:"转向 · 油门 · 刹车"}
+};
+let lang = localStorage.getItem('hs_lang') || 'en';
+if (!I[lang]) lang = 'en';
+const langSel = document.getElementById('langSel');
+LANGS.forEach(function(L){ const o = document.createElement('option'); o.value = L[0]; o.textContent = '🌐 ' + L[1]; langSel.appendChild(o); });
+langSel.value = lang;
+function applyLang(){
+  const d = I[lang];
+  document.querySelectorAll('[data-i]').forEach(function(el){ const k = el.getAttribute('data-i'); if (d[k]) el.textContent = d[k]; });
+  document.documentElement.lang = lang;
+}
+langSel.addEventListener('change', function(){ lang = langSel.value; localStorage.setItem('hs_lang', lang); applyLang(); refreshBestLine(); });
+
+/* ---------------- Audio (all original WebAudio) ---------------- */
+const AudioSys = {
+  ctx:null, master:null, muted: localStorage.getItem('hs_mute')==='1',
+  engOsc:null, engOsc2:null, engGain:null, engFilter:null,
+  windSrc:null, windGain:null, windFilter:null,
+  musicTimer:null, musicGain:null, step:0, nextNote:0,
+  init(){
+    if (this.ctx) { if (this.ctx.state==='suspended') this.ctx.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    const c = this.ctx = new AC();
+    this.master = c.createGain(); this.master.gain.value = this.muted ? 0 : 0.9; this.master.connect(c.destination);
+    // engine: two detuned saws through a lowpass — pitch follows speed
+    this.engGain = c.createGain(); this.engGain.gain.value = 0;
+    this.engFilter = c.createBiquadFilter(); this.engFilter.type='lowpass'; this.engFilter.frequency.value = 420; this.engFilter.Q.value = 2;
+    this.engOsc = c.createOscillator(); this.engOsc.type='sawtooth'; this.engOsc.frequency.value = 55;
+    this.engOsc2 = c.createOscillator(); this.engOsc2.type='square'; this.engOsc2.frequency.value = 28;
+    const g2 = c.createGain(); g2.gain.value = 0.5;
+    this.engOsc.connect(this.engFilter); this.engOsc2.connect(g2); g2.connect(this.engFilter);
+    this.engFilter.connect(this.engGain); this.engGain.connect(this.master);
+    this.engOsc.start(); this.engOsc2.start();
+    // wind: looped noise through a bandpass — gain/freq follow speed
+    const len = c.sampleRate * 2, buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0);
+    for (let i=0;i<len;i++) d[i] = Math.random()*2-1;
+    this.windSrc = c.createBufferSource(); this.windSrc.buffer = buf; this.windSrc.loop = true;
+    this.windFilter = c.createBiquadFilter(); this.windFilter.type='bandpass'; this.windFilter.frequency.value = 380; this.windFilter.Q.value = 0.6;
+    this.windGain = c.createGain(); this.windGain.gain.value = 0;
+    this.windSrc.connect(this.windFilter); this.windFilter.connect(this.windGain); this.windGain.connect(this.master);
+    this.windSrc.start();
+    this.musicGain = c.createGain(); this.musicGain.gain.value = 0.13; this.musicGain.connect(this.master);
+  },
+  setEngine(kmh, rpmFrac, running){
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const f = 42 + kmh * 0.85 + rpmFrac * 26;
+    this.engOsc.frequency.setTargetAtTime(f, t, 0.05);
+    this.engOsc2.frequency.setTargetAtTime(f * 0.5, t, 0.05);
+    this.engFilter.frequency.setTargetAtTime(300 + kmh * 3.4, t, 0.08);
+    this.engGain.gain.setTargetAtTime(running ? 0.055 + Math.min(0.05, kmh/240*0.05) : 0, t, 0.09);
+    const wf = Math.pow(Math.min(1, kmh/260), 2);
+    this.windGain.gain.setTargetAtTime(running ? wf * 0.24 : 0, t, 0.12);
+    this.windFilter.frequency.setTargetAtTime(320 + wf * 1150, t, 0.12);
+  },
+  blip(freq, dur, type, vol, when){
+    if (!this.ctx) return;
+    const c = this.ctx, t = when || c.currentTime;
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = type || 'square'; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(this.musicGain); o.start(t); o.stop(t + dur + 0.02);
+  },
+  noiseBurst(dur, vol, fFrom, fTo, type){
+    if (!this.ctx) return;
+    const c = this.ctx, t = c.currentTime;
+    const len = Math.max(1, (c.sampleRate * dur)|0), buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0);
+    for (let i=0;i<len;i++) d[i] = (Math.random()*2-1) * (1 - i/len);
+    const s = c.createBufferSource(); s.buffer = buf;
+    const f = c.createBiquadFilter(); f.type = type || 'bandpass'; f.Q.value = 0.9;
+    f.frequency.setValueAtTime(fFrom, t); f.frequency.exponentialRampToValueAtTime(Math.max(40, fTo), t + dur);
+    const g = c.createGain(); g.gain.value = vol;
+    s.connect(f); f.connect(g); g.connect(this.master); s.start(t);
+  },
+  whoosh(){ this.noiseBurst(0.28, 0.5, 500, 2600); },
+  thud(){ if (!this.ctx) return; const c=this.ctx,t=c.currentTime,o=c.createOscillator(),g=c.createGain(); o.type='sine'; o.frequency.setValueAtTime(120,t); o.frequency.exponentialRampToValueAtTime(38,t+0.22); g.gain.setValueAtTime(0.55,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.26); o.connect(g); g.connect(this.master); o.start(t); o.stop(t+0.3); this.noiseBurst(0.16,0.3,900,200,'lowpass'); },
+  crashSnd(){ this.noiseBurst(0.7, 0.8, 3000, 90, 'lowpass'); this.thud(); },
+  startMusic(){
+    if (!this.ctx || this.musicTimer) return;
+    this.step = 0; this.nextNote = this.ctx.currentTime + 0.06;
+    const bass = [0,-1,-1,0, -1,-1,3,-1, 0,-1,-1,0, -1,5,-1,3];       // A-minor driving bass (semitone offsets from A1)
+    const arp  = [12,-1,15,-1, 19,-1,15,-1, 12,-1,15,-1, 17,-1,15,-1];
+    const spb = 60 / 138 / 2; // 138 BPM, 8th notes
+    this.musicTimer = setInterval(() => {
+      if (!this.ctx) return;
+      while (this.nextNote < this.ctx.currentTime + 0.14) {
+        const s = this.step % 16, t = this.nextNote;
+        if (bass[s] >= 0) this.blip(55 * Math.pow(2, bass[s]/12), 0.16, 'triangle', 0.5, t);
+        if (s % 4 === 0) this.blip(110, 0.3, 'sine', 0.35, t);
+        if (arp[s] >= 0 && (this.step >> 4) % 2 === 1) this.blip(220 * Math.pow(2, (arp[s]-12)/12), 0.12, 'square', 0.1, t);
+        this.nextNote += spb; this.step++;
+      }
+    }, 42);
+  },
+  stopMusic(){ if (this.musicTimer) { clearInterval(this.musicTimer); this.musicTimer = null; } },
+  stopAll(){ this.stopMusic(); if (this.ctx && this.ctx.state === 'running') this.ctx.suspend(); },
+  resume(){ if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); },
+  setMuted(m){ this.muted = m; localStorage.setItem('hs_mute', m ? '1' : '0'); if (this.master) this.master.gain.value = m ? 0 : 0.9; }
+};
+document.addEventListener('visibilitychange', () => { if (document.hidden) AudioSys.stopAll(); else { AudioSys.resume(); if (S.mode === 'race') AudioSys.startMusic(); } });
+window.addEventListener('pagehide', () => AudioSys.stopAll());
+
+/* ---------------- Canvas textures ---------------- */
+function cnv(w, h, fn){ const c = document.createElement('canvas'); c.width = w; c.height = h; fn(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.anisotropy = 4; return t; }
+function noiseOn(x, w, h, base, amp, n){
+  x.fillStyle = base; x.fillRect(0, 0, w, h);
+  for (let i = 0; i < n; i++){ const g = (Math.random()*amp)|0; x.fillStyle = 'rgba(' + g + ',' + g + ',' + g + ',0.16)'; x.fillRect(Math.random()*w, Math.random()*h, 2, 2); }
+}
+const roadTex = cnv(512, 512, (x, w, h) => {
+  noiseOn(x, w, h, '#33363b', 90, 2600);
+  // wheel-worn darker bands per lane
+  x.fillStyle = 'rgba(0,0,0,0.13)';
+  [0.125, 0.375, 0.625, 0.875].forEach(cx => { x.fillRect(cx*w - 34, 0, 26, h); x.fillRect(cx*w + 8, 0, 26, h); });
+  // solid edge lines
+  x.fillStyle = '#e8e8e2'; x.fillRect(10, 0, 7, h); x.fillRect(w - 17, 0, 7, h);
+  // dashed lane dividers (one dash per tile)
+  x.fillStyle = '#f5d90a'; x.fillRect(w*0.5 - 4, 30, 8, 190);
+  x.fillStyle = '#e8e8e2'; x.fillRect(w*0.25 - 4, 30, 8, 190); x.fillRect(w*0.75 - 4, 30, 8, 190);
+});
+roadTex.wrapS = roadTex.wrapT = THREE.RepeatWrapping; roadTex.repeat.set(1, 44);
+const groundTex = cnv(256, 256, (x, w, h) => { noiseOn(x, w, h, '#8a7a5c', 70, 1500); });
+groundTex.wrapS = groundTex.wrapT = THREE.RepeatWrapping; groundTex.repeat.set(2, 60);
+const railTex = cnv(256, 64, (x, w, h) => {
+  x.fillStyle = '#c8ccd2'; x.fillRect(0, 0, w, h);
+  x.fillStyle = '#b3312a'; x.fillRect(0, 0, w/2, h);
+  x.fillStyle = 'rgba(0,0,0,0.18)'; x.fillRect(0, h - 10, w, 10);
+});
+railTex.wrapS = railTex.wrapT = THREE.RepeatWrapping; railTex.repeat.set(60, 1);
+function buildingTex(base, win){
+  return cnv(128, 256, (x, w, h) => {
+    noiseOn(x, w, h, base, 40, 500);
+    for (let r = 0; r < 12; r++) for (let c = 0; c < 5; c++){
+      x.fillStyle = Math.random() < 0.42 ? win : 'rgba(16,24,38,0.9)';
+      x.fillRect(10 + c * 23, 12 + r * 20, 14, 11);
+    }
+    x.fillStyle = 'rgba(255,255,255,0.1)'; x.fillRect(0, 0, w, 6);
+  });
+}
+const bTexes = [buildingTex('#5b6b82', '#ffd76a'), buildingTex('#4a5a75', '#bfe9ff'), buildingTex('#6e6258', '#ffe9a8'), buildingTex('#3f5872', '#9ff5e2')];
+function billboardTexFn(lines, bg, fg, sub){
+  return cnv(512, 256, (x, w, h) => {
+    const g = x.createLinearGradient(0, 0, 0, h); g.addColorStop(0, bg); g.addColorStop(1, '#0a1424');
+    x.fillStyle = g; x.fillRect(0, 0, w, h);
+    x.strokeStyle = fg; x.lineWidth = 8; x.strokeRect(10, 10, w - 20, h - 20);
+    x.fillStyle = fg; x.textAlign = 'center';
+    x.font = '900 64px Arial'; x.fillText(lines[0], w/2, 108);
+    x.font = '900 52px Arial'; x.fillText(lines[1], w/2, 172);
+    if (sub){ x.fillStyle = '#ffffff'; x.font = '700 26px Arial'; x.fillText(sub, w/2, 218); }
+    x.beginPath(); x.arc(52, 52, 24, 0, Math.PI * 2); x.fillStyle = fg; x.fill();
+    x.beginPath(); x.arc(64, 46, 20, 0, Math.PI * 2); x.fillStyle = bg; x.fill();
+  });
+}
+const bbTexes = [
+  billboardTexFn(['LUNA', 'CLASSIC'], '#12325e', '#ffcf3d', 'LUNC DEV STUDIO'),
+  billboardTexFn(['LUNC', 'HIGH SPEED'], '#3d0a4e', '#7dfcd8', 'HOW FAST CAN YOU GO?'),
+  billboardTexFn(['LUNC DEV', 'STUDIO'], '#5e2a08', '#ffd76a', 'GAMES · APPS · TOOLS')
+];
+const gantryTex = cnv(1024, 128, (x, w, h) => {
+  x.fillStyle = '#0d3a24'; x.fillRect(0, 0, w, h);
+  x.strokeStyle = '#ffffff'; x.lineWidth = 5; x.strokeRect(8, 8, w - 16, h - 16);
+  x.fillStyle = '#ffffff'; x.textAlign = 'center'; x.font = '900 58px Arial';
+  x.fillText('🌙 LUNA CLASSIC · LUNC DEV STUDIO', w/2, 84);
+});
+const roadPaintTex = cnv(512, 256, (x, w, h) => {
+  x.clearRect(0, 0, w, h);
+  x.fillStyle = 'rgba(255,207,61,0.85)'; x.textAlign = 'center';
+  x.font = '900 74px Arial'; x.fillText('LUNA CLASSIC', w/2, 108);
+  x.font = '900 54px Arial'; x.fillText('🌙 LUNC 🌙', w/2, 190);
+});
+roadPaintTex.wrapS = roadPaintTex.wrapT = THREE.ClampToEdgeWrapping;
+const trailerTex = cnv(512, 256, (x, w, h) => {
+  x.fillStyle = '#eef1f4'; x.fillRect(0, 0, w, h);
+  x.fillStyle = '#12325e'; x.fillRect(0, 0, w, 54);
+  x.fillStyle = '#ffcf3d'; x.textAlign = 'center'; x.font = '900 44px Arial';
+  x.fillText('LUNC DEV STUDIO', w/2, 130);
+  x.fillStyle = '#12325e'; x.font = '700 28px Arial'; x.fillText('LUNA CLASSIC · HIGH SPEED', w/2, 176);
+  x.beginPath(); x.arc(w/2, 222, 18, 0, Math.PI * 2); x.fillStyle = '#ffcf3d'; x.fill();
+  x.beginPath(); x.arc(w/2 + 9, 217, 14, 0, Math.PI * 2); x.fillStyle = '#eef1f4'; x.fill();
+});
+const palmTex = cnv(128, 128, (x, w, h) => {
+  x.clearRect(0, 0, w, h); x.strokeStyle = '#2e8b3a'; x.lineWidth = 9; x.lineCap = 'round';
+  for (let i = 0; i < 6; i++){
+    const a = (i / 6) * Math.PI - 0.2;
+    x.beginPath(); x.moveTo(64, 70);
+    x.quadraticCurveTo(64 + Math.cos(a) * 34, 70 - Math.abs(Math.sin(a)) * 26 - 14, 64 + Math.cos(a) * 58, 74 - Math.sin(a) * 30 + 16);
+    x.stroke();
+  }
+  x.fillStyle = '#6b4a26'; x.beginPath(); x.arc(58, 74, 7, 0, Math.PI * 2); x.arc(72, 76, 6, 0, Math.PI * 2); x.fill();
+});
+function gaugeTex(max, label, redFrom){
+  return cnv(256, 256, (x, w, h) => {
+    x.fillStyle = '#0b0f16'; x.beginPath(); x.arc(128, 128, 126, 0, Math.PI * 2); x.fill();
+    const g = x.createRadialGradient(108, 100, 20, 128, 128, 130); g.addColorStop(0, '#232c3c'); g.addColorStop(1, '#0b0f16');
+    x.fillStyle = g; x.beginPath(); x.arc(128, 128, 122, 0, Math.PI * 2); x.fill();
+    x.strokeStyle = '#3d4c66'; x.lineWidth = 4; x.beginPath(); x.arc(128, 128, 118, 0, Math.PI * 2); x.stroke();
+    const a0 = Math.PI * 0.75, a1 = Math.PI * 2.25;
+    x.textAlign = 'center'; x.textBaseline = 'middle';
+    for (let v = 0; v <= max; v += (max > 100 ? 20 : 1)){
+      const a = a0 + (a1 - a0) * (v / max), cx = 128 + Math.cos(a) * 96, cy = 128 + Math.sin(a) * 96;
+      x.strokeStyle = v >= redFrom ? '#ff4444' : '#dfe8ff'; x.lineWidth = v % (max > 100 ? 40 : 2) === 0 ? 5 : 2;
+      x.beginPath(); x.moveTo(128 + Math.cos(a) * 104, 128 + Math.sin(a) * 104); x.lineTo(cx, cy); x.stroke();
+      if (v % (max > 100 ? 40 : 2) === 0){ x.fillStyle = v >= redFrom ? '#ff6666' : '#ffffff'; x.font = '900 25px Arial'; x.fillText(String(v), 128 + Math.cos(a) * 74, 128 + Math.sin(a) * 74); }
+    }
+    x.fillStyle = '#8fa8c8'; x.font = '800 19px Arial'; x.fillText(label, 128, 176);
+  });
+}
+const hubTex = cnv(128, 128, (x, w, h) => {
+  x.fillStyle = '#141a26'; x.beginPath(); x.arc(64, 64, 62, 0, Math.PI * 2); x.fill();
+  x.strokeStyle = '#ffcf3d'; x.lineWidth = 4; x.beginPath(); x.arc(64, 64, 57, 0, Math.PI * 2); x.stroke();
+  x.fillStyle = '#ffcf3d'; x.beginPath(); x.arc(58, 64, 34, 0, Math.PI * 2); x.fill();
+  x.fillStyle = '#141a26'; x.beginPath(); x.arc(72, 54, 28, 0, Math.PI * 2); x.fill();
+});
+const dashTex = cnv(1024, 256, (x, w, h) => {
+  noiseOn(x, w, h, '#171d29', 36, 900);
+  x.fillStyle = '#0a0e16'; x.fillRect(430, 66, 300, 118);
+  x.strokeStyle = '#2c3a52'; x.lineWidth = 3; x.strokeRect(430, 66, 300, 118);
+  x.fillStyle = '#27d8c8'; x.font = '900 44px Arial'; x.textAlign = 'center'; x.fillText('LUNC', 580, 118);
+  x.fillStyle = '#8fa8c8'; x.font = '700 24px Arial'; x.fillText('HIGH SPEED 🌙', 580, 158);
+  x.fillStyle = '#10151f';
+  [70, 150, 830, 910].forEach(cx => { x.beginPath(); x.arc(cx, 128, 32, 0, Math.PI * 2); x.fill(); x.strokeStyle = '#39496a'; x.stroke(); });
+  x.strokeStyle = '#39496a'; x.lineWidth = 5;
+  [70, 150, 830, 910].forEach(cx => { x.beginPath(); x.moveTo(cx - 20, 128); x.lineTo(cx + 20, 128); x.moveTo(cx, 108); x.lineTo(cx, 148); x.stroke(); });
+});
+
+/* ---------------- Scene ---------------- */
+const S = { mode: 'menu', time: 0, dist: 0, score: 0, near: 0, topKmh: 0,
+  speedMs: 0, capKmh: 205, charge: 0, boostT: 0, shake: 0, flashT: 0, over: false };
+const P = { x: 0, steerSm: 0, wheelRot: 0 };
+const input = { steer: 0, thr: 0, brk: 0 };
+const ROAD_HALF = 8.2, LANE_W = 3.7;
+const laneX = i => (i - 1.5) * LANE_W;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.getElementById('game').appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87bfe8);
+scene.fog = new THREE.Fog(0x9fc4e8, 60, 340);
+const camera = new THREE.PerspectiveCamera(66, innerWidth / innerHeight, 0.05, 600);
+camera.position.set(0, 1.12, 0);
+scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x54503c, 1.05));
+const sun = new THREE.DirectionalLight(0xfff2d0, 1.6); sun.position.set(-40, 80, -60); scene.add(sun);
+// skyline backdrop + sun disc
+const skyTex = cnv(1024, 256, (x, w, h) => {
+  const g = x.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#6fa8dc'); g.addColorStop(0.65, '#bcd9f5'); g.addColorStop(1, '#e8f3fd');
+  x.fillStyle = g; x.fillRect(0, 0, w, h);
+  x.fillStyle = '#fff6c8'; x.beginPath(); x.arc(830, 52, 27, 0, Math.PI * 2); x.fill();
+  x.fillStyle = 'rgba(255,246,200,0.5)'; x.beginPath(); x.arc(830, 52, 44, 0, Math.PI * 2); x.fill();
+  x.fillStyle = 'rgba(255,255,255,0.85)';
+  [[140, 44, 62], [310, 66, 44], [560, 38, 52], [950, 78, 40]].forEach(c => { x.beginPath(); x.ellipse(c[0], c[1], c[2], c[2] * 0.32, 0, 0, Math.PI * 2); x.fill(); });
+});
+const sky = new THREE.Mesh(new THREE.CylinderGeometry(430, 430, 190, 24, 1, true), new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false }));
+sky.position.y = 62; scene.add(sky);
+
+/* ---------------- World (all recycled pools) ---------------- */
+const world = new THREE.Group(); scene.add(world);
+const road = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_HALF * 2 + 1.6, 440), new THREE.MeshLambertMaterial({ map: roadTex }));
+road.rotation.x = -Math.PI / 2; road.position.set(0, 0, -190); world.add(road);
+const groundL = new THREE.Mesh(new THREE.PlaneGeometry(240, 440), new THREE.MeshLambertMaterial({ map: groundTex }));
+groundL.rotation.x = -Math.PI / 2; groundL.position.set(-ROAD_HALF - 121, -0.03, -190); world.add(groundL);
+const groundR = groundL.clone(); groundR.position.x = ROAD_HALF + 121; world.add(groundR);
+const railMat = new THREE.MeshLambertMaterial({ map: railTex });
+[-1, 1].forEach(s => {
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.55, 440), railMat);
+  rail.position.set(s * (ROAD_HALF + 0.7), 0.62, -190); world.add(rail);
+  const post = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.62, 440), new THREE.MeshLambertMaterial({ color: 0x777d85 }));
+  post.position.set(s * (ROAD_HALF + 0.7), 0.3, -190); world.add(post);
+});
+const paint = new THREE.Mesh(new THREE.PlaneGeometry(13.5, 6.75), new THREE.MeshBasicMaterial({ map: roadPaintTex, transparent: true, depthWrite: false }));
+paint.rotation.x = -Math.PI / 2; paint.rotation.z = Math.PI; paint.position.set(0, 0.012, -260); world.add(paint);
+
+// buildings
+const bGeo = new THREE.BoxGeometry(1, 1, 1);
+const bMats = bTexes.map(t => new THREE.MeshLambertMaterial({ map: t }));
+const buildings = [];
+for (let i = 0; i < 40; i++){
+  const m = new THREE.Mesh(bGeo, bMats[i % bMats.length]);
+  const side = i % 2 ? 1 : -1, hgt = 14 + Math.random() * 34;
+  m.scale.set(11 + Math.random() * 9, hgt, 11 + Math.random() * 7);
+  m.position.set(side * (ROAD_HALF + 15 + Math.random() * 16), hgt / 2, -((i >> 1) * 21) - Math.random() * 8);
+  world.add(m); buildings.push(m);
+}
+// palm trees
+const trunkMat = new THREE.MeshLambertMaterial({ color: 0x7a5a34 });
+const frondMat = new THREE.MeshLambertMaterial({ map: palmTex, transparent: true, alphaTest: 0.35, side: THREE.DoubleSide });
+const palms = [];
+for (let i = 0; i < 16; i++){
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.22, 5.6, 6), trunkMat); trunk.position.y = 2.8; trunk.rotation.z = (Math.random() - 0.5) * 0.14; g.add(trunk);
+  for (let f = 0; f < 3; f++){
+    const fr = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 3.6), frondMat);
+    fr.position.y = 5.7; fr.rotation.set(-0.5, f * 2.1, 0); g.add(fr);
+  }
+  const side = i % 2 ? 1 : -1;
+  g.position.set(side * (ROAD_HALF + 3.4 + Math.random() * 2.5), 0, -(i * 27) - Math.random() * 10);
+  world.add(g); palms.push(g);
+}
+// billboards
+const bbPostMat = new THREE.MeshLambertMaterial({ color: 0x555b63 });
+const billboards = [];
+for (let i = 0; i < 6; i++){
+  const g = new THREE.Group();
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 7.6, 8), bbPostMat); post.position.y = 3.8; g.add(post);
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(11, 5.5), new THREE.MeshBasicMaterial({ map: bbTexes[i % bbTexes.length], side: THREE.DoubleSide }));
+  face.position.y = 9.4; g.add(face);
+  const side = i % 2 ? 1 : -1;
+  g.position.set(side * (ROAD_HALF + 6.4), 0, -(i * 68) - 40);
+  world.add(g); billboards.push(g);
+}
+// overhead gantries with LUNA CLASSIC sign
+const gantries = [];
+for (let i = 0; i < 3; i++){
+  const g = new THREE.Group();
+  const mat = new THREE.MeshLambertMaterial({ color: 0x3c434c });
+  [-1, 1].forEach(s => { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.4, 7.4, 0.4), mat); leg.position.set(s * (ROAD_HALF + 0.6), 3.7, 0); g.add(leg); });
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(ROAD_HALF * 2 + 1.6, 0.4, 0.4), mat); beam.position.y = 7.3; g.add(beam);
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(13.6, 1.7), new THREE.MeshBasicMaterial({ map: gantryTex }));
+  sign.position.set(0, 6.15, 0.25); g.add(sign);
+  g.position.z = -(i * 150) - 120;
+  world.add(g); gantries.push(g);
+}
+function recyclePool(arr, span, jitter){
+  for (const o of arr) if (o.position.z > 28) { o.position.z -= span; if (jitter) o.position.z -= Math.random() * jitter; }
+}
+
+/* ---------------- Traffic ---------------- */
+const CAR_COLORS = [0xd23b2e, 0x2e6fd2, 0xe8b400, 0x27a05a, 0xe8e8ec, 0x8e44ad, 0xff7f2a, 0x16a3a3, 0x35424f, 0xc0c6cc];
+const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.24, 10);
+const wheelMat = new THREE.MeshLambertMaterial({ color: 0x14161a });
+const tailMat = new THREE.MeshBasicMaterial({ color: 0xff2a20 });
+const headMat = new THREE.MeshBasicMaterial({ color: 0xfff6c0 });
+const glassMat = new THREE.MeshLambertMaterial({ color: 0x18242f });
+function addWheels(g, w, l, y){
+  [[-w, -l], [w, -l], [-w, l], [w, l]].forEach(p => {
+    const wh = new THREE.Mesh(wheelGeo, wheelMat); wh.rotation.z = Math.PI / 2; wh.position.set(p[0], y || 0.34, p[1]); g.add(wh);
+  });
+}
+function addLights(g, w, y, z, mat, s){
+  [-1, 1].forEach(sd => { const li = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.16, 0.06), mat); li.position.set(sd * w * 0.68, y, z); g.add(li); });
+}
+function makeVehicle(kind, ci){
+  const g = new THREE.Group();
+  const col = new THREE.MeshLambertMaterial({ color: CAR_COLORS[ci % CAR_COLORS.length] });
+  if (kind === 'car'){
+    const body = new THREE.Mesh(new THREE.BoxGeometry(1.82, 0.55, 4.3), col); body.position.y = 0.55; g.add(body);
+    const cab = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.5, 2.1), glassMat); cab.position.set(0, 1.05, -0.15); g.add(cab);
+    const hood = new THREE.Mesh(new THREE.BoxGeometry(1.78, 0.16, 0.7), col); hood.position.set(0, 0.86, 1.85); g.add(hood);
+    addWheels(g, 0.82, 1.42); addLights(g, 0.88, 0.66, 2.16, tailMat); addLights(g, 0.88, 0.62, -2.16, headMat);
+    return { g, halfW: 0.95, halfL: 2.2 };
+  }
+  if (kind === 'bus'){
+    const body = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.5, 10), col); body.position.y = 1.55; g.add(body);
+    const shield = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.9, 0.1), glassMat); shield.position.set(0, 2.05, -5.0); g.add(shield);
+    const band = new THREE.Mesh(new THREE.BoxGeometry(2.44, 0.5, 10.02), glassMat); band.position.y = 2.1; g.add(band);
+    addWheels(g, 1.1, 3.4, 0.42); addLights(g, 1.15, 0.8, 5.02, tailMat); addLights(g, 1.15, 0.8, -5.02, headMat);
+    return { g, halfW: 1.24, halfL: 5.1 };
+  }
+  // truck: cab + branded trailer
+  const cabM = new THREE.Mesh(new THREE.BoxGeometry(2.3, 1.9, 2.0), col); cabM.position.set(0, 1.35, -4.4); g.add(cabM);
+  const shield = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.8, 0.1), glassMat); shield.position.set(0, 1.85, -5.42); g.add(shield);
+  const trMats = [new THREE.MeshLambertMaterial({ map: trailerTex }), new THREE.MeshLambertMaterial({ map: trailerTex }),
+    new THREE.MeshLambertMaterial({ color: 0xd8dde2 }), new THREE.MeshLambertMaterial({ color: 0xd8dde2 }),
+    new THREE.MeshLambertMaterial({ map: trailerTex }), new THREE.MeshLambertMaterial({ map: trailerTex })];
+  const trailer = new THREE.Mesh(new THREE.BoxGeometry(2.45, 2.7, 7.4), trMats); trailer.position.set(0, 1.85, 0.9); g.add(trailer);
+  addWheels(g, 1.08, 3.6, 0.42); addLights(g, 1.15, 0.7, 4.62, tailMat); addLights(g, 1.1, 0.7, -5.42, headMat);
+  return { g, halfW: 1.26, halfL: 5.5 };
+}
+const traffic = [];
+const KINDS = ['car', 'car', 'car', 'car', 'truck', 'car', 'bus', 'car', 'car', 'truck', 'car', 'car', 'bus', 'car'];
+for (let i = 0; i < KINDS.length; i++){
+  const v = makeVehicle(KINDS[i], i * 3 + 1);
+  v.kind = KINDS[i]; v.lane = i % 4; v.speedMs = 13 + Math.random() * 8;
+  v.shoveVX = 0; v.spin = 0; v.bumpCd = 0; v.counted = true; v.active = false;
+  v.g.position.set(laneX(v.lane), 0, -60 - i * 34);
+  v.g.visible = false;
+  scene.add(v.g); traffic.push(v);
+}
+/* ---------------- Real 3D model files (procedurally generated GLBs) ----------------
+   Traffic visuals are REAL model files (models/*.glb) generated by
+   make_models.py from original code-built geometry — no ripped or
+   brand-copied assets, no real car badges. If a model fails to load,
+   the code-built fallback above stays and modelMode reports it. */
+const MODEL_FILES = {
+  car: ['car_red.glb', 'car_blue.glb', 'car_yellow.glb', 'car_green.glb', 'sport_purple.glb', 'sport_orange.glb'],
+  truck: ['truck.glb'],
+  bus: ['bus_teal.glb', 'bus_white.glb']
+};
+let modelMode = 'loading';
+const modelCache = {};
+const trailerBrandMat = new THREE.MeshLambertMaterial({ map: trailerTex });
+function applyModel(v, sceneRoot){
+  while (v.g.children.length) v.g.remove(v.g.children[0]);
+  const inner = sceneRoot.clone(true);
+  v.wheels = [];
+  inner.traverse(o => {
+    if (o.name === 'wheel') v.wheels.push(o);
+    if (o.name === 'trailer' && o.isMesh) o.material = trailerBrandMat;
+  });
+  v.g.add(inner);
+  v.isModel = true;
+}
+(function loadModels(){
+  const loader = new GLTFLoader();
+  const jobs = [];
+  for (const kind of Object.keys(MODEL_FILES)) for (const f of MODEL_FILES[kind]) {
+    jobs.push(loader.loadAsync('models/' + f).then(g => { (modelCache[kind] = modelCache[kind] || []).push(g.scene); }).catch(() => null));
+  }
+  Promise.all(jobs).then(() => {
+    let swapped = 0;
+    for (const v of traffic) {
+      const variants = modelCache[v.kind];
+      if (variants && variants.length) { applyModel(v, variants[(Math.random() * variants.length) | 0]); swapped++; }
+    }
+    modelMode = swapped === traffic.length ? 'glb' : (swapped > 0 ? 'glb-partial' : 'procedural-fallback');
+  });
+})();
+const laneLastZ = [-999, -999, -999, -999];
+function spawnVehicle(v, ahead){
+  v.lane = (Math.random() * 4) | 0;
+  let z = ahead ? (-330 - Math.random() * 90) : (-120 - Math.random() * 240);
+  if (laneLastZ[v.lane] > -900 && z > laneLastZ[v.lane] - (v.halfL + 16)) z = laneLastZ[v.lane] - (v.halfL + 16 + Math.random() * 14);
+  laneLastZ[v.lane] = z;
+  v.speedMs = 12.5 + Math.random() * 9 + Math.min(4, S.dist / 3000);
+  v.shoveVX = 0; v.spin = 0; v.bumpCd = 0; v.counted = false; v.active = true;
+  v.g.visible = true;
+  v.g.position.set(laneX(v.lane) + (Math.random() - 0.5) * 0.5, 0, z);
+  v.g.rotation.y = 0;
+}
+function activeTarget(){ return Math.min(traffic.length, 6 + Math.floor(S.dist / 320)); }
+
+/* ---------------- Cockpit (attached to camera) ---------------- */
+const cockpit = new THREE.Group(); camera.add(cockpit); scene.add(camera);
+const dash = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.26, 0.6), new THREE.MeshLambertMaterial({ map: dashTex }));
+dash.position.set(0, -0.41, -0.85); dash.rotation.x = 0.32; cockpit.add(dash);
+const cowl = new THREE.Mesh(new THREE.BoxGeometry(1.78, 0.09, 0.5), new THREE.MeshLambertMaterial({ color: 0x11151d }));
+cowl.position.set(0, -0.28, -1.0); cowl.rotation.x = 0.12; cockpit.add(cowl);
+[-1, 1].forEach(s => { // A-pillars — thin, pushed to the very edges of the view
+  const pil = new THREE.Mesh(new THREE.BoxGeometry(0.038, 0.95, 0.06), new THREE.MeshLambertMaterial({ color: 0x141a26 }));
+  pil.position.set(s * 0.8, 0.3, -0.86); pil.rotation.z = s * -0.3; cockpit.add(pil);
+});
+const mirror = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.105, 0.03), new THREE.MeshLambertMaterial({ color: 0x39496a }));
+mirror.position.set(0, 0.485, -0.82); cockpit.add(mirror);
+const mirrorGlass = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.08), new THREE.MeshBasicMaterial({ color: 0x9fc8e8 }));
+mirrorGlass.position.set(0, 0.485, -0.795); cockpit.add(mirrorGlass);
+// gauges: static faces + moving needle planes
+function makeGauge(tex, x){
+  const grp = new THREE.Group();
+  const face = new THREE.Mesh(new THREE.CircleGeometry(0.088, 28), new THREE.MeshBasicMaterial({ map: tex }));
+  grp.add(face);
+  const needle = new THREE.Mesh(new THREE.PlaneGeometry(0.011, 0.074), new THREE.MeshBasicMaterial({ color: 0xff5030 }));
+  needle.geometry.translate(0, 0.03, 0); needle.position.z = 0.003; grp.add(needle);
+  const pin = new THREE.Mesh(new THREE.CircleGeometry(0.013, 12), new THREE.MeshBasicMaterial({ color: 0xd8dee8 }));
+  pin.position.z = 0.005; grp.add(pin);
+  grp.position.set(x, -0.255, -0.63); grp.rotation.x = 0.32;
+  cockpit.add(grp);
+  return needle;
+}
+const speedNeedle = makeGauge(gaugeTex(240, 'km/h', 200), -0.25);
+const tachNeedle = makeGauge(gaugeTex(8, 'RPM x1000', 6.5), 0.25);
+const NEEDLE_A0 = Math.PI * 0.75, NEEDLE_SWEEP = Math.PI * 1.5;
+function setNeedle(n, frac){ n.rotation.z = -(NEEDLE_A0 + NEEDLE_SWEEP * THREE.MathUtils.clamp(frac, 0, 1) - Math.PI / 2); }
+// steering wheel + hands (hands ride the rim, so they turn with it)
+const wheel = new THREE.Group(); wheel.position.set(0, -0.305, -0.5); wheel.rotation.x = 0.32; cockpit.add(wheel);
+const rim = new THREE.Mesh(new THREE.TorusGeometry(0.228, 0.03, 12, 40), new THREE.MeshLambertMaterial({ color: 0x3a3049 }));
+wheel.add(rim);
+const spokeMat = new THREE.MeshLambertMaterial({ color: 0x46536e });
+[0, 2.35, 4.19].forEach(a => {
+  const sp = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.21, 0.022), spokeMat);
+  sp.position.set(Math.cos(a + Math.PI / 2) * 0.104, Math.sin(a + Math.PI / 2) * 0.104, 0);
+  sp.rotation.z = a + Math.PI; wheel.add(sp);
+});
+const hub = new THREE.Mesh(new THREE.CircleGeometry(0.068, 24), new THREE.MeshBasicMaterial({ map: hubTex }));
+hub.position.z = 0.014; wheel.add(hub);
+const skinMat = new THREE.MeshLambertMaterial({ color: 0xd99e73 });
+const sleeveMat = new THREE.MeshLambertMaterial({ color: 0x24405e });
+[-1, 1].forEach(s => {
+  const hand = new THREE.Group();
+  const palm = new THREE.Mesh(new THREE.SphereGeometry(0.047, 10, 8), skinMat); palm.scale.set(1.25, 0.72, 1); hand.add(palm);
+  for (let f = 0; f < 4; f++){
+    const fin = new THREE.Mesh(new THREE.SphereGeometry(0.0135, 6, 5), skinMat);
+    fin.position.set((f - 1.5) * 0.021, -0.028, 0.026); fin.scale.set(1, 1.9, 1); hand.add(fin);
+  }
+  const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.042, 0.34, 8), sleeveMat);
+  arm.position.set(s * 0.09, -0.14, -0.1); arm.rotation.z = s * 0.65; arm.rotation.x = 0.5; hand.add(arm);
+  hand.position.set(s * 0.22, 0.05, 0.012);
+  wheel.add(hand);
+});
+// speed streaks (peripheral points that whip past — pure speed feel)
+const streakGeo = new THREE.BufferGeometry();
+const streakPos = new Float32Array(70 * 3);
+for (let i = 0; i < 70; i++){
+  streakPos[i * 3] = (Math.random() < 0.5 ? -1 : 1) * (5.5 + Math.random() * 7);
+  streakPos[i * 3 + 1] = 0.3 + Math.random() * 3.6;
+  streakPos[i * 3 + 2] = -Math.random() * 70;
+}
+streakGeo.setAttribute('position', new THREE.BufferAttribute(streakPos, 3));
+const streakMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.14, transparent: true, opacity: 0 });
+const streaks = new THREE.Points(streakGeo, streakMat); scene.add(streaks);
+// sparks for bumps
+const sparkGeo = new THREE.BufferGeometry();
+const sparkPos = new Float32Array(90 * 3); sparkGeo.setAttribute('position', new THREE.BufferAttribute(sparkPos, 3));
+const sparkMat = new THREE.PointsMaterial({ color: 0xffb340, size: 0.09, transparent: true, opacity: 0 });
+const sparks = new THREE.Points(sparkGeo, sparkMat); scene.add(sparks);
+const sparkVel = new Float32Array(90 * 3); let sparkLife = 0;
+function spawnSparks(x, y, z){
+  for (let i = 0; i < 90; i++){
+    sparkPos[i * 3] = x; sparkPos[i * 3 + 1] = y; sparkPos[i * 3 + 2] = z;
+    sparkVel[i * 3] = (Math.random() - 0.5) * 7; sparkVel[i * 3 + 1] = Math.random() * 4.5; sparkVel[i * 3 + 2] = (Math.random() - 0.5) * 7;
+  }
+  sparkGeo.attributes.position.needsUpdate = true; sparkLife = 0.45; sparkMat.opacity = 1;
+}
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+/* ---------------- Input: joystick + nitro + keys ---------------- */
+const joyBase = document.getElementById('joyBase'), joyKnob = document.getElementById('joyKnob');
+let joyId = null;
+function joySet(dx, dy){
+  const max = 40;
+  joyKnob.style.transform = 'translate(calc(-50% + ' + dx + 'px), calc(-50% + ' + dy + 'px))';
+}
+function joyFromEvent(e){
+  const r = joyBase.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  let dx = (e.clientX - cx) / (r.width / 2), dy = (e.clientY - cy) / (r.height / 2);
+  const m = Math.hypot(dx, dy); if (m > 1) { dx /= m; dy /= m; }
+  joySet(dx * 40, dy * 40);
+  const dz = 0.1; // center deadzone — no twitch at rest
+  input.steer = Math.abs(dx) < dz ? 0 : dx;
+  input.thr = dy < -dz ? Math.min(1, (-dy - dz) / (1 - dz) * 1.15) : 0;
+  input.brk = dy > dz ? Math.min(1, (dy - dz) / (1 - dz) * 1.15) : 0;
+}
+joyBase.addEventListener('pointerdown', e => { joyId = e.pointerId; joyBase.setPointerCapture(joyId); joyFromEvent(e); });
+joyBase.addEventListener('pointermove', e => { if (e.pointerId === joyId) joyFromEvent(e); });
+function joyEnd(e){ if (e.pointerId === joyId) { joyId = null; input.steer = 0; input.thr = 0; input.brk = 0; joySet(0, 0); } }
+joyBase.addEventListener('pointerup', joyEnd); joyBase.addEventListener('pointercancel', joyEnd);
+const keys = {};
+addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'Space' || e.code === 'KeyN') fireNitro(); });
+addEventListener('keyup', e => { keys[e.code] = false; });
+function keyInput(){
+  if (joyId !== null) return;
+  const l = keys['ArrowLeft'] || keys['KeyA'], r = keys['ArrowRight'] || keys['KeyD'];
+  const u = keys['ArrowUp'] || keys['KeyW'], d = keys['ArrowDown'] || keys['KeyS'];
+  if (l || r || u || d) { input.steer = (r ? 1 : 0) - (l ? 1 : 0); input.thr = u ? 1 : 0; input.brk = d ? 1 : 0; }
+  else if (!keys['ArrowLeft'] && !keys['ArrowRight']) { input.steer = 0; input.thr = 0; input.brk = 0; }
+}
+const nitroBtn = document.getElementById('nitroBtn');
+function fireNitro(){
+  if (S.mode !== 'race' || S.charge < 0.2 || S.boostT > 0) return;
+  S.boostT = 0.7 + 2.3 * S.charge; S.boostDur = S.boostT; S.charge = 0;
+  AudioSys.whoosh();
+}
+nitroBtn.addEventListener('pointerdown', e => { e.preventDefault(); fireNitro(); });
+
+/* ---------------- UI / game flow ---------------- */
+const $ = id => document.getElementById(id);
+const hud = $('hud'), menuEl = $('menu'), overEl = $('over');
+const best = { score: +(localStorage.getItem('hs_best_score') || 0), dist: +(localStorage.getItem('hs_best_dist') || 0) };
+function refreshBestLine(){ $('menuBest').textContent = '🏆 ' + I[lang].best + ': ' + best.score.toLocaleString() + ' · ' + Math.round(best.dist) + ' m'; }
+applyLang(); refreshBestLine();
+const muteBtn = $('muteBtn');
+function paintMute(){ muteBtn.textContent = AudioSys.muted ? '🔇' : '🔊'; }
+paintMute();
+muteBtn.addEventListener('click', () => { AudioSys.init(); AudioSys.setMuted(!AudioSys.muted); paintMute(); });
+let popupTimer = null, bumpTimer = null;
+function showPopup(pts){
+  $('popupPts').textContent = '+' + pts;
+  $('popup').classList.add('show');
+  clearTimeout(popupTimer); popupTimer = setTimeout(() => $('popup').classList.remove('show'), 650);
+}
+function showBump(){
+  $('bumpTag').classList.add('show');
+  $('dmgVig').style.opacity = 0.85;
+  clearTimeout(bumpTimer); bumpTimer = setTimeout(() => { $('bumpTag').classList.remove('show'); $('dmgVig').style.opacity = 0; }, 380);
+}
+function resetRun(){
+  S.time = 0; S.dist = 0; S.score = 0; S.near = 0; S.topKmh = 0;
+  S.speedMs = 0; S.capKmh = 205; S.charge = 0; S.boostT = 0; S.shake = 0; S.over = false;
+  P.x = 0; P.steerSm = 0; P.wheelRot = 0;
+  input.steer = 0; input.thr = 0; input.brk = 0; joySet(0, 0);
+  for (let i = 0; i < 4; i++) laneLastZ[i] = -999;
+  let n = 0;
+  for (const v of traffic) {
+    if (n < 5) { spawnVehicle(v, false); v.g.position.z = -90 - n * 52 - Math.random() * 20; n++; }
+    else { v.active = false; v.g.visible = false; v.g.position.z = -500; }
+  }
+  paint.position.z = -260;
+  $('hudScore').textContent = '0'; $('hudDist').textContent = '0'; $('hudNear').textContent = '0'; $('hudSpd').textContent = '0';
+}
+function startRun(){
+  AudioSys.init(); AudioSys.resume();
+  resetRun();
+  S.mode = 'race';
+  menuEl.classList.add('hidden'); overEl.classList.add('hidden'); hud.classList.remove('hidden');
+  AudioSys.startMusic();
+}
+function endRun(){
+  S.over = true; S.mode = 'over'; S.shake = 1.2;
+  AudioSys.crashSnd(); AudioSys.stopMusic(); AudioSys.setEngine(0, 0, false);
+  $('flash').style.transition = 'none'; $('flash').style.opacity = 0.85;
+  requestAnimationFrame(() => { $('flash').style.transition = 'opacity .5s'; $('flash').style.opacity = 0; });
+  $('dmgVig').style.opacity = 1;
+  const sc = Math.floor(S.score), isBest = sc > best.score;
+  if (isBest) { best.score = sc; localStorage.setItem('hs_best_score', String(sc)); }
+  if (S.dist > best.dist) { best.dist = S.dist; localStorage.setItem('hs_best_dist', String(Math.floor(S.dist))); }
+  $('ovScore').textContent = sc.toLocaleString();
+  $('ovDist').textContent = Math.round(S.dist) + ' m';
+  $('ovNear').textContent = S.near;
+  $('ovTop').textContent = Math.round(S.topKmh) + ' km/h';
+  $('ovBest').textContent = best.score.toLocaleString();
+  $('newBest').style.display = isBest ? 'block' : 'none';
+  setTimeout(() => { hud.classList.add('hidden'); overEl.classList.remove('hidden'); $('dmgVig').style.opacity = 0; refreshBestLine(); }, 750);
+}
+$('btnPlay').addEventListener('click', startRun);
+$('btnAgain').addEventListener('click', startRun);
+$('btnMenu').addEventListener('click', () => { overEl.classList.add('hidden'); menuEl.classList.remove('hidden'); S.mode = 'menu'; });
+
+/* ---------------- Main loop ---------------- */
+const clock = new THREE.Clock();
+let fovCur = 66, hudTick = 0;
+function animate(){
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const racing = S.mode === 'race';
+  keyInput();
+
+  if (racing && !S.over) {
+    S.time += dt;
+    /* --- speed: punchy accel, cap climbs the longer you survive, nitro breaks the cap --- */
+    S.capKmh = Math.min(252, 205 + S.time * 0.55);
+    const boosting = S.boostT > 0;
+    if (boosting) { S.boostT -= dt; S.charge = Math.max(0, S.boostT / (S.boostDur || 1)) * 0.99; }
+    const capMs = (boosting ? 292 : S.capKmh) / 3.6;
+    const kmh = S.speedMs * 3.6;
+    if (input.thr > 0) {
+      const a = input.thr * (15.5 * (1 - S.speedMs / (capMs * 1.14)) + 3.2) + (boosting ? 7.5 : 0);
+      S.speedMs += Math.max(0, a) * dt;
+    } else if (boosting) S.speedMs += 5 * dt;
+    if (input.brk > 0) S.speedMs -= 30 * input.brk * dt;
+    S.speedMs -= S.speedMs * (input.thr > 0 ? 0.028 : 0.11) * dt; // drag / coast-down
+    if (S.speedMs > capMs) S.speedMs = Math.max(capMs, S.speedMs - 14 * dt);
+    S.speedMs = Math.max(0, S.speedMs);
+    const kmhNow = S.speedMs * 3.6;
+    if (kmhNow > S.topKmh) S.topKmh = kmhNow;
+    S.dist += S.speedMs * dt;
+    S.score += S.speedMs * dt * 1.6;
+
+    /* --- steering: smoothed, deadzoned, speed-sensitive — never twitchy --- */
+    const k = 1 - Math.exp(-dt / 0.145);
+    P.steerSm += (input.steer - P.steerSm) * k;
+    const spdF = THREE.MathUtils.clamp(S.speedMs / 26, 0, 1);
+    const authority = spdF * (1 - 0.38 * THREE.MathUtils.clamp(S.speedMs / 78, 0, 1));
+    P.x += P.steerSm * 13.5 * authority * dt;
+    if (P.x > ROAD_HALF - 1.05) { P.x = ROAD_HALF - 1.05; if (S.speedMs > 14 && Math.random() < 0.3) spawnSparks(P.x + 1, 0.5, -1.5); }
+    if (P.x < -(ROAD_HALF - 1.05)) { P.x = -(ROAD_HALF - 1.05); if (S.speedMs > 14 && Math.random() < 0.3) spawnSparks(P.x - 1, 0.5, -1.5); }
+    P.wheelRot += ((-P.steerSm * 2.35) - P.wheelRot) * (1 - Math.exp(-dt / 0.09));
+
+    /* --- world scroll --- */
+    const adv = S.speedMs * dt;
+    roadTex.offset.y += adv / 10; groundTex.offset.y += adv / 7.33; railTex.offset.x -= adv / 7.33;
+    for (const b of buildings) b.position.z += adv;
+    for (const t of palms) t.position.z += adv;
+    for (const b of billboards) b.position.z += adv;
+    for (const g of gantries) g.position.z += adv;
+    paint.position.z += adv; if (paint.position.z > 30) paint.position.z -= 460;
+    recyclePool(buildings, 420); recyclePool(palms, 432); recyclePool(billboards, 408); recyclePool(gantries, 450);
+    const sp = streakGeo.attributes.position.array;
+    for (let i = 0; i < 70; i++) { sp[i * 3 + 2] += adv * 1.7; if (sp[i * 3 + 2] > 4) sp[i * 3 + 2] -= 74; }
+    streakGeo.attributes.position.needsUpdate = true;
+    streakMat.opacity = THREE.MathUtils.clamp((kmhNow - 120) / 160, 0, 0.75);
+
+    /* --- traffic --- */
+    const target = activeTarget();
+    let activeCount = 0;
+    for (const v of traffic) if (v.active) activeCount++;
+    for (const v of traffic) {
+      if (!v.active) { if (activeCount < target) { spawnVehicle(v, true); activeCount++; } else continue; }
+      v.g.position.z += (S.speedMs - v.speedMs) * dt;
+      if (v.wheels) { const wr = v.speedMs * dt / 0.35; for (const w of v.wheels) w.rotation.x -= wr; }
+      if (v.shoveVX !== 0) {
+        v.g.position.x += v.shoveVX * dt;
+        v.shoveVX *= Math.pow(0.12, dt);
+        if (Math.abs(v.shoveVX) < 0.15) v.shoveVX = 0;
+      }
+      if (v.spin !== 0) { v.g.rotation.y += v.spin * dt; v.spin *= Math.pow(0.05, dt); if (Math.abs(v.spin) < 0.03) { v.spin = 0; v.g.rotation.y *= 0.7; } }
+      if (v.bumpCd > 0) v.bumpCd -= dt;
+      const z = v.g.position.z, dx = v.g.position.x - P.x, adx = Math.abs(dx);
+      const latGap = adx - (v.halfW + 0.92);
+      /* near miss: it slips past your side at speed, no contact */
+      if (!v.counted && z > v.halfL + 1.4) {
+        v.counted = true;
+        if (latGap > 0.02 && latGap < 1.15 && kmhNow > 78) {
+          const pts = Math.round(kmhNow * (latGap < 0.45 ? 1.6 : 1.0));
+          S.near++; S.score += pts;
+          S.charge = Math.min(1, S.charge + 0.24);
+          showPopup(pts); AudioSys.whoosh();
+          $('hudNear').textContent = S.near;
+        }
+      }
+      /* collision */
+      if (Math.abs(z) < v.halfL + 1.55 && latGap < 0) {
+        const overlap = -latGap;
+        if (overlap < 0.62 && v.bumpCd <= 0 && S.speedMs > 4) {
+          // sideswipe: traffic gets shoved, you keep the run but pay speed
+          const dir = dx >= 0 ? 1 : -1;
+          v.shoveVX = dir * (6.5 + S.speedMs * 0.11); v.spin = dir * 1.1; v.bumpCd = 1.1;
+          S.speedMs *= 0.84; S.shake = Math.max(S.shake, 0.4);
+          P.x -= dir * 0.35;
+          spawnSparks(P.x + dir * 0.95, 0.55, -1.2);
+          showBump(); AudioSys.thud();
+        } else if (overlap >= 0.62 || S.speedMs <= 4) {
+          endRun();
+        }
+      }
+      if (z > 26 || v.g.position.x > ROAD_HALF + 9 || v.g.position.x < -(ROAD_HALF + 9)) spawnVehicle(v, true);
+      if (z < -430) v.g.position.z = -430 + Math.random() * 20;
+    }
+
+    /* --- audio + HUD --- */
+    const gearPos = (S.speedMs % 12.5) / 12.5;
+    AudioSys.setEngine(kmhNow, gearPos, true);
+    hudTick += dt;
+    if (hudTick > 0.08) {
+      hudTick = 0;
+      $('hudScore').textContent = Math.floor(S.score).toLocaleString();
+      $('hudDist').textContent = Math.round(S.dist);
+      $('hudSpd').textContent = Math.round(kmhNow);
+      $('nitroFill').style.height = (S.charge * 100) + '%';
+      nitroBtn.classList.toggle('ready', S.charge >= 0.2 && S.boostT <= 0);
+      nitroBtn.classList.toggle('firing', S.boostT > 0);
+    }
+  } else {
+    AudioSys.setEngine(0, 0, false);
+    // gentle menu drift so the world behind the menu feels alive
+    if (S.mode === 'menu') {
+      roadTex.offset.y += dt * 0.25;
+      for (const b of buildings) b.position.z += dt * 3.5;
+      for (const t of palms) t.position.z += dt * 3.5;
+      recyclePool(buildings, 420); recyclePool(palms, 432);
+    }
+  }
+
+  /* --- cockpit + camera feel (always, so menus look alive too) --- */
+  const kmhC = S.speedMs * 3.6;
+  wheel.rotation.z = P.wheelRot;
+  setNeedle(speedNeedle, kmhC / 240);
+  setNeedle(tachNeedle, racing ? 0.18 + 0.75 * ((S.speedMs % 12.5) / 12.5) * Math.min(1, input.thr + 0.25) : 0.06);
+  cockpit.position.x = -P.x * 0.022;
+  cockpit.rotation.z = -P.steerSm * 0.028 - P.x * 0.004;
+  cockpit.position.y = Math.sin(performance.now() * 0.045) * 0.0016 * Math.min(1, kmhC / 120) + (S.shake > 0 ? (Math.random() - 0.5) * 0.03 * S.shake : 0);
+  camera.position.x = P.x + (S.shake > 0 ? (Math.random() - 0.5) * 0.07 * S.shake : 0);
+  camera.position.y = 1.12;
+  camera.rotation.z = -P.steerSm * 0.02;
+  camera.rotation.y = -P.steerSm * 0.05;
+  if (S.shake > 0) S.shake = Math.max(0, S.shake - dt * 1.6);
+  const targetFov = 66 + 21 * THREE.MathUtils.clamp(kmhC / 262, 0, 1) + (S.boostT > 0 ? 7 : 0);
+  if (Math.abs(targetFov - fovCur) > 0.1) { fovCur += (targetFov - fovCur) * 0.08; camera.fov = fovCur; camera.updateProjectionMatrix(); }
+  if (sparkLife > 0) {
+    sparkLife -= dt;
+    const sp2 = sparkGeo.attributes.position.array;
+    for (let i = 0; i < 90; i++) {
+      sp2[i * 3] += sparkVel[i * 3] * dt; sp2[i * 3 + 1] += sparkVel[i * 3 + 1] * dt; sp2[i * 3 + 2] += sparkVel[i * 3 + 2] * dt;
+      sparkVel[i * 3 + 1] -= 9 * dt;
+    }
+    sparkGeo.attributes.position.needsUpdate = true;
+    sparkMat.opacity = Math.max(0, sparkLife / 0.45);
+  }
+  renderer.render(scene, camera);
+}
+animate();
+
+/* ---------------- QA / debug hook (house pattern) ---------------- */
+window.__hs = {
+  S, P, input, traffic,
+  start: startRun,
+  spawnAt(lane, relZ, dxOff, speedMs) {
+    const v = traffic.find(t => !t.active) || traffic[0];
+    v.active = true; v.counted = false; v.bumpCd = 0; v.shoveVX = 0; v.spin = 0;
+    v.speedMs = (speedMs == null ? 14 : speedMs);
+    v.g.visible = true; v.g.rotation.y = 0;
+    v.g.position.set(laneX(lane) + (dxOff || 0), 0, relZ);
+    return { halfW: v.halfW, halfL: v.halfL, kind: v.kind };
+  },
+  clearTraffic() { for (const v of traffic) { v.active = false; v.g.visible = false; v.g.position.z = -600; } },
+  modelMode: () => modelMode,
+  setSpeed(kmh) { S.speedMs = kmh / 3.6; },
+  setCharge(c) { S.charge = c; },
+  fireNitro
+};
+</script>
+</body>
+</html>
