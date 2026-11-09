@@ -28,16 +28,26 @@
 // rewrites /api/solana-rpc here) — the public Solana RPC cluster
 // refuses browser-Origin requests, so the page cannot call it directly
 // (see the solana-rpc block below for the full note).
-// Garuda Dash payout admin: this router also serves the key-gated
-// payout worksheet behind ?garudaadmin=1 (vercel.json rewrites
+// Garuda Dash payout admin: this router also serves the payout
+// worksheet behind ?garudaadmin=1 (vercel.json rewrites
 // /api/garuda-admin here — see the garuda-admin block below). It reads
 // the gd:* wallet/date maps that garuda-score.js writes and returns
-// them ONLY to a caller holding the GARUDA_ADMIN_KEY. Worksheet only:
-// it never pays anyone and holds no keys beyond the read-only gate.
+// them ONLY to an authenticated team admin: either the holder of the
+// GARUDA_ADMIN_KEY (fallback, only when set) or the Garuda team admin
+// wallet (GARUDA_ADMIN_WALLET env), which signs in by signing a
+// one-time login message (ADR-36) — no shared secret to share or leak.
+// Worksheet only: it never pays anyone and holds no keys beyond the
+// read-only gate.
 // v2: the admin handler also records hand-made payouts (POST) and the
 // burn-wallet setting; a key-free ?garudapublic=1 route serves only
 // the public strip's display data (payout name/amount/token/date/tx +
 // the burn wallet address) — never a winner wallet.
+// v4: the admin handler also carries the Timer Payouts (gd:paytimer
+// setting + gd:payrun:<period> runs built by the ?garudatick=1 cron
+// route below; the admin releases a run himself — one press, then the
+// page signs each send from his own wallet) and the leaderboard
+// RESTART (clears a board into a timestamped gd:archive:* copy;
+// payout records and winner wallet maps are never touched).
 // Pinball Token Slot: this router also keeps the slot's VERIFIED burn
 // records behind ?tokenslot=1 (see the token-slot block below). The
 // handler re-verifies every payment on the public LCD itself before
@@ -562,11 +572,249 @@ export async function ethereumRpcHandler(req, res) {
    token/date/tx) is served key-free via ?garudapublic=1 (see that
    block below) — never any winner wallet. The burn TOTAL itself is
    read live from the chain by the page; only the wallet address is
-   stored here (gd:burnwallet). */
+   stored here (gd:burnwallet).
+   v3 additions (wallet-signature admin sign-in): the payout panel
+   also opens for the Garuda team admin wallet named by the
+   GARUDA_ADMIN_WALLET env var. POST {action:"challenge", address}
+   issues a one-time login message (single-use nonce, 5-minute TTL,
+   stored as gd:adminchal:<address>) — and only for that one address;
+   any other address gets a generic refusal that never reveals the
+   expected one. POST {action:"verify", address, nonce, pubKey,
+   signature} verifies the ADR-36 (Keplr signArbitrary) signature
+   over the STORED message: the challenge is burned on ANY verify
+   attempt, the address derived from the pubkey must equal both the
+   claimed address and GARUDA_ADMIN_WALLET, and on success a random
+   session token (stored hashed, gd:adminsess:<sha256>, 4-hour TTL)
+   becomes the Bearer credential for the existing GET/POST actions.
+   The GARUDA_ADMIN_KEY check stays as a fallback for when a key is
+   set (it currently is not). All crypto is node:crypto built-ins —
+   no new dependency joins this shared router. */
 const GD_TXHASH_RE = /^[0-9A-Fa-f]{64}$/;
 const GD_ADDR_RE = /^terra1[0-9a-z]{38}$/;
+/* ---- v3: wallet-signature admin sign-in helpers (ADR-36) ----
+   Keplr's signArbitrary signs an amino sign doc whose single message
+   is sign/MsgSignData {signer, data: base64(message)}. The signature
+   is secp256k1 over sha256 of the amino-serialised doc (keys sorted,
+   <>& escaped — the @cosmjs/amino serializeSignDoc rules). Everything
+   below is node:crypto built-ins plus a small bech32 encoder, so this
+   shared router gains no new dependency. */
+const GD_ADMIN_CHAL_TTL_SEC = 300;          /* login challenge: 5 minutes */
+const GD_ADMIN_SESS_TTL_SEC = 4 * 3600;     /* admin session: 4 hours */
+const GD_BECH32_CHARS = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+function gdBech32Polymod(vals) {
+  const GEN = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+  let chk = 1;
+  for (const v of vals) {
+    const top = chk >>> 25;
+    chk = ((chk & 0x1ffffff) << 5) ^ v;
+    for (let i = 0; i < 5; i++) if ((top >>> i) & 1) chk ^= GEN[i];
+  }
+  return chk;
+}
+function gdConvertBits(data, from, to, pad) {
+  let acc = 0, bits = 0;
+  const out = [];
+  const maxv = (1 << to) - 1;
+  for (const v of data) {
+    acc = (acc << from) | v;
+    bits += from;
+    while (bits >= to) { bits -= to; out.push((acc >>> bits) & maxv); }
+  }
+  if (pad) { if (bits) out.push((acc << (to - bits)) & maxv); }
+  else if (bits >= from || ((acc << (to - bits)) & maxv)) return null;
+  return out;
+}
+function gdBech32Encode(hrp, dataBytes) {
+  const data = gdConvertBits([...dataBytes], 8, 5, true);
+  const vals = [];
+  for (const c of hrp) vals.push(c.charCodeAt(0) >>> 5);
+  vals.push(0);
+  for (const c of hrp) vals.push(c.charCodeAt(0) & 31);
+  const pm = gdBech32Polymod([...vals, ...data, 0, 0, 0, 0, 0, 0]) ^ 1;
+  let out = hrp + '1';
+  for (const d of data) out += GD_BECH32_CHARS[d];
+  for (let i = 0; i < 6; i++) out += GD_BECH32_CHARS[(pm >>> (5 * (5 - i))) & 31];
+  return out;
+}
+/* Terra Classic address for a 33-byte compressed secp256k1 pubkey:
+   bech32(ripemd160(sha256(pubkey))) with the "terra" hrp. */
+function gdAddressFromPubKey(pub) {
+  const sha = crypto.createHash('sha256').update(pub).digest();
+  const ripe = crypto.createHash('ripemd160').update(sha).digest();
+  return gdBech32Encode('terra', ripe);
+}
+/* Decompress a secp256k1 point (for the JWK Node's verifier needs):
+   y = (x^3+7)^((p+1)/4) mod p, choosing the root matching the
+   compressed key's parity byte. BigInt only — constant shape, no
+   secret input (the pubkey is public). */
+function gdDecompressPubKey(pub) {
+  const p = (1n << 256n) - (1n << 32n) - 977n;
+  const x = BigInt('0x' + pub.subarray(1, 33).toString('hex'));
+  if (x >= p) return null;
+  let y = (x * x * x + 7n) % p;
+  let e = (p + 1n) / 4n, base = y, acc = 1n;
+  while (e > 0n) { if (e & 1n) acc = (acc * base) % p; base = (base * base) % p; e >>= 1n; }
+  y = acc;
+  if ((y * y) % p !== (x * x * x + 7n) % p) return null;   /* not on curve */
+  const wantOdd = (pub[0] & 1) === 1;
+  if (((y & 1n) === 1n) !== wantOdd) y = p - y;
+  const xb = Buffer.alloc(32); const yb = Buffer.alloc(32);
+  let t = x; for (let i = 31; i >= 0; i--) { xb[i] = Number(t & 255n); t >>= 8n; }
+  t = y; for (let i = 31; i >= 0; i--) { yb[i] = Number(t & 255n); t >>= 8n; }
+  return { x: xb, y: yb };
+}
+function gdSortJson(v) {
+  if (Array.isArray(v)) return v.map(gdSortJson);
+  if (v && typeof v === 'object') {
+    const o = {};
+    for (const k of Object.keys(v).sort()) o[k] = gdSortJson(v[k]);
+    return o;
+  }
+  return v;
+}
+/* The exact bytes Keplr signs for signArbitrary (ADR-36 amino doc). */
+function gdAdr36SignBytes(message, signer) {
+  const doc = {
+    account_number: '0',
+    chain_id: '',
+    fee: { amount: [], gas: '0' },
+    memo: '',
+    msgs: [{ type: 'sign/MsgSignData', value: { data: Buffer.from(message, 'utf8').toString('base64'), signer } }],
+    sequence: '0',
+  };
+  const json = JSON.stringify(gdSortJson(doc))
+    .replace(/&/g, '\\u0026').replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+  return Buffer.from(json, 'utf8');
+}
+function gdVerifyAdr36(message, signer, pub, sig) {
+  try {
+    if (!Buffer.isBuffer(pub) || pub.length !== 33 || (pub[0] !== 2 && pub[0] !== 3)) return false;
+    if (!Buffer.isBuffer(sig) || sig.length !== 64) return false;
+    const pt = gdDecompressPubKey(pub);
+    if (!pt) return false;
+    const key = crypto.createPublicKey({
+      format: 'jwk',
+      key: { kty: 'EC', crv: 'secp256k1', x: pt.x.toString('base64url'), y: pt.y.toString('base64url') },
+    });
+    return crypto.verify('sha256', gdAdr36SignBytes(message, signer), { key, dsaEncoding: 'ieee-p1363' }, sig);
+  } catch (e) { return false; }
+}
+/* Challenge step: only the ONE admin wallet may even request a login
+   message. Every other address — malformed, well-formed, or the store
+   being unconfigured for sign-in — gets the same generic refusal, so
+   the endpoint never reveals which address is expected. */
+async function gdAdminChallenge(req, res, body) {
+  const adminWallet = process.env.GARUDA_ADMIN_WALLET || '';
+  const address = String(body.address || '');
+  if (!adminWallet || !GD_ADDR_RE.test(address) || address !== adminWallet) {
+    return res.status(403).json({ ok: false, error: 'not authorized' });
+  }
+  const nonce = crypto.randomBytes(16).toString('hex');   /* 128-bit */
+  const issued = new Date().toISOString();
+  const message = [
+    'Garuda Dash — admin sign-in',
+    '',
+    'Sign this message to open the Garuda Dash payout admin panel.',
+    'This is a login signature only — not a transaction. It cannot',
+    'move funds, costs no fee, and this login request expires in',
+    '5 minutes.',
+    '',
+    'Wallet: ' + address,
+    'Nonce: ' + nonce,
+    'Issued: ' + issued,
+  ].join('\n');
+  const rec = JSON.stringify({ nonce, message, exp: Date.now() + GD_ADMIN_CHAL_TTL_SEC * 1000 });
+  try {
+    await upstashPipeline([['SET', 'gd:adminchal:' + address, rec, 'EX', String(GD_ADMIN_CHAL_TTL_SEC)]]);
+  } catch (e) {
+    console.error('garuda admin challenge save failed', e && e.message);
+    return res.status(502).json({ error: 'store unavailable' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(200).json({ ok: true, message, nonce, expiresIn: GD_ADMIN_CHAL_TTL_SEC });
+}
+/* Verify step: the stored challenge is burned on ANY attempt (GETDEL
+   first, judge after), so a nonce can never be replayed — not even
+   after a failed try. The signature must be a valid ADR-36 signature
+   over the STORED message, and the address derived from the supplied
+   pubkey must equal both the claimed address and the admin wallet. */
+async function gdAdminVerify(req, res, body) {
+  const fail = () => res.status(401).json({ ok: false, error: 'sign-in failed' });
+  const adminWallet = process.env.GARUDA_ADMIN_WALLET || '';
+  const address = String(body.address || '');
+  if (!adminWallet || !GD_ADDR_RE.test(address) || address !== adminWallet) return fail();
+  let stored = null;
+  try {
+    const out = await upstashPipeline([['GETDEL', 'gd:adminchal:' + address]]);
+    stored = (out && out[0] && out[0].result) || null;
+  } catch (e) {
+    console.error('garuda admin challenge read failed', e && e.message);
+    return res.status(502).json({ error: 'store unavailable' });
+  }
+  if (!stored) return fail();
+  let chal = null;
+  try { chal = JSON.parse(stored); } catch (e) { /* corrupt record */ }
+  if (!chal || !chal.nonce || !chal.message || !(chal.exp > Date.now())) return fail();
+  if (String(body.nonce || '') !== chal.nonce) return fail();
+  /* Accept the signature either flat ({pubKey, signature} base64
+     strings) or as the StdSignature object Keplr returns
+     ({pub_key:{value}, signature}). */
+  let pubB64 = String(body.pubKey || '');
+  let sigB64 = String(body.signature || '');
+  if (body.signature && typeof body.signature === 'object') {
+    sigB64 = String(body.signature.signature || '');
+    if (body.signature.pub_key) pubB64 = String(body.signature.pub_key.value || '');
+  }
+  let pub, sig;
+  try {
+    pub = Buffer.from(pubB64, 'base64');
+    sig = Buffer.from(sigB64, 'base64');
+  } catch (e) { return fail(); }
+  if (gdAddressFromPubKey(pub) !== address) return fail();
+  if (!gdVerifyAdr36(chal.message, address, pub, sig)) return fail();
+  const token = crypto.randomBytes(32).toString('base64url');
+  const tokenKey = 'gd:adminsess:' + crypto.createHash('sha256').update(token).digest('hex');
+  try {
+    await upstashPipeline([['SET', tokenKey, address, 'EX', String(GD_ADMIN_SESS_TTL_SEC)]]);
+  } catch (e) {
+    console.error('garuda admin session save failed', e && e.message);
+    return res.status(502).json({ error: 'store unavailable' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(200).json({ ok: true, token, expiresIn: GD_ADMIN_SESS_TTL_SEC });
+}
+/* A Bearer credential that is not the shared key may be a wallet
+   sign-in session token. The stored value is the address the session
+   was issued to; requiring it to still equal GARUDA_ADMIN_WALLET
+   means rotating the env var kills every live session at once. */
+async function gdAdminSessionOk(token) {
+  try {
+    const key = 'gd:adminsess:' + crypto.createHash('sha256').update(token).digest('hex');
+    const out = await upstashPipeline([['GET', key]]);
+    const who = (out && out[0] && out[0].result) || null;
+    return !!who && who === (process.env.GARUDA_ADMIN_WALLET || '');
+  } catch (e) { return false; }
+}
 async function garudaAdminHandler(req, res) {
   if (req.method !== 'GET' && req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
+  const storeOk = !!(process.env.NEONRUSH_UPSTASH_URL && process.env.NEONRUSH_UPSTASH_TOKEN);
+  /* Parse the POST body up front: the wallet sign-in actions are
+     handled BEFORE the gate (they are how an admin authenticates);
+     every other action stays behind it, unchanged. */
+  let body = null;
+  if (req.method === 'POST') {
+    body = req.body;
+    if (typeof body === 'string') {
+      try { body = JSON.parse(body); } catch { body = {}; }
+    }
+    body = body || {};
+  }
+  if (body && (body.action === 'challenge' || body.action === 'verify')) {
+    if (!storeOk) return res.status(503).json({ error: 'store not configured' });
+    return body.action === 'challenge'
+      ? gdAdminChallenge(req, res, body)
+      : gdAdminVerify(req, res, body);
+  }
   const want = process.env.GARUDA_ADMIN_KEY || '';
   const auth = (req.headers && req.headers.authorization) || '';
   const got = auth.startsWith('Bearer ') ? auth.slice(7) : '';
@@ -576,16 +824,26 @@ async function garudaAdminHandler(req, res) {
     const b = Buffer.from(want);
     keyOk = a.length === b.length && crypto.timingSafeEqual(a, b);
   }
+  /* Wallet sign-in session token: tried only when the shared key did
+     not match, so the key fallback behaves exactly as before. */
+  if (!keyOk && got && storeOk) keyOk = await gdAdminSessionOk(got);
   if (!keyOk) return res.status(401).json({ ok: false, error: 'unauthorized' });
-  if (!process.env.NEONRUSH_UPSTASH_URL || !process.env.NEONRUSH_UPSTASH_TOKEN) {
+  if (!storeOk) {
     return res.status(503).json({ error: 'leaderboard not configured' });
   }
   if (req.method === 'POST') {
-    let body = req.body;
-    if (typeof body === 'string') {
-      try { body = JSON.parse(body); } catch { body = {}; }
+    /* v4: Timer Payouts + leaderboard restart actions — same gate as
+       every other admin action (wallet sign-in session or key). */
+    if (body.action === 'setPayTimer' || body.action === 'stopPayTimer' ||
+        body.action === 'cancelPayRun' || body.action === 'recordRunPayout' ||
+        body.action === 'restartLeaderboard') {
+      try {
+        return await gdAdminTimerAction(req, res, body);
+      } catch (e) {
+        console.error('garuda timer action failed', e && e.message);
+        return res.status(502).json({ error: 'store unavailable' });
+      }
     }
-    body = body || {};
     /* Burn-wallet setting: the wallet whose GDEX balance the game page
        reads live from the chain and shows as the burned total. Only
        the address is stored — never a typed-in total. */
@@ -684,14 +942,354 @@ async function garudaAdminHandler(req, res) {
     }
     payouts.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
     const burnWallet = (pOut[1] && pOut[1].result) || null;
+    /* v4: the timer setting + any waiting payout run ride along so
+       the panel can draw the Timer Payouts box in the same load. */
+    const tState = await gdTimerState();
     res.setHeader('Cache-Control', 'no-store');
-    return res.status(200).json({ all: shape(all), week: shape(week), payouts, burnWallet });
+    return res.status(200).json({ all: shape(all), week: shape(week), payouts, burnWallet, payTimer: tState.payTimer, payRun: tState.payRun });
   } catch (e) {
     console.error('garuda admin failed', e && e.message);
     return res.status(502).json({ error: 'leaderboard unavailable' });
   }
 }
 /* garuda-admin:end */
+
+/* garuda-timer:start — v4: Timer Payouts + leaderboard restart.
+   The ADMIN sets a timer once (gd:paytimer); a Vercel cron calls
+   ?garudatick=1 every 15 minutes (CRON_SECRET-gated, same pattern as
+   kickback-cron) and, when a payout comes due, builds the winner list
+   as a READY run (gd:payrun:<periodKey>, created with SET NX — one
+   run per period, never two). NOTHING is sent by the server: the
+   admin presses RELEASE in the panel and the PAGE signs each send
+   from his own wallet (default: the signed-in admin wallet), then
+   records each confirmed send back here (recordRunPayout), which
+   writes the normal gd:payouts record (HSETNX by tx hash — same
+   duplicate protection) and marks the run row sent in the same call.
+   Fully automatic server sending is deliberately NOT built: no
+   machine holds a payout key (Tom's standing rule).
+   Tokens: GRDX (CW20 — contract address below) or LUNC (native
+   uluna). Weekly timers pay the This Week board (gd:week:<key>);
+   daily timers pay the All-Time board (gd:all) — spec §1 default.
+   RESTART LEADERBOARD archives the chosen board to a timestamped
+   gd:archive:* key before clearing it; payout records (gd:payouts),
+   the winner maps (gd:names / gd:wallets / gd:dates) and any waiting
+   payout run are NEVER touched by a restart. */
+const GD_GRDX_CONTRACT = 'terra16hzl7lge3jjnlazvut2ypt7upk68z5dycc9rwy608fah8q0y3fuslkenzc';
+const GD_PAY_TOKENS = {
+  GRDX: { contract: GD_GRDX_CONTRACT, decimals: 6 },
+  LUNC: { denom: 'uluna', decimals: 6 },
+};
+const GD_RUN_TTL_DAYS = 7;               /* a READY run waits 7 days, then expires */
+function gdParseJson(s) { try { return s ? JSON.parse(s) : null; } catch (e) { return null; } }
+/* Next due instant (ms epoch) STRICTLY AFTER `fromMs`, for a wall
+   time "HH:MM" on weekdayIdx (0=Mon..6=Sun, weekly only) in IANA tz.
+   Converges via Intl offset round-trips; falls back to UTC math if
+   the tz name is somehow invalid. Step 1: get the wall-clock parts
+   of `fromMs` in tz; step 2: shift the wall date forward to the
+   target day; step 3: convert that wall time back to an instant by
+   guessing UTC and correcting with the tz offset (two passes). */
+function gdTzOffsetMs(tz, utcMs) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hourCycle: 'h23',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }).formatToParts(new Date(utcMs));
+    const p = {};
+    for (const x of parts) p[x.type] = +x.value;
+    return Date.UTC(p.year, p.month - 1, p.day, p.hour % 24, p.minute, p.second) - Math.floor(utcMs / 1000) * 1000;
+  } catch (e) { return 0; }
+}
+function gdWallParts(tz, utcMs) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, weekday: 'short',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(new Date(utcMs));
+    const p = {};
+    for (const x of parts) p[x.type] = x.value;
+    const wd = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 }[p.weekday];
+    return { y: +p.year, m: +p.month, d: +p.day, wd: wd === undefined ? 0 : wd };
+  } catch (e) {
+    const d = new Date(utcMs);
+    return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate(), wd: (d.getUTCDay() + 6) % 7 };
+  }
+}
+function gdNextDueUtc(every, weekdayIdx, timeLocal, tz, fromMs) {
+  const [hh, mm] = String(timeLocal || '09:00').split(':').map((n) => parseInt(n, 10) || 0);
+  const w = gdWallParts(tz, fromMs);
+  let addDays = 0;
+  if (every === 'weekly') {
+    addDays = (((weekdayIdx - w.wd) % 7) + 7) % 7;
+  }
+  for (let tries = 0; tries < 8; tries++) {
+    const dayMs = Date.UTC(w.y, w.m - 1, w.d + addDays);
+    const dd = new Date(dayMs);
+    let guess = Date.UTC(dd.getUTCFullYear(), dd.getUTCMonth(), dd.getUTCDate(), hh, mm);
+    for (let i = 0; i < 3; i++) guess = Date.UTC(dd.getUTCFullYear(), dd.getUTCMonth(), dd.getUTCDate(), hh, mm) - gdTzOffsetMs(tz, guess);
+    if (guess > fromMs) return guess;
+    addDays += every === 'weekly' ? 7 : 1;
+  }
+  return fromMs + 24 * 3600 * 1000;
+}
+/* Build the winner rows for a run from a board key. Shared shape with
+   the admin GET's rows: name / wallet|null / score / date. Rows carry
+   the configured amount + token; a null wallet is the skip case. */
+async function gdBoardRows(boardKey, topN, amount, token) {
+  const out = await upstashPipeline([['ZREVRANGE', boardKey, 0, Math.max(topN - 1, 0), 'WITHSCORES']]);
+  const top = pairs(out[0] && out[0].result).slice(0, topN);
+  if (!top.length) return [];
+  const ids = top.map((p) => p.id);
+  const mOut = await upstashPipeline([
+    ['HMGET', 'gd:names', ...ids],
+    ['HMGET', 'gd:wallets', ...ids],
+  ]);
+  const pick = (r) => {
+    const vals = (r && r.result) || [];
+    const o = {};
+    ids.forEach((id, i) => { o[id] = vals[i] || null; });
+    return o;
+  };
+  const names = pick(mOut[0]);
+  const wallets = pick(mOut[1]);
+  return top.map((p) => ({
+    name: names[p.id] || 'Player',
+    wallet: wallets[p.id] || null,
+    amount, token,
+    state: wallets[p.id] ? 'waiting' : 'skipped',
+    txHash: null,
+  }));
+}
+/* Load the current waiting run (pointer -> record), or null. */
+async function gdLoadCurrentRun() {
+  const pOut = await upstashPipeline([['GET', 'gd:payrun:current']]);
+  const pk = (pOut[0] && pOut[0].result) || null;
+  if (!pk) return null;
+  const rOut = await upstashPipeline([['GET', 'gd:payrun:' + pk]]);
+  const run = gdParseJson(rOut[0] && rOut[0].result);
+  if (!run) return null;
+  run.periodKey = pk;
+  return run;
+}
+/* Persist a run record + keep the pointer honest: the pointer only
+   ever names a run that is ready or paying. */
+async function gdSaveRun(run) {
+  const cmds = [['SET', 'gd:payrun:' + run.periodKey, JSON.stringify(run)]];
+  if (run.status === 'ready' || run.status === 'paying') {
+    cmds.push(['SET', 'gd:payrun:current', run.periodKey]);
+  } else {
+    const pOut = await upstashPipeline([['GET', 'gd:payrun:current']]);
+    if (pOut[0] && pOut[0].result === run.periodKey) cmds.push(['DEL', 'gd:payrun:current']);
+  }
+  await upstashPipeline(cmds);
+}
+async function gdTimerState() {
+  const out = await upstashPipeline([
+    ['GET', 'gd:paytimer'],
+    ['GET', 'gd:payrun:current'],
+  ]);
+  const cfg = gdParseJson(out[0] && out[0].result);
+  let run = null;
+  const pk = (out[1] && out[1].result) || null;
+  if (pk) {
+    const rOut = await upstashPipeline([['GET', 'gd:payrun:' + pk]]);
+    run = gdParseJson(rOut[0] && rOut[0].result);
+    if (run) run.periodKey = pk;
+  }
+  return { payTimer: cfg, payRun: run };
+}
+/* One timer tick: fail-safe at every step (see header comment).
+   Returns a plain result object; the HTTP wrapper adds auth. */
+async function gdTickRun(nowMs) {
+  const out = await upstashPipeline([['GET', 'gd:paytimer']]);
+  const cfg = gdParseJson(out[0] && out[0].result);
+  if (!cfg || cfg.on !== true) return { ok: true, did: 'off' };
+  const dueMs = Date.parse(cfg.nextDueUtc || '');
+  if (!isFinite(dueMs) || dueMs > nowMs) return { ok: true, did: 'not-due' };
+  let run = await gdLoadCurrentRun();
+  if (run) {
+    const createdMs = Date.parse(run.createdAt || '') || dueMs;
+    if (nowMs - createdMs > GD_RUN_TTL_DAYS * 24 * 3600 * 1000) {
+      run.status = 'expired';
+      await gdSaveRun(run);
+      cfg.nextDueUtc = new Date(gdNextDueUtc(cfg.every, cfg.weekday, cfg.timeLocal, cfg.tz, nowMs)).toISOString();
+      await upstashPipeline([['SET', 'gd:paytimer', JSON.stringify(cfg)]]);
+      return { ok: true, did: 'expired-old-run' };
+    }
+    return { ok: true, did: 'waiting' };
+  }
+  const periodKey = cfg.every === 'weekly' ? weekKey(new Date(dueMs)) : new Date(dueMs).toISOString().slice(0, 10);
+  const boardKey = cfg.every === 'weekly' ? `gd:week:${weekKey(new Date(dueMs))}` : 'gd:all';
+  const rows = await gdBoardRows(boardKey, cfg.topN, cfg.amount, cfg.token);
+  cfg.nextDueUtc = new Date(gdNextDueUtc(cfg.every, cfg.weekday, cfg.timeLocal, cfg.tz, nowMs)).toISOString();
+  if (!rows.length) {
+    await upstashPipeline([['SET', 'gd:paytimer', JSON.stringify(cfg)]]);
+    return { ok: true, did: 'empty-board', periodKey };
+  }
+  const newRun = {
+    status: 'ready', every: cfg.every, periodKey,
+    dueUtc: new Date(dueMs).toISOString(), createdAt: new Date(nowMs).toISOString(),
+    rows, releasedBy: null, releasedAt: null,
+  };
+  const setOut = await upstashPipeline([
+    ['SET', 'gd:payrun:' + periodKey, JSON.stringify(newRun), 'NX'],
+    ['SET', 'gd:paytimer', JSON.stringify(cfg)],
+  ]);
+  if (!setOut[0] || setOut[0].result !== 'OK') return { ok: true, did: 'already-exists', periodKey };
+  await upstashPipeline([['SET', 'gd:payrun:current', periodKey]]);
+  return { ok: true, did: 'built', periodKey, rows: rows.length };
+}
+/* The cron entry point: Vercel Cron sends Authorization: Bearer
+   <CRON_SECRET> automatically (same pattern as kickback-cron.js). */
+async function garudaTickHandler(req, res) {
+  const secret = process.env.CRON_SECRET || '';
+  const auth = (req.headers && req.headers.authorization) || '';
+  const got = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  let ok = false;
+  if (secret && got) {
+    const a = Buffer.from(got);
+    const b = Buffer.from(secret);
+    ok = a.length === b.length && crypto.timingSafeEqual(a, b);
+  }
+  if (!ok) return res.status(401).json({ ok: false, error: 'unauthorized' });
+  if (!process.env.NEONRUSH_UPSTASH_URL || !process.env.NEONRUSH_UPSTASH_TOKEN) {
+    return res.status(503).json({ error: 'store not configured' });
+  }
+  try {
+    const r = await gdTickRun(Date.now());
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(200).json(r);
+  } catch (e) {
+    console.error('garuda tick failed', e && e.message);
+    return res.status(502).json({ error: 'tick failed' });
+  }
+}
+/* The v4 admin actions, behind the same gate as everything else in
+   garudaAdminHandler (dispatched from its POST branch). */
+async function gdAdminTimerAction(req, res, body) {
+  const who = (process.env.GARUDA_ADMIN_WALLET || '') || 'key-admin';
+  if (body.action === 'setPayTimer') {
+    const every = body.every === 'daily' ? 'daily' : 'weekly';
+    const weekday = Math.max(0, Math.min(6, parseInt(body.weekday, 10) || 0));
+    const timeLocal = /^\d{2}:\d{2}$/.test(String(body.timeLocal || '')) ? String(body.timeLocal) : '09:00';
+    const tz = String(body.tz || 'UTC').slice(0, 64) || 'UTC';
+    const amount = String(body.amount || '').trim().slice(0, 24);
+    const token = String(body.token || '').toUpperCase();
+    const topN = Math.max(1, Math.min(50, parseInt(body.topN, 10) || 0));
+    if (!/^[0-9]+(\.[0-9]+)?$/.test(amount) || !(+amount > 0)) {
+      return res.status(400).json({ ok: false, error: 'bad amount' });
+    }
+    if (!GD_PAY_TOKENS[token]) return res.status(400).json({ ok: false, error: 'bad token' });
+    if (!topN) return res.status(400).json({ ok: false, error: 'bad player count' });
+    const cfg = {
+      on: true, every, weekday, timeLocal, tz, amount, token, topN,
+      nextDueUtc: new Date(gdNextDueUtc(every, weekday, timeLocal, tz, Date.now())).toISOString(),
+      updatedBy: who, updatedAt: new Date().toISOString(),
+    };
+    await upstashPipeline([['SET', 'gd:paytimer', JSON.stringify(cfg)]]);
+    const st = await gdTimerState();
+    return res.status(200).json({ ok: true, payTimer: st.payTimer, payRun: st.payRun });
+  }
+  if (body.action === 'stopPayTimer') {
+    const out = await upstashPipeline([['GET', 'gd:paytimer']]);
+    const cfg = gdParseJson(out[0] && out[0].result) || {};
+    cfg.on = false;
+    cfg.updatedBy = who;
+    cfg.updatedAt = new Date().toISOString();
+    await upstashPipeline([['SET', 'gd:paytimer', JSON.stringify(cfg)]]);
+    const run = await gdLoadCurrentRun();
+    if (run && run.status === 'ready') {
+      run.status = 'cancelled';
+      await gdSaveRun(run);
+    }
+    const st = await gdTimerState();
+    return res.status(200).json({ ok: true, payTimer: st.payTimer, payRun: st.payRun });
+  }
+  if (body.action === 'cancelPayRun') {
+    const run = await gdLoadCurrentRun();
+    if (!run) return res.status(404).json({ ok: false, error: 'no payout waiting' });
+    if (run.status !== 'ready') {
+      return res.status(409).json({ ok: false, error: 'this payout is already being paid — it cannot be cancelled now' });
+    }
+    run.status = 'cancelled';
+    await gdSaveRun(run);
+    const st = await gdTimerState();
+    return res.status(200).json({ ok: true, payTimer: st.payTimer, payRun: st.payRun });
+  }
+  if (body.action === 'recordRunPayout') {
+    const periodKey = String(body.periodKey || '');
+    const rowWallet = String(body.wallet || '');
+    const name = String(body.name || '').trim().replace(/[<>/\\]/g, '').slice(0, 40);
+    const amount = String(body.amount || '').trim().slice(0, 24);
+    const token = String(body.token || '').trim().replace(/[<>/\\]/g, '').slice(0, 12);
+    const txHash = String(body.txHash || '').trim().toUpperCase();
+    if (!periodKey) return res.status(400).json({ ok: false, error: 'bad payout run' });
+    if (name.length < 1) return res.status(400).json({ ok: false, error: 'bad name' });
+    if (!GD_ADDR_RE.test(rowWallet)) return res.status(400).json({ ok: false, error: 'bad wallet' });
+    if (!/^[0-9]+(\.[0-9]+)?$/.test(amount)) return res.status(400).json({ ok: false, error: 'bad amount' });
+    if (token.length < 1) return res.status(400).json({ ok: false, error: 'bad token' });
+    if (!GD_TXHASH_RE.test(txHash)) return res.status(400).json({ ok: false, error: 'bad tx hash' });
+    const rOut = await upstashPipeline([['GET', 'gd:payrun:' + periodKey]]);
+    const run = gdParseJson(rOut[0] && rOut[0].result);
+    if (!run) return res.status(404).json({ ok: false, error: 'payout run not found' });
+    run.periodKey = periodKey;
+    const row = (run.rows || []).find((r) => r.wallet === rowWallet);
+    if (!row) return res.status(400).json({ ok: false, error: 'winner not in this payout' });
+    if (row.state === 'sent') {
+      /* Already recorded — idempotent: never a double record. */
+      return res.status(200).json({ ok: true, alreadyRecorded: true, payRun: run });
+    }
+    if (row.state !== 'waiting') return res.status(409).json({ ok: false, error: 'this winner cannot be paid from this list' });
+    if (String(row.amount) !== amount || String(row.token) !== token) {
+      return res.status(400).json({ ok: false, error: 'amount or token does not match the payout list' });
+    }
+    const rec = JSON.stringify({
+      name, wallet: rowWallet, amount, token, txHash,
+      note: 'Timer payout ' + periodKey,
+      date: new Date().toISOString().slice(0, 10),
+    });
+    const hOut = await upstashPipeline([['HSETNX', 'gd:payouts', txHash, rec]]);
+    if (!hOut[0] || hOut[0].result !== 1) {
+      return res.status(409).json({ ok: false, error: 'payout already recorded' });
+    }
+    row.state = 'sent';
+    row.txHash = txHash;
+    if (!run.releasedBy) { run.releasedBy = who; run.releasedAt = new Date().toISOString(); }
+    const payable = (run.rows || []).filter((r) => r.state !== 'skipped');
+    run.status = payable.every((r) => r.state === 'sent') ? 'paid' : 'paying';
+    await gdSaveRun(run);
+    return res.status(200).json({ ok: true, payRun: run });
+  }
+  if (body.action === 'restartLeaderboard') {
+    const board = body.board === 'all' ? 'all' : 'week';
+    const wk = weekKey();
+    const boardKey = board === 'all' ? 'gd:all' : `gd:week:${wk}`;
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const archiveKey = board === 'all'
+      ? `gd:archive:all:${stamp}`
+      : `gd:archive:week:${wk}:${stamp}`;
+    const zOut = await upstashPipeline([['ZREVRANGE', boardKey, 0, -1, 'WITHSCORES']]);
+    const flat = (zOut[0] && zOut[0].result) || [];
+    const rows = pairs(flat);
+    const ids = rows.map((r) => r.id);
+    let names = {};
+    if (ids.length) {
+      const nOut = await upstashPipeline([['HMGET', 'gd:names', ...ids]]);
+      const vals = (nOut[0] && nOut[0].result) || [];
+      ids.forEach((id, i) => { names[id] = vals[i] || null; });
+    }
+    const archive = {
+      board, boardKey, archivedAt: new Date().toISOString(), by: who,
+      rows: rows.map((r) => ({ id: r.id, name: names[r.id] || 'Player', score: r.score })),
+    };
+    const cmds = [['SET', archiveKey, JSON.stringify(archive)]];
+    if (ids.length) cmds.push(['ZREM', boardKey, ...ids]);
+    await upstashPipeline(cmds);
+    return res.status(200).json({ ok: true, board, cleared: rows.length, archiveKey });
+  }
+  return res.status(400).json({ ok: false, error: 'unknown action' });
+}
+/* garuda-timer:end */
 
 /* garuda-public:start — Garuda Dash PUBLIC payouts & burns data, folded
    into this router for the same 12-function-cap reason. Reached via
@@ -1114,6 +1712,11 @@ export default async function handler(req, res) {
   /* Garuda Dash payout admin: /api/garuda-admin is rewritten to
      /api/luna-games?garudaadmin=1 (see the garuda-admin block above). */
   if (req.query && req.query.garudaadmin !== undefined) return garudaAdminHandler(req, res);
+  /* Garuda Dash Timer Payout tick: Vercel Cron calls
+     /api/luna-games?garudatick=1 every 15 min (see the garuda-timer
+     block above). CRON_SECRET-gated; builds at most one READY payout
+     run per period and never sends anything itself. */
+  if (req.query && req.query.garudatick !== undefined) return garudaTickHandler(req, res);
   /* Garuda Dash PUBLIC payouts & burns data: the game page calls
      ?garudapublic=1 directly (see the garuda-public block above).
      Display data only — never a winner wallet. */
