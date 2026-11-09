@@ -974,7 +974,10 @@ async function garudaAdminHandler(req, res) {
    gd:archive:* key before clearing it; payout records (gd:payouts),
    the winner maps (gd:names / gd:wallets / gd:dates) and any waiting
    payout run are NEVER touched by a restart. */
-const GD_GRDX_CONTRACT = 'terra16hzl7lge3jjnlazvut2ypt7upk68z5dycc9rwy608fah8q0y3fuslkenzc';
+/* GRDX = "GARUDAX TOKEN" — verified on-chain via token_info Nov 8
+   (the terra16hzl7… address is GDEX / "Garuda DEX" — a different
+   token; do not use it for GRDX payouts). */
+const GD_GRDX_CONTRACT = 'terra12f3f5fzfzxckc0qlv3rmwwkjfhzevpwmx77345n0zuu2678vxf0sm6vvcw';
 const GD_PAY_TOKENS = {
   GRDX: { contract: GD_GRDX_CONTRACT, decimals: 6 },
   LUNC: { denom: 'uluna', decimals: 6 },
