@@ -275,7 +275,7 @@
   </div>
   <div id="pad">
     <div class="padR">
-      <button class="cbtn gold screech" id="btnS">📣</button>
+      <button class="cbtn gold screech" id="btnS">⚔️</button>
     </div>
   </div>
 </div>
@@ -347,7 +347,7 @@
   <div id="menuExtras">
     <p id="howText" style="display:none">Ten worlds, one Ninja Eagle. One <b>thumb stick</b> does it all: <b>push to run</b>, <b>flick up to jump</b>,
        <b>hold up to GLIDE</b>, <b>push down mid-air to dive</b>. Stomp the stone guardians — or hit
-       <b>📣 SCREECH</b> to stun them. Clear a level to unlock the next… and every world gets <b>hotter</b>. Reach the golden nest!
+       <b>⚔️ SWORD</b> to fight through them. Clear a level to unlock the next… and every world gets <b>hotter</b>. Reach the golden nest!
        Hunt the <b>3 hidden 🪶</b> in every world — collect all 30 to unlock new <b>eagle skins</b>!
        Beat each world's <b>⏱ par time</b> to earn <b>🥇🥈🥉 medals</b> — gold takes a fast, clean run!</p>
     <div id="levelWrap" style="display:none">
@@ -406,9 +406,9 @@
   <p style="max-width:520px">Payout worksheet only — this page never pays anyone and never holds keys. The team pays winners by hand from their own wallet.</p>
   <div id="nftPanel" style="margin:0 auto">
     <div class="nftRow">
-      <input id="adminKeyInput" type="password" autocomplete="off" placeholder="Admin key">
-      <button class="play" id="adminLoadBtn">LOAD</button>
+      <button class="play" id="adminWalletBtn" style="flex:1">🦅 SIGN IN WITH ADMIN WALLET</button>
     </div>
+    <p style="font-size:12.5px; opacity:.85; max-width:520px; margin:2px auto 6px">Connect the Garuda team admin wallet in Keplr and sign a login message. The signature is on a message only — never a transaction, no fee, and it cannot move funds.</p>
     <div id="adminStatus" style="font-size:12.5px; min-height:16px; text-align:center"></div>
   </div>
   <div class="tabs">
@@ -416,8 +416,13 @@
     <button id="admTabWeek" class="play alt">THIS WEEK</button>
     <button id="adminCopyBtn" class="play alt">📋 COPY ALL WALLETS</button>
   </div>
-  <div id="adminRows"><p style="text-align:center; opacity:.8">Enter the admin key to load the payout list.</p></div>
+  <div id="adminRows"><p style="text-align:center; opacity:.8">Sign in with the admin wallet to load the payout list.</p></div>
+<!-- v4: Timer Payouts box (gdTimerSection) + Restart Leaderboard box
+     (gdRestartSection) are injected here by the admin script after this
+     marker comment's parent loads — built by gdEnsureV4Sections() so the
+     sign-in build's sections stay untouched. -->
   <div id="adminExtras" style="display:none">
+    <div id="gdV4Anchor"></div>
     <div class="admsec">
       <h3>➕ RECORD A PAYOUT</h3>
       <div class="nftRow">
@@ -592,7 +597,8 @@ function ensureMusic(){ if (!muted) startMusic(); }
 
 /* ================= level template ================= */
 /*LEVEL-START*/
-const WORLD_W = 4600, GROUND_Y = 470;
+let WORLD_W = 4600;
+const GROUND_Y = 470;
 const GROUNDS = [   /* [x, w] — top at GROUND_Y */
   [0, 700], [760, 620], [1440, 700], [2200, 640], [2900, 700], [3660, 940],
 ];
@@ -607,7 +613,7 @@ const WALKER_DEFS = [ /* [minX, maxX, surfaceY, speed] */
   [2350, 2750, GROUND_Y, 82], [3050, 3500, GROUND_Y, 70], [3250, 3330, 283, 40],
   [3750, 4100, GROUND_Y, 86], [4200, 4450, GROUND_Y, 64], [500, 640, GROUND_Y, 58],
 ];
-const NEST_X = 4500;
+let NEST_X = 4500;
 /*LEVEL-END*/
 
 /* ================= themes ================= */
@@ -727,15 +733,143 @@ function clampPlatforms(plats, gSurfs){
     accepted.push({ x: p.x, y: p.y, w: p.w });
   }
 }
+/* ================= climb sections + longer levels (L1–L5) =================
+   Tom's design (Nov 8): inside a level, SECTIONS where you jump up tier
+   by tier — ground (tier 1) -> tier 2 -> tier 3 — walk across each
+   height, then hop back down the far side. Falling between the tiers
+   lands you on the tier-1 ground under the section, never in a pit:
+   every climb section sits on its own solid ground segment.
+   Levels 1–5 are also ~35–39% LONGER (LEVEL_LEN): the extra length is
+   the climb sections plus one echo section in the level's own style —
+   no empty flat running. Levels 6–10 keep the original 4600 length.
+   Implementation = INSERTION, not scaling: existing geometry is
+   shifted right untouched, so every previously-proven jump stays
+   exactly as it was. */
+const LEVEL_LEN = { 1: 6400, 2: 6200, 3: 6200, 4: 6200, 5: 6200 };
+function gdSetWorld(n){
+  WORLD_W = LEVEL_LEN[n] || 4600;
+  NEST_X = WORLD_W - 100;
+}
+/* one climb section, 900px wide, over ground whose top is baseY.
+   Steps of 50 (jump apex is 112, the clamp allows 108) and horizontal
+   gaps of 30 — comfortably inside the physics for the eagle and the
+   NFT hero alike. Platform triples are [dx, y, w] from the origin. */
+function gdClimbPlats(baseY){
+  return [
+    [0,   baseY - 50,  96],   /* step up */
+    [126, baseY - 100, 96],   /* tier 2 entry */
+    [252, baseY - 100, 160],  /* tier 2 — walk across this height */
+    [442, baseY - 150, 96],   /* step up */
+    [568, baseY - 200, 180],  /* tier 3 — walk across the top */
+    [778, baseY - 100, 96],   /* hop back down to tier-2 height… */
+  ];                          /* …then drop to the ground and run on */
+}
+/* Archetype inserts per level: {atX (start of an existing ground
+   segment), w (total inserted width), grounds/platforms relative to
+   atX, climb: baseY for a gdClimbPlats section, walkers on inserted
+   grounds (gdx = the inserted ground's dx)}. Processed widest-atX
+   first so original coordinates stay valid throughout. */
+const GD_ARCH_INSERTS = {
+  /* 2 · SUNSET VALLEY — a glide-pit echo (280px pit, bonus slabs),
+     then a climb section on the final segment. */
+  2: [
+    { atX: 3460, w: 900, climb: 470, grounds: [[0, 470, 900]], platforms: [],
+      walkers: [{ gdx: 0, at: 0.45, speed: 56 }] },
+    { atX: 1750, w: 700, grounds: [[0, 470, 460], [490, 470, 210]],
+      platforms: [[290, 380, 110], [470, 300, 110]], walkers: [] },
+  ],
+  /* 3 · NEON TEMPLE — a staircase echo in the temple's own step style,
+     then a climb section. */
+  3: [
+    { atX: 2750, w: 900, climb: 470, grounds: [[0, 470, 900]], platforms: [],
+      walkers: [{ gdx: 0, at: 0.45, speed: 58 }] },
+    { atX: 1010, w: 700, grounds: [[0, 470, 700]],
+      platforms: [[30, 402, 96], [156, 334, 96], [282, 266, 110], [438, 334, 96], [564, 402, 96]],
+      walkers: [] },
+  ],
+  /* 4 · DESERT DUNES — a rolling-dunes echo (two new dune heights,
+     tiki riding the first), then a climb section on the final segment. */
+  4: [
+    { atX: 3720, w: 900, climb: 470, grounds: [[0, 470, 900]], platforms: [],
+      walkers: [{ gdx: 0, at: 0.45, speed: 58 }] },
+    { atX: 1240, w: 700, grounds: [[0, 438, 340], [400, 478, 300]],
+      platforms: [[120, 352, 110]], walkers: [{ gdx: 0, at: 0.5, speed: 57 }] },
+  ],
+  /* 5 · RAINFOREST — a canopy-hop echo (steps up to the y=230 canopy
+     line, drop back to the ground route), then a climb section. */
+  5: [
+    { atX: 3070, w: 900, climb: 470, grounds: [[0, 470, 900]], platforms: [],
+      walkers: [{ gdx: 0, at: 0.45, speed: 60 }] },
+    { atX: 800, w: 700, grounds: [[0, 470, 700]],
+      platforms: [[30, 378, 100], [156, 300, 100], [282, 230, 140], [452, 230, 140]],
+      walkers: [] },
+  ],
+};
+function gdExtendArch(n){
+  const A = ARCHETYPES[n];
+  const inserts = GD_ARCH_INSERTS[n];
+  if (!A || !inserts) return A;
+  let grounds = A.grounds.map(g => [...g]);
+  let platforms = A.platforms.map(p => [...p]);
+  let walkers = (A.walkers || []).map(w => ({ ...w }));
+  const pending = [];
+  for (const ins of [...inserts].sort((a, b) => b.atX - a.atX)){
+    const k = grounds.findIndex(g => g[0] === ins.atX);
+    grounds = grounds.map(g => g[0] >= ins.atX ? [g[0] + ins.w, g[1], g[2]] : g);
+    platforms = platforms.map(p => p[0] >= ins.atX ? [p[0] + ins.w, p[1], p[2]] : p);
+    for (const pw of pending) if (pw.groundX >= ins.atX) pw.groundX += ins.w;
+    if (k >= 0) walkers = walkers.map(wk => {
+      const o = { ...wk };
+      if (o.seg != null && o.seg >= k) o.seg += ins.grounds.length;
+      if (o.platX != null && o.platX >= ins.atX) o.platX += ins.w;
+      return o;
+    });
+    grounds = grounds.concat(ins.grounds.map(([dx, y, w]) => [ins.atX + dx, y, w])).sort((a, b) => a[0] - b[0]);
+    const plats = ins.climb ? gdClimbPlats(ins.climb) : ins.platforms;
+    platforms = platforms.concat(plats.map(([dx, y, w]) => [ins.atX + dx, y, w]));
+    for (const wk of (ins.walkers || [])) pending.push({ groundX: ins.atX + wk.gdx, at: wk.at, speed: wk.speed, kind: wk.kind });
+  }
+  for (const pw of pending){
+    const seg = grounds.findIndex(g => g[0] === pw.groundX);
+    if (seg >= 0) walkers.push({ seg, at: pw.at, speed: pw.speed, kind: pw.kind });
+  }
+  return { grounds, platforms, walkers, movers: A.movers || [] };
+}
+/* L1 (legacy template) — two climb sections, at the starts of the
+   template's 3rd and 5th ground segments. The second section gets a
+   slow tiki patrolling its ground (final coords: origin 3800). */
+const GD_L1_INSERTS = [
+  { atX: 2900, w: 900 },
+  { atX: 1440, w: 900 },
+];
+function gdLegacyExtend(){
+  if (gdLegacyExtend._c) return gdLegacyExtend._c;
+  let grounds = GROUNDS.map(([x, w]) => [x, w]);
+  let plats = PLATFORMS.map(p => [...p]);
+  let walkers = WALKER_DEFS.map(w => [...w]);
+  for (const ins of [...GD_L1_INSERTS].sort((a, b) => b.atX - a.atX)){
+    grounds = grounds.map(([x, w]) => x >= ins.atX ? [x + ins.w, w] : [x, w]);
+    grounds.push([ins.atX, ins.w]);
+    grounds.sort((a, b) => a[0] - b[0]);
+    plats = plats.map(([x, y, w]) => x >= ins.atX ? [x + ins.w, y, w] : [x, y, w]);
+    plats = plats.concat(gdClimbPlats(GROUND_Y).map(([dx, y, w]) => [ins.atX + dx, y, w]));
+    walkers = walkers.map(([a, b, y, s]) => a >= ins.atX ? [a + ins.w, b + ins.w, y, s] : [a, b, y, s]);
+  }
+  walkers.push([4100, 4400, GROUND_Y, 55]);   /* tiki under climb section 2 */
+  return (gdLegacyExtend._c = { grounds, platforms: plats, walkers });
+}
+
 function buildLegacy(n){
+  gdSetWorld(n);
+  const T1 = n === 1 ? gdLegacyExtend() : null;
   const rnd = mulberry32(n * 7919 + 13);
   /* grounds — widen the pits: 60px on L1 → 123px on L10 */
-  const grounds = GROUNDS.map(([x, w]) => [x, w]);
+  const grounds = (T1 ? T1.grounds : GROUNDS).map(([x, w]) => [x, w]);
   const targetPit = 60 + (n - 1) * 7;
   for (let i = 0; i < grounds.length - 1; i++){
     const curPit = grounds[i + 1][0] - (grounds[i][0] + grounds[i][1]);
     const extra = targetPit - curPit;
-    if (extra <= 0) continue;
+    if (extra <= 0 || curPit <= 0) continue;   /* never open a pit between abutting segments (climb-section grounds) */
     const trimA = Math.floor(extra / 2), trimB = extra - trimA;
     grounds[i][1] -= trimA;
     grounds[i + 1][0] += trimB; grounds[i + 1][1] -= trimB;
@@ -743,7 +877,7 @@ function buildLegacy(n){
   /* platforms — seeded jitter, thin out at higher levels, clamp reachable */
   const keep = n <= 2 ? 14 : n <= 4 ? 13 : n <= 6 ? 12 : n <= 8 ? 11 : 10;
   const removeIdx = [6, 11, 3, 13].slice(0, 14 - keep);
-  let plats = PLATFORMS.map(([x, y, w], oi) => ({
+  let plats = (T1 ? T1.platforms : PLATFORMS).map(([x, y, w], oi) => ({
       x: x + Math.round(rnd() * 28 - 14), y: y + Math.round(rnd() * 20 - 10), w, oi,
     }))
     .filter(p => !removeIdx.includes(p.oi));
@@ -753,7 +887,7 @@ function buildLegacy(n){
   /* walkers — template patrols, speed scales with level */
   const spd = 1 + (n - 1) * 0.05;
   const walkerDefs = [];
-  for (const [a, b, y, sp] of WALKER_DEFS){
+  for (const [a, b, y, sp] of (T1 ? T1.walkers : WALKER_DEFS)){
     if (y === GROUND_Y){
       walkerDefs.push({ minX: a, maxX: b, y, speed: Math.round(sp * spd), kind: 'tiki', hp: 1, w: 32, h: 24 });
     } else {
@@ -826,12 +960,13 @@ function buildLegacy(n){
   let boss = null;
   if (n === 10){
     const fin = grounds[grounds.length - 1];
-    boss = { x: NEST_X - 300, minX: fin[0] + 60, maxX: NEST_X - 170, y: GROUND_Y, w: 120, h: 108,
-      hp: 5, stun: 0, dir: 1, speed: 34, chargeT: 0, chargeDir: 1, hop: 0, hopV: 0, dead: false, enraged: false };
+    boss = { x: NEST_X - 300, minX: fin[0] + 60, maxX: NEST_X - 170, y: GROUND_Y, w: 72, h: 96,
+      hp: 8, stun: 0, dir: 1, speed: 34, chargeT: 0, chargeDir: 1, hop: 0, hopV: 0, dead: false, enraged: false, sword: true };
   }
   const hFeathers = placeHiddenFeathers(grounds.map(([x, w]) => [x, GROUND_Y, w]), plats.map(p => [p.x, p.y, p.w]), walkerDefs, movers, feather);
   const updrafts = placeUpdrafts(grounds.map(([x, w]) => [x, GROUND_Y, w]), plats.map(p => [p.x, p.y, p.w]), movers, hFeathers);
   const batDefs = placeBats(grounds.map(([x, w]) => [x, GROUND_Y, w]), plats.map(p => [p.x, p.y, p.w]), walkerDefs, movers, feather, hFeathers, updrafts, n);
+  gClimb = grounds.map(([x, w]) => w === 900 && (x === 1440 || x === 3800));
   const alcoveDef = placeAlcoves(grounds.map(([x, w]) => [x, GROUND_Y, w]), plats.map(p => [p.x, p.y, p.w]), walkerDefs, feather, egg, hFeathers, updrafts, movers, batDefs, n);
   return { grounds: grounds.map(([x, w]) => [x, GROUND_Y, w]), platforms: plats.map(p => [p.x, p.y, p.w]), walkerDefs, nestX: NEST_X, feather, egg, movers, boss, hFeathers, updrafts, batDefs, alcove: alcoveDef };
 }
@@ -934,7 +1069,8 @@ const ARCHETYPES = {
 };
 
 function buildLevel(n){
-  const A = ARCHETYPES[n];
+  gdSetWorld(n);
+  const A = gdExtendArch(n);
   if (!A) return buildLegacy(n);
   const grounds = A.grounds.map(([x, y, w]) => [x, y, w]);
   const gSurfs = grounds.map(([x, y, w]) => ({ x, y, w }));
@@ -995,12 +1131,13 @@ function buildLevel(n){
   let boss = null;
   if (n === 10){
     const fin = grounds[grounds.length - 1];
-    boss = { x: NEST_X - 300, minX: fin[0] + 60, maxX: NEST_X - 170, y: fin[1], w: 120, h: 108,
-      hp: 5, stun: 0, dir: 1, speed: 34, chargeT: 0, chargeDir: 1, hop: 0, hopV: 0, dead: false, enraged: false };
+    boss = { x: NEST_X - 300, minX: fin[0] + 60, maxX: NEST_X - 170, y: fin[1], w: 72, h: 96,
+      hp: 8, stun: 0, dir: 1, speed: 34, chargeT: 0, chargeDir: 1, hop: 0, hopV: 0, dead: false, enraged: false, sword: true };
   }
   const hFeathers = placeHiddenFeathers(grounds, plats.map(p => [p.x, p.y, p.w]), walkerDefs, movers, feather);
   const updrafts = placeUpdrafts(grounds, plats.map(p => [p.x, p.y, p.w]), movers, hFeathers);
   const batDefs = placeBats(grounds, plats.map(p => [p.x, p.y, p.w]), walkerDefs, movers, feather, hFeathers, updrafts, n);
+  gClimb = grounds.map(g => g[2] === 900);
   const alcoveDef = placeAlcoves(grounds, plats.map(p => [p.x, p.y, p.w]), walkerDefs, feather, egg, hFeathers, updrafts, movers, batDefs, n);
   return { grounds, platforms: plats.map(p => [p.x, p.y, p.w]), walkerDefs, nestX: NEST_X, feather, egg, movers, boss, hFeathers, updrafts, batDefs, alcove: alcoveDef };
 }
@@ -1201,6 +1338,7 @@ function placeBats(groundsA, platsA, walkerDefs, movers, feather, hFeathers, upd
    open hollow); if that leaves nothing, a second pass drops the
    patrol rule — every level still gets its secret. */
 const ALCOVE_W = 150, ALCOVE_DEPTH = 54;
+let gClimb = [];   /* per-ground climb-section flags for the CURRENT build (set by both builders before placeAlcoves) */
 function placeAlcoves(groundsA, platsA, walkerDefs, feather, egg, hFeathers, updrafts, movers, batDefs, n){
   function clear(x, s, noPatrol){
     const x1 = x + ALCOVE_W, top = s.y;
@@ -1225,7 +1363,7 @@ function placeAlcoves(groundsA, platsA, walkerDefs, feather, egg, hFeathers, upd
     return true;
   }
   const segs = groundsA.map((g, i) => ({ i, x: g[0], y: g[1], w: g[2] }))
-    .filter(s => s.w >= 430 && !(n === 10 && s.i === groundsA.length - 1))
+    .filter(s => s.w >= 430 && !gClimb[s.i] && !(n === 10 && s.i === groundsA.length - 1))
     .sort((a, b) => b.w - a.w);
   /* scan each segment (longest first) in 10px steps — a fixed handful
      of fractions is too coarse: on the tight levels every fraction
@@ -1293,6 +1431,12 @@ let standMover = null;
 const intro = { on: false, t: 0 };
 let cam = 0, checkpoint = 40, runTime = 0;
 let screechCd = 0, screechFx = null, invuln = 0;
+/* SWORD COMBAT (Tom's ruling, Nov 8): the screech button is now the
+   SWORD button — same slot, same press. A swing is a fast arc in the
+   facing direction with a short-reach hitbox and a brief cooldown.
+   swingT runs 0..SWING_DUR; the hit lands once, mid-swing. */
+let swingT = -1, swingHit = false;
+const SWING_DUR = 0.3, SWING_CD = 0.42, SWING_REACH = 62;
 /* GARUDA NFT bonus: session-only, re-verified on-chain at load time.
    gdShield = shield charges for the current level (refilled per level);
    gdShockT/gdShockX/gdShockY = power-dive shockwave visual state. */
@@ -1500,11 +1644,11 @@ function renderSkinPicker(){
    never in the submit payload. */
 const MEDAL_KEY = 'garudaDashMedals';
 const PAR_TIMES = [
-  { g: 20, s: 26, b: 36 },   /* L1  ref 17.7 measured */
-  { g: 19, s: 25, b: 34 },   /* L2  ref 16.7 measured */
-  { g: 19, s: 25, b: 34 },   /* L3  ref 16.8 measured */
-  { g: 20, s: 27, b: 36 },   /* L4  ref 18.0 measured */
-  { g: 19, s: 25, b: 34 },   /* L5  ref 16.9 measured */
+  { g: 28, s: 36, b: 50 },   /* L1  ref 24.6 est. by length (6400px) — re-measure in climb QA */
+  { g: 25, s: 33, b: 46 },   /* L2  ref 22.5 est. by length (6200px) — re-measure in climb QA */
+  { g: 26, s: 33, b: 46 },   /* L3  ref 22.6 est. by length (6200px) — re-measure in climb QA */
+  { g: 27, s: 36, b: 49 },   /* L4  ref 24.3 est. by length (6200px) — re-measure in climb QA */
+  { g: 26, s: 34, b: 46 },   /* L5  ref 22.8 est. by length (6200px) — re-measure in climb QA */
   { g: 19, s: 25, b: 34 },   /* L6  ref 16.6 measured */
   { g: 21, s: 28, b: 38 },   /* L7  ref 19.0 ESTIMATE (see note) */
   { g: 19, s: 25, b: 34 },   /* L8  ref 16.6 measured */
@@ -1678,7 +1822,7 @@ function showOver(kind){
            (lastTierCross ? `<br>🎉 NEW HEADBAND: ${lastTierCross}!` : '') +
            (lastSkinUnlock ? `<br>🎉 NEW SKIN UNLOCKED: ${lastSkinUnlock}! Pick it on the menu.` : '') +
            '<br>The Ninja Eagle rules every sky. 🥷🦅'
-         : '<br>Watch the pits, glide the gaps, screech the guardians.');
+         : '<br>Watch the pits, glide the gaps, sword-fight the guardians.');
   $('submitBtn').disabled = false;
   $('submitStatus').textContent = '';
   prefillName();
@@ -1719,9 +1863,10 @@ function hurt(fromPit){
 }
 function tryScreech(){
   if (!running || screechCd > 0) return;
-  screechCd = 1.1;
-  screechFx = { t: 0, x: P.x + P.w / 2 + P.face * 26, y: P.y + 6 };
-  screechSound();
+  screechCd = SWING_CD;
+  swingT = 0; swingHit = false;
+  /* sword whoosh (replaces the screech blast) */
+  beep(880, 0, 0.05, 'sawtooth', 0.03); beep(440, 0.03, 0.07, 'sawtooth', 0.045); beep(190, 0.05, 0.06, 'triangle', 0.05);
   /* sonar: the screech rings out and any hidden feather within earshot
      answers with a 1.2s glint — position only; you still have to fly
      there and take it. One soft ping if at least one feather answered. */
@@ -1729,9 +1874,9 @@ function tryScreech(){
   const pcx = P.x + P.w / 2, pcy = P.y + P.h / 2;
   for (const hf of hFeathers){
     if (hf.taken) continue;
-    if (Math.hypot(hf.x - pcx, hf.y - pcy) <= 260){ hf.sonarT = 1.2; heard = true; }
+    if (Math.hypot(hf.x - pcx, hf.y - pcy) <= 150){ hf.sonarT = 1.2; heard = true; }
   }
-  if (heard) beep(2093, 0.05, 0.16, 'sine', 0.04);
+  /* the swing is quiet — feathers glint silently now (no ping) */
 }
 /* a feather glints only in live play — never through the intro card,
    the level-complete screen, or the attract preview */
@@ -2125,14 +2270,12 @@ function update(dt){
         doHitStop(0.06);
         burst(boss.x + boss.w / 2, bTop, 14, '#9a8d7c', 180, 0.5, 2.8, 340);
         if (boss.hp <= 0){
-          boss.dead = true; bossDefeated = true;
-          score += 500; hud();
-          confettiAt(boss.x + boss.w / 2, bTop);
+          gbDefeat(boss);
           burst(barrierX, GROUND_Y - 40, 12, '#8a8a92', 120, 0.8, 3, -40); /* barrier smoke puff */
           addFloater(boss.x + boss.w / 2, bTop - 20, 'BOSS DOWN +500', '#ffd76a', 20);
           beep(220, 0, 0.1, 'square', 0.12); beep(440, 0.1, 0.14, 'square', 0.11); beep(660, 0.2, 0.18, 'square', 0.1);
         } else {
-          if (boss.hp <= 2) boss.enraged = true;
+          if (boss.hp <= (boss.sword ? 3 : 2)) boss.enraged = true;
           addFloater(boss.x + boss.w / 2, bTop - 16, 'HIT! ' + boss.hp + ' HP', '#ffe9a8', 16);
           if (bDive) gdShockwave(boss.x + boss.w / 2, bTop);
           beep(140, 0, 0.12, 'square', 0.12);
@@ -2142,35 +2285,81 @@ function update(dt){
       }
     }
   }
-  if (screechFx){
-    screechFx.t += dt;
-    const r = (screechFx.t / 0.35) * 118;
-    for (const wk of walkers){
-      if (wk.dead || wk.stun > 0) continue;
-      const d = Math.hypot(wk.x + wk.w / 2 - screechFx.x, wk.y - wk.h / 2 - screechFx.y);
-      if (d < r + 16){
-        wk.stun = wk.kind === 'brute' ? 1.2 : 2.5;
-        score += 5; hud();
-        burst(wk.x + wk.w / 2, wk.y - wk.h, 5, '#ffe9a8', 90, 0.35, 2, 120);
-        addFloater(wk.x + wk.w / 2, wk.y - wk.h - 12, '+5', '#fff3c4', 12);
+  if (swingT >= 0){
+    swingT += dt;
+    if (!swingHit && swingT >= SWING_DUR * 0.35){
+      swingHit = true;
+      /* the arc: a box ahead of the hero in the facing direction */
+      const hx0 = P.face > 0 ? P.x + P.w - 6 : P.x - SWING_REACH + 6;
+      const hx1 = hx0 + SWING_REACH, hy0 = P.y - 16, hy1 = P.y + P.h + 10;
+      for (const wk of walkers){
+        if (wk.dead || wk.stun > 0) continue;
+        if (wk.x + wk.w < hx0 || wk.x > hx1 || wk.y < hy0 || wk.y - wk.h > hy1) continue;
+        if (wk.shield){
+          /* shield up or down, a sword swing knocks the shield away —
+             the brute itself survives the first swing */
+          wk.shield = false; wk.stun = 0.6;
+          shakeT = Math.max(shakeT, 0.3);
+          burst(wk.x + wk.w / 2, wk.y - wk.h + 8, 10, '#c8ccd4', 200, 0.5, 2.6, 330);
+          addFloater(wk.x + wk.w / 2, wk.y - wk.h - 12, 'SHIELD SMASHED!', '#fff3c4', 15);
+          beep(1568, 0, 0.05, 'square', 0.07); beep(190, 0.01, 0.1, 'square', 0.11);
+        } else if (wk.kind === 'brute' && wk.hp > 1){
+          wk.hp = 1; wk.stun = 0.8;   /* brutes take two swings */
+          shakeT = Math.max(shakeT, 0.5); doHitStop(0.05);
+          burst(wk.x + wk.w / 2, wk.y - wk.h, 12, '#9a8d7c', 170, 0.5, 2.8, 340);
+          addFloater(wk.x + wk.w / 2, wk.y - wk.h - 16, 'CRACKED!', '#ffe9a8', 17);
+          beep(140, 0, 0.12, 'square', 0.12);
+        } else {
+          wk.dead = true;
+          const pay = comboPay(wk.kind === 'brute' ? 100 : 50);
+          score += pay.pts; hud();
+          burst(wk.x + wk.w / 2, wk.y - wk.h, wk.kind === 'brute' ? 18 : 10, '#ff8fb0', 170, 0.5, 2.6, 320);
+          shakeT = Math.max(shakeT, wk.kind === 'brute' ? 0.5 : 0.3); doHitStop(0.05);
+          addFloater(wk.x + wk.w / 2, wk.y - wk.h - 12, '+' + pay.pts + ' SWORD' + comboSuffix(pay), wk.kind === 'brute' ? '#ffd76a' : '#ff8fb0', wk.kind === 'brute' ? 19 : 14);
+          beep(220, 0, 0.08, 'square', 0.1);
+        }
+      }
+      for (const b of bats){
+        if (b.dead || b.stun > 0 || b.state === 'down' || b.state === 'drop') continue;
+        if (b.x + b.w < hx0 || b.x > hx1 || b.y < hy0 || b.y - b.h > hy1) continue;
+        b.dead = true;
+        const pay = comboPay(50);
+        score += pay.pts; hud();
+        burst(b.x + b.w / 2, b.y - b.h, 10, '#ff8fb0', 160, 0.5, 2.6, 320);
+        addFloater(b.x + b.w / 2, b.y - b.h - 12, '+' + pay.pts + ' SWORD', '#ff8fb0', 14);
+      }
+      /* the boss duels: a swing lands while he recovers from his own
+         lunge — either falling (hopV > 0) or just LANDED with the hop
+         state cleared but the lunge cooldown still running (that
+         grounded beat is the punish window a player reads). Any other
+         moment: his blade parries — CLANG, no damage either way. The
+         range test is symmetric (distance between centres) because
+         the lunge travels toward the player and he may recover on
+         EITHER side of the hero. */
+      if (boss && !boss.dead){
+        const bcx2 = boss.x + boss.w / 2, pcx2 = P.x + P.w / 2;
+        if (Math.abs(bcx2 - pcx2) < 108){
+          if (boss.sword && (boss.hopV > 0 || (boss.hop === 0 && boss.chargeT > 1.1))){
+            boss.hp--;
+            shakeT = Math.max(shakeT, 0.6); doHitStop(0.06);
+            burst(boss.x + boss.w / 2, boss.y - boss.hop - boss.h + 40, 16, '#ffd76a', 200, 0.5, 3, 340);
+            if (boss.hp <= 0){
+              gbDefeat(boss);
+            } else {
+              if (boss.hp <= 3) boss.enraged = true;
+              addFloater(boss.x + boss.w / 2, boss.y - boss.hop - boss.h - 16, 'HIT! ' + boss.hp + ' HP', '#ffe9a8', 17);
+              beep(140, 0, 0.12, 'square', 0.12);
+            }
+          } else if (boss.sword) {
+            shakeT = Math.max(shakeT, 0.25);
+            burst(P.face > 0 ? hx1 : hx0, P.y + 10, 7, '#ffe9a8', 150, 0.3, 2.2, 260);
+            addFloater(boss.x + boss.w / 2, boss.y - boss.hop - boss.h - 14, 'PARRIED!', '#fff3c4', 15);
+            beep(1568, 0, 0.05, 'square', 0.07);
+          }
+        }
       }
     }
-    for (const b of bats){
-      if (b.dead || b.stun > 0) continue;
-      const d = Math.hypot(b.x + b.w / 2 - screechFx.x, b.y - b.h / 2 - screechFx.y);
-      if (d < r + 16){
-        b.stun = 2.5;
-        score += 5; hud();
-        burst(b.x + b.w / 2, b.y - b.h, 5, '#ffe9a8', 90, 0.35, 2, 120);
-        addFloater(b.x + b.w / 2, b.y - b.h - 12, '+5', '#fff3c4', 12);
-        if (b.state !== 'down' && b.state !== 'drop'){ b.state = 'drop'; b.vy = 0; }   /* stunned mid-air: it falls */
-      }
-    }
-    if (boss && !boss.dead && boss.stun <= 0){
-      const d = Math.hypot(boss.x + boss.w / 2 - screechFx.x, boss.y - boss.hop - boss.h / 2 - screechFx.y);
-      if (d < r + 40) boss.stun = 1.6;
-    }
-    if (screechFx.t >= 0.35) screechFx = null;
+    if (swingT >= SWING_DUR) swingT = -1;
   }
   /* flame barrier: a wall while the boss lives (no damage, just no passing) */
   if (level === 10 && boss && !boss.dead && P.x + P.w > barrierX) P.x = barrierX - P.w;
@@ -3004,6 +3193,205 @@ function drawEgg(e){
   ctx.beginPath(); ctx.arc(-0.5, -6, 0.9, 0, 7); ctx.fill();
   ctx.restore();
 }
+
+/* ================= FINAL BOSS — THE GARUDA SWORDMASTER =================
+   Tom's spec (Nov 8): "the big boss at the end, a big Garuda eagle
+   fighter with sword." He REPLACES the Inferno Guardian as the L10
+   boss in this 10-level build; in the 40-level layout he moves to L40
+   and the Guardian returns as a mini-boss. ~3x hero height: an eagle
+   warrior in gold Legendary-tier armor, drawn in the game's own art
+   language (the eagle rig's palette + gradients) — a real character,
+   never a box. Mechanics reuse the Guardian's: patrol, telegraphed
+   lunge (now a SWORD DIVE — he raises the blade first, the dive IS the
+   attack), barrier gating, enrage. He takes damage from stomps and
+   power dives as before, and from SWORD hits — but only while he is
+   recovering from a lunge; a swing at any other moment is PARRIED. */
+function gbDefeat(b){
+  b.dead = true; bossDefeated = true;
+  const fin = b.sword;
+  const pay = fin ? 1500 : 500;
+  score += pay; hud();
+  confettiAt(b.x + b.w / 2, b.y - b.hop - b.h);
+  burst(barrierX, GROUND_Y - 40, 12, '#8a8a92', 120, 0.8, 3, -40);
+  addFloater(b.x + b.w / 2, b.y - b.hop - b.h - 20, fin ? 'SWORDMASTER DOWN +1500' : 'BOSS DOWN +500', '#ffd76a', 20);
+  beep(220, 0, 0.1, 'square', 0.12); beep(440, 0.1, 0.14, 'square', 0.11); beep(660, 0.2, 0.18, 'square', 0.1);
+}
+function drawSwordmaster(b){
+  const H = 96, Wd = 72;
+  const feetY = b.y - b.hop, cx = b.x + b.w / 2;
+  const face = (P.x + P.w / 2) >= cx ? 1 : -1;
+  const stunned = b.stun > 0;
+  const lunging = (b.hopV || 0) < 0;          /* rising into the dive = his attack */
+  const tele = !lunging && b.hop === 0 && Math.abs((P.x + P.w / 2) - cx) < 280 && b.chargeT < 0.45;
+  const bk = Math.max(0.4, 1 - (b.hop || 0) / 300);
+  ctx.fillStyle = `rgba(10,5,3,${(0.5 * bk).toFixed(3)})`;
+  ctx.beginPath(); ctx.ellipse(cx, b.y + 5, 56 * bk + 8, 7 * bk + 1.5, 0, 0, 7); ctx.fill();
+  ctx.save();
+  if (stunned) ctx.translate(Math.sin(runTime * 34) * 2, 0);
+  ctx.translate(cx, feetY);
+  ctx.scale(face, 1);
+  /* tail plumes */
+  ctx.fillStyle = '#8a6a30';
+  for (let k = -2; k <= 2; k++){
+    const a = Math.PI + k * 0.22, len = 26 + (2 - Math.abs(k)) * 3;
+    ctx.beginPath();
+    ctx.moveTo(-14, -26);
+    ctx.lineTo(-14 + Math.cos(a) * len, -26 + Math.sin(a) * len + 8);
+    ctx.lineTo(-8, -18);
+    ctx.closePath(); ctx.fill();
+  }
+  /* legs — armored greaves + talons */
+  ctx.fillStyle = '#6e5a26';
+  ctx.fillRect(-13, -26, 9, 20); ctx.fillRect(5, -26, 9, 20);
+  ctx.fillStyle = '#ffb700';
+  ctx.fillRect(-14, -8, 11, 3); ctx.fillRect(4, -8, 11, 3);
+  /* feathered thighs over the armor */
+  ctx.fillStyle = '#fdf6e0';
+  ctx.beginPath(); ctx.ellipse(-8, -28, 9, 7, 0, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(9, -28, 9, 7, 0, 0, 7); ctx.fill();
+  /* torso: white feather chest under a gold breastplate */
+  const tg = ctx.createLinearGradient(0, -H, 0, -20);
+  tg.addColorStop(0, '#fffdf4'); tg.addColorStop(1, '#e8ddc4');
+  ctx.fillStyle = tg;
+  ctx.beginPath(); ctx.ellipse(0, -56, 21, 24, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#ffb700';
+  ctx.shadowColor = '#ffb700'; ctx.shadowBlur = 7;
+  ctx.beginPath(); ctx.ellipse(0, -60, 17.5, 15, 0, 0, 7); ctx.fill();
+  ctx.shadowBlur = 0;
+  const cg = ctx.createLinearGradient(0, -72, 0, -46);
+  cg.addColorStop(0, '#ffe98a'); cg.addColorStop(0.5, '#ffb700'); cg.addColorStop(1, '#c78f00');
+  ctx.fillStyle = cg;
+  ctx.beginPath(); ctx.ellipse(0, -60, 15.5, 12.5, 0, 0, 7); ctx.fill();
+  /* sun-disc emblem */
+  ctx.fillStyle = '#fff3ae';
+  ctx.beginPath(); ctx.arc(0, -60, 5.5, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#a87400'; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.arc(0, -60, 5.5, 0, 7); ctx.stroke();
+  /* belt + skirt of armor scales */
+  ctx.fillStyle = '#8a6a20';
+  ctx.fillRect(-15, -38, 30, 6);
+  for (let i = 0; i < 5; i++){
+    ctx.fillStyle = i % 2 ? '#c79a2e' : '#e5b93f';
+    ctx.beginPath(); ctx.ellipse(-12 + i * 6, -29, 3.4, 4.6, 0, 0, 7); ctx.fill();
+  }
+  /* far wing — brown-gold, folded behind */
+  ctx.save();
+  ctx.globalAlpha = 0.9; ctx.fillStyle = '#7a5a24';
+  ctx.beginPath();
+  ctx.moveTo(-12, -78);
+  ctx.quadraticCurveTo(-38, -66, -34, -30);
+  ctx.quadraticCurveTo(-24, -40, -16, -38);
+  ctx.quadraticCurveTo(-22, -52, -14, -56);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+  /* near wing — layered gold-brown flight feathers */
+  const wf = Math.sin(runTime * 3.2) * 2;
+  ctx.fillStyle = '#9a742e';
+  ctx.beginPath();
+  ctx.moveTo(10, -80);
+  ctx.quadraticCurveTo(36, -72 + wf, 40, -34);
+  ctx.quadraticCurveTo(30, -44, 22, -42);
+  ctx.quadraticCurveTo(28, -58, 18, -60);
+  ctx.quadraticCurveTo(14, -70, 10, -80);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(60,40,8,0.55)'; ctx.lineWidth = 1.2;
+  for (let i = 0; i < 3; i++){
+    ctx.beginPath();
+    ctx.moveTo(14, -74 + i * 9);
+    ctx.quadraticCurveTo(28, -66 + i * 8, 33, -44 + i * 7);
+    ctx.stroke();
+  }
+  /* sword arm (forward, +x): shoulder pauldron, arm, the GREAT BLADE.
+     Poses: telegraph = blade raised high (readable wind-up); lunge =
+     blade swept down-forward; recovery = blade low; idle = guard. */
+  ctx.fillStyle = '#ffb700';
+  ctx.beginPath(); ctx.arc(17, -74, 8.5, 0, 7); ctx.fill();
+  ctx.fillStyle = '#f4e8c8';
+  ctx.beginPath(); ctx.ellipse(21, -64, 5.5, 9, 0.5, 0, 7); ctx.fill();
+  ctx.save();
+  ctx.translate(24, -58);
+  let swA, swL = 62;
+  if (stunned){ swA = 1.9; }
+  else if (tele){ swA = -2.5 + Math.sin(runTime * 30) * 0.05; }
+  else if (lunging){ swA = 0.55; }
+  else if (b.hop > 0){ swA = 1.15; }        /* falling = recovering, blade low */
+  else { swA = -0.5 + Math.sin(runTime * 2.2) * 0.07; }
+  /* boss-scaled sword: the hero's blade language at greatsword size */
+  const heroSwing = swingT; swingT = -1;     /* draw the static pose, not the hero's arc */
+  ctx.rotate(swA);
+  ctx.scale(1.9, 1.9);
+  ctx.translate(-16, 12);
+  gdDrawSword();
+  swingT = heroSwing;
+  ctx.restore();
+  /* head: white eagle head, gold crest helm, hooked beak, fierce eye */
+  ctx.save();
+  ctx.translate(6, -88);
+  ctx.fillStyle = '#ffb700';
+  for (let k = 0; k < 3; k++){
+    const ca = -2.2 + (k - 1) * 0.34, cl = 13 - Math.abs(k - 1) * 2;
+    ctx.beginPath();
+    ctx.moveTo(-3, -6);
+    ctx.lineTo(-3 + Math.cos(ca) * cl, -6 + Math.sin(ca) * cl);
+    ctx.lineTo(1, -3);
+    ctx.closePath(); ctx.fill();
+  }
+  const hg = ctx.createLinearGradient(0, -12, 0, 12);
+  hg.addColorStop(0, '#ffffff'); hg.addColorStop(1, '#e9e2d0');
+  ctx.fillStyle = hg;
+  ctx.beginPath(); ctx.arc(0, 0, 12.5, 0, 7); ctx.fill();
+  ctx.fillStyle = '#d9cfb4';
+  ctx.beginPath(); ctx.arc(2, 4.5, 9, 0, 7); ctx.fill();
+  /* helm band */
+  ctx.fillStyle = '#ffb700';
+  ctx.beginPath(); ctx.arc(0, -2, 12.5, Math.PI * 1.08, Math.PI * 1.92); ctx.lineTo(0, -2); ctx.closePath(); ctx.fill();
+  /* beak */
+  const bk2 = ctx.createLinearGradient(8, -3, 20, 3);
+  bk2.addColorStop(0, '#ffd76a'); bk2.addColorStop(1, '#f5a400');
+  ctx.fillStyle = bk2;
+  ctx.beginPath();
+  ctx.moveTo(8, -4); ctx.quadraticCurveTo(19, -3, 20.5, 1.5);
+  ctx.quadraticCurveTo(15, 2.6, 8.5, 0.8);
+  ctx.closePath(); ctx.fill();
+  /* eye — glows harder when enraged */
+  ctx.fillStyle = b.enraged ? '#ff3b30' : '#2b1c08';
+  ctx.shadowColor = '#ff3b30'; ctx.shadowBlur = b.enraged ? 10 : 0;
+  ctx.beginPath(); ctx.arc(4.5, -1.5, 2.6, 0, 7); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = '#2b1c08'; ctx.lineWidth = 2.2; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-1, -7.5); ctx.lineTo(9, -4.5); ctx.stroke();
+  ctx.restore();
+  ctx.restore();
+  /* HP pips — flame pips for the Guardian's 5; the Swordmaster shows 8 */
+  const maxHp = b.sword ? 8 : 5;
+  for (let i = 0; i < maxHp; i++){
+    const px = cx - (maxHp - 1) * 10 + i * 20, py = feetY - H - 26;
+    if (i < b.hp){
+      ctx.fillStyle = '#ff7a1a';
+      ctx.shadowColor = '#ff7a1a'; ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.moveTo(px, py + 8);
+      ctx.quadraticCurveTo(px - 5, py - 2, px, py - 9);
+      ctx.quadraticCurveTo(px + 5, py - 2, px, py + 8);
+      ctx.closePath(); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ffe259';
+      ctx.beginPath(); ctx.arc(px, py + 2, 2.2, 0, 7); ctx.fill();
+    } else {
+      ctx.strokeStyle = 'rgba(200,200,210,0.5)'; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.arc(px, py, 5, 0, 7); ctx.stroke();
+    }
+  }
+  if (stunned){
+    ctx.fillStyle = '#ffe066';
+    ctx.font = '900 17px system-ui'; ctx.textAlign = 'center';
+    for (let i = 0; i < 3; i++){
+      const a = runTime * 4 + i * 2.1;
+      ctx.fillText('★', cx + Math.cos(a) * 50, feetY - H - 40 + Math.sin(a) * 4);
+    }
+  }
+}
+
 function drawBarrier(){
   if (level !== 10 || !boss || boss.dead) return;
   ctx.save();
@@ -3464,7 +3852,7 @@ function draw(){
   if (feather && !feather.taken) drawFeather(feather);
   for (const hf of hFeathers) if (!hf.taken) drawHiddenFeather(hf);
   if (egg && !egg.taken) drawEgg(egg);
-  if (boss && !boss.dead){ drawBarrier(); drawBoss(boss); }
+  if (boss && !boss.dead){ drawBarrier(); if (boss.sword) drawSwordmaster(boss); else drawBoss(boss); }
   /* coins */
   for (const c of coins){
     if (c.taken) continue;
@@ -4118,6 +4506,64 @@ function gdNftHeroReady(){
   return typeof gdChar !== 'undefined' && !!gdChar && !!gdChar.imgEl && gdChar.imgState === 'ok' && gdChar.imgEl.naturalWidth > 0;
 }
 function gdRarityColor(r){ return r === 'Legendary' ? '#ffd23e' : r === 'Rare' ? '#7fb2ff' : '#7fe7ff'; }
+
+/* ================= SWORD (Tom's ruling, Nov 8) =================
+   Every hero carries a drawn sword — in the eagle's front talon, at the
+   NFT hero's side hand — following the facing direction (both hero
+   draws run inside a face-scaled transform, so local +x is always
+   "forward"). Idle: angled down-forward. Swing: a fast overhead arc
+   with a silver trail. Drawn in code, in the game's art language —
+   no photos, no cut-outs. */
+function gdDrawSword(){
+  const t = swingT >= 0 ? Math.min(1, swingT / SWING_DUR) : -1;
+  /* QA FREEZE HOOK: ?swingpose freezes the swing at mid-arc so the
+     look-proof frame can be captured deterministically (rendering
+     only — physics and damage are untouched). */
+  const gdFreeze = (typeof location !== 'undefined' && /[?&]swingpose/.test(location.search)) ? 0.45 : -1;
+  const tt = gdFreeze >= 0 ? gdFreeze : t;
+  ctx.save();
+  ctx.lineCap = 'round';
+  if (tt >= 0){
+    /* the trail: a fading crescent swept by the blade — drawn WIDE and
+       slow enough to read at phone size (QA frame-check, Nov 8) */
+    const a0 = -2.5 + tt * 2.9;
+    ctx.save();
+    ctx.globalAlpha = 0.34 * (1 - tt * 0.4);
+    ctx.strokeStyle = '#dfe9ff';
+    ctx.lineWidth = 20;
+    ctx.beginPath(); ctx.arc(16, -12, 44, a0 - 0.6, a0 + 0.12); ctx.stroke();
+    ctx.globalAlpha = 0.55 * (1 - tt * 0.4);
+    ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.arc(16, -12, 44, a0 - 0.32, a0 + 0.12); ctx.stroke();
+    ctx.restore();
+    ctx.translate(16, -12);
+    ctx.rotate(a0 + 0.62);
+  } else {
+    ctx.translate(16, -12);
+    ctx.rotate(0.85);   /* resting carry: blade tipped down-forward */
+  }
+  /* blade */
+  const bg2 = ctx.createLinearGradient(0, 0, 0, -34);
+  bg2.addColorStop(0, '#aebdd4'); bg2.addColorStop(0.55, '#eef4ff'); bg2.addColorStop(1, '#ffffff');
+  ctx.fillStyle = bg2;
+  ctx.beginPath();
+  ctx.moveTo(-2.2, -6); ctx.lineTo(0, -36); ctx.lineTo(2.2, -6);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(70,90,120,0.65)'; ctx.lineWidth = 0.8; ctx.stroke();
+  /* fuller line */
+  ctx.strokeStyle = 'rgba(120,140,170,0.8)';
+  ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(0, -30); ctx.stroke();
+  /* gold crossguard + grip + pommel */
+  ctx.fillStyle = '#ffb700';
+  ctx.shadowColor = '#ffb700'; ctx.shadowBlur = 4;
+  ctx.fillRect(-7, -6.5, 14, 3.4);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#5a3a1a';
+  ctx.fillRect(-2, -3.2, 4, 7.5);
+  ctx.fillStyle = '#ffd76a';
+  ctx.beginPath(); ctx.arc(0, 5.6, 2.6, 0, 7); ctx.fill();
+  ctx.restore();
+}
 function drawNftHero(){
   if (invuln > 0 && Math.floor(invuln * 12) % 2 === 0) return;   /* hurt flicker, same as the eagle */
   const im = gdChar.imgEl;
@@ -4154,6 +4600,13 @@ function drawNftHero(){
   ctx.restore();
   /* the full-body character, whole — no frame, no crop, no glow box */
   ctx.drawImage(im, -dw / 2, -dh, dw, dh);
+  /* SWORD in the hero's hand: shoulder height on the forward side of
+     the body (local +x is forward — this transform is face-scaled) */
+  ctx.save();
+  ctx.translate(dw * 0.13, -dh * 0.52);
+  ctx.scale(1.15, 1.15);
+  gdDrawSword();
+  ctx.restore();
   ctx.restore();
 }
 function drawEagle(){
@@ -4176,6 +4629,13 @@ function drawEagle(){
   ctx.fillStyle = PAL.wing[1];
   wingBlade(-5, -19.5, pose.wing1 + 0.16, pose.wing2 + 0.12, pose.spread, 0.82, 0);
   ctx.fill();
+  ctx.restore();
+  /* SWORD — gripped in the front talon, drawn over the far wing and
+     under the body so the hilt sits at the belly line */
+  ctx.save();
+  ctx.translate(3, 15);
+  ctx.scale(0.95, 0.95);
+  gdDrawSword();
   ctx.restore();
   /* legs — two-segment, posed by the rig (run cycle / tucked / dangling) */
   eagleLeg(PAL, -4, -4, pose.legs[0]);
@@ -4513,7 +4973,7 @@ stickZone.addEventListener('pointerup', stickEnd);
 stickZone.addEventListener('pointercancel', stickEnd);
 stickZone.addEventListener('lostpointercapture', stickEnd);
 stickHome();
-/* screech: press-only, no held state — rebound on Pointer Events too */
+/* sword: press-only, no held state — rebound on Pointer Events too */
 $('btnS').addEventListener('pointerdown', e => { e.preventDefault(); tryScreech(); });
 /* global anti-stick safety net: focus loss or a hidden tab kills all touch
    input state, even if some pointer event never reached us */
@@ -4709,8 +5169,10 @@ $('againBtn').onclick = () => {
    attaches the wallet to submitted scores, for payouts) or from a
    pasted address (read-only viewing). Nothing is cached as ownership:
    localStorage keeps only the pasted address text for convenience, and
-   the character is re-verified on-chain at every page load. This page
-   never signs anything and never sends a transaction. */
+   the character is re-verified on-chain at every page load. Playing
+   the game never signs anything and never sends a transaction — the
+   only signature anywhere in this game is the optional team admin
+   sign-in further below (a login message, never a transaction). */
 const GD_NFT_CONTRACT = 'terra103skwsk84tu2m33erjxt64p54a08p6ckflfwvg';
 /* LCD base: publicnode. A localStorage override exists ONLY so sandboxed
    QA (no direct browser egress) can relay the same endpoint — production
@@ -5046,25 +5508,89 @@ try {
   }
 } catch (e) {}
 
-/* ================= payout admin (key-gated) =================
-   The admin key is checked SERVER-side (garuda-admin function, Bearer
-   pattern — the page never sees or stores a real key; the typed key is
-   only sent with the request). The panel is a worksheet: rank / name /
-   wallet / score / date, full addresses with copy buttons. It makes NO
-   payments — the Garuda team pays winners by hand from their own
-   wallet. Public board above stays name+score only, unchanged. */
+/* ================= payout admin (wallet sign-in + key fallback) ====
+   The panel opens two ways, both checked SERVER-side (garuda-admin
+   handler, Bearer pattern — nothing is decided by this page):
+   1. WALLET SIGN-IN (the normal route): the Garuda team admin wallet
+      connects in Keplr and signs a one-time LOGIN MESSAGE (ADR-36).
+      The server verifies the signature against the admin wallet it
+      holds in its own settings and issues a short-lived session
+      token, kept here in memory only. The signature is on a message —
+      never a transaction, no fee, it cannot move funds — and it is
+      the ONLY signature anywhere in this game; playing never signs.
+   2. ADMIN KEY (fallback): a typed key can be sent as the Bearer
+      credential when the server has one set — server-side only; this
+      private page shows no key field (wallet sign-in is the way in,
+      per the admin guide). The token is the only credential here.
+   Either way the panel is a worksheet: rank / name / wallet / score /
+   date, full addresses with copy buttons. It makes NO payments —
+   the Garuda team pays winners by hand from their own wallet.
+   Public board above stays name+score only, unchanged. */
 let gdAdminData = null, gdAdminTab = 'all';
+let gdAdminToken = '';   /* wallet sign-in session token (memory only) */
+function gdAdminCred(){ return gdAdminToken; }
+function gdAdminAuthFailMsg(){
+  if (gdAdminToken) gdAdminToken = '';
+  return 'Admin session expired — sign in with the wallet again.';
+}
 $('adminBtn').onclick = () => { $('adminScreen').style.display = 'flex'; };
 $('adminClose').onclick = () => { $('adminScreen').style.display = 'none'; };
-async function gdAdminLoad(){
-  const key = $('adminKeyInput').value.trim();
+/* Wallet sign-in: connect Keplr -> ask the server for a one-time
+   login challenge for that wallet (the server only issues one to the
+   admin wallet) -> sign the message in Keplr -> the server verifies
+   and returns the session token -> the panel loads as usual. */
+async function gdAdminWalletSignIn(){
   const st = $('adminStatus');
-  if (!key){ st.textContent = 'Enter the admin key first.'; return; }
+  st.textContent = 'Opening Keplr…';
+  let provider = await gdWaitForKeplr(gdIsMobileUA ? 2500 : 1200);
+  if (!provider || !window.keplr){
+    if (gdIsMobileUA){ st.textContent = 'Keplr not found — opening the Keplr app…'; gdDeepLinkKeplrMobile(); return; }
+    provider = await gdWaitForKeplr(4000);
+    if (!window.keplr){ st.textContent = 'Keplr not found. On a phone, open this page inside the Keplr app browser. On a computer, install the Keplr extension.'; return; }
+  }
+  let addr = '';
+  try {
+    await window.keplr.enable(GD_CHAIN_ID);
+    const key = await window.keplr.getKey(GD_CHAIN_ID);
+    if (!key || !key.bech32Address) throw new Error('no key');
+    addr = key.bech32Address;
+  } catch (e) { st.textContent = 'Keplr connection was declined or failed — nothing connected.'; return; }
+  let ch = null;
+  try {
+    const r = await fetch('/api/garuda-admin', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'challenge', address: addr }),
+    });
+    ch = await r.json().catch(() => null);
+    if (!r.ok || !ch || !ch.message || !ch.nonce){ st.textContent = 'This wallet is not the game admin wallet.'; return; }
+  } catch (e) { st.textContent = 'Sign-in unavailable — try again.'; return; }
+  st.textContent = 'Keplr is asking you to sign the login message — it is not a transaction and costs no fee.';
+  let sig = null;
+  try { sig = await window.keplr.signArbitrary(GD_CHAIN_ID, addr, ch.message); }
+  catch (e) { st.textContent = 'The login signature was declined — nothing was signed.'; return; }
+  if (!sig || !sig.signature || !sig.pub_key || !sig.pub_key.value){ st.textContent = 'Sign-in failed — Keplr returned no signature.'; return; }
+  try {
+    const r = await fetch('/api/garuda-admin', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'verify', address: addr, nonce: ch.nonce, pubKey: sig.pub_key.value, signature: sig.signature }),
+    });
+    const d = await r.json().catch(() => null);
+    if (!r.ok || !d || !d.token){ st.textContent = 'Sign-in could not be verified — try again.'; return; }
+    gdAdminToken = d.token;
+  } catch (e) { st.textContent = 'Sign-in could not be verified — try again.'; return; }
+  st.textContent = '✅ Signed in as the admin wallet (' + gdShortAddr(addr) + '). Loading the payout list…';
+  await gdAdminLoad();
+}
+$('adminWalletBtn').onclick = gdAdminWalletSignIn;
+async function gdAdminLoad(){
+  const key = gdAdminCred();
+  const st = $('adminStatus');
+  if (!key){ st.textContent = 'Sign in with the admin wallet first.'; return; }
   st.textContent = 'Loading…';
   try {
     const r = await fetch('/api/garuda-admin', { headers: { Authorization: 'Bearer ' + key } });
     const d = await r.json().catch(() => null);
-    if (r.status === 401){ st.textContent = 'Wrong admin key.'; gdAdminData = null; gdAdminRender(); return; }
+    if (r.status === 401){ st.textContent = gdAdminAuthFailMsg(); gdAdminData = null; gdAdminRender(); return; }
     if (!r.ok || !d){ st.textContent = 'Admin list unavailable — try again.'; return; }
     gdAdminData = d;
     $('burnWalletInput').value = d.burnWallet || '';
@@ -5077,7 +5603,7 @@ function gdAdminRender(){
   $('admTabWeek').className = 'play' + (gdAdminTab === 'week' ? '' : ' alt');
   /* v2 sections appear only after a successful key unlock. */
   $('adminExtras').style.display = gdAdminData ? 'block' : 'none';
-  if (gdAdminData) gdRenderPayouts();
+  if (gdAdminData){ gdRenderPayouts(); gdRenderTimer(); }
   const rows = gdAdminData ? (gdAdminData[gdAdminTab] || []) : [];
   const box = $('adminRows');
   if (!rows.length){
@@ -5107,7 +5633,6 @@ function gdAdminRender(){
     box.appendChild(row);
   });
 }
-$('adminLoadBtn').onclick = gdAdminLoad;
 $('admTabAll').onclick = () => { gdAdminTab = 'all'; gdAdminRender(); };
 $('admTabWeek').onclick = () => { gdAdminTab = 'week'; gdAdminRender(); };
 $('adminCopyBtn').onclick = async () => {
@@ -5120,9 +5645,10 @@ $('adminCopyBtn').onclick = async () => {
 };
 
 /* ================= v2: payout records + burn wallet (admin) ======
-   Saving goes through the SAME key-gated admin endpoint (POST with the
-   typed key as Bearer — the key is never stored). Records are payouts
-   the team already made BY HAND; this page never pays anyone. */
+   Saving goes through the SAME gated admin endpoint (POST with the
+   session token or typed key as Bearer — neither is ever stored).
+   Records are payouts the team already made BY HAND; this page never
+   pays anyone. */
 function gdRenderPayouts(){
   const box = $('payList');
   box.innerHTML = '';
@@ -5145,7 +5671,7 @@ function gdRenderPayouts(){
   }
 }
 async function gdAdminPost(payload){
-  const key = $('adminKeyInput').value.trim();
+  const key = gdAdminCred();
   const r = await fetch('/api/garuda-admin', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
@@ -5168,7 +5694,7 @@ $('payAddBtn').onclick = async () => {
   st.textContent = 'Saving…';
   try {
     const { r, d } = await gdAdminPost({ name, wallet, amount, token, txHash, note: note || undefined });
-    if (r.status === 401){ st.textContent = 'Wrong admin key.'; return; }
+    if (r.status === 401){ st.textContent = gdAdminAuthFailMsg(); return; }
     if (!r.ok){ st.textContent = (d && d.error) ? ('Not saved: ' + d.error) : 'Not saved — try again.'; return; }
     st.textContent = '✅ Payout recorded — it shows on the public strip.';
     $('payName').value = ''; $('payWallet').value = ''; $('payAmount').value = '';
@@ -5184,13 +5710,405 @@ $('burnSaveBtn').onclick = async () => {
   st.textContent = 'Saving…';
   try {
     const { r, d } = await gdAdminPost({ action: 'setBurnWallet', burnWallet: bw });
-    if (r.status === 401){ st.textContent = 'Wrong admin key.'; return; }
+    if (r.status === 401){ st.textContent = gdAdminAuthFailMsg(); return; }
     if (!r.ok){ st.textContent = (d && d.error) ? ('Not saved: ' + d.error) : 'Not saved — try again.'; return; }
     st.textContent = bw ? '✅ Burn wallet saved — the strip now reads it live from the chain.' : '✅ Burn wallet cleared — the strip shows "Burns start soon".';
     if (gdAdminData) gdAdminData.burnWallet = bw || null;
     gdLoadPublicStrip();
   } catch (e) { st.textContent = 'Not saved — try again.'; }
 };
+
+/* ================= v4: Timer Payouts + leaderboard restart =======
+   Built ON TOP of the v3 sign-in: every call below goes through
+   gdAdminPost / gdAdminLoad, so the wallet sign-in session (or the
+   key fallback) gates everything — same as RECORD A PAYOUT.
+   The timer is set once here; the server builds the winner list when
+   a payout comes due; NOTHING is ever sent by the server. RELEASE is
+   one press in this panel: it signs each payment from the signed-in
+   admin wallet, one after another, and records each confirmed send
+   back to the server (recordRunPayout). GRDX is a token (CW20) send;
+   LUNC is a plain send. Pulsing RELEASE again after a stop resumes
+   with RELEASE THE REST — sent rows are locked, nobody is paid twice.
+   RESTART LEADERBOARD clears a board into a saved copy on the server
+   first; payout records and winner wallets are never touched. */
+/* GRDX = "GARUDAX TOKEN" terra12f3f5… (verified on-chain Nov 8);
+   terra16hzl7… is GDEX, a different token — see GD_GDEX_CONTRACT. */
+const GD_GRDX_CONTRACT = 'terra12f3f5fzfzxckc0qlv3rmwwkjfhzevpwmx77345n0zuu2678vxf0sm6vvcw';
+const GD_RPC = 'https://terra-classic-rpc.publicnode.com';
+let gdPayRunning = false, gdReleaseArmed = false, gdRestartArmed = false, gdCtlTimer = null;
+function gdEnsureV4Sections(){
+  if ($('gdTimerSection')) return;
+  const anchor = $('gdV4Anchor');
+  if (!anchor) return;
+  const t = document.createElement('div');
+  t.className = 'admsec'; t.id = 'gdTimerSection';
+  t.innerHTML =
+    '<h3>⏰ TIMER PAYOUTS</h3>' +
+    '<p id="gdTimerStatusLine" style="font-size:14px; text-align:center; margin:0 0 2px"></p>' +
+    '<p id="gdTimerCountdown" style="font-size:12.5px; text-align:center; margin:0 0 8px; opacity:.85"></p>' +
+    '<div id="gdRunBox"></div>' +
+    '<div class="nftRow"><span style="align-self:center; font-size:13px">Pay every:</span>' +
+    '<button class="play" id="gdEveryDaily" style="flex:1">DAILY</button>' +
+    '<button class="play alt" id="gdEveryWeekly" style="flex:1">WEEKLY</button></div>' +
+    '<div class="nftRow" id="gdWeekdayRow"><span style="align-self:center; font-size:13px">Day of the week:</span>' +
+    '<select id="gdWeekdaySel" style="flex:1; padding:9px; border-radius:9px; background:rgba(255,255,255,.08); color:#fff; border:1px solid rgba(255,255,255,.25)">' +
+    ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map((d,i)=>'<option value="'+i+'" style="color:#000">'+d+'</option>').join('') +
+    '</select></div>' +
+    '<div class="nftRow"><span style="align-self:center; font-size:13px">Time of day:</span>' +
+    '<input id="gdTimeInput" type="time" value="09:00" style="flex:1"></div>' +
+    '<div class="nftRow"><input id="gdAmountInput" type="text" inputmode="decimal" placeholder="Each winner gets (e.g. 500)">' +
+    '<select id="gdTokenSel" style="padding:9px; border-radius:9px; background:rgba(255,255,255,.08); color:#fff; border:1px solid rgba(255,255,255,.25)">' +
+    '<option value="GRDX" style="color:#000">GRDX</option><option value="LUNC" style="color:#000">LUNC</option></select></div>' +
+    '<div class="nftRow"><span style="align-self:center; font-size:13px">Pay the top</span>' +
+    '<input id="gdTopNInput" type="number" min="1" max="50" value="5" style="max-width:90px">' +
+    '<span style="align-self:center; font-size:13px">players</span></div>' +
+    '<p id="gdTimerTotal" style="font-size:13.5px; text-align:center; margin:2px 0 6px"></p>' +
+    '<div class="nftRow"><button class="play" id="gdTimerStartBtn" style="flex:1">▶ START TIMER</button>' +
+    '<button class="play alt" id="gdTimerStopBtn" style="flex:1">⛔ STOP</button></div>' +
+    '<div id="gdTimerStatus" style="font-size:12.5px; min-height:16px; text-align:center"></div>';
+  const rs = document.createElement('div');
+  rs.className = 'admsec'; rs.id = 'gdRestartSection';
+  rs.innerHTML =
+    '<h3>🔄 RESTART LEADERBOARD</h3>' +
+    '<p style="font-size:12.5px; text-align:center; margin:0 0 6px">Start a board over, empty. A copy of the old board is saved first, so nothing is lost. Payout records and winner wallets are never touched.</p>' +
+    '<div class="nftRow"><button class="play" id="gdRestartWeekBtn" style="flex:1">RESTART THIS WEEK</button>' +
+    '<button class="play alt" id="gdRestartAllBtn" style="flex:1">RESTART ALL-TIME</button></div>' +
+    '<div id="gdRestartConfirm"></div>' +
+    '<div id="gdRestartStatus" style="font-size:12.5px; min-height:16px; text-align:center"></div>';
+  anchor.replaceWith(t, rs);
+  gdWireV4();
+}
+function gdTimerEvery(){ return $('gdEveryDaily').className.indexOf('alt') >= 0 ? 'weekly' : 'daily'; }
+function gdSetEvery(every){
+  $('gdEveryDaily').className = 'play' + (every === 'daily' ? '' : ' alt');
+  $('gdEveryWeekly').className = 'play' + (every === 'weekly' ? '' : ' alt');
+  $('gdWeekdayRow').style.display = every === 'weekly' ? '' : 'none';
+}
+function gdTimerTotalLine(){
+  const a = parseFloat($('gdAmountInput').value || '');
+  const n = parseInt($('gdTopNInput').value || '', 10);
+  const tok = $('gdTokenSel').value;
+  $('gdTimerTotal').textContent = (isFinite(a) && a > 0 && isFinite(n) && n > 0)
+    ? 'Total each payout: ' + +(a * n).toFixed(6) + ' ' + tok : '';
+}
+function gdFmtUntil(ms){
+  if (ms <= 0) return 'due now';
+  const m = Math.floor(ms / 60000), d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), mm = m % 60;
+  if (d > 0) return 'in ' + d + ' day' + (d > 1 ? 's' : '') + (h ? ' ' + h + ' hours' : '');
+  if (h > 0) return 'in ' + h + ' hours ' + mm + ' minutes';
+  return 'in ' + Math.max(mm, 1) + ' minutes';
+}
+function gdWhenText(cfg){
+  const due = new Date(cfg.nextDueUtc);
+  const now = new Date();
+  const sameDay = due.toDateString() === now.toDateString();
+  const tom = new Date(now); tom.setDate(now.getDate() + 1);
+  const isTom = due.toDateString() === tom.toDateString();
+  const t = due.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (sameDay) return 'today at ' + t;
+  if (isTom) return 'tomorrow at ' + t;
+  return due.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' }) + ' at ' + t;
+}
+function gdRunTitle(run){
+  if (run.every === 'weekly') return '🟢 PAYOUT READY — week of ' + run.periodKey;
+  const d = new Date(run.periodKey + 'T12:00:00');
+  return '🟢 PAYOUT READY — ' + (isNaN(d) ? run.periodKey : d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' }));
+}
+function gdRenderTimer(){
+  gdEnsureV4Sections();
+  const cfg = gdAdminData && gdAdminData.payTimer;
+  const run = gdAdminData && gdAdminData.payRun;
+  if (cfg){
+    if (document.activeElement !== $('gdAmountInput')) $('gdAmountInput').value = cfg.amount || '';
+    if (document.activeElement !== $('gdTopNInput')) $('gdTopNInput').value = cfg.topN || 5;
+    $('gdTokenSel').value = cfg.token || 'GRDX';
+    if (cfg.timeLocal) $('gdTimeInput').value = cfg.timeLocal;
+    if (cfg.weekday !== undefined) $('gdWeekdaySel').value = String(cfg.weekday);
+    gdSetEvery(cfg.every || 'weekly');
+  }
+  gdTimerTotalLine();
+  const line = $('gdTimerStatusLine'), cd = $('gdTimerCountdown'), box = $('gdRunBox');
+  /* While a release is paying out, the run box belongs to the release
+     flow (it shows the paying note + progress); repaint nothing. */
+  if (!gdPayRunning && run && (run.status === 'ready' || run.status === 'paying')) gdPayRows = run.rows, gdPayRunKey = run.periodKey;
+  if (gdPayRunning) return;
+  box.innerHTML = '';
+  if (run && (run.status === 'ready' || run.status === 'paying')){
+    line.textContent = 'A payout is ready — check the list below and press RELEASE.';
+    cd.textContent = '';
+    const payable = run.rows.filter(r => r.state !== 'skipped');
+    const sent = payable.filter(r => r.state === 'sent');
+    const total = payable.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+    const tok = run.rows.length ? run.rows[0].token : '';
+    const title = document.createElement('p');
+    title.style.cssText = 'font-size:14.5px; text-align:center; margin:4px 0 6px';
+    title.textContent = gdRunTitle(run);
+    box.appendChild(title);
+    run.rows.forEach((r) => {
+      const row = document.createElement('div'); row.className = 'admrow';
+      const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = r.name;
+      row.appendChild(nm);
+      const wl = document.createElement('span'); wl.className = 'wl';
+      if (r.state === 'skipped'){ wl.textContent = '— no wallet — skipped'; }
+      else if (r.state === 'sent'){ wl.textContent = r.wallet; }
+      else { wl.textContent = r.wallet; }
+      row.appendChild(wl);
+      const am = document.createElement('span'); am.className = 'sc';
+      am.textContent = r.state === 'sent' ? '✅ ' + r.amount + ' ' + r.token : (r.amount + ' ' + r.token);
+      row.appendChild(am);
+      box.appendChild(row);
+    });
+    const tot = document.createElement('p');
+    tot.style.cssText = 'font-size:13.5px; text-align:center; margin:4px 0 2px';
+    tot.textContent = sent.length
+      ? 'Paid so far: ' + sent.length + ' of ' + payable.length + ' players · Total to send: ' + +total.toFixed(6) + ' ' + tok
+      : 'Total to send: ' + +total.toFixed(6) + ' ' + tok + ' to ' + payable.length + ' players' +
+        (run.rows.length > payable.length ? ' (' + (run.rows.length - payable.length) + ' skipped — no wallet)' : '');
+    box.appendChild(tot);
+    const note = document.createElement('p');
+    note.style.cssText = 'font-size:12.5px; text-align:center; margin:0 0 6px';
+    note.textContent = 'Payments go from the wallet you signed in with. You approve the payment run once; each payment then goes out one after another. Nothing is sent until you press RELEASE.';
+    box.appendChild(note);
+    const rb = document.createElement('div'); rb.className = 'nftRow';
+    const rel = document.createElement('button'); rel.className = 'play'; rel.style.flex = '1';
+    if (gdPayRunning){ rel.textContent = '⏳ PAYING…'; rel.disabled = true; }
+    else if (gdReleaseArmed){ rel.textContent = '✅ PRESS AGAIN TO RELEASE — PAY THESE PLAYERS'; }
+    else { rel.textContent = sent.length ? '▶ RELEASE THE REST' : '✅ RELEASE — PAY THESE PLAYERS'; }
+    rel.onclick = () => gdReleasePress(rel);
+    const cx = document.createElement('button'); cx.className = 'play alt'; cx.style.flex = '1';
+    cx.textContent = '✕ Cancel this payout';
+    cx.disabled = gdPayRunning || run.status === 'paying';
+    if (run.status === 'paying') cx.title = 'Some payments already went out — this payout cannot be cancelled now.';
+    cx.onclick = async () => {
+      cx.disabled = true;
+      try {
+        const { r, d } = await gdAdminPost({ action: 'cancelPayRun' });
+        if (r.status === 401){ $('gdTimerStatus').textContent = gdAdminAuthFailMsg(); return; }
+        if (!r.ok){ $('gdTimerStatus').textContent = (d && d.error) || 'Could not cancel — try again.'; cx.disabled = false; return; }
+        gdReleaseArmed = false;
+        $('gdTimerStatus').textContent = 'Payout cancelled. Nothing was sent for it.';
+        await gdAdminLoad();
+      } catch (e) { $('gdTimerStatus').textContent = 'Could not cancel — try again.'; cx.disabled = false; }
+    };
+    rb.append(rel, cx);
+    box.appendChild(rb);
+    return;
+  }
+  if (!cfg || !cfg.on){
+    line.textContent = 'Timer is off. Press START TIMER to begin.';
+    cd.textContent = '';
+    return;
+  }
+  line.textContent = 'Next payout: ' + gdWhenText(cfg) + ' — top ' + cfg.topN + ' players get ' + cfg.amount + ' ' + cfg.token + ' each.';
+  cd.textContent = '⏳ ' + gdFmtUntil(new Date(cfg.nextDueUtc) - new Date()) + ' to go';
+}
+function gdWireV4(){
+  $('gdEveryDaily').onclick = () => gdSetEvery('daily');
+  $('gdEveryWeekly').onclick = () => gdSetEvery('weekly');
+  $('gdAmountInput').oninput = gdTimerTotalLine;
+  $('gdTopNInput').oninput = gdTimerTotalLine;
+  $('gdTokenSel').onchange = gdTimerTotalLine;
+  $('gdTimerStartBtn').onclick = async () => {
+    const st = $('gdTimerStatus');
+    const amount = $('gdAmountInput').value.trim();
+    const topN = parseInt($('gdTopNInput').value || '', 10);
+    if (!/^[0-9]+(\.[0-9]+)?$/.test(amount) || !(+amount > 0)){ st.textContent = 'Type how much each winner gets first.'; return; }
+    if (!isFinite(topN) || topN < 1 || topN > 50){ st.textContent = 'Pick how many top players get paid (1 to 50).'; return; }
+    st.textContent = 'Starting the timer…';
+    try {
+      const { r, d } = await gdAdminPost({
+        action: 'setPayTimer', every: gdTimerEvery(),
+        weekday: parseInt($('gdWeekdaySel').value || '0', 10),
+        timeLocal: $('gdTimeInput').value || '09:00',
+        tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'),
+        amount, token: $('gdTokenSel').value, topN,
+      });
+      if (r.status === 401){ st.textContent = gdAdminAuthFailMsg(); return; }
+      if (!r.ok){ st.textContent = (d && d.error) ? ('Not started: ' + d.error) : 'Not started — try again.'; return; }
+      st.textContent = '✅ Timer started.';
+      await gdAdminLoad();
+    } catch (e) { st.textContent = 'Not started — try again.'; }
+  };
+  $('gdTimerStopBtn').onclick = async () => {
+    const st = $('gdTimerStatus');
+    st.textContent = 'Stopping the timer…';
+    try {
+      const { r, d } = await gdAdminPost({ action: 'stopPayTimer' });
+      if (r.status === 401){ st.textContent = gdAdminAuthFailMsg(); return; }
+      if (!r.ok){ st.textContent = (d && d.error) || 'Could not stop — try again.'; return; }
+      gdReleaseArmed = false;
+      st.textContent = '⛔ Timer stopped. No payout will be built, and a waiting payout was cancelled.';
+      await gdAdminLoad();
+    } catch (e) { st.textContent = 'Could not stop — try again.'; }
+  };
+  $('gdRestartWeekBtn').onclick = () => gdRestartAsk('week');
+  $('gdRestartAllBtn').onclick = () => gdRestartAsk('all');
+  if (!gdCtlTimer){
+    gdCtlTimer = setInterval(() => {
+      if (!gdAdminData) return;
+      if ($('adminScreen').style.display !== 'flex') return;
+      const cfg = gdAdminData.payTimer, run = gdAdminData.payRun;
+      if (run && (run.status === 'ready' || run.status === 'paying')) return;
+      if (!cfg || !cfg.on) return;
+      $('gdTimerCountdown').textContent = '⏳ ' + gdFmtUntil(new Date(cfg.nextDueUtc) - new Date()) + ' to go';
+    }, 30000);
+  }
+}
+/* ---- RELEASE: one press, then every payment goes out on its own -- */
+/* Kept in step with the admin data by gdRenderTimer: gdPayRows is the
+   LIVE row array of the waiting run. RELEASE mutates these objects;
+   gdAdminLoad refreshes them from the server afterwards. The release
+   flow itself never re-renders mid-run (the panel re-render rebuilds
+   the run box) — it updates only the status line until it finishes. */
+let gdPayRows = null, gdPayRunKey = null;
+function gdMicro(amountStr, decimals){
+  const [i, f = ''] = String(amountStr).split('.');
+  return (i + (f + '000000').slice(0, decimals)).replace(/^0+(?=\d)/, '');
+}
+async function gdKeplrSigner(){
+  const p = await gdWaitForKeplr(gdIsMobileUA ? 2500 : 1200);
+  if (!p || !window.keplr) throw new Error('Keplr not found — open this page inside the Keplr app browser.');
+  await window.keplr.enable(GD_CHAIN_ID);
+  if (!window.keplr.getOfflineSignerAuto) throw new Error('This Keplr is too old to send payments — please update Keplr.');
+  return window.keplr.getOfflineSignerAuto(GD_CHAIN_ID);
+}
+async function gdLoadCosm(){
+  /* An already-present client (loaded by the page earlier, or injected
+     by a test harness) is used as-is. */
+  if (window.__gdCosm && window.__gdCosm.SigningStargateClient) return window.__gdCosm;
+  if (window.__fakeCosm && window.__fakeCosm.SigningStargateClient) return window.__fakeCosm;
+  const urls = [
+    'https://cdn.jsdelivr.net/npm/@cosmjs/stargate@0.32.4/+esm',
+    'https://esm.run/@cosmjs/stargate@0.32.4',
+  ];
+  for (const u of urls){
+    try { const m = await import(u); if (m && m.SigningStargateClient){ window.__gdCosm = m; return m; } } catch (e) {}
+  }
+  throw new Error('Payment tools could not load — check your connection and press RELEASE again.');
+}
+async function gdReleasePress(btn){
+  if (gdPayRunning) return;
+  if (!gdReleaseArmed){
+    gdReleaseArmed = true;
+    gdRenderTimer();
+    $('gdTimerStatus').textContent = 'Check the list above — pressing RELEASE one more time pays exactly those players.';
+    return;
+  }
+  gdReleaseArmed = false;
+  await gdReleaseRun();
+}
+async function gdReleaseRun(){
+  const st = $('gdTimerStatus');
+  const run = gdAdminData && gdAdminData.payRun;
+  if (!run){ st.textContent = 'No payout is waiting.'; return; }
+  /* Work on the LIVE row array gdRenderTimer published — mutations
+     must survive the gdAdminLoad refreshes below. */
+  const rows = gdPayRows || run.rows;
+  const periodKey = run.periodKey;
+  const waiting = rows.map((r, i) => i).filter((i) => rows[i].state === 'waiting');
+  if (!waiting.length){ st.textContent = 'Everybody on this list is already paid.'; return; }
+  gdPayRunning = true;
+  const boxEl = $('gdRunBox');
+  if (boxEl) boxEl.innerHTML = '<p style="font-size:14px; text-align:center; margin:6px 0">⏳ Paying now — watch the line below. Keep this page open.</p>';
+  try {
+    st.textContent = 'Opening your wallet…';
+    const signer = await gdKeplrSigner();
+    const accounts = await signer.getAccounts();
+    if (!accounts.length) throw new Error('Keplr returned no wallet.');
+    const from = accounts[0].address;
+    const { SigningStargateClient } = await gdLoadCosm();
+    const client = await SigningStargateClient.connectWithSigner(GD_RPC, signer);
+    const memo = 'Garuda Dash payout — ' + periodKey;
+    const total = waiting.length;
+    const failed = [];
+    let doneCount = 0;
+    for (const idx of waiting){
+      const row = rows[idx];
+      const n = doneCount + failed.length + 1;
+      st.textContent = 'Paying ' + n + ' of ' + total + ' — ' + row.name + ', ' + row.amount + ' ' + row.token + '… approve it in Keplr if it asks.';
+      let txHash = '';
+      try {
+        let msg;
+        if (row.token === 'LUNC'){
+          msg = { typeUrl: '/cosmos.bank.v1beta1.MsgSend', value: { fromAddress: from, toAddress: row.wallet, amount: [{ denom: 'uluna', amount: gdMicro(row.amount, 6) }] } };
+        } else {
+          /* CW20 transfer: the exec message is raw JSON bytes. */
+          msg = { typeUrl: '/cosmwasm.wasm.v1.MsgExecuteContract', value: { sender: from, contract: GD_GRDX_CONTRACT, msg: new TextEncoder().encode(JSON.stringify({ transfer: { recipient: row.wallet, amount: gdMicro(row.amount, 6) } })), funds: [] } };
+        }
+        const res = await client.signAndBroadcast(from, [msg], 'auto', memo);
+        if (!res || res.code !== 0 || !res.transactionHash) throw new Error('chain said no' + (res && res.rawLog ? ': ' + String(res.rawLog).slice(0, 80) : ''));
+        txHash = res.transactionHash;
+      } catch (e) {
+        failed.push(row.name + ' (' + ((e && e.message) || 'send failed') + ')');
+        continue;
+      }
+      try {
+        const { r, d } = await gdAdminPost({ action: 'recordRunPayout', periodKey, name: row.name, wallet: row.wallet, amount: row.amount, token: row.token, txHash });
+        if (r.status === 401){ st.textContent = gdAdminAuthFailMsg(); break; }
+        if (!r.ok && !(d && d.alreadyRecorded)){
+          if (r.status === 409 && d && /already recorded/.test(d.error || '')){
+            failed.push(row.name + ' (payment sent, reference ' + txHash.slice(0, 10) + '… — tell Tom this reference so it can be matched by hand)');
+            continue;
+          }
+          failed.push(row.name + ' (paid on chain, saving the record failed — press RELEASE THE REST to save it; nobody will be paid twice)');
+          row.state = 'waiting';
+          continue;
+        }
+        row.state = 'sent'; row.txHash = txHash;
+        doneCount++;
+      } catch (e) {
+        failed.push(row.name + ' (paid on chain, saving the record failed — press RELEASE THE REST to save it; nobody will be paid twice)');
+      }
+      /* no mid-run re-render: the box stays as-is, progress is in the
+         status line; gdAdminLoad in finally repaints the end state */
+    }
+    if (failed.length){
+      st.textContent = 'Stopped with ' + failed.length + ' not finished: ' + failed.join(' · ') + ' — press RELEASE THE REST to finish. Sent payments stay sent; nobody is paid twice.';
+    } else {
+      st.textContent = '✅ All payments sent and recorded.';
+    }
+  } catch (e) {
+    st.textContent = 'Could not pay: ' + ((e && e.message) || 'something went wrong') + ' — press RELEASE to try again.';
+  } finally {
+    gdPayRunning = false;
+    try { await gdAdminLoad(); } catch (e) {}
+    gdRenderTimer();
+    gdLoadPublicStrip();
+  }
+}
+/* ---- RESTART LEADERBOARD: pick -> see what clears -> confirm ----- */
+function gdRestartAsk(board){
+  const box = $('gdRestartConfirm');
+  const run = gdAdminData && gdAdminData.payRun;
+  const rows = board === 'all' ? (gdAdminData.all || []) : (gdAdminData.week || []);
+  const names = rows.slice(0, 5).map((r) => r.name).join(', ');
+  let warn = '';
+  if (run && (run.status === 'ready' || run.status === 'paying') &&
+      ((run.every === 'weekly' && board === 'week') || (run.every !== 'weekly' && board === 'all'))){
+    warn = '<p style="font-size:12.5px; color:#ffb3b3; text-align:center; margin:0 0 6px">⚠️ A payout list is waiting, built from this board. Restarting does not cancel it — those players still get paid from the saved list. Restart the board after that payout is released, if you can.</p>';
+  }
+  box.innerHTML =
+    '<p style="font-size:13.5px; text-align:center; margin:4px 0 2px">This clears the <b>' + (board === 'all' ? 'ALL-TIME' : 'THIS WEEK') + '</b> board — ' + rows.length + ' player' + (rows.length === 1 ? '' : 's') + ' on it' + (names ? ' (' + names + (rows.length > 5 ? ', …' : '') + ')' : '') + '.</p>' +
+    '<p style="font-size:12.5px; text-align:center; margin:0 0 6px; opacity:.85">A copy of the board is saved first, so it can be brought back. Payout records and winner wallets stay exactly as they are.</p>' +
+    warn +
+    '<div class="nftRow"><button class="play" id="gdRestartYes" style="flex:1">✅ YES — RESTART THIS BOARD</button>' +
+    '<button class="play alt" id="gdRestartNo" style="flex:1">✕ Keep the board</button></div>';
+  $('gdRestartYes').onclick = () => gdRestartDo(board);
+  $('gdRestartNo').onclick = () => { box.innerHTML = ''; $('gdRestartStatus').textContent = 'Board kept as it is.'; };
+  box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+async function gdRestartDo(board){
+  const st = $('gdRestartStatus');
+  $('gdRestartConfirm').innerHTML = '';
+  st.textContent = 'Restarting the board…';
+  try {
+    const { r, d } = await gdAdminPost({ action: 'restartLeaderboard', board });
+    if (r.status === 401){ st.textContent = gdAdminAuthFailMsg(); return; }
+    if (!r.ok){ st.textContent = (d && d.error) ? ('Not restarted: ' + d.error) : 'Not restarted — try again.'; return; }
+    st.textContent = '✅ Board restarted — ' + d.cleared + ' players cleared, ready for fresh scores. The old board was saved.';
+    await gdAdminLoad();
+  } catch (e) { st.textContent = 'Not restarted — try again.'; }
+}
 
 /* ================= v2: menu cleanup toggles =================
    Easy clean layout: the first screen is logo + strip + PLAY + MY
