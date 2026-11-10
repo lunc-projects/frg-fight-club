@@ -1,0 +1,1152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>LUNC HIGH SPEED — LUNC Dev Studio</title>
+<meta name="description" content="LUNC HIGH SPEED — an original first-person cockpit traffic driving game from LUNC Dev Studio. Weave through city highway traffic at 200+ km/h.">
+<meta name="theme-color" content="#05070d">
+<link rel="icon" type="image/png" href="favicon-neon.png">
+<meta property="og:title" content="LUNC HIGH SPEED — LUNC Dev Studio">
+<meta property="og:description" content="First-person cockpit driving with infinity speed: the longer you go, the faster it gets. The leaderboard is TOP SPEED — who gets the fastest run?">
+<meta property="og:image" content="logo-neon.webp">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="logo-neon.webp">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{width:100%;height:100%;height:100dvh;overflow:hidden;background:#05070d;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;color:#fff;touch-action:none;user-select:none;-webkit-user-select:none}
+  #game{position:fixed;inset:0;height:100dvh}
+  canvas{display:block;width:100%;height:100%}
+  .hidden{display:none !important}
+
+  /* ================= HUD ================= */
+  #hud{position:fixed;inset:0;pointer-events:none;z-index:5}
+  #scoreBox{position:absolute;top:calc(env(safe-area-inset-top,0px) + 10px);left:10px;background:rgba(6,14,24,.74);border:2px solid #f2b63c;border-radius:14px;padding:6px 14px;min-width:118px}
+  #scoreBox .lab{font-size:10px;font-weight:800;letter-spacing:2px;color:#ffd76a}
+  #scoreBox .val{font-size:26px;font-weight:900;line-height:1.05;text-shadow:0 2px 0 #7a5200}
+  #scoreBox .sub{font-size:11.5px;font-weight:700;color:#bfe9ff}
+  #nearBox{position:absolute;top:calc(env(safe-area-inset-top,0px) + 10px);right:64px;background:rgba(6,14,24,.74);border:2px solid #27d8c8;border-radius:14px;padding:6px 12px;text-align:center;min-width:74px}
+  #nearBox .lab{font-size:10px;font-weight:800;letter-spacing:1px;color:#aef7ef}
+  #nearBox .val{font-size:24px;font-weight:900;line-height:1.05;color:#fff}
+  #timeBox{position:absolute;top:calc(env(safe-area-inset-top,0px) + 10px);left:50%;transform:translateX(-50%);background:rgba(6,14,24,.74);border:2px solid #7dfcd8;border-radius:14px;padding:6px 14px;text-align:center;min-width:78px}
+  #timeBox .lab{font-size:10px;font-weight:800;letter-spacing:2px;color:#aef7ef}
+  #timeBox .val{font-size:24px;font-weight:900;line-height:1.05;color:#fff}
+  /* ⏹ END RUN — the only way an endless run ends (owner: infinity speed) */
+  #endBtn{position:absolute;top:calc(env(safe-area-inset-top,0px) + 88px);left:50%;transform:translateX(-50%);pointer-events:auto;background:rgba(6,14,24,.74);border:2px solid rgba(255,120,90,.85);color:#ffb59d;border-radius:12px;padding:7px 16px;font-size:12px;font-weight:900;letter-spacing:1.5px;cursor:pointer}
+  #endBtn:active{transform:translateX(-50%) translateY(2px)}
+  #muteBtn{position:absolute;top:calc(env(safe-area-inset-top,0px) + 10px);right:10px;width:44px;height:44px;border-radius:50%;pointer-events:auto;border:2px solid rgba(255,255,255,.35);background:rgba(6,14,24,.74);color:#fff;font-size:20px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+  #spdBox{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 148px);text-align:center;text-shadow:0 2px 10px #000}
+  #spdBox .spd{font-size:44px;font-weight:900;line-height:1;color:#fff}
+  #spdBox .spd small{font-size:15px;color:#ffd76a;letter-spacing:2px}
+  #popup{position:absolute;top:24%;left:50%;transform:translate(-50%,-50%) scale(.8);text-align:center;opacity:0;transition:opacity .12s,transform .12s}
+  #popup.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+  #popup .big{font-size:34px;font-weight:900;color:#ffd76a;text-shadow:0 3px 0 #7a5200,0 0 22px rgba(255,190,40,.65);letter-spacing:1px}
+  #popup .pts{font-size:20px;font-weight:900;color:#7dfcd8;text-shadow:0 2px 6px #000}
+  #bumpTag{position:absolute;top:34%;left:50%;transform:translate(-50%,-50%);font-size:24px;font-weight:900;color:#ff9d5c;text-shadow:0 2px 8px #000;opacity:0;transition:opacity .15s}
+  #bumpTag.show{opacity:1}
+  /* ⚡ NITROUS button — big, right thumb; ALWAYS live: press-and-hold to boost, no charge, no drain */
+  #nitroBtn{position:absolute;right:16px;bottom:calc(env(safe-area-inset-bottom,0px) + 118px);width:98px;height:98px;border-radius:50%;pointer-events:auto;border:3px solid #ffcf3d;background:radial-gradient(circle at 35% 30%,rgba(110,76,8,.92),rgba(26,17,2,.95));color:#ffd76a;box-shadow:0 0 16px rgba(255,190,40,.45);display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;overflow:hidden;touch-action:none}
+  #nitroBtn .zap{font-size:34px;line-height:1}
+  #nitroBtn .cap{font-size:9.5px;font-weight:900;letter-spacing:1.5px;margin-top:2px}
+  #nitroBtn.firing{border-color:#fff;color:#fff;background:radial-gradient(circle at 35% 30%,rgba(255,170,30,.95),rgba(160,70,0,.95));box-shadow:0 0 34px rgba(255,160,30,.95);transform:scale(1.07)}
+  /* Joystick */
+  #joyBase{position:absolute;left:22px;bottom:calc(env(safe-area-inset-bottom,0px) + 104px);width:128px;height:128px;border-radius:50%;pointer-events:auto;background:radial-gradient(circle,rgba(20,40,66,.42),rgba(8,16,30,.6));border:2px solid rgba(140,200,255,.4)}
+  #joyKnob{position:absolute;left:50%;top:50%;width:58px;height:58px;border-radius:50%;transform:translate(-50%,-50%);background:radial-gradient(circle at 35% 30%,#5f87b8,#223c5e);border:2px solid rgba(255,255,255,.55);box-shadow:0 4px 12px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;font-size:20px;color:#cfe8ff}
+  #joyHint{position:absolute;left:22px;bottom:calc(env(safe-area-inset-bottom,0px) + 84px);width:128px;text-align:center;font-size:10px;font-weight:800;letter-spacing:1.5px;color:rgba(200,230,255,.75)}
+  #flash{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:8}
+  #dmgVig{position:fixed;inset:0;pointer-events:none;z-index:4;background:radial-gradient(ellipse at center,transparent 55%,rgba(255,30,0,.55) 100%);opacity:0;transition:opacity .1s}
+
+  /* ================= Screens ================= */
+  .screen{position:fixed;inset:0;z-index:10;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;overflow-y:auto;padding:calc(env(safe-area-inset-top,0px) + 22px) 18px calc(env(safe-area-inset-bottom,0px) + 20px);background:linear-gradient(180deg,rgba(4,10,22,.88),rgba(4,8,18,.94))}
+  .logoCres{width:74px;height:74px;filter:drop-shadow(0 0 16px rgba(255,200,50,.55))}
+  .logoNeon{width:min(300px,78vw);height:auto;border-radius:22px;box-shadow:0 0 34px rgba(255,60,180,.35),0 14px 34px rgba(0,0,0,.55)}
+  h1.title{font-size:44px;font-weight:900;letter-spacing:1px;text-align:center;line-height:1.02;margin-top:8px;background:linear-gradient(180deg,#fff2c0,#ffcf3d 55%,#e08b00);-webkit-background-clip:text;background-clip:text;color:transparent;text-shadow:none}
+  .tagline{margin-top:8px;font-size:15px;font-weight:700;color:#bfe9ff;text-align:center;max-width:330px}
+  .studioLine{margin-top:5px;font-size:11px;font-weight:800;letter-spacing:3px;color:#ffd76a}
+  .bestLine{margin-top:14px;background:rgba(10,24,44,.8);border:1.5px solid rgba(255,205,61,.5);border-radius:12px;padding:7px 16px;font-size:13.5px;font-weight:800;color:#ffe9a8}
+  .bigBtn{margin-top:18px;pointer-events:auto;background:linear-gradient(180deg,#ffd76a,#f0a500);color:#231500;font-size:23px;font-weight:900;letter-spacing:1px;border:none;border-radius:16px;padding:15px 52px;cursor:pointer;box-shadow:0 6px 0 #8a5c00,0 12px 26px rgba(0,0,0,.5)}
+  .bigBtn:active{transform:translateY(3px);box-shadow:0 3px 0 #8a5c00}
+  .howCard{margin-top:20px;width:100%;max-width:352px;background:rgba(8,18,34,.85);border:1.5px solid rgba(120,190,255,.35);border-radius:16px;padding:14px 16px}
+  .howCard h2{font-size:14px;letter-spacing:2px;color:#7dfcd8;margin-bottom:8px}
+  .howCard p{font-size:13.5px;line-height:1.55;color:#dcefff;white-space:pre-line}
+  .localNote{margin-top:14px;font-size:11.5px;color:rgba(200,220,255,.65);text-align:center;max-width:320px;line-height:1.5}
+  /* 🏁 TOP SPEEDS board — local device board ranked by top speed reached */
+  .boardCard{margin-top:16px;width:100%;max-width:352px;background:rgba(8,18,34,.85);border:1.5px solid rgba(255,205,61,.45);border-radius:16px;padding:12px 14px}
+  .boardCard h2{font-size:14px;letter-spacing:2px;color:#ffd76a;margin-bottom:6px;text-align:center}
+  .bRow{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:10px;font-size:14px;font-weight:800;margin-top:4px;background:rgba(255,255,255,.04)}
+  .bRow.hl{background:linear-gradient(180deg,#ffd76a,#f0a500);color:#231500;box-shadow:0 0 16px rgba(255,190,40,.55)}
+  .bRank{width:20px;text-align:center;color:#7dfcd8}
+  .bRow.hl .bRank{color:#7a5200}
+  .bName{flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bSpeed{color:#ffd76a;font-weight:900}
+  .bRow.hl .bSpeed{color:#231500}
+  .bTime{font-size:12px;color:rgba(200,220,255,.7);min-width:38px;text-align:right}
+  .bRow.hl .bTime{color:#5e4300}
+  .bEmpty{font-size:12.5px;color:rgba(200,220,255,.7);text-align:center;padding:6px 2px;line-height:1.5}
+  #ovTopWrap{margin-top:14px;text-align:center;background:rgba(10,24,44,.8);border:2px solid rgba(255,205,61,.6);border-radius:16px;padding:10px 26px}
+  #ovTopWrap .lab{font-size:11px;font-weight:800;letter-spacing:3px;color:#ffd76a}
+  #ovTopBig{font-size:46px;font-weight:900;line-height:1.05;color:#fff;text-shadow:0 3px 0 #7a5200,0 0 24px rgba(255,190,40,.5)}
+  #nameRow{margin-top:14px;display:flex;gap:8px;width:100%;max-width:320px}
+  #nameInput{flex:1;min-width:0;background:rgba(8,18,34,.9);color:#fff;border:2px solid rgba(255,205,61,.6);border-radius:12px;font-size:16px;font-weight:800;padding:11px 14px;text-transform:uppercase}
+  #btnSaveName{pointer-events:auto;background:linear-gradient(180deg,#ffd76a,#f0a500);color:#231500;font-size:15px;font-weight:900;letter-spacing:1px;border:none;border-radius:12px;padding:11px 20px;cursor:pointer;box-shadow:0 4px 0 #8a5c00}
+  #btnSaveName:active{transform:translateY(2px);box-shadow:0 2px 0 #8a5c00}
+  #langSel{margin-top:16px;pointer-events:auto;background:rgba(8,18,34,.9);color:#fff;border:1.5px solid rgba(255,205,61,.55);border-radius:12px;font-size:15px;font-weight:700;padding:9px 14px;max-width:280px}
+  .statRows{margin-top:16px;width:100%;max-width:320px}
+  .statRow{display:flex;justify-content:space-between;background:rgba(8,18,34,.85);border:1px solid rgba(120,190,255,.3);border-radius:12px;padding:10px 16px;margin-top:8px;font-size:15px;font-weight:800}
+  .statRow .v{color:#ffd76a;font-weight:900}
+  #newBest{display:none;margin-top:12px;background:linear-gradient(180deg,#ffd76a,#f0a500);color:#231500;font-weight:900;font-size:14px;border-radius:20px;padding:6px 18px;letter-spacing:1px}
+  h1.overTitle{font-size:40px;font-weight:900;color:#ffcf3d;text-shadow:0 3px 0 #7a5200,0 0 24px rgba(255,190,40,.5);text-align:center;margin-top:6px}
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="dmgVig"></div>
+<div id="flash"></div>
+
+<!-- ================= HUD ================= -->
+<div id="hud" class="hidden">
+  <div id="scoreBox"><div class="lab" data-i="score">SCORE</div><div class="val" id="hudScore">0</div><div class="sub"><span id="hudDist">0</span> m</div></div>
+  <div id="nearBox"><div class="lab" data-i="near">NEAR MISS</div><div class="val" id="hudNear">0</div></div>
+  <div id="timeBox"><div class="lab" data-i="time">TIME</div><div class="val" id="hudTime">0:00</div></div>
+  <div id="endBtn">⏹ <span data-i="endRun">END RUN</span></div>
+  <div id="muteBtn">🔊</div>
+  <div id="popup"><div class="big" data-i="nearBig">NEAR MISS!</div><div class="pts" id="popupPts">+0</div></div>
+  <div id="bumpTag">💥 BUMP!</div>
+  <div id="spdBox"><div class="spd"><span id="hudSpd">0</span> <small>KM/H</small></div></div>
+  <div id="joyBase"><div id="joyKnob">✥</div></div>
+  <div id="joyHint" data-i="joyHint">STEER · GAS · BRAKE</div>
+  <div id="nitroBtn"><div class="zap">⚡</div><div class="cap" data-i="nitro">NITROUS</div></div>
+</div>
+
+<!-- ================= MENU ================= -->
+<div id="menu" class="screen">
+  <img class="logoNeon" src="logo-neon.webp" alt="LUNC HIGH SPEED">
+  <h1 class="title">LUNC<br>HIGH SPEED</h1>
+  <div class="tagline" data-i="tag">First-person cockpit driving. Weave through city traffic — bounce off cars, and the longer you go, the faster it gets. No top speed. No clock.</div>
+  <div class="studioLine">LUNC DEV STUDIO</div>
+  <div class="bestLine" id="menuBest">🏆 0</div>
+  <div class="boardCard"><h2 data-i="boardTitle">🏁 TOP SPEEDS</h2><div id="menuBoard"></div></div>
+  <button class="bigBtn" id="btnPlay">▶ <span data-i="play">DRIVE</span></button>
+  <div class="howCard"><h2 data-i="howTitle">HOW TO PLAY</h2><p data-i="how">🕹️ Joystick: push UP = gas, DOWN = brake, LEFT / RIGHT = steer
+⚡ HOLD the ⚡ NITROUS button to boost — the longer you hold, the faster you go
+💥 Hit cars and they bounce off — never game over, just keep your speed up
+♾️ INFINITY SPEED: the longer you go, the faster it gets — no top speed, no clock. The run ends only when you tap ⏹ END RUN — 🏆 score = distance + near-miss bonuses. Faster passes pay more!</p></div>
+  <select id="langSel" aria-label="Language"></select>
+  <div class="localNote" data-i="local">🏁 Top Speeds board is local to this device (your fastest runs are saved on your phone only).</div>
+</div>
+
+<!-- ================= RESULTS ================= -->
+<div id="over" class="screen hidden">
+  <svg class="logoCres" viewBox="0 0 100 100"><path d="M62 8a40 40 0 1 0 30 58A44 44 0 0 1 62 8z" fill="#ffcf3d"/></svg>
+  <h1 class="overTitle" data-i="over">RUN OVER!</h1>
+  <div id="newBest">★ <span data-i="newBest">NEW BEST!</span> ★</div>
+  <div id="ovTopWrap"><div class="lab" data-i="top">TOP SPEED</div><div id="ovTopBig">0 km/h</div></div>
+  <div class="statRows">
+    <div class="statRow"><span data-i="score">SCORE</span><span class="v" id="ovScore">0</span></div>
+    <div class="statRow"><span data-i="dist">DISTANCE</span><span class="v" id="ovDist">0 m</span></div>
+    <div class="statRow"><span data-i="near">NEAR MISS</span><span class="v" id="ovNear">0</span></div>
+    <div class="statRow"><span data-i="top">TOP SPEED</span><span class="v" id="ovTop">0</span></div>
+    <div class="statRow"><span data-i="survived">TIME SURVIVED</span><span class="v" id="ovTime">0:00</span></div>
+    <div class="statRow"><span data-i="best">BEST</span><span class="v" id="ovBest">0</span></div>
+  </div>
+  <div id="nameRow" class="hidden"><input id="nameInput" maxlength="12" autocomplete="off" autocapitalize="characters"><button id="btnSaveName" data-i="saveBtn">SAVE</button></div>
+  <div class="boardCard"><h2 data-i="boardTitle">🏁 TOP SPEEDS</h2><div id="overBoard"></div></div>
+  <button class="bigBtn" id="btnAgain">↻ <span data-i="again">DRIVE AGAIN</span></button>
+  <button class="bigBtn" id="btnMenu" style="background:linear-gradient(180deg,#9fd8ff,#3f8fd2);color:#06263f;box-shadow:0 6px 0 #1d4f73,0 12px 26px rgba(0,0,0,.5);font-size:18px;padding:12px 40px">☰ <span data-i="menuB">MENU</span></button>
+  <div class="localNote" data-i="local">🏁 Top Speeds board is local to this device (your fastest runs are saved on your phone only).</div>
+</div>
+
+<script type="importmap">
+{"imports":{"three":"./lib/three.module.js"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from './lib/GLTFLoader.js';
+
+/* ================================================================
+   LUNC HIGH SPEED — first-person cockpit traffic driving.
+   Original game by LUNC Dev Studio. Single-file Three.js build.
+   ================================================================ */
+
+/* ---------------- i18n ---------------- */
+const LANGS = [["en","English"],["es","Español"],["pt","Português"],["fr","Français"],["de","Deutsch"],["it","Italiano"],["nl","Nederlands"],["ru","Русский"],["uk","Українська"],["tr","Türkçe"],["ar","العربية"],["hi","हिन्दी"],["id","Bahasa Indonesia"],["vi","Tiếng Việt"],["th","ไทย"],["ko","한국어"],["ja","日本語"],["zh","简体中文"]];
+const I = {
+en:{tag:"First-person cockpit driving. Weave through city traffic — bounce off cars, and the longer you go, the faster it gets. No top speed. No clock.",play:"DRIVE",howTitle:"HOW TO PLAY",how:"🕹️ Joystick: push UP = gas, DOWN = brake, LEFT / RIGHT = steer\n⚡ HOLD the ⚡ NITROUS button to boost — the longer you hold, the faster you go\n💥 Hit cars and they bounce off — never game over, just keep your speed up\n♾️ INFINITY SPEED: the longer you go, the faster it gets — there is no top speed and no clock. The run ends only when you tap ⏹ END RUN — 🏆 score = distance + near-miss bonuses. Faster passes pay more!\n🏁 TOP SPEEDS board: the fastest run wins — who gets the fastest run?",score:"SCORE",near:"NEAR MISS",nearBig:"NEAR MISS!",dist:"DISTANCE",top:"TOP SPEED",best:"BEST",over:"RUN OVER!",again:"DRIVE AGAIN",menuB:"MENU",newBest:"NEW BEST!",local:"🏁 Top Speeds board is local to this device (your fastest runs are saved on your phone only).",nitro:"NITROUS",joyHint:"STEER · GAS · BRAKE",time:"TIME",endRun:"END RUN",survived:"TIME SURVIVED",boardTitle:"🏁 TOP SPEEDS",namePh:"YOUR NAME",saveBtn:"SAVE",boardEmpty:"No runs yet — be the first to set a top speed!"},
+es:{tag:"Conducción en primera persona. Esquiva el tráfico urbano: rebota en los coches y, cuanto más dures, más rápido irás. Sin velocidad máxima. Sin reloj.",play:"CONDUCIR",howTitle:"CÓMO JUGAR",how:"🕹️ Joystick: ARRIBA = acelerar, ABAJO = freno, IZQUIERDA / DERECHA = girar\n⚡ MANTÉN pulsado el botón ⚡ NITRO para impulsar — cuanto más lo mantengas, más rápido irás\n💥 Choca con los coches y rebotan — nunca se acaba, solo mantén la velocidad\n♾️ VELOCIDAD INFINITA: cuanto más dures, más rápido irás — no hay velocidad máxima ni reloj. La partida solo termina cuando tocas ⏹ FIN — 🏆 puntos = distancia + bonificaciones. ¡A más velocidad, más puntos!\n🏁 Tabla de VELOCIDADES MÁXIMAS: ¡gana la carrera más rápida!",score:"PUNTOS",near:"POR POCO",nearBig:"¡POR POCO!",dist:"DISTANCIA",top:"VEL. MÁX.",best:"RÉCORD",over:"¡FIN DE LA CARRERA!",again:"OTRA VEZ",menuB:"MENÚ",newBest:"¡NUEVO RÉCORD!",local:"La tabla de velocidades máximas es local de este dispositivo (tus carreras más rápidas se guardan solo en tu teléfono).",nitro:"NITRO",joyHint:"GIRAR · GAS · FRENO",time:"TIEMPO",endRun:"FIN",survived:"TIEMPO",boardTitle:"🏁 VELOCIDADES MÁXIMAS",namePh:"TU NOMBRE",saveBtn:"GUARDAR",boardEmpty:"Aún no hay carreras — ¡sé el primero en marcar una velocidad máxima!"},
+pt:{tag:"Direção em primeira pessoa. Costure o trânsito da cidade: bata e ricocheteie nos carros — quanto mais tempo ficar, mais rápido fica. Sem velocidade máxima. Sem relógio.",play:"DIRIGIR",howTitle:"COMO JOGAR",how:"🕹️ Joystick: CIMA = acelerar, BAIXO = freio, ESQUERDA / DIREITA = virar\n⚡ SEGURE o botão ⚡ NITRO para turbinar — quanto mais segurar, mais rápido você vai\n💥 Bata nos carros e eles ricocheteiam — nunca é game over, só mantenha a velocidade\n♾️ VELOCIDADE INFINITA: quanto mais tempo você ficar, mais rápido fica — sem velocidade máxima e sem relógio. A corrida só termina quando você toca em ⏹ FIM — 🏆 pontos = distância + bônus. Passagens mais rápidas pagam mais!\n🏁 Ranking de VELOCIDADE MÁXIMA: vence a corrida mais rápida!",score:"PONTOS",near:"QUASE!",nearBig:"QUASE!",dist:"DISTÂNCIA",top:"VEL. MÁX.",best:"RECORDE",over:"FIM DA CORRIDA!",again:"DE NOVO",menuB:"MENU",newBest:"NOVO RECORDE!",local:"O ranking de velocidades máximas é local deste aparelho (suas corridas mais rápidas ficam salvas só no seu telefone).",nitro:"NITRO",joyHint:"VIRAR · GAS · FREIO",time:"TEMPO",endRun:"FIM",survived:"TEMPO",boardTitle:"🏁 VELOCIDADES MÁXIMAS",namePh:"SEU NOME",saveBtn:"SALVAR",boardEmpty:"Nenhuma corrida ainda — seja o primeiro a marcar uma velocidade máxima!"},
+fr:{tag:"Conduite en vue cockpit. Slalomez dans le trafic urbain — rebondissez sur les voitures et, plus vous tenez, plus ça va vite. Pas de vitesse max. Pas de chrono.",play:"CONDUIRE",howTitle:"COMMENT JOUER",how:"🕹️ Joystick : HAUT = gaz, BAS = frein, GAUCHE / DROITE = direction\n⚡ MAINTENEZ le bouton ⚡ NITRO pour booster — plus vous le maintenez, plus vous allez vite\n💥 Percutez les voitures et elles rebondissent — jamais de fin de partie, gardez juste votre vitesse\n♾️ VITESSE INFINIE : plus vous tenez longtemps, plus ça va vite — pas de vitesse max, pas de chrono. La course se termine seulement quand vous touchez ⏹ FIN — 🏆 score = distance + bonus. Plus c'est rapide, plus ça rapporte !\n🏁 Classement en VITESSE MAX : le run le plus rapide gagne !",score:"SCORE",near:"FRÔLEMENT",nearBig:"FRÔLEMENT !",dist:"DISTANCE",top:"VITESSE MAX",best:"RECORD",over:"COURSE TERMINÉE !",again:"RECOMMENCER",menuB:"MENU",newBest:"NOUVEAU RECORD !",local:"Le classement des vitesses max est local à cet appareil (vos courses les plus rapides sont enregistrées sur votre téléphone uniquement).",nitro:"NITRO",joyHint:"DIRECTION · GAZ · FREIN",time:"TEMPS",endRun:"FIN",survived:"TEMPS",boardTitle:"🏁 VITESSES MAX",namePh:"VOTRE NOM",saveBtn:"OK",boardEmpty:"Aucun run pour le moment — soyez le premier à établir une vitesse max !"},
+de:{tag:"Fahren aus der Cockpit-Perspektive. Mit Vollgas durch den Stadtverkehr — pralle von Autos ab, und je länger du fährst, desto schneller wirst du. Kein Höchsttempo. Keine Uhr.",play:"FAHREN",howTitle:"SO GEHT'S",how:"🕹️ Joystick: OBEN = Gas, UNTEN = Bremse, LINKS / RECHTS = lenken\n⚡ HALTE den ⚡ NITRO-Knopf gedrückt für den Boost — je länger du hältst, desto schneller wirst du\n💥 Fahre in Autos hinein und sie prallen ab — kein Game Over, halte einfach dein Tempo\n♾️ UNENDLICHES TEMPO: Je länger du fährst, desto schneller wirst du — kein Höchsttempo, keine Uhr. Der Lauf endet nur, wenn du ⏹ ENDE tippst — 🏆 Punkte = Strecke + Boni. Schnellere Manöver zahlen mehr!\n🏁 Rangliste nach TOP-TEMPO — der schnellste Lauf gewinnt!",score:"PUNKTE",near:"KNAPP!",nearBig:"KNAPP DANEBEN!",dist:"STRECKE",top:"TOP-TEMPO",best:"REKORD",over:"LAUF BEENDET!",again:"NOCHMAL",menuB:"MENÜ",newBest:"NEUER REKORD!",local:"Die Top-Tempo-Rangliste ist lokal auf diesem Gerät (deine schnellsten Läufe werden nur auf deinem Handy gespeichert).",nitro:"NITRO",joyHint:"LENKEN · GAS · BREMSE",time:"ZEIT",endRun:"ENDE",survived:"ZEIT",boardTitle:"🏁 TOP-TEMPOS",namePh:"DEIN NAME",saveBtn:"SPEICHERN",boardEmpty:"Noch keine Läufe — stelle als Erster ein Top-Tempo auf!"},
+it:{tag:"Guida in prima persona. Sfila nel traffico cittadino: rimbalza sulle auto e, più resisti, più vai veloce. Nessuna velocità massima. Nessun cronometro.",play:"GUIDA",howTitle:"COME SI GIOCA",how:"🕹️ Joystick: SU = gas, GIÙ = freno, SINISTRA / DESTRA = sterzo\n⚡ TIENI premuto il pulsante ⚡ NITRO per il boost — più lo tieni, più vai veloce\n💥 Colpisci le auto e rimbalzano via — mai game over, tieni solo alta la velocità\n♾️ VELOCITÀ INFINITA: più a lungo resisti, più vai veloce — nessuna velocità massima, nessun cronometro. La corsa finisce solo quando tocchi ⏹ FINE — 🏆 punti = distanza + bonus. Più veloce passi, più guadagni!\n🏁 Classifica per VELOCITÀ MASSIMA — vince la corsa più veloce!",score:"PUNTI",near:"SFISATO!",nearBig:"PER UN PELO!",dist:"DISTANZA",top:"VEL. MAX",best:"RECORD",over:"CORSA FINITA!",again:"ANCORA",menuB:"MENU",newBest:"NUOVO RECORD!",local:"La classifica delle velocità massime è locale su questo dispositivo (le tue corse più veloci sono salvate solo sul tuo telefono).",nitro:"NITRO",joyHint:"STERZO · GAS · FRENO",time:"TEMPO",endRun:"FINE",survived:"TEMPO",boardTitle:"🏁 VELOCITÀ MASSIME",namePh:"IL TUO NOME",saveBtn:"SALVA",boardEmpty:"Nessuna corsa ancora — sii il primo a segnare una velocità massima!"},
+nl:{tag:"Rijden vanuit de cockpit. Slalom door stadsverkeer: bots tegen auto's, en hoe langer je rijdt, hoe sneller het gaat. Geen topsnelheid. Geen klok.",play:"RIJDEN",howTitle:"ZO SPEEL JE",how:"🕹️ Joystick: OMHOOG = gas, OMLAAG = rem, LINKS / RECHTS = sturen\n⚡ HOUD de ⚡ NITRO-knop ingedrukt voor boost — hoe langer je vasthoudt, hoe sneller je gaat\n💥 Raak auto's en ze stuiteren weg — nooit game over, houd gewoon je snelheid vast\n♾️ ONEINDIGE SNELHEID: hoe langer je rijdt, hoe sneller het gaat — geen topsnelheid, geen klok. De rit eindigt alleen als je op ⏹ EINDE tikt — 🏆 score = afstand + bonussen. Sneller passeren betaalt meer!\n🏁 Klassement op TOPSNELHEID — de snelste rit wint!",score:"SCORE",near:"RAKELINGS",nearBig:"RAKELINGS!",dist:"AFSTAND",top:"TOPSNELHEID",best:"RECORD",over:"RIT VOORBIJ!",again:"OPNIEUW",menuB:"MENU",newBest:"NIEUW RECORD!",local:"Het topsnelheden-klassement is lokaal op dit apparaat (je snelste ritten worden alleen op je telefoon opgeslagen).",nitro:"NITRO",joyHint:"STUREN · GAS · REM",time:"TIJD",endRun:"EINDE",survived:"TIJD",boardTitle:"🏁 TOPSNELHEDEN",namePh:"JE NAAM",saveBtn:"OPSLAAN",boardEmpty:"Nog geen ritten — zet als eerste een topsnelheid neer!"},
+ru:{tag:"Вождение от первого лица. Лавируйте в городском потоке — отскакивайте от машин, и чем дольше едете, тем быстрее. Нет предела скорости. Нет часов.",play:"ЕХАТЬ",howTitle:"КАК ИГРАТЬ",how:"🕹️ Джойстик: ВВЕРХ = газ, ВНИЗ = тормоз, ВЛЕВО / ВПРАВО = руль\n⚡ УДЕРЖИВАЙТЕ кнопку ⚡ НИТРО для ускорения — чем дольше держите, тем быстрее едете\n💥 Врезайтесь в машины — они отлетают: игра не заканчивается, просто держите скорость\n♾️ БЕСКОНЕЧНАЯ СКОРОСТЬ: чем дольше едете, тем быстрее — нет предела скорости и нет часов. Заезд заканчивается, только когда вы нажмёте ⏹ СТОП — 🏆 очки = дистанция + бонусы. Чем быстрее обгон, тем больше очков!\n🏁 Таблица — по МАКС. СКОРОСТИ: побеждает самый быстрый заезд!",score:"ОЧКИ",near:"ВПРИТИРКУ",nearBig:"ВПРИТИРКУ!",dist:"ДИСТАНЦИЯ",top:"МАКС. СКОРОСТЬ",best:"РЕКОРД",over:"ЗАЕЗД ОКОНЧЕН!",again:"ЕЩЁ РАЗ",menuB:"МЕНЮ",newBest:"НОВЫЙ РЕКОРД!",local:"Таблица максимальных скоростей локальна для этого устройства (ваши самые быстрые заезды хранятся только на вашем телефоне).",nitro:"НИТРО",joyHint:"РУЛЬ · ГАЗ · ТОРМОЗ",time:"ВРЕМЯ",endRun:"СТОП",survived:"ВРЕМЯ",boardTitle:"🏁 МАКС. СКОРОСТИ",namePh:"ВАШЕ ИМЯ",saveBtn:"СОХРАНИТЬ",boardEmpty:"Пока нет заездов — станьте первым, кто установит максимальную скорость!"},
+uk:{tag:"Водіння від першої особи. Лавіруйте в міському потоці — відскакуйте від машин, і що довше їдете, то швидше стає. Немає межі швидкості. Немає годинника.",play:"ЇХАТИ",howTitle:"ЯК ГРАТИ",how:"🕹️ Джойстик: ВГОРУ = газ, ВНИЗ = гальмо, ВЛІВО / ВПРАВО = кермо\n⚡ УТРИМУЙТЕ кнопку ⚡ НІТРО для прискорення — що довше тримаєте, то швидше їдете\n💥 Врізайтеся в машини — вони відлітають: гра не закінчується, просто тримайте швидкість\n♾️ НЕСКІНЧЕННА ШВИДКІСТЬ: що довше їдете, то швидше стає — немає межі швидкості й немає годинника. Заїзд завершується, лише коли ви натиснете ⏹ СТОП — 🏆 очки = дистанція + бонуси. Що швидший обгін, то більше очок!\n🏁 Таблиця — за МАКС. ШВИДКІСТЮ: перемагає найшвидший заїзд!",score:"ОЧКИ",near:"ВПритул",nearBig:"ВПритул!",dist:"ДИСТАНЦІЯ",top:"МАКС. ШВИДКІСТЬ",best:"РЕКОРД",over:"ЗАЇЗД ЗАВЕРШЕНО!",again:"ЩЕ РАЗ",menuB:"МЕНЮ",newBest:"НОВИЙ РЕКОРД!",local:"Таблиця максимальних швидкостей локальна для цього пристрою (ваші найшвидші заїзди зберігаються лише на вашому телефоні).",nitro:"НІТРО",joyHint:"КЕРМО · ГАЗ · ГАЛЬМО",time:"ЧАС",endRun:"СТОП",survived:"ЧАС",boardTitle:"🏁 МАКС. ШВИДКОСТІ",namePh:"ВАШЕ ІМ'Я",saveBtn:"ЗБЕРЕГТИ",boardEmpty:"Ще немає заїздів — станьте першим, хто встановить максимальну швидкість!"},
+tr:{tag:"Kokpitten sürüş. Şehir trafiğinde slalom yap — arabalardan sek ve ne kadar uzun gidersen o kadar hızlan. Azami hız yok. Süre yok.",play:"SÜR",howTitle:"NASIL OYNANIR",how:"🕹️ Kumanda: YUKARI = gaz, AŞAĞI = fren, SOL / SAĞ = direksiyon\n⚡ Boost için ⚡ NİTRO düğmesini BASILI TUT — ne kadar uzun tutarsan o kadar hızlanırsın\n💥 Arabalara çarp, onlar sekerek uzaklaşır — oyun asla bitmez, sadece hızını koru\n♾️ SONSUZ HIZ: ne kadar uzun gidersen o kadar hızlanırsın — azami hız yok, süre yok. Yarış yalnızca ⏹ BİTİR'e dokunduğunda biter — 🏆 skor = mesafe + bonuslar. Daha hızlı geçiş daha çok kazandırır!\n🏁 Tablo EN YÜKSEK HIZA göre — en hızlı yarış kazanır!",score:"SKOR",near:"SIYIRDI!",nearBig:"SIYIRDI!",dist:"MESAFE",top:"MAKS HIZ",best:"REKOR",over:"YARIŞ BİTTİ!",again:"TEKRAR",menuB:"MENÜ",newBest:"YENİ REKOR!",local:"En yüksek hızlar tablosu bu cihaza özeldir (en hızlı yarışların yalnızca telefonunda saklanır).",nitro:"NİTRO",joyHint:"DİREKSİYON · GAZ · FREN",time:"SÜRE",endRun:"BİTİR",survived:"SÜRE",boardTitle:"🏁 EN YÜKSEK HIZLAR",namePh:"ADIN",saveBtn:"KAYDET",boardEmpty:"Henüz yarış yok — en yüksek hızı ilk sen belirle!"},
+ar:{tag:"قيادة من داخل المقصورة. انطلق بين زحام المدينة — اصطدم بالسيارات وارتد عنها، وكلما طالت قيادتك زادت سرعتك. لا سرعة قصوى. لا ساعة.",play:"انطلق",howTitle:"طريقة اللعب",how:"🕹️ عصا التحكم: لأعلى = وقود، لأسفل = فرامل، يسار / يمين = توجيه\n⚡ اضغط مع الاستمرار على زر ⚡ النيترو للانطلاق — كلما أطلت الضغط زادت سرعتك\n💥 اصطدم بالسيارات فترتد بعيدًا — لا تنتهي اللعبة أبدًا، فقط حافظ على سرعتك\n♾️ سرعة لا نهائية: كلما طالت قيادتك زادت سرعتك — لا سرعة قصوى ولا ساعة. تنتهي الجولة فقط عندما تضغط ⏹ إنهاء — 🏆 النقاط = المسافة + مكافآت التجاوز. كلما زادت السرعة زادت المكافأة!\n🏁 القائمة حسب السرعة القصوى — أسرع جولة تفوز!",score:"النقاط",near:"تجاوز قريب",nearBig:"!تجاوز قريب",dist:"المسافة",top:"السرعة القصوى",best:"الأفضل",over:"!انتهت الجولة",again:"حاول مجددًا",menuB:"القائمة",newBest:"!رقم قياسي جديد",local:"قائمة أعلى السرعات محلية على هذا الجهاز (أسرع جولاتك محفوظة على هاتفك فقط).",nitro:"نيترو",joyHint:"توجيه · وقود · فرامل",time:"الوقت",endRun:"إنهاء",survived:"الوقت",boardTitle:"🏁 أعلى السرعات",namePh:"اسمك",saveBtn:"حفظ",boardEmpty:"لا جولات بعد — كن أول من يسجل سرعة قصوى!"},
+hi:{tag:"कॉकपिट से ड्राइविंग। शहर के ट्रैफ़िक में रफ़्तार पकड़ें — कारों से टकराकर उछलें, और जितनी देर चलेंगे उतनी तेज़ गति मिलेगी। कोई अधिकतम गति नहीं। कोई घड़ी नहीं।",play:"चलाएँ",howTitle:"कैसे खेलें",how:"🕹️ जॉयस्टिक: ऊपर = गैस, नीचे = ब्रेक, बाएँ / दाएँ = स्टीयरिंग\n⚡ बूस्ट के लिए ⚡ नाइट्रो बटन दबाकर रखें — जितनी देर रखेंगे, उतनी तेज़ गति मिलेगी\n💥 कारों से टकराएँ और वे उछलकर दूर जाएँगी — गेम कभी खत्म नहीं होता, बस अपनी रफ़्तार बनाए रखें\n♾️ अनंत गति: जितनी देर चलेंगे, उतनी तेज़ गति — कोई अधिकतम गति नहीं, कोई घड़ी नहीं। रन तभी खत्म होता है जब आप ⏹ समाप्त दबाएँ — 🏆 स्कोर = दूरी + बोनस। जितनी तेज़ पासिंग, उतने ज़्यादा अंक!\n🏁 सूची टॉप स्पीड की है — सबसे तेज़ रन जीतता है!",score:"स्कोर",near:"बाल-बाल",nearBig:"बाल-बाल बचे!",dist:"दूरी",top:"टॉप स्पीड",best:"सर्वश्रेष्ठ",over:"रन खत्म!",again:"फिर से",menuB:"मेनू",newBest:"नया रिकॉर्ड!",local:"टॉप स्पीड सूची इसी डिवाइस पर है (आपके सबसे तेज़ रन सिर्फ़ आपके फ़ोन में सहेजे जाते हैं)।",nitro:"नाइट्रो",joyHint:"स्टीयरिंग · गैस · ब्रेक",time:"समय",endRun:"समाप्त",survived:"समय",boardTitle:"🏁 टॉप स्पीड",namePh:"आपका नाम",saveBtn:"सहेजें",boardEmpty:"अभी कोई रन नहीं — सबसे पहले टॉप स्पीड बनाएं!"},
+id:{tag:"Mengemudi dari kokpit. Selap-selip di lalu lintas kota — tabrak mobil dan memantul, dan semakin lama bertahan semakin cepat. Tanpa kecepatan maksimum. Tanpa jam.",play:"MENGEMUDI",howTitle:"CARA BERMAIN",how:"🕹️ Joystick: ATAS = gas, BAWAH = rem, KIRI / KANAN = setir\n⚡ TAHAN tombol ⚡ NITRO untuk boost — semakin lama menahan, semakin cepat\n💥 Tabrak mobil dan mereka akan terpental — tidak pernah game over, jaga saja kecepatanmu\n♾️ KECEPATAN TANPA BATAS: semakin lama kamu bertahan, semakin cepat — tidak ada kecepatan maksimum, tidak ada jam. Permainan hanya berakhir saat kamu mengetuk ⏹ SELESAI — 🏆 skor = jarak + bonus. Makin cepat lewat, makin besar bonusnya!\n🏁 Papannya KECEPATAN TERTINGGI — lari tercepat yang menang!",score:"SKOR",near:"HAMPIR!",nearBig:"HAMPIR KENA!",dist:"JARAK",top:"KEC. MAKS",best:"TERBAIK",over:"SELESAI!",again:"LAGI",menuB:"MENU",newBest:"REKOR BARU!",local:"Papan kecepatan tertinggi bersifat lokal di perangkat ini (lari tercepatmu hanya tersimpan di ponselmu).",nitro:"NITRO",joyHint:"SETIR · GAS · REM",time:"WAKTU",endRun:"SELESAI",survived:"WAKTU",boardTitle:"🏁 KECEPATAN TERTINGGI",namePh:"NAMA KAMU",saveBtn:"SIMPAN",boardEmpty:"Belum ada lari — jadilah yang pertama mencetak kecepatan tertinggi!"},
+vi:{tag:"Lái xe từ buồng lái. Luồn lách giữa giao thông thành phố — đâm vào xe và bật ra, đi càng lâu càng nhanh. Không giới hạn tốc độ. Không đồng hồ.",play:"LÁI XE",howTitle:"CÁCH CHƠI",how:"🕹️ Cần điều khiển: LÊN = ga, XUỐNG = phanh, TRÁI / PHẢI = lái\n⚡ GIỮ nút ⚡ NITRO để tăng tốc — giữ càng lâu, đi càng nhanh\n💥 Đâm vào xe và chúng bật ra xa — không bao giờ kết thúc, chỉ cần giữ tốc độ\n♾️ TỐC ĐỘ VÔ CỰC: đi càng lâu càng nhanh — không giới hạn tốc độ, không đồng hồ. Lượt chạy chỉ kết thúc khi bạn chạm ⏹ KẾT THÚC — 🏆 điểm = quãng đường + thưởng. Vượt càng nhanh càng nhiều điểm!\n🏁 Bảng xếp theo TỐC ĐỘ TỐI ĐA — lượt chạy nhanh nhất thắng!",score:"ĐIỂM",near:"SÁT SẠT",nearBig:"SÁT SẠT!",dist:"QUÃNG ĐƯỜNG",top:"TỐC ĐỘ TỐI ĐA",best:"KỶ LỤC",over:"KẾT THÚC!",again:"LÁI LẠI",menuB:"MENU",newBest:"KỶ LỤC MỚI!",local:"Bảng tốc độ cao nhất chỉ lưu trên thiết bị này (những lượt chạy nhanh nhất của bạn chỉ lưu trên điện thoại của bạn).",nitro:"NITRO",joyHint:"LÁI · GA · PHANH",time:"THỜI GIAN",endRun:"KẾT THÚC",survived:"THỜI GIAN",boardTitle:"🏁 TỐC ĐỘ CAO NHẤT",namePh:"TÊN CỦA BẠN",saveBtn:"LƯU",boardEmpty:"Chưa có lượt chạy nào — hãy là người đầu tiên lập tốc độ tối đa!"},
+th:{tag:"ขับจากห้องคนขับ ลัดเลาะในการจราจรในเมือง — ชนรถแล้วกระเด้งออก ยิ่งขับนานยิ่งเร็ว ไม่มีขีดจำกัดความเร็ว ไม่มีนาฬิกา",play:"ขับเลย",howTitle:"วิธีเล่น",how:"🕹️ จอยสติ๊ก: ขึ้น = เร่ง, ลง = เบรก, ซ้าย / ขวา = บังคับเลี้ยว\n⚡ กดปุ่ม ⚡ ไนโตรค้างไว้เพื่อบูสต์ — ยิ่งกดนาน ยิ่งเร็ว\n💥 ชนรถแล้วรถจะกระเด้งออกไป — เกมไม่จบ แค่รักษาความเร็วไว้\n♾️ ความเร็วไร้ขีดจำกัด: ยิ่งขับนานยิ่งเร็ว — ไม่มีขีดจำกัดความเร็ว ไม่มีนาฬิกา รอบวิ่งจะจบเมื่อแตะ ⏹ จบ เท่านั้น — 🏆 คะแนน = ระยะทาง + โบนัส ยิ่งแซงเร็วยิ่งได้เยอะ!\n🏁 ตารางจัดอันดับตามความเร็วสูงสุด — รอบที่เร็วที่สุดชนะ!",score:"คะแนน",near:"เฉียด!",nearBig:"เฉียดไปนิดเดียว!",dist:"ระยะทาง",top:"ความเร็วสูงสุด",best:"สถิติ",over:"จบรอบวิ่ง!",again:"ขับอีกครั้ง",menuB:"เมนู",newBest:"สถิติใหม่!",local:"ตารางความเร็วสูงสุดอยู่บนอุปกรณ์นี้เท่านั้น (รอบวิ่งที่เร็วที่สุดของคุณบันทึกในโทรศัพท์ของคุณเท่านั้น)",nitro:"ไนโตร",joyHint:"เลี้ยว · เร่ง · เบรก",time:"เวลา",endRun:"จบ",survived:"เวลา",boardTitle:"🏁 ความเร็วสูงสุด",namePh:"ชื่อของคุณ",saveBtn:"บันทึก",boardEmpty:"ยังไม่มีรอบวิ่ง — มาเป็นคนแรกที่ทำสถิติความเร็วสูงสุด!"},
+ko:{tag:"콕핏 1인칭 드라이빙. 도심 교통을 누비세요 — 차에 부딪혀 튕겨 나가고, 오래 달릴수록 더 빨라집니다. 최고 속도 없음. 제한 시간 없음.",play:"운전 시작",howTitle:"플레이 방법",how:"🕹️ 조이스틱: 위 = 가속, 아래 = 브레이크, 좌 / 우 = 조향\n⚡ ⚡ 니트로 버튼을 길게 눌러 부스트 — 오래 누를수록 더 빨라집니다\n💥 차에 부딪히면 차가 튕겨 나갑니다 — 게임 오버는 없어요, 속도만 유지하세요\n♾️ 무한 속도: 오래 달릴수록 더 빨라집니다 — 최고 속도도, 제한 시간도 없어요. ⏹ 종료 를 눌러야만 런이 끝납니다 — 🏆 점수 = 거리 + 보너스. 빠르게 추월할수록 보너스가 커집니다!\n🏁 순위는 최고 속도 기준 — 가장 빠른 주행이 이깁니다!",score:"점수",near:"아슬아슬",nearBig:"아슬아슬!",dist:"거리",top:"최고 속도",best:"최고 기록",over:"주행 종료!",again:"다시 운전",menuB:"메뉴",newBest:"신기록!",local:"최고 속도 순위는 이 기기에만 저장됩니다 (가장 빠른 주행 기록은 휴대폰에만 저장).",nitro:"니트로",joyHint:"조향 · 가속 · 브레이크",time:"시간",endRun:"종료",survived:"시간",boardTitle:"🏁 최고 속도",namePh:"이름",saveBtn:"저장",boardEmpty:"아직 주행 기록이 없어요 — 첫 최고 속도를 세워보세요!"},
+ja:{tag:"コックピット視点ドライビング。街の交通をすり抜けよう — 車にぶつかって跳ね返り、走り続けるほど速くなります。最高速度なし。制限時間なし。",play:"ドライブ",howTitle:"遊び方",how:"🕹️ ジョイスティック：上＝アクセル、下＝ブレーキ、左／右＝ステアリング\n⚡ ⚡ニトロボタンを長押しでブースト — 長く押すほど速くなります\n💥 車にぶつかると相手が跳ね飛びます — ゲームオーバーなし、スピードを保つだけ\n♾️ 無限スピード：走り続けるほど速くなります — 最高速度なし、制限時間なし。⏹ 終了 を押したときだけ終了します — 🏆 スコア＝距離＋ボーナス。速く追い越すほど高得点！\n🏁 ランキングは最高速度順 — 最速の走行が勝ち！",score:"スコア",near:"ギリギリ",nearBig:"ギリギリ！",dist:"距離",top:"最高速度",best:"ベスト",over:"走行終了！",again:"もう一度",menuB:"メニュー",newBest:"新記録！",local:"最高速度ランキングはこの端末のみに保存されます（最速の走行はあなたのスマホだけに保存）。",nitro:"ニトロ",joyHint:"ステア · アクセル · ブレーキ",time:"時間",endRun:"終了",survived:"時間",boardTitle:"🏁 最高速度",namePh:"名前",saveBtn:"保存",boardEmpty:"まだ記録がありません — 最初の最高速度を出そう！"},
+zh:{tag:"第一人称座舱驾驶。穿梭城市车流——撞开车辆，开得越久速度越快。没有最高速度。没有计时。",play:"出发",howTitle:"玩法",how:"🕹️ 摇杆：上 = 油门，下 = 刹车，左 / 右 = 转向\n⚡ 按住 ⚡ 氮气按钮加速 — 按得越久，速度越快\n💥 撞上车辆它们会被弹开 — 永远不会结束，只需保持速度\n♾️ 无限速度：开得越久，速度越快——没有最高速度，也没有计时。只有点 ⏹ 结束 本局才会结束——🏆 分数 = 距离 + 超车奖励。速度越快奖励越高！\n🏁 排行榜按最高速度排名——跑得最快的人赢！",score:"分数",near:"惊险超车",nearBig:"惊险超车！",dist:"距离",top:"最高速度",best:"最佳",over:"本局结束！",again:"再来一局",menuB:"菜单",newBest:"新纪录！",local:"最高速度排行榜仅保存在本设备（您的最快记录只保存在您的手机上）。",nitro:"氮气",joyHint:"转向 · 油门 · 刹车",time:"时间",endRun:"结束",survived:"时间",boardTitle:"🏁 最高速度",namePh:"你的名字",saveBtn:"保存",boardEmpty:"还没有记录——来创下第一个最高速度！"}
+};
+let lang = localStorage.getItem('hs_lang') || 'en';
+if (!I[lang]) lang = 'en';
+const langSel = document.getElementById('langSel');
+LANGS.forEach(function(L){ const o = document.createElement('option'); o.value = L[0]; o.textContent = '🌐 ' + L[1]; langSel.appendChild(o); });
+langSel.value = lang;
+function applyLang(){
+  const d = I[lang];
+  document.querySelectorAll('[data-i]').forEach(function(el){ const k = el.getAttribute('data-i'); if (d[k]) el.textContent = d[k]; });
+  const ni = document.getElementById('nameInput'); if (ni && d.namePh) ni.placeholder = d.namePh;
+  document.documentElement.lang = lang;
+}
+langSel.addEventListener('change', function(){ lang = langSel.value; localStorage.setItem('hs_lang', lang); applyLang(); refreshBestLine(); });
+
+/* ---------------- Audio (all original WebAudio) ---------------- */
+const AudioSys = {
+  ctx:null, master:null, muted: localStorage.getItem('hs_mute')==='1',
+  engOsc:null, engOsc2:null, engGain:null, engFilter:null,
+  windSrc:null, windGain:null, windFilter:null,
+  musicTimer:null, musicGain:null, step:0, nextNote:0,
+  init(){
+    if (this.ctx) { if (this.ctx.state==='suspended') this.ctx.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    const c = this.ctx = new AC();
+    this.master = c.createGain(); this.master.gain.value = this.muted ? 0 : 0.9; this.master.connect(c.destination);
+    // engine: two detuned saws through a lowpass — pitch follows speed
+    this.engGain = c.createGain(); this.engGain.gain.value = 0;
+    this.engFilter = c.createBiquadFilter(); this.engFilter.type='lowpass'; this.engFilter.frequency.value = 420; this.engFilter.Q.value = 2;
+    this.engOsc = c.createOscillator(); this.engOsc.type='sawtooth'; this.engOsc.frequency.value = 55;
+    this.engOsc2 = c.createOscillator(); this.engOsc2.type='square'; this.engOsc2.frequency.value = 28;
+    const g2 = c.createGain(); g2.gain.value = 0.5;
+    this.engOsc.connect(this.engFilter); this.engOsc2.connect(g2); g2.connect(this.engFilter);
+    this.engFilter.connect(this.engGain); this.engGain.connect(this.master);
+    this.engOsc.start(); this.engOsc2.start();
+    // wind: looped noise through a bandpass — gain/freq follow speed
+    const len = c.sampleRate * 2, buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0);
+    for (let i=0;i<len;i++) d[i] = Math.random()*2-1;
+    this.windSrc = c.createBufferSource(); this.windSrc.buffer = buf; this.windSrc.loop = true;
+    this.windFilter = c.createBiquadFilter(); this.windFilter.type='bandpass'; this.windFilter.frequency.value = 380; this.windFilter.Q.value = 0.6;
+    this.windGain = c.createGain(); this.windGain.gain.value = 0;
+    this.windSrc.connect(this.windFilter); this.windFilter.connect(this.windGain); this.windGain.connect(this.master);
+    this.windSrc.start();
+    this.musicGain = c.createGain(); this.musicGain.gain.value = 0.13; this.musicGain.connect(this.master);
+  },
+  setEngine(kmh, rpmFrac, running){
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const f = 42 + kmh * 0.85 + rpmFrac * 26;
+    this.engOsc.frequency.setTargetAtTime(f, t, 0.05);
+    this.engOsc2.frequency.setTargetAtTime(f * 0.5, t, 0.05);
+    this.engFilter.frequency.setTargetAtTime(300 + kmh * 3.4, t, 0.08);
+    this.engGain.gain.setTargetAtTime(running ? 0.055 + Math.min(0.05, kmh/240*0.05) : 0, t, 0.09);
+    const wf = Math.pow(Math.min(1, kmh/620), 2);
+    this.windGain.gain.setTargetAtTime(running ? wf * 0.24 : 0, t, 0.12);
+    this.windFilter.frequency.setTargetAtTime(320 + wf * 1150, t, 0.12);
+  },
+  blip(freq, dur, type, vol, when){
+    if (!this.ctx) return;
+    const c = this.ctx, t = when || c.currentTime;
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = type || 'square'; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(this.musicGain); o.start(t); o.stop(t + dur + 0.02);
+  },
+  noiseBurst(dur, vol, fFrom, fTo, type){
+    if (!this.ctx) return;
+    const c = this.ctx, t = c.currentTime;
+    const len = Math.max(1, (c.sampleRate * dur)|0), buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0);
+    for (let i=0;i<len;i++) d[i] = (Math.random()*2-1) * (1 - i/len);
+    const s = c.createBufferSource(); s.buffer = buf;
+    const f = c.createBiquadFilter(); f.type = type || 'bandpass'; f.Q.value = 0.9;
+    f.frequency.setValueAtTime(fFrom, t); f.frequency.exponentialRampToValueAtTime(Math.max(40, fTo), t + dur);
+    const g = c.createGain(); g.gain.value = vol;
+    s.connect(f); f.connect(g); g.connect(this.master); s.start(t);
+  },
+  whoosh(){ this.noiseBurst(0.28, 0.5, 500, 2600); },
+  thud(){ if (!this.ctx) return; const c=this.ctx,t=c.currentTime,o=c.createOscillator(),g=c.createGain(); o.type='sine'; o.frequency.setValueAtTime(120,t); o.frequency.exponentialRampToValueAtTime(38,t+0.22); g.gain.setValueAtTime(0.55,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.26); o.connect(g); g.connect(this.master); o.start(t); o.stop(t+0.3); this.noiseBurst(0.16,0.3,900,200,'lowpass'); },
+  crashSnd(){ this.noiseBurst(0.7, 0.8, 3000, 90, 'lowpass'); this.thud(); },
+  finishSnd(){ if (!this.ctx) return; const t = this.ctx.currentTime; this.blip(660, 0.16, 'square', 0.22, t); this.blip(880, 0.2, 'square', 0.22, t + 0.15); this.blip(1320, 0.34, 'square', 0.22, t + 0.32); },
+  startMusic(){
+    if (!this.ctx || this.musicTimer) return;
+    this.step = 0; this.nextNote = this.ctx.currentTime + 0.06;
+    const bass = [0,-1,-1,0, -1,-1,3,-1, 0,-1,-1,0, -1,5,-1,3];       // A-minor driving bass (semitone offsets from A1)
+    const arp  = [12,-1,15,-1, 19,-1,15,-1, 12,-1,15,-1, 17,-1,15,-1];
+    const spb = 60 / 138 / 2; // 138 BPM, 8th notes
+    this.musicTimer = setInterval(() => {
+      if (!this.ctx) return;
+      while (this.nextNote < this.ctx.currentTime + 0.14) {
+        const s = this.step % 16, t = this.nextNote;
+        if (bass[s] >= 0) this.blip(55 * Math.pow(2, bass[s]/12), 0.16, 'triangle', 0.5, t);
+        if (s % 4 === 0) this.blip(110, 0.3, 'sine', 0.35, t);
+        if (arp[s] >= 0 && (this.step >> 4) % 2 === 1) this.blip(220 * Math.pow(2, (arp[s]-12)/12), 0.12, 'square', 0.1, t);
+        this.nextNote += spb; this.step++;
+      }
+    }, 42);
+  },
+  stopMusic(){ if (this.musicTimer) { clearInterval(this.musicTimer); this.musicTimer = null; } },
+  stopAll(){ this.stopMusic(); if (this.ctx && this.ctx.state === 'running') this.ctx.suspend(); },
+  resume(){ if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); },
+  setMuted(m){ this.muted = m; localStorage.setItem('hs_mute', m ? '1' : '0'); if (this.master) this.master.gain.value = m ? 0 : 0.9; }
+};
+document.addEventListener('visibilitychange', () => { if (document.hidden) AudioSys.stopAll(); else { AudioSys.resume(); if (S.mode === 'race') AudioSys.startMusic(); } });
+window.addEventListener('pagehide', () => AudioSys.stopAll());
+
+/* ---------------- Canvas textures ---------------- */
+function cnv(w, h, fn){ const c = document.createElement('canvas'); c.width = w; c.height = h; fn(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.anisotropy = 4; return t; }
+function noiseOn(x, w, h, base, amp, n){
+  x.fillStyle = base; x.fillRect(0, 0, w, h);
+  for (let i = 0; i < n; i++){ const g = (Math.random()*amp)|0; x.fillStyle = 'rgba(' + g + ',' + g + ',' + g + ',0.16)'; x.fillRect(Math.random()*w, Math.random()*h, 2, 2); }
+}
+const roadTex = cnv(512, 512, (x, w, h) => {
+  noiseOn(x, w, h, '#33363b', 90, 2600);
+  // wheel-worn darker bands per lane
+  x.fillStyle = 'rgba(0,0,0,0.13)';
+  [0.125, 0.375, 0.625, 0.875].forEach(cx => { x.fillRect(cx*w - 34, 0, 26, h); x.fillRect(cx*w + 8, 0, 26, h); });
+  // solid edge lines
+  x.fillStyle = '#e8e8e2'; x.fillRect(10, 0, 7, h); x.fillRect(w - 17, 0, 7, h);
+  // dashed lane dividers (one dash per tile)
+  x.fillStyle = '#f5d90a'; x.fillRect(w*0.5 - 4, 30, 8, 190);
+  x.fillStyle = '#e8e8e2'; x.fillRect(w*0.25 - 4, 30, 8, 190); x.fillRect(w*0.75 - 4, 30, 8, 190);
+});
+roadTex.wrapS = roadTex.wrapT = THREE.RepeatWrapping; roadTex.repeat.set(1, 44);
+const groundTex = cnv(256, 256, (x, w, h) => { noiseOn(x, w, h, '#8a7a5c', 70, 1500); });
+groundTex.wrapS = groundTex.wrapT = THREE.RepeatWrapping; groundTex.repeat.set(2, 60);
+const railTex = cnv(256, 64, (x, w, h) => {
+  x.fillStyle = '#c8ccd2'; x.fillRect(0, 0, w, h);
+  x.fillStyle = '#b3312a'; x.fillRect(0, 0, w/2, h);
+  x.fillStyle = 'rgba(0,0,0,0.18)'; x.fillRect(0, h - 10, w, 10);
+});
+railTex.wrapS = railTex.wrapT = THREE.RepeatWrapping; railTex.repeat.set(60, 1);
+function buildingTex(base, win){
+  return cnv(128, 256, (x, w, h) => {
+    noiseOn(x, w, h, base, 40, 500);
+    for (let r = 0; r < 12; r++) for (let c = 0; c < 5; c++){
+      x.fillStyle = Math.random() < 0.42 ? win : 'rgba(16,24,38,0.9)';
+      x.fillRect(10 + c * 23, 12 + r * 20, 14, 11);
+    }
+    x.fillStyle = 'rgba(255,255,255,0.1)'; x.fillRect(0, 0, w, 6);
+  });
+}
+const bTexes = [buildingTex('#5b6b82', '#ffd76a'), buildingTex('#4a5a75', '#bfe9ff'), buildingTex('#6e6258', '#ffe9a8'), buildingTex('#3f5872', '#9ff5e2')];
+function billboardTexFn(lines, bg, fg, sub){
+  return cnv(512, 256, (x, w, h) => {
+    const g = x.createLinearGradient(0, 0, 0, h); g.addColorStop(0, bg); g.addColorStop(1, '#0a1424');
+    x.fillStyle = g; x.fillRect(0, 0, w, h);
+    x.strokeStyle = fg; x.lineWidth = 8; x.strokeRect(10, 10, w - 20, h - 20);
+    x.fillStyle = fg; x.textAlign = 'center';
+    x.font = '900 64px Arial'; x.fillText(lines[0], w/2, 108);
+    x.font = '900 52px Arial'; x.fillText(lines[1], w/2, 172);
+    if (sub){ x.fillStyle = '#ffffff'; x.font = '700 26px Arial'; x.fillText(sub, w/2, 218); }
+    x.beginPath(); x.arc(52, 52, 24, 0, Math.PI * 2); x.fillStyle = fg; x.fill();
+    x.beginPath(); x.arc(64, 46, 20, 0, Math.PI * 2); x.fillStyle = bg; x.fill();
+  });
+}
+const bbTexes = [
+  billboardTexFn(['LUNA', 'CLASSIC'], '#12325e', '#ffcf3d', 'LUNC DEV STUDIO'),
+  billboardTexFn(['LUNC', 'HIGH SPEED'], '#3d0a4e', '#7dfcd8', 'HOW FAST CAN YOU GO?'),
+  billboardTexFn(['LUNC DEV', 'STUDIO'], '#5e2a08', '#ffd76a', 'GAMES · APPS · TOOLS')
+];
+const gantryTex = cnv(1024, 128, (x, w, h) => {
+  x.fillStyle = '#0d3a24'; x.fillRect(0, 0, w, h);
+  x.strokeStyle = '#ffffff'; x.lineWidth = 5; x.strokeRect(8, 8, w - 16, h - 16);
+  x.fillStyle = '#ffffff'; x.textAlign = 'center'; x.font = '900 58px Arial';
+  x.fillText('🌙 LUNA CLASSIC · LUNC DEV STUDIO', w/2, 84);
+});
+const roadPaintTex = cnv(512, 256, (x, w, h) => {
+  x.clearRect(0, 0, w, h);
+  x.fillStyle = 'rgba(255,207,61,0.85)'; x.textAlign = 'center';
+  x.font = '900 74px Arial'; x.fillText('LUNA CLASSIC', w/2, 108);
+  x.font = '900 54px Arial'; x.fillText('🌙 LUNC 🌙', w/2, 190);
+});
+roadPaintTex.wrapS = roadPaintTex.wrapT = THREE.ClampToEdgeWrapping;
+const trailerTex = cnv(512, 256, (x, w, h) => {
+  x.fillStyle = '#eef1f4'; x.fillRect(0, 0, w, h);
+  x.fillStyle = '#12325e'; x.fillRect(0, 0, w, 54);
+  x.fillStyle = '#ffcf3d'; x.textAlign = 'center'; x.font = '900 44px Arial';
+  x.fillText('LUNC DEV STUDIO', w/2, 130);
+  x.fillStyle = '#12325e'; x.font = '700 28px Arial'; x.fillText('LUNA CLASSIC · HIGH SPEED', w/2, 176);
+  x.beginPath(); x.arc(w/2, 222, 18, 0, Math.PI * 2); x.fillStyle = '#ffcf3d'; x.fill();
+  x.beginPath(); x.arc(w/2 + 9, 217, 14, 0, Math.PI * 2); x.fillStyle = '#eef1f4'; x.fill();
+});
+const palmTex = cnv(128, 128, (x, w, h) => {
+  x.clearRect(0, 0, w, h); x.strokeStyle = '#2e8b3a'; x.lineWidth = 9; x.lineCap = 'round';
+  for (let i = 0; i < 6; i++){
+    const a = (i / 6) * Math.PI - 0.2;
+    x.beginPath(); x.moveTo(64, 70);
+    x.quadraticCurveTo(64 + Math.cos(a) * 34, 70 - Math.abs(Math.sin(a)) * 26 - 14, 64 + Math.cos(a) * 58, 74 - Math.sin(a) * 30 + 16);
+    x.stroke();
+  }
+  x.fillStyle = '#6b4a26'; x.beginPath(); x.arc(58, 74, 7, 0, Math.PI * 2); x.arc(72, 76, 6, 0, Math.PI * 2); x.fill();
+});
+function gaugeTex(max, label, redFrom){
+  return cnv(256, 256, (x, w, h) => {
+    x.fillStyle = '#0b0f16'; x.beginPath(); x.arc(128, 128, 126, 0, Math.PI * 2); x.fill();
+    const g = x.createRadialGradient(108, 100, 20, 128, 128, 130); g.addColorStop(0, '#232c3c'); g.addColorStop(1, '#0b0f16');
+    x.fillStyle = g; x.beginPath(); x.arc(128, 128, 122, 0, Math.PI * 2); x.fill();
+    x.strokeStyle = '#3d4c66'; x.lineWidth = 4; x.beginPath(); x.arc(128, 128, 118, 0, Math.PI * 2); x.stroke();
+    const a0 = Math.PI * 0.75, a1 = Math.PI * 2.25;
+    x.textAlign = 'center'; x.textBaseline = 'middle';
+    for (let v = 0; v <= max; v += (max > 100 ? 20 : 1)){
+      const a = a0 + (a1 - a0) * (v / max), cx = 128 + Math.cos(a) * 96, cy = 128 + Math.sin(a) * 96;
+      x.strokeStyle = v >= redFrom ? '#ff4444' : '#dfe8ff'; x.lineWidth = v % (max > 100 ? 40 : 2) === 0 ? 5 : 2;
+      x.beginPath(); x.moveTo(128 + Math.cos(a) * 104, 128 + Math.sin(a) * 104); x.lineTo(cx, cy); x.stroke();
+      if (v % (max >= 600 ? 80 : max > 100 ? 40 : 2) === 0){ x.fillStyle = v >= redFrom ? '#ff6666' : '#ffffff'; x.font = '900 25px Arial'; x.fillText(String(v), 128 + Math.cos(a) * 74, 128 + Math.sin(a) * 74); }
+    }
+    x.fillStyle = '#8fa8c8'; x.font = '800 19px Arial'; x.fillText(label, 128, 176);
+  });
+}
+const hubTex = cnv(128, 128, (x, w, h) => {
+  x.fillStyle = '#141a26'; x.beginPath(); x.arc(64, 64, 62, 0, Math.PI * 2); x.fill();
+  x.strokeStyle = '#ffcf3d'; x.lineWidth = 4; x.beginPath(); x.arc(64, 64, 57, 0, Math.PI * 2); x.stroke();
+  x.fillStyle = '#ffcf3d'; x.beginPath(); x.arc(58, 64, 34, 0, Math.PI * 2); x.fill();
+  x.fillStyle = '#141a26'; x.beginPath(); x.arc(72, 54, 28, 0, Math.PI * 2); x.fill();
+});
+const dashTex = cnv(1024, 256, (x, w, h) => {
+  noiseOn(x, w, h, '#171d29', 36, 900);
+  x.fillStyle = '#0a0e16'; x.fillRect(430, 66, 300, 118);
+  x.strokeStyle = '#2c3a52'; x.lineWidth = 3; x.strokeRect(430, 66, 300, 118);
+  x.fillStyle = '#27d8c8'; x.font = '900 44px Arial'; x.textAlign = 'center'; x.fillText('LUNC', 580, 118);
+  x.fillStyle = '#8fa8c8'; x.font = '700 24px Arial'; x.fillText('HIGH SPEED 🌙', 580, 158);
+  x.fillStyle = '#10151f';
+  [70, 150, 830, 910].forEach(cx => { x.beginPath(); x.arc(cx, 128, 32, 0, Math.PI * 2); x.fill(); x.strokeStyle = '#39496a'; x.stroke(); });
+  x.strokeStyle = '#39496a'; x.lineWidth = 5;
+  [70, 150, 830, 910].forEach(cx => { x.beginPath(); x.moveTo(cx - 20, 128); x.lineTo(cx + 20, 128); x.moveTo(cx, 108); x.lineTo(cx, 148); x.stroke(); });
+});
+
+/* ---------------- Scene ---------------- */
+const S = { mode: 'menu', time: 0, dist: 0, score: 0, near: 0, topKmh: 0,
+  speedMs: 0, capKmh: 205, boosting: false, boostHold: 0, shake: 0, flashT: 0, over: false, grace: 0 };
+/* ENDLESS run + INFINITY SPEED (owner, Nov 9: "make it Infinity speed —
+   the longer you go the faster it goes"). Collisions BOUNCE OFF and never
+   end the run, and there is no clock: the base pace cap RISES for the whole
+   run (baseCapKmh below) and the run ends only when the player taps
+   ⏹ END RUN. SPEED_BACKSTOP is an engine safety net only — no normal run
+   can ever reach it. */
+const SPEED_BACKSTOP = 999;
+function baseCapKmh(){ return 205 + S.time * 1.1 + S.dist / 220; }
+function fmtTime(t){ const s = Math.floor(t); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+const P = { x: 0, steerSm: 0, wheelRot: 0 };
+const input = { steer: 0, thr: 0, brk: 0 };
+const ROAD_HALF = 8.2, LANE_W = 3.7;
+const laneX = i => (i - 1.5) * LANE_W;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.getElementById('game').appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87bfe8);
+scene.fog = new THREE.Fog(0x9fc4e8, 60, 470);
+const camera = new THREE.PerspectiveCamera(66, innerWidth / innerHeight, 0.05, 760);
+camera.position.set(0, 1.12, 0);
+scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x54503c, 1.05));
+const sun = new THREE.DirectionalLight(0xfff2d0, 1.6); sun.position.set(-40, 80, -60); scene.add(sun);
+// skyline backdrop + sun disc
+const skyTex = cnv(1024, 256, (x, w, h) => {
+  const g = x.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#6fa8dc'); g.addColorStop(0.65, '#bcd9f5'); g.addColorStop(1, '#e8f3fd');
+  x.fillStyle = g; x.fillRect(0, 0, w, h);
+  x.fillStyle = '#fff6c8'; x.beginPath(); x.arc(830, 52, 27, 0, Math.PI * 2); x.fill();
+  x.fillStyle = 'rgba(255,246,200,0.5)'; x.beginPath(); x.arc(830, 52, 44, 0, Math.PI * 2); x.fill();
+  x.fillStyle = 'rgba(255,255,255,0.85)';
+  [[140, 44, 62], [310, 66, 44], [560, 38, 52], [950, 78, 40]].forEach(c => { x.beginPath(); x.ellipse(c[0], c[1], c[2], c[2] * 0.32, 0, 0, Math.PI * 2); x.fill(); });
+});
+const sky = new THREE.Mesh(new THREE.CylinderGeometry(430, 430, 190, 24, 1, true), new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false }));
+sky.position.y = 62; scene.add(sky);
+
+/* ---------------- World (all recycled pools) ---------------- */
+const world = new THREE.Group(); scene.add(world);
+const road = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_HALF * 2 + 1.6, 440), new THREE.MeshLambertMaterial({ map: roadTex }));
+road.rotation.x = -Math.PI / 2; road.position.set(0, 0, -190); world.add(road);
+const groundL = new THREE.Mesh(new THREE.PlaneGeometry(240, 440), new THREE.MeshLambertMaterial({ map: groundTex }));
+groundL.rotation.x = -Math.PI / 2; groundL.position.set(-ROAD_HALF - 121, -0.03, -190); world.add(groundL);
+const groundR = groundL.clone(); groundR.position.x = ROAD_HALF + 121; world.add(groundR);
+const railMat = new THREE.MeshLambertMaterial({ map: railTex });
+[-1, 1].forEach(s => {
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.55, 440), railMat);
+  rail.position.set(s * (ROAD_HALF + 0.7), 0.62, -190); world.add(rail);
+  const post = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.62, 440), new THREE.MeshLambertMaterial({ color: 0x777d85 }));
+  post.position.set(s * (ROAD_HALF + 0.7), 0.3, -190); world.add(post);
+});
+const paint = new THREE.Mesh(new THREE.PlaneGeometry(13.5, 6.75), new THREE.MeshBasicMaterial({ map: roadPaintTex, transparent: true, depthWrite: false }));
+paint.rotation.x = -Math.PI / 2; paint.rotation.z = Math.PI; paint.position.set(0, 0.012, -260); world.add(paint);
+
+// buildings
+const bGeo = new THREE.BoxGeometry(1, 1, 1);
+const bMats = bTexes.map(t => new THREE.MeshLambertMaterial({ map: t }));
+const buildings = [];
+for (let i = 0; i < 40; i++){
+  const m = new THREE.Mesh(bGeo, bMats[i % bMats.length]);
+  const side = i % 2 ? 1 : -1, hgt = 14 + Math.random() * 34;
+  m.scale.set(11 + Math.random() * 9, hgt, 11 + Math.random() * 7);
+  m.position.set(side * (ROAD_HALF + 15 + Math.random() * 16), hgt / 2, -((i >> 1) * 21) - Math.random() * 8);
+  world.add(m); buildings.push(m);
+}
+// palm trees
+const trunkMat = new THREE.MeshLambertMaterial({ color: 0x7a5a34 });
+const frondMat = new THREE.MeshLambertMaterial({ map: palmTex, transparent: true, alphaTest: 0.35, side: THREE.DoubleSide });
+const palms = [];
+for (let i = 0; i < 16; i++){
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.22, 5.6, 6), trunkMat); trunk.position.y = 2.8; trunk.rotation.z = (Math.random() - 0.5) * 0.14; g.add(trunk);
+  for (let f = 0; f < 3; f++){
+    const fr = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 3.6), frondMat);
+    fr.position.y = 5.7; fr.rotation.set(-0.5, f * 2.1, 0); g.add(fr);
+  }
+  const side = i % 2 ? 1 : -1;
+  g.position.set(side * (ROAD_HALF + 3.4 + Math.random() * 2.5), 0, -(i * 27) - Math.random() * 10);
+  world.add(g); palms.push(g);
+}
+// billboards — short WIDE panels close to the ground on chunky bases (owner fix:
+// the old tall thin center post read as a long pole crossing his forward view)
+const bbPostMat = new THREE.MeshLambertMaterial({ color: 0x555b63 });
+const billboards = [];
+for (let i = 0; i < 6; i++){
+  const g = new THREE.Group();
+  const base = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.5, 0.9), bbPostMat); base.position.y = 0.75; g.add(base);
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(11, 4.2), new THREE.MeshBasicMaterial({ map: bbTexes[i % bbTexes.length], side: THREE.DoubleSide }));
+  face.position.y = 3.6; g.add(face);
+  const cap = new THREE.Mesh(new THREE.BoxGeometry(11.3, 0.25, 0.3), bbPostMat); cap.position.y = 5.85; g.add(cap);
+  const side = i % 2 ? 1 : -1;
+  g.position.set(side * (ROAD_HALF + 6.4), 0, -(i * 68) - 40);
+  world.add(g); billboards.push(g);
+}
+// overhead gantries with LUNA CLASSIC sign — legs sit OUTSIDE the guardrails
+// and read as part of the road furniture, never as poles in the driving view
+const gantries = [];
+for (let i = 0; i < 3; i++){
+  const g = new THREE.Group();
+  const mat = new THREE.MeshLambertMaterial({ color: 0x3c434c });
+  [-1, 1].forEach(s => { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.55, 7.4, 0.55), mat); leg.position.set(s * (ROAD_HALF + 2.2), 3.7, 0); g.add(leg); });
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(ROAD_HALF * 2 + 5.2, 0.45, 0.45), mat); beam.position.y = 7.3; g.add(beam);
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(13.6, 1.7), new THREE.MeshBasicMaterial({ map: gantryTex }));
+  sign.position.set(0, 6.15, 0.25); g.add(sign);
+  g.position.z = -(i * 150) - 120;
+  world.add(g); gantries.push(g);
+}
+function recyclePool(arr, span, jitter){
+  for (const o of arr) if (o.position.z > 28) { o.position.z -= span; if (jitter) o.position.z -= Math.random() * jitter; }
+}
+
+/* ---------------- Traffic ---------------- */
+const CAR_COLORS = [0xd23b2e, 0x2e6fd2, 0xe8b400, 0x27a05a, 0xe8e8ec, 0x8e44ad, 0xff7f2a, 0x16a3a3, 0x35424f, 0xc0c6cc];
+const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.24, 10);
+const wheelMat = new THREE.MeshLambertMaterial({ color: 0x14161a });
+const tailMat = new THREE.MeshBasicMaterial({ color: 0xff2a20 });
+const headMat = new THREE.MeshBasicMaterial({ color: 0xfff6c0 });
+const glassMat = new THREE.MeshLambertMaterial({ color: 0x18242f });
+function addWheels(g, w, l, y){
+  [[-w, -l], [w, -l], [-w, l], [w, l]].forEach(p => {
+    const wh = new THREE.Mesh(wheelGeo, wheelMat); wh.rotation.z = Math.PI / 2; wh.position.set(p[0], y || 0.34, p[1]); g.add(wh);
+  });
+}
+function addLights(g, w, y, z, mat, s){
+  [-1, 1].forEach(sd => { const li = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.16, 0.06), mat); li.position.set(sd * w * 0.68, y, z); g.add(li); });
+}
+function makeVehicle(kind, ci){
+  const g = new THREE.Group();
+  const col = new THREE.MeshLambertMaterial({ color: CAR_COLORS[ci % CAR_COLORS.length] });
+  if (kind === 'car'){
+    const body = new THREE.Mesh(new THREE.BoxGeometry(1.82, 0.55, 4.3), col); body.position.y = 0.55; g.add(body);
+    const cab = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.5, 2.1), glassMat); cab.position.set(0, 1.05, -0.15); g.add(cab);
+    const hood = new THREE.Mesh(new THREE.BoxGeometry(1.78, 0.16, 0.7), col); hood.position.set(0, 0.86, 1.85); g.add(hood);
+    addWheels(g, 0.82, 1.42); addLights(g, 0.88, 0.66, 2.16, tailMat); addLights(g, 0.88, 0.62, -2.16, headMat);
+    return { g, halfW: 0.95, halfL: 2.2 };
+  }
+  if (kind === 'bus'){
+    const body = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.5, 10), col); body.position.y = 1.55; g.add(body);
+    const shield = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.9, 0.1), glassMat); shield.position.set(0, 2.05, -5.0); g.add(shield);
+    const band = new THREE.Mesh(new THREE.BoxGeometry(2.44, 0.5, 10.02), glassMat); band.position.y = 2.1; g.add(band);
+    addWheels(g, 1.1, 3.4, 0.42); addLights(g, 1.15, 0.8, 5.02, tailMat); addLights(g, 1.15, 0.8, -5.02, headMat);
+    return { g, halfW: 1.24, halfL: 5.1 };
+  }
+  // truck: cab + branded trailer
+  const cabM = new THREE.Mesh(new THREE.BoxGeometry(2.3, 1.9, 2.0), col); cabM.position.set(0, 1.35, -4.4); g.add(cabM);
+  const shield = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.8, 0.1), glassMat); shield.position.set(0, 1.85, -5.42); g.add(shield);
+  const trMats = [new THREE.MeshLambertMaterial({ map: trailerTex }), new THREE.MeshLambertMaterial({ map: trailerTex }),
+    new THREE.MeshLambertMaterial({ color: 0xd8dde2 }), new THREE.MeshLambertMaterial({ color: 0xd8dde2 }),
+    new THREE.MeshLambertMaterial({ map: trailerTex }), new THREE.MeshLambertMaterial({ map: trailerTex })];
+  const trailer = new THREE.Mesh(new THREE.BoxGeometry(2.45, 2.7, 7.4), trMats); trailer.position.set(0, 1.85, 0.9); g.add(trailer);
+  addWheels(g, 1.08, 3.6, 0.42); addLights(g, 1.15, 0.7, 4.62, tailMat); addLights(g, 1.1, 0.7, -5.42, headMat);
+  return { g, halfW: 1.26, halfL: 5.5 };
+}
+const traffic = [];
+const KINDS = ['car', 'car', 'car', 'car', 'car', 'car', 'car', 'truck', 'car', 'car', 'car', 'car', 'bus', 'car'];
+for (let i = 0; i < KINDS.length; i++){
+  const v = makeVehicle(KINDS[i], i * 3 + 1);
+  v.kind = KINDS[i]; v.lane = i % 4; v.speedMs = 13 + Math.random() * 8;
+  v.shoveVX = 0; v.spin = 0; v.bumpCd = 0; v.counted = true; v.active = false;
+  v.g.position.set(laneX(v.lane), 0, -60 - i * 34);
+  v.g.visible = false;
+  scene.add(v.g); traffic.push(v);
+}
+/* ---------------- Real 3D model files (procedurally generated GLBs) ----------------
+   Traffic visuals are REAL model files (models/*.glb) generated by
+   make_models.py from original code-built geometry — no ripped or
+   brand-copied assets, no real car badges. If a model fails to load,
+   the code-built fallback above stays and modelMode reports it. */
+const MODEL_FILES = {
+  car: ['car_red.glb', 'car_blue.glb', 'car_yellow.glb', 'car_green.glb', 'sport_purple.glb', 'sport_orange.glb'],
+  truck: ['truck.glb'],
+  bus: ['bus_teal.glb', 'bus_white.glb']
+};
+let modelMode = 'loading';
+const modelCache = {};
+const trailerBrandMat = new THREE.MeshLambertMaterial({ map: trailerTex });
+function applyModel(v, sceneRoot){
+  while (v.g.children.length) v.g.remove(v.g.children[0]);
+  const inner = sceneRoot.clone(true);
+  v.wheels = [];
+  inner.traverse(o => {
+    if (o.name === 'wheel') v.wheels.push(o);
+    if (o.name === 'trailer' && o.isMesh) o.material = trailerBrandMat;
+  });
+  v.g.add(inner);
+  v.isModel = true;
+}
+(function loadModels(){
+  const loader = new GLTFLoader();
+  const jobs = [];
+  for (const kind of Object.keys(MODEL_FILES)) for (const f of MODEL_FILES[kind]) {
+    jobs.push(loader.loadAsync('models/' + f).then(g => { (modelCache[kind] = modelCache[kind] || []).push(g.scene); }).catch(() => null));
+  }
+  Promise.all(jobs).then(() => {
+    let swapped = 0;
+    for (const v of traffic) {
+      const variants = modelCache[v.kind];
+      if (variants && variants.length) { applyModel(v, variants[(Math.random() * variants.length) | 0]); swapped++; }
+    }
+    modelMode = swapped === traffic.length ? 'glb' : (swapped > 0 ? 'glb-partial' : 'procedural-fallback');
+  });
+})();
+const laneLastZ = [-999, -999, -999, -999];
+/* Traffic density (owner fixes Nov 9: "too much traffic" TWICE) — the pool
+   target is now 2 + 1 per 1500 m, capped at 6 (first fix: 3 + 1 per 900 m,
+   cap 9; original: 6 + 1 per 320 m, up to all 14), and spawnVehicle lays
+   traffic out in loose ROWS across the road with at least one lane of each
+   row left EMPTY ("gapLane"), so there is always a clean lane to thread at
+   speed — traffic can never form a full-width wall. */
+let gapLane = (Math.random() * 4) | 0, nextRowZ = -999;
+function spawnVehicle(v, ahead){
+  const rowZ = ahead ? (-330 - Math.random() * 90) : (-120 - Math.random() * 240);
+  if (rowZ < nextRowZ - 34 || rowZ > nextRowZ + 10) { // a fresh row: roll its open lane
+    nextRowZ = rowZ; gapLane = (Math.random() * 4) | 0;
+  }
+  let lane = (Math.random() * 4) | 0;
+  if (lane === gapLane) lane = (lane + 1 + ((Math.random() * 3) | 0)) % 4; // never plug the row's gap lane
+  v.lane = lane;
+  let z = rowZ + (Math.random() - 0.5) * 7; // row members stay near each other, not single-file
+  if (laneLastZ[v.lane] > -900 && z > laneLastZ[v.lane] - (v.halfL + 26)) z = laneLastZ[v.lane] - (v.halfL + 26 + Math.random() * 18);
+  laneLastZ[v.lane] = z;
+  v.speedMs = 12.5 + Math.random() * 9 + Math.min(4, S.dist / 3000);
+  v.shoveVX = 0; v.spin = 0; v.bumpCd = 0; v.counted = false; v.active = true;
+  v.g.visible = true;
+  v.g.position.set(laneX(v.lane) + (Math.random() - 0.5) * 0.5, 0, z);
+  v.g.rotation.y = 0;
+}
+function activeTarget(){ return Math.min(6, 2 + Math.floor(S.dist / 1500)); }
+
+/* ---------------- Cockpit (attached to camera) ---------------- */
+const cockpit = new THREE.Group(); camera.add(cockpit); scene.add(camera);
+const dash = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.26, 0.6), new THREE.MeshLambertMaterial({ map: dashTex }));
+dash.position.set(0, -0.41, -0.85); dash.rotation.x = 0.32; cockpit.add(dash);
+const cowl = new THREE.Mesh(new THREE.BoxGeometry(1.78, 0.09, 0.5), new THREE.MeshLambertMaterial({ color: 0x11151d }));
+cowl.position.set(0, -0.28, -1.0); cowl.rotation.x = 0.12; cockpit.add(cowl);
+[-1, 1].forEach(s => { // A-pillars — roof-edge trim hugging the screen corners,
+  // angled hard outward so nothing long and thin crosses the forward view (owner fix)
+  const pil = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.62, 0.05), new THREE.MeshLambertMaterial({ color: 0x141a26 }));
+  pil.position.set(s * 0.9, 0.42, -0.86); pil.rotation.z = s * -0.62; cockpit.add(pil);
+});
+// rear-view mirror hangs from a short stub mount at the very top edge —
+// small and tight to the roofline; the cockpit near plane magnifies it, so
+// it is deliberately compact (owner fix: no bar hanging into the view)
+const mirrorMount = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.05, 0.025), new THREE.MeshLambertMaterial({ color: 0x141a26 }));
+mirrorMount.position.set(0, 0.545, -0.82); cockpit.add(mirrorMount);
+const mirror = new THREE.Mesh(new THREE.BoxGeometry(0.27, 0.062, 0.025), new THREE.MeshLambertMaterial({ color: 0x39496a }));
+mirror.position.set(0, 0.5, -0.82); cockpit.add(mirror);
+const mirrorGlass = new THREE.Mesh(new THREE.PlaneGeometry(0.245, 0.048), new THREE.MeshBasicMaterial({ color: 0x9fc8e8 }));
+mirrorGlass.position.set(0, 0.5, -0.8); cockpit.add(mirrorGlass);
+// gauges: static faces + moving needle planes
+function makeGauge(tex, x){
+  const grp = new THREE.Group();
+  const face = new THREE.Mesh(new THREE.CircleGeometry(0.088, 28), new THREE.MeshBasicMaterial({ map: tex }));
+  grp.add(face);
+  const needle = new THREE.Mesh(new THREE.PlaneGeometry(0.011, 0.074), new THREE.MeshBasicMaterial({ color: 0xff5030 }));
+  needle.geometry.translate(0, 0.03, 0); needle.position.z = 0.003; grp.add(needle);
+  const pin = new THREE.Mesh(new THREE.CircleGeometry(0.013, 12), new THREE.MeshBasicMaterial({ color: 0xd8dee8 }));
+  pin.position.z = 0.005; grp.add(pin);
+  grp.position.set(x, -0.255, -0.63); grp.rotation.x = 0.32;
+  cockpit.add(grp);
+  return needle;
+}
+const speedNeedle = makeGauge(gaugeTex(600, 'km/h', 500), -0.25);
+const tachNeedle = makeGauge(gaugeTex(8, 'RPM x1000', 6.5), 0.25);
+const NEEDLE_A0 = Math.PI * 0.75, NEEDLE_SWEEP = Math.PI * 1.5;
+function setNeedle(n, frac){ n.rotation.z = -(NEEDLE_A0 + NEEDLE_SWEEP * THREE.MathUtils.clamp(frac, 0, 1) - Math.PI / 2); }
+// steering wheel + hands (hands ride the rim, so they turn with it)
+const wheel = new THREE.Group(); wheel.position.set(0, -0.315, -0.5); wheel.rotation.x = 0.32; cockpit.add(wheel);
+const rim = new THREE.Mesh(new THREE.TorusGeometry(0.21, 0.03, 12, 40), new THREE.MeshLambertMaterial({ color: 0x3a3049 }));
+wheel.add(rim);
+/* OPEN RIM — no spokes at all (owner, Nov 9: "the poles on the steering
+   wheel" — the three thick spokes swung up across the windshield and
+   blocked the road). Three gold marker studs ON the rim plus the hands
+   riding it make the turn unmistakable. The on-screen wheel rotation is
+   capped at ±1.15 rad (see animate): at the old ±3.1 rad even the HANDS
+   riding the rim swept up into the view at full lock; capped, the hands
+   stay in the wheel's lower half and nothing on the wheel can reach the
+   upper windshield. The hub is shrunk and back at the wheel's true
+   centre, turning gently with the wheel like a real car's badge. */
+const studMat = new THREE.MeshBasicMaterial({ color: 0xffcf3d });
+[0, 2.09, 4.19].forEach(a => {
+  const stud = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.045, 0.07), studMat);
+  stud.position.set(Math.cos(a) * 0.21, Math.sin(a) * 0.21, 0);
+  stud.rotation.z = a - Math.PI / 2; wheel.add(stud);
+});
+const hub = new THREE.Mesh(new THREE.CircleGeometry(0.05, 24), new THREE.MeshBasicMaterial({ map: hubTex }));
+hub.position.z = 0.014; wheel.add(hub);
+const skinMat = new THREE.MeshLambertMaterial({ color: 0xd99e73 });
+const sleeveMat = new THREE.MeshLambertMaterial({ color: 0x24405e });
+[-1, 1].forEach(s => {
+  const hand = new THREE.Group();
+  const palm = new THREE.Mesh(new THREE.SphereGeometry(0.047, 10, 8), skinMat); palm.scale.set(1.25, 0.72, 1); hand.add(palm);
+  for (let f = 0; f < 4; f++){
+    const fin = new THREE.Mesh(new THREE.SphereGeometry(0.0135, 6, 5), skinMat);
+    fin.position.set((f - 1.5) * 0.021, -0.028, 0.026); fin.scale.set(1, 1.9, 1); hand.add(fin);
+  }
+  const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.042, 0.34, 8), sleeveMat);
+  arm.position.set(s * 0.09, -0.14, -0.1); arm.rotation.z = s * 0.65; arm.rotation.x = 0.5; hand.add(arm);
+  hand.position.set(s * 0.198, 0.028, 0.012);
+  wheel.add(hand);
+});
+// speed streaks (peripheral points that whip past — pure speed feel)
+const streakGeo = new THREE.BufferGeometry();
+const streakPos = new Float32Array(70 * 3);
+for (let i = 0; i < 70; i++){
+  streakPos[i * 3] = (Math.random() < 0.5 ? -1 : 1) * (5.5 + Math.random() * 7);
+  streakPos[i * 3 + 1] = 0.3 + Math.random() * 3.6;
+  streakPos[i * 3 + 2] = -Math.random() * 70;
+}
+streakGeo.setAttribute('position', new THREE.BufferAttribute(streakPos, 3));
+const streakMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.14, transparent: true, opacity: 0 });
+const streaks = new THREE.Points(streakGeo, streakMat); scene.add(streaks);
+// sparks for bumps
+const sparkGeo = new THREE.BufferGeometry();
+const sparkPos = new Float32Array(90 * 3); sparkGeo.setAttribute('position', new THREE.BufferAttribute(sparkPos, 3));
+const sparkMat = new THREE.PointsMaterial({ color: 0xffb340, size: 0.09, transparent: true, opacity: 0 });
+const sparks = new THREE.Points(sparkGeo, sparkMat); scene.add(sparks);
+const sparkVel = new Float32Array(90 * 3); let sparkLife = 0;
+function spawnSparks(x, y, z){
+  for (let i = 0; i < 90; i++){
+    sparkPos[i * 3] = x; sparkPos[i * 3 + 1] = y; sparkPos[i * 3 + 2] = z;
+    sparkVel[i * 3] = (Math.random() - 0.5) * 7; sparkVel[i * 3 + 1] = Math.random() * 4.5; sparkVel[i * 3 + 2] = (Math.random() - 0.5) * 7;
+  }
+  sparkGeo.attributes.position.needsUpdate = true; sparkLife = 0.45; sparkMat.opacity = 1;
+}
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+/* ---------------- Input: joystick + nitro + keys ---------------- */
+const joyBase = document.getElementById('joyBase'), joyKnob = document.getElementById('joyKnob');
+let joyId = null;
+function joySet(dx, dy){
+  const max = 40;
+  joyKnob.style.transform = 'translate(calc(-50% + ' + dx + 'px), calc(-50% + ' + dy + 'px))';
+}
+function joyFromEvent(e){
+  const r = joyBase.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  let dx = (e.clientX - cx) / (r.width / 2), dy = (e.clientY - cy) / (r.height / 2);
+  const m = Math.hypot(dx, dy); if (m > 1) { dx /= m; dy /= m; }
+  joySet(dx * 40, dy * 40);
+  const dz = 0.1; // center deadzone — no twitch at rest
+  input.steer = Math.abs(dx) < dz ? 0 : dx;
+  input.thr = dy < -dz ? Math.min(1, (-dy - dz) / (1 - dz) * 1.15) : 0;
+  input.brk = dy > dz ? Math.min(1, (dy - dz) / (1 - dz) * 1.15) : 0;
+}
+joyBase.addEventListener('pointerdown', e => { joyId = e.pointerId; joyBase.setPointerCapture(joyId); joyFromEvent(e); });
+joyBase.addEventListener('pointermove', e => { if (e.pointerId === joyId) joyFromEvent(e); });
+function joyEnd(e){ if (e.pointerId === joyId) { joyId = null; input.steer = 0; input.thr = 0; input.brk = 0; joySet(0, 0); } }
+joyBase.addEventListener('pointerup', joyEnd); joyBase.addEventListener('pointercancel', joyEnd);
+const keys = {};
+addEventListener('keydown', e => { keys[e.code] = true; if ((e.code === 'Space' || e.code === 'KeyN') && !e.repeat) startNitro(); });
+addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'Space' || e.code === 'KeyN') stopNitro(); });
+function keyInput(){
+  if (joyId !== null) return;
+  const l = keys['ArrowLeft'] || keys['KeyA'], r = keys['ArrowRight'] || keys['KeyD'];
+  const u = keys['ArrowUp'] || keys['KeyW'], d = keys['ArrowDown'] || keys['KeyS'];
+  if (l || r || u || d) { input.steer = (r ? 1 : 0) - (l ? 1 : 0); input.thr = u ? 1 : 0; input.brk = d ? 1 : 0; }
+  else if (!keys['ArrowLeft'] && !keys['ArrowRight']) { input.steer = 0; input.thr = 0; input.brk = 0; }
+}
+const nitroBtn = document.getElementById('nitroBtn');
+let nitroPointerId = null;
+function startNitro(){
+  if (S.mode !== 'race' || S.over || S.boosting) return;
+  S.boosting = true;                       // hold-to-boost: no charge, no drain, never runs out
+  nitroBtn.classList.add('firing');
+  AudioSys.whoosh();
+}
+function stopNitro(){
+  S.boosting = false; nitroPointerId = null;
+  nitroBtn.classList.remove('firing');
+}
+nitroBtn.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  nitroPointerId = e.pointerId;
+  try { nitroBtn.setPointerCapture(e.pointerId); } catch (_) {}
+  startNitro();
+});
+function nitroRelease(e){ if (e.pointerId === nitroPointerId) stopNitro(); }
+nitroBtn.addEventListener('pointerup', nitroRelease);
+nitroBtn.addEventListener('pointercancel', nitroRelease);
+nitroBtn.addEventListener('lostpointercapture', () => stopNitro());
+nitroBtn.addEventListener('pointerleave', e => { if (nitroPointerId === null) return; /* capture keeps events flowing; window pointerup below is the safety net */ });
+window.addEventListener('pointerup', e => { if (e.pointerId === nitroPointerId) stopNitro(); });
+window.addEventListener('pointercancel', e => { if (e.pointerId === nitroPointerId) stopNitro(); });
+window.addEventListener('blur', stopNitro);
+nitroBtn.addEventListener('contextmenu', e => e.preventDefault());
+
+/* ---------------- UI / game flow ---------------- */
+const $ = id => document.getElementById(id);
+const hud = $('hud'), menuEl = $('menu'), overEl = $('over');
+const best = { score: +(localStorage.getItem('hs_best_score') || 0), dist: +(localStorage.getItem('hs_best_dist') || 0) };
+
+/* ---------------- 🏁 TOP SPEEDS board (owner, Nov 9) ----------------
+   The leaderboard ranks by TOP SPEED reached in a run — who gets the
+   fastest run. Entries: name + top speed (km/h) + time survived to
+   reach it. LOCAL to this device only (localStorage), honestly
+   labelled on both screens. Top 5 kept. */
+const BOARD_KEY = 'hs_speed_board', NAME_KEY = 'hs_name', BOARD_MAX = 5;
+let speedBoard = [];
+try { const raw = JSON.parse(localStorage.getItem(BOARD_KEY) || '[]'); if (Array.isArray(raw)) speedBoard = raw.filter(e => e && isFinite(e.kmh) && e.kmh > 0); } catch (e) { speedBoard = []; }
+speedBoard.sort((a, b) => b.kmh - a.kmh);
+speedBoard = speedBoard.slice(0, BOARD_MAX);
+let bestTop = +(localStorage.getItem('hs_best_top') || 0);
+if (speedBoard.length && speedBoard[0].kmh > bestTop) bestTop = Math.round(speedBoard[0].kmh);
+let pendingEntry = null; // {kmh, time, saved, ref} — a qualifying run waiting for its name
+function escHtml(s){ return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function saveSpeedBoard(){ try { localStorage.setItem(BOARD_KEY, JSON.stringify(speedBoard)); } catch (e) {} }
+function boardQualifies(kmh){ return kmh > 0 && (speedBoard.length < BOARD_MAX || kmh > speedBoard[speedBoard.length - 1].kmh); }
+function renderBoard(el, hlRef){
+  if (!el) return;
+  if (!speedBoard.length) { el.innerHTML = '<div class="bEmpty">' + I[lang].boardEmpty + '</div>'; return; }
+  el.innerHTML = speedBoard.map((e, i) =>
+    '<div class="bRow' + (hlRef && e === hlRef ? ' hl' : '') + '"><span class="bRank">' + (i + 1) + '</span>' +
+    '<span class="bName">' + escHtml(e.name || 'YOU') + '</span>' +
+    '<span class="bSpeed">' + Math.round(e.kmh) + ' km/h</span>' +
+    '<span class="bTime">' + fmtTime(e.time || 0) + '</span></div>').join('');
+}
+function renderBoards(hlRef){ renderBoard($('menuBoard'), hlRef); renderBoard($('overBoard'), hlRef); }
+function commitPending(){
+  if (!pendingEntry || pendingEntry.saved) return;
+  let nm = (($('nameInput').value || '').trim().slice(0, 12) || 'YOU').toUpperCase();
+  try { localStorage.setItem(NAME_KEY, nm); } catch (e) {}
+  const entry = { name: nm, kmh: pendingEntry.kmh, time: Math.floor(pendingEntry.time) };
+  speedBoard.push(entry);
+  speedBoard.sort((a, b) => b.kmh - a.kmh);
+  speedBoard = speedBoard.slice(0, BOARD_MAX);
+  pendingEntry.saved = true; pendingEntry.ref = entry;
+  $('nameRow').classList.add('hidden');
+  saveSpeedBoard(); renderBoards(entry);
+}
+function refreshBestLine(){ $('menuBest').textContent = '🏁 ' + I[lang].top + ': ' + Math.round(bestTop) + ' km/h'; renderBoards(pendingEntry && pendingEntry.saved ? pendingEntry.ref : null); }
+applyLang(); refreshBestLine();
+const muteBtn = $('muteBtn');
+function paintMute(){ muteBtn.textContent = AudioSys.muted ? '🔇' : '🔊'; }
+paintMute();
+muteBtn.addEventListener('click', () => { AudioSys.init(); AudioSys.setMuted(!AudioSys.muted); paintMute(); });
+let popupTimer = null, bumpTimer = null;
+function showPopup(pts){
+  $('popupPts').textContent = '+' + pts;
+  $('popup').classList.add('show');
+  clearTimeout(popupTimer); popupTimer = setTimeout(() => $('popup').classList.remove('show'), 650);
+}
+function showBump(){
+  $('bumpTag').classList.add('show');
+  $('dmgVig').style.opacity = 0.85;
+  clearTimeout(bumpTimer); bumpTimer = setTimeout(() => { $('bumpTag').classList.remove('show'); $('dmgVig').style.opacity = 0; }, 380);
+}
+function resetRun(){
+  S.time = 0; S.dist = 0; S.score = 0; S.near = 0; S.topKmh = 0;
+  S.speedMs = 0; S.capKmh = 205; S.boosting = false; S.boostHold = 0; S.shake = 0; S.over = false; S.grace = 0; nitroPointerId = null; nitroBtn.classList.remove('firing');
+  P.x = 0; P.steerSm = 0; P.wheelRot = 0;
+  input.steer = 0; input.thr = 0; input.brk = 0; joySet(0, 0);
+  for (let i = 0; i < 4; i++) laneLastZ[i] = -999;
+  nextRowZ = -999;
+  let n = 0;
+  for (const v of traffic) {
+    if (n < 2) { spawnVehicle(v, false); v.g.position.z = -90 - n * 90 - Math.random() * 20; n++; }
+    else { v.active = false; v.g.visible = false; v.g.position.z = -500; }
+  }
+  paint.position.z = -260;
+  $('hudScore').textContent = '0'; $('hudDist').textContent = '0'; $('hudNear').textContent = '0'; $('hudSpd').textContent = '0';
+  $('hudTime').textContent = '0:00';
+}
+function startRun(){
+  AudioSys.init(); AudioSys.resume();
+  resetRun();
+  S.mode = 'race';
+  menuEl.classList.add('hidden'); overEl.classList.add('hidden'); hud.classList.remove('hidden');
+  AudioSys.startMusic();
+}
+function endRun(){
+  /* RUN OVER — an endless run ends ONLY here, when the player taps
+     ⏹ END RUN (owner, Nov 9: infinity speed). Collisions bounce off and
+     never end it; there is no clock. Clean finish: no crash sound, no
+     damage flash — a finish chime and the results. */
+  if (S.mode !== 'race' || S.over) return;
+  S.over = true; S.mode = 'over'; S.boosting = false; nitroBtn.classList.remove('firing');
+  AudioSys.finishSnd(); AudioSys.stopMusic(); AudioSys.setEngine(0, 0, false);
+  const sc = Math.floor(S.score);
+  if (sc > best.score) { best.score = sc; localStorage.setItem('hs_best_score', String(sc)); }
+  if (S.dist > best.dist) { best.dist = S.dist; localStorage.setItem('hs_best_dist', String(Math.floor(S.dist))); }
+  /* 🏁 TOP SPEEDS: the run's headline is its TOP SPEED. NEW BEST = a new
+     fastest run ever on this device. A run that makes the board asks for
+     a name right here on the results screen (the game's name-entry spot);
+     SAVE commits it, and DRIVE AGAIN / MENU commit it too so a fast run
+     is never lost. */
+  const topK = Math.round(S.topKmh);
+  const isBest = topK > bestTop;
+  if (isBest) { bestTop = topK; try { localStorage.setItem('hs_best_top', String(topK)); } catch (e) {} }
+  pendingEntry = null;
+  if (boardQualifies(topK)) {
+    pendingEntry = { kmh: topK, time: S.time, saved: false, ref: null };
+    try { $('nameInput').value = localStorage.getItem(NAME_KEY) || ''; } catch (e) { $('nameInput').value = ''; }
+    $('nameRow').classList.remove('hidden');
+  } else $('nameRow').classList.add('hidden');
+  $('ovScore').textContent = sc.toLocaleString();
+  $('ovDist').textContent = Math.round(S.dist) + ' m';
+  $('ovNear').textContent = S.near;
+  $('ovTop').textContent = topK + ' km/h';
+  $('ovTopBig').textContent = topK + ' km/h';
+  $('ovTime').textContent = fmtTime(S.time);
+  $('ovBest').textContent = Math.round(bestTop) + ' km/h';
+  $('newBest').style.display = isBest ? 'block' : 'none';
+  renderBoards(null);
+  setTimeout(() => { hud.classList.add('hidden'); overEl.classList.remove('hidden'); refreshBestLine(); }, 750);
+}
+$('endBtn').addEventListener('click', () => { if (S.mode === 'race' && !S.over) endRun(); });
+$('btnPlay').addEventListener('click', startRun);
+$('btnSaveName').addEventListener('click', commitPending);
+$('nameInput').addEventListener('keydown', e => { if (e.key === 'Enter') commitPending(); });
+$('btnAgain').addEventListener('click', () => { commitPending(); startRun(); });
+$('btnMenu').addEventListener('click', () => { commitPending(); overEl.classList.add('hidden'); menuEl.classList.remove('hidden'); S.mode = 'menu'; refreshBestLine(); });
+
+/* ---------------- Main loop ---------------- */
+const clock = new THREE.Clock();
+let fovCur = 66, hudTick = 0;
+function animate(){
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const racing = S.mode === 'race';
+  keyInput();
+
+  if (racing && !S.over) {
+    S.time += dt;
+    if (S.grace > 0) S.grace -= dt;
+    /* --- speed: INFINITY SPEED — the base pace itself keeps rising the
+       longer you survive (time + distance ramp, baseCapKmh — no ceiling in
+       a run's lifetime); HOLDING nitrous rides on top of the rising pace --- */
+    S.capKmh = baseCapKmh();
+    const boosting = S.boosting;
+    if (boosting) S.boostHold += dt; else S.boostHold = 0;
+    // boost ceiling: starts +60 km/h over the CURRENT (rising) pace and
+    // creeps +12 km/h per second held, so nitrous never goes useless late
+    // in a run; bounded only by the unreachable engine backstop
+    const boostCapKmh = boosting ? Math.min(SPEED_BACKSTOP, S.capKmh + 60 + S.boostHold * 12) : S.capKmh;
+    const capMs = boostCapKmh / 3.6;
+    const kmh = S.speedMs * 3.6;
+    if (input.thr > 0) {
+      const a = input.thr * (15.5 * (1 - S.speedMs / (capMs * 1.12)) + 3.2) + (boosting ? 9.5 : 0);
+      S.speedMs += Math.max(0, a) * dt;
+      /* pace chase: drag balances the throttle curve ~30 km/h under the
+         cap, which would hide the infinity ramp — when cruising (throttle
+         on, no nitrous), gently close the last of the gap so the car
+         actually rides AT the rising pace the ramp promises */
+      if (!boosting && S.speedMs < capMs) S.speedMs = Math.min(capMs, S.speedMs + (capMs - S.speedMs) * 0.35 * dt);
+    } else if (boosting) S.speedMs += 6.5 * dt;
+    if (input.brk > 0) S.speedMs -= 30 * input.brk * dt;
+    S.speedMs -= S.speedMs * (input.thr > 0 ? 0.028 : 0.11) * dt; // drag / coast-down
+    if (S.speedMs > capMs) S.speedMs = Math.max(capMs, S.speedMs - (boosting ? 6 : 14) * dt); // ease back on release — never an instant cut
+    S.speedMs = Math.max(0, S.speedMs);
+    const kmhNow = S.speedMs * 3.6;
+    if (kmhNow > S.topKmh) S.topKmh = kmhNow;
+    S.dist += S.speedMs * dt;
+    S.score += S.speedMs * dt * 1.6;
+
+    /* --- steering: quick turn-in for weaving at 250+ km/h (owner: "doesn't turn
+       fast enough") — short smoothing constant + higher lateral rate, but the
+       smoothing still rounds the onset so it never snaps or oscillates --- */
+    const k = 1 - Math.exp(-dt / 0.07);
+    P.steerSm += (input.steer - P.steerSm) * k;
+    const spdF = THREE.MathUtils.clamp(S.speedMs / 26, 0, 1);
+    const authority = spdF * (1 - 0.38 * THREE.MathUtils.clamp(S.speedMs / 78, 0, 1));
+    P.x += P.steerSm * 20.5 * authority * dt;
+    if (P.x > ROAD_HALF - 1.05) { P.x = ROAD_HALF - 1.05; if (S.speedMs > 14 && Math.random() < 0.3) spawnSparks(P.x + 1, 0.5, -1.5); }
+    if (P.x < -(ROAD_HALF - 1.05)) { P.x = -(ROAD_HALF - 1.05); if (S.speedMs > 14 && Math.random() < 0.3) spawnSparks(P.x - 1, 0.5, -1.5); }
+    // cockpit wheel: tracks the input as fast as the car answers, but the
+    // ON-SCREEN rotation is capped at ±1.15 rad — at the old ±3.1 rad the
+    // hands riding the rim swept up into the windshield at full lock
+    // (owner: spokes/hands must never block the view). ±66° is still a
+    // big, obvious turn.
+    P.wheelRot += ((-P.steerSm * 1.15) - P.wheelRot) * (1 - Math.exp(-dt / 0.055));
+
+    /* --- sub-stepped world + traffic: at infinity speeds one frame can
+       move the car 6+ metres — far enough to jump clean over a traffic car
+       between collision checks (tunneling). So the world/traffic physics
+       runs in slices of <= 1/60 s regardless of frame rate. --- */
+    const steps = Math.max(1, Math.ceil(dt / (1 / 60)));
+    const sdt = dt / steps;
+    for (let step = 0; step < steps; step++) {
+    /* --- world scroll --- */
+    const adv = S.speedMs * sdt;
+    roadTex.offset.y += adv / 10; groundTex.offset.y += adv / 7.33; railTex.offset.x -= adv / 7.33;
+    for (const b of buildings) b.position.z += adv;
+    for (const t of palms) t.position.z += adv;
+    for (const b of billboards) b.position.z += adv;
+    for (const g of gantries) g.position.z += adv;
+    paint.position.z += adv; if (paint.position.z > 30) paint.position.z -= 460;
+    recyclePool(buildings, 420); recyclePool(palms, 432); recyclePool(billboards, 408); recyclePool(gantries, 450);
+    const sp = streakGeo.attributes.position.array;
+    for (let i = 0; i < 70; i++) { sp[i * 3 + 2] += adv * 1.7; if (sp[i * 3 + 2] > 4) sp[i * 3 + 2] -= 74; }
+    streakGeo.attributes.position.needsUpdate = true;
+    streakMat.opacity = THREE.MathUtils.clamp((kmhNow - 120) / 480, 0, 0.95);
+
+    /* --- traffic --- */
+    const target = activeTarget();
+    let activeCount = 0;
+    for (const v of traffic) if (v.active) activeCount++;
+    for (const v of traffic) {
+      if (!v.active) { if (activeCount < target) { spawnVehicle(v, true); activeCount++; } else continue; }
+      v.g.position.z += (S.speedMs - v.speedMs) * sdt;
+      if (v.wheels) { const wr = v.speedMs * sdt / 0.35; for (const w of v.wheels) w.rotation.x -= wr; }
+      if (v.shoveVX !== 0) {
+        v.g.position.x += v.shoveVX * sdt;
+        v.shoveVX *= Math.pow(0.12, sdt);
+        if (Math.abs(v.shoveVX) < 0.15) v.shoveVX = 0;
+      }
+      if (v.spin !== 0) { v.g.rotation.y += v.spin * sdt; v.spin *= Math.pow(0.05, sdt); if (Math.abs(v.spin) < 0.03) { v.spin = 0; v.g.rotation.y *= 0.7; } }
+      if (v.bumpCd > 0) v.bumpCd -= sdt;
+      const z = v.g.position.z, dx = v.g.position.x - P.x, adx = Math.abs(dx);
+      const latGap = adx - (v.halfW + 0.92);
+      /* near miss: it slips past your side at speed, no contact */
+      if (!v.counted && z > v.halfL + 1.4) {
+        v.counted = true;
+        if (latGap > 0.02 && latGap < 1.15 && kmhNow > 78) {
+          const pts = Math.round(kmhNow * (latGap < 0.45 ? 1.6 : 1.0));
+          S.near++; S.score += pts;
+          showPopup(pts); AudioSys.whoosh();
+          $('hudNear').textContent = S.near;
+        }
+      }
+      /* collision — BOUNCE-OFF ONLY (owner, Nov 9: "make them bounce off,
+         not stop the game"). No hit ever ends the run: the traffic car is
+         knocked away spinning, you bounce off and pay speed, and a 1 s
+         post-bounce grace stops chain-bounces on the same car. */
+      if (Math.abs(z) < v.halfL + 1.55 && latGap < 0 && S.grace <= 0 && v.bumpCd <= 0) {
+        const overlap = -latGap;
+        const dir = dx >= 0 ? 1 : -1;
+        if (overlap < 0.62 && S.speedMs > 4) {
+          // graze / sideswipe: light shove, small speed cost
+          v.shoveVX = dir * (6.5 + S.speedMs * 0.11); v.spin = dir * 1.1; v.bumpCd = 1.2;
+          S.speedMs *= 0.84; S.shake = Math.max(S.shake, 0.4);
+          P.x -= dir * 0.35;
+          spawnSparks(P.x + dir * 0.95, 0.55, -1.2);
+          showBump(); AudioSys.thud();
+        } else {
+          // solid hit: the BIG bounce — car knocked away spinning hard, you
+          // lose ~half your speed and get knocked sideways, run CONTINUES
+          v.shoveVX = dir * (10 + S.speedMs * 0.16); v.spin = dir * 2.4; v.bumpCd = 1.6;
+          S.speedMs *= 0.5; S.shake = Math.max(S.shake, 1.05);
+          P.x -= dir * 0.85;
+          if (P.x > ROAD_HALF - 1.05) P.x = ROAD_HALF - 1.05;
+          if (P.x < -(ROAD_HALF - 1.05)) P.x = -(ROAD_HALF - 1.05);
+          spawnSparks(P.x + dir * 0.95, 0.6, -1.2);
+          showBump(); AudioSys.crashSnd();
+        }
+        S.grace = 1.0;
+      }
+      if (z > 26 || v.g.position.x > ROAD_HALF + 9 || v.g.position.x < -(ROAD_HALF + 9)) spawnVehicle(v, true);
+      if (z < -430) v.g.position.z = -430 + Math.random() * 20;
+    }
+    } // end sub-steps
+
+    /* --- audio + HUD --- */
+    const gearPos = (S.speedMs % 12.5) / 12.5;
+    AudioSys.setEngine(kmhNow, gearPos, true);
+    hudTick += dt;
+    if (hudTick > 0.08) {
+      hudTick = 0;
+      $('hudScore').textContent = Math.floor(S.score).toLocaleString();
+      $('hudDist').textContent = Math.round(S.dist);
+      $('hudSpd').textContent = Math.round(kmhNow);
+      $('hudTime').textContent = fmtTime(S.time); // elapsed — an endless run has no countdown
+      nitroBtn.classList.toggle('firing', S.boosting);
+    }
+  } else {
+    AudioSys.setEngine(0, 0, false);
+    // gentle menu drift so the world behind the menu feels alive
+    if (S.mode === 'menu') {
+      roadTex.offset.y += dt * 0.25;
+      for (const b of buildings) b.position.z += dt * 3.5;
+      for (const t of palms) t.position.z += dt * 3.5;
+      recyclePool(buildings, 420); recyclePool(palms, 432);
+    }
+  }
+
+  /* --- cockpit + camera feel (always, so menus look alive too) --- */
+  const kmhC = S.speedMs * 3.6;
+  wheel.rotation.z = P.wheelRot;
+  setNeedle(speedNeedle, kmhC / 600);
+  setNeedle(tachNeedle, racing ? 0.18 + 0.75 * ((S.speedMs % 12.5) / 12.5) * Math.min(1, input.thr + 0.25) : 0.06);
+  cockpit.position.x = -P.x * 0.022;
+  cockpit.rotation.z = -P.steerSm * 0.028 - P.x * 0.004;
+  cockpit.position.y = Math.sin(performance.now() * 0.045) * 0.0016 * Math.min(1, kmhC / 120) + (S.shake > 0 ? (Math.random() - 0.5) * 0.03 * S.shake : 0);
+  camera.position.x = P.x + (S.shake > 0 ? (Math.random() - 0.5) * 0.07 * S.shake : 0);
+  camera.position.y = 1.12;
+  camera.rotation.z = -P.steerSm * 0.02;
+  camera.rotation.y = -P.steerSm * 0.05;
+  if (S.shake > 0) S.shake = Math.max(0, S.shake - dt * 1.6);
+  const targetFov = 66 + 27 * THREE.MathUtils.clamp(kmhC / 620, 0, 1) + (S.boosting ? 5 : 0);
+  if (Math.abs(targetFov - fovCur) > 0.1) { fovCur += (targetFov - fovCur) * 0.08; camera.fov = fovCur; camera.updateProjectionMatrix(); }
+  if (sparkLife > 0) {
+    sparkLife -= dt;
+    const sp2 = sparkGeo.attributes.position.array;
+    for (let i = 0; i < 90; i++) {
+      sp2[i * 3] += sparkVel[i * 3] * dt; sp2[i * 3 + 1] += sparkVel[i * 3 + 1] * dt; sp2[i * 3 + 2] += sparkVel[i * 3 + 2] * dt;
+      sparkVel[i * 3 + 1] -= 9 * dt;
+    }
+    sparkGeo.attributes.position.needsUpdate = true;
+    sparkMat.opacity = Math.max(0, sparkLife / 0.45);
+  }
+  renderer.render(scene, camera);
+}
+animate();
+
+/* ---------------- QA / debug hook (house pattern) ---------------- */
+window.__hs = {
+  S, P, input, traffic,
+  start: startRun, endRun,
+  board: () => speedBoard.map(e => ({ name: e.name, kmh: e.kmh, time: e.time })),
+  bestTop: () => bestTop,
+  capNow: () => baseCapKmh(),
+  wheelKids: () => wheel.children.map(c => (c.geometry && c.geometry.type) || c.type),
+  spawnAt(lane, relZ, dxOff, speedMs) {
+    const v = traffic.find(t => !t.active) || traffic[0];
+    v.active = true; v.counted = false; v.bumpCd = 0; v.shoveVX = 0; v.spin = 0;
+    v.speedMs = (speedMs == null ? 14 : speedMs);
+    v.g.visible = true; v.g.rotation.y = 0;
+    v.g.position.set(laneX(lane) + (dxOff || 0), 0, relZ);
+    return { halfW: v.halfW, halfL: v.halfL, kind: v.kind };
+  },
+  clearTraffic() { for (const v of traffic) { v.active = false; v.g.visible = false; v.g.position.z = -600; } },
+  modelMode: () => modelMode,
+  setSpeed(kmh) { S.speedMs = kmh / 3.6; },
+  setNitro(h) { if (h) startNitro(); else stopNitro(); },
+  startNitro,
+  stopNitro
+};
+</script>
+</body>
+</html>
