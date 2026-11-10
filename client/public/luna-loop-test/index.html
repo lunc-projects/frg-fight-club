@@ -246,9 +246,9 @@ const CFG = {
   assistIntMax: 0.85,    // cap for the lateral term (rad/s) — same fade + off-while-sliding rules as the rest of the assist
   assistFloor: 0.45,     // ROUND 3: assist fade floor — at full lock the assist used to fade to 20% and a panicked saturated stick (±1 held for seconds, delayed human corrections) limit-cycled ±20 m across the line with nothing able to stop it (QA owner-driver series, Nov 9). The assist now keeps at least 45% authority while steering; hands-off (free=1) it is unchanged, and any sustained deliberate input still overrides it.
   assistFFfloor: 0.75,   // ROUND 3: the curvature FEED-FORWARD barely fades at all. The hairpins demand ~1.5 rad/s at top speed; the player's own full lock supplies only ~0.8 — the rest IS the FF. When the FF faded with steering like the correction terms, steering hard into a corner switched off the kart's ability to make the corner at all: it ran wide, then the delayed corrections oscillated it off the road (QA: excursions always starting at the u≈0.40 hairpin). The FF is the road's own demand, not an error correction, so it stays. The PD + lateral terms still fade to assistFloor — those are the ones that could fight a deliberate line.
-  driftSteer: 0.97,      // ROUND 3: a slide may only START from a near-full lock (steerSm). It used to engage at |steerSm| > 0.72, which ordinary hard cornering crosses constantly — the slide then killed the steering assist, damped the turn rate and crabbed the kart 0.55 rad off its heading, i.e. a casual player trying to corner hard was silently put INTO a slide (QA telemetry: slide flickering on/off every few hundred ms while cornering hard).
-  driftFull: 0.90,       // ROUND 3: ...and may only START while the stick itself is nearly full over (raw input.steer) — smoothed-value crossings alone never start one.
-  driftHold: 0.25,       // ROUND 3: the full lock must be HELD this long (s) before the slide starts. A correction that peaks and comes back never slides; a player who means it holds the lock a beat and slides. Below this, hard cornering is just hard cornering.
+  driftSteer: 0.97,      // ROUND 3 origin, ROUND 5 meaning: CHARGE (was slide) may only START from a near-full lock (steerSm). It used to engage at |steerSm| > 0.72, which ordinary hard cornering crosses constantly. Threshold unchanged — in round 5 the sustained hold banks nitrous charge while the kart stays gripped (see the charge block in stepRacer).
+  driftFull: 0.90,       // ROUND 3: ...and CHARGE may only START while the stick itself is nearly full over (raw input.steer) — smoothed-value crossings alone never start one.
+  driftHold: 0.25,       // ROUND 3: the full lock must be HELD this long (s) before charging starts. A correction that peaks and comes back never charges; a player who means it holds the lock a beat. Below this, hard cornering is just hard cornering.
   assistBoostP: 2.6,     // ROUND 3: while a speed boost is live, the assist's heading pull strengthens (2.0 → 2.6)…
   assistBoostMax: 0.85,  // …its cap rises (0.62 → 0.85)…
   assistBoostInt: 1.6,   // …and its centreline pull strengthens (1.1 → 1.6, cap assistIntMax unchanged). Boost speed is exactly when the delayed human loop is weakest; the (delay-free) assist carries proportionally more of the cornering there. Hands-off these change nothing (the hands-off loop already holds the line at boost speed); they bite only when the player is steering against the delay.
@@ -271,14 +271,14 @@ const CFG = {
   laneLatMax: 7,         // m/s — cap on the desired sideways velocity
   laneKHdg: 3.2,         // 1/s — heading-error gain of the lane regulator
   laneTurnMax: 1.62,     // rad/s — HARD cap on total player turn rate (road demand peaks ~1.50 at top speed; the player alone can no longer out-turn the road)
-  laneDriftTurn: 0.85,   // while sliding, fraction of the old free-steer turn the player keeps (slides stay the player's; lane follow resumes after)
+  laneDriftTurn: 0.85,   // LEGACY (round 4 slide branch) — unused since round 5 removed the player's slide; kept so the config shape is unchanged
   cometPlayerTime: 2.2,  // ROUND 4: the player's Comet Tail item boost lasts this long (was cometTime 6 s for everyone) — the owner's recording showed speed flapping 169->30 km/h from a 6 s auto-boost he never asked for. AI keeps 6 s. Item otherwise unchanged.
   steerLowBoost: 1.35,   // turn-authority multiplier at low speed
   steerHighCut: 0.75,    // turn-authority multiplier at top speed (straights feel stable)
   offroadMax: 14,
   offroadDecel: 26,
   driftMinSpeed: 13,
-  driftChargeFull: 0.85, // seconds of drift for a full charge
+  driftChargeFull: 0.85, // seconds of sustained hard hold (player charging / AI drift) for a full nitrous charge
   boostTime: 0.9,
   boostMult: 1.38,
   nitroBtnMin: 0.25,     // min banked charge (fraction) the ⚡ NITROUS button needs to fire
@@ -818,7 +818,7 @@ function makeRacer(def, idx, isPlayer){
     skillBase: 0,
     wobbleSeed: Math.random() * 100,
     item: null, shield: 0, boostT: 0, cometT: 0, spinT: 0, tetherT: 0, quakeCd: 0,
-    driftCharge: 0, drifting: false, driftDir: 0,
+    driftCharge: 0, drifting: false, driftDir: 0, charging: false,
     shoveX: 0, shoveZ: 0, steerSm: 0, nitroBoostDur: 0, turnRatePrev: 0, laneSm: 0,
     contactCd: 0, bestLap: 0, lapStart: 0,
     itemMeshes: []
@@ -834,7 +834,7 @@ function resetRacer(r){
   r.totalU = slot[0];
   r.speed = 0; r.nextCp = 1; r.lap = 1; r.finished = false; r.finishTime = 0;
   r.item = null; r.shield = 0; r.boostT = 0; r.cometT = 0; r.spinT = 0; r.tetherT = 0;
-  r.driftCharge = 0; r.drifting = false; r.contactCd = 0; r.bestLap = 0; r.lapStart = 0;
+  r.driftCharge = 0; r.drifting = false; r.charging = false; r.contactCd = 0; r.bestLap = 0; r.lapStart = 0;
   r.shoveX = 0; r.shoveZ = 0; r.steerSm = 0; r.nitroBoostDur = 0; r.turnRatePrev = 0; r.laneSm = 0;
   clearItemVisuals(r);
   const f = frameAt(r.u);
@@ -896,6 +896,7 @@ function fireNitrous(){
   p.boostT = p.nitroBoostDur;
   p.driftCharge = 0;
   p.drifting = false;
+  p.charging = false;
   p.driftChains = (p.driftChains || 0) + 1; // score hook (was slide-fire, now button-fire)
   AudioSys.sfx('boost');
   burst(p.pos.x, 0.7, p.pos.z, 12, 0x7fd8ff, 3.5);
@@ -1247,13 +1248,14 @@ function stepRacer(r, dt){
   if (r.cometT > 0) maxSp *= CFG.cometMult;
   if (r.tetherT > 0) maxSp = Math.max(maxSp, 42);
   if (!onRoad) maxSp = Math.min(maxSp, CFG.offroadMax);
-  let steer = 0, wantDrift = false;
+  let steer = 0, wantDrift = false, wantCharge = false;
   if (r.isPlayer){
     /* steering SMOOTHING (owner, Nov 9 — "not so joysticky"): the kart's
        actual steer eases toward the stick target with a ~150 ms time
        constant instead of snapping; the target already passed the X
-       deadzone in joySet. Drift detection below uses this same value,
-       so a held hard lock still slides — it just arrives smoothly. */
+       deadzone in joySet. Charge-hold detection below uses this same
+       value, so a held hard lock still charges — it just arrives
+       smoothly. */
     const rawSteer = (S.mode === 'race') ? readSteer() : 0;
     r.steerSm += (rawSteer - r.steerSm) * (1 - Math.exp(-dt / CFG.steerSmooth));
     if (rawSteer === 0 && Math.abs(r.steerSm) < 0.02) r.steerSm = 0;
@@ -1285,17 +1287,19 @@ function stepRacer(r, dt){
       r.speed += (cruise - r.speed) * Math.min(1, CFG.coastDecel * 0.36 * dt);
     }
     if (r.speed > maxSp) r.speed = Math.max(maxSp, r.speed - CFG.offroadDecel * dt);
-    /* NITROUS charge: sliding = holding the stick hard over while moving.
-       The drift block below banks the charge while sliding; the player
-       spends it with the ⚡ NITROUS button (fireNitrous) — no auto-fire. */
-    /* ROUND 3: a slide starts only from a SUSTAINED near-full lock —
-       smoothed steer AND the raw stick both nearly full, held for
-       CFG.driftHold seconds. Ordinary hard cornering peaks lower or
-       comes back sooner, so it can no longer trip the slide (which
-       disables the assist and damps the turn rate) by accident. */
+    /* NITROUS charge: holding the stick hard over while moving banks
+       charge (the charge block below); the player spends it with the
+       ⚡ NITROUS button (fireNitrous) — no auto-fire. */
+    /* ROUND 3 origin: the hold starts only from a SUSTAINED near-full
+       lock — smoothed steer AND the raw stick both nearly full, held
+       for CFG.driftHold seconds. Ordinary hard cornering peaks lower
+       or comes back sooner, so it can no longer trip the charge by
+       accident. ROUND 5: this hold used to start a SLIDE; the slide is
+       gone (owner, Nov 10: "Yeah no sliding") — the hold now only
+       banks charge while the kart stays gripped on the lane regulator. */
     if (Math.abs(steer) > CFG.driftSteer && Math.abs(rawSteer) > CFG.driftFull && r.speed > CFG.driftMinSpeed) r.driftHoldT = (r.driftHoldT || 0) + dt;
     else r.driftHoldT = 0;
-    wantDrift = r.drifting || r.driftHoldT >= CFG.driftHold;
+    wantCharge = r.charging || r.driftHoldT >= CFG.driftHold;
   } else {
     /* ---------- AI: follow the line, overtake, rubber-band, use items ---------- */
     const lead = frameAt(r.u + 14 / TRACK_LEN);
@@ -1317,29 +1321,42 @@ function stepRacer(r, dt){
     wantDrift = Math.abs(dh) > 0.55 && r.speed > CFG.driftMinSpeed + 4;
     /* AI items also auto-fire at pickup (see the beacon loop) — no held items. */
   }
-  /* ---------- drift ----------
-     Sliding banks nitrous charge. PLAYER: the charge STAYS banked when
-     the slide ends (and tops up on the next slide) — only the ⚡ NITROUS
-     button spends it. AI: unchanged — fires its boost as the slide ends. */
-  /* ROUND 3: once started, a slide ENDS when the smoothed steer falls
-     back under the engage line (0.72) — ending is deliberately easier
-     than starting (hysteresis), so a slide never flickers on/off at the
-     boundary the way it used to around 0.72. */
-  const canDrift = r.drifting
-    ? (r.speed > CFG.driftMinSpeed && Math.abs(steer) > 0.6 && r.spinT <= 0)
-    : (wantDrift && r.speed > CFG.driftMinSpeed && Math.abs(steer) > 0.25 && r.spinT <= 0);
-  if (canDrift){
-    if (!r.drifting){ r.drifting = true; if (!r.isPlayer) r.driftCharge = 0; r.driftDir = Math.sign(steer); }
-    r.driftCharge = Math.min(1, r.driftCharge + dt / CFG.driftChargeFull);
-    if (r.isPlayer && Math.random() < 0.5) AudioSys.sfx('drift');
-  } else if (r.drifting){
-    r.drifting = false;
-    if (!r.isPlayer && r.driftCharge > 0.35){
-      r.boostT = CFG.boostTime * (0.5 + r.driftCharge * 0.8);
-      burst(r.pos.x, 0.7, r.pos.z, 10, 0x7fd8ff, 3.5);
-      r.driftCharge = 0;
+  /* ---------- nitrous charge (player) / drift (AI) ----------
+     ROUND 5 — NO SLIDE (owner, Nov 10: "Yeah no sliding"): the player
+     NEVER drifts. The sustained hard hold that used to start a slide
+     now sets r.charging and banks nitrous charge at the same rate,
+     with the same engage/exit hysteresis — but the kart stays on the
+     lane regulator, its velocity stays aligned with its heading, and
+     there is no slip angle, no lean, no drift visual or sound. The
+     charge STAYS banked when the hold ends (tops up on the next hold);
+     only the ⚡ NITROUS button spends it. AI is unchanged: it still
+     drifts and fires its boost as its drift ends. */
+  if (r.isPlayer){
+    const canCharge = r.charging
+      ? (r.speed > CFG.driftMinSpeed && Math.abs(steer) > 0.6 && r.spinT <= 0)
+      : (wantCharge && r.speed > CFG.driftMinSpeed && Math.abs(steer) > 0.25 && r.spinT <= 0);
+    if (canCharge){
+      r.charging = true;
+      r.driftCharge = Math.min(1, r.driftCharge + dt / CFG.driftChargeFull);
+    } else r.charging = false;
+  } else {
+    /* AI drift — exactly as shipped (ROUND 3 hysteresis: a drift ENDS
+       when the smoothed steer falls back under 0.6, easier than
+       starting, so it never flickers on/off at the boundary). */
+    const canDrift = r.drifting
+      ? (r.speed > CFG.driftMinSpeed && Math.abs(steer) > 0.6 && r.spinT <= 0)
+      : (wantDrift && r.speed > CFG.driftMinSpeed && Math.abs(steer) > 0.25 && r.spinT <= 0);
+    if (canDrift){
+      if (!r.drifting){ r.drifting = true; r.driftCharge = 0; r.driftDir = Math.sign(steer); }
+      r.driftCharge = Math.min(1, r.driftCharge + dt / CFG.driftChargeFull);
+    } else if (r.drifting){
+      r.drifting = false;
+      if (r.driftCharge > 0.35){
+        r.boostT = CFG.boostTime * (0.5 + r.driftCharge * 0.8);
+        burst(r.pos.x, 0.7, r.pos.z, 10, 0x7fd8ff, 3.5);
+        r.driftCharge = 0;
+      }
     }
-    /* player: charge stays banked for the NITROUS button */
   }
   /* ---------- spin ---------- */
   if (r.spinT > 0){
@@ -1353,8 +1370,8 @@ function stepRacer(r, dt){
   const speedRatio = clamp(r.speed / CFG.maxSpeed, 0, 1);
   const steerAuthority = r.drifting ? 1.25 : 1.0;
   let turnRate = steer * (r.isPlayer ? CFG.steerRate : CFG.steerRateAI) * steerAuthority * clamp(r.speed / 16, 0, 1.15);
-  if (r.isPlayer && !r.drifting && r.spinT > 0){ turnRate = 0; }
-  if (r.isPlayer && !r.drifting && r.spinT <= 0){
+  if (r.isPlayer && r.spinT > 0){ turnRate = 0; }
+  if (r.isPlayer && r.spinT <= 0){
     /* ================= ROUND 4 · LANE-FOLLOW STEERING =================
        The stick commands a target lane offset (r.laneSm, low-passed in
        the input step); this single over-damped regulator produces the
@@ -1368,9 +1385,9 @@ function stepRacer(r, dt){
        Turn rate is hard-capped at CFG.laneTurnMax, just above the
        road's own peak demand (~1.50 rad/s at top speed), so steering
        alone cannot throw the kart off the road at racing speed.
-       While sliding (deliberate sustained full lock) the player gets
-       the old free-steer feel via the branch below; lane follow resumes
-       the moment the slide ends. */
+       ROUND 5: this regulator now runs for the player 100% of the
+       time — the old free-steer slide branch that used to take over
+       during a slide is deleted; there is no slide any more. */
     const hereFL = frameAt(r.u);
     const latNowL = (r.pos.x - hereFL.p.x) * hereFL.side.x + (r.pos.z - hereFL.p.z) * hereFL.side.z;
     const latErr = latNowL - (r.laneSm || 0);
@@ -1395,70 +1412,15 @@ function stepRacer(r, dt){
     turnRate = clamp(-(ffL + hErr * CFG.laneKHdg * clamp(Math.abs(r.speed) / 18, 0, 1)), -CFG.laneTurnMax, CFG.laneTurnMax) * (r.speed < 0 ? -1 : 1);
     r.turnRatePrev = turnRate;
   }
-  if (r.isPlayer && r.drifting){
-    /* speed-sensitive authority (owner, Nov 9): fuller turns at low
-       speed, calmer at top speed — straights stop ping-ponging. The
-       low-speed ramp also comes in a touch earlier (÷13 not ÷16). */
-    const spdF = clamp(Math.abs(r.speed) / CFG.maxSpeed, 0, 1);
-    const auth = CFG.steerLowBoost - (CFG.steerLowBoost - CFG.steerHighCut) * spdF;
-    /* ROUND 3: boost-speed steering damper — see CFG.boostSteerCap.
-       Scales ONLY the player's own turn rate, only while a boost is
-       live and the kart is not sliding. */
-    const boostDamp = (!r.drifting && (r.boostT > 0 || r.cometT > 0)) ? CFG.boostSteerCap : 1;
-    turnRate = steer * CFG.steerRate * CFG.laneDriftTurn * auth * clamp(r.speed / 13, 0, 1.15) * boostDamp;
-    /* STEERING ASSIST (owner, Nov 9 — "too touchy, hard to keep straight,
-       swirls off the road"): a gentle lane-keeping pull toward where the
-       road ahead is heading (look-ahead point on the racing line, so it
-       also walks the kart back toward the middle). Strongest hands-off /
-       stick near center, fades as the player steers on purpose, and OFF
-       while sliding — slides stay fully the player's. PD-shaped: the D
-       term opposes the current swing, so the kart settles onto the line
-       instead of fishtailing past it. Capped well under deliberate
-       steering, so any real input overrides it instantly. */
-    if (!r.drifting && r.spinT <= 0 && r.speed > 3){
-      const look = clamp(r.speed * 0.55, 9, 20);
-      const lead = frameAt(r.u + look / TRACK_LEN);
-      let err = Math.atan2(lead.p.x - r.pos.x, lead.p.z - r.pos.z) - r.heading;
-      while (err > Math.PI) err -= TAU; while (err < -Math.PI) err += TAU;
-      const free = 1 - Math.min(1, Math.abs(steer));
-      const fade = CFG.assistFloor + (1 - CFG.assistFloor) * free;
-      /* ROUND 3: boost-speed assist strengthening (see CFG.assistBoost*) */
-      const bst = (r.boostT > 0 || r.cometT > 0);
-      const aP = bst ? CFG.assistBoostP : CFG.assistP;
-      const aInt = bst ? CFG.assistBoostInt : CFG.assistInt;
-      const aMax = (bst ? CFG.assistBoostMax : CFG.assistMax) * fade * clamp(r.speed / 18, 0, 1);
-      /* feed-forward (tuning, Nov 9): hand the assist the road's own
-         curvature demand at the lead point — v·κ there, measured off the
-         pre-sampled frames — so a hairpin's steady turn rate is supplied
-         directly instead of waiting for heading error to build past what
-         the P cap can answer. Same fade + off-while-sliding rules as the
-         PD term (it lives inside the same gate); on straights κ ≈ 0 and
-         it vanishes. */
-      const duF = 4 / TRACK_LEN;
-      const tanA = Math.atan2(lead.tan.x, lead.tan.z);
-      const lead2 = frameAt(r.u + (look + 4) / TRACK_LEN);
-      let dPsi = Math.atan2(lead2.tan.x, lead2.tan.z) - tanA;
-      while (dPsi > Math.PI) dPsi -= TAU; while (dPsi < -Math.PI) dPsi += TAU;
-      const fadeFF = CFG.assistFFfloor + (1 - CFG.assistFFfloor) * free;
-      const ff = -CFG.assistFF * r.speed * (dPsi / (duF * TRACK_LEN)) * fadeFF;
-      /* lateral term (tuning, Nov 9): steer back toward the centreline
-         itself, not just toward the lead point's bearing — a heading-only
-         loop settles metres wide in a long corner and stays there. */
-      const hereF = frameAt(r.u);
-      const latNow = (r.pos.x - hereF.p.x) * hereF.side.x + (r.pos.z - hereF.p.z) * hereF.side.z;
-      const latTerm = clamp(-latNow * aInt, -CFG.assistIntMax, CFG.assistIntMax) * fade * clamp(r.speed / 18, 0, 1);
-      turnRate += clamp(-err * aP - (r.turnRatePrev || 0) * CFG.assistD, -aMax, aMax) + ff + latTerm;
-      /* ROUND 3: soft road-edge guard — see CFG.edgeGuard*. Acts when
-         the kart is deep off-line; strength grows with overshoot and
-         with speed so at boost pace it engages in distance terms. */
-      const over = Math.abs(latNow) - CFG.edgeGuardStart;
-      if (over > 0) turnRate += clamp(-Math.sign(latNow) * over * 0.09 * (r.speed / 34), -CFG.edgeGuardMax, CFG.edgeGuardMax);
-    }
-    r.turnRatePrev = turnRate;
-  }
+  /* ROUND 5: the player's old free-steer SLIDE branch (and the
+     round-3 steering assist inside it, already unreachable in
+     round 4) is DELETED. The player has exactly one steering
+     loop — the lane regulator above — in every state. */
   r.heading -= turnRate * dt * (r.speed < 0 ? -1 : 1);
-  const gripSlide = r.drifting ? 0.55 : 0.06;
-  const moveDir = r.heading + (r.isPlayer && !r.drifting ? 0 : steer * gripSlide * clamp(r.speed / 20, 0, 1));
+  /* ROUND 5 — GRIP: the player ALWAYS moves exactly along its heading
+     (moveDir === heading, slip angle identically zero). Only AI karts
+     keep the old crab term (0.06 rad factor, 0.55 while an AI drifts). */
+  const moveDir = r.isPlayer ? r.heading : r.heading + steer * (r.drifting ? 0.55 : 0.06) * clamp(r.speed / 20, 0, 1);
   /* bumper shove velocity (r.shoveX/Z, set by the collision step) rides
      on top of the kart's own motion, then decays in the move step */
   const vx = Math.sin(moveDir) * r.speed + (r.shoveX || 0), vz = Math.cos(moveDir) * r.speed + (r.shoveZ || 0);
@@ -1596,7 +1558,8 @@ function updateHUD(){
   $('lapVal').textContent = 'LAP ' + Math.min(CFG.laps, player.lap) + '/' + CFG.laps;
   $('clock').textContent = fmtTime(S.time);
   $('spd').textContent = Math.max(0, Math.round(player.speed * 3.6));
-  /* nitrous meter: fills while sliding (banked), then drains as the
+  /* nitrous meter: fills while the player holds hard (banked), then
+     drains as the
      button-fired boost burns; the ⚡ button mirrors the same state —
      dim under the minimum, bright + pulsing when ready, gold firing */
   const nf = $('nitroFill');
