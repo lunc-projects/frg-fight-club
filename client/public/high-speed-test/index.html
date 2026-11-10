@@ -448,25 +448,28 @@ for (let i = 0; i < 16; i++){
   g.position.set(side * (ROAD_HALF + 3.4 + Math.random() * 2.5), 0, -(i * 27) - Math.random() * 10);
   world.add(g); palms.push(g);
 }
-// billboards
+// billboards — short WIDE panels close to the ground on chunky bases (owner fix:
+// the old tall thin center post read as a long pole crossing his forward view)
 const bbPostMat = new THREE.MeshLambertMaterial({ color: 0x555b63 });
 const billboards = [];
 for (let i = 0; i < 6; i++){
   const g = new THREE.Group();
-  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 7.6, 8), bbPostMat); post.position.y = 3.8; g.add(post);
-  const face = new THREE.Mesh(new THREE.PlaneGeometry(11, 5.5), new THREE.MeshBasicMaterial({ map: bbTexes[i % bbTexes.length], side: THREE.DoubleSide }));
-  face.position.y = 9.4; g.add(face);
+  const base = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.5, 0.9), bbPostMat); base.position.y = 0.75; g.add(base);
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(11, 4.2), new THREE.MeshBasicMaterial({ map: bbTexes[i % bbTexes.length], side: THREE.DoubleSide }));
+  face.position.y = 3.6; g.add(face);
+  const cap = new THREE.Mesh(new THREE.BoxGeometry(11.3, 0.25, 0.3), bbPostMat); cap.position.y = 5.85; g.add(cap);
   const side = i % 2 ? 1 : -1;
   g.position.set(side * (ROAD_HALF + 6.4), 0, -(i * 68) - 40);
   world.add(g); billboards.push(g);
 }
-// overhead gantries with LUNA CLASSIC sign
+// overhead gantries with LUNA CLASSIC sign — legs sit OUTSIDE the guardrails
+// and read as part of the road furniture, never as poles in the driving view
 const gantries = [];
 for (let i = 0; i < 3; i++){
   const g = new THREE.Group();
   const mat = new THREE.MeshLambertMaterial({ color: 0x3c434c });
-  [-1, 1].forEach(s => { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.4, 7.4, 0.4), mat); leg.position.set(s * (ROAD_HALF + 0.6), 3.7, 0); g.add(leg); });
-  const beam = new THREE.Mesh(new THREE.BoxGeometry(ROAD_HALF * 2 + 1.6, 0.4, 0.4), mat); beam.position.y = 7.3; g.add(beam);
+  [-1, 1].forEach(s => { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.55, 7.4, 0.55), mat); leg.position.set(s * (ROAD_HALF + 2.2), 3.7, 0); g.add(leg); });
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(ROAD_HALF * 2 + 5.2, 0.45, 0.45), mat); beam.position.y = 7.3; g.add(beam);
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(13.6, 1.7), new THREE.MeshBasicMaterial({ map: gantryTex }));
   sign.position.set(0, 6.15, 0.25); g.add(sign);
   g.position.z = -(i * 150) - 120;
@@ -519,7 +522,7 @@ function makeVehicle(kind, ci){
   return { g, halfW: 1.26, halfL: 5.5 };
 }
 const traffic = [];
-const KINDS = ['car', 'car', 'car', 'car', 'truck', 'car', 'bus', 'car', 'car', 'truck', 'car', 'car', 'bus', 'car'];
+const KINDS = ['car', 'car', 'car', 'car', 'car', 'car', 'car', 'truck', 'car', 'car', 'car', 'car', 'bus', 'car'];
 for (let i = 0; i < KINDS.length; i++){
   const v = makeVehicle(KINDS[i], i * 3 + 1);
   v.kind = KINDS[i]; v.lane = i % 4; v.speedMs = 13 + Math.random() * 8;
@@ -568,10 +571,22 @@ function applyModel(v, sceneRoot){
   });
 })();
 const laneLastZ = [-999, -999, -999, -999];
+/* Traffic density (owner fix Nov 9: "too much traffic") — roughly HALF the old
+   build: the pool target is 3 + 1 per 900 m (was 6 + 1 per 320 m, up to all 14),
+   and spawnVehicle lays traffic out in loose ROWS across the road with at
+   least one lane of each row left EMPTY ("gapLane"), so there is always a
+   clean lane to thread at speed — traffic can never form a full-width wall. */
+let gapLane = (Math.random() * 4) | 0, nextRowZ = -999;
 function spawnVehicle(v, ahead){
-  v.lane = (Math.random() * 4) | 0;
-  let z = ahead ? (-330 - Math.random() * 90) : (-120 - Math.random() * 240);
-  if (laneLastZ[v.lane] > -900 && z > laneLastZ[v.lane] - (v.halfL + 16)) z = laneLastZ[v.lane] - (v.halfL + 16 + Math.random() * 14);
+  const rowZ = ahead ? (-330 - Math.random() * 90) : (-120 - Math.random() * 240);
+  if (rowZ < nextRowZ - 34 || rowZ > nextRowZ + 10) { // a fresh row: roll its open lane
+    nextRowZ = rowZ; gapLane = (Math.random() * 4) | 0;
+  }
+  let lane = (Math.random() * 4) | 0;
+  if (lane === gapLane) lane = (lane + 1 + ((Math.random() * 3) | 0)) % 4; // never plug the row's gap lane
+  v.lane = lane;
+  let z = rowZ + (Math.random() - 0.5) * 7; // row members stay near each other, not single-file
+  if (laneLastZ[v.lane] > -900 && z > laneLastZ[v.lane] - (v.halfL + 26)) z = laneLastZ[v.lane] - (v.halfL + 26 + Math.random() * 18);
   laneLastZ[v.lane] = z;
   v.speedMs = 12.5 + Math.random() * 9 + Math.min(4, S.dist / 3000);
   v.shoveVX = 0; v.spin = 0; v.bumpCd = 0; v.counted = false; v.active = true;
@@ -579,7 +594,7 @@ function spawnVehicle(v, ahead){
   v.g.position.set(laneX(v.lane) + (Math.random() - 0.5) * 0.5, 0, z);
   v.g.rotation.y = 0;
 }
-function activeTarget(){ return Math.min(traffic.length, 6 + Math.floor(S.dist / 320)); }
+function activeTarget(){ return Math.min(9, 3 + Math.floor(S.dist / 900)); }
 
 /* ---------------- Cockpit (attached to camera) ---------------- */
 const cockpit = new THREE.Group(); camera.add(cockpit); scene.add(camera);
@@ -587,14 +602,20 @@ const dash = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.26, 0.6), new THREE.Me
 dash.position.set(0, -0.41, -0.85); dash.rotation.x = 0.32; cockpit.add(dash);
 const cowl = new THREE.Mesh(new THREE.BoxGeometry(1.78, 0.09, 0.5), new THREE.MeshLambertMaterial({ color: 0x11151d }));
 cowl.position.set(0, -0.28, -1.0); cowl.rotation.x = 0.12; cockpit.add(cowl);
-[-1, 1].forEach(s => { // A-pillars — thin, pushed to the very edges of the view
-  const pil = new THREE.Mesh(new THREE.BoxGeometry(0.038, 0.95, 0.06), new THREE.MeshLambertMaterial({ color: 0x141a26 }));
-  pil.position.set(s * 0.8, 0.3, -0.86); pil.rotation.z = s * -0.3; cockpit.add(pil);
+[-1, 1].forEach(s => { // A-pillars — roof-edge trim hugging the screen corners,
+  // angled hard outward so nothing long and thin crosses the forward view (owner fix)
+  const pil = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.62, 0.05), new THREE.MeshLambertMaterial({ color: 0x141a26 }));
+  pil.position.set(s * 0.9, 0.42, -0.86); pil.rotation.z = s * -0.62; cockpit.add(pil);
 });
-const mirror = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.105, 0.03), new THREE.MeshLambertMaterial({ color: 0x39496a }));
-mirror.position.set(0, 0.485, -0.82); cockpit.add(mirror);
-const mirrorGlass = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.08), new THREE.MeshBasicMaterial({ color: 0x9fc8e8 }));
-mirrorGlass.position.set(0, 0.485, -0.795); cockpit.add(mirrorGlass);
+// rear-view mirror hangs from a short stub mount at the very top edge —
+// small and tight to the roofline; the cockpit near plane magnifies it, so
+// it is deliberately compact (owner fix: no bar hanging into the view)
+const mirrorMount = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.05, 0.025), new THREE.MeshLambertMaterial({ color: 0x141a26 }));
+mirrorMount.position.set(0, 0.545, -0.82); cockpit.add(mirrorMount);
+const mirror = new THREE.Mesh(new THREE.BoxGeometry(0.27, 0.062, 0.025), new THREE.MeshLambertMaterial({ color: 0x39496a }));
+mirror.position.set(0, 0.5, -0.82); cockpit.add(mirror);
+const mirrorGlass = new THREE.Mesh(new THREE.PlaneGeometry(0.245, 0.048), new THREE.MeshBasicMaterial({ color: 0x9fc8e8 }));
+mirrorGlass.position.set(0, 0.5, -0.8); cockpit.add(mirrorGlass);
 // gauges: static faces + moving needle planes
 function makeGauge(tex, x){
   const grp = new THREE.Group();
@@ -753,9 +774,10 @@ function resetRun(){
   P.x = 0; P.steerSm = 0; P.wheelRot = 0;
   input.steer = 0; input.thr = 0; input.brk = 0; joySet(0, 0);
   for (let i = 0; i < 4; i++) laneLastZ[i] = -999;
+  nextRowZ = -999;
   let n = 0;
   for (const v of traffic) {
-    if (n < 5) { spawnVehicle(v, false); v.g.position.z = -90 - n * 52 - Math.random() * 20; n++; }
+    if (n < 3) { spawnVehicle(v, false); v.g.position.z = -90 - n * 90 - Math.random() * 20; n++; }
     else { v.active = false; v.g.visible = false; v.g.position.z = -500; }
   }
   paint.position.z = -260;
@@ -821,15 +843,19 @@ function animate(){
     S.dist += S.speedMs * dt;
     S.score += S.speedMs * dt * 1.6;
 
-    /* --- steering: smoothed, deadzoned, speed-sensitive — never twitchy --- */
-    const k = 1 - Math.exp(-dt / 0.145);
+    /* --- steering: quick turn-in for weaving at 250+ km/h (owner: "doesn't turn
+       fast enough") — short smoothing constant + higher lateral rate, but the
+       smoothing still rounds the onset so it never snaps or oscillates --- */
+    const k = 1 - Math.exp(-dt / 0.07);
     P.steerSm += (input.steer - P.steerSm) * k;
     const spdF = THREE.MathUtils.clamp(S.speedMs / 26, 0, 1);
     const authority = spdF * (1 - 0.38 * THREE.MathUtils.clamp(S.speedMs / 78, 0, 1));
-    P.x += P.steerSm * 13.5 * authority * dt;
+    P.x += P.steerSm * 20.5 * authority * dt;
     if (P.x > ROAD_HALF - 1.05) { P.x = ROAD_HALF - 1.05; if (S.speedMs > 14 && Math.random() < 0.3) spawnSparks(P.x + 1, 0.5, -1.5); }
     if (P.x < -(ROAD_HALF - 1.05)) { P.x = -(ROAD_HALF - 1.05); if (S.speedMs > 14 && Math.random() < 0.3) spawnSparks(P.x - 1, 0.5, -1.5); }
-    P.wheelRot += ((-P.steerSm * 2.35) - P.wheelRot) * (1 - Math.exp(-dt / 0.09));
+    // cockpit wheel: turns MORE (2.35 -> 3.1 rad) and tracks the input just as
+    // fast as the car now answers, so wheel and road agree
+    P.wheelRot += ((-P.steerSm * 3.1) - P.wheelRot) * (1 - Math.exp(-dt / 0.055));
 
     /* --- world scroll --- */
     const adv = S.speedMs * dt;
