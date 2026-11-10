@@ -232,9 +232,16 @@ const CFG = {
   brakeDecel: 34,
   coastDecel: 7,
   reverseSpeed: 8,
-  steerRate: 1.40,       // rad/s at full lock (was 2.05 — owner: steering too twitchy, Nov 9)
-  steerSmooth: 0.15,     // s — player steering eases toward the stick target over ~150 ms
+  steerRate: 1.30,       // rad/s at full lock (round 2: 1.40 — trimmed one more notch alongside the assist, Nov 9)
+  steerSmooth: 0.17,     // s — player steering eases toward the stick target (round 2: ~150 ms)
   steerDead: 0.09,       // joystick X deadzone (fraction) — thumb wobble near center doesn't veer the kart
+  steerCurve: 1.55,      // joystick response curve: fine control near center, full lock only at the stick edges
+  assistP: 2.0,          // STEERING ASSIST: pull toward the road's forward direction (rad/s per rad of heading error)
+  assistD: 0.30,         // assist damping — kills the fishtail overshoot instead of swinging past the line
+  assistMax: 0.62,       // assist strength cap (rad/s) — deliberate steering always overrides it
+  assistFF: 0.9,         // assist feed-forward: fraction of the road's own curvature demand (v·κ at the lead point) the assist supplies directly (tuning, Nov 9 — the two hairpins need ~1.5 rad/s at top speed; P alone saturates at assistMax)
+  assistInt: 1.1,        // assist lateral integral: pull on the kart's signed off-line distance (rad/s per metre, capped by assistIntMax) — kills the steady-state wide run a pure heading loop leaves in a long corner (probe, Nov 9: err pinned at ~0.5 rad with the kart parked ~10 m wide)
+  assistIntMax: 0.85,    // cap for the lateral term (rad/s) — same fade + off-while-sliding rules as the rest of the assist
   steerLowBoost: 1.35,   // turn-authority multiplier at low speed
   steerHighCut: 0.75,    // turn-authority multiplier at top speed (straights feel stable)
   offroadMax: 14,
@@ -781,7 +788,7 @@ function makeRacer(def, idx, isPlayer){
     wobbleSeed: Math.random() * 100,
     item: null, shield: 0, boostT: 0, cometT: 0, spinT: 0, tetherT: 0, quakeCd: 0,
     driftCharge: 0, drifting: false, driftDir: 0,
-    shoveX: 0, shoveZ: 0, steerSm: 0, nitroBoostDur: 0,
+    shoveX: 0, shoveZ: 0, steerSm: 0, nitroBoostDur: 0, turnRatePrev: 0,
     contactCd: 0, bestLap: 0, lapStart: 0,
     itemMeshes: []
   };
@@ -797,7 +804,7 @@ function resetRacer(r){
   r.speed = 0; r.nextCp = 1; r.lap = 1; r.finished = false; r.finishTime = 0;
   r.item = null; r.shield = 0; r.boostT = 0; r.cometT = 0; r.spinT = 0; r.tetherT = 0;
   r.driftCharge = 0; r.drifting = false; r.contactCd = 0; r.bestLap = 0; r.lapStart = 0;
-  r.shoveX = 0; r.shoveZ = 0; r.steerSm = 0; r.nitroBoostDur = 0;
+  r.shoveX = 0; r.shoveZ = 0; r.steerSm = 0; r.nitroBoostDur = 0; r.turnRatePrev = 0;
   clearItemVisuals(r);
   const f = frameAt(r.u);
   r.pos.copy(f.p).addScaledVector(f.side, r.lane); r.pos.y = 0.06;
@@ -837,6 +844,10 @@ function joySet(dx, dy){
      and the rest of the travel is rescaled so full lock still reaches ±1 */
   if (Math.abs(sx) < CFG.steerDead) sx = 0;
   else sx = Math.sign(sx) * (Math.abs(sx) - CFG.steerDead) / (1 - CFG.steerDead);
+  /* response CURVE (owner, Nov 9): small thumb moves steer gently — only
+     the edges of the stick reach full lock. Stops the twitchy swirl while
+     a deliberate hard push still gets full lock for slides. */
+  sx = Math.sign(sx) * Math.pow(Math.abs(sx), CFG.steerCurve);
   input.steer = clamp(sx, -1, 1);
   input.throttle = clamp(-dy / 42, -1, 1); // up = gas, down = brake/reverse
   knobEl.style.transform = 'translate(calc(-50% + ' + clamp(dx, -40, 40) + 'px), calc(-50% + ' + clamp(dy, -40, 40) + 'px))';
@@ -1287,6 +1298,44 @@ function stepRacer(r, dt){
     const spdF = clamp(Math.abs(r.speed) / CFG.maxSpeed, 0, 1);
     const auth = CFG.steerLowBoost - (CFG.steerLowBoost - CFG.steerHighCut) * spdF;
     turnRate = steer * CFG.steerRate * steerAuthority * auth * clamp(r.speed / 13, 0, 1.15);
+    /* STEERING ASSIST (owner, Nov 9 — "too touchy, hard to keep straight,
+       swirls off the road"): a gentle lane-keeping pull toward where the
+       road ahead is heading (look-ahead point on the racing line, so it
+       also walks the kart back toward the middle). Strongest hands-off /
+       stick near center, fades as the player steers on purpose, and OFF
+       while sliding — slides stay fully the player's. PD-shaped: the D
+       term opposes the current swing, so the kart settles onto the line
+       instead of fishtailing past it. Capped well under deliberate
+       steering, so any real input overrides it instantly. */
+    if (!r.drifting && r.spinT <= 0 && r.speed > 3){
+      const look = clamp(r.speed * 0.55, 9, 20);
+      const lead = frameAt(r.u + look / TRACK_LEN);
+      let err = Math.atan2(lead.p.x - r.pos.x, lead.p.z - r.pos.z) - r.heading;
+      while (err > Math.PI) err -= TAU; while (err < -Math.PI) err += TAU;
+      const free = 1 - Math.min(1, Math.abs(steer));
+      const aMax = CFG.assistMax * (0.2 + 0.8 * free) * clamp(r.speed / 18, 0, 1);
+      /* feed-forward (tuning, Nov 9): hand the assist the road's own
+         curvature demand at the lead point — v·κ there, measured off the
+         pre-sampled frames — so a hairpin's steady turn rate is supplied
+         directly instead of waiting for heading error to build past what
+         the P cap can answer. Same fade + off-while-sliding rules as the
+         PD term (it lives inside the same gate); on straights κ ≈ 0 and
+         it vanishes. */
+      const duF = 4 / TRACK_LEN;
+      const tanA = Math.atan2(lead.tan.x, lead.tan.z);
+      const lead2 = frameAt(r.u + (look + 4) / TRACK_LEN);
+      let dPsi = Math.atan2(lead2.tan.x, lead2.tan.z) - tanA;
+      while (dPsi > Math.PI) dPsi -= TAU; while (dPsi < -Math.PI) dPsi += TAU;
+      const ff = -CFG.assistFF * r.speed * (dPsi / (duF * TRACK_LEN)) * (0.2 + 0.8 * free);
+      /* lateral term (tuning, Nov 9): steer back toward the centreline
+         itself, not just toward the lead point's bearing — a heading-only
+         loop settles metres wide in a long corner and stays there. */
+      const hereF = frameAt(r.u);
+      const latNow = (r.pos.x - hereF.p.x) * hereF.side.x + (r.pos.z - hereF.p.z) * hereF.side.z;
+      const latTerm = clamp(-latNow * CFG.assistInt, -CFG.assistIntMax, CFG.assistIntMax) * (0.2 + 0.8 * free) * clamp(r.speed / 18, 0, 1);
+      turnRate += clamp(-err * CFG.assistP - (r.turnRatePrev || 0) * CFG.assistD, -aMax, aMax) + ff + latTerm;
+    }
+    r.turnRatePrev = turnRate;
   }
   r.heading -= turnRate * dt * (r.speed < 0 ? -1 : 1);
   const gripSlide = r.drifting ? 0.55 : 0.06;
