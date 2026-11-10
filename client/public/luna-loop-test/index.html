@@ -255,6 +255,24 @@ const CFG = {
   boostSteerCap: 0.85,   // ROUND 3: while a speed boost is live (nitrous or comet), the player's own turn rate is scaled by this factor. The boost problem is proven by QA isolation (Nov 9): with boosts disabled, the delayed-thumb driver laps cleanly (p50 |lat| 0.31 m, 0% off-road, 1.46 laps in 45 s); with boosts live it limit-cycles in the first hairpin on every run — at 45 m/s a held lock sweeps the kart across the road ~1/3 faster per second than the loop was tuned for. 0.90 alone measured NO improvement (58.5% off-road), so the cap ships together with the boost-speed assist strengthening above, not as a standalone cure. The assist itself is never damped — only the player's input is.
   edgeGuardStart: 6.0,   // ROUND 3: soft road-edge guard (owner brief: "a gentle magnetic pull is fine") — beyond this |lateral| (m), the guard adds a centering turn that grows with distance and SPEED…
   edgeGuardMax: 2.2,     // …up to this cap (rad/s) at the road edge. Why speed-scaled: the failure it exists for is a boost-speed (45 m/s) limit cycle — at 45 m/s a kart crosses the 3.5 m from guard-start to off-road in ~0.25 s of sideways drift, so a fixed-strength guard arrives too late; scaled by speed it acts on DISTANCE-to-edge instead. It adds to the assist OUTSIDE its fade and cap (a player deep off-line is not "deliberately steering a line"), but it is still OFF while sliding — a deliberate slide near the edge stays the player's.
+  /* ---- ROUND 4 (Nov 9 late): LANE-FOLLOW STEERING — the owner played
+     the round-3 build and it was STILL too hard to drive with a thumb
+     (screen recording: big joystick swings, weaving across both edges,
+     speed flapping, stuck 8th). The model changes: the stick no longer
+     commands a TURN RATE at all. It commands a TARGET LANE OFFSET on the
+     road ahead; one over-damped regulator drives the kart to that lane
+     and along the road's curvature, so there is no second loop for the
+     player's corrections to fight and no oscillation to amplify. The
+     lane target itself is low-pass filtered (laneTau) so a wobbling
+     thumb (1.5–3 Hz) moves the target by centimetres. ---- */
+  laneRange: 7.2,        // m — full stick deflection = this target offset from the centreline (road half = 9.5, so even a pegged stick keeps the kart on the road)
+  laneTau: 0.30,         // s — low-pass on the lane target, applied to the RAW stick BEFORE the deadzone/curve (see the input step): wobble at >=1.5 Hz is attenuated >10x, while a sustained hold passes at full strength. Filtering the raw stick matters: filter after the response curve instead, and the curve's saturation rectifies a big wobble into a DC offset AND shrinks a deliberate hold (a 60% hold reads only ~0.10 after the 2.05 curve) — both failure modes seen in QA round 4 first pass.
+  laneKLat: 0.45,        // 1/s — lateral-error gain: desired sideways velocity per metre off the target lane (0.45: a 3 m lane target is reached in ~1 s; the first-pass 0.16 took ~3 s and read as "the stick does nothing")
+  laneLatMax: 7,         // m/s — cap on the desired sideways velocity
+  laneKHdg: 3.2,         // 1/s — heading-error gain of the lane regulator
+  laneTurnMax: 1.62,     // rad/s — HARD cap on total player turn rate (road demand peaks ~1.50 at top speed; the player alone can no longer out-turn the road)
+  laneDriftTurn: 0.85,   // while sliding, fraction of the old free-steer turn the player keeps (slides stay the player's; lane follow resumes after)
+  cometPlayerTime: 2.2,  // ROUND 4: the player's Comet Tail item boost lasts this long (was cometTime 6 s for everyone) — the owner's recording showed speed flapping 169->30 km/h from a 6 s auto-boost he never asked for. AI keeps 6 s. Item otherwise unchanged.
   steerLowBoost: 1.35,   // turn-authority multiplier at low speed
   steerHighCut: 0.75,    // turn-authority multiplier at top speed (straights feel stable)
   offroadMax: 14,
@@ -801,7 +819,7 @@ function makeRacer(def, idx, isPlayer){
     wobbleSeed: Math.random() * 100,
     item: null, shield: 0, boostT: 0, cometT: 0, spinT: 0, tetherT: 0, quakeCd: 0,
     driftCharge: 0, drifting: false, driftDir: 0,
-    shoveX: 0, shoveZ: 0, steerSm: 0, nitroBoostDur: 0, turnRatePrev: 0,
+    shoveX: 0, shoveZ: 0, steerSm: 0, nitroBoostDur: 0, turnRatePrev: 0, laneSm: 0,
     contactCd: 0, bestLap: 0, lapStart: 0,
     itemMeshes: []
   };
@@ -817,7 +835,7 @@ function resetRacer(r){
   r.speed = 0; r.nextCp = 1; r.lap = 1; r.finished = false; r.finishTime = 0;
   r.item = null; r.shield = 0; r.boostT = 0; r.cometT = 0; r.spinT = 0; r.tetherT = 0;
   r.driftCharge = 0; r.drifting = false; r.contactCd = 0; r.bestLap = 0; r.lapStart = 0;
-  r.shoveX = 0; r.shoveZ = 0; r.steerSm = 0; r.nitroBoostDur = 0; r.turnRatePrev = 0;
+  r.shoveX = 0; r.shoveZ = 0; r.steerSm = 0; r.nitroBoostDur = 0; r.turnRatePrev = 0; r.laneSm = 0;
   clearItemVisuals(r);
   const f = frameAt(r.u);
   r.pos.copy(f.p).addScaledVector(f.side, r.lane); r.pos.y = 0.06;
@@ -852,6 +870,7 @@ const input = { steer: 0, throttle: 0, keys: {} };
 const joyState = { active: false, id: null };
 const joyEl = $('joy'), knobEl = $('joyKnob');
 function joySet(dx, dy){
+  input.steerRaw = clamp(dx * 1.15 / 42, -1, 1); // ROUND 4: raw stick X (pointer gain applied, no deadzone/curve) — the lane target filters this
   let sx = dx / 42;
   /* center deadzone on X: small thumb wobbles near center steer nothing,
      and the rest of the travel is rescaled so full lock still reaches ±1 */
@@ -899,8 +918,8 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keyup', (e) => { input.keys[e.code] = false; });
 function readSteer(){
   let s = input.steer;
-  if (input.keys['ArrowLeft'] || input.keys['KeyA']) s = -1;
-  if (input.keys['ArrowRight'] || input.keys['KeyD']) s = 1;
+  if (input.keys['ArrowLeft'] || input.keys['KeyA']){ s = -1; input.steerRaw = -1; }
+  if (input.keys['ArrowRight'] || input.keys['KeyD']){ s = 1; input.steerRaw = 1; }
   return s;
 }
 function readThrottle(){
@@ -1022,7 +1041,7 @@ function useItem(r){
   if (r.isPlayer) clearPlayerItemSlot(); else r.item = null;
   switch(kind){
     case 'comet':
-      r.cometT = CFG.cometTime; refreshItemVisuals(r);
+      r.cometT = r.isPlayer ? CFG.cometPlayerTime : CFG.cometTime; refreshItemVisuals(r);
       if (r.isPlayer) AudioSys.sfx('boost');
       break;
     case 'shield':
@@ -1202,6 +1221,11 @@ function finishRace(){
   /* local bests (test-drive build: this phone only) */
   let bests = [];
   try { bests = JSON.parse(localStorage.getItem('lunaLoopBests') || '[]'); } catch(e) { bests = []; }
+/* ROUND 4: wrap an angle to [-PI, PI] */
+function wrapAng(a){
+  while (a > Math.PI) a -= TAU; while (a < -Math.PI) a += TAU;
+  return a;
+}
   const prevBest = bests.length ? Math.min.apply(null, bests.map(b => b.time)) : Infinity;
   bests.push({ time: Math.round(S.time * 10) / 10, pos, score, date: new Date().toISOString().slice(0, 10) });
   bests.sort((a, b) => a.time - b.time); bests = bests.slice(0, 10);
@@ -1234,6 +1258,18 @@ function stepRacer(r, dt){
     r.steerSm += (rawSteer - r.steerSm) * (1 - Math.exp(-dt / CFG.steerSmooth));
     if (rawSteer === 0 && Math.abs(r.steerSm) < 0.02) r.steerSm = 0;
     steer = r.steerSm;
+    /* ROUND 4: lane target — the stick's X now means "be over there on
+       the road". input.steerRaw is the RAW stick X (after the ±1.15
+       pointer gain, before deadzone/curve); low-pass THAT (tau
+       CFG.laneTau) and apply deadzone+gain to the smooth signal, so a
+       held stick lands on a real lane while wobble averages to ~zero.
+       The actual steering is computed in the lane-follow block below. */
+    const rawX = (S.mode === 'race') ? input.steerRaw : 0;
+    r.steerRawSm = (r.steerRawSm || 0) + (rawX - (r.steerRawSm || 0)) * (1 - Math.exp(-dt / CFG.laneTau));
+    let lx = r.steerRawSm;
+    if (Math.abs(lx) < CFG.steerDead) lx = 0;
+    else lx = Math.sign(lx) * (Math.abs(lx) - CFG.steerDead) / (1 - CFG.steerDead);
+    r.laneSm = clamp(lx, -1, 1) * CFG.laneRange;
     const th = (S.mode === 'race') ? readThrottle() : 0;
     if (th > 0.03){
       /* joystick gas: the further up, the faster — target speed scales with the push */
@@ -1317,7 +1353,49 @@ function stepRacer(r, dt){
   const speedRatio = clamp(r.speed / CFG.maxSpeed, 0, 1);
   const steerAuthority = r.drifting ? 1.25 : 1.0;
   let turnRate = steer * (r.isPlayer ? CFG.steerRate : CFG.steerRateAI) * steerAuthority * clamp(r.speed / 16, 0, 1.15);
-  if (r.isPlayer){
+  if (r.isPlayer && !r.drifting && r.spinT > 0){ turnRate = 0; }
+  if (r.isPlayer && !r.drifting && r.spinT <= 0){
+    /* ================= ROUND 4 · LANE-FOLLOW STEERING =================
+       The stick commands a target lane offset (r.laneSm, low-passed in
+       the input step); this single over-damped regulator produces the
+       ENTIRE turn rate: curvature feed-forward (the road's own demand)
+       + a heading correction toward the direction that closes the gap
+       to the target lane. There is no separate player turn-rate term
+       and no separate assist term, so the two can never fight, and the
+       regulator is stable at any gain a thumb can provoke — wobble in
+       the stick moves the lane target by centimetres (laneTau), and
+       even a pegged stick targets a lane 7.2 m out, still on the road.
+       Turn rate is hard-capped at CFG.laneTurnMax, just above the
+       road's own peak demand (~1.50 rad/s at top speed), so steering
+       alone cannot throw the kart off the road at racing speed.
+       While sliding (deliberate sustained full lock) the player gets
+       the old free-steer feel via the branch below; lane follow resumes
+       the moment the slide ends. */
+    const hereFL = frameAt(r.u);
+    const latNowL = (r.pos.x - hereFL.p.x) * hereFL.side.x + (r.pos.z - hereFL.p.z) * hereFL.side.z;
+    const latErr = latNowL - (r.laneSm || 0);
+    const lookL = clamp(Math.abs(r.speed) * 0.55, 9, 20);
+    const leadL = frameAt(r.u + lookL / TRACK_LEN);
+    const lead2L = frameAt(r.u + (lookL + 4) / TRACK_LEN);
+    const tanAL = Math.atan2(leadL.tan.x, leadL.tan.z);
+    let dPsiL = Math.atan2(lead2L.tan.x, lead2L.tan.z) - tanAL;
+    while (dPsiL > Math.PI) dPsiL -= TAU; while (dPsiL < -Math.PI) dPsiL += TAU;
+    const duFL = 4 / TRACK_LEN;
+    const ffL = -CFG.assistFF * r.speed * (dPsiL / (duFL * TRACK_LEN));
+    const vLatDes = clamp(-latErr * CFG.laneKLat, -CFG.laneLatMax, CFG.laneLatMax);
+    /* SIGN: vLatDes is in frame-side units, and side = (-tan.z, 0, tan.x)
+       is the road's RIGHT (dLat/dt = -v*sin(psi - psiRoad)), so closing a
+       positive lateral gap needs psi offset by -asin(vLat/v). The drive
+       line below also applies heading -= turnRate*dt, i.e. positive
+       turnRate DECREASES psi — both facts are folded in here: the whole
+       regulator output is negated vs the naive psi-space PD. */
+    const psiDes = Math.atan2(leadL.tan.x, leadL.tan.z) - Math.asin(clamp(vLatDes / Math.max(6, Math.abs(r.speed)), -0.8, 0.8));
+    let hErr = psiDes - r.heading;
+    while (hErr > Math.PI) hErr -= TAU; while (hErr < -Math.PI) hErr += TAU;
+    turnRate = clamp(-(ffL + hErr * CFG.laneKHdg * clamp(Math.abs(r.speed) / 18, 0, 1)), -CFG.laneTurnMax, CFG.laneTurnMax) * (r.speed < 0 ? -1 : 1);
+    r.turnRatePrev = turnRate;
+  }
+  if (r.isPlayer && r.drifting){
     /* speed-sensitive authority (owner, Nov 9): fuller turns at low
        speed, calmer at top speed — straights stop ping-ponging. The
        low-speed ramp also comes in a touch earlier (÷13 not ÷16). */
@@ -1327,7 +1405,7 @@ function stepRacer(r, dt){
        Scales ONLY the player's own turn rate, only while a boost is
        live and the kart is not sliding. */
     const boostDamp = (!r.drifting && (r.boostT > 0 || r.cometT > 0)) ? CFG.boostSteerCap : 1;
-    turnRate = steer * CFG.steerRate * steerAuthority * auth * clamp(r.speed / 13, 0, 1.15) * boostDamp;
+    turnRate = steer * CFG.steerRate * CFG.laneDriftTurn * auth * clamp(r.speed / 13, 0, 1.15) * boostDamp;
     /* STEERING ASSIST (owner, Nov 9 — "too touchy, hard to keep straight,
        swirls off the road"): a gentle lane-keeping pull toward where the
        road ahead is heading (look-ahead point on the racing line, so it
@@ -1380,7 +1458,7 @@ function stepRacer(r, dt){
   }
   r.heading -= turnRate * dt * (r.speed < 0 ? -1 : 1);
   const gripSlide = r.drifting ? 0.55 : 0.06;
-  const moveDir = r.heading + steer * gripSlide * clamp(r.speed / 20, 0, 1);
+  const moveDir = r.heading + (r.isPlayer && !r.drifting ? 0 : steer * gripSlide * clamp(r.speed / 20, 0, 1));
   /* bumper shove velocity (r.shoveX/Z, set by the collision step) rides
      on top of the kart's own motion, then decays in the move step */
   const vx = Math.sin(moveDir) * r.speed + (r.shoveX || 0), vz = Math.cos(moveDir) * r.speed + (r.shoveZ || 0);
@@ -1542,34 +1620,48 @@ function menuCam(t){
   racers.forEach((r, i) => { r.grp.rotation.y = Math.atan2(frameAt(r.u).tan.x, frameAt(r.u).tan.z); });
 }
 let lastT = performance.now();
-/* DEV/TEST timescale: __ll_speed multiplies game dt (QA uses it to race in
-   real-time under slow software rendering; default 1 = normal). */
+/* DEV/TEST hooks (inert in normal play): __ll_speed multiplies game dt
+   (QA races in real-time under slow software rendering); __ll_fixedStep,
+   when set to e.g. 1/120, steps the physics at that fixed dt regardless
+   of display refresh — QA uses it to prove the steering is frame-rate
+   independent (owner's phone runs 120 Hz). */
 window.__ll_speed = 1;
 function animate(){
   requestAnimationFrame(animate);
   const now = performance.now();
   let dt = Math.min(0.05, (now - lastT) / 1000) * (window.__ll_speed || 1); lastT = now;
   const tNow = now / 1000;
-  if (S.mode === 'count'){
-    S.countT -= dt;
-    const n = Math.ceil(S.countT);
-    if (n >= 1 && n <= 3) showCenterOnce(n);
-    if (S.countT <= 0){
-      S.mode = 'race'; showCenter('GO!', 700); AudioSys.sfx('go'); AudioSys.startMusic();
+  const stepWorld = (d) => {
+    if (S.mode === 'count'){
+      S.countT -= d;
+      const n = Math.ceil(S.countT);
+      if (n >= 1 && n <= 3) showCenterOnce(n);
+      if (S.countT <= 0){
+        S.mode = 'race'; showCenter('GO!', 700); AudioSys.sfx('go'); AudioSys.startMusic();
+      }
+      racers.forEach(r => { r.grp.position.copy(r.pos); r.grp.rotation.y = r.heading; });
+      updateCamera(d);
+    } else if (S.mode === 'race'){
+      S.time += d;
+      racers.forEach(r => stepRacer(r, d));
+      updateItems(d, tNow);
+      updateCamera(d);
+      if (!animate._hudT || tNow - animate._hudT > 0.08){ animate._hudT = tNow; updateHUD(); }
+    } else if (S.mode === 'results'){
+      racers.forEach(r => { if (!r.finished) stepRacer(r, d * 0.6); });
+      updateItems(d, tNow);
+    } else {
+      menuCam(tNow);
     }
-    racers.forEach(r => { r.grp.position.copy(r.pos); r.grp.rotation.y = r.heading; });
-    updateCamera(dt);
-  } else if (S.mode === 'race'){
-    S.time += dt;
-    racers.forEach(r => stepRacer(r, dt));
-    updateItems(dt, tNow);
-    updateCamera(dt);
-    if (!animate._hudT || tNow - animate._hudT > 0.08){ animate._hudT = tNow; updateHUD(); }
-  } else if (S.mode === 'results'){
-    racers.forEach(r => { if (!r.finished) stepRacer(r, dt * 0.6); });
-    updateItems(dt, tNow);
+  };
+  if (window.__ll_fixedStep){
+    /* DEV/TEST ONLY: fixed-step physics — accumulate the frame's dt and
+       step the world in exact __ll_fixedStep slices. Never set in play. */
+    animate._acc = Math.min(0.12, (animate._acc || 0) + dt);
+    const h = window.__ll_fixedStep;
+    while (animate._acc >= h){ stepWorld(h); animate._acc -= h; }
   } else {
-    menuCam(tNow);
+    stepWorld(dt);
   }
   earth.rotation.y = tNow * 0.004;
   updateParticles(dt);
