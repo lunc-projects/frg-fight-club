@@ -1734,7 +1734,13 @@ cv.addEventListener('pointerdown',e=>{
   e.preventDefault(); refreshCvPos(); audio(); startMusic();
   const p=toGame(e);
   const hit=hitAt(p.x,p.y);
-  if(hit){hit.fn(); return;}
+  if(hit){
+    /* the language picker is modal while open: only its own buttons fire —
+       a tap in a gap between its buttons must not fall through to the
+       screen underneath (the full-stage START region would catch it) */
+    if(langOpen&&hit.id.indexOf('lang')!==0)return;
+    hit.fn(); return;
+  }
   if(screen==='play'){
     if(p.x<W*.4&&p.y>H*.5){ joy.active=true; joy.id=e.pointerId; joy.dx=0; joy.dy=0; }
     else if(p.x>W*.55&&p.y>H*.5){
@@ -2171,6 +2177,13 @@ let langOpen=false;
 /* ---- title screen ---- */
 function drawTitle(t){
   const g=ctx;
+  /* START covers the WHOLE stage — registered FIRST so the language and
+     sound buttons (registered later; hitAt scans newest-first) keep their
+     own taps. The old hit region stopped at H-118, but the TAP TO START
+     label is drawn at H-72, INSIDE that excluded bottom bar — taps landing
+     on the words themselves hit nothing, so Tom had to tap over and over
+     (his report, Nov 11: "the button's in the wrong position" — it was). */
+  regBtn('start',0,0,W,H,()=>{SFX.click(); screen='brief';});
   if(keyartReady){
     /* Tom's exact key art, cover-fit, composition intact */
     const iw=keyartImg.width, ih=keyartImg.height, sc=Math.max(W/iw,H/ih);
@@ -2208,7 +2221,6 @@ function drawTitle(t){
   g.textAlign='left';
   drawLangSelector(14,H-46);
   drawSoundToggle(W-142,H-46);
-  regBtn('start',0,0,W,H-118,()=>{SFX.click(); screen='brief';});
 }
 /* ---- mission brief + MY FIGHTER panel ---- */
 function drawBrief(t){
