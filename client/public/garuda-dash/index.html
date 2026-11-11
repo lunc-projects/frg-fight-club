@@ -7,25 +7,34 @@
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { margin:0; padding:0; overflow:hidden; background:#0b1030; height:100%; }
+  html, body { margin:0; padding:0; overflow:hidden; background:#000; height:100%; }
   body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:#fff;
          -webkit-user-select:none; user-select:none; touch-action:none;
          display:flex; flex-direction:column; height:100dvh; }
-  #cvwrap { position:relative; flex:1; min-height:0; }
+  /* DESKTOP PORTRAIT (Jon's review, Nov 11): --stagew is set by fit() —
+     on wide screens the whole stage (HUD, field, control band) keeps a
+     phone-portrait width, centred, black bars at the sides. On phones
+     --stagew is the full width and nothing changes. */
+  #cvwrap { position:relative; flex:1; min-height:0; width:var(--stagew,100%); margin:0 auto; }
   #game { position:absolute; inset:0; width:100%; height:100%; display:block; }
   #ui { position:fixed; inset:0; pointer-events:none; }
   #hud {
-    position:relative; flex:0 0 auto; margin:10px 10px 2px;
+    position:relative; flex:0 0 auto; margin:10px auto 2px; width:calc(var(--stagew,100%) - 20px);
     background:linear-gradient(90deg, rgba(60,10,60,.88), rgba(10,40,80,.88)); border-radius:999px; padding:8px 16px;
-    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    display:flex; align-items:center; justify-content:space-between; gap:6px;
     box-shadow:0 0 18px rgba(255,0,128,.25), 0 4px 18px rgba(0,0,0,.5);
     border:1.5px solid rgba(57,230,255,.35);
   }
-  #hudLives { font-size:19px; letter-spacing:2px; min-width:86px; }
+  #hudLives { font-size:17px; letter-spacing:1px; min-width:0; white-space:nowrap; }
   #hudLevel { font-weight:900; font-size:12.5px; letter-spacing:.08em; color:#ffe9a8; white-space:nowrap; }
   #hudCoins { font-weight:900; font-size:15.5px; color:#ffd76a; }
-  #hudScore { font-weight:900; font-size:17px; font-variant-numeric:tabular-nums; min-width:56px; text-align:right; }
-  #hudCombo { font-weight:900; font-size:15px; color:#ff9a3c; min-width:74px; text-align:right;
+  #hudScore { font-weight:900; font-size:17px; font-variant-numeric:tabular-nums; min-width:0; text-align:right; }
+  /* HUD FIT (Jon's review build): the shuriken counter + menu button
+     joined the HUD — on narrow stages the combo readout gives up its
+     slot (combo floaters still show in-world) and the rest shrinks a
+     step, so nothing ever spills out of the pill. */
+  @media (max-width:600px){ #hudCombo{ display:none; } #hudLevel{ font-size:11px; } #hudLives{ font-size:15px; } #hudShu{ font-size:13px; } }
+  #hudCombo { font-weight:900; font-size:15px; color:#ff9a3c; min-width:0; text-align:right;
     text-shadow:0 0 10px rgba(255,122,26,.65); }
   #toast {
     position:absolute; top:22%; width:100%; text-align:center; font-size:26px; font-weight:900; letter-spacing:.06em;
@@ -37,22 +46,22 @@
      the world — floor line included — that much higher on screen. The thumb
      works in this strip and never covers the eagle. */
   #controlBand {
-    position:relative; flex:0 0 auto; height:104px; z-index:5;
+    position:relative; flex:0 0 auto; height:104px; z-index:5; width:var(--stagew,100%); margin:0 auto;
     background:
       repeating-linear-gradient(90deg, rgba(255,255,255,.028) 0 2px, transparent 2px 46px),
       linear-gradient(180deg, #0a1233, #04081a 72%);
     border-top:2px solid rgba(57,230,255,.35);
     box-shadow:0 -8px 22px rgba(0,0,0,.5), inset 0 0 24px rgba(57,230,255,.05);
   }
-  #pad { position:absolute; right:0; top:0; bottom:0; width:96px; display:flex; align-items:center; justify-content:center; pointer-events:none; }
+  #pad { position:absolute; right:0; top:0; bottom:0; width:158px; display:flex; align-items:center; justify-content:center; pointer-events:none; }
   .padR { display:flex; gap:12px; pointer-events:none; }
   /* virtual joystick — one floating stick in the control band; the base
      appears where the thumb lands and the knob follows it. The zone stops
      96px short of the right edge: that corner belongs to the screech button
      (keep in sync with STICK_CARVE in the script). */
-  #stickZone { position:absolute; left:0; top:0; bottom:0; right:96px; pointer-events:auto; touch-action:none; }
+  #stickZone { position:absolute; left:0; top:0; bottom:0; right:158px; pointer-events:auto; touch-action:none; }
   #stickBase {
-    position:absolute; left:calc(50% + 48px); top:50%; width:96px; height:96px; margin:-48px 0 0 -48px;
+    position:absolute; left:calc(50% + 79px); top:50%; width:96px; height:96px; margin:-48px 0 0 -48px;
     border-radius:50%; border:2px solid rgba(57,230,255,.5); background:rgba(10,20,50,.32);
     box-shadow:0 0 16px rgba(57,230,255,.22), inset 0 0 18px rgba(57,230,255,.1);
     opacity:.4; pointer-events:none;
@@ -125,6 +134,7 @@
   button.play:disabled { opacity:.55; }
   #overScreen { display:none; }
   #levelScreen { display:none; }
+  #quitScreen { display:none; }
   /* level picker */
   #levelPicker { display:flex; gap:7px; flex-wrap:wrap; justify-content:center; max-width:460px; }
   .lvbtn {
@@ -224,6 +234,10 @@
   #introCard .icS { font-size:12px; letter-spacing:.2em; opacity:.7; }
   #hudFeather { font-weight:900; font-size:15px; color:#ffe9a8; }
   #hudTime { font-weight:900; font-size:15px; color:#bffbff; }
+  #hudShu { font-weight:900; font-size:15px; color:#bffbff; white-space:nowrap; }
+  #menuBtn { background:rgba(255,255,255,.12); border:1.5px solid rgba(255,255,255,.35); color:#fff; border-radius:999px; width:34px; height:34px; font-size:16px; cursor:pointer; font-family:inherit; flex:0 0 auto; }
+  #soundNote { margin-top:8px; font-size:13.5px; font-weight:700; color:#ffd76a; cursor:pointer; text-decoration:underline; }
+  .cbtn.shu { width:56px; height:56px; font-size:22px; }
   #muteBtn { background:rgba(255,255,255,.12); border:1.5px solid rgba(255,255,255,.35); color:#fff; border-radius:999px; width:34px; height:34px; font-size:17px; cursor:pointer; font-family:inherit; flex:0 0 auto; }
   #shareStatus { min-height:18px; font-size:14px; margin:0; }
   /* ============ v2: menu cleanup + payouts & burns strip ============ */
@@ -273,7 +287,9 @@
   <div id="hudFeather">🪶 0</div>
   <div id="hudTime">⏱ 0.0</div>
   <div id="hudCombo"></div>
+  <div id="hudShu">🌀 0</div>
   <div id="hudScore">0</div>
+  <button id="menuBtn" title="Main menu">☰</button>
   <button id="muteBtn">🔊</button>
 </div>
 <div id="cvwrap"><canvas id="game"></canvas></div>
@@ -284,6 +300,7 @@
   </div>
   <div id="pad">
     <div class="padR">
+      <button class="cbtn shu" id="btnShu">🌀</button>
       <button class="cbtn gold screech" id="btnS">⚔️</button>
     </div>
   </div>
@@ -324,6 +341,7 @@
     </div>
   </div>
   <button class="play" id="startBtn">▶ PLAY</button>
+  <div id="soundNote" style="display:none">🔇 Sound is OFF — tap here to turn it on</div>
   <div class="small">🦅 MY GARUDA — NFT BONUS CHARACTER</div>
   <div id="nftPanel">
     <div class="nftRow">
@@ -343,7 +361,7 @@
       <input id="nftAddrInput" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="…or paste a wallet address to view">
       <button class="play alt" id="nftViewBtn">VIEW</button>
     </div>
-    <div id="nftStatus">Own a GARUDA NFT? Your Garuda's own art becomes your hero: Common = 🛡 shield · Rare = 🛡 + 💥 power dive · Legendary = 🛡🛡 + 💥 power dive. Everyone else plays the standard eagle — free.</div>
+    <div id="nftStatus">Own a GARUDA NFT? Your hero wears your Garuda's own colours: Common = 🛡 shield · Rare = 🛡 + 💥 power dive · Legendary = 🛡🛡 + 💥 power dive. Everyone else plays the standard eagle — free.</div>
     <div id="nftGrid"></div>
     <div class="nftRow" id="nftSelRow" style="display:none">
       <button class="play alt" id="nftStandardBtn" style="flex:1">🦅 PLAY STANDARD EAGLE</button>
@@ -361,11 +379,13 @@
   <button class="play alt" id="previewBtn">👀 PREVIEW LEVELS</button>
   <button class="play alt" id="adminBtn">🔐 PAYOUT ADMIN</button>
   <div id="menuExtras">
-    <p id="howText" style="display:none">Forty levels across ten worlds, one Ninja Eagle. One <b>thumb stick</b> does it all: <b>push to run</b>, <b>flick up to jump</b>,
-       <b>hold up to GLIDE</b>, <b>push down mid-air to dive</b>. Stomp the stone guardians — or hit
-       <b>⚔️ SWORD</b> to fight through them. Clear a level to unlock the next… and every world gets <b>hotter</b>. Reach the golden nest!
+    <p id="howText" style="display:none">Forty levels across ten worlds, one Ninja Eagle. One <b>thumb stick</b> does it all: <b>push to run</b>, <b>flick up to jump</b> —
+       <b>tap jump again in mid-air for a DOUBLE JUMP</b> — <b>hold up to GLIDE</b>, <b>push down mid-air to dive</b>. Stomp the stone guardians — or hit
+       <b>⚔️ SWORD</b> to fight through them, and throw <b>🌀 SHURIKENS</b> at range: stars are limited, so grab the silver star pickups to refill.
+       Bosses throw stars back — watch for the gold <b>!</b> wind-up and dodge! Clear a level to unlock the next… and every world gets <b>hotter</b>. Reach the golden nest!
        Hunt the <b>3 hidden 🪶</b> in every world — collect all 120 to unlock new <b>eagle skins</b>!
-       Beat each world's <b>⏱ par time</b> to earn <b>🥇🥈🥉 medals</b> — gold takes a fast, clean run!</p>
+       Beat each world's <b>⏱ par time</b> to earn <b>🥇🥈🥉 medals</b> — gold takes a fast, clean run!
+       <br>⌨️ <b>Desktop:</b> ←/→ or A/D run · ↑/W/Space jump (again mid-air = double jump) · hold ↑ glide · S sword · F throw shuriken · ↓/Shift dive.</p>
     <div id="levelWrap" style="display:none">
       <div class="small">CHOOSE YOUR START LEVEL</div>
       <div id="levelPicker"></div>
@@ -380,6 +400,14 @@
       <div class="small" id="bestLine"></div>
     </div>
   </div>
+</div>
+
+<div class="screen" id="quitScreen">
+  <div class="small">PAUSED</div>
+  <h1>🏠 MAIN MENU?</h1>
+  <p>Leaving now <b>ends this run</b> — progress in this run will <b>not</b> be saved.</p>
+  <button class="play" id="quitYesBtn">⏏ LEAVE TO MENU</button>
+  <button class="play alt" id="quitNoBtn">▶ KEEP PLAYING</button>
 </div>
 
 <div class="screen" id="levelScreen">
@@ -481,6 +509,13 @@ const IW = 800;                       /* internal canvas width — fixed */
 let W = IW, H = 600, SCALE = 1;
 function fit(){
   const wrap = document.getElementById('cvwrap');
+  /* DESKTOP PORTRAIT (Jon's review, Nov 11): cap the stage at a
+     phone-like aspect (0.78 w/h against the height left after the HUD
+     and control band) and centre it — black bars fill the rest of a
+     wide monitor. Phones are narrower than the cap: unchanged. */
+  const availH0 = Math.max(320, innerHeight - 92 - 34);
+  const stageW = Math.min(innerWidth, Math.round(availH0 * 0.78));
+  document.documentElement.style.setProperty('--stagew', stageW + 'px');
   const r = wrap ? wrap.getBoundingClientRect() : null;
   if (r && r.width > 0 && r.height > 0){
     H = Math.max(600, Math.min(1100, Math.round(IW * r.height / r.width)));
@@ -1142,7 +1177,12 @@ function gdEditorSanitize(d){
   }
   const bossHp = int(d.bossHp, 1, 99), bossSpeed = int(d.bossSpeed, 0, 120);
   if (bossHp === null || bossSpeed === null) return null;
-  return { v: 1, grounds, platforms, walkers, bossHp, bossSpeed };
+  /* bossThrows = boss throws per minute, 0 = the game's level formula
+     (Jon's review, Nov 11). Levels published before this key existed
+     have no bossThrows: default 0 — never a rejection. */
+  const bossThrows = d.bossThrows === undefined ? 0 : int(d.bossThrows, 0, 60);
+  if (bossThrows === null) return null;
+  return { v: 1, grounds, platforms, walkers, bossHp, bossSpeed, bossThrows };
 }
 function gdApplyEditorData(L, d){
   L.grounds = d.grounds.map(g => [g[0], g[1], g[2]]);
@@ -1154,6 +1194,7 @@ function gdApplyEditorData(L, d){
   if (L.boss){
     L.boss.hp = d.bossHp; L.boss.maxHp = d.bossHp; L.boss.dmgHp = d.bossHp;
     L.boss.speed = d.bossSpeed;
+    L.boss.throwsPerMin = d.bossThrows || 0;
   }
   /* climb flags follow the edited grounds (same story-start indices
      buildLegacy flags) */
@@ -1935,7 +1976,15 @@ function comboPay(base){
 }
 function comboSuffix(pay){ return pay.tier > 1 ? ' ×' + pay.tier : ''; }
 const input = { left: false, right: false, jumpHeld: false, fastFall: false };
+/* fastFall has TWO holders — the touch stick and the keyboard (audit D1:
+   Jon's review dive key). input.fastFall is the merged read the physics
+   uses; each source owns its own flag and syncFall() merges them, so
+   releasing one can never cancel the other mid-dive. */
+let kbFall = false, stickFall = false;
+function syncFall(){ input.fastFall = kbFall || stickFall; }
 let jumpQueued = false;
+let airJumps = 0;   /* mid-air jumps used since leaving the ground (1 = the double jump) */
+let quitOpen = false;   /* main-menu confirm is up: world frozen, draw keeps running */
 
 const P = { x: 40, y: 380, w: 34, h: 30, vx: 0, vy: 0, face: 1, onGround: false, coyote: 0, gliding: false, runT: 0 };
 
@@ -1951,9 +2000,11 @@ function hud(){
   $('hudLevel').textContent = 'LV ' + level + ' · ' + THEMES[level - 1].name;
   $('hudCoins').textContent = '🪙 ' + coinCount;
   $('hudFeather').textContent = '🪶 ' + runFeathers;
+  $('hudShu').textContent = '🌀 ' + shuAmmo;
   $('hudScore').textContent = score;
   setComboHud();
   $('muteBtn').textContent = muted ? '🔇' : '🔊';
+  const sn = $('soundNote'); if (sn) sn.style.display = muted ? 'block' : 'none';
 }
 function toast(msg, ms){
   const el = $('toast'); el.textContent = msg; el.style.opacity = 1;
@@ -2017,6 +2068,13 @@ let activeSkin = (() => { const id = localStorage.getItem('garudaDashSkin'); ret
 function skinUnlocked(s){ return featherTotal() >= s.unlock; }
 function activeSkinDef(){ const s = SKINS.find(x => x.id === activeSkin); return (s && skinUnlocked(s)) ? s : SKINS[0]; }
 function eaglePalette(){
+  /* NFT SKIN (Jon's review, Nov 11): a selected Garuda flies as the
+     STANDARD hero — same body, pose, walk, sword and flip — wearing
+     colours sampled from its own art, so every NFT hero matches the
+     standard skin's design language. Only the palette changes; the
+     powers never did live in the picture. The menu card and the HUD
+     portrait keep the ORIGINAL NFT art. */
+  if (typeof gdChar !== 'undefined' && gdChar && gdChar.nftPal) return gdChar.nftPal;
   const s = activeSkinDef();
   const band = s.bandMode === 'tier' ? skinColors() : { main: s.band.main, dark: s.band.dark, med: s.band.med, flame: false };
   return { skin: s, body: s.body, bodyHi: s.bodyHi, wing: s.wing, head: s.head, headShade: s.headShade,
@@ -2166,6 +2224,7 @@ function startLevel(n, quiet, withIntro){
   rebuildSolids();
   buildBgStrips();
   coins = buildCoinsFor(L_GROUNDS, L_PLATFORMS);
+  buildShuPickups(); shuAmmo = SHU_START; shurikens = []; bossShots = []; throwCd = 0;
   walkers = L.walkerDefs.map(d => ({ ...d, x: (d.minX + d.maxX) / 2, dir: 1, stun: 0, dead: false }));
   bats = (L.batDefs || []).map(d => ({ ...d, w: 28, h: 20,
     x: d.ax - 14, y: d.ay + 22, state: 'hang', t: 0, stun: 0, dead: false,
@@ -2174,7 +2233,7 @@ function startLevel(n, quiet, withIntro){
   gdRefillShield();
   P.x = 40; P.y = 380; P.vx = 0; P.vy = 0; P.face = 1; P.onGround = false; P.gliding = false;
   cam = 0; camY = 0; checkpoint = 40; checkpointY = L_GROUNDS.length ? L_GROUNDS[0][1] : GROUND_Y; screechCd = 0; screechFx = null; invuln = 0; flinchT = 0;
-  particles = []; floaters = []; landT = 0; shakeT = 0;
+  particles = []; floaters = []; landT = 0; shakeT = 0; airJumps = 0;
   hitStopT = 0; coinChain = 0; coinChainT = 0;
   ambientT = 0; flashT = 0; nextFlash = 3 + Math.random() * 4;
   setMood(n);
@@ -2270,8 +2329,14 @@ function hurt(fromPit){
   stompChain = 0;   /* taking damage breaks the combo chain (hud() below refreshes) */
   lives--;
   hud();
-  if (lives <= 0){ showOver('dead'); return; }
+  if (lives <= 0){ gdBossExit(); showOver('dead'); return; }
   if (fromPit){
+    /* BRIGHTNESS FIX (Jon's review, Nov 11): a fall ends the boss-fight
+       atmosphere. bossFx used to survive the respawn, so the walk back
+       to the arena played under the fight's dark overlay and read as
+       "the game stays dim after I lose a life". The fight re-ignites
+       by itself when the hero crosses into the arena again. */
+    gdBossExit();
     sealAlcove();
     P.x = checkpoint; P.y = checkpointY - P.h - 30; P.vx = 0; P.vy = 0;   /* respawn just above the checkpoint floor */
   } else {
@@ -2281,6 +2346,7 @@ function hurt(fromPit){
   }
   invuln = 1.6;
   flinchT = 0.35;
+  airJumps = 0;
   beep(160, 0, 0.18, 'sawtooth', 0.11);
 }
 function tryScreech(){
@@ -2360,6 +2426,232 @@ function stepFx(dt){
   stepAmbience(dt);
 }
 
+/* ================= SHURIKENS (Jon's review, Nov 11) =================
+   The hero's throwing stars: limited ammo, refilled by silver star
+   pickups placed through each level. Touch: the 🌀 button beside the
+   sword. Desktop: F. A star flies flat with a slight drop and hits
+   like a sword swing at range — shields still eat the first hit,
+   brutes still take two, and the boss still only takes damage inside
+   his punish window (anything else is PARRIED off his guard). */
+let shurikens = [];        /* live player stars {x,y,vx,vy,t,dead} */
+let shuPickups = [];       /* unclaimed ammo stars in the world {x,y,taken} */
+let shuAmmo = 0, throwCd = 0;
+const SHU_START = 5, SHU_MAX = 12, SHU_PICK = 3;
+function buildShuPickups(){
+  shuPickups = [];
+  L_PLATFORMS.forEach((p, i) => { if (i % 4 === 1) shuPickups.push({ x: p[0] + p[2] / 2, y: p[1] - 24, taken: false }); });
+  L_GROUNDS.forEach((g, i) => { if (i % 2 === 0 && g[2] > 500) shuPickups.push({ x: g[0] + g[2] * 0.62, y: g[1] - 26, taken: false }); });
+}
+function tryThrowShuriken(){
+  if (!running || quitOpen || throwCd > 0) return;
+  if (shuAmmo <= 0){ toast('🌀 OUT OF STARS — grab a silver star pickup!', 1200); beep(140, 0, 0.06, 'square', 0.06); return; }
+  shuAmmo--; throwCd = 0.22;
+  const pcx = P.x + P.w / 2, pcy = P.y + P.h / 2;
+  shurikens.push({ x: pcx + P.face * 22, y: pcy - 4, vx: P.face * 640, vy: -30, t: 0, dead: false });
+  hud();
+  beep(1560, 0, 0.05, 'square', 0.05); beep(2093, 0.04, 0.06, 'square', 0.04);
+}
+function stepShurikens(dt){
+  if (throwCd > 0) throwCd -= dt;
+  for (const s of shurikens){
+    s.t += dt; s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 260 * dt;
+    if (s.t > 1.15){ s.dead = true; continue; }
+    for (const sd of SOLIDS){
+      if (s.x > sd.x && s.x < sd.x + sd.w && s.y > sd.y && s.y < sd.y + 26){ s.dead = true; burst(s.x, s.y, 5, '#dfe9ff', 120, 0.3, 2, 200); break; }
+    }
+    if (s.dead) continue;
+    for (const wk of walkers){
+      if (wk.dead || wk.stun > 0) continue;
+      if (s.x < wk.x - 4 || s.x > wk.x + wk.w + 4 || s.y < wk.y - wk.h - 6 || s.y > wk.y + 4) continue;
+      s.dead = true;
+      if (wk.shield){
+        wk.shield = false; wk.stun = 0.6;
+        burst(wk.x + wk.w / 2, wk.y - wk.h + 8, 10, '#c8ccd4', 200, 0.5, 2.6, 330);
+        addFloater(wk.x + wk.w / 2, wk.y - wk.h - 12, 'SHIELD SMASHED!', '#fff3c4', 15);
+        beep(1568, 0, 0.05, 'square', 0.07); beep(190, 0.01, 0.1, 'square', 0.11);
+      } else if (wk.kind === 'brute' && wk.hp > 1){
+        wk.hp = 1; wk.stun = 0.8;
+        shakeT = Math.max(shakeT, 0.4); doHitStop(0.05);
+        burst(wk.x + wk.w / 2, wk.y - wk.h, 12, '#9a8d7c', 170, 0.5, 2.8, 340);
+        addFloater(wk.x + wk.w / 2, wk.y - wk.h - 16, 'CRACKED!', '#ffe9a8', 17);
+        beep(140, 0, 0.12, 'square', 0.12);
+      } else {
+        wk.dead = true;
+        const pay = comboPay(wk.kind === 'brute' ? 100 : 50);
+        score += pay.pts; hud();
+        burst(wk.x + wk.w / 2, wk.y - wk.h, wk.kind === 'brute' ? 18 : 10, '#ff8fb0', 170, 0.5, 2.6, 320);
+        shakeT = Math.max(shakeT, wk.kind === 'brute' ? 0.5 : 0.3); doHitStop(0.05);
+        addFloater(wk.x + wk.w / 2, wk.y - wk.h - 12, '+' + pay.pts + ' STAR' + comboSuffix(pay), wk.kind === 'brute' ? '#ffd76a' : '#ff8fb0', wk.kind === 'brute' ? 19 : 14);
+        beep(220, 0, 0.08, 'square', 0.1);
+      }
+      break;
+    }
+    if (s.dead) continue;
+    for (const b of bats){
+      if (b.dead || b.stun > 0 || b.state === 'down' || b.state === 'drop') continue;
+      if (s.x < b.x - 4 || s.x > b.x + b.w + 4 || s.y < b.y - b.h - 6 || s.y > b.y + 4) continue;
+      s.dead = true; b.dead = true;
+      const pay = comboPay(50);
+      score += pay.pts; hud();
+      burst(b.x + b.w / 2, b.y - b.h, 10, '#ff8fb0', 160, 0.5, 2.6, 320);
+      addFloater(b.x + b.w / 2, b.y - b.h - 12, '+' + pay.pts + ' STAR', '#ff8fb0', 14);
+      break;
+    }
+    if (s.dead) continue;
+    if (boss && !boss.dead){
+      const by = boss.y - boss.hop - boss.h;
+      if (s.x > boss.x - 4 && s.x < boss.x + boss.w + 4 && s.y > by - 6 && s.y < boss.y + 4){
+        s.dead = true;
+        const inWindow = !boss.sword || boss.hopV > 0 || (boss.hop === 0 && boss.chargeT > 1.1);
+        if (inWindow){
+          boss.hp--; boss.dmgHp = boss.hp + 1; boss.dmgT = 0.55; boss.hitT = 0.18;
+          shakeT = Math.max(shakeT, 0.6); doHitStop(0.06);
+          burst(boss.x + boss.w / 2, by + 40, 16, '#ffd76a', 200, 0.5, 3, 340);
+          if (boss.hp <= 0) gbDefeat(boss);
+          else {
+            if (boss.hp <= Math.ceil(boss.maxHp / 3)) boss.enraged = true;
+            addFloater(boss.x + boss.w / 2, by - 16, 'HIT! ' + boss.hp + ' HP', '#ffe9a8', 17);
+            beep(140, 0, 0.12, 'square', 0.12);
+          }
+        } else {
+          burst(s.x, s.y, 7, '#ffe9a8', 150, 0.3, 2.2, 260);
+          addFloater(boss.x + boss.w / 2, by - 14, 'PARRIED!', '#fff3c4', 15);
+          beep(1568, 0, 0.05, 'square', 0.07);
+        }
+      }
+    }
+  }
+  shurikens = shurikens.filter(s => !s.dead);
+  const pcx = P.x + P.w / 2, pcy = P.y + P.h / 2;
+  for (const pk of shuPickups){
+    if (pk.taken) continue;
+    if (Math.abs(pk.x - pcx) < 28 && Math.abs(pk.y - pcy) < 30){
+      pk.taken = true;
+      shuAmmo = Math.min(SHU_MAX, shuAmmo + SHU_PICK);
+      hud();
+      burst(pk.x, pk.y, 8, '#dfe9ff', 130, 0.4, 2.4, 160);
+      addFloater(pk.x, pk.y - 18, '🌀 +' + SHU_PICK, '#bffbff', 15);
+      beep(1318, 0, 0.06, 'triangle', 0.09); beep(1760, 0.05, 0.08, 'triangle', 0.08);
+    }
+  }
+}
+function drawShurikenShape(x, y, r, rot, fill){
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  for (let i = 0; i < 4; i++){
+    const a = i * Math.PI / 2;
+    ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+    ctx.lineTo(Math.cos(a + 0.62) * r * 0.42, Math.sin(a + 0.62) * r * 0.42);
+  }
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = 'rgba(20,26,40,0.85)';
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.18, 0, 7); ctx.fill();
+  ctx.restore();
+}
+
+/* ================= BOSS THROWS (Jon's review, Nov 11) =================
+   Every Guardian fights at range now. A throw is telegraphed — a gold
+   "!" and a pulsing marker over the boss for ~0.45s — then stars fly
+   at the hero's position (dodgeable: they never home). Volume and
+   pace scale with the level: 1 star early, 2 from L11, 3 from L24,
+   faster as levels climb and faster still when the boss is enraged.
+   From L20 the throw is a lobbed GRENADE instead: it arcs, bursts on
+   the ground, and the blast (not the flight) is what hurts. Damage is
+   the ordinary hurt() — a Garuda shield still eats one hit. The level
+   editor can override the pace per level (boss throws/min, 0 = this
+   formula). */
+let bossShots = [];   /* {x,y,vx,vy,t,kind,dead} kind 'star' | 'grenade' */
+function gdBossThrowInterval(){
+  if (boss && boss.throwsPerMin > 0) return 60 / boss.throwsPerMin;
+  let iv = 3.4 - (level - 1) * 0.055;
+  if (boss && boss.enraged) iv *= 0.72;
+  return Math.max(1.45, iv);
+}
+function gdBossThrowCount(){ return level >= 24 ? 3 : level >= 11 ? 2 : 1; }
+function stepBossThrows(dt){
+  if (!boss || boss.dead || !bossFx.active || boss.stun > 0) return;
+  if (boss.throwT === undefined){ boss.throwT = 1.1; boss.teleT = 0; }
+  if (boss.teleT > 0){
+    boss.teleT -= dt;
+    if (boss.teleT <= 0){
+      const bx = boss.x + boss.w / 2, by = boss.y - boss.hop - boss.h + 26;
+      const pcx = P.x + P.w / 2, pcy = P.y + P.h / 2;
+      const n = gdBossThrowCount();
+      const grenade = level >= 20;
+      for (let i = 0; i < n; i++){
+        const sp = (i - (n - 1) / 2) * 0.16;
+        const dx = pcx - bx, dy = pcy - by, d = Math.hypot(dx, dy) || 1;
+        const spd = Math.min(430, 295 + level * 4);
+        if (grenade){
+          bossShots.push({ x: bx, y: by, vx: dx / d * spd * 0.72, vy: -260 - Math.random() * 60, t: 0, kind: 'grenade', dead: false });
+        } else {
+          const ca = Math.cos(sp), sa = Math.sin(sp);
+          bossShots.push({ x: bx, y: by, vx: (dx / d * ca - dy / d * sa) * spd, vy: (dx / d * sa + dy / d * ca) * spd, t: 0, kind: 'star', dead: false });
+        }
+      }
+      beep(1180, 0, 0.05, 'square', 0.06);
+      boss.throwT = gdBossThrowInterval();
+    }
+    return;
+  }
+  boss.throwT -= dt;
+  if (boss.throwT <= 0){
+    boss.teleT = 0.45;
+    addFloater(boss.x + boss.w / 2, boss.y - boss.hop - boss.h - 26, '!', '#ffd76a', 26);
+    beep(660, 0, 0.07, 'square', 0.07);
+  }
+}
+function stepBossShots(dt){
+  stepBossThrows(dt);
+  for (const s of bossShots){
+    s.t += dt;
+    s.x += s.vx * dt; s.y += s.vy * dt;
+    if (s.kind === 'grenade') s.vy += 620 * dt; else s.vy += 46 * dt;
+    if (s.t > 3.2){ s.dead = true; continue; }
+    let hitGround = false;
+    for (const sd of SOLIDS){ if (s.x > sd.x && s.x < sd.x + sd.w && s.y > sd.y && s.y < sd.y + 30){ hitGround = true; break; } }
+    if (s.kind === 'grenade' && hitGround){
+      s.dead = true;
+      burst(s.x, s.y, 16, '#ff8a1e', 220, 0.5, 3, 300);
+      shakeT = Math.max(shakeT, 0.4);
+      beep(120, 0, 0.16, 'sawtooth', 0.12);
+      const pcx = P.x + P.w / 2, pcy = P.y + P.h / 2;
+      if (invuln <= 0 && Math.hypot(pcx - s.x, pcy - s.y) < 52){ hurt(false); if (!running) return; }
+      continue;
+    }
+    if (s.kind === 'star' && hitGround){ s.dead = true; burst(s.x, s.y, 4, '#ffd76a', 110, 0.25, 1.8, 180); continue; }
+    const pcx = P.x + P.w / 2, pcy = P.y + P.h / 2;
+    if (invuln <= 0 && Math.abs(s.x - pcx) < 24 && Math.abs(s.y - pcy) < 24){
+      s.dead = true;
+      if (s.kind === 'grenade') burst(s.x, s.y, 14, '#ff8a1e', 200, 0.45, 2.8, 280);
+      hurt(false); if (!running) return;
+    }
+  }
+  bossShots = bossShots.filter(s => !s.dead);
+}
+function drawBossShots(){
+  for (const s of bossShots){
+    if (s.kind === 'grenade'){
+      ctx.save(); ctx.translate(s.x, s.y);
+      ctx.fillStyle = '#2c313a'; ctx.beginPath(); ctx.arc(0, 0, 8, 0, 7); ctx.fill();
+      ctx.fillStyle = '#8a93a5'; ctx.fillRect(-2.5, -11, 5, 4);
+      ctx.fillStyle = '#ffb700'; ctx.shadowColor = '#ff8a1e'; ctx.shadowBlur = 8;
+      ctx.beginPath(); ctx.arc(0, -12, 2.2 + Math.sin(runTime * 30) * 0.7, 0, 7); ctx.fill();
+      ctx.restore();
+    } else {
+      drawShurikenShape(s.x, s.y, 10, runTime * 16, '#ffd76a');
+    }
+  }
+  if (boss && !boss.dead && boss.teleT > 0){
+    ctx.save();
+    ctx.globalAlpha = 0.35 + 0.3 * Math.sin(runTime * 30);
+    ctx.fillStyle = '#ffd76a';
+    ctx.beginPath(); ctx.arc(boss.x + boss.w / 2, boss.y - boss.hop - boss.h - 18, 7, 0, 7); ctx.fill();
+    ctx.restore();
+  }
+}
+
 /* ================= update ================= */
 function update(dt){
   elapsed += dt; runTime += dt; levelTime += dt;
@@ -2388,8 +2680,18 @@ function update(dt){
       P.vy = -JUMP_V; P.onGround = false; P.coyote = 0;
       dustAt(P.x + P.w / 2, P.y + P.h, 130);   /* tiny takeoff puff */
       beep(330, 0, 0.07, 'square', 0.07);
+    } else if (airJumps < 1){
+      /* DOUBLE JUMP (Jon's review, Nov 11): one extra jump in mid-air,
+         for every player — the high ledges his review marked need it.
+         A touch softer than the ground jump so the ground jump stays
+         the strong one; the charge returns on every landing. */
+      airJumps++;
+      P.vy = -JUMP_V * 0.94;
+      burst(P.x + P.w / 2, P.y + P.h + 4, 8, '#bffbff', 120, 0.35, 2.2, 140);
+      beep(520, 0, 0.07, 'square', 0.07); beep(780, 0.05, 0.08, 'square', 0.06);
     }
   }
+  if (P.onGround) airJumps = 0;
   P.vy += GRAV * dt;
   P.gliding = false;
   if (!P.onGround && P.vy > 0 && input.jumpHeld){ P.vy = Math.min(P.vy, GLIDE_FALL); P.gliding = true; }
@@ -2788,6 +3090,9 @@ function update(dt){
     }
     if (swingT >= SWING_DUR) swingT = -1;
   }
+  stepShurikens(dt);
+  stepBossShots(dt);
+  if (!running) return;
   /* flame barrier: a wall while the boss lives (no damage, just no passing) */
   if (boss && !boss.dead && P.x + P.w > barrierX) P.x = barrierX - P.w;
   if (P.x + P.w > L_NESTX && P.onGround && !(boss && !boss.dead)){ levelComplete(); return; }
@@ -4278,9 +4583,12 @@ function draw(){
   L_PLATFORMS.forEach(([x, y, w], i) => drawPlatform(x, y, w, i));
   for (const mv of L_MOVERS) drawMover(mv);
   if (feather && !feather.taken) drawFeather(feather);
+  for (const pk of shuPickups){ if (!pk.taken) drawShurikenShape(pk.x, pk.y + Math.sin(runTime * 3 + pk.x * 0.05) * 3, 11, runTime * 2.2, '#dfe9ff'); }
   for (const hf of hFeathers) if (!hf.taken) drawHiddenFeather(hf);
   if (egg && !egg.taken) drawEgg(egg);
   if (boss && !boss.dead){ drawBarrier(); if (boss.sword) drawSwordmaster(boss); else drawBoss(boss); drawBossPowerBar(boss); }
+  for (const s of shurikens) drawShurikenShape(s.x, s.y, 10, runTime * 18, '#eef4ff');
+  drawBossShots();
   if (bossFx.boltT > 0 && boss) drawBossBolt();
   /* coins */
   for (const c of coins){
@@ -4362,10 +4670,13 @@ function draw(){
     ctx.restore();
   }
   if (!preview.on){
-    /* a selected Garuda whose art loaded = the NFT itself is the hero;
-       anything else (no selection, art still loading, art failed) =
-       the standard animated eagle, exactly as v2 */
-    if (gdNftHeroReady()) drawNftHero(); else drawEagle();
+    /* The hero is ALWAYS the standard animated eagle rig now. With a
+       Garuda selected, eaglePalette() swaps in the palette sampled
+       from that NFT's art — same silhouette, walk cycle, sword and
+       flip; the NFT's own colours and a head accessory (Jon's review,
+       Nov 11: keep NFT designs consistent with the standard skin —
+       change hair, body colours and head accessories only). */
+    drawEagle();
   }
   drawFloaters();
   ctx.restore();
@@ -4395,7 +4706,7 @@ function draw(){
   /* BOSS FIGHT atmosphere: the arena darkens and the screen edges
      pulse red — fast and strong during the arrival, a slow pulse
      for the rest of the fight. Never covers the boss or his bar. */
-  if (bossFx.active && boss && !boss.dead){
+  if (bossFx.active && boss && !boss.dead && P.x + P.w > boss.minX - 460){
     ctx.fillStyle = 'rgba(8,0,0,0.30)';
     ctx.fillRect(0, 0, viewW, VH);
     const arr = bossFx.arrival > 0;
@@ -4925,6 +5236,13 @@ function gdEnsureCharManifest(){
 /* Debug/test hook: expose the loader state so the QA harness can verify
    manifest behaviour (the manifest binding itself is module-scoped). */
 window.__gdCharManifestState = () => gdCharManifest;
+/* QA hook (read-only): the headless checks read run state from here
+   instead of guessing from pixels. */
+window.__gdQaState = () => ({ running, level, lives, px: Math.round(P.x), py: Math.round(P.y),
+  onGround: P.onGround, airJumps, shuAmmo, shuLeft: shuPickups.filter(p => !p.taken).length,
+  bossFxOn: bossFx.active, bossShots: bossShots.length, bossTele: boss ? (boss.teleT || 0) : 0,
+  quitOpen, bx: boss ? Math.round(boss.x) : null, bhp: boss ? boss.hp : null, score, nftPal: (typeof gdChar !== 'undefined' && gdChar) ? (gdChar.nftPalState || null) : null,
+  fastFall: input.fastFall });
 function gdLoadCharSprite(tokenId){
   const g = gdChar;
   if (!g || g.tokenId !== String(tokenId)) return;
@@ -4949,6 +5267,92 @@ function gdLoadCharSprite(tokenId){
   g.imgEl = im;
   if (im.complete && im.naturalWidth > 0) g.imgState = 'ok';
 }
+
+/* ================= NFT palette sampling (Jon's review, Nov 11) =====
+   Sampling source is the extracted pack sprite (GD_CHAR_BASE +
+   <id>.png): same-origin, so the canvas read can never be blocked by
+   CORS taint. If that file is unusable, the original art URL is tried
+   with CORS; if that also fails, the hero wears the standard skin —
+   powers intact — and the panel says so in words. Only opaque pixels
+   count: the pack art is a cut-out on transparency, so what gets
+   sampled IS the character (outfit, hair, gear), never a backdrop. */
+function gdRgbToHex(r, g, b){ return '#' + [r, g, b].map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join(''); }
+function gdShade(hex, f){ /* f<1: darken toward black; f>1: lighten toward white */
+  const n = parseInt(hex.slice(1), 16);
+  let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  if (f <= 1){ r *= f; g *= f; b *= f; }
+  else { const t = Math.min(1, f - 1); r += (255 - r) * t; g += (255 - g) * t; b += (255 - b) * t; }
+  return gdRgbToHex(r, g, b);
+}
+function gdPaletteFromImage(im, tokenId){
+  const S = 44;
+  const c = document.createElement('canvas'); c.width = S; c.height = S;
+  const g2 = c.getContext('2d', { willReadFrequently: true });
+  g2.drawImage(im, 0, 0, S, S);
+  const d = g2.getImageData(0, 0, S, S).data;   /* throws if tainted — the caller catches */
+  const bins = new Map(); let topR = 0, topG = 0, topB = 0, topN = 0;
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++){
+    const i = (y * S + x) * 4, a = d[i + 3];
+    if (a < 200) continue;
+    const r = d[i], gg = d[i + 1], b = d[i + 2];
+    const mx = Math.max(r, gg, b), mn = Math.min(r, gg, b);
+    if (y < S * 0.3){ topR += r; topG += gg; topB += b; topN++; }
+    if (mx - mn < 26) continue;                 /* greys and whites carry no colour identity */
+    const key = ((r >> 5) << 6) | ((gg >> 5) << 3) | (b >> 5);
+    const cur = bins.get(key) || { n: 0, r: 0, g: 0, b: 0 };
+    cur.n++; cur.r += r; cur.g += gg; cur.b += b;
+    bins.set(key, cur);
+  }
+  const ranked = [...bins.values()].filter(v => v.n >= 6).sort((p, q) => q.n - p.n);
+  if (!ranked.length) return null;
+  const bodyBin = ranked[0];
+  const bodyHex = gdRgbToHex(bodyBin.r / bodyBin.n, bodyBin.g / bodyBin.n, bodyBin.b / bodyBin.n);
+  let accHex = null;
+  for (const v of ranked){
+    if (v === bodyBin) continue;
+    const h = gdRgbToHex(v.r / v.n, v.g / v.n, v.b / v.n);
+    if (h !== bodyHex){ accHex = h; break; }
+  }
+  if (!accHex) accHex = gdShade(bodyHex, 1.35);
+  const hairHex = topN ? gdRgbToHex(topR / topN, topG / topN, topB / topN) : bodyHex;
+  const accTypes = ['band', 'plume', 'mohawk', 'gem'];
+  const accType = accTypes[(parseInt(tokenId, 10) || 0) % 4];
+  return {
+    skin: { id: 'nft' + tokenId, name: 'NFT' }, nft: true,
+    body: [gdShade(bodyHex, 1.12), bodyHex, gdShade(bodyHex, 0.72)],
+    bodyHi: gdShade(bodyHex, 1.3),
+    wing: [gdShade(bodyHex, 0.8), gdShade(bodyHex, 0.5)],
+    head: gdShade(hairHex, 1.55), headShade: gdShade(hairHex, 1.25), tail: gdShade(hairHex, 1.35),
+    beak: ['#ffc93c', '#f08c00'], feet: '#f5a623', eye: '#14100c', brow: '#14100c',
+    band: { main: accHex, dark: gdShade(accHex, 0.62), med: gdShade(accHex, 1.4), flame: false },
+    acc: accType === 'band' ? null : { type: accType, color: accHex },
+  };
+}
+function gdSampleNftPalette(g){
+  const finish = (pal) => {
+    if (!gdChar || gdChar.tokenId !== g.tokenId) return;
+    if (pal){ gdChar.nftPal = pal; gdChar.nftPalState = 'ok'; }
+    else {
+      gdChar.nftPal = null; gdChar.nftPalState = 'fail';
+      gdRenderPanel(g.name + ' selected — ' + gdPowerLine(g.rarity) + '. Its art colours could not be read, so the standard hero flies this run — your powers are unchanged.');
+    }
+  };
+  const tryUrl = (url, cors, next) => {
+    const im = new Image();
+    if (cors) im.crossOrigin = 'anonymous';
+    im.onload = () => {
+      let pal = null;
+      try { pal = gdPaletteFromImage(im, g.tokenId); } catch (e) { pal = null; }
+      if (pal) finish(pal); else if (next) next(); else finish(null);
+    };
+    im.onerror = () => { if (next) next(); else finish(null); };
+    im.src = url;
+  };
+  tryUrl(GD_CHAR_BASE + g.tokenId + '.png', false, () => {
+    if (g.image) tryUrl(g.image, true, null); else finish(null);
+  });
+}
+
 const GD_HERO_SIZE = 76;
 function gdNftHeroReady(){
   return typeof gdChar !== 'undefined' && !!gdChar && !!gdChar.imgEl && gdChar.imgState === 'ok' && gdChar.imgEl.naturalWidth > 0;
@@ -5222,6 +5626,26 @@ function drawEagle(){
   ctx.restore();
   ctx.fillStyle = '#8a5a10';
   ctx.beginPath(); ctx.arc(-1, -8.2, 1.1, 0, 7); ctx.fill();
+  /* NFT head accessory — the variation rides on the sampled palette:
+     a plume, a mohawk, or a gem circlet, all in the NFT's own accent
+     colour. Standard skins carry no acc and skip this entirely. */
+  if (PAL.acc){
+    ctx.fillStyle = PAL.acc.color; ctx.strokeStyle = PAL.acc.color;
+    if (PAL.acc.type === 'plume'){
+      ctx.beginPath();
+      ctx.moveTo(-3, -9); ctx.quadraticCurveTo(-9.5, -20, -3.5, -26.5);
+      ctx.quadraticCurveTo(0.5, -19, 1.5, -10); ctx.closePath(); ctx.fill();
+    } else if (PAL.acc.type === 'mohawk'){
+      for (let k = 0; k < 4; k++){
+        const mx = -7 + k * 4.4, mh = 7.5 - Math.abs(k - 1.5) * 1.6;
+        ctx.beginPath(); ctx.moveTo(mx - 2.1, -8.6); ctx.lineTo(mx, -8.6 - mh); ctx.lineTo(mx + 2.1, -8.6); ctx.closePath(); ctx.fill();
+      }
+    } else if (PAL.acc.type === 'gem'){
+      ctx.lineWidth = 1.8;
+      ctx.beginPath(); ctx.arc(0, -1, 10.8, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, -11.6, 3, 0, 7); ctx.fill();
+    }
+  }
   ctx.restore();
   /* near wing — articulated, layered over the body's back */
   const w = wingBlade(-3, -21, pose.wing1, pose.wing2, pose.spread, 1, pose.ripple);
@@ -5323,13 +5747,27 @@ function updatePreview(dt){
   }
   stepFx(dt);
 }
-addEventListener('keydown', () => { if (preview.on) nextPreview(); if (intro.on) hideIntro(); });
+addEventListener('keydown', e => { if (gdTypingTarget(e)) return; if (preview.on) nextPreview(); if (intro.on) hideIntro(); });
 $('introCard').addEventListener('click', () => hideIntro());
 cv.addEventListener('mousedown', () => { if (preview.on) nextPreview(); if (intro.on) hideIntro(); });
-addEventListener('pointerdown', () => ensureMusic(), { once: true });
+/* Per-tap audio revive (desktop audit S1): the old { once: true }
+   listener fired exactly once per page load — if that first tap found
+   the context suspended (or the player had ever muted), no later tap
+   could ever restart the music silently. ensureMusic -> startMusic
+   self-guards (muted, already running), so calling it on every tap is
+   free and always safe. */
+addEventListener('pointerdown', () => ensureMusic());
 
 /* ================= input ================= */
+/* Typing guard (desktop audit D3): while a form field has focus —
+   the score-name box, the paste-a-wallet box, editor fields — key
+   presses are TEXT, never game input. */
+function gdTypingTarget(e){
+  const t = e.target;
+  return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+}
 addEventListener('keydown', e => {
+  if (gdTypingTarget(e)) return;
   if (e.repeat) return;
   if (e.code === 'ArrowLeft' || e.code === 'KeyA') input.left = true;
   if (e.code === 'ArrowRight' || e.code === 'KeyD') input.right = true;
@@ -5337,12 +5775,20 @@ addEventListener('keydown', e => {
     input.jumpHeld = true; jumpQueued = true;
     if (running) e.preventDefault();
   }
-  if (e.code === 'KeyS' || e.code === 'ArrowDown') tryScreech();
+  if (e.code === 'KeyS') tryScreech();
+  if (e.code === 'KeyF') tryThrowShuriken();
+  /* DIVE key (desktop audit D1, Jon's review): S used to share the
+     sword with ArrowDown, which left keyboard players with NO dive —
+     no dive-bombs, no power dive, no way into the secret alcove.
+     Now: S = sword only; Down / Shift held = dive. */
+  if (e.code === 'ArrowDown' || e.code === 'ShiftLeft' || e.code === 'ShiftRight'){ kbFall = true; syncFall(); }
 });
 addEventListener('keyup', e => {
+  if (gdTypingTarget(e)) return;
   if (e.code === 'ArrowLeft' || e.code === 'KeyA') input.left = false;
   if (e.code === 'ArrowRight' || e.code === 'KeyD') input.right = false;
   if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') input.jumpHeld = false;
+  if (e.code === 'ArrowDown' || e.code === 'ShiftLeft' || e.code === 'ShiftRight'){ kbFall = false; syncFall(); }
 });
 /* ================= virtual joystick =================
    ONE stick replaces the old left/right/jump buttons (whose touchstart/
@@ -5383,7 +5829,7 @@ function stickHome(){
 }
 function stickClear(){
   stickId = null; stickUpOn = false;
-  input.left = input.right = input.jumpHeld = input.fastFall = false;
+  input.left = input.right = input.jumpHeld = false; stickFall = false; syncFall();
   stickHome();
 }
 function stickApply(cx, cy){
@@ -5395,11 +5841,12 @@ function stickApply(cx, cy){
   input.left = dx < -14;
   if (dy < -20){ if (!stickUpOn){ stickUpOn = true; jumpQueued = true; } input.jumpHeld = true; }
   else if (dy > -10){ stickUpOn = false; input.jumpHeld = false; }
-  input.fastFall = dy > 22;
+  stickFall = dy > 22; syncFall();
   stickShow(true, kx, ky);
 }
 stickZone.addEventListener('pointerdown', e => {
   e.preventDefault();
+  ensureMusic();
   if (stickId !== null) return;                    /* one thumb only */
   stickId = e.pointerId;
   try { stickZone.setPointerCapture(stickId); } catch (err) {}
@@ -5422,7 +5869,8 @@ stickZone.addEventListener('pointercancel', stickEnd);
 stickZone.addEventListener('lostpointercapture', stickEnd);
 stickHome();
 /* sword: press-only, no held state — rebound on Pointer Events too */
-$('btnS').addEventListener('pointerdown', e => { e.preventDefault(); tryScreech(); });
+$('btnS').addEventListener('pointerdown', e => { e.preventDefault(); ensureMusic(); tryScreech(); });
+$('btnShu').addEventListener('pointerdown', e => { e.preventDefault(); ensureMusic(); tryThrowShuriken(); });
 /* global anti-stick safety net: focus loss or a hidden tab kills all touch
    input state, even if some pointer event never reached us */
 addEventListener('blur', stickClear);
@@ -5452,7 +5900,7 @@ function frame(now){
   } else if (preview.on){
     try { updatePreview(dt); }
     catch (err){ console.error(err); exitPreview(); }
-  } else if (running){
+  } else if (running && !quitOpen){
     if (hitStopT > 0){ hitStopT = Math.max(0, hitStopT - dt); }   /* hit-stop: world freezes, draw (and shake) keeps running */
     else {
       try { update(dt); }
@@ -5559,6 +6007,14 @@ function gdStartRun(){
   resetRun(selLevel);
   running = true;
   ensureMusic();
+  /* Sound reality check (desktop audit S3): if the browser STILL has
+     not let the audio context run 600ms after PLAY, say so once, in
+     words — Jon's "no sound" was a silently held-back context. One
+     more tap revives it (the per-tap listener above). */
+  setTimeout(() => {
+    if (running && !muted && (!AC || AC.state !== 'running'))
+      toast('🔇 No sound yet? Tap anywhere once — your browser held it back.', 2600);
+  }, 600);
 }
 $('startBtn').onclick = gdStartRun;
 /* PLAY WITH YOUR NFT (Tom, Nov 8): starts the run with the SELECTED
@@ -5578,6 +6034,35 @@ $('muteBtn').onclick = () => {
   if (muted) stopMusic(); else ensureMusic();
   hud();
 };
+$('soundNote').onclick = () => { if (muted) $('muteBtn').onclick(); };
+/* ================= MAIN MENU BUTTON (Jon's review, Nov 11) =========
+   In the HUD during play. Leaving is a two-step: the confirm screen
+   warns the run ends with nothing saved; KEEP PLAYING resumes exactly
+   where things froze (quitOpen gates the world update, not the draw).
+   Confirmed leave = back at the main menu with NO page refresh: run
+   state torn down in place, menu shown, music stopped. */
+function gdToMainMenu(){
+  quitOpen = false;
+  $('quitScreen').style.display = 'none';
+  if (preview.on) exitPreview();
+  running = false;
+  stopMusic();
+  stickClear();
+  hideIntro();
+  $('levelScreen').style.display = 'none';
+  $('overScreen').style.display = 'none';
+  $('startScreen').style.display = 'flex';
+  hud();
+}
+$('menuBtn').onclick = () => {
+  if (running || preview.on){ quitOpen = true; $('quitScreen').style.display = 'flex'; }
+  else gdToMainMenu();
+};
+$('quitYesBtn').onclick = gdToMainMenu;
+$('quitNoBtn').onclick = () => { quitOpen = false; $('quitScreen').style.display = 'none'; };
+/* name field: select-all on focus so a saved name replaces in one type
+   (desktop audit D3 companion) */
+$('nameInput').addEventListener('focus', e => { try { e.target.select(); } catch (err) {} });
 $('shareBtn').onclick = async () => {
   const text = `I scored ${score} on Garuda Dash — reached Level ${maxLevelReached}! 🦅`;
   try {
@@ -5833,12 +6318,13 @@ function gdSelectChar(tokenId){
   const g = gdOwned.find(x => x.tokenId === String(tokenId));
   if (!g) return;
   /* The menu card + HUD portrait keep the ORIGINAL NFT art (g.image).
-     The in-world hero sprite is the EXTRACTED character from the pack
-     (GD_CHAR_BASE + <id>.png), loaded manifest-gated by
-     gdLoadCharSprite: 'ok' → the extracted character flies;
-     'skip'/'error'/'loading' → the standard eagle for that run, with
-     the selection's shield / dive powers applying either way. */
-  gdChar = { ...g, imgEl: null, imgState: 'manifest' };
+     In-world, the hero is the standard eagle rig wearing a palette
+     sampled from this Garuda's art (gdSampleNftPalette) — Jon's review
+     (Nov 11): NFT heroes stay consistent with the standard skin; only
+     colours and a head accessory change. The pack-sprite load below is
+     kept for the manifest/QA hooks. Powers apply either way. */
+  gdChar = { ...g, imgEl: null, imgState: 'manifest', nftPal: null, nftPalState: 'loading' };
+  gdSampleNftPalette(g);
   gdEnsureCharManifest();
   if (gdCharManifest && !gdCharManifest.__inflight && gdCharManifest[String(g.tokenId)]) gdLoadCharSprite(g.tokenId);
   GD_EAGLE_BOUNCE = gdPowerDive() ? GD_DIVE_BOUNCE : DIVE_BOUNCE;
