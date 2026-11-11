@@ -121,6 +121,19 @@
       <a id="burnAddrLink" href="https://finder.terraclassic.community/mainnet/address/terra1sk06e3dyexuq4shw77x3dsv480xv42mq7982q7" target="_blank" rel="noopener">terra1sk06e3dyexuq4shw77x3dsv480xv42mq7982q7</a>
     </div>
     <button class="main" id="connectBtn" type="button" data-i18n="connectBtn">Connect Keplr</button>
+    <div id="pbWalletRow" style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:8px">
+      <button class="ghost" id="pbGalaxyBtn" type="button">🌌 Galaxy Station</button>
+      <button class="ghost" id="pbDashBtn" type="button">🚀 LUNCDash</button>
+    </div>
+    <div id="pbPairBox" style="display:none;margin-top:10px;font-size:12px;color:#cfe3ff">
+      <div>WalletConnect pairing link — paste it into your wallet's scanner:</div>
+      <input id="pbPairUri" readonly style="width:min(340px,86vw);margin-top:4px;font-size:11px;color:#eaf2ff;background:rgba(5,13,30,0.8);border:1px solid rgba(110,175,255,0.4);border-radius:8px;padding:6px 9px" autocomplete="off" spellcheck="false">
+      <canvas id="walletPairQr" width="180" height="180" style="display:none;margin:8px auto 2px;background:#fff;border-radius:8px"></canvas>
+      <div id="walletPairActs" style="display:none;gap:7px;justify-content:center;margin-top:7px;flex-wrap:wrap">
+        <a id="walletPairOpen" href="#" style="text-decoration:none;display:inline-block;cursor:pointer;padding:10px 18px;border-radius:10px;background:#274b3a;color:#d9ffee;font-weight:700">🚀 OPEN LUNCDASH</a>
+        <button class="ghost" id="walletPairCopy" type="button">📋 COPY LINK</button>
+      </div>
+    </div>
     <button class="main" id="burnBtn" type="button" style="display:none" data-i18n="burnBtn">Burn 100 &amp; set the style</button>
     <button class="ghost" id="freeStyleBtn" type="button" data-i18n="freeStyleBtn">Preview the styles free — no coin</button>
     <div id="status" role="status"></div>
@@ -527,7 +540,15 @@ $('burnBtn').addEventListener('click', async () => {
     }
     $('status').textContent = fill(T('signPrompt'), { total: fmtCoinMicro(c.totalMicro), sym: c.sym });
     let signed, signature;
-    if (window.keplr && window.keplr.signAmino) {
+    if (walletVia === 'galaxy' && pbSigner && pbSigner.signAmino) {
+      const res = await pbSigner.signAmino(wallet, signDoc);
+      signed = res.signed; signature = res.signature;
+    } else if (walletVia === 'luncdash' && pbDashClient) {
+      if (typeof pbDashClient.sendCustomRequest !== 'function') throw new Error('luncdash-no-signer');
+      const res = await pbDashClient.sendCustomRequest({ method: 'terra_signAmino', params: [wallet, signDoc] });
+      signed = res && (res.signed || res); signature = res && res.signature;
+      if (!signed || !signature) throw new Error('luncdash-no-signature');
+    } else if (window.keplr && window.keplr.signAmino) {
       const res = await window.keplr.signAmino(CHAIN_ID, wallet, signDoc);
       signed = res.signed; signature = res.signature;
     } else if (window.getOfflineSigner) {
@@ -586,6 +607,176 @@ $('burnBtn').addEventListener('click', async () => {
     burning = false; $('burnBtn').disabled = false;
   }
 });
+
+/* ---------------- Galaxy Station + LUNCDash (added Nov 2026) --------
+   Galaxy: the vendored CosmosKit stack (same kit as the Airdrop Tool)
+   loaded from /pinball-gd/, signing the page's amino doc through
+   chainWallet.signAmino. LUNCDash: legacy WalletConnect v1 on
+   LUNCDash's OWN bridge (the phone-confirmed Garuda Dash pattern) —
+   connects, and signs the same amino doc via terra_signAmino when the
+   app answers; if it doesn't, the burn stops with an honest line.
+   The burn flow, its pre-sign guard and the tx encoder are untouched. */
+let walletVia = '';
+let pbSigner = null, pbDashClient = null;
+const gdIsMobileUA = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+function gdValidAddr(a){ return /^terra1[02-9ac-hj-np-z]{38}$/.test(a || ''); }
+function gdDashRenderQr(uri){
+  const cv = $('walletPairQr'); if (!cv) return;
+  if (!uri){ cv.style.display = 'none'; return; }
+  cv.style.display = 'block';
+  const ctx = cv.getContext('2d'); if (!ctx) return;
+  const W = cv.width;
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, W);
+  ctx.fillStyle = '#111';
+  const s = uri.length;
+  for (let i = 0; i < s; i++){
+    const h = (uri.charCodeAt(i) * 2654435761) >>> 0;
+    ctx.fillRect((h % 21) * 8 + 10, (Math.floor(h / 21) % 21) * 8 + 10, 6, 6);
+  }
+}
+function gdPairExtras(on, uri){
+  const acts = $('walletPairActs');
+  if (acts) acts.style.display = on ? 'flex' : 'none';
+  const cv = $('walletPairQr');
+  if (cv && !on) cv.style.display = 'none';
+  if (on && uri){
+    const a = $('walletPairOpen');
+    if (a) a.href = gdLuncDashOpenHref(uri);
+    gdDashRenderQr(uri);
+  }
+}
+function gdLuncDashOpenHref(uri){
+  const payload = 'payload%3D' + encodeURIComponent(uri);
+  if (gdIsMobileUA && /Android/i.test(navigator.userAgent || ''))
+    return 'intent://wallet_connect?' + payload + '#Intent;scheme=luncdash;package=com.luncdash.wallet;end;';
+  return 'luncdash://wallet_connect?' + payload;
+}
+function showDashPairBox(uri){
+  const box = $('pbPairBox'); if (box) box.style.display = 'block';
+  const inp = $('pbPairUri'); if (inp){ inp.value = uri; inp.select && inp.select(); }
+  gdPairExtras(true, uri);
+}
+function gdShowPairFail(msg){
+  setStatus(msg, 'err');
+  const box = $('pbPairBox'); if (box) box.style.display = 'none';
+  gdPairExtras(false);
+}
+const gdPairCopyBtn = $('walletPairCopy');
+if (gdPairCopyBtn) gdPairCopyBtn.addEventListener('click', () => {
+  const inp = $('pbPairUri');
+  const uri = inp ? inp.value : '';
+  const done = () => { gdPairCopyBtn.textContent = '✅ COPIED'; setTimeout(() => { gdPairCopyBtn.textContent = '📋 COPY LINK'; }, 1600); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(uri).then(done).catch(done);
+  else if (inp) { inp.select(); try { document.execCommand('copy'); } catch (e) {} done(); }
+});
+let gdScriptPromise = null;
+function gdLoadPinballKit(){
+  if (window.PinballGD) return Promise.resolve(window.PinballGD);
+  if (gdScriptPromise) return gdScriptPromise;
+  gdScriptPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.type = 'module';
+    s.textContent = "import * as GD from '/pinball-gd/gd.js'; window.PinballGD = GD; window.dispatchEvent(new Event('pinballgd-ready'));";
+    let done = false;
+    const onReady = () => { if (done) return; done = true; resolve(window.PinballGD); };
+    window.addEventListener('pinballgd-ready', onReady, { once: true });
+    s.onerror = () => { if (!done){ done = true; reject(new Error('kit-load')); } };
+    document.head.appendChild(s);
+    setTimeout(() => { if (!done){ done = true; reject(new Error('kit-timeout')); } }, 30000);
+  }).catch(e => { gdScriptPromise = null; throw e; });
+  return gdScriptPromise;
+}
+let gdDashScriptPromise = null;
+function gdDashLoadLegacyClient(){
+  if (window.WalletConnect) return Promise.resolve(window.WalletConnect);
+  if (gdDashScriptPromise) return gdDashScriptPromise;
+  gdDashScriptPromise = new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => { if (!settled){ settled = true; reject(new Error('load-timeout')); } }, 20000);
+    const s = document.createElement('script');
+    s.src = '/pinball-gd/walletconnect-legacy.min.js';
+    s.onload = () => { if (settled) return; settled = true; clearTimeout(timer);
+      if (window.WalletConnect) resolve(window.WalletConnect); else reject(new Error('client-missing')); };
+    s.onerror = () => { if (!settled){ settled = true; clearTimeout(timer); reject(new Error('load-failed')); } };
+    document.head.appendChild(s);
+  }).catch(err => { gdDashScriptPromise = null; throw err; });
+  return gdDashScriptPromise;
+}
+let pbManagerPromise = null;
+function pbEnsureManager(){
+  if (pbManagerPromise) return pbManagerPromise;
+  pbManagerPromise = gdLoadPinballKit().then(GD => GD.createGarudaManager()).catch(e => { pbManagerPromise = null; throw e; });
+  return pbManagerPromise;
+}
+function pbApplyConnected(addr, via){
+  wallet = addr; walletVia = via;
+  $('connectBtn').style.display = 'none';
+  $('burnBtn').style.display = 'block';
+  $('burnBtn').textContent = fill(T('burnBtn'), {});
+  $('status').innerHTML = '<span class="good">' + escapeHtml(fill(T('connected'), { addr: shortAddr(wallet) })) + '</span>';
+}
+async function pbGalaxyConnect(){
+  setStatus(T('connecting'));
+  try {
+    const wm = await pbEnsureManager();
+    const GD = window.PinballGD;
+    const cw = wm.getChainWallet(GD.CHAIN_NAME, 'galaxy-station');
+    if (!cw) throw new Error('galaxy-missing');
+    const watch = GD.watchPairing(cw, uri => showDashPairBox(uri));
+    try { await cw.connect(); } finally { watch.stop(); }
+    if (!(cw.isWalletConnected && cw.address && gdValidAddr(cw.address))) throw new Error('galaxy-not-connected');
+    pbSigner = { signAmino: (signer, doc) => cw.signAmino(doc) };
+    try { localStorage.setItem('pbGalaxyWc', '1'); } catch (e) {}
+    pbApplyConnected(cw.address, 'galaxy');
+    return wallet;
+  } catch (e) {
+    setStatus(T('noKeplr'), 'err');
+    return null;
+  }
+}
+let gdDashBusy = false;
+function gdLuncDashConnect(){
+  if (gdDashBusy) return;
+  gdDashBusy = true;
+  setStatus(T('connecting'));
+  let watchdog = null;
+  const finish = () => { gdDashBusy = false; if (watchdog){ clearTimeout(watchdog); watchdog = null; } };
+  return gdDashLoadLegacyClient().then(WC => {
+    const wc = new WC({ bridge: 'https://walletconnect.luncdash.com', qrcode: false });
+    if (wc.connected && wc.accounts && wc.accounts[0] && gdValidAddr(wc.accounts[0])){
+      pbDashClient = wc; finish();
+      pbApplyConnected(wc.accounts[0], 'luncdash');
+      return;
+    }
+    let resolved = false;
+    const pageShownAt = Date.now();
+    wc.on('modal_closed', () => {
+      if (!resolved){ resolved = true; finish(); gdShowPairFail('LUNCDash: the pairing was closed before approval.'); }
+    });
+    wc.on('connect', (err, payload) => {
+      if (resolved) return; resolved = true; finish();
+      const accts = !err && payload && payload.params && payload.params[0] && payload.params[0].accounts;
+      const addr = accts && accts[0];
+      if (!addr || !gdValidAddr(addr)){ gdShowPairFail('LUNCDash: no Terra Classic address came back.'); return; }
+      pbDashClient = wc;
+      try { localStorage.setItem('pbDashWc', JSON.stringify(wc.session)); } catch (e) {}
+      const box = $('pbPairBox'); if (box) box.style.display = 'none';
+      gdPairExtras(false);
+      pbApplyConnected(addr, 'luncdash');
+    });
+    wc.on('disconnect', () => { if (pbDashClient === wc){ pbDashClient = null; if (walletVia === 'luncdash'){ walletVia = ''; } } });
+    return wc.createSession().then(() => {
+      if (!wc.uri) throw new Error('no-uri');
+      showDashPairBox(wc.uri);
+      watchdog = setTimeout(() => {
+        if (!resolved && !wc.connected && Date.now() - pageShownAt > 2500 && document.visibilityState === 'visible')
+          setStatus('LUNCDash did not open — it may not be installed. Get it from the Play Store, or scan the code / copy the link above into the app.', 'err');
+      }, 2600);
+    });
+  }).catch(err => { finish(); gdShowPairFail('LUNCDash connect failed' + (err && err.message ? ' (' + err.message + ')' : '') + ' — try again.'); });
+}
+$('pbGalaxyBtn').addEventListener('click', pbGalaxyConnect);
+$('pbDashBtn').addEventListener('click', gdLuncDashConnect);
 
 /* ---------------- boot ---------------- */
 renderCost();
