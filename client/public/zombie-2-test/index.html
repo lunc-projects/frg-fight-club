@@ -568,28 +568,16 @@ function fighterImgFailed(){ if(!fighter||!fighter.img)return false; const im=fi
    square, has to be a cut-out character. With legs." Same pattern as the
    Garuda full-body pack: the token's OWN art, cut out of its backdrop,
    palette sampled from the art, lower body completed underneath.
-   Matte = seed-and-grow against the photo's own backdrop: SEED from the
-   top-centre sky anchor (both Commando scenes carry clean sky there;
-   the bottom of these frames is textured rubble/ground, so the grow
-   stops at the frame bottom instead of being seeded from it). A pixel
-   joins the backdrop only when it agrees with the backdrop colour
-   REFERENCE FOO — the running frontier colour — within CAP AND the step
-   from the pixel it grows from is within STEP: smooth blurred backdrop
-   flows, sharp detailed figure stops the grow cold. The yellow/olive
-   identity colours of the Commandos are protected wherever the BACKDROP
-   is not itself that colour (hue-distance gate). The largest remaining
-   blob is the fighter; enclosed pockets fill. Honest sanity gates: on
+   Matte v2 (Nov 11): border flood where EVERY border pixel seeds
+   with its own colour as its front reference (STEP gates local drift,
+   CAP gates distance from the seed colour), the fighter = largest
+   remaining blob plus severed fragments that live inside its box, and
+   a solidify pass that fills the silhouette solid — see buildCutout.
+   Honest sanity gates: on
    any failure the square-frame treatment stands in and the UI says so.
    Tuned/validated on Tom's real #337 + #713 art (colours, not tokens:
    no per-token data anywhere in this code). */
-const CUT={STEP:26,CAP:104,SMOOTH:16};
-function cutHueWarm(r,g,b){
-  const mx=Math.max(r,g,b), mn=Math.min(r,g,b), d=mx-mn;
-  if(!mx||d/mx<.20)return false;
-  let h=0;
-  if(mx===r)h=(60*((g-b)/d)+360)%360; else if(mx===g)h=60*((b-r)/d)+120; else h=60*((r-g)/d)+240;
-  return (h>=10&&h<=88)||h>=338||h<=12;
-}
+const CUT={STEP:26,CAP:110};
 function buildCutout(it){
   if(!it||it.cut||it.cutFail)return;
   const img=it.imgObj;
@@ -600,30 +588,37 @@ function buildCutout(it){
     const sg=src.getContext('2d',{willReadFrequently:true});
     sg.drawImage(img,0,0);
     const data=sg.getImageData(0,0,w,h).data;   /* throws if CORS-tainted */
-    /* sky anchor: top-centre block, dropped on an outlier (helmet there) */
-    const aw=Math.max(8,(w*.09)|0), ax0=((w-aw)/2)|0, ay0=(h*.012)|0;
-    const S=[];
-    for(let y=ay0;y<ay0+aw;y+=3)for(let x=ax0;x<ax0+aw;x+=3){const i=(y*w+x)*4; S.push([data[i],data[i+1],data[i+2]]);}
-    S.sort((p,q)=>p[0]+p[1]+p[2]-q[0]-q[1]-q[2]);
-    const med=S[S.length>>1];
-    let R=0,Gc=0,B=0,cnt=0;
-    for(const p of S){const dd=Math.abs(p[0]-med[0])+Math.abs(p[1]-med[1])+Math.abs(p[2]-med[2]); if(dd<130){R+=p[0];Gc+=p[1];B+=p[2];cnt++;}}
-    if(cnt<4){it.cutFail=true; return;}
-    R/=cnt; Gc/=cnt; B/=cnt;
-    const warmBg=cutHueWarm(R,Gc,B);
+    /* Matte v2 (Nov 11 - Tom's ghost fix). MEASURED root cause of the
+       see-through fighter: the old matte starved on real art - its single
+       top-centre anchor let the sky flood mark 864 of 589,824 px on #337 -
+       so the "defocus ground" smoothness flood did the real cutting, and
+       it cannot tell defocused ground from the fighter's own smooth cloth:
+       it climbed from the bottom edge and deleted the black undersuit
+       (#337) and the smooth scarf (#713), leaving disconnected armour
+       fragments = a translucent ghost. Matte v2: (1) a border flood in
+       which EVERY border pixel seeds with its OWN colour as its front
+       reference - STEP gates local drift, CAP gates distance from that
+       seed colour; no anchor, no hue exemption, no smoothness flood.
+       (2) The fighter = the largest remaining blob PLUS any severed
+       fragment (an arm, a thigh) whose box lives mostly inside the core's
+       box - side backdrop slabs fail that test and stay out.
+       (3) SOLIDIFY: fill every column between its first and last kept
+       pixel and bridge row gaps up to 60 px, so the silhouette is solid
+       by construction - alpha inside is binary, see-through impossible.
+       Validated on Tom's real #337 + #713 art: both cut out complete
+       and solid (silhouette fill .64 / .58; the old matte kept 28-40%
+       of the body). */
     const bg=new Uint8Array(N), rR=new Float32Array(N), rG=new Float32Array(N), rB=new Float32Array(N);
     const stack=[];
     const seed=(x,y)=>{const n=y*w+x; if(bg[n])return; const i=n*4;
-      if(Math.abs(data[i]-R)+Math.abs(data[i+1]-Gc)+Math.abs(data[i+2]-B)>110)return;
-      bg[n]=1; rR[n]=R; rG[n]=Gc; rB[n]=B; stack.push(n);};
-    for(let x=0;x<w;x++)seed(x,0);
+      bg[n]=1; rR[n]=data[i]; rG[n]=data[i+1]; rB[n]=data[i+2]; stack.push(n);};
+    for(let x=0;x<w;x++){seed(x,0); seed(x,h-1);}
     for(let y=0;y<h;y++){seed(0,y); seed(w-1,y);}
     const tryAdd=(n,from)=>{
       if(bg[n])return;
       const i=n*4, r=data[i], g=data[i+1], b=data[i+2], j=from*4;
       if(Math.abs(r-data[j])+Math.abs(g-data[j+1])+Math.abs(b-data[j+2])>CUT.STEP)return;
       if(Math.abs(r-rR[from])+Math.abs(g-rG[from])+Math.abs(b-rB[from])>CUT.CAP)return;
-      if(!warmBg&&cutHueWarm(r,g,b))return;   /* identity colours are the fighter's */
       bg[n]=1; rR[n]=rR[from]; rG[n]=rG[from]; rB[n]=rB[from]; stack.push(n);
     };
     while(stack.length){
@@ -631,66 +626,54 @@ function buildCutout(it){
       if(x>0)tryAdd(n-1,n);
       if(x<w-1)tryAdd(n+1,n);
       if(y>0)tryAdd(n-w,n);
-      if(y<h-1&&y<h*.47)tryAdd(n+w,n);   /* never grow past the backdrop/figure line — the textured ground strip below is not backdrop */
+      if(y<h-1)tryAdd(n+w,n);
     }
-    /* defocus ground: the painterly scenes defocus toward the bottom — the
-       ground under the figure is a smooth colour field. Flood UP from the
-       bottom edge through smooth (low local-variance) pixels and mark them
-       backdrop, so the matte never HAS to cross the ground's sharp tread
-       edges: the downward grow stops at them, the upward flood passes them.
-       Sharp/textured pixels (the figure's own feet included) stop it. */
-    const sm=new Float32Array(N);
-    for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){
-      const n=y*w+x, i=n*4; let d=0;
-      const ch=(m,k)=>{ const v=Math.abs(data[i+k]-data[m*4+k]); if(v>d)d=v; };
-      ch(n-1,0); ch(n+1,0); ch(n-w,0); ch(n+w,0);
-      ch(n-1,1); ch(n+1,1); ch(n-w,1); ch(n+w,1);
-      ch(n-1,2); ch(n+1,2); ch(n-w,2); ch(n+w,2);
-      sm[n]=d;
-    }
-    const stB=[]; const markB=(n)=>{ if(!bg[n]){ bg[n]=1; rR[n]=R; rG[n]=Gc; rB[n]=B; stB.push(n);} };
-    for(let x=0;x<w;x++)markB((h-1)*w+x);
-    while(stB.length){
-      const n=stB.pop(), x=n%w, y=(n/w)|0;
-      const tryUp=(m)=>{ if(!bg[m]&&sm[m]<=CUT.SMOOTH)markB(m); };
-      if(y>0)tryUp(n-w);
-      if(x>0)tryUp(n-1);
-      if(x<w-1)tryUp(n+1);
-      if(y<h-1)tryUp(n+w);
-    }
-    /* largest 8-connected opaque blob = the fighter */
-    const seen=new Uint8Array(N); let best=null;
+    /* blobs of non-backdrop, largest first; the fighter's core is #0 */
+    const seen=new Uint8Array(N); const comps=[];
     for(let s0=0;s0<N;s0++){
       if(bg[s0]||seen[s0])continue;
       const comp=[]; const st=[s0]; seen[s0]=1;
+      let mnx=w,mxx=-1,mny=h,mxy=-1;
       while(st.length){const n=st.pop(); comp.push(n); const x=n%w, y=(n/w)|0;
+        if(x<mnx)mnx=x; if(x>mxx)mxx=x; if(y<mny)mny=y; if(y>mxy)mxy=y;
         const nb=(m)=>{ if(!bg[m]&&!seen[m]){seen[m]=1; st.push(m);} };
         if(x>0)nb(n-1); if(x<w-1)nb(n+1); if(y>0)nb(n-w); if(y<h-1)nb(n+w);
         if(x>0&&y>0)nb(n-w-1); if(x<w-1&&y>0)nb(n-w+1); if(x>0&&y<h-1)nb(n+w-1); if(x<w-1&&y<h-1)nb(n+w+1);
       }
-      if(!best||comp.length>best.length)best=comp;
+      comps.push({comp:comp,area:comp.length,bbox:[mnx,mny,mxx,mxy]});
     }
-    if(!best){it.cutFail=true; return;}
+    if(!comps.length){it.cutFail=true; return;}
+    comps.sort((a,b)=>b.area-a.area);
+    const main=comps[0];
+    let mbx0=main.bbox[0], mby0=main.bbox[1], mbx1=main.bbox[2], mby1=main.bbox[3];
     const keep=new Uint8Array(N);
-    for(const n of best)keep[n]=1;
-    /* fill enclosed pockets (bg fully surrounded by the fighter). The fill
-       starts from the frame's sides/top only — never from the bottom edge:
-       backdrop the grow never reached hangs under the figure (rubble), and
-       bottom-seeding would wrongly annex it to the outside. */
-    const out=new Uint8Array(N); const st2=[]; const pushOut=(n)=>{ if(!keep[n]&&!out[n]){out[n]=1; st2.push(n);} };
-    for(let x=0;x<w;x++)pushOut(x);
-    for(let y=0;y<h;y++){pushOut(y*w); pushOut(y*w+w-1);}
-    while(st2.length){const n=st2.pop(), x=n%w, y=(n/w)|0;
-      if(x>0)pushOut(n-1); if(x<w-1)pushOut(n+1); if(y>0)pushOut(n-w); if(y<h-1)pushOut(n+w);}
-    for(let n=0;n<N;n++) if(bg[n]&&!out[n])keep[n]=1;   /* pockets join the fighter */
-    /* trim: backdrop islands under the figure never became pockets (open at
-       the bottom). Flood DOWN through bg from the figure's lowest row at
-       each column and clear what it reaches — the figure's own lowest rows
-       are keep, so the flood only strips what hangs below it. */
-    for(let x=0;x<w;x++){
-      let y0=-1; for(let y=h-1;y>=0;y--){ if(keep[y*w+x]){y0=y; break;} }
-      if(y0<0){ for(let y=0;y<h;y++)keep[y*w+x]=0; continue; }
-      for(let y=y0+1;y<h;y++){ const n=y*w+x; if(keep[n]&&bg[n])keep[n]=0; }
+    for(const n of main.comp)keep[n]=1;
+    for(let ci=1;ci<comps.length;ci++){
+      const c=comps[ci];
+      if(c.area<N*.012)continue;
+      const cb=c.bbox;
+      const xIn=Math.max(0,Math.min(cb[2],mbx1)-Math.max(cb[0],mbx0)+1)/(cb[2]-cb[0]+1);
+      const yIn=Math.max(0,Math.min(cb[3],mby1)-Math.max(cb[1],mby0)+1)/(cb[3]-cb[1]+1);
+      if(xIn<.6||yIn<.4)continue;   /* a side backdrop slab fails this; a severed arm passes */
+      for(const n of c.comp)keep[n]=1;
+      if(cb[0]<mbx0)mbx0=cb[0]; if(cb[1]<mby0)mby0=cb[1]; if(cb[2]>mbx1)mbx1=cb[2]; if(cb[3]>mby1)mby1=cb[3];
+    }
+    /* solidify: no holes inside the silhouette, ever */
+    for(let x=mbx0;x<=mbx1;x++){
+      let y0=-1, y1=-1;
+      for(let y=mby0;y<=mby1;y++)if(keep[y*w+x]){y0=y;break;}
+      if(y0<0)continue;
+      for(let y=mby1;y>=mby0;y--)if(keep[y*w+x]){y1=y;break;}
+      for(let y=y0;y<=y1;y++)keep[y*w+x]=1;
+    }
+    for(let y=mby0;y<=mby1;y++){
+      let last=-1;
+      for(let x=mbx0;x<=mbx1;x++){
+        if(keep[y*w+x]){
+          if(last>=0&&x-last-1<=60)for(let xx=last+1;xx<x;xx++)keep[y*w+xx]=1;
+          last=x;
+        }
+      }
     }
     let minX=w, maxX=-1, minY=h, maxY=-1, count=0;
     for(let n=0;n<N;n++){
@@ -698,7 +681,8 @@ function buildCutout(it){
         if(x<minX)minX=x; if(x>maxX)maxX=x; if(y<minY)minY=y; if(y>maxY)maxY=y; count++; }
     }
     const frac=count/N, bw=maxX-minX+1, bh=maxY-minY+1;
-    if(frac<.10||frac>.85||bw<w*.25||bh<h*.35||maxY<h-202){ it.cutFail=true; return; }   /* figure must reach the frame's lower band */
+    const fillR=count/(bw*bh);
+    if(frac<.10||frac>.85||bw<w*.25||bh<h*.35||maxY<h-202||fillR<.30||fillR>.82){ it.cutFail=true; return; }   /* figure must reach the frame's lower band; fill window = a solid bust silhouette - outside it the matte is fragments or a slab and the framed treatment is the honest stand-in */   /* figure must reach the frame's lower band */
     /* palette: dominant colour of the figure's own bottom-centre band */
     let pr=0,pg=0,pb=0,pc=0;
     const bx0=minX+(bw*.32)|0, bx1=minX+(bw*.68)|0, by0=maxY-(bh*.14)|0;
@@ -2023,8 +2007,8 @@ function stepGame(dt){
       if(e.dead>0)continue;
       const segHit=(Math.abs(b.x-e.x)<26&&b.y>e.y-104&&b.y<e.y+2)||(Math.abs(nx-e.x)<26&&ny>e.y-104&&ny<e.y+2);
       if(segHit){ b.life=0; e.hp-=b.dmg; e.flash=.08; SFX.hit();
-        G.flashes.push({x:b.x,y:b.y,ang:0,t:.08,max:.08,impact:true,col:'#ff3b1f'});
-        for(let i=0;i<6;i++)spawnPart({x:b.x,y:b.y,vx:rr(-70,70),vy:rr(-70,10),life:rr(.14,.26),max:.26,r:rr(1.5,2.8),col:i%2?'#ff6a3a':'#ffd23a'});
+        G.flashes.push({x:b.x,y:b.y,ang:0,t:.08,max:.08,impact:true,col:'#3b9dff'});
+        for(let i=0;i<6;i++)spawnPart({x:b.x,y:b.y,vx:rr(-70,70),vy:rr(-70,10),life:rr(.14,.26),max:.26,r:rr(1.5,2.8),col:i%2?'#6fc2ff':'#cfeaff'});
         if(e.hp<=0)killEnemy(e);
         break; }
     }
@@ -2091,8 +2075,8 @@ function stepGame(dt){
       for(const e of G.enemies){
         if(e.dead>0)continue;
         if(Math.abs(b.x-e.x)<22&&b.y>e.y-96&&b.y<e.y){ b.life=0; e.hp-=b.dmg; e.flash=.08; SFX.hit();
-          G.flashes.push({x:b.x,y:b.y,ang:0,t:.08,max:.08,impact:true,col:'#ff3b1f'});
-          for(let i=0;i<6;i++)spawnPart({x:b.x,y:b.y,vx:rr(-70,70),vy:rr(-70,10),life:rr(.14,.26),max:.26,r:rr(1.5,2.8),col:i%2?'#ff6a3a':'#ffd23a'});
+          G.flashes.push({x:b.x,y:b.y,ang:0,t:.08,max:.08,impact:true,col:'#3b9dff'});
+          for(let i=0;i<6;i++)spawnPart({x:b.x,y:b.y,vx:rr(-70,70),vy:rr(-70,10),life:rr(.14,.26),max:.26,r:rr(1.5,2.8),col:i%2?'#6fc2ff':'#cfeaff'});
           if(e.hp<=0)killEnemy(e);
           break; }
       }
@@ -2522,9 +2506,10 @@ function drawWorld(){
   g.drawImage(vignetteCv,0,0);
 }
 /* ---- muzzle flashes + impact bursts (world space, shared by all rigs) ----
-   Tom (Nov 10): "bigger red flash", tracer fire. Hero flash = big red-orange
-   starburst with light spill; enemy flash = smaller violet; impacts = a
-   tight red/violet burst. Additive ('lighter') so it reads as light. */
+   Tom (Nov 10): "bigger red flash", tracer fire. Nov 11: hero fire goes
+   BLUE at his word - hero flash = big blue starburst with light spill;
+   enemy flash = smaller violet; impacts = a tight blue/violet burst.
+   Additive ('lighter') so it reads as light. */
 function drawFlashes(){
   const g=ctx, cam=G.cam;
   g.save(); g.globalCompositeOperation='lighter';
@@ -2534,13 +2519,13 @@ function drawFlashes(){
     if(f.impact){
       g.globalAlpha=k*.85;
       const gr=g.createRadialGradient(fx,f.y,0,fx,f.y,20);
-      gr.addColorStop(0,'rgba(255,235,210,.95)'); gr.addColorStop(.35,f.col==='#ff3b1f'?'rgba(255,70,30,.8)':'rgba(224,77,255,.8)'); gr.addColorStop(1,'rgba(0,0,0,0)');
+      gr.addColorStop(0,'rgba(255,235,210,.95)'); gr.addColorStop(.35,f.col==='#3b9dff'?'rgba(80,165,255,.8)':'rgba(224,77,255,.8)'); gr.addColorStop(1,'rgba(0,0,0,0)');
       g.fillStyle=gr; g.beginPath(); g.arc(fx,f.y,20,0,7); g.fill();
       g.strokeStyle=f.col; g.lineWidth=2;
       for(let i=0;i<5;i++){const a=i*1.256+(f.x%7); g.beginPath(); g.moveTo(fx,f.y); g.lineTo(fx+Math.cos(a)*13*k,f.y+Math.sin(a)*13*k); g.stroke();}
       continue;
     }
-    const R=f.big?30:19, core=f.foe?'224,77,255':'255,64,24', mid=f.foe?'255,120,250':'255,140,40';
+    const R=f.big?30:19, core=f.foe?'224,77,255':'110,190,255', mid=f.foe?'255,120,250':'60,145,255';
     g.globalAlpha=Math.min(1,k*1.4);
     /* light spill on the shooter + ground */
     const sg=g.createRadialGradient(fx,f.y,0,fx,f.y,f.big?74:48);
@@ -2593,19 +2578,45 @@ function drawEntities(){
     g.beginPath(); g.moveTo(ax,ay); g.lineTo(ax+Math.cos(mz.ang)*30,ay-Math.sin(mz.ang)*30); g.stroke(); g.restore();
   }
   /* bullets — TRACER FIRE (Tom, Nov 10): glowing streaks with fading tails.
-     Hero = hot red-orange, enemy = hostile violet — reads instantly. */
+     Nov 11 (Tom): the hero's shots were "little tiny red dots, hard to
+     see" — now BLUE COMETS: a bright head ~5x the old dot with a glow,
+     and a long tapering tail that fades to nothing behind it (never a
+     solid bar). The tail follows the velocity vector, so straight-up /
+     straight-down fire carries it too. Enemy = hostile violet, unchanged. */
   g.save(); g.globalCompositeOperation='lighter';
   for(const b of G.bullets){
     const bx=b.x-cam, spd=Math.hypot(b.vx,b.vy||0)||1, ux=b.vx/spd, uy=(b.vy||0)/spd;
-    const tl=b.foe?38:48, tx=bx-ux*tl, ty=b.y-uy*tl;
-    const gr=g.createLinearGradient(tx,ty,bx,b.y);
-    if(b.foe){ gr.addColorStop(0,'rgba(224,77,255,0)'); gr.addColorStop(.55,'rgba(224,77,255,.34)'); gr.addColorStop(1,'rgba(255,150,250,.95)'); }
-    else { gr.addColorStop(0,'rgba(255,60,20,0)'); gr.addColorStop(.55,'rgba(255,90,26,.38)'); gr.addColorStop(1,'rgba(255,190,90,.98)'); }
-    g.strokeStyle=gr; g.lineCap='round'; g.lineWidth=5;
-    g.beginPath(); g.moveTo(tx,ty); g.lineTo(bx,b.y); g.stroke();
-    g.strokeStyle=b.foe?'rgba(255,227,251,.95)':'rgba(255,244,214,.97)'; g.lineWidth=2.1;
-    g.beginPath(); g.moveTo(bx-ux*tl*.45,b.y-uy*tl*.45); g.lineTo(bx,b.y); g.stroke();
-    g.fillStyle=b.foe?'#ffe3fb':'#fff3cf'; g.beginPath(); g.arc(bx,b.y,2.3,0,7); g.fill();
+    if(b.foe){
+      const tl=38, tx=bx-ux*tl, ty=b.y-uy*tl;
+      const gr=g.createLinearGradient(tx,ty,bx,b.y);
+      gr.addColorStop(0,'rgba(224,77,255,0)'); gr.addColorStop(.55,'rgba(224,77,255,.34)'); gr.addColorStop(1,'rgba(255,150,250,.95)');
+      g.strokeStyle=gr; g.lineCap='round'; g.lineWidth=5;
+      g.beginPath(); g.moveTo(tx,ty); g.lineTo(bx,b.y); g.stroke();
+      g.strokeStyle='rgba(255,227,251,.95)'; g.lineWidth=2.1;
+      g.beginPath(); g.moveTo(bx-ux*tl*.45,b.y-uy*tl*.45); g.lineTo(bx,b.y); g.stroke();
+      g.fillStyle='#ffe3fb'; g.beginPath(); g.arc(bx,b.y,2.3,0,7); g.fill();
+      continue;
+    }
+    /* hero comet: segmented tail, width + alpha growing toward the head */
+    const TL=120, SEG=6;
+    for(let s=0;s<SEG;s++){
+      const t0=s/SEG, t1=(s+1)/SEG, tm=(t0+t1)/2;
+      g.strokeStyle='rgba(70,160,255,'+(0.06+0.62*tm*tm).toFixed(3)+')';
+      g.lineWidth=1.2+6.4*Math.pow(tm,1.4); g.lineCap='round';
+      g.beginPath();
+      g.moveTo(bx-ux*TL*(1-t0), b.y-uy*TL*(1-t0));
+      g.lineTo(bx-ux*TL*(1-t1), b.y-uy*TL*(1-t1));
+      g.stroke();
+    }
+    /* bright core line along the front of the shot */
+    g.strokeStyle='rgba(205,238,255,.92)'; g.lineWidth=2.6;
+    g.beginPath(); g.moveTo(bx-ux*TL*.38,b.y-uy*TL*.38); g.lineTo(bx,b.y); g.stroke();
+    /* head: ~5x the old 2.3 dot, white-blue core inside a blue glow */
+    const hg=g.createRadialGradient(bx,b.y,0,bx,b.y,15);
+    hg.addColorStop(0,'rgba(255,255,255,.98)'); hg.addColorStop(.32,'rgba(175,228,255,.95)');
+    hg.addColorStop(.68,'rgba(64,152,255,.75)'); hg.addColorStop(1,'rgba(64,152,255,0)');
+    g.fillStyle=hg; g.beginPath(); g.arc(bx,b.y,15,0,7); g.fill();
+    g.fillStyle='rgba(240,252,255,.98)'; g.beginPath(); g.arc(bx,b.y,4.6,0,7); g.fill();
   }
   g.restore();
   drawFlashes();
