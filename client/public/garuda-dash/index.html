@@ -338,7 +338,7 @@
     <div class="nftRow">
       <button class="play alt" id="nftDashRowBtn" style="flex:1">🚀 CONNECT LUNCDASH</button>
     </div>
-    <div id="nftPairBox">WalletConnect pairing link — paste it into your wallet's scanner:<br><input id="nftPairUri" readonly></div>
+    <div id="nftPairBox">WalletConnect pairing link — paste it into your wallet's scanner:<br><input id="nftPairUri" readonly><canvas id="nftPairQr" width="180" height="180" style="display:none;margin:8px auto 2px;background:#fff;border-radius:8px"></canvas><div id="nftPairActs" style="display:none;gap:7px;justify-content:center;margin-top:7px;flex-wrap:wrap"><a class="play alt" id="nftPairOpen" href="#" target="_blank" rel="noopener" style="text-decoration:none;display:inline-block;cursor:pointer;color:#fff;border-radius:14px;padding:12px 26px;font-size:15px;font-weight:900;letter-spacing:.07em;background:linear-gradient(180deg,#8d99c9,#5a6699);box-shadow:0 5px 0 #39406b;text-shadow:0 1px 2px rgba(0,0,0,.3)">🚀 OPEN LUNCDASH</a><button class="play alt" id="nftPairCopy" type="button">📋 COPY LINK</button></div></div>
     <div class="nftRow">
       <input id="nftAddrInput" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="…or paste a wallet address to view">
       <button class="play alt" id="nftViewBtn">VIEW</button>
@@ -5799,7 +5799,7 @@ function gdRenderPanel(msg){
   const gb = $('nftGalaxyBtn');
   if (gb) gb.textContent = (gdWalletConnected && gdWalletVia === 'galaxy') ? ('✅ ' + gdShortAddr(gdWallet)) : '🌌 CONNECT GALAXY STATION';
   const db = $('nftDashRowBtn');
-  if (db) db.textContent = (gdWalletConnected && gdWalletVia === 'station') ? ('✅ ' + gdShortAddr(gdWallet)) : '🚀 CONNECT LUNCDASH';
+  if (db) db.textContent = (gdWalletConnected && (gdWalletVia === 'station' || gdWalletVia === 'luncdash')) ? ('✅ ' + gdShortAddr(gdWallet)) : '🚀 CONNECT LUNCDASH';
   const cb = $('nftCharBtn');
   if (cb) cb.textContent = gdChar ? ('🦅 YOUR CHARACTER: ' + gdChar.name) : '🦅 YOUR CHARACTER';
 }
@@ -5954,19 +5954,19 @@ function gdShockwave(cx, cy){
      app approves, the address comes back) — the exact stack LUNC
      Grand Prix ships: CosmosKit + the custom Galaxy WC wallet,
      ported below with its deep links, project id and chain def.
-   · LUNCDASH (by StrathCole) is not a separate wallet binary: it is
-     a Terra Classic dashboard whose users' keys live in the Station
-     wallet (its own staking site connects "mobile Terra Station or
-     Keplr" over WalletConnect). The route from a web page is the
-     Station wallet: station-extension where window.station is
-     injected (Station / Galaxy in-app browsers, desktop extension),
-     and anywhere else the legacy WalletConnect v1 Station bridge
-     (walletconnect.terra.dev) with the terrastation.page.link
-     mobile handoff — the cosmes stack this project's own FRG app
-     ships, adapted below as gdDashLegacyConnect. Honest limit: the
-     v1 bridge is Terra's legacy relay; if it ever stops answering,
-     the row says so and paste-view stays up. No dead button either
-     way: every path ends in an address or a plain explanation.
+   · LUNCDASH (by StrathCole) is a standalone wallet app holding
+     its own keys (Android package com.luncdash.wallet) — NOT a
+     Station front-end (Tom's correction, Nov 10: "Not Station.").
+     From a web page it speaks legacy WalletConnect v1 over its
+     OWN bridge, walletconnect.luncdash.com: station-extension
+     where window.station is injected (its in-app browser), and
+     anywhere else gdLuncDashConnect below — the cosmes LUNC Dash
+     stack this project's own FRG app ships for luncback.com.
+     No terrastation links anywhere in this row. Honest limits:
+     no WalletConnect v2, no browser extension; if the bridge or
+     the app doesn't answer, the row says so and paste-view stays
+     up. No dead button either way: every path ends in an address
+     or a plain explanation.
    Both routes are READ-ONLY here, exactly like the Keplr row:
    connect returns an address, gdApplyWallet reads the chain, and
    NOTHING is ever signed — no message, no transaction. A declined
@@ -5982,6 +5982,7 @@ function gdKitHint(msg){ const st = $('nftStatus'); if (st) st.textContent = msg
 function gdShowPairFail(msg){
   const b = $('nftPairBox'); if (b) b.classList.remove('on');
   const inp = $('nftPairUri'); if (inp) inp.value = '';
+  gdPairExtras(false);
   gdKitHint(msg);
 }
 /* the ported core calls showPairBox/hidePairBox for the raw wc:
@@ -5997,6 +5998,7 @@ function hidePairBox(){
   if (b) b.classList.remove('on');
   const inp = $('nftPairUri');
   if (inp) inp.value = '';
+  gdPairExtras(false);
 }
 /* A finished connect lands in the SAME loader the Keplr row uses —
    owned + staked Garudas, stolen #115 excluded by the on-chain
@@ -6038,22 +6040,45 @@ function normalizeGdKitLibs(raw){
 /* button wiring — the rows themselves (no picker modal in Garuda) */
 $('nftGalaxyBtn').onclick = () => { gdShowPairFail(''); kitConnect('galaxy'); };
 $('nftDashRowBtn').onclick = () => { gdShowPairFail(''); kitConnect('station'); };
+/* COPY LINK on the LUNCDash pairing sheet: copies the raw wc: URI
+   so it can be pasted into the LUNCDash app's WalletConnect
+   scanner. (The OPEN LUNCDASH anchor's href is set per-pairing by
+   gdPairExtras.) */
+const gdPairCopyBtn = $('nftPairCopy');
+if (gdPairCopyBtn) gdPairCopyBtn.onclick = () => {
+  const inp = $('nftPairUri');
+  const uri = inp ? inp.value : '';
+  if (!uri) return;
+  const copied = () => gdKitHint('Pairing link copied — open LUNCDash, paste it into its WalletConnect scanner, and approve. Your Garudas then load here.');
+  if (navigator.clipboard && navigator.clipboard.writeText)
+    navigator.clipboard.writeText(uri).then(copied).catch(() => { try { inp.select(); document.execCommand('copy'); copied(); } catch (e) {} });
+  else { try { inp.select(); document.execCommand('copy'); copied(); } catch (e) {} }
+};
 /* returning from the wallet app: the core re-checks for a landed
    session on pageshow / visibility (registered by the core). The
    boot restore runs once here — with no stored WC/cosmos-kit state
    it returns immediately and never loads the stack. */
 
-/* ---- LUNCDash row, second route: legacy WalletConnect v1 to the
-   Station mobile wallet. Adapted from the cosmes stack vendored in
-   the FRG app (StationController + WalletConnectV1 + QRCodeModal):
-   bridge https://walletconnect.terra.dev, session cached under
-   cosmes' own key, mobile handoff via Terra's official Firebase
-   link (terrastation.page.link, package money.terra.station), and
-   confirmations return through terrastation://walletconnect_confirm.
-   The client library is @walletconnect/legacy-client from esm.sh,
-   loaded lazily on first use. Read-only: only the session's
-   accounts are read — no request is ever sent to the wallet. */
-const GD_DASH_WC_KEY = 'cosmes.wallet.station.wcSession';
+/* ---- LUNCDash row: legacy WalletConnect v1 to the LUNC Dash
+   app's OWN bridge. LUNC Dash is a standalone wallet app (Android
+   package com.luncdash.wallet) holding its own keys \u2014 NOT a
+   Station front-end (Tom's correction, Nov 10: "Not Station.").
+   It does not speak WalletConnect v2; it speaks legacy WC v1 over
+   its own bridge, https://walletconnect.luncdash.com \u2014 the exact
+   stack luncback.com's wallet layer runs (the cosmes-based
+   LuncDashController vendored in this project's FRG app): bridge
+   session cached under cosmes' own LUNC Dash key, pairing URI
+   handed to this page's pair box instead of a navigation. The
+   client library is @walletconnect/legacy-client from esm.sh,
+   loaded lazily on first use. Phone handoff follows the pairing-
+   sheet pattern the CL8Y ecosystem documents for LUNC Dash
+   ("Open {wallet}" + "Copy pairing link"): the pair box carries
+   the raw wc: URI, a QR of it, an OPEN LUNCDASH button (the
+   luncdash.com walletconnect route with the URI attached) and a
+   COPY LINK button for the app's own WalletConnect scanner.
+   Read-only: only the session's accounts are read \u2014 no request
+   is ever sent to the wallet. */
+const GD_DASH_WC_KEY = 'cosmes.wallet.luncdash.wcSession';
 let gdDashWcPromise = null;
 function gdDashLoadLegacyClient(){
   if (!gdDashWcPromise){
@@ -6063,29 +6088,60 @@ function gdDashLoadLegacyClient(){
   }
   return gdDashWcPromise;
 }
-function gdStationDeepLink(wcUri){
-  const payload = encodeURIComponent('action=wallet_connect&payload=' + encodeURIComponent(wcUri));
-  return 'https://terrastation.page.link/?link=https://terra.money?' + payload + '&apn=money.terra.station&ibi=money.terra.station&isi=1548434735';
+/* pair-box extras used ONLY by the LUNCDash pairing sheet (QR +
+   OPEN/COPY actions). Galaxy's showPairBox never reveals them and
+   every hide path turns them back off. */
+let gdDashQrPromise = null;
+function gdDashRenderQr(uri){
+  const cv = $('nftPairQr');
+  if (!cv) return;
+  if (!gdDashQrPromise){
+    gdDashQrPromise = import('https://esm.sh/qrcode@1.5.4?bundle')
+      .then(m => m.default || m)
+      .catch(err => { gdDashQrPromise = null; throw err; });
+  }
+  gdDashQrPromise.then(QR => {
+    if (!QR || typeof QR.toCanvas !== 'function') return;
+    QR.toCanvas(cv, uri, { width: 180, margin: 1 }, err => { if (!err) cv.style.display = 'block'; });
+  }).catch(() => { /* QR is a bonus \u2014 the raw link + COPY LINK still work */ });
+}
+function gdPairExtras(on, uri){
+  const acts = $('nftPairActs');
+  if (acts) acts.style.display = on ? 'flex' : 'none';
+  const cv = $('nftPairQr');
+  if (cv && !on) cv.style.display = 'none';
+  if (on && uri){
+    const a = $('nftPairOpen');
+    if (a) a.href = 'https://luncdash.com/wallet/walletconnect?wc=' + encodeURIComponent(uri);
+    gdDashRenderQr(uri);
+  }
+}
+function showDashPairBox(uri){
+  showPairBox(uri);
+  gdPairExtras(true, uri);
 }
 let gdDashBusy = false;
-function gdDashLegacyConnect(){
+function gdLuncDashConnect(){
   if (gdDashBusy) return Promise.resolve(false);
   gdDashBusy = true;
-  gdKitHint('Opening Station (LUNCDash)… approve the WalletConnect session in your Station wallet.');
+  gdKitHint('Opening LUNCDash\u2026 getting a pairing link from the LUNCDash WalletConnect bridge.');
   return gdDashLoadLegacyClient().then(WC => {
     let cached = null;
     try { cached = JSON.parse(localStorage.getItem(GD_DASH_WC_KEY) || 'null'); } catch (e) {}
-    const wc = new WC({ bridge: 'https://walletconnect.terra.dev', qrcode: false, session: cached || undefined });
+    const wc = new WC({ bridge: 'https://walletconnect.luncdash.com', qrcode: false, session: cached || undefined });
     return new Promise((resolve) => {
       let settled = false;
       const done = (ok, val) => { if (!settled){ settled = true; gdDashBusy = false; resolve(ok ? val : false); } };
       wc.on('session_update', (_err, payload) => {
         const acc = payload && payload.params && payload.params[0] && payload.params[0].accounts;
-        if (acc && acc[0]) done(true, acc[0]);
+        if (acc && acc[0]){
+          try { localStorage.setItem(GD_DASH_WC_KEY, JSON.stringify(wc.session)); } catch (e) {}
+          done(true, acc[0]);
+        }
       });
       wc.on('disconnect', () => {
         try { localStorage.removeItem(GD_DASH_WC_KEY); } catch (e) {}
-        gdShowPairFail('Station closed the WalletConnect session before an address came back — nothing connected. Tap CONNECT LUNCDASH to try again, or paste an address above just to look (read-only).');
+        gdShowPairFail('LUNCDash closed the WalletConnect session before an address came back \u2014 nothing connected. Tap CONNECT LUNCDASH to try again, or paste an address above just to look (read-only).');
         done(false);
       });
       if (wc.connected && cached && cached.accounts && cached.accounts[0]){
@@ -6097,26 +6153,41 @@ function gdDashLegacyConnect(){
       wc.createSession().then(() => {
         const uri = wc.uri;
         if (!uri) throw new Error('no pairing URI');
-        showPairBox(uri);
-        gdKitHint('Approve the connection in your Station wallet (LUNCDash) — or paste the pairing link shown in MY GARUDA into its WalletConnect scanner.');
-        if (gdIsMobileUA) window.location.href = gdStationDeepLink(uri);
+        showDashPairBox(uri);
+        gdKitHint(gdIsMobileUA
+          ? 'Tap OPEN LUNCDASH below \u2014 if the LUNCDash app opens, approve the connection there. If a website opens instead, come back here, tap COPY LINK, and paste it into LUNCDash\u2019s WalletConnect scanner.'
+          : 'Scan the QR code with the LUNCDash app\u2019s WalletConnect scanner \u2014 or copy the pairing link into it. Approve in the app and your Garudas load here.');
         wc.on('connect', (err, payload) => {
-          if (err){ gdShowPairFail('Station declined the connection — nothing connected. Tap CONNECT LUNCDASH to try again, or paste an address above just to look (read-only).'); done(false); return; }
+          if (err){ gdShowPairFail('LUNCDash declined the connection \u2014 nothing connected. Tap CONNECT LUNCDASH to try again, or paste an address above just to look (read-only).'); done(false); return; }
           const acc = (payload && payload.params && payload.params[0] && payload.params[0].accounts) || wc.accounts || [];
-          if (!acc[0]){ gdShowPairFail('Station connected but returned no Terra Classic address — nothing connected. Paste an address above just to look (read-only).'); done(false); return; }
+          if (!acc[0]){ gdShowPairFail('LUNCDash connected but returned no Terra Classic address \u2014 nothing connected. Paste an address above just to look (read-only).'); done(false); return; }
           try { localStorage.setItem(GD_DASH_WC_KEY, JSON.stringify(wc.session)); } catch (e) {}
           done(true, acc[0]);
         });
       }).catch(err => {
-        gdShowPairFail("Station's WalletConnect bridge didn't answer" + (err && err.message ? ': ' + String(err.message).slice(0, 90) : '') + ' — nothing connected. Tap CONNECT LUNCDASH to try again, or paste an address above just to look (read-only).');
+        gdShowPairFail("The LUNCDash WalletConnect bridge didn\u2019t answer" + (err && err.message ? ': ' + String(err.message).slice(0, 90) : '') + ' \u2014 nothing connected. Tap CONNECT LUNCDASH to try again, or paste an address above just to look (read-only).');
         done(false);
       });
-    }).then(addr => addr ? gdKitApplyAddress(addr, 'station') : false);
+    }).then(addr => addr ? gdKitApplyAddress(addr, 'luncdash') : false);
   }).catch(err => {
     gdDashBusy = false;
-    gdShowPairFail("The Station WalletConnect library couldn't load" + (err && err.message ? ': ' + String(err.message).slice(0, 90) : '') + ' — nothing connected. Tap CONNECT LUNCDASH to try again, or paste an address above just to look (read-only).');
+    gdShowPairFail("The WalletConnect library couldn\u2019t load" + (err && err.message ? ': ' + String(err.message).slice(0, 90) : '') + ' \u2014 nothing connected. Tap CONNECT LUNCDASH to try again, or paste an address above just to look (read-only).');
     return false;
   });
+}
+/* returning visit: if a LUNCDash session was approved earlier and
+   is still cached, adopt its address quietly (the cosmes restore
+   pattern \u2014 nothing loads when no session is cached). */
+function gdLuncDashRestore(){
+  if (typeof gdWalletVia !== 'undefined' && gdWalletVia) return;
+  let cached = null;
+  try { cached = JSON.parse(localStorage.getItem(GD_DASH_WC_KEY) || 'null'); } catch (e) {}
+  if (!cached || !cached.accounts || !cached.accounts[0]) return;
+  gdDashLoadLegacyClient().then(WC => {
+    if (gdWalletVia) return;
+    const wc = new WC({ bridge: 'https://walletconnect.luncdash.com', qrcode: false, session: cached });
+    if (wc.connected && wc.accounts && wc.accounts[0]) gdKitApplyAddress(wc.accounts[0], 'luncdash');
+  }).catch(() => { /* a stale session restores nothing; the row still works */ });
 }
 /* ---- the chain definition: the LNC app's chainDef.js, verbatim
    (LCD/RPC inlined from its config.js — the publicnode endpoints).
@@ -6405,7 +6476,7 @@ function injectedStation(){ try { return (typeof window !== 'undefined' && windo
 const KIT_ENTRIES = [
   { id: 'keplr', label: 'Keplr', resolve(){ return injectedKeplr() ? 'keplr-extension' : 'keplr-mobile'; } },
   { id: 'galaxy', label: 'Galaxy Station', resolve(){ return 'galaxy-station'; } },
-  { id: 'station', label: 'LUNCDash / Station', resolve(){ return injectedStation() ? 'station-extension' : null; } },
+  { id: 'station', label: 'LUNCDash', resolve(){ return injectedStation() ? 'station-extension' : null; } },
 ];
 function kitEntry(id){ for (const e of KIT_ENTRIES) if (e.id === id) return e; return null; }
 function kitFailLine(cw, pretty){
@@ -6423,8 +6494,8 @@ function kitConnect(entryId, opts){
   if (!entry || kitConnecting) return Promise.resolve(false);
   const walletName = entry.resolve();
   if (!walletName){
-    if (entryId === 'station' && !quiet && typeof gdDashLegacyConnect === 'function')
-      return gdDashLegacyConnect();
+    if (entryId === 'station' && !quiet && typeof gdLuncDashConnect === 'function')
+      return gdLuncDashConnect();
     if (!quiet)
       gdShowPairFail(entry.label + ' only connects inside the ' + entry.label + " app's own browser — open this page there, or pick another wallet. You can also paste an address above just to look (read-only).");
     return Promise.resolve(false);
@@ -6544,6 +6615,7 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
 /* boot the stored-session restore for the two new rows (no-op
    without stored WC state — see kitRestoreSession). */
 try { kitBootFlow(); } catch (e) {}
+try { gdLuncDashRestore(); } catch (e) {}
 
 /* ---- panel wiring ---- */
 $('nftConnectBtn').onclick = gdConnectKeplr;
