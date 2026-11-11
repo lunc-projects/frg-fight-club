@@ -1339,6 +1339,205 @@ async function garudaPublicHandler(req, res) {
 }
 /* garuda-public:end */
 
+/* garuda-edit:start — Garuda Dash LEVEL EDITOR data, folded into this
+   router for the same 12-function-cap reason as the blocks above.
+   Reached via ?garudaedit=1 (the pages call /api/luna-games?garudaedit=1
+   directly — no vercel.json rewrite needed, same as ?garudapublic=1).
+   Tom's order (Nov 10): the Garuda team gets the FULL edit — a visual
+   level editor in their private admin panel. What is stored here is
+   level DATA only (platforms / grounds / patrol enemies / boss numbers
+   for the tower levels the game builds in buildLegacy) — never code.
+   Per level n (1..40), three records in the same Upstash store:
+     gd:edit:pub:<n>   the PUBLISHED override the public game loads
+     gd:edit:bak:<n>   the previous published record (one-tap rollback;
+                       {data:null} means "previous state was default")
+     gd:edit:draft:<n> the admin's saved draft (never served publicly)
+   READS of published data are public and read-only. EVERY write — and
+   every draft read — requires the same admin credential as the payout
+   admin: the GARUDA_ADMIN_KEY fallback or a wallet sign-in session
+   token (gdAdminSessionOk, which itself requires the session's wallet
+   to still equal the GARUDA_ADMIN_WALLET env var). Rotating that env
+   var therefore locks the editor too, exactly like the panel. */
+const GD_EDIT_MAX_LEVEL = 40;
+function gdEditKey(kind, n) { return 'gd:edit:' + kind + ':' + n; }
+function gdEditParseLevel(v) {
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 1 && n <= GD_EDIT_MAX_LEVEL ? n : null;
+}
+/* Strict shape check + normalisation for one level's editor data.
+   Returns a clean copy, or null when anything is off — a bad record
+   can never reach the game (which ALSO sanitises before applying). */
+function gdEditValidate(d) {
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return null;
+  const int = (v, lo, hi) => {
+    const x = Math.round(Number(v));
+    return Number.isFinite(x) && x >= lo && x <= hi ? x : null;
+  };
+  const triple = (a, xLo, xHi, yLo, yHi, wLo, wHi) => {
+    if (!Array.isArray(a) || a.length !== 3) return null;
+    const x = int(a[0], xLo, xHi), y = int(a[1], yLo, yHi), w = int(a[2], wLo, wHi);
+    return (x === null || y === null || w === null) ? null : [x, y, w];
+  };
+  if (!Array.isArray(d.grounds) || d.grounds.length < 1 || d.grounds.length > 64) return null;
+  const grounds = [];
+  for (const g of d.grounds) {
+    const t = triple(g, -600, 2600, -2800, 800, 16, 1400);
+    if (!t) return null;
+    grounds.push(t);
+  }
+  if (!Array.isArray(d.platforms) || d.platforms.length > 80) return null;
+  const platforms = [];
+  for (const p of d.platforms) {
+    const t = triple(p, -600, 2600, -2800, 800, 16, 600);
+    if (!t) return null;
+    platforms.push(t);
+  }
+  if (!Array.isArray(d.walkers) || d.walkers.length > 40) return null;
+  const walkers = [];
+  for (const w of d.walkers) {
+    if (!w || typeof w !== 'object') return null;
+    const minX = int(w.minX, -600, 2600), maxX = int(w.maxX, -600, 2600);
+    const y = int(w.y, -2800, 800), speed = int(w.speed, 0, 240);
+    if (minX === null || maxX === null || y === null || speed === null || maxX <= minX) return null;
+    if (w.kind !== 'tiki' && w.kind !== 'brute') return null;
+    walkers.push({ minX, maxX, y, speed, kind: w.kind });
+  }
+  const bossHp = int(d.bossHp, 1, 99);
+  const bossSpeed = int(d.bossSpeed, 0, 120);
+  if (bossHp === null || bossSpeed === null) return null;
+  return { v: 1, grounds, platforms, walkers, bossHp, bossSpeed };
+}
+async function gdEditAuthorized(req) {
+  const auth = (req.headers && req.headers.authorization) || '';
+  const got = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (!got) return false;
+  const want = process.env.GARUDA_ADMIN_KEY || '';
+  if (want) {
+    const a = Buffer.from(got), b = Buffer.from(want);
+    if (a.length === b.length && crypto.timingSafeEqual(a, b)) return true;
+  }
+  return gdAdminSessionOk(got);
+}
+async function gdEditGet(kind, n) {
+  const out = await upstashPipeline([['GET', gdEditKey(kind, n)]]);
+  const raw = (out && out[0] && out[0].result) || null;
+  if (!raw) return null;
+  try {
+    const rec = JSON.parse(raw);
+    if (!rec || typeof rec !== 'object') return null;
+    if (rec.data === null) return { data: null, at: rec.at || null };
+    const data = gdEditValidate(rec.data);
+    return data ? { data, at: rec.at || null } : null;
+  } catch (e) { return null; }
+}
+async function garudaEditHandler(req, res) {
+  if (req.method !== 'GET' && req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
+  if (!process.env.NEONRUSH_UPSTASH_URL || !process.env.NEONRUSH_UPSTASH_TOKEN) {
+    return res.status(503).json({ error: 'store not configured' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  if (req.method === 'GET') {
+    const lvl = gdEditParseLevel(req.query && req.query.level);
+    /* Admin state (published + draft + backup flag): gated. */
+    if (req.query && req.query.admin !== undefined) {
+      if (!(await gdEditAuthorized(req))) return res.status(401).json({ ok: false, error: 'unauthorized' });
+      if (!lvl) return res.status(400).json({ ok: false, error: 'bad level' });
+      try {
+        const [pub, draft, bak] = await Promise.all([
+          gdEditGet('pub', lvl), gdEditGet('draft', lvl), gdEditGet('bak', lvl),
+        ]);
+        return res.status(200).json({
+          ok: true, level: lvl,
+          published: pub ? pub.data : null, publishedAt: pub ? pub.at : null,
+          draft: draft ? draft.data : null, draftAt: draft ? draft.at : null,
+          hasBackup: !!bak,
+        });
+      } catch (e) {
+        console.error('garuda edit admin read failed', e && e.message);
+        return res.status(502).json({ error: 'store unavailable' });
+      }
+    }
+    try {
+      if (lvl) {
+        const pub = await gdEditGet('pub', lvl);
+        return res.status(200).json({ ok: true, level: lvl, published: pub ? pub.data : null });
+      }
+      /* No level: the whole published map in one pipeline (game load). */
+      const cmds = [];
+      for (let n = 1; n <= GD_EDIT_MAX_LEVEL; n++) cmds.push(['GET', gdEditKey('pub', n)]);
+      const out = await upstashPipeline(cmds);
+      const published = {};
+      for (let n = 1; n <= GD_EDIT_MAX_LEVEL; n++) {
+        const raw = (out && out[n - 1] && out[n - 1].result) || null;
+        if (!raw) continue;
+        try {
+          const rec = JSON.parse(raw);
+          const data = rec && gdEditValidate(rec.data);
+          if (data) published[n] = data;
+        } catch (e) { /* skip corrupt record — the game uses its default */ }
+      }
+      return res.status(200).json({ ok: true, published });
+    } catch (e) {
+      console.error('garuda edit public read failed', e && e.message);
+      return res.status(502).json({ error: 'store unavailable' });
+    }
+  }
+  /* POST: every action is an admin write — session/key gate first. */
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
+  body = body || {};
+  if (!(await gdEditAuthorized(req))) return res.status(401).json({ ok: false, error: 'unauthorized' });
+  const lvl = gdEditParseLevel(body.level);
+  if (!lvl) return res.status(400).json({ ok: false, error: 'bad level' });
+  const now = new Date().toISOString();
+  try {
+    if (body.action === 'saveDraft') {
+      const data = gdEditValidate(body.data);
+      if (!data) return res.status(400).json({ ok: false, error: 'bad level data' });
+      await upstashPipeline([['SET', gdEditKey('draft', lvl), JSON.stringify({ data, at: now })]]);
+      return res.status(200).json({ ok: true, level: lvl, draftAt: now });
+    }
+    if (body.action === 'publish') {
+      const draft = await gdEditGet('draft', lvl);
+      if (!draft || !draft.data) return res.status(400).json({ ok: false, error: 'no draft to publish' });
+      const cur = await gdEditGet('pub', lvl);
+      await upstashPipeline([
+        ['SET', gdEditKey('bak', lvl), JSON.stringify({ data: cur ? cur.data : null, at: now })],
+        ['SET', gdEditKey('pub', lvl), JSON.stringify({ data: draft.data, at: now })],
+        ['DEL', gdEditKey('draft', lvl)],
+      ]);
+      return res.status(200).json({ ok: true, level: lvl, publishedAt: now });
+    }
+    if (body.action === 'rollback') {
+      const bak = await gdEditGet('bak', lvl);
+      if (!bak) return res.status(400).json({ ok: false, error: 'no backup to roll back to' });
+      const cmds = [['DEL', gdEditKey('bak', lvl)], ['DEL', gdEditKey('draft', lvl)]];
+      if (bak.data) cmds.push(['SET', gdEditKey('pub', lvl), JSON.stringify({ data: bak.data, at: now })]);
+      else cmds.push(['DEL', gdEditKey('pub', lvl)]);
+      await upstashPipeline(cmds);
+      return res.status(200).json({ ok: true, level: lvl, restoredDefault: !bak.data });
+    }
+    if (body.action === 'reset') {
+      const cur = await gdEditGet('pub', lvl);
+      await upstashPipeline([
+        ['SET', gdEditKey('bak', lvl), JSON.stringify({ data: cur ? cur.data : null, at: now })],
+        ['DEL', gdEditKey('pub', lvl)],
+        ['DEL', gdEditKey('draft', lvl)],
+      ]);
+      return res.status(200).json({ ok: true, level: lvl });
+    }
+    if (body.action === 'discardDraft') {
+      await upstashPipeline([['DEL', gdEditKey('draft', lvl)]]);
+      return res.status(200).json({ ok: true, level: lvl });
+    }
+    return res.status(400).json({ ok: false, error: 'unknown action' });
+  } catch (e) {
+    console.error('garuda edit write failed', e && e.message);
+    return res.status(502).json({ error: 'store unavailable' });
+  }
+}
+/* garuda-edit:end */
+
 /* fx-signal:start — Forex Signal Bot candle relay, folded into this
    router for the same 12-function-cap reason as the relays above.
    Reached via ?fxpair=EURGBP (the bot page calls
@@ -1724,6 +1923,9 @@ export default async function handler(req, res) {
      ?garudapublic=1 directly (see the garuda-public block above).
      Display data only — never a winner wallet. */
   if (req.query && req.query.garudapublic !== undefined) return garudaPublicHandler(req, res);
+  /* Garuda Dash LEVEL EDITOR data: ?garudaedit=1 (see the garuda-edit
+     block above). Published reads are public; writes are admin-gated. */
+  if (req.query && req.query.garudaedit !== undefined) return garudaEditHandler(req, res);
   /* Forex Signal Bot candle relay: the bot page calls
      ?fxpair=<PAIR> directly (see the fx-signal block above). Runs
      before game dispatch; game requests never carry ?fxpair. */

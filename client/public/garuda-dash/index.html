@@ -1098,6 +1098,88 @@ function drawBossPowerBar(b){
   ctx.restore();
 }
 
+/* ============ LEVEL EDITOR OVERRIDES (Garuda team admin editor) ====
+   The team's visual editor (private admin panel) stores per-level
+   layout DATA on the server (grounds / step platforms / patrol
+   enemies / boss numbers — the exact pieces buildLegacy builds).
+   Published overrides load once at boot from
+   /api/luna-games?garudaedit=1 and buildLevel swaps them in.
+   BULLETPROOF FALLBACK: any failure — offline, bad data, a level
+   with no override — leaves the built-in default level EXACTLY as
+   shipped. Editor data can never break the game. Coins are not
+   stored: they re-derive from the edited grounds/platforms in
+   buildCoinsFor, same as always. The nest and the hero start are
+   engine-fixed (buildLegacy / startLevel) and are not editable. */
+let GD_EDIT_PUBLISHED = {};   /* level -> sanitised editor data */
+let GD_EDIT_PREVIEW = null;   /* {level, data} — admin-page draft preview only; nothing on the public page ever sets this */
+let GD_EDIT_LOADED = false;
+function gdEditorSanitize(d){
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return null;
+  const int = (v, lo, hi) => {
+    const x = Math.round(Number(v));
+    return Number.isFinite(x) && x >= lo && x <= hi ? x : null;
+  };
+  const triple = (a, wHi) => {
+    if (!Array.isArray(a) || a.length !== 3) return null;
+    const x = int(a[0], -600, 2600), y = int(a[1], -2800, 800), w = int(a[2], 16, wHi);
+    return (x === null || y === null || w === null) ? null : [x, y, w];
+  };
+  if (!Array.isArray(d.grounds) || d.grounds.length < 1 || d.grounds.length > 64) return null;
+  const grounds = [];
+  for (const g of d.grounds){ const t = triple(g, 1400); if (!t) return null; grounds.push(t); }
+  if (!Array.isArray(d.platforms) || d.platforms.length > 80) return null;
+  const platforms = [];
+  for (const p of d.platforms){ const t = triple(p, 600); if (!t) return null; platforms.push(t); }
+  if (!Array.isArray(d.walkers) || d.walkers.length > 40) return null;
+  const walkers = [];
+  for (const w of d.walkers){
+    if (!w || typeof w !== 'object') return null;
+    const minX = int(w.minX, -600, 2600), maxX = int(w.maxX, -600, 2600);
+    const y = int(w.y, -2800, 800), speed = int(w.speed, 0, 240);
+    if (minX === null || maxX === null || y === null || speed === null || maxX <= minX) return null;
+    if (w.kind !== 'tiki' && w.kind !== 'brute') return null;
+    walkers.push({ minX, maxX, y, speed, kind: w.kind });
+  }
+  const bossHp = int(d.bossHp, 1, 99), bossSpeed = int(d.bossSpeed, 0, 120);
+  if (bossHp === null || bossSpeed === null) return null;
+  return { v: 1, grounds, platforms, walkers, bossHp, bossSpeed };
+}
+function gdApplyEditorData(L, d){
+  L.grounds = d.grounds.map(g => [g[0], g[1], g[2]]);
+  L.platforms = d.platforms.map(p => [p[0], p[1], p[2]]);
+  L.walkerDefs = d.walkers.map(w => ({
+    minX: w.minX, maxX: w.maxX, y: w.y, speed: w.speed, kind: w.kind,
+    hp: w.kind === 'brute' ? 2 : 1, w: w.kind === 'brute' ? 54 : 32, h: w.kind === 'brute' ? 46 : 24,
+  }));
+  if (L.boss){
+    L.boss.hp = d.bossHp; L.boss.maxHp = d.bossHp; L.boss.dmgHp = d.bossHp;
+    L.boss.speed = d.bossSpeed;
+  }
+  /* climb flags follow the edited grounds (same story-start indices
+     buildLegacy flags) */
+  GD_TOWER_FLAGS = new Set([0, 6, 12, 18, 24]
+    .map(i => L.grounds[i] ? L.grounds[i][0] + ',' + L.grounds[i][1] : '')
+    .filter(s => s));
+  return L;
+}
+/* One fetch for every published override; failures are silent and
+   final — the defaults are already in the engine. */
+(async function gdLoadEditorOverrides(){
+  try {
+    const r = await fetch('/api/luna-games?garudaedit=1', { cache: 'no-cache' });
+    if (!r.ok) return;
+    const d = await r.json();
+    const map = (d && d.published) || {};
+    const clean = {};
+    for (const k of Object.keys(map)){
+      const s = gdEditorSanitize(map[k]);
+      if (s) clean[k] = s;
+    }
+    GD_EDIT_PUBLISHED = clean;
+  } catch (e) { /* defaults stand */ }
+  GD_EDIT_LOADED = true;
+})();
+
 /* ============ TOWER LEVELS v3 — the real game's tower level system ====
    Tom's design (Nov 8, 22:10; v3 separation Nov 8, 22:53): a TALL
    climb — the screen moves DOWN as you go UP (vertical camera,
@@ -1380,7 +1462,13 @@ const ARCHETYPES = {
 
 function buildLevel(n){
   gdSetWorld(n);
-  return buildLegacy(n);   /* TOWER-40: every level is the tower */
+  const _gdL = buildLegacy(n);   /* TOWER-40: every level is the tower */
+  try {
+    const _gdRaw = (GD_EDIT_PREVIEW && GD_EDIT_PREVIEW.level === n) ? GD_EDIT_PREVIEW.data : GD_EDIT_PUBLISHED[n];
+    const _gdD = _gdRaw ? gdEditorSanitize(_gdRaw) : null;
+    if (_gdD) return gdApplyEditorData(_gdL, _gdD);
+  } catch (e) { /* a bad override can never break the level: default stands */ }
+  return _gdL;
   const A = gdExtendArch(n);
   if (!A) return buildLegacy(n);
   const grounds = A.grounds.map(([x, y, w]) => [x, y, w]);

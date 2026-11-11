@@ -452,8 +452,53 @@
       </div>
       <div id="burnStatus" style="font-size:12.5px; min-height:16px; text-align:center"></div>
     </div>
+    <div class="admsec" id="gdEditorSection">
+      <h3>🛠️ LEVEL EDITOR — FULL EDIT</h3>
+      <p style="font-size:12.5px; text-align:center; margin:0 0 6px">Design any level: drag floors, platforms and enemies where you want them. Nothing changes for players until you press PUBLISH — and UNDO always brings back the version before it. Coins appear by themselves along floors and platforms. The nest (goal) and the hero start are placed by the game engine and stay fixed.</p>
+      <div class="nftRow">
+        <label style="flex:1">Level
+          <select id="geLevel" style="width:100%"></select>
+        </label>
+        <button class="play alt" id="geLoadBtn">LOAD LEVEL</button>
+      </div>
+      <div id="geState" style="font-size:12.5px; min-height:16px; text-align:center"></div>
+      <canvas id="geCanvas" width="780" height="1370" style="width:100%; max-width:520px; display:block; margin:6px auto; background:#0b1e3a; border:1.5px solid rgba(255,255,255,.25); border-radius:10px; touch-action:none"></canvas>
+      <div class="nftRow">
+        <button class="play alt" id="geAddGround" style="flex:1">＋ FLOOR</button>
+        <button class="play alt" id="geAddPlat" style="flex:1">＋ PLATFORM</button>
+        <button class="play alt" id="geAddEnemy" style="flex:1">＋ ENEMY</button>
+      </div>
+      <div class="nftRow">
+        <button class="play alt" id="geDelBtn" style="flex:1">🗑 DELETE SELECTED</button>
+      </div>
+      <div id="geProps" style="font-size:12.5px; text-align:center; min-height:18px"></div>
+      <div class="nftRow">
+        <label style="flex:1">Boss health (HP)
+          <input id="geBossHp" type="number" min="1" max="99" step="1">
+        </label>
+        <label style="flex:1">Boss speed
+          <input id="geBossSpeed" type="number" min="0" max="120" step="1">
+        </label>
+      </div>
+      <div class="nftRow">
+        <button class="play" id="geSaveBtn" style="flex:1">💾 SAVE DRAFT</button>
+        <button class="play" id="gePreviewBtn" style="flex:1">👀 PREVIEW DRAFT</button>
+      </div>
+      <div class="nftRow">
+        <button class="play" id="gePublishBtn" style="flex:1">🚀 PUBLISH…</button>
+        <button class="play alt" id="geUndoBtn" style="flex:1">↩️ UNDO LAST PUBLISH</button>
+        <button class="play alt" id="geResetBtn" style="flex:1">⟲ RESET TO ORIGINAL</button>
+      </div>
+      <div id="geConfirm" style="font-size:13px; text-align:center"></div>
+      <div id="geStatus" style="font-size:12.5px; min-height:16px; text-align:center"></div>
+    </div>
   </div>
   <button id="adminClose" class="play alt">✕ CLOSE</button>
+</div>
+
+<div id="gePreviewBar" style="display:none; position:fixed; top:8px; left:50%; transform:translateX(-50%); z-index:999; background:rgba(10,16,34,.92); border:1.5px solid #ffd76a; border-radius:12px; padding:8px 12px; align-items:center; gap:10px; font-size:13px">
+  <span>👀 PREVIEW — your draft, NOT live for players</span>
+  <button class="play alt" id="geExitPreview">✕ END PREVIEW</button>
 </div>
 
 <script>
@@ -1082,6 +1127,88 @@ function drawBossPowerBar(b){
   ctx.restore();
 }
 
+/* ============ LEVEL EDITOR OVERRIDES (Garuda team admin editor) ====
+   The team's visual editor (private admin panel) stores per-level
+   layout DATA on the server (grounds / step platforms / patrol
+   enemies / boss numbers — the exact pieces buildLegacy builds).
+   Published overrides load once at boot from
+   /api/luna-games?garudaedit=1 and buildLevel swaps them in.
+   BULLETPROOF FALLBACK: any failure — offline, bad data, a level
+   with no override — leaves the built-in default level EXACTLY as
+   shipped. Editor data can never break the game. Coins are not
+   stored: they re-derive from the edited grounds/platforms in
+   buildCoinsFor, same as always. The nest and the hero start are
+   engine-fixed (buildLegacy / startLevel) and are not editable. */
+let GD_EDIT_PUBLISHED = {};   /* level -> sanitised editor data */
+let GD_EDIT_PREVIEW = null;   /* {level, data} — admin-page draft preview only; nothing on the public page ever sets this */
+let GD_EDIT_LOADED = false;
+function gdEditorSanitize(d){
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return null;
+  const int = (v, lo, hi) => {
+    const x = Math.round(Number(v));
+    return Number.isFinite(x) && x >= lo && x <= hi ? x : null;
+  };
+  const triple = (a, wHi) => {
+    if (!Array.isArray(a) || a.length !== 3) return null;
+    const x = int(a[0], -600, 2600), y = int(a[1], -2800, 800), w = int(a[2], 16, wHi);
+    return (x === null || y === null || w === null) ? null : [x, y, w];
+  };
+  if (!Array.isArray(d.grounds) || d.grounds.length < 1 || d.grounds.length > 64) return null;
+  const grounds = [];
+  for (const g of d.grounds){ const t = triple(g, 1400); if (!t) return null; grounds.push(t); }
+  if (!Array.isArray(d.platforms) || d.platforms.length > 80) return null;
+  const platforms = [];
+  for (const p of d.platforms){ const t = triple(p, 600); if (!t) return null; platforms.push(t); }
+  if (!Array.isArray(d.walkers) || d.walkers.length > 40) return null;
+  const walkers = [];
+  for (const w of d.walkers){
+    if (!w || typeof w !== 'object') return null;
+    const minX = int(w.minX, -600, 2600), maxX = int(w.maxX, -600, 2600);
+    const y = int(w.y, -2800, 800), speed = int(w.speed, 0, 240);
+    if (minX === null || maxX === null || y === null || speed === null || maxX <= minX) return null;
+    if (w.kind !== 'tiki' && w.kind !== 'brute') return null;
+    walkers.push({ minX, maxX, y, speed, kind: w.kind });
+  }
+  const bossHp = int(d.bossHp, 1, 99), bossSpeed = int(d.bossSpeed, 0, 120);
+  if (bossHp === null || bossSpeed === null) return null;
+  return { v: 1, grounds, platforms, walkers, bossHp, bossSpeed };
+}
+function gdApplyEditorData(L, d){
+  L.grounds = d.grounds.map(g => [g[0], g[1], g[2]]);
+  L.platforms = d.platforms.map(p => [p[0], p[1], p[2]]);
+  L.walkerDefs = d.walkers.map(w => ({
+    minX: w.minX, maxX: w.maxX, y: w.y, speed: w.speed, kind: w.kind,
+    hp: w.kind === 'brute' ? 2 : 1, w: w.kind === 'brute' ? 54 : 32, h: w.kind === 'brute' ? 46 : 24,
+  }));
+  if (L.boss){
+    L.boss.hp = d.bossHp; L.boss.maxHp = d.bossHp; L.boss.dmgHp = d.bossHp;
+    L.boss.speed = d.bossSpeed;
+  }
+  /* climb flags follow the edited grounds (same story-start indices
+     buildLegacy flags) */
+  GD_TOWER_FLAGS = new Set([0, 6, 12, 18, 24]
+    .map(i => L.grounds[i] ? L.grounds[i][0] + ',' + L.grounds[i][1] : '')
+    .filter(s => s));
+  return L;
+}
+/* One fetch for every published override; failures are silent and
+   final — the defaults are already in the engine. */
+(async function gdLoadEditorOverrides(){
+  try {
+    const r = await fetch('/api/luna-games?garudaedit=1', { cache: 'no-cache' });
+    if (!r.ok) return;
+    const d = await r.json();
+    const map = (d && d.published) || {};
+    const clean = {};
+    for (const k of Object.keys(map)){
+      const s = gdEditorSanitize(map[k]);
+      if (s) clean[k] = s;
+    }
+    GD_EDIT_PUBLISHED = clean;
+  } catch (e) { /* defaults stand */ }
+  GD_EDIT_LOADED = true;
+})();
+
 /* ============ TOWER LEVELS v3 — the real game's tower level system ====
    Tom's design (Nov 8, 22:10; v3 separation Nov 8, 22:53): a TALL
    climb — the screen moves DOWN as you go UP (vertical camera,
@@ -1364,7 +1491,13 @@ const ARCHETYPES = {
 
 function buildLevel(n){
   gdSetWorld(n);
-  return buildLegacy(n);   /* TOWER-40: every level is the tower */
+  const _gdL = buildLegacy(n);   /* TOWER-40: every level is the tower */
+  try {
+    const _gdRaw = (GD_EDIT_PREVIEW && GD_EDIT_PREVIEW.level === n) ? GD_EDIT_PREVIEW.data : GD_EDIT_PUBLISHED[n];
+    const _gdD = _gdRaw ? gdEditorSanitize(_gdRaw) : null;
+    if (_gdD) return gdApplyEditorData(_gdL, _gdD);
+  } catch (e) { /* a bad override can never break the level: default stands */ }
+  return _gdL;
   const A = gdExtendArch(n);
   if (!A) return buildLegacy(n);
   const grounds = A.grounds.map(([x, y, w]) => [x, y, w]);
@@ -6550,6 +6683,357 @@ async function gdLoadPublicStrip(){
     burnBody.textContent = 'Burn total unavailable — chain read failed';
   }
 }
+
+/* ================= LEVEL EDITOR (team admin, Nov 10) =================
+   Full visual editor for the tower levels, living in this private
+   admin panel. The editor works on level DATA (grounds / platforms /
+   walker patrols / boss numbers — exactly what buildLegacy builds),
+   never on code. Flow: edit -> SAVE DRAFT (server, admin-only) ->
+   PREVIEW (plays the draft right here in this page; the public game
+   is untouched) -> PUBLISH (a plain summary shows first; publishing
+   keeps the previous live version as a one-tap UNDO; RESET restores
+   the built-in original). The game-side loader lives with buildLevel
+   above: published data only, sanitised, default on any failure. */
+const GE = { level: 1, data: null, published: null, hasBackup: false, sel: null, dirty: false, loaded: false, drag: null };
+const GE_TOP = -2200, GE_SC = 0.5;   /* canvas: x 0..1560, y -2200..540 at 0.5 scale */
+function geStatus(msg){ const el = $('geStatus'); if (el) el.textContent = msg || ''; }
+function geState(msg){ const el = $('geState'); if (el) el.textContent = msg || ''; }
+function geDefaultData(n){
+  const L = buildLegacy(n);
+  return {
+    v: 1,
+    grounds: L.grounds.map(g => [g[0], g[1], g[2]]),
+    platforms: L.platforms.map(p => [p[0], p[1], p[2]]),
+    walkers: L.walkerDefs.map(w => ({ minX: w.minX, maxX: w.maxX, y: w.y, speed: w.speed, kind: w.kind })),
+    bossHp: L.boss ? L.boss.hp : 2, bossSpeed: L.boss ? L.boss.speed : 22,
+  };
+}
+function geClean(){ return GE.data ? gdEditorSanitize(JSON.parse(JSON.stringify(GE.data))) : null; }
+async function geApiPost(payload){
+  const key = gdAdminCred();
+  const r = await fetch('/api/luna-games?garudaedit=1', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(key ? { Authorization: 'Bearer ' + key } : {}) },
+    body: JSON.stringify(payload),
+  });
+  return { r, d: await r.json().catch(() => ({})) };
+}
+async function geApiState(){
+  const key = gdAdminCred();
+  const r = await fetch('/api/luna-games?garudaedit=1&admin=1&level=' + GE.level, {
+    headers: { ...(key ? { Authorization: 'Bearer ' + key } : {}) },
+  });
+  return { r, d: await r.json().catch(() => ({})) };
+}
+function geAuthFail(r){ return r.status === 401; }
+async function geLoad(doneMsg){
+  geStatus('Loading level ' + GE.level + '…');
+  let st;
+  try { st = await geApiState(); } catch (e) { geStatus('Could not reach the editor store — try again.'); return; }
+  if (geAuthFail(st.r)){ geStatus(gdAdminAuthFailMsg()); return; }
+  if (!st.r.ok){ geStatus('Editor store unavailable right now.'); return; }
+  GE.published = st.d.published || null;
+  GE.hasBackup = !!st.d.hasBackup;
+  const src = st.d.draft ? 'your saved draft' : st.d.published ? 'the live published version' : 'the built-in original';
+  GE.data = JSON.parse(JSON.stringify(st.d.draft || st.d.published || geDefaultData(GE.level)));
+  GE.sel = null; GE.dirty = false; GE.loaded = true;
+  $('geBossHp').value = GE.data.bossHp;
+  $('geBossSpeed').value = GE.data.bossSpeed;
+  $('geUndoBtn').disabled = !GE.hasBackup;
+  geState('Level ' + GE.level + ' — showing ' + src + '.' +
+    (st.d.published ? ' A custom version is LIVE for players.' : ' Players see the built-in original.'));
+  geStatus(doneMsg || '');
+  geRender(); geRenderProps();
+}
+const GE_X = x => x * GE_SC;
+const GE_Y = y => (y - GE_TOP) * GE_SC;
+function geRender(){
+  const cvEl = $('geCanvas'); if (!cvEl || !GE.data) return;
+  const c = cvEl.getContext('2d');
+  const W = cvEl.width, H = cvEl.height;
+  const grad = c.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#1b2f5e'); grad.addColorStop(0.55, '#274b7a'); grad.addColorStop(1, '#3a6ea5');
+  c.fillStyle = grad; c.fillRect(0, 0, W, H);
+  c.strokeStyle = 'rgba(255,255,255,0.07)'; c.lineWidth = 1;
+  c.fillStyle = 'rgba(255,255,255,0.4)'; c.font = '10px system-ui'; c.textAlign = 'left';
+  for (let gx = 0; gx <= 1560; gx += 200){ c.beginPath(); c.moveTo(GE_X(gx), 0); c.lineTo(GE_X(gx), H); c.stroke(); }
+  for (let gy = -2000; gy <= 400; gy += 200){
+    c.beginPath(); c.moveTo(0, GE_Y(gy)); c.lineTo(W, GE_Y(gy)); c.stroke();
+    c.fillText(String(gy), 4, GE_Y(gy) - 3);
+  }
+  /* story labels */
+  c.fillStyle = 'rgba(255,215,106,0.55)'; c.font = 'bold 11px system-ui'; c.textAlign = 'right';
+  [[470, 'STORY 1'], [-70, 'STORY 2'], [-610, 'STORY 3'], [-1150, 'STORY 4'], [-1690, 'TOP · BOSS + NEST']]
+    .forEach(([y, t]) => c.fillText(t, W - 6, GE_Y(y) - 6));
+  const D = GE.data;
+  /* grounds */
+  D.grounds.forEach(([x, y, w], i) => {
+    c.fillStyle = '#6b543a'; c.fillRect(GE_X(x), GE_Y(y), w * GE_SC, 15);
+    c.fillStyle = '#7fae4c'; c.fillRect(GE_X(x), GE_Y(y), w * GE_SC, 4);
+    if (GE.sel && GE.sel.type === 'ground' && GE.sel.idx === i){
+      c.strokeStyle = '#ffd76a'; c.lineWidth = 2.5; c.strokeRect(GE_X(x) - 2, GE_Y(y) - 2, w * GE_SC + 4, 19);
+    }
+  });
+  /* platforms */
+  D.platforms.forEach(([x, y, w], i) => {
+    c.fillStyle = '#a9805a'; c.fillRect(GE_X(x), GE_Y(y), w * GE_SC, 7);
+    c.fillStyle = '#caa06e'; c.fillRect(GE_X(x), GE_Y(y), w * GE_SC, 2.5);
+    if (GE.sel && GE.sel.type === 'platform' && GE.sel.idx === i){
+      c.strokeStyle = '#ffd76a'; c.lineWidth = 2.5; c.strokeRect(GE_X(x) - 2, GE_Y(y) - 2, w * GE_SC + 4, 11);
+    }
+  });
+  /* walkers: patrol line + body standing on y */
+  D.walkers.forEach((w, i) => {
+    const bw = w.kind === 'brute' ? 54 : 32, bh = w.kind === 'brute' ? 46 : 24;
+    const cx = (w.minX + w.maxX) / 2;
+    c.strokeStyle = 'rgba(255,120,90,0.65)'; c.lineWidth = 1.5;
+    c.beginPath(); c.moveTo(GE_X(w.minX), GE_Y(w.y) + 3); c.lineTo(GE_X(w.maxX + bw), GE_Y(w.y) + 3); c.stroke();
+    c.fillStyle = w.kind === 'brute' ? '#a33b2a' : '#8a5a2e';
+    c.fillRect(GE_X(cx), GE_Y(w.y - bh), bw * GE_SC, bh * GE_SC);
+    c.fillStyle = '#fff'; c.font = 'bold 9px system-ui'; c.textAlign = 'center';
+    c.fillText(w.kind === 'brute' ? 'B' : 'T', GE_X(cx) + bw * GE_SC / 2, GE_Y(w.y - bh) + 10);
+    if (GE.sel && GE.sel.type === 'walker' && GE.sel.idx === i){
+      c.strokeStyle = '#ffd76a'; c.lineWidth = 2.5;
+      c.strokeRect(GE_X(w.minX) - 2, GE_Y(w.y - bh) - 2, (w.maxX + bw - w.minX) * GE_SC + 4, bh * GE_SC + 10);
+    }
+  });
+  /* fixed markers: hero start, boss, nest */
+  c.font = 'bold 10px system-ui'; c.textAlign = 'center';
+  c.fillStyle = '#7CFC98'; c.fillText('🦅 START (fixed)', GE_X(70), GE_Y(470) - 12);
+  c.fillStyle = '#ff8a5c'; c.fillText('👹 BOSS', GE_X(1176), GE_Y(-1690) - 52);
+  c.fillStyle = '#ffd76a'; c.fillText('🪺 NEST (fixed)', GE_X(1466), GE_Y(-1690) - 12);
+}
+function geRenderProps(){
+  const box = $('geProps'); if (!box) return;
+  box.innerHTML = '';
+  if (!GE.data){ box.textContent = 'Load a level to start editing.'; return; }
+  const counts = document.createElement('div');
+  counts.textContent = 'Floors: ' + GE.data.grounds.length + ' · Platforms: ' + GE.data.platforms.length +
+    ' · Enemies: ' + GE.data.walkers.length + (GE.dirty ? ' · ● unsaved changes' : '');
+  box.appendChild(counts);
+  const s = GE.sel;
+  if (!s){ const t = document.createElement('div'); t.textContent = 'Tap any floor, platform or enemy to select it — then drag it, or type exact numbers:'; box.appendChild(t); return; }
+  const row = document.createElement('div');
+  row.style.marginTop = '6px';
+  const mk = (label, val, fn) => {
+    const lab = document.createElement('label');
+    lab.append(' ' + label + ' ');
+    const inp = document.createElement('input');
+    inp.type = 'number'; inp.value = val; inp.step = 2; inp.style.width = '74px';
+    inp.onchange = () => { const v = Math.round(Number(inp.value)); if (Number.isFinite(v)){ fn(v); GE.dirty = true; geRender(); geRenderProps(); } };
+    lab.appendChild(inp); row.appendChild(lab);
+  };
+  if (s.type === 'ground' || s.type === 'platform'){
+    const arr = s.type === 'ground' ? GE.data.grounds[s.idx] : GE.data.platforms[s.idx];
+    const cap = document.createElement('b'); cap.textContent = (s.type === 'ground' ? 'FLOOR' : 'PLATFORM') + ' #' + (s.idx + 1);
+    box.appendChild(cap);
+    mk('X', arr[0], v => arr[0] = v);
+    mk('Y', arr[1], v => arr[1] = v);
+    mk('Width', arr[2], v => arr[2] = Math.max(16, v));
+  } else if (s.type === 'walker'){
+    const w = GE.data.walkers[s.idx];
+    const cap = document.createElement('b'); cap.textContent = 'ENEMY #' + (s.idx + 1);
+    box.appendChild(cap);
+    mk('Patrol left', w.minX, v => { w.minX = Math.min(v, w.maxX - 8); });
+    mk('Patrol right', w.maxX, v => { w.maxX = Math.max(v, w.minX + 8); });
+    mk('Y', w.y, v => w.y = v);
+    mk('Speed', w.speed, v => w.speed = Math.max(0, Math.min(240, v)));
+    const lab = document.createElement('label');
+    lab.append(' Type ');
+    const selEl = document.createElement('select');
+    [['tiki', 'Tiki (1 HP)'], ['brute', 'Brute (2 HP, bigger)']].forEach(([v, t]) => {
+      const o = document.createElement('option'); o.value = v; o.textContent = t; selEl.appendChild(o);
+    });
+    selEl.value = w.kind;
+    selEl.onchange = () => { w.kind = selEl.value; GE.dirty = true; geRender(); };
+    lab.appendChild(selEl); row.appendChild(lab);
+  }
+  box.appendChild(row);
+}
+function gePointerPos(ev){
+  const cvEl = $('geCanvas'), r = cvEl.getBoundingClientRect();
+  return {
+    x: (ev.clientX - r.left) / r.width * (1560),
+    y: (ev.clientY - r.top) / r.height * (2740) + GE_TOP,
+  };
+}
+function geHit(p){
+  const D = GE.data; if (!D) return null;
+  for (let i = D.walkers.length - 1; i >= 0; i--){
+    const w = D.walkers[i], bh = w.kind === 'brute' ? 46 : 24;
+    if (p.x >= w.minX - 6 && p.x <= w.maxX + 60 && p.y >= w.y - bh - 14 && p.y <= w.y + 16)
+      return { type: 'walker', idx: i, dx: p.x - (w.minX + w.maxX) / 2, dy: p.y - w.y, w0: w.maxX - w.minX };
+  }
+  for (let i = D.platforms.length - 1; i >= 0; i--){
+    const [x, y, w] = D.platforms[i];
+    if (p.x >= x - 4 && p.x <= x + w + 4 && p.y >= y - 12 && p.y <= y + 16)
+      return { type: 'platform', idx: i, dx: p.x - x, dy: p.y - y };
+  }
+  for (let i = D.grounds.length - 1; i >= 0; i--){
+    const [x, y, w] = D.grounds[i];
+    if (p.x >= x - 4 && p.x <= x + w + 4 && p.y >= y - 12 && p.y <= y + 30)
+      return { type: 'ground', idx: i, dx: p.x - x, dy: p.y - y };
+  }
+  return null;
+}
+function geInit(){
+  const selEl = $('geLevel');
+  for (let n = 1; n <= 40; n++){
+    const o = document.createElement('option'); o.value = n; o.textContent = 'Level ' + n;
+    selEl.appendChild(o);
+  }
+  selEl.onchange = () => { GE.level = Number(selEl.value); GE.loaded = false; geLoad(); };
+  $('geLoadBtn').onclick = geLoad;
+  const cvEl = $('geCanvas');
+  cvEl.addEventListener('pointerdown', ev => {
+    if (!GE.data) return;
+    const p = gePointerPos(ev);
+    const hit = geHit(p);
+    GE.sel = hit;
+    GE.drag = hit;
+    if (hit) { try { cvEl.setPointerCapture(ev.pointerId); } catch (e) {} }
+    geRender(); geRenderProps();
+    ev.preventDefault();
+  });
+  cvEl.addEventListener('pointermove', ev => {
+    if (!GE.drag || !GE.data) return;
+    const p = gePointerPos(ev), d = GE.drag, D = GE.data;
+    const snap = v => Math.round(v / 2) * 2;
+    if (d.type === 'ground' || d.type === 'platform'){
+      const arr = d.type === 'ground' ? D.grounds[d.idx] : D.platforms[d.idx];
+      arr[0] = Math.max(-600, Math.min(2600, snap(p.x - d.dx)));
+      arr[1] = Math.max(-2800, Math.min(800, snap(p.y - d.dy)));
+    } else if (d.type === 'walker'){
+      const w = D.walkers[d.idx];
+      const cx = Math.max(-560, Math.min(2560, snap(p.x - d.dx)));
+      w.minX = Math.round(cx - d.w0 / 2); w.maxX = w.minX + d.w0;
+      w.y = Math.max(-2800, Math.min(800, snap(p.y - d.dy)));
+    }
+    GE.dirty = true;
+    geRender();
+  });
+  const endDrag = () => { if (GE.drag){ GE.drag = null; geRenderProps(); } };
+  cvEl.addEventListener('pointerup', endDrag);
+  cvEl.addEventListener('pointercancel', endDrag);
+  $('geAddGround').onclick = () => { if (!GE.data) return; GE.data.grounds.push([900, -610, 220]); GE.sel = { type: 'ground', idx: GE.data.grounds.length - 1 }; GE.dirty = true; geRender(); geRenderProps(); geStatus('New floor added — drag it into place.'); };
+  $('geAddPlat').onclick = () => { if (!GE.data) return; GE.data.platforms.push([760, 300, 90]); GE.sel = { type: 'platform', idx: GE.data.platforms.length - 1 }; GE.dirty = true; geRender(); geRenderProps(); geStatus('New platform added — drag it into place.'); };
+  $('geAddEnemy').onclick = () => { if (!GE.data) return; GE.data.walkers.push({ minX: 200, maxX: 360, y: 470, speed: 52, kind: 'tiki' }); GE.sel = { type: 'walker', idx: GE.data.walkers.length - 1 }; GE.dirty = true; geRender(); geRenderProps(); geStatus('New enemy added on Story 1 — drag it where you want it.'); };
+  $('geDelBtn').onclick = () => {
+    if (!GE.data || !GE.sel){ geStatus('Select something first, then delete.'); return; }
+    const s = GE.sel;
+    if (s.type === 'ground' && GE.data.grounds.length <= 1){ geStatus('A level needs at least one floor.'); return; }
+    if (s.type === 'ground') GE.data.grounds.splice(s.idx, 1);
+    if (s.type === 'platform') GE.data.platforms.splice(s.idx, 1);
+    if (s.type === 'walker') GE.data.walkers.splice(s.idx, 1);
+    GE.sel = null; GE.dirty = true; geRender(); geRenderProps(); geStatus('Deleted. Save the draft to keep it.');
+  };
+  $('geBossHp').onchange = () => { if (!GE.data) return; GE.data.bossHp = Math.max(1, Math.min(99, Math.round(Number($('geBossHp').value) || 1))); GE.dirty = true; geRenderProps(); };
+  $('geBossSpeed').onchange = () => { if (!GE.data) return; GE.data.bossSpeed = Math.max(0, Math.min(120, Math.round(Number($('geBossSpeed').value) || 0))); GE.dirty = true; geRenderProps(); };
+  $('geSaveBtn').onclick = geSaveDraft;
+  $('gePreviewBtn').onclick = gePreview;
+  $('gePublishBtn').onclick = gePublishAsk;
+  $('geUndoBtn').onclick = () => geConfirmAsk(
+    'Undo the last publish of Level ' + GE.level + '? Players go back to the version before it.',
+    '↩️ YES, UNDO', async () => {
+      const { r } = await geApiPost({ action: 'rollback', level: GE.level });
+      if (geAuthFail(r)){ geStatus(gdAdminAuthFailMsg()); return; }
+      if (!r.ok){ geStatus('Undo failed — nothing to roll back to.'); return; }
+      await geLoad('Undone — Level ' + GE.level + ' is back to the previous version.');
+    });
+  $('geResetBtn').onclick = () => geConfirmAsk(
+    'Reset Level ' + GE.level + ' to the BUILT-IN ORIGINAL? The custom live version is removed (UNDO can still bring it back once).',
+    '⟲ YES, RESET', async () => {
+      const { r } = await geApiPost({ action: 'reset', level: GE.level });
+      if (geAuthFail(r)){ geStatus(gdAdminAuthFailMsg()); return; }
+      if (!r.ok){ geStatus('Reset failed.'); return; }
+      await geLoad('Level ' + GE.level + ' reset to the built-in original.');
+    });
+  $('geExitPreview').onclick = geExitPreview;
+  /* load level 1 the first time the signed-in panel renders */
+  const _geRender0 = gdAdminRender;
+  gdAdminRender = function(){ _geRender0(); if (gdAdminData && !GE.loaded) geLoad(); };
+}
+async function geSaveDraft(){
+  if (!GE.data){ geStatus('Load a level first.'); return false; }
+  const clean = geClean();
+  if (!clean){ geStatus('Something in the layout is out of bounds — check the numbers.'); return false; }
+  geStatus('Saving draft…');
+  const { r, d } = await geApiPost({ action: 'saveDraft', level: GE.level, data: clean });
+  if (geAuthFail(r)){ geStatus(gdAdminAuthFailMsg()); return false; }
+  if (!r.ok){ geStatus('Draft save failed: ' + (d.error || 'unknown')); return false; }
+  GE.dirty = false; geRenderProps();
+  geStatus('Draft saved for Level ' + GE.level + '. It is NOT live — preview it, then publish when happy.');
+  return true;
+}
+async function gePreview(){
+  if (!GE.data){ geStatus('Load a level first.'); return; }
+  if (GE.dirty && !(await geSaveDraft())) return;
+  const clean = geClean();
+  if (!clean){ geStatus('Draft has a problem — cannot preview.'); return; }
+  GD_EDIT_PREVIEW = { level: GE.level, data: clean };
+  selLevel = GE.level;
+  $('adminScreen').style.display = 'none';
+  $('gePreviewBar').style.display = 'flex';
+  resetRun(GE.level);
+  running = true;
+  ensureMusic();
+}
+function geExitPreview(){
+  GD_EDIT_PREVIEW = null;
+  running = false;
+  stopMusic();
+  $('gePreviewBar').style.display = 'none';
+  $('overScreen').style.display = 'none';
+  $('levelScreen').style.display = 'none';
+  $('startScreen').style.display = 'flex';
+  $('adminScreen').style.display = 'flex';
+  startLevel(1, true);
+}
+function geConfirmAsk(text, btnLabel, fn){
+  const box = $('geConfirm');
+  box.innerHTML = '';
+  const p = document.createElement('p'); p.textContent = text; p.style.margin = '8px 0 4px';
+  const b = document.createElement('button'); b.className = 'play'; b.textContent = btnLabel;
+  const cx = document.createElement('button'); cx.className = 'play alt'; cx.textContent = 'CANCEL';
+  cx.onclick = () => { box.innerHTML = ''; };
+  b.onclick = async () => { box.innerHTML = ''; try { await fn(); } catch (e) { geStatus('Action failed — try again.'); } };
+  box.append(p, b, cx);
+}
+function geDiff(base, next){
+  const parts = [];
+  const cmp = (name, a, b, key) => {
+    let moved = 0;
+    const n = Math.min(a.length, b.length);
+    for (let i = 0; i < n; i++) if (JSON.stringify(key(a[i])) !== JSON.stringify(key(b[i]))) moved++;
+    const added = Math.max(0, b.length - a.length), removed = Math.max(0, a.length - b.length);
+    if (moved || added || removed) parts.push(name + ': ' + a.length + ' → ' + b.length + (moved ? ' · ' + moved + ' moved/edited' : '') + (added ? ' · ' + added + ' added' : '') + (removed ? ' · ' + removed + ' removed' : ''));
+  };
+  cmp('Floors', base.grounds, next.grounds, g => g);
+  cmp('Platforms', base.platforms, next.platforms, p => p);
+  cmp('Enemies', base.walkers, next.walkers, w => [w.minX, w.maxX, w.y, w.speed, w.kind]);
+  if (base.bossHp !== next.bossHp) parts.push('Boss HP: ' + base.bossHp + ' → ' + next.bossHp);
+  if (base.bossSpeed !== next.bossSpeed) parts.push('Boss speed: ' + base.bossSpeed + ' → ' + next.bossSpeed);
+  return parts;
+}
+async function gePublishAsk(){
+  if (!GE.data){ geStatus('Load a level first.'); return; }
+  if (GE.dirty && !(await geSaveDraft())) return;
+  let st;
+  try { st = await geApiState(); } catch (e) { geStatus('Could not reach the editor store.'); return; }
+  if (geAuthFail(st.r)){ geStatus(gdAdminAuthFailMsg()); return; }
+  const live = st.d.published || geDefaultData(GE.level);
+  const parts = geDiff(live, geClean() || GE.data);
+  const summary = parts.length
+    ? 'Publish Level ' + GE.level + ' LIVE for every player? Changes: ' + parts.join(' · ')
+    : 'Level ' + GE.level + ' already matches the live version — publishing changes nothing.';
+  geConfirmAsk(summary, '🚀 YES, PUBLISH LIVE', async () => {
+    const { r, d } = await geApiPost({ action: 'publish', level: GE.level });
+    if (geAuthFail(r)){ geStatus(gdAdminAuthFailMsg()); return; }
+    if (!r.ok){ geStatus('Publish failed: ' + (d.error || 'unknown')); return; }
+    await geLoad('🎉 Level ' + GE.level + ' is LIVE with your layout. UNDO can bring the old one back.');
+  });
+}
+geInit();
 
 /* ================= boot ================= */
 fit();
