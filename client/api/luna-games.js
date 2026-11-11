@@ -32,10 +32,14 @@
 // worksheet behind ?garudaadmin=1 (vercel.json rewrites
 // /api/garuda-admin here — see the garuda-admin block below). It reads
 // the gd:* wallet/date maps that garuda-score.js writes and returns
-// them ONLY to an authenticated team admin: either the holder of the
-// GARUDA_ADMIN_KEY (fallback, only when set) or the Garuda team admin
-// wallet (GARUDA_ADMIN_WALLET env), which signs in by signing a
-// one-time login message (ADR-36) — no shared secret to share or leak.
+// them ONLY to an authenticated admin: either the holder of the
+// GARUDA_ADMIN_KEY (fallback, only when set) or an authorised wallet
+// signing in by signing a one-time login message (ADR-36) — no shared
+// secret to share or leak. v5: TWO TIERS — the OWNER wallet
+// (GARUDA_OWNER_WALLET env, Tom) always signs in and alone manages
+// the team admin list (stored server-side, gd:admin:list, with the
+// GARUDA_ADMIN_WALLET env as bootstrap/fallback) from the panel, so
+// handing the team their admin never costs Tom control.
 // Worksheet only: it never pays anyone and holds no keys beyond the
 // read-only gate.
 // v2: the admin handler also records hand-made payouts (POST) and the
@@ -583,14 +587,124 @@ export async function ethereumRpcHandler(req, res) {
    signature} verifies the ADR-36 (Keplr signArbitrary) signature
    over the STORED message: the challenge is burned on ANY verify
    attempt, the address derived from the pubkey must equal both the
-   claimed address and GARUDA_ADMIN_WALLET, and on success a random
-   session token (stored hashed, gd:adminsess:<sha256>, 4-hour TTL)
-   becomes the Bearer credential for the existing GET/POST actions.
+   claimed address and the authorised wallet it signed in as, and on
+   success a random session token (stored hashed, gd:adminsess:<sha256>,
+   4-hour TTL) becomes the Bearer credential for the existing
+   GET/POST actions.
    The GARUDA_ADMIN_KEY check stays as a fallback for when a key is
    set (it currently is not). All crypto is node:crypto built-ins —
-   no new dependency joins this shared router. */
+   no new dependency joins this shared router.
+   v5 additions (two-tier admin — OWNER above the team ADMIN; Tom's
+   order Nov 11: handing the admin to the Garuda team must never cost
+   him control, and the team needs us for full maintenance):
+   - The OWNER wallet comes from the GARUDA_OWNER_WALLET env var ONLY.
+     Nothing stored in the database can create, change or remove the
+     owner, and the owner is checked FIRST: an owner sign-in always
+     works, no matter what the stored admin list says.
+   - The team ADMIN list lives server-side in the same store
+     (gd:admin:list — a JSON array of terra1 addresses, managed from
+     the owner's panel) so Tom can replace / add / remove the team
+     admin from the panel with NO Vercel redeploy. The env
+     GARUDA_ADMIN_WALLET is the bootstrap + fallback entry: it counts
+     as an admin whenever it is set, and whenever the stored record is
+     missing, corrupt or not a JSON array at all the effective admin
+     set is exactly {GARUDA_ADMIN_WALLET} — i.e. behaviour identical
+     to v3/v4. (A stored EMPTY array is different: it is a real
+     record — the owner removed the last panel admin — and only the
+     env entry remains, which is that same set.) Store READ errors
+     are likewise treated as "no stored list" (fail closed toward
+     the env wallet), never as a lockout.
+   - A sign-in is authorised when the address is the owner OR is in
+     the effective admin set. The session record stores {addr, role}
+     (older plain-address records still parse as role "admin"). The
+     role is re-resolved LIVE on every gated call (gdAdminResolveRole):
+     the owner env wallet is always "owner"; any other session wallet
+     is "admin" only while it is still in the effective admin set —
+     so removing an admin in the panel kills that admin's live
+     sessions immediately, and rotating the env wallet keeps its old
+     kill-everything meaning for non-owner sessions.
+   - Admin-management actions (POST action "adminAccess" with
+     op "get" | "add" | "remove", plus the read-only fields the admin
+     GET now returns) are OWNER-ONLY, enforced server-side on every
+     call: the shared key and team-admin sessions get 403. "add" with
+     replace:true swaps the single team admin; without it, it appends
+     (max 5 stored admins). The owner address can never enter the
+     stored list, and removing the env wallet from the panel is a
+     no-op it reports honestly (the env entry only changes in Vercel).
+   - Every admin-list change is appended to an audit list in the same
+     store (gd:admin:audit, newest first, capped at 50): {at, by,
+     action, addr, old, new} — shown only in the owner's panel. */
 const GD_TXHASH_RE = /^[0-9A-Fa-f]{64}$/;
 const GD_ADDR_RE = /^terra1[0-9a-z]{38}$/;
+/* ---- v5: two-tier admin (owner + team admins) ----
+   gdAdminOwner(): the owner wallet, from the GARUDA_OWNER_WALLET env
+   var ONLY — never read from the store, never writable through any
+   endpoint. gdAdminStoredList(): the owner-managed team admin list
+   (gd:admin:list); null means "no usable stored record" (missing,
+   corrupt JSON, not an array, empty after filtering, or the store
+   read failed) and the caller falls back to the env wallet alone.
+   gdAdminEffectiveAdmins(): the set of team-admin wallets right now —
+   stored list when usable, PLUS the env GARUDA_ADMIN_WALLET whenever
+   it is set (bootstrap/fallback), MINUS the owner (the owner is a
+   tier above the list, never an entry in it). */
+const GD_ADMIN_LIST_KEY = 'gd:admin:list';
+const GD_ADMIN_AUDIT_KEY = 'gd:admin:audit';
+const GD_ADMIN_MAX_ADMINS = 5;
+const GD_ADMIN_AUDIT_MAX = 50;
+function gdAdminOwner() {
+  const o = process.env.GARUDA_OWNER_WALLET || '';
+  return GD_ADDR_RE.test(o) ? o : '';
+}
+async function gdAdminStoredList() {
+  try {
+    const out = await upstashPipeline([['GET', GD_ADMIN_LIST_KEY]]);
+    const raw = (out && out[0] && out[0].result) || null;
+    if (!raw) return null;
+    let arr = null;
+    try { arr = JSON.parse(raw); } catch (e) { return null; }
+    if (!Array.isArray(arr)) return null;
+    /* A stored array is authoritative even when empty (owner removed
+       the last panel admin — distinct from "no record"): filter to
+       valid addresses and return as-is, [] included. */
+    return [...new Set(arr.map((a) => String(a || '')).filter((a) => GD_ADDR_RE.test(a)))];
+  } catch (e) { return null; }
+}
+async function gdAdminEffectiveAdmins() {
+  const owner = gdAdminOwner();
+  const stored = await gdAdminStoredList();
+  const set = new Set(stored || []);
+  const envAdmin = process.env.GARUDA_ADMIN_WALLET || '';
+  if (GD_ADDR_RE.test(envAdmin)) set.add(envAdmin);
+  if (owner) set.delete(owner);
+  return set;
+}
+/* Is this address allowed to sign in at all (either tier)? */
+async function gdAdminAuthorized(address) {
+  if (!GD_ADDR_RE.test(address)) return null;
+  if (address === gdAdminOwner()) return 'owner';
+  const admins = await gdAdminEffectiveAdmins();
+  return admins.has(address) ? 'admin' : null;
+}
+/* Append one entry to the owner-visible audit list (newest first).
+   Best-effort: a failed audit write never blocks the change itself,
+   which has already been stored — but it is logged server-side. */
+async function gdAdminAudit(entry) {
+  try {
+    const out = await upstashPipeline([['GET', GD_ADMIN_AUDIT_KEY]]);
+    let arr = [];
+    try { arr = JSON.parse((out && out[0] && out[0].result) || '[]'); } catch (e) { arr = []; }
+    if (!Array.isArray(arr)) arr = [];
+    arr.unshift(entry);
+    await upstashPipeline([['SET', GD_ADMIN_AUDIT_KEY, JSON.stringify(arr.slice(0, GD_ADMIN_AUDIT_MAX))]]);
+  } catch (e) { console.error('garuda admin audit write failed', e && e.message); }
+}
+async function gdAdminAuditRead() {
+  try {
+    const out = await upstashPipeline([['GET', GD_ADMIN_AUDIT_KEY]]);
+    const arr = JSON.parse((out && out[0] && out[0].result) || '[]');
+    return Array.isArray(arr) ? arr.slice(0, GD_ADMIN_AUDIT_MAX) : [];
+  } catch (e) { return []; }
+}
 /* ---- v3: wallet-signature admin sign-in helpers (ADR-36) ----
    Keplr's signArbitrary signs an amino sign doc whose single message
    is sign/MsgSignData {signer, data: base64(message)}. The signature
@@ -699,14 +813,14 @@ function gdVerifyAdr36(message, signer, pub, sig) {
     return crypto.verify('sha256', gdAdr36SignBytes(message, signer), { key, dsaEncoding: 'ieee-p1363' }, sig);
   } catch (e) { return false; }
 }
-/* Challenge step: only the ONE admin wallet may even request a login
-   message. Every other address — malformed, well-formed, or the store
-   being unconfigured for sign-in — gets the same generic refusal, so
-   the endpoint never reveals which address is expected. */
+/* Challenge step: only an authorised wallet (the owner, or a wallet
+   in the effective team-admin set) may even request a login message.
+   Every other address — malformed, well-formed, or the store being
+   unconfigured for sign-in — gets the same generic refusal, so the
+   endpoint never reveals which addresses are expected. */
 async function gdAdminChallenge(req, res, body) {
-  const adminWallet = process.env.GARUDA_ADMIN_WALLET || '';
   const address = String(body.address || '');
-  if (!adminWallet || !GD_ADDR_RE.test(address) || address !== adminWallet) {
+  if (!(await gdAdminAuthorized(address))) {
     return res.status(403).json({ ok: false, error: 'not authorized' });
   }
   const nonce = crypto.randomBytes(16).toString('hex');   /* 128-bit */
@@ -737,12 +851,14 @@ async function gdAdminChallenge(req, res, body) {
    first, judge after), so a nonce can never be replayed — not even
    after a failed try. The signature must be a valid ADR-36 signature
    over the STORED message, and the address derived from the supplied
-   pubkey must equal both the claimed address and the admin wallet. */
+   pubkey must equal the claimed address, which must be authorised
+   (owner or effective team admin) at verify time. On success the
+   session record stores {addr, role} so the panel knows its tier. */
 async function gdAdminVerify(req, res, body) {
   const fail = () => res.status(401).json({ ok: false, error: 'sign-in failed' });
-  const adminWallet = process.env.GARUDA_ADMIN_WALLET || '';
   const address = String(body.address || '');
-  if (!adminWallet || !GD_ADDR_RE.test(address) || address !== adminWallet) return fail();
+  const role = await gdAdminAuthorized(address);
+  if (!role) return fail();
   let stored = null;
   try {
     const out = await upstashPipeline([['GETDEL', 'gd:adminchal:' + address]]);
@@ -775,25 +891,50 @@ async function gdAdminVerify(req, res, body) {
   const token = crypto.randomBytes(32).toString('base64url');
   const tokenKey = 'gd:adminsess:' + crypto.createHash('sha256').update(token).digest('hex');
   try {
-    await upstashPipeline([['SET', tokenKey, address, 'EX', String(GD_ADMIN_SESS_TTL_SEC)]]);
+    await upstashPipeline([['SET', tokenKey, JSON.stringify({ addr: address, role }), 'EX', String(GD_ADMIN_SESS_TTL_SEC)]]);
   } catch (e) {
     console.error('garuda admin session save failed', e && e.message);
     return res.status(502).json({ error: 'store unavailable' });
   }
   res.setHeader('Cache-Control', 'no-store');
-  return res.status(200).json({ ok: true, token, expiresIn: GD_ADMIN_SESS_TTL_SEC });
+  return res.status(200).json({ ok: true, token, role, expiresIn: GD_ADMIN_SESS_TTL_SEC });
 }
 /* A Bearer credential that is not the shared key may be a wallet
-   sign-in session token. The stored value is the address the session
-   was issued to; requiring it to still equal GARUDA_ADMIN_WALLET
-   means rotating the env var kills every live session at once. */
-async function gdAdminSessionOk(token) {
+   sign-in session token. The stored record is {addr, role} (v5);
+   older records are the bare address string and parse as role
+   "admin". The role is RE-RESOLVED LIVE on every call:
+   - the env GARUDA_OWNER_WALLET is always "owner" — the stored list
+     can never remove, demote or override the owner;
+   - any other wallet is "admin" only while it is still in the
+     effective admin set (stored list ∪ env GARUDA_ADMIN_WALLET), so
+     removing an admin in the panel — or rotating the env wallet —
+     kills that admin's live sessions immediately, exactly as
+     rotating the env var killed every session before v5.
+   Returns 'owner' | 'admin' | null. */
+async function gdAdminResolveSession(token) {
   try {
+    if (!token) return null;
     const key = 'gd:adminsess:' + crypto.createHash('sha256').update(token).digest('hex');
     const out = await upstashPipeline([['GET', key]]);
-    const who = (out && out[0] && out[0].result) || null;
-    return !!who && who === (process.env.GARUDA_ADMIN_WALLET || '');
-  } catch (e) { return false; }
+    const raw = (out && out[0] && out[0].result) || null;
+    if (!raw) return null;
+    let addr = raw;
+    try {
+      const rec = JSON.parse(raw);
+      if (rec && typeof rec === 'object' && typeof rec.addr === 'string') addr = rec.addr;
+    } catch (e) { /* pre-v5 bare-address record */ }
+    if (!GD_ADDR_RE.test(addr)) return null;
+    if (addr === gdAdminOwner()) return { addr, role: 'owner' };
+    const admins = await gdAdminEffectiveAdmins();
+    return admins.has(addr) ? { addr, role: 'admin' } : null;
+  } catch (e) { return null; }
+}
+async function gdAdminResolveRole(token) {
+  const sess = await gdAdminResolveSession(token);
+  return sess ? sess.role : null;
+}
+async function gdAdminSessionOk(token) {
+  return !!(await gdAdminResolveRole(token));
 }
 async function garudaAdminHandler(req, res) {
   if (req.method !== 'GET' && req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
@@ -825,20 +966,44 @@ async function garudaAdminHandler(req, res) {
     keyOk = a.length === b.length && crypto.timingSafeEqual(a, b);
   }
   /* Wallet sign-in session token: tried only when the shared key did
-     not match, so the key fallback behaves exactly as before. */
-  if (!keyOk && got && storeOk) keyOk = await gdAdminSessionOk(got);
+     not match, so the key fallback behaves exactly as before. The
+     caller's role is resolved LIVE (v5): 'owner' | 'admin' | null.
+     Key callers keep role null — the key is a break-glass credential
+     for the ordinary panel actions, never for admin management. */
+  let sessRole = null;
+  let sessAddr = '';
+  if (!keyOk && got && storeOk) {
+    const sess = await gdAdminResolveSession(got);
+    sessRole = sess && sess.role;
+    sessAddr = (sess && sess.addr) || '';
+    keyOk = !!sessRole;
+  }
   if (!keyOk) return res.status(401).json({ ok: false, error: 'unauthorized' });
   if (!storeOk) {
     return res.status(503).json({ error: 'leaderboard not configured' });
   }
   if (req.method === 'POST') {
+    /* v5: admin-access management — OWNER session only, enforced here
+       on every call (the page merely hides the section from admins).
+       A team-admin session, or the shared key, gets a plain 403. */
+    if (body.action === 'adminAccess') {
+      if (sessRole !== 'owner') {
+        return res.status(403).json({ ok: false, error: 'owner only' });
+      }
+      try {
+        return await gdAdminAccessAction(req, res, body);
+      } catch (e) {
+        console.error('garuda admin access failed', e && e.message);
+        return res.status(502).json({ error: 'store unavailable' });
+      }
+    }
     /* v4: Timer Payouts + leaderboard restart actions — same gate as
        every other admin action (wallet sign-in session or key). */
     if (body.action === 'setPayTimer' || body.action === 'stopPayTimer' ||
         body.action === 'cancelPayRun' || body.action === 'recordRunPayout' ||
         body.action === 'restartLeaderboard') {
       try {
-        return await gdAdminTimerAction(req, res, body);
+        return await gdAdminTimerAction(req, res, body, sessAddr);
       } catch (e) {
         console.error('garuda timer action failed', e && e.message);
         return res.status(502).json({ error: 'store unavailable' });
@@ -945,12 +1110,95 @@ async function garudaAdminHandler(req, res) {
     /* v4: the timer setting + any waiting payout run ride along so
        the panel can draw the Timer Payouts box in the same load. */
     const tState = await gdTimerState();
+    /* v5: who is asking + (owner only) the admin-access state. Admin
+       sessions and the key get role only — the admin list and audit
+       trail are never served to a non-owner. */
+    const ownerWallet = gdAdminOwner();
+    let adminAccess = null;
+    if (sessRole === 'owner') {
+      const storedList = await gdAdminStoredList();
+      adminAccess = {
+        envAdmin: (process.env.GARUDA_ADMIN_WALLET || '') || null,
+        storedList,
+        audit: await gdAdminAuditRead(),
+      };
+    }
     res.setHeader('Cache-Control', 'no-store');
-    return res.status(200).json({ all: shape(all), week: shape(week), payouts, burnWallet, payTimer: tState.payTimer, payRun: tState.payRun });
+    return res.status(200).json({
+      all: shape(all), week: shape(week), payouts, burnWallet,
+      payTimer: tState.payTimer, payRun: tState.payRun,
+      role: sessRole || (keyOk ? 'key' : null),
+      ownerWallet: ownerWallet || null,
+      adminAccess,
+    });
   } catch (e) {
     console.error('garuda admin failed', e && e.message);
     return res.status(502).json({ error: 'leaderboard unavailable' });
   }
+}
+/* v5: owner-only admin-access management. Dispatched from
+   garudaAdminHandler AFTER the gate, with sessRole === 'owner'
+   already enforced there; `by` for the audit trail is the owner
+   wallet itself. op "get" re-reads the state (the panel uses it to
+   refresh after a change); "add" appends one admin — or, with
+   replace:true, makes the stored list exactly that one wallet (the
+   panel's REPLACE THE TEAM ADMIN); "remove" takes one wallet out of
+   the stored list. Removing can never touch the owner (rejected) and
+   removing the env wallet reports the truth (env entries change only
+   in Vercel) instead of pretending. Every real change is stored and
+   audited with before/after lists. */
+async function gdAdminAccessAction(req, res, body) {
+  const by = gdAdminOwner();
+  const envAdmin = process.env.GARUDA_ADMIN_WALLET || '';
+  const state = async () => {
+    const storedList = await gdAdminStoredList();
+    return {
+      ok: true,
+      ownerWallet: by,
+      envAdmin: envAdmin || null,
+      storedList,
+      admins: [...(await gdAdminEffectiveAdmins())],
+      audit: await gdAdminAuditRead(),
+    };
+  };
+  const op = String(body.op || 'get');
+  if (op === 'get') return res.status(200).json(await state());
+  const addr = String(body.address || '');
+  if (op !== 'add' && op !== 'remove') {
+    return res.status(400).json({ ok: false, error: 'unknown op' });
+  }
+  if (!GD_ADDR_RE.test(addr)) {
+    return res.status(400).json({ ok: false, error: 'bad wallet address' });
+  }
+  if (addr === by) {
+    return res.status(400).json({ ok: false, error: 'the owner wallet cannot be added to or removed from the admin list' });
+  }
+  const stored = (await gdAdminStoredList()) || [];
+  const now = new Date().toISOString();
+  if (op === 'add') {
+    const replace = body.replace === true;
+    if (!replace && stored.includes(addr)) {
+      return res.status(409).json({ ok: false, error: 'that wallet is already a team admin' });
+    }
+    const next = replace ? [addr] : [...stored, addr];
+    if (next.length > GD_ADMIN_MAX_ADMINS) {
+      return res.status(400).json({ ok: false, error: 'too many team admins (max ' + GD_ADMIN_MAX_ADMINS + ')' });
+    }
+    await upstashPipeline([['SET', GD_ADMIN_LIST_KEY, JSON.stringify(next)]]);
+    await gdAdminAudit({ at: now, by, action: replace ? 'replace-admin' : 'add-admin', addr, old: stored, new: next });
+    return res.status(200).json(await state());
+  }
+  /* op === 'remove' */
+  if (!stored.includes(addr)) {
+    if (addr === envAdmin) {
+      return res.status(400).json({ ok: false, error: 'that wallet comes from the server settings (GARUDA_ADMIN_WALLET) — it can only be changed there, not from this panel' });
+    }
+    return res.status(404).json({ ok: false, error: 'that wallet is not in the stored admin list' });
+  }
+  const next = stored.filter((a) => a !== addr);
+  await upstashPipeline([['SET', GD_ADMIN_LIST_KEY, JSON.stringify(next)]]);
+  await gdAdminAudit({ at: now, by, action: 'remove-admin', addr, old: stored, new: next });
+  return res.status(200).json(await state());
 }
 /* garuda-admin:end */
 
@@ -1169,8 +1417,10 @@ async function garudaTickHandler(req, res) {
 }
 /* The v4 admin actions, behind the same gate as everything else in
    garudaAdminHandler (dispatched from its POST branch). */
-async function gdAdminTimerAction(req, res, body) {
-  const who = (process.env.GARUDA_ADMIN_WALLET || '') || 'key-admin';
+async function gdAdminTimerAction(req, res, body, actor) {
+  /* `who` stamped on timer/run records: the caller's session wallet
+     when known (v5 passes it), else the env admin wallet as before. */
+  const who = actor || (process.env.GARUDA_ADMIN_WALLET || '') || 'key-admin';
   if (body.action === 'setPayTimer') {
     const every = body.every === 'daily' ? 'daily' : 'weekly';
     const weekday = Math.max(0, Math.min(6, parseInt(body.weekday, 10) || 0));
@@ -1355,9 +1605,10 @@ async function garudaPublicHandler(req, res) {
    READS of published data are public and read-only. EVERY write — and
    every draft read — requires the same admin credential as the payout
    admin: the GARUDA_ADMIN_KEY fallback or a wallet sign-in session
-   token (gdAdminSessionOk, which itself requires the session's wallet
-   to still equal the GARUDA_ADMIN_WALLET env var). Rotating that env
-   var therefore locks the editor too, exactly like the panel. */
+   token (gdAdminSessionOk — v5: the session's wallet must still be
+   the owner or in the effective admin set, re-resolved live; see the
+   garuda-admin block). Rotating the env wallet therefore locks the
+   editor for that wallet too, exactly like the panel. */
 const GD_EDIT_MAX_LEVEL = 40;
 function gdEditKey(kind, n) { return 'gd:edit:' + kind + ':' + n; }
 function gdEditParseLevel(v) {

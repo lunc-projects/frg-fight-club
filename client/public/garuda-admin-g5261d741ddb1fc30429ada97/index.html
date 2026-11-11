@@ -450,6 +450,7 @@
      marker comment's parent loads — built by gdEnsureV4Sections() so the
      sign-in build's sections stay untouched. -->
   <div id="adminExtras" style="display:none">
+    <div id="gdOwnerAnchor"></div>
     <div id="gdV4Anchor"></div>
     <div class="admsec">
       <h3>➕ RECORD A PAYOUT</h3>
@@ -6494,9 +6495,15 @@ try {
    Public board above stays name+score only, unchanged. */
 let gdAdminData = null, gdAdminTab = 'all';
 let gdAdminToken = '';   /* wallet sign-in session token (memory only) */
+let gdAdminRole = '';    /* 'owner' | 'admin' | '' — reported by the server at sign-in AND on every panel load; the server re-checks it on every call, this is display only */
 function gdAdminCred(){ return gdAdminToken; }
+/* QA hook (read-only): the headless checks read the panel's sign-in
+   state from here — role is the SERVER-reported tier, never a
+   page-side decision. Same pattern as window.__gdQaState. */
+window.__gdAdminQa = () => ({ role: gdAdminRole, hasData: !!gdAdminData, adminAccess: !!(gdAdminData && gdAdminData.adminAccess) });
 function gdAdminAuthFailMsg(){
   if (gdAdminToken) gdAdminToken = '';
+  gdAdminRole = '';
   return 'Admin session expired — sign in with the wallet again.';
 }
 $('adminBtn').onclick = () => { $('adminScreen').style.display = 'flex'; };
@@ -6528,7 +6535,7 @@ async function gdAdminWalletSignIn(){
       body: JSON.stringify({ action: 'challenge', address: addr }),
     });
     ch = await r.json().catch(() => null);
-    if (!r.ok || !ch || !ch.message || !ch.nonce){ st.textContent = 'This wallet is not the game admin wallet.'; return; }
+    if (!r.ok || !ch || !ch.message || !ch.nonce){ st.textContent = 'This wallet is not an admin or owner wallet for this game.'; return; }
   } catch (e) { st.textContent = 'Sign-in unavailable — try again.'; return; }
   st.textContent = 'Keplr is asking you to sign the login message — it is not a transaction and costs no fee.';
   let sig = null;
@@ -6543,8 +6550,11 @@ async function gdAdminWalletSignIn(){
     const d = await r.json().catch(() => null);
     if (!r.ok || !d || !d.token){ st.textContent = 'Sign-in could not be verified — try again.'; return; }
     gdAdminToken = d.token;
+    gdAdminRole = d.role || '';
   } catch (e) { st.textContent = 'Sign-in could not be verified — try again.'; return; }
-  st.textContent = '✅ Signed in as the admin wallet (' + gdShortAddr(addr) + '). Loading the payout list…';
+  st.textContent = gdAdminRole === 'owner'
+    ? '✅ Signed in as the OWNER wallet (' + gdShortAddr(addr) + '). Loading the payout list…'
+    : '✅ Signed in as the admin wallet (' + gdShortAddr(addr) + '). Loading the payout list…';
   await gdAdminLoad();
 }
 $('adminWalletBtn').onclick = gdAdminWalletSignIn;
@@ -6559,6 +6569,7 @@ async function gdAdminLoad(){
     if (r.status === 401){ st.textContent = gdAdminAuthFailMsg(); gdAdminData = null; gdAdminRender(); return; }
     if (!r.ok || !d){ st.textContent = 'Admin list unavailable — try again.'; return; }
     gdAdminData = d;
+    if (d.role) gdAdminRole = d.role;
     $('burnWalletInput').value = d.burnWallet || '';
     st.textContent = 'Payout list loaded. Pay by hand from the team wallet — this page never pays.';
     gdAdminRender();
@@ -6569,7 +6580,8 @@ function gdAdminRender(){
   $('admTabWeek').className = 'play' + (gdAdminTab === 'week' ? '' : ' alt');
   /* v2 sections appear only after a successful key unlock. */
   $('adminExtras').style.display = gdAdminData ? 'block' : 'none';
-  if (gdAdminData){ gdRenderPayouts(); gdRenderTimer(); }
+  if (gdAdminData){ gdRenderPayouts(); gdRenderTimer(); gdRenderAdminAccess(); }
+  else { const os = $('gdOwnerSection'); if (os) os.remove(); gdOwnerWired = false; }
   const rows = gdAdminData ? (gdAdminData[gdAdminTab] || []) : [];
   const box = $('adminRows');
   if (!rows.length){
@@ -6669,6 +6681,125 @@ $('payAddBtn').onclick = async () => {
     gdLoadPublicStrip();
   } catch (e) { st.textContent = 'Not saved — try again.'; }
 };
+/* ================= v5: ADMIN ACCESS (owner only) ================
+   Visible ONLY when the server says this session is the OWNER (the
+   GET carries role:'owner' + the adminAccess state). Hiding is just
+   presentation — the server re-checks the owner role on every
+   admin-access call, and a team-admin session gets 403 there. The
+   owner can: see the current team admin wallet(s), REPLACE the team
+   admin, ADD another admin wallet, and REMOVE an admin wallet.
+   Changes are stored server-side and take effect at once — no
+   redeploy — and every change is written to the audit list below.
+   The owner wallet itself comes from the server settings and can
+   never be changed or removed from this page. */
+let gdOwnerWired = false;
+function gdRenderAdminAccess(){
+  const isOwner = gdAdminRole === 'owner' && gdAdminData && gdAdminData.adminAccess;
+  const existing = $('gdOwnerSection');
+  if (!isOwner){ if (existing) existing.remove(); gdOwnerWired = false; return; }
+  if (!existing){
+    const anchor = $('gdOwnerAnchor');
+    if (!anchor) return;
+    const s = document.createElement('div');
+    s.className = 'admsec'; s.id = 'gdOwnerSection';
+    s.innerHTML =
+      '<h3>👑 ADMIN ACCESS — OWNER ONLY</h3>' +
+      '<p style="font-size:12.5px; text-align:center; margin:0 0 6px">You are signed in as the owner. Only you can change who the team admins are. Changes take effect right away — no redeploy — and a removed admin is signed out everywhere at once. Your owner wallet comes from the server settings and can never be changed or removed from this page.</p>' +
+      '<div id="gdOwnerList" style="font-size:13px"></div>' +
+      '<div class="nftRow"><input id="gdOwnerNewAddr" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="New team admin wallet (terra1…)"></div>' +
+      '<div class="nftRow"><button class="play" id="gdOwnerReplaceBtn" style="flex:1">🔁 REPLACE TEAM ADMIN</button>' +
+      '<button class="play alt" id="gdOwnerAddBtn" style="flex:1">➕ ADD ADMIN</button></div>' +
+      '<div id="gdOwnerStatus" style="font-size:12.5px; min-height:16px; text-align:center"></div>' +
+      '<h4 style="text-align:center; margin:10px 0 4px">RECENT ADMIN CHANGES</h4>' +
+      '<div id="gdOwnerAudit" style="font-size:12px"></div>';
+    anchor.replaceWith(s);
+    gdWireAdminAccess();
+  }
+  gdPaintAdminAccess();
+}
+function gdOwnerState(){
+  const aa = (gdAdminData && gdAdminData.adminAccess) || {};
+  return {
+    ownerWallet: (gdAdminData && gdAdminData.ownerWallet) || '',
+    envAdmin: aa.envAdmin || null,
+    storedList: Array.isArray(aa.storedList) ? aa.storedList : null,
+    audit: Array.isArray(aa.audit) ? aa.audit : [],
+  };
+}
+function gdPaintAdminAccess(){
+  const box = $('gdOwnerList'); if (!box) return;
+  const st = gdOwnerState();
+  box.innerHTML = '';
+  const add = (label, addr, tag, onRemove) => {
+    const row = document.createElement('div'); row.className = 'admrow';
+    const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = label;
+    const wl = document.createElement('span'); wl.className = 'wl'; wl.textContent = addr;
+    const tg = document.createElement('span'); tg.className = 'nw'; tg.textContent = tag;
+    row.append(nm, wl, tg);
+    if (onRemove){
+      const rb = document.createElement('button'); rb.className = 'play alt'; rb.textContent = '✕ REMOVE';
+      rb.onclick = onRemove;
+      row.append(rb);
+    }
+    box.appendChild(row);
+  };
+  add('👑 OWNER (you)', st.ownerWallet, 'server settings — locked');
+  if (st.storedList && st.storedList.length){
+    for (const a of st.storedList) add('Team admin', a, 'panel list', () => gdOwnerChange({ op: 'remove', address: a }));
+    if (st.envAdmin && !st.storedList.includes(st.envAdmin)) add('Team admin', st.envAdmin, 'server settings — change there');
+  } else if (st.envAdmin){
+    add('Team admin', st.envAdmin, 'server settings — change there');
+  } else {
+    const p = document.createElement('p');
+    p.style.cssText = 'text-align:center; opacity:.8';
+    p.textContent = 'No team admin set yet.';
+    box.appendChild(p);
+  }
+  const ab = $('gdOwnerAudit');
+  if (ab){
+    ab.innerHTML = '';
+    if (!st.audit.length){
+      ab.innerHTML = '<p style="text-align:center; opacity:.8">No admin changes recorded yet.</p>';
+    } else {
+      for (const e of st.audit.slice(0, 10)){
+        const row = document.createElement('div'); row.className = 'admrow';
+        const dt = document.createElement('span'); dt.className = 'dt'; dt.textContent = String(e.at || '').slice(0, 10);
+        const tx = document.createElement('span'); tx.className = 'nm';
+        tx.textContent = (e.action || 'change') + ' → ' + gdShortAddr(e.addr || '');
+        const by = document.createElement('span'); by.className = 'nw'; by.textContent = 'by ' + gdShortAddr(e.by || '');
+        row.append(dt, tx, by);
+        ab.appendChild(row);
+      }
+    }
+  }
+}
+async function gdOwnerChange(payload){
+  const st = $('gdOwnerStatus');
+  try {
+    const { r, d } = await gdAdminPost({ action: 'adminAccess', ...payload });
+    if (r.status === 401){ if (st) st.textContent = gdAdminAuthFailMsg(); return; }
+    if (r.status === 403){ if (st) st.textContent = 'Owner only — this session is not the owner.'; return; }
+    if (!r.ok || !d){ if (st) st.textContent = (d && d.error) ? ('Not done: ' + d.error) : 'Not done — try again.'; return; }
+    if (gdAdminData){
+      gdAdminData.adminAccess = { envAdmin: d.envAdmin, storedList: d.storedList, audit: d.audit };
+      gdAdminData.ownerWallet = d.ownerWallet;
+    }
+    if (st) st.textContent = '✅ Saved — in effect now.';
+    gdPaintAdminAccess();
+  } catch (e) { if (st) st.textContent = 'Not done — try again.'; }
+}
+function gdWireAdminAccess(){
+  if (gdOwnerWired) return;
+  gdOwnerWired = true;
+  const readAddr = () => {
+    const a = $('gdOwnerNewAddr').value.trim();
+    if (!/^terra1[0-9a-z]{38}$/.test(a)){ $('gdOwnerStatus').textContent = 'Paste a full terra1… wallet address first.'; return ''; }
+    return a;
+  };
+  $('gdOwnerReplaceBtn').onclick = () => { const a = readAddr(); if (a) gdOwnerChange({ op: 'add', replace: true, address: a }); };
+  $('gdOwnerAddBtn').onclick = () => { const a = readAddr(); if (a) gdOwnerChange({ op: 'add', address: a }); };
+}
+
 $('burnSaveBtn').onclick = async () => {
   const st = $('burnStatus');
   const bw = $('burnWalletInput').value.trim();
