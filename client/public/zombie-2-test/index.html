@@ -1,0 +1,1190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>LUNA CLASSIC ZOMBIE 2.0 — The Zombies Return (TEST)</title>
+<meta name="description" content="LUNA CLASSIC ZOMBIE 2.0 — THE ZOMBIES RETURN. Test build: play as your Lunc Zombies-Commandos NFT fighter in Operation Dawn Break.">
+<meta name="theme-color" content="#0a120c">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48">
+<link rel="icon" type="image/png" href="favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta property="og:title" content="LUNA CLASSIC ZOMBIE 2.0 — The Zombies Return">
+<meta property="og:description" content="Test build — Operation Dawn Break. Your Commando NFT is your fighter.">
+<meta property="og:image" content="og-cover.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="og-cover.jpg">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{width:100%;height:100%;background:#05080a;overflow:hidden;font-family:'Segoe UI',system-ui,Roboto,Arial,sans-serif;color:#eef2f8}
+  #stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#05080a}
+  #wrap{position:relative}
+  canvas{display:block;background:#060a08;border-radius:4px;box-shadow:0 0 60px rgba(0,0,0,.8)}
+  .noscroll{touch-action:none}
+</style>
+</head>
+<body class="noscroll">
+<div id="stage"><div id="wrap"><canvas id="cv" width="916" height="412"></canvas></div></div>
+<script>
+'use strict';
+/* =====================================================================
+   LUNA CLASSIC ZOMBIE 2.0 — THE ZOMBIES RETURN  ·  playable TEST v0
+   One mission: OPERATION DAWN BREAK. Test route only — not published.
+   Sections: 1 i18n · 2 storage/settings · 3 audio · 4 art layers (from
+   the approved preview) · 5 NFT fighter (Garuda pattern) · 6 input ·
+   7 game core · 8 screens/render · 9 QA hooks
+   ===================================================================== */
+const W=916,H=412, cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const GY=330;                       /* ground line (feet) */
+function fitCanvas(){
+  const s=Math.min(innerWidth/W, innerHeight/H);
+  cv.style.width=(W*s)+'px'; cv.style.height=(H*s)+'px';
+}
+addEventListener('resize',fitCanvas); fitCanvas();
+
+/* ================= 1 · I18N (shared 18-language pattern) ================= */
+const LANGS=[["en","English"],["es","Español"],["pt","Português"],["fr","Français"],["de","Deutsch"],["it","Italiano"],["nl","Nederlands"],["ru","Русский"],["uk","Українська"],["tr","Türkçe"],["ar","العربية"],["hi","हिन्दी"],["id","Bahasa Indonesia"],["vi","Tiếng Việt"],["th","ไทย"],["ko","한국어"],["ja","日本語"],["zh","简体中文"]];
+const I18N={
+en:{tapStart:"TAP TO START",test:"🧪 TEST BUILD — private test run · scores save on this device only",mission:"MISSION",brief:"Operation Dawn Break",obj1:"Kill All Enemies",obj2:"Get The Orb",reward:"Reward",enter:"▶ ENTER MISSION",myFighter:"MY FIGHTER",nftBlurb:"Your Lunc Zombies-Commandos NFT is your fighter — like Garuda: pick one and you play as that Commando.",campaign:"CAMPAIGN — LEVEL 1 OF 40",lockedSoon:"LEVELS 2–40 — CAMPAIGN UNDER CONSTRUCTION",mintSoon:"Zombie 2.0 Fighters — mint coming",pastePh:"Paste your Terra Classic wallet address",lookup:"LOOK UP",connect:"CONNECT KEPLR",checking:"Checking the chain…",noNft:"No Commandos found in that wallet — you play as the base zombie hero. The full game still works.",lookupFail:"Couldn't reach the chain just now — you play as the base zombie hero. Try again later.",found:"{n} Commando(s) found — tap one to play as it:",playAs:"PLAYING AS",baseHero:"BASE ZOMBIE HERO",ownedOnly:"Showing wallet-owned Commandos (staked Commandos are not credited in this test).",rarityPower:"Power from the NFT's on-chain Rarity trait",fallbackPower:"Rarity not readable — base Commando power applied",bonusPower:"Squad bonus: +{n} Commando(s) backing your fighter",hp:"HP",ammo:"Ammo",bombs:"Bombs",kills:"Kills",time:"Time",complete:"✓ MISSION COMPLETE",failed:"✖ MISSION FAILED",dead:"Your fighter went down. The horde keeps the Orb… this time.",retry:"↻ TRY AGAIN",again:"↻ PLAY AGAIN",toTitle:"TITLE",best:"🏆 BEST — Score {s} · {t}",bestNone:"🏆 No completed run yet on this device",sndOn:"🔊 SOUND ON",sndOff:"🔇 SOUND OFF",points:"FRG + LUNC are in-game POINTS in this test. Prizes are handled by hand, outside the game.",helpKeys:"MOVE ◀ ▶ · JUMP Space · FIRE J · BOMB K",rotate:"↻ Rotate your phone for the full battlefield"},
+es:{tapStart:"TOCA PARA EMPEZAR",test:"🧪 VERSIÓN DE PRUEBA — privada · las marcas se guardan solo en este dispositivo",mission:"MISIÓN",obj1:"Elimina a todos los enemigos",obj2:"Consigue el Orbe",enter:"▶ ENTRAR A LA MISIÓN",myFighter:"MI LUCHADOR",nftBlurb:"Tu NFT Lunc Zombies-Commandos es tu luchador: elige uno y juegas como ese Comando.",pastePh:"Pega tu dirección de billetera Terra Classic",lookup:"BUSCAR",connect:"CONECTAR KEPLR",checking:"Consultando la cadena…",noNft:"No se encontraron Comandos en esa billetera: juegas como el héroe zombi base. El juego completo funciona igual.",lookupFail:"No se pudo consultar la cadena ahora: juegas como el héroe zombi base.",found:"{n} Comando(s) encontrados — toca uno para jugar como él:",playAs:"JUGANDO COMO",baseHero:"HÉROE ZOMBI BASE",ownedOnly:"Se muestran los Comandos de la billetera (los Comandos en staking no cuentan en esta prueba).",rarityPower:"Poder según el rasgo Rareza del NFT en la cadena",fallbackPower:"Rareza no legible: se aplicó el poder base de Comando",bonusPower:"Bono de escuadrón: +{n} Comando(s) apoyando a tu luchador",complete:"✓ MISIÓN COMPLETADA",failed:"✖ MISIÓN FALLIDA",dead:"Tu luchador cayó. La horda se queda con el Orbe… esta vez.",retry:"↻ INTENTAR DE NUEVO",again:"↻ JUGAR OTRA VEZ",toTitle:"TÍTULO",sndOn:"🔊 SONIDO SÍ",sndOff:"🔇 SONIDO NO",points:"FRG + LUNC son PUNTOS del juego en esta prueba. Los premios se entregan a mano, fuera del juego.",helpKeys:"MOVER ◀ ▶ · SALTAR Espacio · DISPARAR J · BOMBA K"},
+pt:{tapStart:"TOQUE PARA COMEÇAR",test:"🧪 VERSÃO DE TESTE — privada · pontuações só neste dispositivo",mission:"MISSÃO",obj1:"Elimine todos os inimigos",obj2:"Pegue o Orbe",enter:"▶ ENTRAR NA MISSÃO",myFighter:"MEU LUTADOR",nftBlurb:"Seu NFT Lunc Zombies-Commandos é o seu lutador: escolha um e jogue como aquele Comando.",pastePh:"Cole seu endereço de carteira Terra Classic",lookup:"PROCURAR",connect:"CONECTAR KEPLR",checking:"Consultando a cadeia…",noNft:"Nenhum Comando nessa carteira — você joga como o herói zumbi base. O jogo completo funciona.",lookupFail:"Não foi possível consultar a cadeia agora — você joga como o herói zumbi base.",found:"{n} Comando(s) encontrados — toque em um para jogar como ele:",playAs:"JOGANDO COMO",baseHero:"HERÓI ZUMBI BASE",ownedOnly:"Mostrando Comandos da carteira (Comandos em staking não contam neste teste).",rarityPower:"Poder pelo traço Raridade do NFT na cadeia",fallbackPower:"Raridade ilegível — poder base de Comando aplicado",bonusPower:"Bônus de esquadrão: +{n} Comando(s) apoiando seu lutador",complete:"✓ MISSÃO COMPLETA",failed:"✖ MISSÃO FALHOU",dead:"Seu lutador caiu. A horda fica com o Orbe… desta vez.",retry:"↻ TENTAR DE NOVO",again:"↻ JOGAR DE NOVO",toTitle:"TÍTULO",sndOn:"🔊 SOM LIGADO",sndOff:"🔇 SOM DESLIGADO",points:"FRG + LUNC são PONTOS do jogo neste teste. Os prêmios são entregues à mão, fora do jogo.",helpKeys:"MOVER ◀ ▶ · PULAR Espaço · ATIRAR J · BOMBA K"},
+fr:{tapStart:"TOUCHEZ POUR COMMENCER",test:"🧪 VERSION TEST — privée · scores sur cet appareil seulement",mission:"MISSION",obj1:"Éliminez tous les ennemis",obj2:"Récupérez l'Orbe",enter:"▶ ENTRER DANS LA MISSION",myFighter:"MON COMBATTANT",nftBlurb:"Votre NFT Lunc Zombies-Commandos est votre combattant : choisissez-en un et jouez ce Commando.",pastePh:"Collez votre adresse de portefeuille Terra Classic",lookup:"CHERCHER",connect:"CONNECTER KEPLR",checking:"Vérification sur la chaîne…",noNft:"Aucun Commando dans ce portefeuille — vous jouez le héros zombie de base. Le jeu complet fonctionne.",lookupFail:"Chaîne injoignable pour le moment — vous jouez le héros zombie de base.",found:"{n} Commando(s) trouvé(s) — touchez-en un pour jouer avec :",playAs:"VOUS JOUEZ",baseHero:"HÉROS ZOMBIE DE BASE",ownedOnly:"Commandos du portefeuille affichés (les Commandos en staking ne comptent pas dans ce test).",rarityPower:"Puissance selon le trait Rareté du NFT sur la chaîne",fallbackPower:"Rareté illisible — puissance Commando de base appliquée",bonusPower:"Bonus d'escouade : +{n} Commando(s) derrière votre combattant",complete:"✓ MISSION ACCOMPLIE",failed:"✖ MISSION ÉCHOUÉE",dead:"Votre combattant est tombé. La horde garde l'Orbe… cette fois.",retry:"↻ RÉESSAYER",again:"↻ REJOUER",toTitle:"TITRE",sndOn:"🔊 SON ACTIVÉ",sndOff:"🔇 SON COUPÉ",points:"FRG + LUNC sont des POINTS de jeu dans ce test. Les prix sont remis à la main, hors du jeu.",helpKeys:"BOUGER ◀ ▶ · SAUTER Espace · TIRER J · BOMBE K"},
+de:{tapStart:"TIPPEN ZUM STARTEN",test:"🧪 TESTVERSION — privat · Punkte nur auf diesem Gerät",mission:"MISSION",obj1:"Besiege alle Feinde",obj2:"Hol die Kugel (Orb)",enter:"▶ MISSION STARTEN",myFighter:"MEIN KÄMPFER",nftBlurb:"Dein Lunc Zombies-Commandos NFT ist dein Kämpfer: Wähle eines und spiele als dieser Commando.",pastePh:"Füge deine Terra-Classic-Wallet-Adresse ein",lookup:"SUCHEN",connect:"KEPLR VERBINDEN",checking:"Kette wird geprüft…",noNft:"Keine Commandos in dieser Wallet — du spielst den Basis-Zombiehelden. Das volle Spiel läuft trotzdem.",lookupFail:"Kette gerade nicht erreichbar — du spielst den Basis-Zombiehelden.",found:"{n} Commando(s) gefunden — tippe eines an, um als es zu spielen:",playAs:"DU SPIELST ALS",baseHero:"BASIS-ZOMBIEHELD",ownedOnly:"Commandos aus der Wallet werden gezeigt (gestakte Commandos zählen in diesem Test nicht).",rarityPower:"Stärke aus dem Rarity-Merkmal des NFT auf der Kette",fallbackPower:"Rarity nicht lesbar — Basis-Commando-Stärke angewendet",bonusPower:"Trupp-Bonus: +{n} Commando(s) stärken deinen Kämpfer",complete:"✓ MISSION GESCHAFFT",failed:"✖ MISSION GESCHEITERT",dead:"Dein Kämpfer ist gefallen. Die Horde behält die Kugel… diesmal.",retry:"↻ NOCHMAL VERSUCHEN",again:"↻ NOCHMAL SPIELEN",toTitle:"TITEL",sndOn:"🔊 TON AN",sndOff:"🔇 TON AUS",points:"FRG + LUNC sind in diesem Test Spiel-PUNKTE. Preise werden von Hand außerhalb des Spiels vergeben.",helpKeys:"LAUFEN ◀ ▶ · SPRINGEN Leertaste · FEUER J · BOMBE K"},
+it:{tapStart:"TOCCA PER INIZIARE",test:"🧪 VERSIONE DI PROVA — privata · punteggi solo su questo dispositivo",mission:"MISSIONE",obj1:"Elimina tutti i nemici",obj2:"Prendi la Sfera",enter:"▶ ENTRA NELLA MISSIONE",myFighter:"IL MIO COMBATTENTE",nftBlurb:"Il tuo NFT Lunc Zombies-Commandos è il tuo combattente: scegline uno e giochi come quel Commando.",pastePh:"Incolla l'indirizzo del tuo wallet Terra Classic",lookup:"CERCA",connect:"COLLEGA KEPLR",checking:"Controllo sulla catena…",noNft:"Nessun Commando in quel wallet — giochi come l'eroe zombie base. Il gioco completo funziona.",lookupFail:"Catena non raggiungibile ora — giochi come l'eroe zombie base.",found:"{n} Commando trovati — toccane uno per giocare come lui:",playAs:"GIOCHI COME",baseHero:"EROE ZOMBIE BASE",ownedOnly:"Mostrati i Commando del wallet (i Commando in staking non contano in questo test).",rarityPower:"Potenza dal tratto Rarità dell'NFT sulla catena",fallbackPower:"Rarità non leggibile — potenza Commando base applicata",bonusPower:"Bonus squadra: +{n} Commando a supporto del tuo combattente",complete:"✓ MISSIONE COMPLETATA",failed:"✖ MISSIONE FALLITA",dead:"Il tuo combattente è caduto. L'orda tiene la Sfera… per questa volta.",retry:"↻ RIPROVA",again:"↻ GIOCA ANCORA",toTitle:"TITOLO",sndOn:"🔊 AUDIO ATTIVO",sndOff:"🔇 AUDIO SPENTO",points:"FRG + LUNC sono PUNTI di gioco in questo test. I premi sono consegnati a mano, fuori dal gioco.",helpKeys:"MUOVI ◀ ▶ · SALTA Spazio · SPARA J · BOMBA K"},
+nl:{tapStart:"TIK OM TE STARTEN",test:"🧪 TESTVERSIE — privé · scores alleen op dit apparaat",mission:"MISSIE",obj1:"Versla alle vijanden",obj2:"Pak de Orb",enter:"▶ START DE MISSIE",myFighter:"MIJN VECHTER",nftBlurb:"Je Lunc Zombies-Commandos NFT is je vechter: kies er een en speel als die Commando.",pastePh:"Plak je Terra Classic wallet-adres",lookup:"OPZOEKEN",connect:"KEPLR VERBINDEN",checking:"Keten controleren…",noNft:"Geen Commandos in die wallet — je speelt als de basis zombieheld. Het volledige spel werkt.",lookupFail:"Keten nu niet bereikbaar — je speelt als de basis zombieheld.",found:"{n} Commando('s) gevonden — tik er een aan om ermee te spelen:",playAs:"JE SPEELT ALS",baseHero:"BASIS ZOMBIEHELD",ownedOnly:"Commandos uit de wallet getoond (gestakete Commandos tellen in deze test niet mee).",rarityPower:"Kracht uit het Rarity-kenmerk van de NFT op de keten",fallbackPower:"Rarity niet leesbaar — basis Commando-kracht toegepast",bonusPower:"Ploegbonus: +{n} Commando('s) steunen je vechter",complete:"✓ MISSIE VOLTOOID",failed:"✖ MISSIE MISLUKT",dead:"Je vechter is gevallen. De horde houdt de Orb… deze keer.",retry:"↻ OPNIEUW PROBEREN",again:"↻ SPEEL OPNIEUW",toTitle:"TITEL",sndOn:"🔊 GELUID AAN",sndOff:"🔇 GELUID UIT",points:"FRG + LUNC zijn spel-PUNTEN in deze test. Prijzen worden met de hand uitgereikt, buiten het spel.",helpKeys:"LOPEN ◀ ▶ · SPRINGEN Spatie · VUUR J · BOM K"},
+ru:{tapStart:"НАЖМИ, ЧТОБЫ ИГРАТЬ",test:"🧪 ТЕСТОВАЯ ВЕРСИЯ — приватная · очки только на этом устройстве",mission:"МИССИЯ",obj1:"Убей всех врагов",obj2:"Забери Сферу",enter:"▶ НАЧАТЬ МИССИЮ",myFighter:"МОЙ БОЕЦ",nftBlurb:"Твой NFT Lunc Zombies-Commandos — это твой боец: выбери одного и играй за этого Коммандо.",pastePh:"Вставь адрес кошелька Terra Classic",lookup:"НАЙТИ",connect:"ПОДКЛЮЧИТЬ KEPLR",checking:"Проверяем цепочку…",noNft:"В этом кошельке нет Коммандо — ты играешь за базового зомби-героя. Полная игра работает.",lookupFail:"Цепочка сейчас недоступна — ты играешь за базового зомби-героя.",found:"Найдено Коммандо: {n} — коснись одного, чтобы играть за него:",playAs:"ТЫ ИГРАЕШЬ ЗА",baseHero:"БАЗОВЫЙ ЗОМБИ-ГЕРОЙ",ownedOnly:"Показаны Коммандо из кошелька (Коммандо в стейкинге в этом тесте не засчитываются).",rarityPower:"Сила — из признака Rarity NFT в цепочке",fallbackPower:"Rarity не читается — применена базовая сила Коммандо",bonusPower:"Бонус отряда: +{n} Коммандо поддерживают твоего бойца",complete:"✓ МИССИЯ ВЫПОЛНЕНА",failed:"✖ МИССИЯ ПРОВАЛЕНА",dead:"Твой боец пал. Орда оставила Сферу себе… в этот раз.",retry:"↻ ПОПРОБОВАТЬ СНОВА",again:"↻ ИГРАТЬ СНОВА",toTitle:"ТИТУЛ",sndOn:"🔊 ЗВУК ВКЛ",sndOff:"🔇 ЗВУК ВЫКЛ",points:"FRG + LUNC в этом тесте — игровые ОЧКИ. Призы выдаются вручную вне игры.",helpKeys:"ДВИЖЕНИЕ ◀ ▶ · ПРЫЖОК Пробел · ОГОНЬ J · БОМБА K"},
+uk:{tapStart:"НАТИСНИ, ЩОБ ГРАТИ",test:"🧪 ТЕСТОВА ВЕРСІЯ — приватна · очки лише на цьому пристрої",mission:"МІСІЯ",obj1:"Вбий усіх ворогів",obj2:"Забери Сферу",enter:"▶ ПОЧАТИ МІСІЮ",myFighter:"МІЙ БОЄЦЬ",nftBlurb:"Твій NFT Lunc Zombies-Commandos — це твій боєць: обери одного і грай за цього Командо.",pastePh:"Встав адресу гаманця Terra Classic",lookup:"ЗНАЙТИ",connect:"ПІДКЛЮЧИТИ KEPLR",checking:"Перевіряємо ланцюг…",noNft:"У цьому гаманці немає Командо — ти граєш за базового зомбі-героя. Повна гра працює.",lookupFail:"Ланцюг зараз недоступний — ти граєш за базового зомбі-героя.",found:"Знайдено Командо: {n} — торкнися одного, щоб грати за нього:",playAs:"ТИ ГРАЄШ ЗА",baseHero:"БАЗОВИЙ ЗОМБІ-ГЕРОЙ",ownedOnly:"Показано Командо з гаманця (Командо у стейкінгу в цьому тесті не зараховуються).",rarityPower:"Сила — з ознаки Rarity NFT у ланцюгу",fallbackPower:"Rarity не читається — застосовано базову силу Командо",bonusPower:"Бонус загону: +{n} Командо підтримують твого бійця",complete:"✓ МІСІЮ ВИКОНАНО",failed:"✖ МІСІЮ ПРОВАЛЕНО",dead:"Твій боєць упав. Орда залишила Сферу собі… цього разу.",retry:"↻ СПРОБУВАТИ ЩЕ",again:"↻ ГРАТИ ЗНОВУ",toTitle:"ТИТУЛ",sndOn:"🔊 ЗВУК УВІМК",sndOff:"🔇 ЗВУК ВИМК",points:"FRG + LUNC у цьому тесті — ігрові ОЧКИ. Призи видаються вручну поза грою.",helpKeys:"РУХ ◀ ▶ · СТРИБОК Пробіл · ВОГОНЬ J · БОМБА K"},
+tr:{tapStart:"BAŞLAMAK İÇİN DOKUN",test:"🧪 TEST SÜRÜMÜ — özel · skorlar yalnızca bu cihazda",mission:"GÖREV",obj1:"Tüm düşmanları yok et",obj2:"Küre'yi al",enter:"▶ GÖREVE BAŞLA",myFighter:"SAVAŞÇIM",nftBlurb:"Lunc Zombies-Commandos NFT'in senin savaşçın: birini seç ve o Komando olarak oyna.",pastePh:"Terra Classic cüzdan adresini yapıştır",lookup:"ARA",connect:"KEPLR BAĞLA",checking:"Zincir kontrol ediliyor…",noNft:"Bu cüzdanda Komando yok — temel zombi kahraman olarak oynarsın. Oyunun tamamı çalışır.",lookupFail:"Zincire şu an ulaşılamıyor — temel zombi kahraman olarak oynarsın.",found:"{n} Komando bulundu — birine dokun, onunla oyna:",playAs:"ŞUNUNLA OYNUYORSUN",baseHero:"TEMEL ZOMBİ KAHRAMAN",ownedOnly:"Cüzdandaki Komandolar gösteriliyor (stake edilmiş Komandolar bu testte sayılmaz).",rarityPower:"Güç, NFT'nin zincirdeki Rarity özelliğinden",fallbackPower:"Rarity okunamadı — temel Komando gücü uygulandı",bonusPower:"Takım bonusu: +{n} Komando savaşçını destekliyor",complete:"✓ GÖREV TAMAMLANDI",failed:"✖ GÖREV BAŞARISIZ",dead:"Savaşçın düştü. Sürü Küre'yi elinde tutuyor… bu seferlik.",retry:"↻ TEKRAR DENE",again:"↻ TEKRAR OYNA",toTitle:"BAŞLIK",sndOn:"🔊 SES AÇIK",sndOff:"🔇 SES KAPALI",points:"Bu testte FRG + LUNC oyun PUANLARIDIR. Ödüller oyun dışında elle verilir.",helpKeys:"HAREKET ◀ ▶ · ZIPLA Boşluk · ATEŞ J · BOMBA K"},
+ar:{tapStart:"انقر للبدء",test:"🧪 نسخة تجريبية — خاصة · النقاط على هذا الجهاز فقط",mission:"المهمة",obj1:"اقضِ على كل الأعداء",obj2:"خذ الجرم السماوي",enter:"▶ ادخل المهمة",myFighter:"مقاتلي",nftBlurb:"‏NFT Lunc Zombies-Commandos هو مقاتلك: اختر واحدًا والعب بهذا الكوماندو.",pastePh:"الصق عنوان محفظة Terra Classic",lookup:"بحث",connect:"اتصال KEPLR",checking:"جارٍ التحقق من السلسلة…",noNft:"لا يوجد كوماندو في هذه المحفظة — تلعب بالبطل الزومبي الأساسي. اللعبة الكاملة تعمل.",lookupFail:"تعذر الوصول إلى السلسلة الآن — تلعب بالبطل الزومبي الأساسي.",found:"تم العثور على {n} كوماندو — انقر واحدًا للعب به:",playAs:"تلعب بـ",baseHero:"البطل الزومبي الأساسي",ownedOnly:"يتم عرض كوماندو المحفظة (الكوماندو المُخزّن لا يُحتسب في هذا الاختبار).",rarityPower:"القوة من سمة الندرة Rarity الخاصة بـ NFT على السلسلة",fallbackPower:"الندرة غير قابلة للقراءة — تم تطبيق قوة الكوماندو الأساسية",bonusPower:"مكافأة الفرقة: +{n} كوماندو يدعمون مقاتلك",complete:"✓ اكتملت المهمة",failed:"✖ فشلت المهمة",dead:"سقط مقاتلك. الحشد يحتفظ بالجرم… هذه المرة.",retry:"↻ حاول مجددًا",again:"↻ العب مجددًا",toTitle:"العنوان",sndOn:"🔊 الصوت يعمل",sndOff:"🔇 الصوت صامت",points:"في هذا الاختبار FRG + LUNC نقاط داخل اللعبة. الجوائز تُسلّم يدويًا خارج اللعبة.",helpKeys:"تحرك ◀ ▶ · اقفز مسافة · أطلق J · قنبلة K"},
+hi:{tapStart:"शुरू करने के लिए टैप करो",test:"🧪 टेस्ट बिल्ड — निजी · स्कोर केवल इस डिवाइस पर",mission:"मिशन",obj1:"सभी दुश्मनों को मारो",obj2:"ऑर्ब हासिल करो",enter:"▶ मिशन शुरू करो",myFighter:"मेरा फाइटर",nftBlurb:"तुम्हारा Lunc Zombies-Commandos NFT ही तुम्हारा फाइटर है: एक चुनो और उसी कमांडो बनकर खेलो।",pastePh:"अपना Terra Classic वॉलेट पता चिपकाओ",lookup:"खोजो",connect:"KEPLR जोड़ो",checking:"चेन जांच रहे हैं…",noNft:"उस वॉलेट में कोई कमांडो नहीं — तुम बेस ज़ॉम्बी हीरो बनकर खेलते हो। पूरा खेल चलता है।",lookupFail:"अभी चेन तक पहुँच नहीं हुई — तुम बेस ज़ॉम्बी हीरो बनकर खेलते हो।",found:"{n} कमांडो मिले — किसी एक पर टैप करो और उससे खेलो:",playAs:"तुम खेल रहे हो",baseHero:"बेस ज़ॉम्बी हीरो",ownedOnly:"वॉलेट के कमांडो दिखाए गए (स्टेक किए कमांडो इस टेस्ट में नहीं गिने जाते)।",rarityPower:"शक्ति NFT के ऑन-चेन Rarity गुण से",fallbackPower:"Rarity पढ़ा नहीं गया — बेस कमांडो शक्ति लागू",bonusPower:"स्क्वाड बोनस: +{n} कमांडो तुम्हारे फाइटर के साथ",complete:"✓ मिशन पूरा",failed:"✖ मिशन असफल",dead:"तुम्हारा फाइटर गिर गया। झुंड ने ऑर्ब रख लिया… इस बार।",retry:"↻ फिर कोशिश करो",again:"↻ फिर खेलो",toTitle:"टाइटल",sndOn:"🔊 आवाज़ चालू",sndOff:"🔇 आवाज़ बंद",points:"इस टेस्ट में FRG + LUNC खेल के अंक हैं। इनाम खेल के बाहर हाथ से दिए जाते हैं।",helpKeys:"चलो ◀ ▶ · कूदो Space · फायर J · बम K"},
+id:{tapStart:"KETUK UNTUK MULAI",test:"🧪 VERSI TES — pribadi · skor hanya di perangkat ini",mission:"MISI",obj1:"Kalahkan semua musuh",obj2:"Ambil Orb",enter:"▶ MASUK MISI",myFighter:"PETARUNGKU",nftBlurb:"NFT Lunc Zombies-Commandos milikmu adalah petarungmu: pilih satu dan bermainlah sebagai Komando itu.",pastePh:"Tempel alamat dompet Terra Classic kamu",lookup:"CARI",connect:"HUBUNGKAN KEPLR",checking:"Memeriksa rantai…",noNft:"Tidak ada Komando di dompet itu — kamu bermain sebagai pahlawan zombie dasar. Game lengkap tetap berjalan.",lookupFail:"Rantai tidak terjangkau sekarang — kamu bermain sebagai pahlawan zombie dasar.",found:"{n} Komando ditemukan — ketuk satu untuk bermain sebagai dia:",playAs:"BERMAIN SEBAGAI",baseHero:"PAHLAWAN ZOMBIE DASAR",ownedOnly:"Menampilkan Komando di dompet (Komando yang di-stake tidak dihitung di tes ini).",rarityPower:"Kekuatan dari sifat Rarity NFT di rantai",fallbackPower:"Rarity tak terbaca — kekuatan Komando dasar diterapkan",bonusPower:"Bonus skuad: +{n} Komando mendukung petarungmu",complete:"✓ MISI SELESAI",failed:"✖ MISI GAGAL",dead:"Petarungmu tumbang. Kawanan menyimpan Orb… kali ini.",retry:"↻ COBA LAGI",again:"↻ MAIN LAGI",toTitle:"JUDUL",sndOn:"🔊 SUARA NYALA",sndOff:"🔇 SUARA MATI",points:"Di tes ini FRG + LUNC adalah POIN dalam game. Hadiah diberikan manual, di luar game.",helpKeys:"GERAK ◀ ▶ · LOMPAT Spasi · TEMBAK J · BOM K"},
+vi:{tapStart:"CHẠM ĐỂ BẮT ĐẦU",test:"🧪 BẢN THỬ NGHIỆM — riêng tư · điểm chỉ lưu trên thiết bị này",mission:"NHIỆM VỤ",obj1:"Tiêu diệt mọi kẻ địch",obj2:"Lấy Quả Cầu",enter:"▶ VÀO NHIỆM VỤ",myFighter:"CHIẾN BINH CỦA TÔI",nftBlurb:"NFT Lunc Zombies-Commandos của bạn là chiến binh của bạn: chọn một và chơi như Commando đó.",pastePh:"Dán địa chỉ ví Terra Classic của bạn",lookup:"TRA CỨU",connect:"KẾT NỐI KEPLR",checking:"Đang kiểm tra chuỗi…",noNft:"Không có Commando trong ví đó — bạn chơi anh hùng zombie cơ bản. Trò chơi đầy đủ vẫn chạy.",lookupFail:"Không tới được chuỗi lúc này — bạn chơi anh hùng zombie cơ bản.",found:"Tìm thấy {n} Commando — chạm vào một để chơi như nó:",playAs:"ĐANG CHƠI NHƯ",baseHero:"ANH HÙNG ZOMBIE CƠ BẢN",ownedOnly:"Hiển thị Commando trong ví (Commando đang stake không được tính trong bản thử này).",rarityPower:"Sức mạnh từ thuộc tính Rarity của NFT trên chuỗi",fallbackPower:"Không đọc được Rarity — áp dụng sức mạnh Commando cơ bản",bonusPower:"Thưởng đội: +{n} Commando hỗ trợ chiến binh của bạn",complete:"✓ HOÀN THÀNH NHIỆM VỤ",failed:"✖ NHIỆM VỤ THẤT BẠI",dead:"Chiến binh của bạn đã ngã. Bầy đàn giữ Quả Cầu… lần này.",retry:"↻ THỬ LẠI",again:"↻ CHƠI LẠI",toTitle:"TIÊU ĐỀ",sndOn:"🔊 BẬT ÂM THANH",sndOff:"🔇 TẮT ÂM THANH",points:"Trong bản thử này FRG + LUNC là ĐIỂM trong game. Giải thưởng trao tay, ngoài game.",helpKeys:"DI CHUYỂN ◀ ▶ · NHẢY Space · BẮN J · BOM K"},
+th:{tapStart:"แตะเพื่อเริ่ม",test:"🧪 ฉบับทดสอบ — ส่วนตัว · คะแนนเก็บในอุปกรณ์นี้เท่านั้น",mission:"ภารกิจ",obj1:"กำจัดศัตรูทั้งหมด",obj2:"เก็บลูกแก้ว Orb",enter:"▶ เข้าสู่ภารกิจ",myFighter:"นักสู้ของฉัน",nftBlurb:"NFT Lunc Zombies-Commandos ของคุณคือนักสู้ของคุณ: เลือกหนึ่งตัวแล้วเล่นเป็นคอมมานโดตัวนั้น",pastePh:"วางที่อยู่กระเป๋า Terra Classic ของคุณ",lookup:"ค้นหา",connect:"เชื่อมต่อ KEPLR",checking:"กำลังตรวจสอบเชน…",noNft:"ไม่พบคอมมานโดในกระเป๋านั้น — คุณเล่นเป็นฮีโร่ซอมบี้พื้นฐาน เกมเต็มยังเล่นได้",lookupFail:"ติดต่อเชนไม่ได้ตอนนี้ — คุณเล่นเป็นฮีโร่ซอมบี้พื้นฐาน",found:"พบ {n} คอมมานโด — แตะหนึ่งตัวเพื่อเล่นเป็นตัวนั้น:",playAs:"กำลังเล่นเป็น",baseHero:"ฮีโร่ซอมบี้พื้นฐาน",ownedOnly:"แสดงคอมมานโดในกระเป๋า (คอมมานโดที่สเตกไม่นับในฉบับทดสอบนี้)",rarityPower:"พลังจากคุณสมบัติ Rarity ของ NFT บนเชน",fallbackPower:"อ่าน Rarity ไม่ได้ — ใช้พลังคอมมานโดพื้นฐาน",bonusPower:"โบนัสทีม: +{n} คอมมานโดหนุนนักสู้ของคุณ",complete:"✓ ภารกิจสำเร็จ",failed:"✖ ภารกิจล้มเหลว",dead:"นักสู้ของคุณล้มลง ฝูงซอมบี้เก็บ Orb ไว้… ครั้งนี้",retry:"↻ ลองอีกครั้ง",again:"↻ เล่นอีกครั้ง",toTitle:"หน้าหลัก",sndOn:"🔊 เปิดเสียง",sndOff:"🔇 ปิดเสียง",points:"ในฉบับทดสอบนี้ FRG + LUNC เป็นแต้มในเกม รางวัลมอบด้วยมือ นอกเกม",helpKeys:"เดิน ◀ ▶ · กระโดด Space · ยิง J · ระเบิด K"},
+ko:{tapStart:"탭하여 시작",test:"🧪 테스트 빌드 — 비공개 · 점수는 이 기기에만 저장",mission:"미션",obj1:"모든 적 처치",obj2:"오브 획득",enter:"▶ 미션 시작",myFighter:"내 파이터",nftBlurb:"당신의 Lunc Zombies-Commandos NFT가 당신의 파이터입니다. 하나를 골라 그 코만도로 플레이하세요.",pastePh:"Terra Classic 지갑 주소를 붙여넣으세요",lookup:"조회",connect:"KEPLR 연결",checking:"체인 확인 중…",noNft:"그 지갑에 코만도가 없습니다 — 기본 좀비 히어로로 플레이합니다. 전체 게임이 작동합니다.",lookupFail:"지금 체인에 연결할 수 없습니다 — 기본 좀비 히어로로 플레이합니다.",found:"코만도 {n}개 발견 — 탭해서 그 코만도로 플레이:",playAs:"플레이 중",baseHero:"기본 좀비 히어로",ownedOnly:"지갑 소유 코만도만 표시됩니다 (스테이킹된 코만도는 이 테스트에서 인정되지 않습니다).",rarityPower:"NFT의 온체인 Rarity 특성에서 오는 힘",fallbackPower:"Rarity를 읽을 수 없음 — 기본 코만도 힘 적용",bonusPower:"분대 보너스: 코만도 +{n}개가 파이터를 지원",complete:"✓ 미션 완료",failed:"✖ 미션 실패",dead:"파이터가 쓰러졌습니다. 무리가 오브를 지킵니다… 이번에는요.",retry:"↻ 다시 시도",again:"↻ 다시 플레이",toTitle:"타이틀",sndOn:"🔊 소리 켬",sndOff:"🔇 소리 끔",points:"이 테스트에서 FRG + LUNC는 게임 내 포인트입니다. 상품은 게임 밖에서 수동으로 지급됩니다.",helpKeys:"이동 ◀ ▶ · 점프 Space · 발사 J · 폭탄 K"},
+ja:{tapStart:"タップしてスタート",test:"🧪 テストビルド — 非公開 · スコアはこの端末のみに保存",mission:"ミッション",obj1:"敵をすべて倒せ",obj2:"オーブを手に入れろ",enter:"▶ ミッション開始",myFighter:"マイファイター",nftBlurb:"あなたのLunc Zombies-Commandos NFTがあなたのファイターです。1つ選んで、そのコマンドーとしてプレイしましょう。",pastePh:"Terra Classicのウォレットアドレスを貼り付け",lookup:"検索",connect:"KEPLRを接続",checking:"チェーンを確認中…",noNft:"そのウォレットにコマンドーはありません — 基本のゾンビヒーローでプレイします。ゲーム全体は動作します。",lookupFail:"今はチェーンに届きません — 基本のゾンビヒーローでプレイします。",found:"コマンドー{n}体が見つかりました — タップしてそのコマンドーでプレイ:",playAs:"プレイ中",baseHero:"基本ゾンビヒーロー",ownedOnly:"ウォレット所有のコマンドーを表示（ステーキング中のコマンドーはこのテストでは加算されません）。",rarityPower:"NFTのオンチェーンRarity特性によるパワー",fallbackPower:"Rarityが読めません — 基本コマンドーパワーを適用",bonusPower:"分隊ボーナス: コマンドー+{n}体がファイターを支援",complete:"✓ ミッション完了",failed:"✖ ミッション失敗",dead:"ファイターが倒れました。群れがオーブを守ります…今回は。",retry:"↻ もう一度挑戦",again:"↻ もう一度プレイ",toTitle:"タイトル",sndOn:"🔊 サウンドON",sndOff:"🔇 サウンドOFF",points:"このテストではFRGとLUNCはゲーム内ポイントです。賞品はゲーム外で手渡しされます。",helpKeys:"移動 ◀ ▶ · ジャンプ Space · 射撃 J · 爆弾 K"},
+zh:{tapStart:"点按开始",test:"🧪 测试版 — 私人测试 · 分数仅存于本设备",mission:"任务",obj1:"消灭所有敌人",obj2:"夺取宝珠",enter:"▶ 进入任务",myFighter:"我的战士",nftBlurb:"你的 Lunc Zombies-Commandos NFT 就是你的战士:选一个,就以那个突击队员的身份作战。",pastePh:"粘贴你的 Terra Classic 钱包地址",lookup:"查询",connect:"连接 KEPLR",checking:"正在查询链上数据…",noNft:"该钱包里没有突击队员 — 你将以基础僵尸英雄作战。完整游戏照常可玩。",lookupFail:"暂时连不上链 — 你将以基础僵尸英雄作战。",found:"找到 {n} 名突击队员 — 点选一名以其身份作战:",playAs:"当前战士",baseHero:"基础僵尸英雄",ownedOnly:"仅显示钱包持有的突击队员(本测试不计质押中的突击队员)。",rarityPower:"力量来自 NFT 的链上 Rarity 属性",fallbackPower:"无法读取 Rarity — 已应用基础突击队员力量",bonusPower:"小队加成:+{n} 名突击队员支援你的战士",complete:"✓ 任务完成",failed:"✖ 任务失败",dead:"你的战士倒下了。尸群守住了宝珠……这一次。",retry:"↻ 再试一次",again:"↻ 再玩一次",toTitle:"标题",sndOn:"🔊 声音开",sndOff:"🔇 声音关",points:"本测试中 FRG + LUNC 为游戏内积分。奖品在游戏外手动发放。",helpKeys:"移动 ◀ ▶ · 跳跃 空格 · 开火 J · 炸弹 K"}
+};
+/* generic keys every language falls back to English for */
+const DEF={brief:"Operation Dawn Break",reward:"REWARD",hp:"HP",ammo:"Ammo",bombs:"Bombs",kills:"Kills",time:"TIME",best:"🏆 BEST — {s} · {t}",bestNone:"🏆 No completed run yet",rotate:"↻ Rotate for the full battlefield",campaign:"CAMPAIGN — LEVEL 1 OF 40",lockedSoon:"LEVELS 2–40 — CAMPAIGN UNDER CONSTRUCTION",mintSoon:"Zombie 2.0 Fighters — mint coming"};
+let LANG=localStorage.getItem('z2lang')||'en'; if(!I18N[LANG])LANG='en';
+function T(k){const d=I18N[LANG]; return (d&&d[k])||I18N.en[k]||DEF[k]||k;}
+function TF(k,o){let s=T(k); for(const key in o)s=s.replace('{'+key+'}',o[key]); return s;}
+
+/* ================= 2 · STORAGE / SETTINGS ================= */
+let SOUND=localStorage.getItem('z2sound')!=='0';
+function setSound(on){SOUND=on; localStorage.setItem('z2sound',on?'1':'0'); updateSoundBtn();}
+function loadBest(){try{return JSON.parse(localStorage.getItem('z2best')||'null');}catch(e){return null;}}
+function saveBest(b){localStorage.setItem('z2best',JSON.stringify(b));}
+function fmtTime(s){s=Math.max(0,Math.round(s)); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');}
+
+/* ================= 3 · AUDIO (WebAudio, synthesized) ================= */
+let AC=null, musicTimer=null, musicStep=0;
+function audio(){ if(!AC){ try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){} } if(AC&&AC.state==='suspended')AC.resume(); return AC; }
+function blip(freq,dur,type,vol,slideTo){
+  if(!SOUND)return; const ac=audio(); if(!ac)return;
+  const o=ac.createOscillator(), g=ac.createGain();
+  o.type=type||'square'; o.frequency.setValueAtTime(freq,ac.currentTime);
+  if(slideTo)o.frequency.exponentialRampToValueAtTime(slideTo,ac.currentTime+dur);
+  g.gain.setValueAtTime(vol||.12,ac.currentTime); g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+dur);
+  o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime+dur);
+}
+function noiseBurst(dur,vol,low){
+  if(!SOUND)return; const ac=audio(); if(!ac)return;
+  const len=Math.floor(ac.sampleRate*dur), buf=ac.createBuffer(1,len,ac.sampleRate), d=buf.getChannelData(0);
+  for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*(1-i/len);
+  const src=ac.createBufferSource(); src.buffer=buf;
+  const f=ac.createBiquadFilter(); f.type='lowpass'; f.frequency.value=low||900;
+  const g=ac.createGain(); g.gain.value=vol||.3;
+  src.connect(f); f.connect(g); g.connect(ac.destination); src.start();
+}
+const SFX={
+  shot(){noiseBurst(.07,.10,2600); blip(720,.05,'square',.05,180);},
+  eshot(){blip(300,.08,'sawtooth',.05,120);},
+  hit(){blip(160,.06,'square',.08,70);},
+  die(){blip(220,.28,'sawtooth',.10,40); noiseBurst(.2,.12,700);},
+  boom(){noiseBurst(.5,.4,300); blip(70,.45,'sine',.35,32);},
+  pickupF(){blip(880,.07,'square',.07); setTimeout(()=>blip(1320,.09,'square',.07),55);},
+  pickupL(){blip(660,.07,'square',.07); setTimeout(()=>blip(990,.1,'square',.07),55);},
+  jump(){blip(280,.14,'square',.06,560);},
+  hurt(){blip(120,.16,'sawtooth',.12,60);},
+  orb(){[523,659,784,1046].forEach((f,i)=>setTimeout(()=>blip(f,.22,'triangle',.1),i*95));},
+  click(){blip(520,.05,'square',.06);}
+};
+/* moody minor loop — bass pulse + sparse high notes, very quiet */
+const BASSSEQ=[55,0,55,0,65.4,0,55,0,49,0,49,0,58.3,0,73.4,0];
+function musicTick(){
+  if(!SOUND||!AC)return;
+  const s=musicStep%16;
+  const f=BASSSEQ[s];
+  if(f)blip(f,.34,'triangle',.10);
+  if(s%8===4)blip(440*Math.pow(2,[0,3,5,3][(musicStep>>3)%4]/12),.5,'sine',.028);
+  musicStep++;
+}
+function startMusic(){ if(musicTimer)return; audio(); musicTimer=setInterval(musicTick,215); }
+function stopMusic(){ if(musicTimer){clearInterval(musicTimer); musicTimer=null;} }
+
+/* ================= 4 · ART (preview layers, kept separable) ================= */
+let _s=1337;
+function rnd(){_s|=0;_s=_s+0x6D2B79F5|0;let t=Math.imul(_s^_s>>>15,1|_s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;}
+function rr(a,b){return a+rnd()*(b-a);}
+function resetRng(){_s=1337;}
+function clamp(v,a,b){return v<a?a:(v>b?b:v);}
+function lerp(a,b,t){return a+(b-a)*t;}
+function roundRectPath(g,x,y,w,h,r){g.beginPath();g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+h,r);g.arcTo(x+w,y+h,x,y+h,r);g.arcTo(x,y+h,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath();}
+function roundRect(x,y,w,h,r){roundRectPath(ctx,x,y,w,h,r);}
+function shade(hex,amt){const n=parseInt(hex.slice(1),16);let r=(n>>16)+amt,g=((n>>8)&255)+amt,b=(n&255)+amt;r=clamp(r,0,255);g=clamp(g,0,255);b=clamp(b,0,255);return '#'+((r<<16)|(g<<8)|b).toString(16).padStart(6,'0');}
+function makeStrip(w,h,fn){const c=document.createElement('canvas');c.width=w;c.height=h;fn(c.getContext('2d'),w,h);return c;}
+function speckle(g,w,h,n,cols,aMin,aMax,sMin,sMax){for(let i=0;i<n;i++){g.globalAlpha=rr(aMin,aMax);g.fillStyle=cols[(rnd()*cols.length)|0];g.beginPath();g.ellipse(rr(0,w),rr(0,h),rr(sMin,sMax),rr(sMin,sMax)*.6,rr(0,3),0,7);g.fill();}g.globalAlpha=1;}
+
+const swampFar=makeStrip(1600,412,(g,w,h)=>{
+  const gr=g.createLinearGradient(0,0,0,h);gr.addColorStop(0,'#2c4a3a');gr.addColorStop(.5,'#1a2f22');gr.addColorStop(1,'#0b1710');
+  g.fillStyle=gr;g.fillRect(0,0,w,h);
+  for(let i=0;i<40;i++){g.globalAlpha=rr(.05,.13);g.fillStyle='#cfe8b0';g.beginPath();g.ellipse(rr(0,w),rr(0,240),rr(30,110),rr(16,50),rr(0,3),0,7);g.fill();}
+  for(let i=0;i<120;i++){g.globalAlpha=rr(.18,.42);g.fillStyle=['#33523d','#223a2a','#42654a','#182b1d'][(rnd()*4)|0];g.beginPath();g.ellipse(rr(0,w),rr(-10,190),rr(26,96),rr(18,58),rr(0,3),0,7);g.fill();}
+  g.globalAlpha=1;
+  for(let i=0;i<9;i++){const x=rr(0,w),tw=rr(14,30);g.globalAlpha=rr(.25,.45);g.fillStyle='#0d1a10';g.fillRect(x,rr(120,190),tw,h);g.globalAlpha=1;}
+  g.strokeStyle='rgba(96,138,100,.35)';
+  for(let i=0;i<36;i++){const x=rr(0,w);g.lineWidth=rr(1.4,3.4);g.beginPath();g.moveTo(x,rr(40,130));g.quadraticCurveTo(x+rr(-9,9),rr(140,200),x+rr(-14,14),rr(190,300));g.stroke();}
+  speckle(g,w,h,420,['#4d7a58','#6f9a72','#101f14'],.05,.15,2,6);
+});
+const swampMid=makeStrip(1600,412,(g,w,h)=>{
+  g.clearRect(0,0,w,h);
+  for(let i=0;i<11;i++){
+    const x=rr(30,w-30),tw=rr(20,46),lean=rr(-16,16),topY=rr(-10,50);
+    g.save();g.translate(x,0);g.transform(1,0,lean/h,1,0,0);
+    const tg=g.createLinearGradient(0,0,tw,0);tg.addColorStop(0,'#070e08');tg.addColorStop(.5,'#1b2f1e');tg.addColorStop(1,'#050a06');
+    g.fillStyle=tg;g.fillRect(0,topY,tw,h);
+    g.strokeStyle='rgba(0,0,0,.4)';g.lineWidth=2;
+    for(let bI=0;bI<3;bI++){g.beginPath();g.moveTo(rr(3,tw-3),topY+rr(20,80));g.lineTo(rr(3,tw-3),h-rr(10,60));g.stroke();}
+    g.strokeStyle='#0a1409';g.lineWidth=rr(5,9);g.lineCap='round';
+    const dir=rnd()<.5?-1:1;
+    g.beginPath();g.moveTo(tw/2,topY+rr(50,110));g.quadraticCurveTo(tw/2+dir*50,topY+rr(30,70),tw/2+dir*rr(80,130),topY+rr(6,44));g.stroke();
+    g.restore();
+    g.globalAlpha=rr(.55,.85);g.fillStyle=['#24402c','#2f5238','#1a2f20'][(rnd()*3)|0];
+    g.beginPath();g.ellipse(x+lean*.4,topY+rr(10,50),rr(56,110),rr(26,48),rr(0,3),0,7);g.fill();g.globalAlpha=1;
+    g.strokeStyle='rgba(64,104,70,.6)';
+    for(let m=0;m<4;m++){const mx=x+rr(-14,tw+10);g.lineWidth=rr(2,4.4);g.beginPath();g.moveTo(mx,topY+rr(40,100));g.quadraticCurveTo(mx+rr(-9,9),rr(150,220),mx+rr(-15,15),rr(210,320));g.stroke();}
+  }
+});
+const groundStrip=makeStrip(1600,120,(g,w,h)=>{
+  const gr=g.createLinearGradient(0,0,0,h);gr.addColorStop(0,'#3d5231');gr.addColorStop(.18,'#2c4023');gr.addColorStop(.5,'#1d2c17');gr.addColorStop(1,'#101a0c');
+  g.fillStyle=gr;g.fillRect(0,0,w,h);
+  speckle(g,w,h,900,['#5d7d43','#729457','#243619','#0c1408'],.1,.35,1,5);
+  for(let i=0;i<160;i++){g.strokeStyle='rgba(110,150,80,.5)';g.lineWidth=1.4;const x=rr(0,w);g.beginPath();g.moveTo(x,rr(2,20));g.quadraticCurveTo(x+rr(-3,3),rr(-2,8),x+rr(-6,6),rr(-8,0));g.stroke();}
+});
+function drawRuin(x,y,w,h){
+  const g=ctx;g.save();g.translate(x,y);
+  const gr=g.createLinearGradient(0,0,0,h);gr.addColorStop(0,'#8a7a5c');gr.addColorStop(.5,'#6d5f45');gr.addColorStop(1,'#4a3f2c');
+  g.fillStyle=gr;g.fillRect(0,0,w,h);
+  g.strokeStyle='rgba(30,24,14,.55)';g.lineWidth=2;
+  const rows=Math.max(2,(h/26)|0);
+  for(let rI=1;rI<rows;rI++){g.beginPath();g.moveTo(0,rI*h/rows);g.lineTo(w,rI*h/rows);g.stroke();}
+  for(let i=0;i<w/34;i++){g.beginPath();const cx2=i*34+((i%2)?8:20);g.moveTo(cx2,0);g.lineTo(cx2,h);g.stroke();}
+  speckle(g,w,h,26,['#2e4423','#56743c','#191408'],.15,.4,2,7);
+  g.fillStyle='rgba(74,110,52,.85)';g.beginPath();g.ellipse(w/2,2,w/2,7,0,0,7);g.fill();
+  g.fillStyle='rgba(20,16,8,.35)';g.fillRect(0,h-5,w,5);
+  g.restore();
+}
+/* characters — chunky code-built humanoids (preview renderer, extended) */
+function drawFighter(x,y,o){
+  const s=o.scale||1, g=ctx; g.save(); g.translate(x,y); g.scale((o.face||1)*s,s);
+  const dead=o.dead||0, wp=o.walkPhase||0;
+  const sw=Math.sin(wp)*(o.moving?1:0.15);
+  g.rotate(dead*1.35); g.globalAlpha=1-dead*0.55;
+  const legA=sw*13, legB=-sw*13;
+  g.strokeStyle=o.pants; g.lineWidth=8.5; g.lineCap='round';
+  g.beginPath(); g.moveTo(0,-34); g.lineTo(legA,-14+Math.max(0,Math.sin(wp))*3); g.lineTo(legA*1.25,0); g.stroke();
+  g.beginPath(); g.moveTo(0,-34); g.lineTo(legB,-14+Math.max(0,-Math.sin(wp))*3); g.lineTo(legB*1.25,0); g.stroke();
+  g.fillStyle='#221a12'; g.fillRect(legA*1.25-5,-3,11,4); g.fillRect(legB*1.25-5,-3,11,4);
+  const tg=g.createLinearGradient(0,-64,0,-30); tg.addColorStop(0,o.shirt); tg.addColorStop(1,shade(o.shirt,-28));
+  g.fillStyle=tg; roundRectPath(g,-11,-66,22,34,6); g.fill();
+  g.fillStyle='rgba(0,0,0,.28)';
+  g.beginPath(); g.moveTo(-11,-40); g.lineTo(-3,-40); g.lineTo(-8,-31); g.closePath(); g.fill();
+  g.beginPath(); g.moveTo(11,-48); g.lineTo(4,-48); g.lineTo(9,-38); g.closePath(); g.fill();
+  g.strokeStyle=o.skin; g.lineWidth=7;
+  const ba=o.gun? -6 : sw*10;
+  g.beginPath(); g.moveTo(-8,-60); g.lineTo(-13+ba*0.4,-42); g.lineTo(-11+ba,-28); g.stroke();
+  g.fillStyle=o.skin; g.beginPath(); g.arc(0,-74,10.5,0,7); g.fill();
+  if(o.helmet){
+    g.fillStyle=o.helmet; g.beginPath(); g.arc(0,-76,11.5,Math.PI*.95,Math.PI*2.05); g.fill();
+    g.fillRect(-11.5,-77,23,3.6);
+    g.fillStyle='rgba(20,24,20,.85)'; g.fillRect(1,-74,9,3.4); /* goggle strap glint */
+  } else {
+    g.fillStyle=o.hair; g.beginPath(); g.arc(0,-77,10.5,Math.PI*1.02,Math.PI*1.98); g.fill();
+    g.fillRect(-10.5,-79,21,4);
+  }
+  if(!o.back){
+    g.fillStyle='#101408';
+    g.beginPath(); g.arc(3.5,-74,1.7,0,7); g.fill();
+    g.strokeStyle='rgba(20,26,10,.8)'; g.lineWidth=1.4;
+    g.beginPath(); g.moveTo(1,-67); g.lineTo(7,-66.4); g.stroke();
+    g.fillStyle='rgba(90,20,16,.5)'; g.fillRect(-2,-70,3,2);
+  } else {
+    g.fillStyle=o.hair; g.beginPath(); g.arc(0,-74.5,10.2,0,7); g.fill();
+    g.fillStyle='rgba(0,0,0,.18)'; g.beginPath(); g.arc(0,-71,9,0,Math.PI); g.fill();
+  }
+  if(o.gun){
+    const aim=o.aim||0;
+    const ax=10+aim*7, ay=-56-aim*4;
+    g.strokeStyle=o.skin; g.lineWidth=7;
+    g.beginPath(); g.moveTo(8,-60); g.lineTo(ax,ay+4); g.lineTo(ax+9,ay+1); g.stroke();
+    g.save(); g.translate(ax+8,ay); g.rotate(-0.04);
+    g.fillStyle='#2b2b30'; g.fillRect(0,-2.6,30,5.2);
+    g.fillStyle='#4a3826'; g.fillRect(2,2,13,5);
+    g.fillStyle='#17171a'; g.fillRect(28,-1.6,7,3.2); g.fillRect(12,-6.4,9,3.4);
+    if(o.muzzle){ const mg=g.createRadialGradient(35,0,0,35,0,13);
+      mg.addColorStop(0,'rgba(255,240,170,.95)'); mg.addColorStop(.4,'rgba(255,160,40,.75)'); mg.addColorStop(1,'rgba(255,120,20,0)');
+      g.fillStyle=mg; g.beginPath(); g.arc(37,0,13,0,7); g.fill();
+      g.fillStyle='#fff3c0'; g.beginPath(); g.moveTo(33,-3); g.lineTo(46,0); g.lineTo(33,3); g.closePath(); g.fill(); }
+    g.restore();
+  } else {
+    g.strokeStyle=o.skin; g.lineWidth=7;
+    g.beginPath(); g.moveTo(8,-60); g.lineTo(13-sw*10*0.4,-42); g.lineTo(11-sw*10,-28); g.stroke();
+  }
+  g.restore();
+}
+const HERO_BASE={skin:'#8fa873',shirt:'#c9a13b',pants:'#3a4149',hair:'#4a3826',gun:true};
+const SKIN_STYLES={ /* keyed from the NFT Skin trait — colors only, values read from chain */
+  'Elite Commando':{skin:'#a87f5f',shirt:'#4c5548',pants:'#2e332a',hair:'#20241e',helmet:'#6d6248'},
+  'Infected Elite':{skin:'#7d9b6a',shirt:'#5d4a63',pants:'#33262e',hair:'#241a26',helmet:'#54455e'},
+  'Soldier':{skin:'#b08a68',shirt:'#5a6152',pants:'#333830',hair:'#2a2620',helmet:'#707a5e'}
+};
+const SOLDIER={skin:'#b08a68',shirt:'#4c5548',pants:'#2e332a',hair:'#20241e',gun:true};
+const ZED={skin:'#7d8f6a',shirt:'#6e3a30',pants:'#33302c',hair:'#2c2620',gun:false};
+const ZED2={skin:'#93a37e',shirt:'#54443a',pants:'#3d3436',hair:'#191512',gun:false};
+function crescentDraw(x,y,r,col){
+  const key=r+'_'+col;
+  if(!crescentDraw._c)crescentDraw._c={};
+  let c=crescentDraw._c[key];
+  if(!c){ c=document.createElement('canvas'); c.width=c.height=Math.ceil(r*2.4);
+    const g=c.getContext('2d'); g.translate(r*1.2,r*1.2); g.fillStyle=col;
+    g.beginPath(); g.arc(0,0,r,0,7); g.fill();
+    g.globalCompositeOperation='destination-out';
+    g.beginPath(); g.arc(r*.48,-r*.3,r*.8,0,7); g.fill();
+    crescentDraw._c[key]=c; }
+  ctx.drawImage(c,x-r*1.2,y-r*1.2,r*2.4,r*2.4);
+}
+function frgGem(x,y,s){
+  const g=ctx; g.save(); g.translate(x,y); g.rotate(Math.PI/4);
+  const gr=g.createLinearGradient(-s,-s,s,s); gr.addColorStop(0,'#ff9d5c'); gr.addColorStop(.5,'#e2543e'); gr.addColorStop(1,'#8e2f56');
+  g.fillStyle=gr; g.fillRect(-s*.62,-s*.62,s*1.24,s*1.24);
+  g.fillStyle='rgba(255,255,255,.55)'; g.beginPath(); g.moveTo(-s*.62,-s*.62); g.lineTo(s*.1,-s*.62); g.lineTo(-s*.62,s*.1); g.closePath(); g.fill();
+  g.restore();
+}
+let parts=[];
+function spawnPart(p){parts.push(p);}
+function stepParts(dt){for(const p of parts){p.life-=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=(p.grav||0)*dt;p.vx*=(p.drag||1);}parts=parts.filter(p=>p.life>0);}
+function drawParts(){for(const p of parts){const a=clamp(p.life/p.max,0,1);ctx.globalAlpha=a*(p.alpha||1);ctx.fillStyle=p.col;ctx.beginPath();ctx.arc(p.x,p.y,p.r*(p.grow?(2-a):1),0,7);ctx.fill();}ctx.globalAlpha=1;}
+let embers=[];
+function initEmbers(){embers=[];for(let i=0;i<60;i++)embers.push({x:rr(0,W),y:rr(0,H),r:rr(.8,2.4),s:rr(6,24),ph:rr(0,9)});}
+function drawEmbers(t,alpha){
+  ctx.save(); ctx.globalAlpha=alpha;
+  for(const e of embers){
+    const y=(e.y-t*e.s)%H, x=e.x+Math.sin(t*.7+e.ph)*14, yy=y<0?y+H:y;
+    const gr=ctx.createRadialGradient(x,yy,0,x,yy,e.r*3);
+    gr.addColorStop(0,'rgba(255,190,90,.9)'); gr.addColorStop(1,'rgba(255,120,30,0)');
+    ctx.fillStyle=gr; ctx.beginPath(); ctx.arc(x,yy,e.r*3,0,7); ctx.fill();
+  }
+  ctx.restore();
+}
+const keyartImg=new Image(); let keyartReady=false;
+keyartImg.onload=()=>{keyartReady=true;};
+keyartImg.src='keyart.jpg';
+function drawPortrait(g,style,cx,cy,sc){
+  g.save(); g.translate(cx,cy); g.scale(sc,sc);
+  g.fillStyle=style.shirt; roundRectPath(g,-13,6,26,26,5); g.fill();
+  g.fillStyle=style.skin; g.beginPath(); g.arc(0,-6,13,0,7); g.fill();
+  if(style.helmet){ g.fillStyle=style.helmet; g.beginPath(); g.arc(0,-8,13.6,Math.PI,Math.PI*2); g.fill(); g.fillRect(-13.6,-9.5,27.2,4); }
+  else { g.fillStyle=style.hair; g.beginPath(); g.arc(0,-9,13,Math.PI,Math.PI*2); g.fill(); g.fillRect(-13,-11,26,4); }
+  g.fillStyle='#101408'; g.beginPath(); g.arc(4,-6,2,0,7); g.arc(-4,-6,2,0,7); g.fill();
+  g.restore();
+}
+
+/* ================= 5 · NFT FIGHTER (Garuda pattern — the NFT IS the player) ================= */
+/* COLLECTIONS — config only. A fighter collection drops in as a config entry:
+   contract + whether its power reads from an on-chain Rarity trait. Collection 2's
+   contract address is not known yet — slot shown as "mint coming", no dead buttons. */
+const COLLECTIONS=[
+ {key:'cmd', name:'Lunc Zombies-Commandos', contract:'terra1j7h8v7sdppru5gl67y05h2jvh5xa0g9rmylfs8vf7xaa8l8anwxqmh0aew', rarityPower:true, live:true},
+ {key:'z2',  name:'Zombie 2.0 Fighters', contract:null, rarityPower:true, live:false}
+];
+const LCD='https://terra-classic-lcd.publicnode.com';
+const RARITY_MULT={Common:1,Uncommon:1.1,Rare:1.25,Epic:1.5,Legendary:1.75,Mythic:2};
+let fighter=null;          /* {name,id,rarity,skin,style,img,imgOk,mult,powerNote} */
+let nftList=[], nftStatus='', nftAddr='';
+function b64(o){return btoa(unescape(encodeURIComponent(JSON.stringify(o))));}
+async function lcdSmart(contract,q){
+  const r=await fetch(LCD+'/cosmwasm/wasm/v1/contract/'+contract+'/smart/'+b64(q));
+  if(!r.ok)throw new Error('lcd '+r.status);
+  const j=await r.json(); return j.data;
+}
+function fighterStyle(skinTrait){
+  if(skinTrait&&SKIN_STYLES[skinTrait])return Object.assign({},HERO_BASE,SKIN_STYLES[skinTrait]);
+  return Object.assign({},HERO_BASE);
+}
+async function lookupNFT(addr){
+  nftStatus='checking'; nftList=[]; fighter=null; nftAddr=addr; render(performance.now());
+  try{
+    /* query every LIVE collection in COLLECTIONS (slot 2 has no contract yet) */
+    const live=COLLECTIONS.filter(c=>c.live&&c.contract);
+    let list=[];
+    for(const col of live){
+      const data=await lcdSmart(col.contract,{tokens:{owner:addr,limit:30}});
+      const ids=(data&&data.tokens)||[];
+      for(const id of ids)list.push({col:col.key,colName:col.name,contract:col.contract,id});
+    }
+    const full=[];
+    for(const seed of list.slice(0,12)){
+      const item={col:seed.col,colName:seed.colName,contract:seed.contract,id:seed.id,name:'LUNC Zombie NFT #'+seed.id,rarity:null,skin:null,img:null,imgOk:false};
+      try{
+        const info=await lcdSmart(seed.contract,{nft_info:{token_id:seed.id}});
+        const ext=(info&&info.extension)||{};
+        if(ext.name)item.name=ext.name;
+        if(ext.image){item.img=ext.image; const im=new Image(); im.crossOrigin='anonymous'; im.onload=()=>{item.imgOk=true; drawFighterCardImages();}; im.onerror=()=>{item.imgObj=null;}; im.src=ext.image; item.imgObj=im;}
+        for(const a of (ext.attributes||[])){
+          if(a.trait_type==='Rarity')item.rarity=a.value;
+          if(a.trait_type==='Skin')item.skin=a.value;
+        }
+      }catch(e){/* metadata unreadable — plain fallback, labeled in UI */}
+      full.push(item);
+    }
+    nftList=full;
+    nftStatus=full.length?'found':'none';
+    if(full.length)selectFighter(0);
+  }catch(e){ nftStatus='fail'; }
+  render(performance.now());
+}
+function selectFighter(i){
+  const it=nftList[i]; if(!it)return;
+  const mult=(it.rarity&&RARITY_MULT[it.rarity])?RARITY_MULT[it.rarity]:1;
+  fighter={name:it.name,id:it.id,col:it.col,colName:it.colName,rarity:it.rarity,skin:it.skin,img:it.img,imgObj:it.imgObj||null,
+    style:fighterStyle(it.skin),mult:mult,
+    powerNote:it.rarity?T('rarityPower'):T('fallbackPower')};
+  SFX.click();
+}
+function clearFighter(){fighter=null;}
+function drawFighterCardImages(){ /* token images load async — repaint if on brief screen */ if(screen==='brief')render(performance.now()); }
+
+/* ================= 6 · INPUT ================= */
+const keys={};
+const joy={active:false,id:-1,dx:0,dy:0,cx:64,cy:336};
+let fireHeld=false, bombQueued=false, jumpQueued=false;
+const cvPos={x:0,y:0,s:1};
+function refreshCvPos(){const r=cv.getBoundingClientRect(); cvPos.x=r.left; cvPos.y=r.top; cvPos.s=r.width/W;}
+function toGame(e){return {x:(e.clientX-cvPos.x)/cvPos.s, y:(e.clientY-cvPos.y)/cvPos.s};}
+let uiHits=[];   /* rebuilt every frame: {x,y,w,h,fn,id} */
+function hitAt(x,y){for(let i=uiHits.length-1;i>=0;i--){const b=uiHits[i]; if(x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h)return b;} return null;}
+cv.addEventListener('pointerdown',e=>{
+  e.preventDefault(); refreshCvPos(); audio(); startMusic();
+  const p=toGame(e);
+  const hit=hitAt(p.x,p.y);
+  if(hit){hit.fn(); return;}
+  if(screen==='play'){
+    if(p.x<W*.4&&p.y>H*.5){ joy.active=true; joy.id=e.pointerId; joy.dx=0; joy.dy=0; }
+    else if(p.x>W*.55&&p.y>H*.5){
+      const dF=Math.hypot(p.x-848,p.y-330), dB=Math.hypot(p.x-782,p.y-352), dJ=Math.hypot(p.x-848,p.y-252);
+      if(dB<34)bombQueued=true; else if(dJ<34)jumpQueued=true; else if(dF<46)fireHeld=true;
+    }
+  }
+});
+cv.addEventListener('pointermove',e=>{
+  if(!joy.active||e.pointerId!==joy.id)return;
+  const p=toGame(e);
+  joy.dx=clamp((p.x-joy.cx)/30,-1,1); joy.dy=clamp((p.y-joy.cy)/30,-1,1);
+});
+function endPointer(e){
+  if(e.pointerId===joy.id){joy.active=false; joy.dx=0; joy.dy=0;}
+  fireHeld=false;
+}
+cv.addEventListener('pointerup',endPointer);
+cv.addEventListener('pointercancel',endPointer);
+addEventListener('keydown',e=>{
+  if(pasteFocused)return;
+  const k=e.key.toLowerCase();
+  keys[k]=true;
+  if([' ','arrowleft','arrowright','arrowup','arrowdown'].includes(k===' '?' ':k))e.preventDefault();
+  if(k===' ')jumpQueued=true;
+  if(k==='k')bombQueued=true;
+  audio();
+});
+addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false;});
+function moveInput(){
+  let mx=0;
+  if(keys['arrowleft']||keys['a'])mx-=1;
+  if(keys['arrowright']||keys['d'])mx+=1;
+  if(joy.active)mx+=joy.dx;
+  return clamp(mx,-1,1);
+}
+function fireInput(){return fireHeld||!!keys['j']||!!keys['f'];}
+
+/* paste field (DOM overlay, shown on brief screen only) */
+let pasteFocused=false;
+const pasteBox=document.createElement('div');
+pasteBox.style.cssText='position:absolute;display:none;background:rgba(6,22,22,.92);border:1.6px solid rgba(64,200,190,.75);border-radius:8px;padding:6px;z-index:5;';
+pasteBox.innerHTML='<input id="z2addr" type="text" spellcheck="false" placeholder="" style="width:100%;box-sizing:border-box;background:#0a1a1a;color:#e6f5f0;border:1px solid rgba(160,200,190,.5);border-radius:5px;padding:7px 8px;font-size:13px;font-family:monospace;outline:none;">';
+document.getElementById('wrap').appendChild(pasteBox);
+const pasteInput=pasteBox.querySelector('input');
+pasteInput.addEventListener('focus',()=>pasteFocused=true);
+pasteInput.addEventListener('blur',()=>pasteFocused=false);
+pasteInput.addEventListener('keydown',e=>{e.stopPropagation(); if(e.key==='Enter'){const v=pasteInput.value.trim(); if(v)lookupNFT(v);}});
+function layoutPasteBox(){
+  const r=cv.getBoundingClientRect(), wr=document.getElementById('wrap').getBoundingClientRect();
+  const sx=r.width/W, sy=r.height/H;
+  pasteBox.style.left=((r.left-wr.left)+452*sx)+'px';
+  pasteBox.style.top=((r.top-wr.top)+96*sy)+'px';
+  pasteBox.style.width=(416*sx)+'px';
+  pasteInput.placeholder=T('pastePh');
+}
+
+/* ================= 7 · GAME CORE ================= */
+let screen='title';           /* title | brief | play | dead | complete */
+let G=null;
+/* ================= CAMPAIGN / LEVEL SYSTEM =================
+   Levels are DATA: LEVELS[] entries are all the engine reads — world width,
+   ruin blocks, spawn table, raft stretch, orb position, start loadout, music
+   mood. The campaign plan is 40 levels (Tom, Nov 10: "we only had three
+   levels before — we will add 40"). Only Level 1 is playable in this test;
+   LEVELS 2–40 on the map are labeled locked ("campaign under construction"),
+   never faked as playable. Adding a level = appending one data entry. */
+const CAMPAIGN_TOTAL=40;
+const LEVELS=[
+ {n:1,name:'Operation Dawn Break',world:3540,orbX:3320,
+  ruins:[[1150,278,150,52],[1300,226,150,104],[1450,278,140,52],[2050,246,170,84],[2380,278,130,52]],
+  raft:{x0:1740,x1:2940,deckY:302,startX:1780},
+  spawns:[
+   {x:760,kind:'soldier',ex:1350},{x:900,kind:'zed',ex:1480},{x:1050,kind:'soldier',ex:1620},
+   {x:1200,kind:'zed2',ex:1750},{x:1380,kind:'soldier',ex:1900},{x:1500,kind:'zed',ex:1980},
+   {x:1700,kind:'soldier',ex:2100},{x:1850,kind:'zed',ex:2250},{x:2000,kind:'soldier',ex:2400},
+   {x:2560,kind:'soldier',ex:3050,bank:true},{x:2620,kind:'zed',ex:3180,bank:true},
+   {x:2900,kind:'soldier',ex:3260},{x:2950,kind:'zed2',ex:3400},{x:3020,kind:'soldier',ex:3440}],
+  startAmmo:226,startBombs:14,startFrg:5.2,startLunc:518}
+];
+let LV=LEVELS[0];
+const WORLD=()=>LV.world, ORBX=()=>LV.orbX;
+const RUINS=LV.ruins;
+const PLATS=RUINS.map(r=>({x:r[0],y:r[1],w:r[2]}));
+function platsAt(x){ /* standable tops under a world x */
+  const out=[GY];
+  for(const p of PLATS){ if(x>p.x-8&&x<p.x+p.w+8)out.push(p.y); }
+  if(G&&G.onRaft)out.push(LV.raft.deckY);
+  return out;
+}
+function ruinTopAt(x,feetY){ /* top of the ruin block a wall-climb should land on (<= the feet), or null */
+  let best=null;
+  for(const p of PLATS){ if(x>p.x-8&&x<p.x+p.w+8){ const t=p.y; if(feetY>=t-6&&t<GY&&(best===null||t<best))best=t; } }
+  return best;
+}
+/* floor for an entity: only tops its feet are near/above count (no teleporting up) */
+function floorFor(x,feetY){
+  let f=GY;
+  for(const p of PLATS){ if(x>p.x-8&&x<p.x+p.w+8&&feetY<=p.y+16&&p.y<f)f=p.y; }
+  return f;
+}
+/* ruins are solid blocks: if feet are well below a top, the block is a wall */
+function wallClamp(e){
+  for(const p of PLATS){
+    if(e.y>p.y+14&&e.x>p.x-13&&e.x<p.x+p.w+13){
+      e.x=(e.x<p.x+p.w/2)?p.x-13:p.x+p.w+13;
+    }
+  }
+}
+function heroMaxHp(){ return Math.round(665*(fighter?fighter.mult:1)); }
+function heroDmgMult(){ return fighter?fighter.mult:1; }
+function squadBonus(){ return fighter?Math.min(3,Math.max(0,nftList.length-1)):0; }
+const SPAWNS=()=>LV.spawns;
+function newGame(){
+  resetRng(); parts=[]; initEmbers();
+  const maxHp=heroMaxHp();
+  G={t:0,time:0,lastBombT:-1,hero:{x:60,y:GY,vy:0,face:1,wp:0,moving:false,aim:0,muzzle:0,ground:true,hp:maxHp,maxHp:maxHp},
+     cam:0,shake:0,ammo:LV.startAmmo,bombs:LV.startBombs,frg:LV.startFrg,lunc:LV.startLunc,kills:0,total:LV.spawns.length,
+     enemies:[],bullets:[],pickups:[],floaters:[],spawned:LV.spawns.map(()=>false),
+     lastShot:0,lastEShot:0,reload:0,onRaft:false,raftX:LV.raft.startX,orbTaken:false,endT:0,deadT:0,score:0};
+  screen='play';
+}
+function spawnEnemy(sp){
+  const base=sp.kind==='soldier'?SOLDIER:(sp.kind==='zed'?ZED:ZED2);
+  G.enemies.push({kind:sp.kind,base,x:sp.ex,y:sp.bank?300:GY,vy:0,ground:true,hp:sp.kind==='soldier'?3:2,dead:0,wp:rr(0,9),bank:!!sp.bank,shotCd:rr(1,2.4),flash:0});
+}
+function heroFire(){
+  const h=G.hero; if(G.ammo<=0||G.reload>0)return;
+  h.muzzle=.07; G.ammo--; SFX.shot();
+  if(G.ammo===0){G.reload=1.1; G.floaters.push({x:h.x,y:h.y-110,txt:'RELOADING…',age:0,col:'#ffd968'});}
+  const mx=h.x+h.face*52, my=h.y-56;
+  G.bullets.push({x:mx,y:my,vx:h.face*760,life:.85,foe:false,dmg:heroDmgMult()});
+  spawnPart({x:mx+h.face*8,y:my,vx:h.face*rr(10,40),vy:rr(-24,6),life:.24,max:.24,r:2.2,col:'#ffd98a'});
+}
+function killEnemy(e){
+  e.dead=.0001; G.kills++; SFX.die();
+  const n=e.kind==='soldier'?3:2;
+  for(let i=0;i<n;i++){const isF=i%2===0;
+    G.pickups.push({x:e.x+rr(-8,8),y:e.y-52,vx:rr(-30,50),vy:rr(-190,-120),kind:isF?'frg':'lunc',age:0});}
+  const sq=squadBonus();
+  for(let i=0;i<sq;i++)G.pickups.push({x:e.x+rr(-12,12),y:e.y-46,vx:rr(-40,60),vy:rr(-200,-130),kind:i%2?'lunc':'frg',age:0});
+  G.floaters.push({x:e.x,y:e.y-96,txt:e.kind==='soldier'?'+ FRG  + LUNC':'+ LUNC',age:0});
+  for(let i=0;i<10;i++)spawnPart({x:e.x,y:e.y-40,vx:rr(-70,70),vy:rr(-120,-10),life:rr(.3,.6),max:.6,r:rr(1.6,3.4),col:i%2?'#9db98a':'#5c7350',grav:300});
+  if(e.kind==='soldier'&&Math.random()<.5)G.pickups.push({x:e.x,y:e.y-40,vx:rr(-16,16),vy:-160,kind:'ammo',age:0});
+}
+function throwBomb(){
+  if(G.bombs<=0)return;
+  G.bombs--; const h=G.hero, bx=h.x+h.face*300, by=GY;
+  G.lastBombT=G.time;
+  G.shake=9; SFX.boom();
+  for(let i=0;i<42;i++)spawnPart({x:bx+rr(-26,26),y:by-rr(0,26),vx:rr(-190,190),vy:rr(-260,-30),life:rr(.35,.8),max:.8,r:rr(2.5,6),col:['#ffb03a','#ff7a26','#e2543e','#ffd98a'][i%4],grav:240,grow:true});
+  for(let i=0;i<16;i++)spawnPart({x:bx+rr(-14,14),y:by-8,vx:rr(-40,40),vy:rr(-90,-30),life:rr(.6,1.1),max:1.1,r:rr(4,9),col:'#3a3a3a',alpha:.4,grow:true});
+  for(const e of G.enemies){if(e.dead===0&&!e.bank&&Math.abs(e.x-bx)<190)killEnemy(e);}
+  G.floaters.push({x:bx,y:GY-130,txt:'BOOM!',age:0,big:true});
+}
+function hurtHero(dmg){
+  const h=G.hero; if(screen!=='play'||G.orbTaken)return;
+  h.hp-=dmg; SFX.hurt();
+  spawnPart({x:h.x,y:h.y-50,vx:rr(-40,40),vy:rr(-80,-10),life:.3,max:.3,r:2.6,col:'#c94436'});
+  if(h.hp<=0){h.hp=0; screen='dead'; G.deadT=0; stopMusic();}
+}
+function stepGame(dt){
+  const h=G.hero; G.t+=dt; if(screen==='play')G.time+=dt;
+  /* spawns by hero progress */
+  SPAWNS().forEach((sp,i)=>{ if(!G.spawned[i]&&h.x>=sp.x){G.spawned[i]=true; spawnEnemy(sp);} });
+  /* reload */
+  if(G.reload>0){G.reload-=dt; if(G.reload<=0){G.ammo=226; G.floaters.push({x:h.x,y:h.y-110,txt:'AMMO READY',age:0,col:'#9fe8a9'});}}
+  /* ----- hero movement ----- */
+  const mx=moveInput();
+  const onRaftZone=h.x>LV.raft.x0&&h.x<LV.raft.x1;
+  if(onRaftZone&&!G.onRaft){G.onRaft=true;}
+  if(h.x>=LV.raft.x1&&G.onRaft){G.onRaft=false;}
+  const speed=G.onRaft?60:215;
+  if(!G.onRaft){
+    if(Math.abs(mx)>.12){h.face=mx>0?1:-1; h.x+=mx*speed*dt; h.moving=true;}
+    else h.moving=false;
+  } else {
+    G.raftX=Math.min(LV.raft.x1-60,G.raftX+92*dt);
+    h.x=G.raftX+66; h.moving=false; if(Math.abs(mx)>.12)h.face=mx>0?1:-1;
+  }
+  h.x=clamp(h.x,30,WORLD()-40);
+  if(!G.onRaft)wallClamp(h);
+  /* vertical: raft deck or platforms */
+  /* jump: a held jump into a ruin wall climbs it (step-stone rule from the
+     preview/Garuda tower): feet below the top by <= 104px and rising ->
+     step up onto that top. Ordinary running into a wall still blocks. */
+  if(jumpQueued){jumpQueued=false;
+    if(h.ground&&!G.onRaft){
+      const climbTo=ruinTopAt(h.x+h.face*16,h.y);
+      if(climbTo!==null&&h.y-climbTo>0){ h.y=climbTo; h.ground=true; SFX.jump(); }
+      else { h.vy=-560; h.ground=false; SFX.jump(); }
+    }}
+  const floorY=G.onRaft?LV.raft.deckY:floorFor(h.x,h.y);
+  if(!h.ground||h.y<floorY){
+    h.vy+=1500*dt; h.y+=h.vy*dt;
+    if(h.y>=floorY){h.y=floorY; h.vy=0; h.ground=true;}
+  } else { h.y=floorY; h.ground=true; }
+  if(G.onRaft)h.y=LV.raft.deckY+Math.sin(G.t*1.8)*2.5;
+  if(h.moving&&h.ground)h.wp+=dt*11; else h.wp*=.85;
+  /* fire */
+  const wantFire=fireInput();
+  let tgt=null,bd=1e9;
+  for(const e of G.enemies){if(e.dead>0)continue; const d=(e.x-h.x)*h.face; if(d>20&&d<bd){bd=d;tgt=e;}}
+  h.aim=tgt&&bd<520?1:0;
+  if(wantFire&&G.t-G.lastShot>.17){G.lastShot=G.t; heroFire();}
+  if(bombQueued){bombQueued=false; if(!G.onRaft)throwBomb();}
+  if(h.muzzle>0)h.muzzle-=dt;
+  /* ----- enemies ----- */
+  for(const e of G.enemies){
+    if(e.dead>0){e.dead=Math.min(1,e.dead+dt*3); continue;}
+    if(e.flash>0)e.flash-=dt;
+    const d=h.x-e.x, ad=Math.abs(d);
+    if(!e.bank){
+      /* settle to a floor (same rules as the hero — no teleporting up blocks) */
+      const ef=floorFor(e.x,e.y);
+      if(e.y<ef){e.vy+=1500*dt; e.y+=e.vy*dt; if(e.y>=ef){e.y=ef;e.vy=0;}}
+      else e.y=ef;
+      if(e.kind==='soldier'){
+        if(ad>240)e.x+=Math.sign(d)*34*dt;
+        wallClamp(e);
+        e.wp+=dt*5;
+        e.shotCd-=dt;
+        if(e.shotCd<0&&ad<430&&Math.abs(e.y-h.y)<70){e.shotCd=rr(1.5,2.6);
+          G.bullets.push({x:e.x+Math.sign(d)*46,y:e.y-54,vx:Math.sign(d)*560,life:.85,foe:true,dmg:26});
+          if(Math.random()<.5)SFX.eshot();}
+      } else {
+        if(ad>44)e.x+=Math.sign(d)*(e.kind==='zed'?46:56)*dt;
+        wallClamp(e);
+        e.wp+=dt*8;
+        if(ad<=46&&Math.abs(e.y-h.y)<60){ e.atk=(e.atk||0)+dt; if(e.atk>.7){e.atk=0; hurtHero(38);} }
+      }
+    } else {
+      if(ad>260)e.x-=26*dt;
+      e.wp+=dt*5;
+      if(e.kind==='soldier'){ e.shotCd-=dt;
+        if(e.shotCd<0&&ad<520){e.shotCd=rr(1.6,2.8);
+          G.bullets.push({x:e.x-46,y:e.y-54,vx:-560,life:.9,foe:true,dmg:26}); if(Math.random()<.5)SFX.eshot();} }
+    }
+  }
+  /* ----- bullets ----- */
+  for(const b of G.bullets){
+    b.life-=dt; b.x+=b.vx*dt;
+    if(b.foe){
+      if(Math.abs(b.x-h.x)<20&&b.y>h.y-84&&b.y<h.y){b.life=0; hurtHero(b.dmg||26);}
+    } else {
+      for(const e of G.enemies){
+        if(e.dead>0)continue;
+        if(Math.abs(b.x-e.x)<22&&b.y>e.y-88&&b.y<e.y){ b.life=0; e.hp-=b.dmg; e.flash=.08; SFX.hit();
+          spawnPart({x:b.x,y:b.y,vx:rr(-30,30),vy:rr(-40,0),life:.2,max:.2,r:2,col:'#cfe8b0'});
+          if(e.hp<=0)killEnemy(e);
+          break; }
+      }
+    }
+  }
+  G.bullets=G.bullets.filter(b=>b.life>0);
+  /* ----- pickups ----- */
+  for(const p of G.pickups){
+    p.age+=dt;
+    if(p.age<.5){p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=620*dt; if(p.y>GY-8){p.y=GY-8;p.vy*=-.35;}}
+    else{
+      if(p.kind==='ammo'){ if(Math.abs(p.x-h.x)<30&&Math.abs(p.y-(h.y-40))<56){p.done=true; G.ammo=Math.min(226,G.ammo+40); G.reload=0; G.floaters.push({x:h.x,y:h.y-104,txt:'+40 AMMO',age:0,col:'#a8c6dc'});} continue; }
+      const tx=p.kind==='frg'?352:480, ty=25, sx=p.x-G.cam;
+      const nx=sx+(tx-sx)*Math.min(1,dt*7), ny=p.y+(ty-p.y)*Math.min(1,dt*7);
+      p.x=nx+G.cam; p.y=ny;
+      if(Math.abs(tx-sx)<14&&Math.abs(ty-p.y)<12){p.done=true;
+        if(p.kind==='frg'){G.frg+=.3; SFX.pickupF();} else {G.lunc+=6; SFX.pickupL();}}
+    }
+    if(p.age>7&&p.kind==='ammo')p.done=true;
+  }
+  G.pickups=G.pickups.filter(p=>!p.done);
+  for(const f of G.floaters)f.age+=dt;
+  G.floaters=G.floaters.filter(f=>f.age<1.5);
+  if(G.shake>0)G.shake=Math.max(0,G.shake-dt*22);
+  stepParts(dt);
+  /* camera */
+  const target=G.onRaft?clamp(h.x-330,1450,2380):clamp(h.x-300,0,WORLD()-W+40);
+  G.cam+=(target-G.cam)*Math.min(1,dt*5);
+  /* orb */
+  if(!G.orbTaken&&h.x>ORBX()-30&&G.kills>=G.total){ grabOrb(); }
+  if(G.orbTaken){ G.endT+=dt; }
+}
+function grabOrb(){
+  G.orbTaken=true; SFX.orb(); startMusic();
+  for(let i=0;i<22;i++)spawnPart({x:ORBX()+16,y:GY-96,vx:rr(-90,90),vy:rr(-140,20),life:rr(.4,.9),max:.9,r:rr(1.6,3.4),col:i%2?'#aef2ff':'#f5c542',grav:120});
+  G.frg+=2.4; G.lunc+=120;
+  setTimeout(()=>{ if(screen==='play'&&G&&G.orbTaken){ finishMission(); } },1400);
+}
+function missionScore(){ return Math.round(G.lunc + G.frg*10 + G.kills*25 + Math.max(0,600-G.time*2)); }
+function finishMission(){
+  screen='complete'; stopMusic(); SFX.orb();
+  const sc=missionScore();
+  const best=loadBest();
+  const rec={score:sc,time:Math.round(G.time),kills:G.kills,level:LV.n,fighter:fighter?fighter.name:'BASE'};
+  if(!best||sc>best.score)saveBest(rec);
+  G.finalScore=sc; G.newBest=!!best&&sc>best.score||!best;
+}
+
+/* ================= 8 · SCREENS / RENDER ================= */
+let btn={};  /* named buttons rebuilt per frame */
+function regBtn(id,x,y,w,h,fn){ uiHits.push({x,y,w,h,fn,id}); }
+function drawBtn(x,y,w,h,label,opts){
+  opts=opts||{};
+  const g=ctx;
+  g.fillStyle=opts.fill||'rgba(10,30,30,.9)'; roundRect(x,y,w,h,opts.r||8); g.fill();
+  g.strokeStyle=opts.stroke||'#f5c542'; g.lineWidth=opts.lw||1.8; roundRect(x,y,w,h,opts.r||8); g.stroke();
+  g.fillStyle=opts.col||'#ffd94d'; g.font=(opts.weight||900)+' '+(opts.fs||17)+'px Arial'; g.textAlign='center';
+  g.fillText(label,x+w/2,y+h/2+(opts.fs||17)*.36);
+  g.textAlign='left';
+}
+function updateSoundBtn(){ /* sound state is drawn every frame from SOUND — nothing cached */ }
+function drawSoundToggle(x,y){
+  drawBtn(x,y,128,30,SOUND?T('sndOn'):T('sndOff'),{fs:12.5,fill:SOUND?'rgba(20,50,30,.92)':'rgba(50,20,20,.92)',stroke:SOUND?'#59d977':'#e2543e',col:'#fff'});
+  regBtn('sound',x,y,128,30,()=>{setSound(!SOUND); SFX.click();});
+}
+function drawLangSelector(x,y){
+  const g=ctx;
+  g.fillStyle='rgba(6,22,22,.92)'; roundRect(x,y,196,34,8); g.fill();
+  g.strokeStyle='rgba(64,200,190,.8)'; g.lineWidth=1.5; roundRect(x,y,196,34,8); g.stroke();
+  g.fillStyle='#cfeee8'; g.font='700 13px Arial'; g.textAlign='left';
+  const cur=LANGS.find(l=>l[0]===LANG);
+  g.fillText('🌐 '+(cur?cur[1]:'English'),x+12,y+22);
+  g.fillStyle='#8fb8ae'; g.font='900 13px Arial'; g.textAlign='right'; g.fillText('▾',x+186,y+22); g.textAlign='left';
+  regBtn('lang',x,y,196,34,()=>{langOpen=true; SFX.click();});
+}
+function drawLangGrid(){
+  /* full-screen language picker (opened from the selector) */
+  const g=ctx;
+  g.fillStyle='rgba(2,6,6,.9)'; g.fillRect(0,0,W,H);
+  g.fillStyle='#ffd968'; g.font='900 20px Arial'; g.textAlign='center'; g.fillText('🌐 LANGUAGE',W/2,44); g.textAlign='left';
+  const cols=3, bw=270, bh=40, gx=(W-cols*bw)/2, gy=70;
+  LANGS.forEach((l,i)=>{
+    const x=gx+(i%cols)*bw, y=gy+Math.floor(i/cols)*(bh+8);
+    drawBtn(x+5,y,bw-10,bh,l[1],{fs:14,fill:l[0]===LANG?'rgba(60,50,10,.95)':'rgba(8,24,24,.92)',stroke:l[0]===LANG?'#f5c542':'rgba(64,200,190,.5)',col:'#e6f5f0',weight:700});
+    regBtn('lang-'+l[0],x+5,y,bw-10,bh,()=>{LANG=l[0]; localStorage.setItem('z2lang',LANG); langOpen=false; pasteInput.placeholder=T('pastePh'); SFX.click();});
+  });
+  drawBtn(W/2-70,H-44,140,32,'✖',{fs:14});
+  regBtn('lang-close',W/2-70,H-44,140,32,()=>{langOpen=false;});
+}
+let langOpen=false;
+
+/* ---- title screen ---- */
+function drawTitle(t){
+  const g=ctx;
+  if(keyartReady){
+    /* Tom's exact key art, cover-fit, composition intact */
+    const iw=keyartImg.width, ih=keyartImg.height, sc=Math.max(W/iw,H/ih);
+    const dw=iw*sc, dh=ih*sc;
+    g.drawImage(keyartImg,(W-dw)/2,(H-dh)/2,dw,dh);
+  } else {
+    g.fillStyle='#1c2833'; g.fillRect(0,0,W,H);
+  }
+  drawEmbers(t,.55);
+  /* 2.0 name treatment — top-left block, clear of the painting's own title */
+  g.save();
+  g.fillStyle='rgba(4,8,6,.55)'; roundRect(14,10,352,86,10); g.fill();
+  g.strokeStyle='rgba(245,197,66,.65)'; g.lineWidth=1.4; roundRect(14,10,352,86,10); g.stroke();
+  g.textAlign='left';
+  g.font='900 21px "Arial Black",Arial,sans-serif'; g.fillStyle='#f5c542';
+  g.fillText('LUNA CLASSIC',30,40);
+  g.font='900 24px "Arial Black",Arial,sans-serif'; g.fillStyle='#ffffff';
+  g.fillText('ZOMBIE 2.0',30,70);
+  g.font='700 11.5px Arial'; g.fillStyle='#ffd968';
+  g.fillText('T H E   Z O M B I E S   R E T U R N',30,88);
+  g.restore();
+  /* bottom control bar */
+  g.fillStyle='rgba(3,7,5,.78)'; g.fillRect(0,H-118,W,60);
+  g.fillStyle='rgba(3,7,5,.92)'; g.fillRect(0,H-58,W,58);
+  g.strokeStyle='rgba(245,197,66,.35)'; g.beginPath(); g.moveTo(0,H-118); g.lineTo(W,H-118); g.stroke();
+  const pulse=.75+.25*Math.sin(t*3.2);
+  g.save(); g.globalAlpha=pulse; g.textAlign='center';
+  g.font='900 26px "Arial Black",Arial,sans-serif'; g.fillStyle='#ffd94d';
+  g.shadowColor='rgba(0,0,0,.8)'; g.shadowBlur=8;
+  g.fillText(T('tapStart'),W/2,H-72);
+  g.restore(); g.textAlign='left';
+  g.fillStyle='rgba(230,238,240,.8)'; g.font='600 11px Arial'; g.textAlign='center';
+  g.fillText(T('test'),W/2,H-50);
+  g.fillText(T('points'),W/2,H-34);
+  g.textAlign='left';
+  drawLangSelector(14,H-46);
+  drawSoundToggle(W-142,H-46);
+  regBtn('start',0,0,W,H-118,()=>{SFX.click(); screen='brief';});
+}
+/* ---- mission brief + MY FIGHTER panel ---- */
+function drawBrief(t){
+  const g=ctx;
+  g.fillStyle='#04080a'; g.fillRect(0,0,W,H);
+  g.save(); g.translate(W/2,H/2+8); g.strokeStyle='rgba(64,200,190,.5)'; g.lineWidth=1.2;
+  const pts=[[-300,-70],[-210,-120],[-120,-84],[-40,-128],[60,-96],[150,-122],[238,-70],[268,10],[190,66],[96,44],[30,96],[-70,60],[-160,92],[-248,40],[-292,-16]];
+  g.beginPath(); pts.forEach((p,i)=>i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1])); g.closePath(); g.stroke();
+  g.globalAlpha=.4; g.beginPath(); pts.forEach(p=>{g.moveTo(p[0],p[1]); g.lineTo(p[0]*.55,p[1]*.55);}); g.stroke(); g.globalAlpha=1;
+  g.beginPath(); pts.forEach((p,i)=>{const q=[p[0]*.55,p[1]*.55]; i?g.lineTo(q[0],q[1]):g.moveTo(q[0],q[1]);}); g.closePath(); g.stroke();
+  for(let i=0;i<6;i++){g.beginPath(); g.ellipse(-160+i*58,-40+((i*37)%70),26,13,i,0,7); g.stroke();}
+  /* campaign strip — Level 1 open, the 40-level campaign honestly labeled */
+  g.fillStyle='rgba(230,245,240,.75)'; g.font='700 10.5px Arial';
+  const campLbl=T('campaign');
+  g.fillText(campLbl,30,238);
+  const campW=g.measureText(campLbl).width;
+  g.fillStyle='#3fd68f'; g.fillText('● 1',40+campW,238);
+  g.fillStyle='rgba(230,245,240,.45)';
+  g.fillText('🔒 '+T('lockedSoon'),40+campW+g.measureText('● 1').width+10,238);
+  const pulse=1+Math.sin(t*4)*.08;
+  g.save(); g.translate(96,44); g.scale(pulse,pulse);
+  g.strokeStyle='#e8fff9'; g.lineWidth=3;
+  for(let i=0;i<8;i++){g.save(); g.rotate(i*Math.PI/4); g.beginPath(); g.arc(0,0,17,-.32,.32); g.stroke(); g.restore();}
+  g.fillStyle='#ff5340'; g.beginPath(); g.arc(0,0,4.6,0,7); g.fill(); g.restore();
+  g.strokeStyle='rgba(232,255,249,.8)'; g.lineWidth=2; g.beginPath(); g.arc(-190,-58,11,0,7); g.stroke();
+  g.restore();
+  /* left panel — mission */
+  g.fillStyle='rgba(6,22,22,.9)'; roundRect(22,26,404,200,8); g.fill();
+  g.strokeStyle='rgba(64,200,190,.75)'; g.lineWidth=1.6; roundRect(22,26,404,200,8); g.stroke();
+  g.fillStyle='#cfeee8'; g.font='700 14px Arial'; g.fillText(T('mission'),38,52);
+  g.font='12.5px Arial';
+  [T('obj1'),T('obj2')].forEach((s,i)=>{const y=80+i*28;
+    g.strokeStyle='#3fd68f'; g.lineWidth=2; g.beginPath(); g.moveTo(40,y-4); g.lineTo(44,y); g.lineTo(52,y-9); g.stroke();
+    g.fillStyle='#e6f5f0'; g.fillText(s,60,y);});
+  g.fillStyle='#8fb8ae'; g.fillText(T('reward'),38,142);
+  frgGem(52,166,8); crescentDraw(80,166,8,'#f5c542');
+  g.fillStyle='rgba(230,245,240,.75)'; g.font='600 10.5px Arial';
+  g.fillText('FRG + LUNC = POINTS',100,170);
+  drawBtn(38,152+34,150,30,T('enter'),{fs:12.5});
+  regBtn('enter',38,186,150,30,()=>{SFX.click(); stopMusic(); newGame();});
+  g.save(); g.textAlign='center';
+  g.fillStyle='rgba(6,22,22,.9)'; roundRect(W/2-168,H-64,336,52,8); g.fill();
+  g.strokeStyle='rgba(64,200,190,.75)'; g.lineWidth=1.6; roundRect(W/2-168,H-64,336,52,8); g.stroke();
+  g.fillStyle='#f2fbf8'; g.font='700 20px Arial'; g.fillText(T('brief'),W/2,H-32);
+  g.restore();
+  /* right panel — MY FIGHTER */
+  const px=452, pw=442;
+  g.fillStyle='rgba(8,16,12,.94)'; roundRect(px,26,pw,300,10); g.fill();
+  g.strokeStyle='#f5c542'; g.lineWidth=1.8; roundRect(px,26,pw,300,10); g.stroke();
+  g.fillStyle='#ffd968'; g.font='900 16px Arial'; g.textAlign='center';
+  g.fillText('🎖 '+T('myFighter'),px+pw/2,52); g.textAlign='left';
+  g.fillStyle='rgba(230,245,240,.85)'; g.font='600 11px Arial';
+  wrapText(T('nftBlurb'),px+16,72,pw-32,14);
+  /* paste box is DOM (positioned in layoutPasteBox) — reserve its space: y 96..132 */
+  drawBtn(px+16,140,120,30,T('lookup'),{fs:12.5,fill:'rgba(10,40,40,.95)',stroke:'rgba(64,200,190,.9)',col:'#dff7f1'});
+  regBtn('lookup',px+16,140,120,30,()=>{const v=pasteInput.value.trim(); if(v)lookupNFT(v);});
+  const hasKeplr=typeof window!=='undefined'&&!!window.keplr;
+  if(hasKeplr){
+    drawBtn(px+148,140,150,30,T('connect'),{fs:12,fill:'rgba(40,34,8,.95)',col:'#ffd94d'});
+    regBtn('keplr',px+148,140,150,30,async()=>{ try{ await window.keplr.enable('columbus-5'); const off=window.keplr.getOfflineSigner('columbus-5'); const acc=await off.getAccounts(); if(acc&&acc[0]){pasteInput.value=acc[0].address; lookupNFT(acc[0].address);} }catch(e){ nftStatus='fail'; } });
+  }
+  /* status / results */
+  let ry=186;
+  g.font='600 11.5px Arial';
+  if(nftStatus==='checking'){ g.fillStyle='#ffd968'; g.fillText(T('checking'),px+16,ry); }
+  else if(nftStatus==='fail'){ g.fillStyle='#ff9d8a'; wrapText(T('lookupFail'),px+16,ry,pw-32,14); }
+  else if(nftStatus==='none'){ g.fillStyle='#ff9d8a'; wrapText(T('noNft'),px+16,ry,pw-32,14); }
+  else if(nftStatus==='found'){
+    g.fillStyle='#9fe8a9'; g.fillText(TF('found',{n:nftList.length}),px+16,ry); ry+=8;
+    const cw=60, ch=76;
+    nftList.slice(0,6).forEach((it,i)=>{
+      const cx=px+16+i*(cw+7), cy=ry+6;
+      const sel=fighter&&fighter.id===it.id;
+      g.fillStyle=sel?'rgba(70,56,10,.95)':'rgba(14,26,20,.95)'; roundRect(cx,cy,cw,ch,7); g.fill();
+      g.strokeStyle=sel?'#f5c542':'rgba(160,200,190,.4)'; g.lineWidth=sel?2.2:1.2; roundRect(cx,cy,cw,ch,7); g.stroke();
+      if(it.imgObj&&it.imgOk){ try{ g.save(); roundRectPath(g,cx+5,cy+5,cw-10,cw-10,5); g.clip(); g.drawImage(it.imgObj,cx+5,cy+5,cw-10,cw-10); g.restore(); }catch(e){ drawPortrait(g,fighterStyle(it.skin),cx+cw/2,cy+30,.85); } }
+      else drawPortrait(g,fighterStyle(it.skin),cx+cw/2,cy+30,.85);
+      g.fillStyle='#e6f5f0'; g.font='700 9.5px Arial'; g.textAlign='center';
+      g.fillText('#'+it.id,cx+cw/2,cy+ch-16);
+      g.fillStyle=it.rarity?'#ffd968':'#8fb8ae'; g.font='700 8.5px Arial';
+      g.fillText(it.rarity||'—',cx+cw/2,cy+ch-5);
+      g.textAlign='left';
+      regBtn('nft-'+it.id,cx,cy,cw,ch,()=>{selectFighter(i);});
+    });
+    ry+=ch+16;
+    g.fillStyle='rgba(230,245,240,.7)'; g.font='600 10px Arial';
+    wrapText(T('ownedOnly'),px+16,ry+8,pw-32,12.5);
+  }
+  /* current fighter line + the power rule that was applied (labeled, never silent) */
+  /* collection 2 slot — honest placeholder, no dead buttons (contract not known yet);
+     the slot shows while the results area leaves room for it */
+  if(nftStatus!=='found')for(const col of COLLECTIONS.filter(c=>!c.live)){
+    g.fillStyle='rgba(16,20,26,.9)'; roundRect(px+16,238,pw-32,26,6); g.fill();
+    g.strokeStyle='rgba(150,170,200,.45)'; g.lineWidth=1.1; g.setLineDash([4,3]); roundRect(px+16,238,pw-32,26,6); g.stroke(); g.setLineDash([]);
+    g.fillStyle='rgba(210,224,240,.8)'; g.font='700 11px Arial';
+    g.fillText('🎖 '+T('mintSoon'),px+26,255);
+  }
+  const fy=(nftStatus==='found')?284:272;
+  const fh=(nftStatus==='found')?38:46;
+  g.fillStyle='rgba(20,34,24,.9)'; roundRect(px+16,fy,pw-32,fh,6); g.fill();
+  g.strokeStyle='rgba(245,197,66,.5)'; g.lineWidth=1.1; roundRect(px+16,fy,pw-32,fh,6); g.stroke();
+  g.font='700 11.5px Arial';
+  if(fighter){
+    g.fillStyle='#ffd968'; g.fillText(T('playAs')+': ',px+24,fy+17);
+    const w1=g.measureText(T('playAs')+': ').width;
+    g.fillStyle='#fff'; g.fillText(fighter.name+(fighter.rarity?' · '+fighter.rarity:'')+'  ·  ⚡×'+fighter.mult,px+24+w1,fy+17);
+    g.fillStyle='rgba(230,245,240,.75)'; g.font='600 10px Arial';
+    let note=fighter.powerNote;
+    if(nftList.length>1)note+='  ·  '+TF('bonusPower',{n:Math.min(3,nftList.length-1)});
+    g.fillText(note,px+24,fy+33);
+  } else {
+    g.fillStyle='#e6f5f0'; g.fillText(T('playAs')+': '+T('baseHero'),px+24,fy+17);
+  }
+  /* title-screen shortcuts also live here */
+  drawLangSelector(22,H-46);
+  drawSoundToggle(W-142,H-46);
+  const best=loadBest();
+  g.fillStyle='rgba(255,217,104,.9)'; g.font='700 11.5px Arial'; g.textAlign='center';
+  g.fillText(best?TF('best',{s:best.score,t:fmtTime(best.time)}):T('bestNone'),W/2,H-56);
+  g.textAlign='left';
+}
+function wrapText(txt,x,y,maxW,lh){
+  const words=String(txt).split(' '); let line='', yy=y;
+  for(const w of words){
+    const test=line?line+' '+w:w;
+    if(ctx.measureText(test).width>maxW&&line){ctx.fillText(line,x,yy); line=w; yy+=lh;}
+    else line=test;
+  }
+  if(line)ctx.fillText(line,x,yy);
+  return yy;
+}
+/* ---- gameplay world ---- */
+function drawWorld(){
+  const g=ctx, cam=G.cam, t=G.t;
+  const sky=g.createLinearGradient(0,0,0,H);
+  sky.addColorStop(0,'#39584a'); sky.addColorStop(.5,'#22392c'); sky.addColorStop(1,'#101d14');
+  g.fillStyle=sky; g.fillRect(0,0,W,H);
+  g.save(); g.globalCompositeOperation='lighter'; g.globalAlpha=.10;
+  for(let i=0;i<5;i++){const rx=((i*340-cam*.12)%1200)-140;
+    g.fillStyle='#ffe9a8'; g.beginPath(); g.moveTo(rx,0); g.lineTo(rx+54,0); g.lineTo(rx+170,H); g.lineTo(rx+40,H); g.closePath(); g.fill();}
+  g.restore();
+  for(let x=-((cam*.25)%1600);x<W;x+=1600)g.drawImage(swampFar,x,0);
+  for(let x=-((cam*.55)%1600);x<W;x+=1600)g.drawImage(swampMid,x,6);
+  for(const [rx,ry,rw,rh] of RUINS){const sx=rx-cam; if(sx>-220&&sx<W+60)drawRuin(sx,ry,rw,rh);}
+  for(let x=-((cam)%1600);x<W;x+=1600)g.drawImage(groundStrip,x,GY);
+  g.fillStyle='#0c150a'; g.fillRect(0,GY+118,W,30);
+  /* water overlay across the raft stretch — the raft reads as floating */
+  if(cam>1250){
+    const wat=g.createLinearGradient(0,314,0,H);
+    wat.addColorStop(0,'rgba(46,90,72,.88)'); wat.addColorStop(.3,'rgba(27,53,42,.92)'); wat.addColorStop(1,'rgba(10,26,18,.96)');
+    const wx0=Math.max(0,LV.raft.x0-cam), wx1=Math.min(W,LV.raft.x1+30-cam);
+    if(wx1>wx0){ g.fillStyle=wat; g.fillRect(wx0,314,wx1-wx0,H-314);
+      g.strokeStyle='rgba(190,230,200,.3)'; g.lineWidth=1.4;
+      for(let i=0;i<14;i++){const wxl=wx0+((i*97+G.t*22)%Math.max(30,(wx1-wx0))); g.globalAlpha=.2+.15*Math.sin(G.t*2+i); g.beginPath(); g.moveTo(wxl,330+((i*31)%66)); g.lineTo(wxl+16,330+((i*31)%66)); g.stroke();}
+      g.globalAlpha=1; }
+  }
+  const props=[[300,'stump'],[640,'log'],[1500,'stump'],[2620,'log'],[2900,'stump'],[3150,'bones']];
+  for(const [px2,kind] of props){const sx=px2-cam; if(sx<-60||sx>W+60)continue;
+    if(kind==='stump'){g.fillStyle='#4a3826'; g.fillRect(sx,GY-16,26,17); g.fillStyle='#6d573a'; g.beginPath(); g.ellipse(sx+13,GY-16,13,4,0,0,7); g.fill();}
+    else if(kind==='log'){g.fillStyle='#3d2f1f'; roundRect(sx,GY-9,74,10,5); g.fill(); g.fillStyle='#5a4630'; g.beginPath(); g.ellipse(sx+72,GY-4,5,5,0,0,7); g.fill();}
+    else {g.strokeStyle='rgba(216,208,188,.75)'; g.lineWidth=3; g.beginPath(); g.arc(sx+14,GY-4,11,Math.PI*1.1,Math.PI*1.9); g.stroke(); g.beginPath(); g.moveTo(sx,GY); g.lineTo(sx+28,GY-2); g.stroke();}
+  }
+  for(let i=0;i<3;i++){
+    const my=236+i*38, off=Math.sin(t*.24+i*2)*26;
+    const mg=g.createLinearGradient(0,my,0,my+30);
+    mg.addColorStop(0,'rgba(200,220,205,0)'); mg.addColorStop(.5,'rgba(200,220,205,.13)'); mg.addColorStop(1,'rgba(200,220,205,0)');
+    g.fillStyle=mg; g.fillRect(0,my+off*.2,W,30);
+  }
+  /* raft */
+  if(G.cam>1250||G.onRaft){
+    const rx=G.raftX-cam, bobY=Math.sin(t*1.8)*2.5;
+    g.save(); g.translate(rx,306+bobY);
+    for(let i=0;i<5;i++){g.fillStyle=i%2?'#5d4630':'#4c3823'; roundRect(-6,i*7,196,6.4,3); g.fill();}
+    g.strokeStyle='rgba(20,14,6,.6)'; g.lineWidth=2;
+    g.beginPath(); g.moveTo(28,-2); g.lineTo(28,36); g.moveTo(158,-2); g.lineTo(158,36); g.stroke();
+    g.fillStyle='#3a2c1c'; g.fillRect(120,-104,5,106);
+    g.fillStyle='#20303f'; g.beginPath(); g.moveTo(125,-102); g.lineTo(125,-46); g.lineTo(168,-46); g.closePath(); g.fill();
+    crescentDraw(143,-76,13,'#f5c542');
+    g.fillStyle='#31402f'; roundRect(150,-24,44,22,3); g.fill();
+    g.fillStyle='#1d261c'; g.fillRect(190,-19,18,5);
+    g.fillStyle='#57604f'; g.fillRect(156,-29,20,6);
+    g.fillStyle='#6d573a'; g.fillRect(6,-22,26,22); g.strokeStyle='rgba(24,18,8,.6)'; g.strokeRect(6,-22,26,22);
+    g.restore();
+    g.strokeStyle='rgba(210,240,220,.35)'; g.lineWidth=2;
+    g.beginPath(); g.moveTo(rx-46,338+bobY); g.quadraticCurveTo(rx+80,352+bobY,rx+210,340+bobY); g.stroke();
+  }
+  /* orb pedestal */
+  {
+    const px=ORBX()+16-cam;
+    if(px>-120&&px<W+120){
+      drawRuin(px-34,GY-64,68,64);
+      const og=ctx.createRadialGradient(px,GY-96,2,px,GY-96,44);
+      og.addColorStop(0,'rgba(174,242,255,.85)'); og.addColorStop(1,'rgba(174,242,255,0)');
+      ctx.fillStyle=og; ctx.beginPath(); ctx.arc(px,GY-96,44,0,7); ctx.fill();
+      if(!G.orbTaken){
+        ctx.fillStyle='#cfeeff'; ctx.beginPath(); ctx.arc(px,GY-96+Math.sin(t*2.2)*3,11,0,7); ctx.fill();
+        ctx.fillStyle='rgba(255,255,255,.9)'; ctx.beginPath(); ctx.arc(px-3.5,GY-99+Math.sin(t*2.2)*3,3.6,0,7); ctx.fill();
+        ctx.strokeStyle='rgba(245,197,66,.9)'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(px,GY-96+Math.sin(t*2.2)*3,15,0,7); ctx.stroke();
+      }
+      if(!G.orbTaken&&G.kills<G.total){
+        ctx.fillStyle='rgba(255,157,138,.95)'; ctx.font='700 11px Arial'; ctx.textAlign='center';
+        ctx.fillText('🔒 '+G.kills+'/'+G.total,px,GY-140); ctx.textAlign='left';
+      }
+    }
+  }
+  drawEntities();
+  g.fillStyle='rgba(6,12,6,.85)';
+  g.beginPath(); g.moveTo(0,H);
+  for(let x=0;x<=W;x+=26){const gx=x+((cam*1.6)%26); g.lineTo(x,H-8-((gx*7)%13));}
+  g.lineTo(W,H); g.closePath(); g.fill();
+}
+function drawEntities(){
+  const g=ctx, cam=G.cam, h=G.hero;
+  for(const e of G.enemies){
+    const sx=e.x-cam; if(sx<-80||sx>W+80)continue;
+    drawFighter(sx,e.y,{...e.base,face:e.x>h.x?1:-1,moving:e.dead===0,walkPhase:e.wp,aim:e.kind==='soldier'?.8:0,dead:e.dead,scale:e.bank?.92:1});
+    if(e.dead===0){
+      const hpMax=e.kind==='soldier'?3:2, frac=clamp(e.hp/hpMax,0,1);
+      if(frac<1){ g.fillStyle='rgba(0,0,0,.55)'; g.fillRect(sx-16,e.y-102,32,4.5);
+        g.fillStyle=frac>.45?'#59d977':'#e2543e'; g.fillRect(sx-16,e.y-102,32*frac,4.5); }
+      if(e.flash>0){ g.fillStyle='rgba(255,240,200,.25)'; g.beginPath(); g.arc(sx,e.y-46,26,0,7); g.fill(); }
+    }
+  }
+  /* hero — the selected Commando or the base zombie hero */
+  const style=fighter?fighter.style:HERO_BASE;
+  drawFighter(h.x-cam,h.y,{...style,face:h.face,moving:h.moving,walkPhase:h.wp,aim:h.aim,muzzle:h.muzzle>0?1:0,scale:1.06,dead:screen==='dead'?Math.min(1,G.deadT*1.4):0});
+  if(fighter&&screen!=='dead'){
+    g.fillStyle='rgba(255,217,104,.9)'; g.font='700 9.5px Arial'; g.textAlign='center';
+    g.fillText('🎖 #'+fighter.id,g,h.x-cam,h.y-100); g.textAlign='left';
+  }
+  /* bullets */
+  g.strokeStyle='#ffe9a8'; g.lineWidth=2.4;
+  for(const b of G.bullets){
+    const bx=b.x-cam;
+    g.globalAlpha=.9; g.beginPath(); g.moveTo(bx,b.y); g.lineTo(bx+(b.vx>0?13:-13),b.y); g.stroke();
+    g.fillStyle='#fff6d8'; g.fillRect(bx+(b.vx>0?11:-13),b.y-1,3,2);
+  }
+  g.globalAlpha=1;
+  for(const p of G.pickups){
+    const sx=p.x-cam;
+    if(p.kind==='frg')frgGem(sx,p.y,8);
+    else if(p.kind==='lunc')crescentDraw(sx,p.y,8,'#f5c542');
+    else { g.fillStyle='#a8c6dc'; roundRect(sx-7,p.y-5,14,10,2); g.fill(); g.fillStyle='#16222c'; g.font='900 8px Arial'; g.textAlign='center'; g.fillText('A',sx,p.y+3); g.textAlign='left'; }
+  }
+  g.textAlign='center';
+  for(const f of G.floaters){
+    g.globalAlpha=clamp(1.4-f.age,0,1);
+    g.font=(f.big?'900 30px':'700 13px')+' Arial';
+    g.fillStyle=f.col||(f.big?'#ffb03a':'#ffe9a8');
+    g.fillText(f.txt,f.x-cam,f.y-f.age*36);
+  }
+  g.globalAlpha=1; g.textAlign='left';
+  drawParts();
+}
+function drawHUD(){
+  const g=ctx, h=G.hero;
+  /* portrait — NFT image when a Commando is selected */
+  g.fillStyle='rgba(8,14,10,.78)'; roundRect(10,10,58,72,7); g.fill();
+  g.strokeStyle=fighter?'#f5c542':'rgba(190,220,200,.5)'; g.lineWidth=fighter?2:1.4; roundRect(10,10,58,72,7); g.stroke();
+  if(fighter&&fighter.imgObj&&fighter.img&&fighter.imgObj.complete&&fighter.imgObj.naturalWidth>0){
+    try{ g.save(); roundRectPath(g,13,13,52,52,5); g.clip(); g.drawImage(fighter.imgObj,13,13,52,52); g.restore(); }catch(e){ drawPortrait(g,fighter.style,39,44,.62); }
+  } else drawPortrait(g,fighter?fighter.style:HERO_BASE,39,44,.62);
+  g.fillStyle='#dff2e2'; g.font='700 10px Arial'; g.textAlign='center';
+  g.fillText(fighter?('#'+fighter.id):'ZED-1',39,76); g.textAlign='left';
+  /* HP */
+  g.fillStyle='rgba(8,14,10,.78)'; roundRect(74,12,168,17,4); g.fill();
+  g.fillStyle='#12241a'; roundRect(76,14,164,13,3); g.fill();
+  const frac=clamp(h.hp/h.maxHp,0,1), hpw=164*frac;
+  const hpg=g.createLinearGradient(76,0,240,0); hpg.addColorStop(0,frac>.3?'#59d977':'#e2543e'); hpg.addColorStop(1,frac>.3?'#2f9e57':'#a02c22');
+  g.fillStyle=hpg; if(hpw>2){roundRect(76,14,hpw,13,3); g.fill();}
+  g.fillStyle='#eaf7ec'; g.font='700 11.5px Arial';
+  g.fillText(String(Math.ceil(h.hp))+' / '+h.maxHp,84,25);
+  /* Ammo / Bombs */
+  g.font='700 12.5px Arial';
+  g.fillStyle='rgba(168,198,220,.92)'; roundRect(74,36,86,19,3); g.fill();
+  g.fillStyle='rgba(168,198,220,.92)'; roundRect(166,36,86,19,3); g.fill();
+  g.fillStyle='#16222c'; g.fillText(T('ammo'),80,50); g.fillText(T('bombs'),172,50);
+  g.textAlign='right'; g.fillText(G.reload>0?'···':String(G.ammo),154,50); g.fillText(String(G.bombs),246,50); g.textAlign='left';
+  /* counters */
+  function capsule(x,drawIcon,val){
+    g.fillStyle='rgba(10,14,16,.82)'; roundRect(x,10,118,30,15); g.fill();
+    g.strokeStyle='rgba(200,220,230,.35)'; g.lineWidth=1.2; roundRect(x,10,118,30,15); g.stroke();
+    drawIcon(x+22,25);
+    g.fillStyle='#f2f6f2'; g.font='700 16px Arial'; g.textAlign='center'; g.fillText(val,x+72,31); g.textAlign='left';
+  }
+  capsule(330,(x,y)=>frgGem(x,y,9),G.frg.toFixed(1));
+  capsule(458,(x,y)=>crescentDraw(x,y,10,'#f5c542'),String(Math.round(G.lunc)));
+  g.fillStyle='rgba(245,197,66,.95)'; g.font='700 9.5px Arial'; g.textAlign='center';
+  g.fillText('F R G',352,49); g.fillText('L U N C',480,49);
+  g.fillStyle='rgba(230,245,240,.85)'; g.font='700 11px Arial';
+  g.fillText('☠ '+G.kills+'/'+G.total+' · ⏱ '+fmtTime(G.time),640,26);
+  g.textAlign='left';
+  /* MY FIGHTER tile */
+  g.fillStyle='rgba(8,14,10,.78)'; roundRect(806,10,100,64,8); g.fill();
+  g.strokeStyle='#f5c542'; g.lineWidth=1.6; roundRect(806,10,100,64,8); g.stroke();
+  if(fighter&&fighter.imgObj&&fighter.imgObj.complete&&fighter.imgObj.naturalWidth>0){
+    try{ g.save(); roundRectPath(g,812,16,40,40,5); g.clip(); g.drawImage(fighter.imgObj,812,16,40,40); g.restore(); }catch(e){ drawPortrait(g,fighter.style,832,40,.5); }
+  } else drawPortrait(g,fighter?fighter.style:HERO_BASE,832,40,.5);
+  g.fillStyle='#ffd968'; g.font='900 10px Arial'; g.fillText('MY',848,26);
+  g.fillStyle='#fff'; g.fillText('FIGHTER',848,39);
+  g.fillStyle='#f5c542'; roundRect(848,46,44,14,3); g.fill();
+  g.fillStyle='#1a1406'; g.font='900 9.5px Arial'; g.textAlign='center'; g.fillText(fighter?('#'+fighter.id):'NFT',870,56.5); g.textAlign='left';
+  /* touch controls */
+  const jx=64, jy=336, knob=joy.active?joy.dx*14:(G&&G.hero.moving?10:3);
+  g.fillStyle='rgba(10,16,12,.4)'; g.beginPath(); g.arc(jx,jy,35,0,7); g.fill();
+  g.strokeStyle='rgba(220,240,225,.55)'; g.lineWidth=2; g.beginPath(); g.arc(jx,jy,35,0,7); g.stroke();
+  g.fillStyle='rgba(220,240,225,.35)'; g.beginPath(); g.arc(jx+knob,jy,16,0,7); g.fill();
+  g.strokeStyle='rgba(220,240,225,.7)'; g.beginPath(); g.arc(jx+knob,jy,16,0,7); g.stroke();
+  /* jump button */
+  g.fillStyle='rgba(10,16,12,.4)'; g.beginPath(); g.arc(848,252,24,0,7); g.fill();
+  g.strokeStyle='rgba(220,240,225,.6)'; g.lineWidth=2; g.beginPath(); g.arc(848,252,24,0,7); g.stroke();
+  g.fillStyle='rgba(240,248,240,.9)'; g.font='900 15px Arial'; g.textAlign='center'; g.fillText('▲',848,258); g.textAlign='left';
+  /* fire button */
+  g.fillStyle=fireHeld?'rgba(80,20,16,.55)':'rgba(10,16,12,.4)'; g.beginPath(); g.arc(848,330,31,0,7); g.fill();
+  g.strokeStyle='rgba(255,220,220,.65)'; g.lineWidth=2; g.beginPath(); g.arc(848,330,31,0,7); g.stroke();
+  g.strokeStyle='rgba(255,240,240,.9)';
+  g.beginPath(); g.arc(848,330,13,0,7); g.stroke();
+  g.beginPath(); g.moveTo(848,312); g.lineTo(848,322); g.moveTo(848,338); g.lineTo(848,348);
+  g.moveTo(830,330); g.lineTo(840,330); g.moveTo(856,330); g.lineTo(866,330); g.stroke();
+  g.fillStyle='#ff5340'; g.beginPath(); g.arc(848,330,3,0,7); g.fill();
+  /* bomb button */
+  g.fillStyle='rgba(10,16,12,.4)'; g.beginPath(); g.arc(782,352,20,0,7); g.fill();
+  g.strokeStyle='rgba(220,240,225,.55)'; g.beginPath(); g.arc(782,352,20,0,7); g.stroke();
+  g.fillStyle='#2c3136'; g.beginPath(); g.arc(782,355,8.5,0,7); g.fill();
+  g.fillStyle='#8a929a'; g.fillRect(779,343,6,5);
+  /* mute mini-toggle, obvious state */
+  drawBtn(W-64,84,54,22,SOUND?'🔊 ON':'🔇 OFF',{fs:10.5,fill:SOUND?'rgba(20,50,30,.9)':'rgba(50,20,20,.9)',stroke:SOUND?'#59d977':'#e2543e',col:'#fff',r:6});
+  regBtn('sound',W-64,84,54,22,()=>setSound(!SOUND));
+}
+function drawEndPanel(won){
+  const g=ctx;
+  g.fillStyle='rgba(3,7,5,.45)'; g.fillRect(0,0,W,H);
+  g.save(); g.textAlign='center';
+  g.fillStyle='rgba(5,16,14,.92)'; roundRect(W/2-250,86,500,208,12); g.fill();
+  g.strokeStyle=won?'#3fd68f':'#e2543e'; g.lineWidth=2.2; roundRect(W/2-250,86,500,208,12); g.stroke();
+  g.fillStyle='#f2fbf8'; g.font='700 20px Arial'; g.fillText(T('brief'),W/2,124);
+  g.fillStyle=won?'#59d977':'#ff8a76'; g.font='900 26px "Arial Black",Arial,sans-serif';
+  g.fillText(won?T('complete'):T('failed'),W/2,160);
+  g.font='700 14.5px Arial'; g.fillStyle='#e6f5f0';
+  if(won){
+    const sc=G.finalScore||missionScore();
+    g.fillText('⭐ '+sc+'   ·   ☠ '+G.kills+'/'+G.total+'   ·   ⏱ '+fmtTime(G.time),W/2,192);
+    g.font='600 12.5px Arial'; g.fillStyle='#ffd968';
+    g.fillText('FRG '+G.frg.toFixed(1)+'  ·  LUNC '+Math.round(G.lunc)+(fighter?'  ·  🎖 '+fighter.name:''),W/2,216);
+    if(G.newBest){ g.fillStyle='#9fe8a9'; g.font='700 12px Arial'; g.fillText('⭐ NEW BEST ON THIS DEVICE',W/2,240); }
+  } else {
+    g.font='600 13px Arial'; g.fillStyle='rgba(230,245,240,.85)';
+    wrapTextCenter(T('dead'),W/2,190,440,17);
+    g.font='700 13px Arial'; g.fillStyle='#ffd968';
+    g.fillText('☠ '+G.kills+'/'+G.total+'  ·  ⏱ '+fmtTime(G.time),W/2,240);
+  }
+  g.restore();
+  drawBtn(W/2-170,308,160,38,won?T('again'):T('retry'),{fs:13.5});
+  regBtn('again',W/2-170,308,160,38,()=>{SFX.click(); newGame();});
+  drawBtn(W/2+10,308,160,38,T('toTitle'),{fs:13.5,fill:'rgba(10,30,30,.92)',stroke:'rgba(64,200,190,.8)',col:'#dff7f1'});
+  regBtn('title',W/2+10,308,160,38,()=>{SFX.click(); screen='title'; G=null;});
+}
+function wrapTextCenter(txt,cx,y,maxW,lh){
+  const words=String(txt).split(' '); let line='', yy=y;
+  for(const w of words){ const test=line?line+' '+w:w;
+    if(ctx.measureText(test).width>maxW&&line){ctx.fillText(line,cx,yy); line=w; yy+=lh;} else line=test; }
+  if(line)ctx.fillText(line,cx,yy);
+  return yy;
+}
+/* ---- main render ---- */
+function render(now){
+  uiHits=[];
+  const t=now/1000;
+  ctx.save();
+  if(G&&G.shake>0)ctx.translate((Math.random()*2-1)*G.shake,(Math.random()*2-1)*G.shake);
+  if(screen==='title')drawTitle(t);
+  else if(screen==='brief')drawBrief(t);
+  else if(screen==='play'||screen==='dead'||screen==='complete'){
+    drawWorld(); drawHUD();
+    if(screen==='dead')drawEndPanel(false);
+    if(screen==='complete')drawEndPanel(true);
+    if(G.orbTaken&&screen==='play'){
+      ctx.save(); ctx.textAlign='center';
+      ctx.fillStyle='rgba(5,16,14,.85)'; roundRect(W/2-238,120,476,86,10); ctx.fill();
+      ctx.strokeStyle='#3fd68f'; ctx.lineWidth=2; roundRect(W/2-238,120,476,86,10); ctx.stroke();
+      ctx.fillStyle='#f2fbf8'; ctx.font='700 21px Arial'; ctx.fillText(T('brief'),W/2,152);
+      ctx.fillStyle='#59d977'; ctx.font='900 25px Arial'; ctx.fillText(T('complete'),W/2,186);
+      ctx.restore();
+    }
+  }
+  ctx.restore();
+  if(langOpen)drawLangGrid();
+  pasteBox.style.display=(screen==='brief'&&!langOpen)?'block':'none';
+  if(screen==='brief')layoutPasteBox();
+}
+/* language selector opens picker (override the cycling registration) */
+
+/* ================= 9 · MAIN LOOP + QA HOOKS ================= */
+let lastT=performance.now();
+function loop(now){
+  const dt=Math.min(.05,(now-lastT)/1000); lastT=now;
+  if(screen==='play'&&G)stepGame(dt);
+  else if(screen==='dead'&&G){G.deadT+=dt; stepParts(dt);}
+  render(now);
+  requestAnimationFrame(loop);
+}
+initEmbers();
+requestAnimationFrame(loop);
+/* QA / debug hooks (read-only state + scenario driver) */
+window.__z2={
+  get state(){return {screen,lang:LANG,sound:SOUND,kills:G?G.kills:0,total:G?G.total:0,frg:G?G.frg:0,lunc:G?G.lunc:0,
+    hp:G?Math.round(G.hero.hp):0,maxHp:G?G.hero.maxHp:0,ammo:G?G.ammo:0,bombs:G?G.bombs:0,heroX:G?Math.round(G.hero.x):0,
+    onRaft:G?G.onRaft:false,orb:G?G.orbTaken:false,time:G?Math.round(G.time):0,
+    fighter:fighter?{name:fighter.name,id:fighter.id,col:fighter.col,rarity:fighter.rarity,mult:fighter.mult}:null,
+    lastBombT:G?G.lastBombT:-1, enemies:G?G.enemies.filter(e=>e.dead===0).map(e=>({kind:e.kind,x:Math.round(e.x)})):[],
+    level:LV.n, campaign:CAMPAIGN_TOTAL,
+    nftStatus,nftCount:nftList.length,best:loadBest()};},
+  start(){screen='brief';},
+  enter(){newGame();},
+  key(k,down){ if(down){keys[k]=true; if(k===' ')jumpQueued=true; if(k==='k')bombQueued=true;} else keys[k]=false; },
+  selectFighter, clearFighter,
+  fire(on){fireHeld=!!on;},
+  bomb(){bombQueued=true;},
+  jump(){jumpQueued=true;},
+  teleport(x){if(G){G.hero.x=x; G.cam=clamp(x-300,0,WORLD-W+40);}},
+  lookup:lookupNFT,
+  setLang(l){if(I18N[l]){LANG=l; localStorage.setItem('z2lang',LANG);}},
+  hit(x,y){const h=hitAt(x,y); if(h){h.fn(); return h.id;} return null;}
+};
+</script>
+</body>
+</html>
