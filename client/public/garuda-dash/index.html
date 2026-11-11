@@ -338,7 +338,7 @@
     <div class="nftRow">
       <button class="play alt" id="nftDashRowBtn" style="flex:1">🚀 CONNECT LUNCDASH</button>
     </div>
-    <div id="nftPairBox">WalletConnect pairing link — paste it into your wallet's scanner:<br><input id="nftPairUri" readonly><canvas id="nftPairQr" width="180" height="180" style="display:none;margin:8px auto 2px;background:#fff;border-radius:8px"></canvas><div id="nftPairActs" style="display:none;gap:7px;justify-content:center;margin-top:7px;flex-wrap:wrap"><a class="play alt" id="nftPairOpen" href="#" target="_blank" rel="noopener" style="text-decoration:none;display:inline-block;cursor:pointer;color:#fff;border-radius:14px;padding:12px 26px;font-size:15px;font-weight:900;letter-spacing:.07em;background:linear-gradient(180deg,#8d99c9,#5a6699);box-shadow:0 5px 0 #39406b;text-shadow:0 1px 2px rgba(0,0,0,.3)">🚀 OPEN LUNCDASH</a><button class="play alt" id="nftPairCopy" type="button">📋 COPY LINK</button></div></div>
+    <div id="nftPairBox">WalletConnect pairing link — paste it into your wallet's scanner:<br><input id="nftPairUri" readonly><canvas id="nftPairQr" width="180" height="180" style="display:none;margin:8px auto 2px;background:#fff;border-radius:8px"></canvas><div id="nftPairActs" style="display:none;gap:7px;justify-content:center;margin-top:7px;flex-wrap:wrap"><a class="play alt" id="nftPairOpen" href="#" style="text-decoration:none;display:inline-block;cursor:pointer;color:#fff;border-radius:14px;padding:12px 26px;font-size:15px;font-weight:900;letter-spacing:.07em;background:linear-gradient(180deg,#8d99c9,#5a6699);box-shadow:0 5px 0 #39406b;text-shadow:0 1px 2px rgba(0,0,0,.3)">🚀 OPEN LUNCDASH</a><button class="play alt" id="nftPairCopy" type="button">📋 COPY LINK</button></div></div>
     <div class="nftRow">
       <input id="nftAddrInput" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="…or paste a wallet address to view">
       <button class="play alt" id="nftViewBtn">VIEW</button>
@@ -5962,7 +5962,11 @@ function gdShockwave(cx, cy){
      where window.station is injected (its in-app browser), and
      anywhere else gdLuncDashConnect below — the cosmes LUNC Dash
      stack this project's own FRG app ships for luncback.com.
-     No terrastation links anywhere in this row. Honest limits:
+     No terrastation links anywhere in this row, and no website
+     handoff either: the pairing URI goes straight to the app via
+     its own luncdash:// deep link (a package-pinned Android
+     intent, so it can only land in com.luncdash.wallet itself).
+     Honest limits:
      no WalletConnect v2, no browser extension; if the bridge or
      the app doesn't answer, the row says so and paste-view stays
      up. No dead button either way: every path ends in an address
@@ -6043,7 +6047,8 @@ $('nftDashRowBtn').onclick = () => { gdShowPairFail(''); kitConnect('station'); 
 /* COPY LINK on the LUNCDash pairing sheet: copies the raw wc: URI
    so it can be pasted into the LUNCDash app's WalletConnect
    scanner. (The OPEN LUNCDASH anchor's href is set per-pairing by
-   gdPairExtras.) */
+   gdPairExtras — the app's own luncdash:// deep link, wrapped in
+   a package-pinned Android intent on Android.) */
 const gdPairCopyBtn = $('nftPairCopy');
 if (gdPairCopyBtn) gdPairCopyBtn.onclick = () => {
   const inp = $('nftPairUri');
@@ -6053,6 +6058,21 @@ if (gdPairCopyBtn) gdPairCopyBtn.onclick = () => {
   if (navigator.clipboard && navigator.clipboard.writeText)
     navigator.clipboard.writeText(uri).then(copied).catch(() => { try { inp.select(); document.execCommand('copy'); copied(); } catch (e) {} });
   else { try { inp.select(); document.execCommand('copy'); copied(); } catch (e) {} }
+};
+/* OPEN LUNCDASH watchdog: the button hands the pairing link
+   straight to the app (package-pinned intent on Android, the
+   app's luncdash:// scheme elsewhere) — never a website. If this
+   page is still in front a few seconds later, the app didn't
+   take it: say so plainly (not installed / didn't answer) and
+   point at COPY LINK / paste-view instead. Leaving the page (the
+   app opening) or a landed session keeps the warning quiet. */
+const gdPairOpenBtn = $('nftPairOpen');
+if (gdPairOpenBtn) gdPairOpenBtn.onclick = () => {
+  if (!gdPairOpenBtn.href || gdPairOpenBtn.href.endsWith('#')) return;
+  setTimeout(() => {
+    if (!document.hidden && !(typeof gdWalletVia !== 'undefined' && gdWalletVia))
+      gdKitHint('Still here? If the LUNCDash app didn\u2019t open, it may not be installed on this phone. Tap COPY LINK, open LUNCDash yourself, and paste the link into its WalletConnect scanner \u2014 or paste an address above just to look (read-only).');
+  }, 2500);
 };
 /* returning from the wallet app: the core re-checks for a landed
    session on pageshow / visibility (registered by the core). The
@@ -6073,9 +6093,14 @@ if (gdPairCopyBtn) gdPairCopyBtn.onclick = () => {
    loaded lazily on first use. Phone handoff follows the pairing-
    sheet pattern the CL8Y ecosystem documents for LUNC Dash
    ("Open {wallet}" + "Copy pairing link"): the pair box carries
-   the raw wc: URI, a QR of it, an OPEN LUNCDASH button (the
-   luncdash.com walletconnect route with the URI attached) and a
-   COPY LINK button for the app's own WalletConnect scanner.
+   the raw wc: URI, a QR of it, an OPEN LUNCDASH button and a
+   COPY LINK button for the app's own WalletConnect scanner. The
+   OPEN button hands the URI DIRECTLY to the app — the cosmes
+   luncdash://wallet_connect deep-link scheme, package-pinned to
+   com.luncdash.wallet via an Android intent:// on Android
+   (Tom, Nov 10: "It has to open directly to the app wallet not
+   the web page" — an earlier build opened the luncdash.com
+   walletconnect web route, a dead page; that route is gone).
    Read-only: only the session's accounts are read \u2014 no request
    is ever sent to the wallet. */
 const GD_DASH_WC_KEY = 'cosmes.wallet.luncdash.wcSession';
@@ -6105,6 +6130,24 @@ function gdDashRenderQr(uri){
     QR.toCanvas(cv, uri, { width: 180, margin: 1 }, err => { if (!err) cv.style.display = 'block'; });
   }).catch(() => { /* QR is a bonus \u2014 the raw link + COPY LINK still work */ });
 }
+/* The LUNCDash app's own deep link — the cosmes LUNC Dash scheme
+   (CL8Y's production Terra Classic apps ship this exact builder,
+   walletConnectPairing.ts: "Cosmes LUNC Dash scheme — do not
+   invent a second one"):
+     luncdash://wallet_connect?payload%3D<uri-encoded wc: URI>
+   On Android the OPEN button wraps the same link in a
+   package-pinned intent:// so Chrome hands it to
+   com.luncdash.wallet itself and can never fall back to a
+   browser or a website; everywhere else the raw scheme link is
+   used. No luncdash.com route anywhere in this row. */
+function gdLuncDashDeepLink(uri){
+  return 'luncdash://wallet_connect?' + encodeURIComponent('payload=' + encodeURIComponent(uri));
+}
+function gdLuncDashOpenHref(uri){
+  if (typeof gdIsMobileUA !== 'undefined' && gdIsMobileUA && /Android/i.test(navigator.userAgent || ''))
+    return 'intent://wallet_connect?' + encodeURIComponent('payload=' + encodeURIComponent(uri)) + '#Intent;scheme=luncdash;package=com.luncdash.wallet;end;';
+  return gdLuncDashDeepLink(uri);
+}
 function gdPairExtras(on, uri){
   const acts = $('nftPairActs');
   if (acts) acts.style.display = on ? 'flex' : 'none';
@@ -6112,7 +6155,7 @@ function gdPairExtras(on, uri){
   if (cv && !on) cv.style.display = 'none';
   if (on && uri){
     const a = $('nftPairOpen');
-    if (a) a.href = 'https://luncdash.com/wallet/walletconnect?wc=' + encodeURIComponent(uri);
+    if (a) a.href = gdLuncDashOpenHref(uri);
     gdDashRenderQr(uri);
   }
 }
@@ -6155,7 +6198,7 @@ function gdLuncDashConnect(){
         if (!uri) throw new Error('no pairing URI');
         showDashPairBox(uri);
         gdKitHint(gdIsMobileUA
-          ? 'Tap OPEN LUNCDASH below \u2014 if the LUNCDash app opens, approve the connection there. If a website opens instead, come back here, tap COPY LINK, and paste it into LUNCDash\u2019s WalletConnect scanner.'
+          ? 'Tap OPEN LUNCDASH below \u2014 the LUNCDash app opens with this connection; approve it there. If the app doesn\u2019t open, tap COPY LINK and paste it into LUNCDash\u2019s WalletConnect scanner.'
           : 'Scan the QR code with the LUNCDash app\u2019s WalletConnect scanner \u2014 or copy the pairing link into it. Approve in the app and your Garudas load here.');
         wc.on('connect', (err, payload) => {
           if (err){ gdShowPairFail('LUNCDash declined the connection \u2014 nothing connected. Tap CONNECT LUNCDASH to try again, or paste an address above just to look (read-only).'); done(false); return; }
