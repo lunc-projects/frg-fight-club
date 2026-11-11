@@ -255,6 +255,48 @@ function drawFighter(x,y,o){
   }
   g.restore();
 }
+/* ---- NFT art as the in-level character (Garuda rule: the selected NFT IS
+   the playable character). The token's own artwork rides the hero rig as a
+   framed fighter figure: walk bob + lean, fire recoil + muzzle flash, red
+   flash on hit, fall on death. The front-facing art is never redrawn into a
+   fake side profile. If the art failed to load, the caller falls back to the
+   tint rig above and the HUD/brief say so — never a broken sprite. ---- */
+function fighterArtReady(){ return !!(fighter&&fighter.imgObj&&fighter.imgObj.complete&&fighter.imgObj.naturalWidth>0); }
+function fighterImgFailed(){ if(!fighter||!fighter.img)return false; const im=fighter.imgObj; return !im||(im.complete&&!im.naturalWidth); }
+function drawHeroArt(x,y,o){
+  const g=ctx, img=fighter.imgObj;
+  g.save(); g.translate(x,y); g.scale(o.face||1,1);
+  const dead=o.dead||0;
+  g.rotate(dead*1.35); g.globalAlpha=1-dead*.55;
+  /* ground shadow (stays on the ground while the figure bobs) */
+  g.fillStyle='rgba(0,0,0,.35)'; g.beginPath(); g.ellipse(0,2,31,5.5,0,0,7); g.fill();
+  const bob=o.moving?Math.abs(Math.sin(o.walkPhase||0))*2.4:Math.sin((G?G.t:0)*2.2)*.7;
+  g.translate(0,-bob);
+  if(o.moving)g.rotate(Math.sin(o.walkPhase||0)*.022);
+  if(o.muzzle)g.translate(-3.5,0);
+  const fw=92, fh=96, fx=-fw/2, fy=-fh;
+  g.fillStyle='rgba(8,14,10,.92)'; roundRectPath(g,fx,fy,fw,fh,8); g.fill();
+  /* cover-fit the NFT art inside the frame — crop overflow, never distort */
+  const ix=fx+3, iy=fy+3, iw=fw-6, ih=fh-14;
+  const sc=Math.max(iw/img.naturalWidth, ih/img.naturalHeight);
+  const dw=img.naturalWidth*sc, dh=img.naturalHeight*sc;
+  g.save(); roundRectPath(g,ix,iy,iw,ih,5); g.clip();
+  try{ g.drawImage(img,ix+(iw-dw)/2,iy+(ih-dh)/2,dw,dh); }catch(e){}
+  if(o.flash>0){ g.fillStyle='rgba(255,64,40,'+Math.min(.5,o.flash*3.4)+')'; g.fillRect(ix,iy,iw,ih); }
+  g.restore();
+  g.strokeStyle='#f5c542'; g.lineWidth=2.4; roundRectPath(g,fx,fy,fw,fh,8); g.stroke();
+  /* nameplate */
+  g.fillStyle='#f5c542'; g.font='900 9.5px Arial'; g.textAlign='center';
+  g.fillText('#'+fighter.id,0,-3.5); g.textAlign='left';
+  /* muzzle flash at the frame's gun edge while firing */
+  if(o.muzzle){
+    const mg=g.createRadialGradient(52,-56,0,52,-56,14);
+    mg.addColorStop(0,'rgba(255,240,170,.95)'); mg.addColorStop(.4,'rgba(255,160,40,.75)'); mg.addColorStop(1,'rgba(255,120,20,0)');
+    g.fillStyle=mg; g.beginPath(); g.arc(54,-56,14,0,7); g.fill();
+    g.fillStyle='#fff3c0'; g.beginPath(); g.moveTo(48,-59); g.lineTo(63,-56); g.lineTo(48,-53); g.closePath(); g.fill();
+  }
+  g.restore();
+}
 const HERO_BASE={skin:'#8fa873',shirt:'#c9a13b',pants:'#3a4149',hair:'#4a3826',gun:true};
 const SKIN_STYLES={ /* keyed from the NFT Skin trait — colors only, values read from chain */
   'Elite Commando':{skin:'#a87f5f',shirt:'#4c5548',pants:'#2e332a',hair:'#20241e',helmet:'#6d6248'},
@@ -334,7 +376,15 @@ function fighterStyle(skinTrait){
   if(skinTrait&&SKIN_STYLES[skinTrait])return Object.assign({},HERO_BASE,SKIN_STYLES[skinTrait]);
   return Object.assign({},HERO_BASE);
 }
+function cleanAddr(v){
+  /* Tom's keyboard once appended " my" to a pasted address — pull the bech32
+     address out of whatever surrounds it instead of failing the lookup. */
+  const m=String(v||'').match(/terra1[023456789acdefghjklmnpqrstuvwxyz]{38}/);
+  return m?m[0]:String(v||'').trim();
+}
 async function lookupNFT(addr){
+  addr=cleanAddr(addr);
+  if(typeof pasteInput!=='undefined'&&pasteInput.value!==addr)pasteInput.value=addr;
   nftStatus='checking'; nftList=[]; fighter=null; nftAddr=addr; render(performance.now());
   try{
     /* query every LIVE collection in COLLECTIONS (slot 2 has no contract yet) */
@@ -364,6 +414,7 @@ async function lookupNFT(addr){
     nftStatus=full.length?'found':'none';
     if(full.length)selectFighter(0);
   }catch(e){ nftStatus='fail'; }
+  dismissKeyboard();   /* results are rendered — get the phone keyboard out of the way */
   render(performance.now());
 }
 function selectFighter(i){
@@ -440,30 +491,56 @@ function fireInput(){return fireHeld||!!keys['j']||!!keys['f'];}
 /* paste field (DOM overlay, shown on brief screen only) */
 let pasteFocused=false;
 const pasteBox=document.createElement('div');
-pasteBox.style.cssText='position:absolute;display:none;background:rgba(6,22,22,.92);border:1.6px solid rgba(64,200,190,.75);border-radius:8px;padding:6px;z-index:5;';
-pasteBox.innerHTML='<input id="z2addr" type="text" spellcheck="false" placeholder="" style="width:100%;box-sizing:border-box;background:#0a1a1a;color:#e6f5f0;border:1px solid rgba(160,200,190,.5);border-radius:5px;padding:7px 8px;font-size:13px;font-family:monospace;outline:none;">';
+pasteBox.style.cssText='position:absolute;display:none;background:rgba(6,22,22,.92);border:1.6px solid rgba(64,200,190,.75);border-radius:8px;padding:5px;z-index:5;box-sizing:border-box;';
+pasteBox.innerHTML='<div style="display:flex;align-items:stretch;gap:5px;width:100%;height:100%;">'
+ +'<input id="z2addr" type="text" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="none" placeholder="" style="flex:1 1 auto;min-width:0;box-sizing:border-box;background:#0a1a1a;color:#e6f5f0;border:1px solid rgba(160,200,190,.5);border-radius:5px;padding:6px 8px;font-size:13px;font-family:monospace;outline:none;">'
+ +'<button id="z2kbclose" type="button" title="Close keyboard" aria-label="Close keyboard" style="display:none;flex:0 0 auto;align-self:center;box-sizing:border-box;background:rgba(64,200,190,.16);color:#dff7f1;border:1.6px solid rgba(64,200,190,.85);border-radius:6px;font-weight:900;line-height:1;padding:0;cursor:pointer;">✕</button>'
+ +'</div>';
 document.getElementById('wrap').appendChild(pasteBox);
 const pasteInput=pasteBox.querySelector('input');
-pasteInput.addEventListener('focus',()=>pasteFocused=true);
-pasteInput.addEventListener('blur',()=>pasteFocused=false);
+const kbCloseBtn=pasteBox.querySelector('#z2kbclose');
+function syncKbClose(){ kbCloseBtn.style.display=(pasteFocused||pasteInput.value.length>0)?'block':'none'; }
+pasteInput.addEventListener('focus',()=>{pasteFocused=true; syncKbClose();});
+pasteInput.addEventListener('blur',()=>{pasteFocused=false; syncKbClose();});
+pasteInput.addEventListener('input',syncKbClose);
 pasteInput.addEventListener('keydown',e=>{e.stopPropagation(); if(e.key==='Enter'){const v=pasteInput.value.trim(); if(v)lookupNFT(v);}});
+/* ✕ — Tom (Nov 10): "the keyboard needs an X to close it up". One tap blurs the
+   field so the Android keyboard slides away; the typed address stays put. */
+kbCloseBtn.addEventListener('click',e=>{ e.preventDefault(); dismissKeyboard(); });
+function dismissKeyboard(){ if(document.activeElement===pasteInput)pasteInput.blur(); pasteFocused=false; syncKbClose(); }
+/* The address field's slot on the brief panel, in game coords. BOTH CSS
+   dimensions are set explicitly from the stage scale, so the DOM box always
+   matches its slot exactly. (The old code left the height "auto" — a fixed
+   ~45 CSS px that did NOT shrink with the stage — so on Tom's phone, where
+   the browser chrome shrinks the stage, the box grew past its slot and
+   covered the LOOK UP button. In portrait it also had width/height swapped,
+   squeezing the field into a 36-unit stub.) */
+const ADDR_SLOT={x:468,y:102,w:410,h:34};
 function layoutPasteBox(){
   const r=cv.getBoundingClientRect(), wr=document.getElementById('wrap').getBoundingClientRect();
+  let ts; /* stage scale along the slot's thickness — sizes the ✕ target */
   if(PORTRAIT){
-    /* rotated stage: game point (452,96) -> client (left+(H-96)*s, top+452*s) */
-    const s=r.height/W;
-    pasteBox.style.left=((r.left-wr.left)+(H-96)*s)+'px';
-    pasteBox.style.top=((r.top-wr.top)+452*s)+'px';
-    pasteBox.style.width=(36*s)+'px';
+    /* rotated stage: game point (gx,gy) -> client (left+(H-gy)*s, top+gx*s),
+       and the box's local +x runs along game +x, local +y along game +y
+       (the same mapping toGame inverts) — so CSS width = slot game width,
+       CSS height = slot game height. */
+    const s=r.height/W; ts=s;
+    pasteBox.style.left=((r.left-wr.left)+(H-ADDR_SLOT.y)*s)+'px';
+    pasteBox.style.top=((r.top-wr.top)+ADDR_SLOT.x*s)+'px';
+    pasteBox.style.width=(ADDR_SLOT.w*s)+'px';
+    pasteBox.style.height=(ADDR_SLOT.h*s)+'px';
     pasteBox.style.transform='rotate(90deg)';
     pasteBox.style.transformOrigin='0 0';
   } else {
-    const sx=r.width/W, sy=r.height/H;
-    pasteBox.style.left=((r.left-wr.left)+452*sx)+'px';
-    pasteBox.style.top=((r.top-wr.top)+96*sy)+'px';
-    pasteBox.style.width=(416*sx)+'px';
+    const sx=r.width/W, sy=r.height/H; ts=sy;
+    pasteBox.style.left=((r.left-wr.left)+ADDR_SLOT.x*sx)+'px';
+    pasteBox.style.top=((r.top-wr.top)+ADDR_SLOT.y*sy)+'px';
+    pasteBox.style.width=(ADDR_SLOT.w*sx)+'px';
+    pasteBox.style.height=(ADDR_SLOT.h*sy)+'px';
     pasteBox.style.transform='';
   }
+  const bp=Math.max(24,Math.min(40,Math.round(30*ts)));
+  kbCloseBtn.style.width=bp+'px'; kbCloseBtn.style.height=bp+'px'; kbCloseBtn.style.fontSize=Math.round(bp*.52)+'px';
   pasteInput.placeholder=T('pastePh');
 }
 
@@ -526,7 +603,7 @@ const SPAWNS=()=>LV.spawns;
 function newGame(){
   resetRng(); parts=[]; initEmbers();
   const maxHp=heroMaxHp();
-  G={t:0,time:0,lastBombT:-1,hero:{x:60,y:GY,vy:0,face:1,wp:0,moving:false,aim:0,muzzle:0,ground:true,hp:maxHp,maxHp:maxHp},
+  G={t:0,time:0,lastBombT:-1,hero:{x:60,y:GY,vy:0,face:1,wp:0,moving:false,aim:0,muzzle:0,flash:0,ground:true,hp:maxHp,maxHp:maxHp},
      cam:0,shake:0,ammo:LV.startAmmo,bombs:LV.startBombs,frg:LV.startFrg,lunc:LV.startLunc,kills:0,total:LV.spawns.length,
      enemies:[],bullets:[],pickups:[],floaters:[],spawned:LV.spawns.map(()=>false),
      lastShot:0,lastEShot:0,reload:0,onRaft:false,raftX:LV.raft.startX,orbTaken:false,endT:0,deadT:0,score:0};
@@ -567,7 +644,7 @@ function throwBomb(){
 }
 function hurtHero(dmg){
   const h=G.hero; if(screen!=='play'||G.orbTaken)return;
-  h.hp-=dmg; SFX.hurt();
+  h.hp-=dmg; h.flash=.14; SFX.hurt();
   spawnPart({x:h.x,y:h.y-50,vx:rr(-40,40),vy:rr(-80,-10),life:.3,max:.3,r:2.6,col:'#c94436'});
   if(h.hp<=0){h.hp=0; screen='dead'; G.deadT=0; stopMusic();}
 }
@@ -577,6 +654,7 @@ function stepGame(dt){
   SPAWNS().forEach((sp,i)=>{ if(!G.spawned[i]&&h.x>=sp.x){G.spawned[i]=true; spawnEnemy(sp);} });
   /* reload */
   if(G.reload>0){G.reload-=dt; if(G.reload<=0){G.ammo=226; G.floaters.push({x:h.x,y:h.y-110,txt:'AMMO READY',age:0,col:'#9fe8a9'});}}
+  if(h.flash>0)h.flash-=dt;
   /* ----- hero movement ----- */
   const mx=moveInput();
   const onRaftZone=h.x>LV.raft.x0&&h.x<LV.raft.x1;
@@ -832,84 +910,88 @@ function drawBrief(t){
   drawBtn(38,152+34,150,30,T('enter'),{fs:12.5});
   regBtn('enter',38,186,150,30,()=>{SFX.click(); stopMusic(); newGame();});
   g.save(); g.textAlign='center';
-  g.fillStyle='rgba(6,22,22,.9)'; roundRect(W/2-168,H-64,336,52,8); g.fill();
-  g.strokeStyle='rgba(64,200,190,.75)'; g.lineWidth=1.6; roundRect(W/2-168,H-64,336,52,8); g.stroke();
-  g.fillStyle='#f2fbf8'; g.font='700 20px Arial'; g.fillText(T('brief'),W/2,H-32);
+  g.fillStyle='rgba(6,22,22,.9)'; roundRect(W/2-168,H-60,336,52,8); g.fill();
+  g.strokeStyle='rgba(64,200,190,.75)'; g.lineWidth=1.6; roundRect(W/2-168,H-60,336,52,8); g.stroke();
+  g.fillStyle='#f2fbf8'; g.font='700 20px Arial'; g.fillText(T('brief'),W/2,H-28);
   g.restore();
-  /* right panel — MY FIGHTER */
+  /* right panel — MY FIGHTER. Vertical budget (panel 26..350; nothing may
+     overlap — Tom's Nov 10 report): title 52 · blurb 68/81 · address field
+     slot 102..136 (DOM, see ADDR_SLOT) · buttons 144..174 · status from 190 ·
+     fighter cards 200..272 · small print 284/296 · fighter box 302..346. */
   const px=452, pw=442;
-  g.fillStyle='rgba(8,16,12,.94)'; roundRect(px,26,pw,300,10); g.fill();
-  g.strokeStyle='#f5c542'; g.lineWidth=1.8; roundRect(px,26,pw,300,10); g.stroke();
+  g.fillStyle='rgba(8,16,12,.94)'; roundRect(px,26,pw,324,10); g.fill();
+  g.strokeStyle='#f5c542'; g.lineWidth=1.8; roundRect(px,26,pw,324,10); g.stroke();
   g.fillStyle='#ffd968'; g.font='900 16px Arial'; g.textAlign='center';
   g.fillText('🎖 '+T('myFighter'),px+pw/2,52); g.textAlign='left';
   g.fillStyle='rgba(230,245,240,.85)'; g.font='600 11px Arial';
-  wrapText(T('nftBlurb'),px+16,72,pw-32,14);
-  /* paste box is DOM (positioned in layoutPasteBox) — reserve its space: y 96..132 */
-  drawBtn(px+16,140,120,30,T('lookup'),{fs:12.5,fill:'rgba(10,40,40,.95)',stroke:'rgba(64,200,190,.9)',col:'#dff7f1'});
-  regBtn('lookup',px+16,140,120,30,()=>{const v=pasteInput.value.trim(); if(v)lookupNFT(v);});
+  wrapText(T('nftBlurb'),px+16,68,pw-32,13);
+  /* paste box is DOM (positioned in layoutPasteBox into ADDR_SLOT: y 102..136) */
+  drawBtn(px+16,144,120,30,T('lookup'),{fs:12.5,fill:'rgba(10,40,40,.95)',stroke:'rgba(64,200,190,.9)',col:'#dff7f1'});
+  regBtn('lookup',px+16,144,120,30,()=>{const v=pasteInput.value.trim(); if(v)lookupNFT(v);});
   const hasKeplr=typeof window!=='undefined'&&!!window.keplr;
   if(hasKeplr){
-    drawBtn(px+148,140,150,30,T('connect'),{fs:12,fill:'rgba(40,34,8,.95)',col:'#ffd94d'});
-    regBtn('keplr',px+148,140,150,30,async()=>{ try{ await window.keplr.enable('columbus-5'); const off=window.keplr.getOfflineSigner('columbus-5'); const acc=await off.getAccounts(); if(acc&&acc[0]){pasteInput.value=acc[0].address; lookupNFT(acc[0].address);} }catch(e){ nftStatus='fail'; } });
+    drawBtn(px+148,144,150,30,T('connect'),{fs:12,fill:'rgba(40,34,8,.95)',col:'#ffd94d'});
+    regBtn('keplr',px+148,144,150,30,async()=>{ try{ await window.keplr.enable('columbus-5'); const off=window.keplr.getOfflineSigner('columbus-5'); const acc=await off.getAccounts(); if(acc&&acc[0]){pasteInput.value=acc[0].address; lookupNFT(acc[0].address);} }catch(e){ nftStatus='fail'; } });
   }
   /* status / results */
-  let ry=186;
+  let ry=190;
   g.font='600 11.5px Arial';
   if(nftStatus==='checking'){ g.fillStyle='#ffd968'; g.fillText(T('checking'),px+16,ry); }
-  else if(nftStatus==='fail'){ g.fillStyle='#ff9d8a'; wrapText(T('lookupFail'),px+16,ry,pw-32,14); }
-  else if(nftStatus==='none'){ g.fillStyle='#ff9d8a'; wrapText(T('noNft'),px+16,ry,pw-32,14); }
+  else if(nftStatus==='fail'){ g.fillStyle='#ff9d8a'; wrapText(T('lookupFail'),px+16,ry,pw-32,13.5); }
+  else if(nftStatus==='none'){ g.fillStyle='#ff9d8a'; wrapText(T('noNft'),px+16,ry,pw-32,13.5); }
   else if(nftStatus==='found'){
     g.fillStyle='#9fe8a9'; g.fillText(TF('found',{n:nftList.length}),px+16,ry); ry+=8;
-    const cw=60, ch=76;
+    const cw=56, ch=72;
     nftList.slice(0,6).forEach((it,i)=>{
-      const cx=px+16+i*(cw+7), cy=ry+6;
+      const cx=px+16+i*(cw+7), cy=ry+2;
       const sel=fighter&&fighter.id===it.id;
       g.fillStyle=sel?'rgba(70,56,10,.95)':'rgba(14,26,20,.95)'; roundRect(cx,cy,cw,ch,7); g.fill();
       g.strokeStyle=sel?'#f5c542':'rgba(160,200,190,.4)'; g.lineWidth=sel?2.2:1.2; roundRect(cx,cy,cw,ch,7); g.stroke();
-      if(it.imgObj&&it.imgOk){ try{ g.save(); roundRectPath(g,cx+5,cy+5,cw-10,cw-10,5); g.clip(); g.drawImage(it.imgObj,cx+5,cy+5,cw-10,cw-10); g.restore(); }catch(e){ drawPortrait(g,fighterStyle(it.skin),cx+cw/2,cy+30,.85); } }
-      else drawPortrait(g,fighterStyle(it.skin),cx+cw/2,cy+30,.85);
+      if(it.imgObj&&it.imgOk){ try{ g.save(); roundRectPath(g,cx+5,cy+4,cw-10,cw-10,5); g.clip(); g.drawImage(it.imgObj,cx+5,cy+4,cw-10,cw-10); g.restore(); }catch(e){ drawPortrait(g,fighterStyle(it.skin),cx+cw/2,cy+28,.85); } }
+      else drawPortrait(g,fighterStyle(it.skin),cx+cw/2,cy+28,.85);
       g.fillStyle='#e6f5f0'; g.font='700 9.5px Arial'; g.textAlign='center';
-      g.fillText('#'+it.id,cx+cw/2,cy+ch-16);
+      g.fillText('#'+it.id,cx+cw/2,cy+ch-13);
       g.fillStyle=it.rarity?'#ffd968':'#8fb8ae'; g.font='700 8.5px Arial';
-      g.fillText(it.rarity||'—',cx+cw/2,cy+ch-5);
+      g.fillText(it.rarity||'—',cx+cw/2,cy+ch-2);
       g.textAlign='left';
       regBtn('nft-'+it.id,cx,cy,cw,ch,()=>{selectFighter(i);});
     });
-    ry+=ch+16;
+    ry+=ch+12;
     g.fillStyle='rgba(230,245,240,.7)'; g.font='600 10px Arial';
-    wrapText(T('ownedOnly'),px+16,ry+8,pw-32,12.5);
+    wrapText(T('ownedOnly'),px+16,ry+6,pw-32,12);
   }
   /* current fighter line + the power rule that was applied (labeled, never silent) */
   /* collection 2 slot — honest placeholder, no dead buttons (contract not known yet);
      the slot shows while the results area leaves room for it */
   if(nftStatus!=='found')for(const col of COLLECTIONS.filter(c=>!c.live)){
-    g.fillStyle='rgba(16,20,26,.9)'; roundRect(px+16,238,pw-32,26,6); g.fill();
-    g.strokeStyle='rgba(150,170,200,.45)'; g.lineWidth=1.1; g.setLineDash([4,3]); roundRect(px+16,238,pw-32,26,6); g.stroke(); g.setLineDash([]);
+    g.fillStyle='rgba(16,20,26,.9)'; roundRect(px+16,234,pw-32,26,6); g.fill();
+    g.strokeStyle='rgba(150,170,200,.45)'; g.lineWidth=1.1; g.setLineDash([4,3]); roundRect(px+16,234,pw-32,26,6); g.stroke(); g.setLineDash([]);
     g.fillStyle='rgba(210,224,240,.8)'; g.font='700 11px Arial';
-    g.fillText('🎖 '+T('mintSoon'),px+26,255);
+    g.fillText('🎖 '+T('mintSoon'),px+26,251);
   }
-  const fy=(nftStatus==='found')?284:272;
-  const fh=(nftStatus==='found')?38:46;
+  const fy=(nftStatus==='found')?302:272;
+  const fh=(nftStatus==='found')?44:46;
   g.fillStyle='rgba(20,34,24,.9)'; roundRect(px+16,fy,pw-32,fh,6); g.fill();
   g.strokeStyle='rgba(245,197,66,.5)'; g.lineWidth=1.1; roundRect(px+16,fy,pw-32,fh,6); g.stroke();
   g.font='700 11.5px Arial';
   if(fighter){
-    g.fillStyle='#ffd968'; g.fillText(T('playAs')+': ',px+24,fy+17);
+    g.fillStyle='#ffd968'; g.fillText(T('playAs')+': ',px+24,fy+16);
     const w1=g.measureText(T('playAs')+': ').width;
-    g.fillStyle='#fff'; g.fillText(fighter.name+(fighter.rarity?' · '+fighter.rarity:'')+'  ·  ⚡×'+fighter.mult,px+24+w1,fy+17);
+    g.fillStyle='#fff'; g.fillText(fighter.name+(fighter.rarity?' · '+fighter.rarity:'')+'  ·  ⚡×'+fighter.mult,px+24+w1,fy+16);
     g.fillStyle='rgba(230,245,240,.75)'; g.font='600 10px Arial';
     let note=fighter.powerNote;
     if(nftList.length>1)note+='  ·  '+TF('bonusPower',{n:Math.min(3,nftList.length-1)});
-    g.fillText(note,px+24,fy+33);
+    if(fighterImgFailed())note+='  ·  NFT image failed to load — color fighter shown in level';
+    wrapText(note,px+24,fy+29,pw-48,11);
   } else {
-    g.fillStyle='#e6f5f0'; g.fillText(T('playAs')+': '+T('baseHero'),px+24,fy+17);
+    g.fillStyle='#e6f5f0'; g.fillText(T('playAs')+': '+T('baseHero'),px+24,fy+18);
   }
   /* title-screen shortcuts also live here */
   drawLangSelector(22,H-46);
   drawSoundToggle(W-142,H-46);
   const best=loadBest();
   g.fillStyle='rgba(255,217,104,.9)'; g.font='700 11.5px Arial'; g.textAlign='center';
-  g.fillText(best?TF('best',{s:best.score,t:fmtTime(best.time)}):T('bestNone'),W/2,H-56);
+  g.fillText(best?TF('best',{s:best.score,t:fmtTime(best.time)}):T('bestNone'),W/2,H-52);
   g.textAlign='left';
 }
 function wrapText(txt,x,y,maxW,lh){
@@ -1014,9 +1096,14 @@ function drawEntities(){
       if(e.flash>0){ g.fillStyle='rgba(255,240,200,.25)'; g.beginPath(); g.arc(sx,e.y-46,26,0,7); g.fill(); }
     }
   }
-  /* hero — the selected Commando or the base zombie hero */
+  /* hero — the selected Commando or the base zombie hero. When a Commando is
+     selected and its art has loaded, the NFT's own artwork IS the hero
+     (drawHeroArt); if the art failed, the tint rig stands in and the HUD
+     notes it. No NFT -> base hero, unchanged. */
   const style=fighter?fighter.style:HERO_BASE;
-  drawFighter(h.x-cam,h.y,{...style,face:h.face,moving:h.moving,walkPhase:h.wp,aim:h.aim,muzzle:h.muzzle>0?1:0,scale:1.06,dead:screen==='dead'?Math.min(1,G.deadT*1.4):0});
+  const heroOpts={face:h.face,moving:h.moving,walkPhase:h.wp,aim:h.aim,muzzle:h.muzzle>0?1:0,flash:h.flash||0,dead:screen==='dead'?Math.min(1,G.deadT*1.4):0};
+  if(fighterArtReady()) drawHeroArt(h.x-cam,h.y,heroOpts);
+  else drawFighter(h.x-cam,h.y,{...style,...heroOpts,scale:1.06});
   if(fighter&&screen!=='dead'){
     g.fillStyle='rgba(255,217,104,.9)'; g.font='700 9.5px Arial'; g.textAlign='center';
     g.fillText('🎖 #'+fighter.id,g,h.x-cam,h.y-100); g.textAlign='left';
@@ -1093,6 +1180,11 @@ function drawHUD(){
   g.fillStyle='#fff'; g.fillText('FIGHTER',848,39);
   g.fillStyle='#f5c542'; roundRect(848,46,44,14,3); g.fill();
   g.fillStyle='#1a1406'; g.font='900 9.5px Arial'; g.textAlign='center'; g.fillText(fighter?('#'+fighter.id):'NFT',870,56.5); g.textAlign='left';
+  /* honest fallback note: NFT art failed to load -> tint rig is standing in */
+  if(fighterImgFailed()){
+    g.fillStyle='rgba(255,157,138,.95)'; g.font='700 8.5px Arial'; g.textAlign='center';
+    g.fillText('NFT IMAGE FAILED',856,86); g.fillText('COLOR FIGHTER SHOWN',856,97); g.textAlign='left';
+  }
   /* touch controls */
   const jx=64, jy=336, knob=joy.active?joy.dx*14:(G&&G.hero.moving?10:3);
   g.fillStyle='rgba(10,16,12,.4)'; g.beginPath(); g.arc(jx,jy,35,0,7); g.fill();
