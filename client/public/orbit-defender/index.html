@@ -1035,6 +1035,7 @@
     <div id="walletPairBox">
       <p id="walletPairNote">Pairing link for your wallet app — copy it and paste it into the wallet's WalletConnect scanner if no approval prompt appeared.</p>
       <input id="walletPairUri" readonly autocomplete="off" spellcheck="false">
+      <canvas id="walletPairQr" width="180" height="180" style="display:none;margin:8px auto 2px;background:#fff;border-radius:8px"></canvas><div id="walletPairActs" style="display:none;gap:7px;justify-content:center;margin-top:7px;flex-wrap:wrap"><a id="walletPairOpen" href="#" style="text-decoration:none;display:inline-block;cursor:pointer;padding:10px 18px;border-radius:10px;background:#274b3a;color:#d9ffee;font-weight:700">🚀 OPEN LUNCDASH</a><button id="walletPairCopy" type="button">📋 COPY LINK</button></div>
     </div>
   </div>
   <p class="credits">ORBIT DEFENDER · BUILT FOR ORBITWIRE</p>
@@ -1051,6 +1052,7 @@
       <button class="wpRow" id="wpKeplr"><img class="wpLogo" id="wpKeplrLogo" alt=""><span>Keplr Mobile</span></button>
       <button class="wpRow" id="wpStation"><img class="wpLogo" id="wpStationLogo" alt=""><span>Station</span></button>
       <button class="wpRow" id="wpGalaxy"><img class="wpLogo" id="wpGalaxyLogo" alt=""><span>Galaxy Station</span></button>
+      <button class="wpRow" id="wpDash"><span>🚀</span><span>LUNCDash</span></button>
     </div>
   </div>
 </div>
@@ -2375,6 +2377,184 @@ function hidePairBox(){
   const inp = $('walletPairUri');
   if (inp) inp.value = '';
 }
+
+/* ---- LUNCDash row: legacy WalletConnect v1 to the LUNC Dash
+   app's OWN bridge. LUNC Dash is a standalone wallet app (Android
+   package com.luncdash.wallet) holding its own keys \u2014 NOT a
+   Station front-end (Tom's correction, Nov 10: "Not Station.").
+   It does not speak WalletConnect v2; it speaks legacy WC v1 over
+   its own bridge, https://walletconnect.luncdash.com \u2014 the exact
+   stack luncback.com's wallet layer runs (the cosmes-based
+   LuncDashController vendored in this project's FRG app): bridge
+   session cached under cosmes' own LUNC Dash key, pairing URI
+   handed to this page's pair box instead of a navigation. The
+   client library is @walletconnect/legacy-client from esm.sh,
+   loaded lazily on first use. Phone handoff follows the pairing-
+   sheet pattern the CL8Y ecosystem documents for LUNC Dash
+   ("Open {wallet}" + "Copy pairing link"): the pair box carries
+   the raw wc: URI, a QR of it, an OPEN LUNCDASH button and a
+   COPY LINK button for the app's own WalletConnect scanner. The
+   OPEN button hands the URI DIRECTLY to the app — the cosmes
+   luncdash://wallet_connect deep-link scheme, package-pinned to
+   com.luncdash.wallet via an Android intent:// on Android
+   (Tom, Nov 10: "It has to open directly to the app wallet not
+   the web page" — an earlier build opened the luncdash.com
+   walletconnect web route, a dead page; that route is gone).
+   Read-only: only the session's accounts are read \u2014 no request
+   is ever sent to the wallet. */
+const GD_DASH_WC_KEY = 'cosmes.wallet.luncdash.wcSession';
+let gdDashWcPromise = null;
+function gdDashLoadLegacyClient(){
+  if (!gdDashWcPromise){
+    gdDashWcPromise = import('https://esm.sh/@walletconnect/client@1.8.0?bundle')
+      .then(m => m.default || m.WalletConnect || m)
+      .catch(err => { gdDashWcPromise = null; throw err; });
+  }
+  return gdDashWcPromise;
+}
+/* pair-box extras used ONLY by the LUNCDash pairing sheet (QR +
+   OPEN/COPY actions). Galaxy's showPairBox never reveals them and
+   every hide path turns them back off. */
+let gdDashQrPromise = null;
+function gdDashRenderQr(uri){
+  const cv = $('walletPairQr');
+  if (!cv) return;
+  if (!gdDashQrPromise){
+    gdDashQrPromise = import('https://esm.sh/qrcode@1.5.4?bundle')
+      .then(m => m.default || m)
+      .catch(err => { gdDashQrPromise = null; throw err; });
+  }
+  gdDashQrPromise.then(QR => {
+    if (!QR || typeof QR.toCanvas !== 'function') return;
+    QR.toCanvas(cv, uri, { width: 180, margin: 1 }, err => { if (!err) cv.style.display = 'block'; });
+  }).catch(() => { /* QR is a bonus \u2014 the raw link + COPY LINK still work */ });
+}
+/* The LUNCDash app's own deep link — the cosmes LUNC Dash scheme
+   (CL8Y's production Terra Classic apps ship this exact builder,
+   walletConnectPairing.ts: "Cosmes LUNC Dash scheme — do not
+   invent a second one"):
+     luncdash://wallet_connect?payload%3D<uri-encoded wc: URI>
+   On Android the OPEN button wraps the same link in a
+   package-pinned intent:// so Chrome hands it to
+   com.luncdash.wallet itself and can never fall back to a
+   browser or a website; everywhere else the raw scheme link is
+   used. No luncdash.com route anywhere in this row. */
+function gdLuncDashDeepLink(uri){
+  return 'luncdash://wallet_connect?' + encodeURIComponent('payload=' + encodeURIComponent(uri));
+}
+function gdLuncDashOpenHref(uri){
+  if (typeof gdIsMobileUA !== 'undefined' && gdIsMobileUA && /Android/i.test(navigator.userAgent || ''))
+    return 'intent://wallet_connect?' + encodeURIComponent('payload=' + encodeURIComponent(uri)) + '#Intent;scheme=luncdash;package=com.luncdash.wallet;end;';
+  return gdLuncDashDeepLink(uri);
+}
+function gdPairExtras(on, uri){
+  const acts = $('walletPairActs');
+  if (acts) acts.style.display = on ? 'flex' : 'none';
+  const cv = $('walletPairQr');
+  if (cv && !on) cv.style.display = 'none';
+  if (on && uri){
+    const a = $('walletPairOpen');
+    if (a) a.href = gdLuncDashOpenHref(uri);
+    gdDashRenderQr(uri);
+  }
+}
+function showDashPairBox(uri){
+  showPairBox(uri);
+  gdPairExtras(true, uri);
+}
+let gdDashBusy = false;
+function gdLuncDashConnect(){
+  if (gdDashBusy) return Promise.resolve(false);
+  gdDashBusy = true;
+  wpDashHint('Opening LUNCDash\u2026 getting a pairing link from the LUNCDash WalletConnect bridge.');
+  return gdDashLoadLegacyClient().then(WC => {
+    let cached = null;
+    try { cached = JSON.parse(localStorage.getItem(GD_DASH_WC_KEY) || 'null'); } catch (e) {}
+    const wc = new WC({ bridge: 'https://walletconnect.luncdash.com', qrcode: false, session: cached || undefined });
+    return new Promise((resolve) => {
+      let settled = false;
+      const done = (ok, val) => { if (!settled){ settled = true; gdDashBusy = false; resolve(ok ? val : false); } };
+      wc.on('session_update', (_err, payload) => {
+        const acc = payload && payload.params && payload.params[0] && payload.params[0].accounts;
+        if (acc && acc[0]){
+          try { localStorage.setItem(GD_DASH_WC_KEY, JSON.stringify(wc.session)); } catch (e) {}
+          done(true, acc[0]);
+        }
+      });
+      wc.on('disconnect', () => {
+        try { localStorage.removeItem(GD_DASH_WC_KEY); } catch (e) {}
+        gdShowPairFail('LUNCDash closed the WalletConnect session before an address came back \u2014 nothing connected. Tap CONNECT LUNCDASH to try again, or paste an address above just to look (read-only).');
+        done(false);
+      });
+      if (wc.connected && cached && cached.accounts && cached.accounts[0]){
+        try { localStorage.setItem(GD_DASH_WC_KEY, JSON.stringify(wc.session)); } catch (e) {}
+        done(true, cached.accounts[0]);
+        return;
+      }
+      if (wc.connected){ try { wc.killSession(); } catch (e) {} }
+      wc.createSession().then(() => {
+        const uri = wc.uri;
+        if (!uri) throw new Error('no pairing URI');
+        showDashPairBox(uri);
+        wpDashHint(gdIsMobileUA
+          ? 'Tap OPEN LUNCDASH below \u2014 the LUNCDash app opens with this connection; approve it there. If the app doesn\u2019t open, tap COPY LINK and paste it into LUNCDash\u2019s WalletConnect scanner.'
+          : 'Scan the QR code with the LUNCDash app\u2019s WalletConnect scanner \u2014 or copy the pairing link into it. Approve in the app and your Garudas load here.');
+        wc.on('connect', (err, payload) => {
+          if (err){ gdShowPairFail('LUNCDash declined the connection \u2014 nothing connected. Tap CONNECT LUNCDASH to try again, or paste an address above just to look (read-only).'); done(false); return; }
+          const acc = (payload && payload.params && payload.params[0] && payload.params[0].accounts) || wc.accounts || [];
+          if (!acc[0]){ gdShowPairFail('LUNCDash connected but returned no Terra Classic address \u2014 nothing connected. Paste an address above just to look (read-only).'); done(false); return; }
+          try { localStorage.setItem(GD_DASH_WC_KEY, JSON.stringify(wc.session)); } catch (e) {}
+          done(true, acc[0]);
+        });
+      }).catch(err => {
+        gdShowPairFail("The LUNCDash WalletConnect bridge didn\u2019t answer" + (err && err.message ? ': ' + String(err.message).slice(0, 90) : '') + ' \u2014 nothing connected. Tap CONNECT LUNCDASH to try again, or paste an address above just to look (read-only).');
+        done(false);
+      });
+    }).then(addr => addr ? gdKitApplyAddress(addr, 'luncdash') : false);
+  }).catch(err => {
+    gdDashBusy = false;
+    gdShowPairFail("The WalletConnect library couldn\u2019t load" + (err && err.message ? ': ' + String(err.message).slice(0, 90) : '') + ' \u2014 nothing connected. Tap CONNECT LUNCDASH to try again, or paste an address above just to look (read-only).');
+    return false;
+  });
+}
+/* returning visit: if a LUNCDash session was approved earlier and
+   is still cached, adopt its address quietly (the cosmes restore
+   pattern \u2014 nothing loads when no session is cached). */
+function gdLuncDashRestore(){
+  if (typeof gdWalletVia !== 'undefined' && gdWalletVia) return;
+  let cached = null;
+  try { cached = JSON.parse(localStorage.getItem(GD_DASH_WC_KEY) || 'null'); } catch (e) {}
+  if (!cached || !cached.accounts || !cached.accounts[0]) return;
+  gdDashLoadLegacyClient().then(WC => {
+    if (gdWalletVia) return;
+    const wc = new WC({ bridge: 'https://walletconnect.luncdash.com', qrcode: false, session: cached });
+    if (wc.connected && wc.accounts && wc.accounts[0]) gdKitApplyAddress(wc.accounts[0], 'luncdash');
+  }).catch(() => { /* a stale session restores nothing; the row still works */ });
+}
+
+/* ---- LUNCDash row (legacy WC v1, its own bridge) — ported from the
+   phone-confirmed Garuda Dash implementation. Connect/view only:
+   purchases keep signing through Keplr/Galaxy; the page says so. ---- */
+let gdWalletVia = '';
+function gdShowPairFail(msg){
+  const b = $('walletPairBox'); if (b) b.classList.remove('on');
+  const inp = $('walletPairUri'); if (inp) inp.value = '';
+  if (typeof gdPairExtras === 'function') gdPairExtras(false);
+  if (msg) walletHint(msg);
+}
+function gdValidAddr(a){ return /^terra1[02-9ac-hj-np-z]{38}$/.test(String(a || '')); }
+function wpDashHint(msg){ walletHint(msg); }
+const gdIsMobileUA = /Android|webOS|iPhone|iPad|iPod/i.test(navigator.userAgent);
+function gdKitApplyAddress(addr, via){
+  hidePairBox();
+  if (!gdValidAddr(addr)){ gdShowPairFail('That wallet returned an address this chain cannot read — nothing connected.'); return Promise.resolve(false); }
+  gdWalletVia = via;
+  return Promise.resolve(setWalletAddress(addr, 'paste')).then(() => {
+    walletHint('LUNCDash connected — viewing only on this page. Purchases still sign in Keplr or Galaxy Station.');
+    return true;
+  });
+}
+
 /* while a WalletConnect pairing waits, the client holds the
    pairing URI (client.qrUrl). On a phone the client redirects
    into the wallet app itself (client.redirect) and no box is
@@ -2405,7 +2585,7 @@ function injectedStation(){ try { return (typeof window !== 'undefined' && windo
 const KIT_ENTRIES = [
   { id: 'keplr', label: 'Keplr', resolve(){ return injectedKeplr() ? 'keplr-extension' : 'keplr-mobile'; } },
   { id: 'galaxy', label: 'Galaxy Station', resolve(){ return 'galaxy-station'; } },
-  { id: 'station', label: 'Station', resolve(){ return injectedStation() ? 'station-extension' : null; } },
+  { id: 'station', label: 'LUNCDash', resolve(){ return injectedStation() ? 'station-extension' : null; } },
 ];
 function kitEntry(id){ for (const e of KIT_ENTRIES) if (e.id === id) return e; return null; }
 function kitFailLine(cw, pretty){
@@ -2423,6 +2603,8 @@ function kitConnect(entryId, opts){
   if (!entry || kitConnecting) return Promise.resolve(false);
   const walletName = entry.resolve();
   if (!walletName){
+    if (entryId === 'station' && !quiet && typeof gdLuncDashConnect === 'function')
+      return gdLuncDashConnect();
     if (!quiet)
       showPasteRow(entry.label + ' only connects inside the ' + entry.label + " app's own browser — open this page there, or pick another wallet. You can also paste an address below just to look (read-only).");
     return Promise.resolve(false);
@@ -7706,6 +7888,7 @@ $('walletBtn').onclick = () => {
 $('wpKeplr').onclick = () => { sfxTap(); kitConnect('keplr'); };
 $('wpStation').onclick = () => { sfxTap(); kitConnect('station'); };
 $('wpGalaxy').onclick = () => { sfxTap(); kitConnect('galaxy'); };
+$('wpDash').onclick = () => { sfxTap(); kitConnect('station'); };
 $('wpCancel').onclick = () => { sfxTap(); hidePicker(); };
 /* a tap on the dimmed backdrop (not the panel or a row) closes
    the modal without connecting */
