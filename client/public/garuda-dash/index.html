@@ -152,6 +152,15 @@
   }
   #nftPanel input::placeholder { color:rgba(255,255,255,.55); }
   #nftStatus { font-size:12.5px; min-height:16px; text-align:center; opacity:.92; }
+  /* WalletConnect pairing-link box (Galaxy / LUNCDash rows below): the
+     raw wc: link a player can paste into a wallet's own WC scanner. */
+  #nftPairBox {
+    display:none; font-size:11.5px; text-align:center; word-break:break-all;
+    background:rgba(10,20,50,.55); border:1.5px dashed rgba(255,255,255,.35);
+    border-radius:10px; padding:7px 9px;
+  }
+  #nftPairBox.on { display:block; }
+  #nftPairUri { width:100%; margin-top:5px; font-size:11px; }
   #nftGrid { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
   .nftcard {
     width:104px; display:flex; flex-direction:column; align-items:center; gap:3px; padding:7px 6px;
@@ -321,8 +330,15 @@
       <button class="play" id="nftCharBtn" style="flex:1">🦅 YOUR CHARACTER</button>
     </div>
     <div class="nftRow">
-      <button class="play" id="nftConnectBtn" style="flex:1">🔗 CONNECT WALLET</button>
+      <button class="play" id="nftConnectBtn" style="flex:1">🔗 CONNECT KEPLR</button>
     </div>
+    <div class="nftRow">
+      <button class="play alt" id="nftGalaxyBtn" style="flex:1">🌌 CONNECT GALAXY STATION</button>
+    </div>
+    <div class="nftRow">
+      <button class="play alt" id="nftDashRowBtn" style="flex:1">🚀 CONNECT LUNCDASH</button>
+    </div>
+    <div id="nftPairBox">WalletConnect pairing link — paste it into your wallet's scanner:<br><input id="nftPairUri" readonly></div>
     <div class="nftRow">
       <input id="nftAddrInput" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="…or paste a wallet address to view">
       <button class="play alt" id="nftViewBtn">VIEW</button>
@@ -5525,6 +5541,7 @@ const GD_LCD = (() => { try { return localStorage.getItem('garudaDashLcdOverride
 const GD_CHAIN_ID = 'columbus-5';
 let gdWallet = '';            /* address whose Garudas are loaded */
 let gdWalletConnected = false;/* true ONLY for a live Keplr connect this session */
+let gdWalletVia = '';         /* which connect route set gdWallet: 'keplr' | 'galaxy' | 'station' | '' (paste) */
 let gdChar = null;            /* selected {tokenId, name, rarity, image, imgEl, imgState} — imgState 'ok' makes the NFT's own art the in-game hero */
 let gdOwned = [];             /* verified tokens of gdWallet */
 
@@ -5690,7 +5707,11 @@ function gdRenderPanel(msg){
     pb.textContent = gdChar ? ('🎨 PLAY WITH YOUR NFT — ' + gdChar.name) : '🎨 PLAY WITH YOUR NFT';
     $('nftPlayHint').style.display = gdChar ? 'none' : 'block';
   }
-  $('nftConnectBtn').textContent = gdWalletConnected ? ('✅ ' + gdShortAddr(gdWallet)) : '🔗 CONNECT WALLET';
+  $('nftConnectBtn').textContent = (gdWalletConnected && gdWalletVia === 'keplr') ? ('✅ ' + gdShortAddr(gdWallet)) : '🔗 CONNECT KEPLR';
+  const gb = $('nftGalaxyBtn');
+  if (gb) gb.textContent = (gdWalletConnected && gdWalletVia === 'galaxy') ? ('✅ ' + gdShortAddr(gdWallet)) : '🌌 CONNECT GALAXY STATION';
+  const db = $('nftDashRowBtn');
+  if (db) db.textContent = (gdWalletConnected && gdWalletVia === 'station') ? ('✅ ' + gdShortAddr(gdWallet)) : '🚀 CONNECT LUNCDASH';
   const cb = $('nftCharBtn');
   if (cb) cb.textContent = gdChar ? ('🦅 YOUR CHARACTER: ' + gdChar.name) : '🦅 YOUR CHARACTER';
 }
@@ -5744,9 +5765,9 @@ function gdSelectStandard(){
   gdRenderPanel(gdOwned.length ? 'Standard eagle selected — your Garudas stay in the panel above.' : undefined);
   hud();
 }
-async function gdApplyWallet(addr, connected){
+async function gdApplyWallet(addr, connected, via){
   const status = $('nftStatus');
-  gdWallet = addr; gdWalletConnected = !!connected;
+  gdWallet = addr; gdWalletConnected = !!connected; gdWalletVia = connected ? (via || 'keplr') : '';
   gdOwned = []; gdChar = null; GD_EAGLE_BOUNCE = DIVE_BOUNCE; gdRefillShield();
   gdRenderPanel('Reading the chain for ' + gdShortAddr(addr) + '…');
   try {
@@ -5832,6 +5853,610 @@ function gdShockwave(cx, cy){
   beep(196, 0, 0.14, 'triangle', 0.13);
   hud();
 }
+
+
+
+
+
+/* ================= MY GARUDA — Galaxy Station + LUNCDash connects =================
+   Tom's order (Nov 10): the panel gets a real one-tap connect for
+   Galaxy Station AND for LUNCDash, "like Keplr".
+   · GALAXY STATION has no dapp browser on mobile, so its connect is
+     the WalletConnect deep-link handoff (the page asks, the wallet
+     app approves, the address comes back) — the exact stack LUNC
+     Grand Prix ships: CosmosKit + the custom Galaxy WC wallet,
+     ported below with its deep links, project id and chain def.
+   · LUNCDASH (by StrathCole) is not a separate wallet binary: it is
+     a Terra Classic dashboard whose users' keys live in the Station
+     wallet (its own staking site connects "mobile Terra Station or
+     Keplr" over WalletConnect). The route from a web page is the
+     Station wallet: station-extension where window.station is
+     injected (Station / Galaxy in-app browsers, desktop extension),
+     and anywhere else the legacy WalletConnect v1 Station bridge
+     (walletconnect.terra.dev) with the terrastation.page.link
+     mobile handoff — the cosmes stack this project's own FRG app
+     ships, adapted below as gdDashLegacyConnect. Honest limit: the
+     v1 bridge is Terra's legacy relay; if it ever stops answering,
+     the row says so and paste-view stays up. No dead button either
+     way: every path ends in an address or a plain explanation.
+   Both routes are READ-ONLY here, exactly like the Keplr row:
+   connect returns an address, gdApplyWallet reads the chain, and
+   NOTHING is ever signed — no message, no transaction. A declined
+   or unanswered connect says so plainly and paste-view stays up. */
+function gdValidAddr(a){ return /^terra1[02-9ac-hj-np-z]{38}$/.test(String(a || '')); }
+/* the connected CosmosKit chain wallet + its registry/pretty names
+   (Grand Prix declares these beside setWalletAddress, which Garuda
+   does not port — gdApplyWallet is its loader instead) */
+let kitChainWallet = null;
+let kitWalletName = '';      /* 'keplr-extension' | 'keplr-mobile' | 'station-extension' | 'station-mobile' | 'galaxy-station' */
+let kitPrettyName = '';      /* its pretty name ('Galaxy Station', 'Station', …) */
+function gdKitHint(msg){ const st = $('nftStatus'); if (st) st.textContent = msg; }
+function gdShowPairFail(msg){
+  const b = $('nftPairBox'); if (b) b.classList.remove('on');
+  const inp = $('nftPairUri'); if (inp) inp.value = '';
+  gdKitHint(msg);
+}
+/* the ported core calls showPairBox/hidePairBox for the raw wc:
+   pairing link — here they drive MY GARUDA's own pair box. */
+function showPairBox(uri){
+  const inp = $('nftPairUri');
+  if (inp) inp.value = uri;
+  const b = $('nftPairBox');
+  if (b) b.classList.add('on');
+}
+function hidePairBox(){
+  const b = $('nftPairBox');
+  if (b) b.classList.remove('on');
+  const inp = $('nftPairUri');
+  if (inp) inp.value = '';
+}
+/* A finished connect lands in the SAME loader the Keplr row uses —
+   owned + staked Garudas, stolen #115 excluded by the on-chain
+   cross-checks inside gdLoadGarudas, exactly as before. */
+function gdKitApplyAddress(addr, via){
+  hidePairBox();
+  if (!gdValidAddr(addr)){
+    gdShowPairFail('That wallet returned an address this chain cannot read — nothing connected. Paste an address above just to look (read-only).');
+    return Promise.resolve(false);
+  }
+  return Promise.resolve(gdApplyWallet(addr, true, via)).then(() => true);
+}
+/* normalizeKitLibs lives in the ported core but ends by calling
+   gdKitAdopt() — a name the core's mount path also uses. Declared
+   here (hoisted) so the core can stay byte-close to Grand Prix. */
+function gdKitAdopt(){ return kitScanAdopt(); }
+/* raw esm.sh modules -> the shape normalizeKitLibs returns, with
+   the extra decode error GP's hook path never produced: the WC
+   bundle imports @walletconnect/* submodules that carry their own
+   copies of @cosmjs packages, and mixing the two copies makes the
+   chain-wallet constructors throw Realm-brand errors ("Expected a
+   Uint8Array" / "not a valid instance"). When that shape appears,
+   drop the WC bundle's own Galaxy factory and pass its base
+   classes through — same classes GP's full-bundle hook used. */
+function normalizeGdKitLibs(raw){
+  try { return normalizeKitLibs(raw); }
+  catch (e) {
+    const msg = String((e && e.message) || e);
+    if (!/Uint8Array|valid instance|Realm|instanceof/.test(msg)) throw e;
+    const cleaned = Object.assign({}, raw);
+    try {
+      const wc = Object.assign({}, raw.walletconnect);
+      delete wc.GalaxyClient; delete wc.ChainGalaxyStation; delete wc.GalaxyStationWallet;
+      cleaned.walletconnect = wc;
+    } catch (e2) {}
+    return normalizeKitLibs(cleaned);
+  }
+}
+/* button wiring — the rows themselves (no picker modal in Garuda) */
+$('nftGalaxyBtn').onclick = () => { gdShowPairFail(''); kitConnect('galaxy'); };
+$('nftDashRowBtn').onclick = () => { gdShowPairFail(''); kitConnect('station'); };
+/* returning from the wallet app: the core re-checks for a landed
+   session on pageshow / visibility (registered by the core). The
+   boot restore runs once here — with no stored WC/cosmos-kit state
+   it returns immediately and never loads the stack. */
+
+/* ---- LUNCDash row, second route: legacy WalletConnect v1 to the
+   Station mobile wallet. Adapted from the cosmes stack vendored in
+   the FRG app (StationController + WalletConnectV1 + QRCodeModal):
+   bridge https://walletconnect.terra.dev, session cached under
+   cosmes' own key, mobile handoff via Terra's official Firebase
+   link (terrastation.page.link, package money.terra.station), and
+   confirmations return through terrastation://walletconnect_confirm.
+   The client library is @walletconnect/legacy-client from esm.sh,
+   loaded lazily on first use. Read-only: only the session's
+   accounts are read — no request is ever sent to the wallet. */
+const GD_DASH_WC_KEY = 'cosmes.wallet.station.wcSession';
+let gdDashWcPromise = null;
+function gdDashLoadLegacyClient(){
+  if (!gdDashWcPromise){
+    gdDashWcPromise = import('https://esm.sh/@walletconnect/client@1.8.0?bundle')
+      .then(m => m.default || m.WalletConnect || m)
+      .catch(err => { gdDashWcPromise = null; throw err; });
+  }
+  return gdDashWcPromise;
+}
+function gdStationDeepLink(wcUri){
+  const payload = encodeURIComponent('action=wallet_connect&payload=' + encodeURIComponent(wcUri));
+  return 'https://terrastation.page.link/?link=https://terra.money?' + payload + '&apn=money.terra.station&ibi=money.terra.station&isi=1548434735';
+}
+let gdDashBusy = false;
+function gdDashLegacyConnect(){
+  if (gdDashBusy) return Promise.resolve(false);
+  gdDashBusy = true;
+  gdKitHint('Opening Station (LUNCDash)… approve the WalletConnect session in your Station wallet.');
+  return gdDashLoadLegacyClient().then(WC => {
+    let cached = null;
+    try { cached = JSON.parse(localStorage.getItem(GD_DASH_WC_KEY) || 'null'); } catch (e) {}
+    const wc = new WC({ bridge: 'https://walletconnect.terra.dev', qrcode: false, session: cached || undefined });
+    return new Promise((resolve) => {
+      let settled = false;
+      const done = (ok, val) => { if (!settled){ settled = true; gdDashBusy = false; resolve(ok ? val : false); } };
+      wc.on('session_update', (_err, payload) => {
+        const acc = payload && payload.params && payload.params[0] && payload.params[0].accounts;
+        if (acc && acc[0]) done(true, acc[0]);
+      });
+      wc.on('disconnect', () => {
+        try { localStorage.removeItem(GD_DASH_WC_KEY); } catch (e) {}
+        gdShowPairFail('Station closed the WalletConnect session before an address came back — nothing connected. Tap CONNECT LUNCDASH to try again, or paste an address above just to look (read-only).');
+        done(false);
+      });
+      if (wc.connected && cached && cached.accounts && cached.accounts[0]){
+        try { localStorage.setItem(GD_DASH_WC_KEY, JSON.stringify(wc.session)); } catch (e) {}
+        done(true, cached.accounts[0]);
+        return;
+      }
+      if (wc.connected){ try { wc.killSession(); } catch (e) {} }
+      wc.createSession().then(() => {
+        const uri = wc.uri;
+        if (!uri) throw new Error('no pairing URI');
+        showPairBox(uri);
+        gdKitHint('Approve the connection in your Station wallet (LUNCDash) — or paste the pairing link shown in MY GARUDA into its WalletConnect scanner.');
+        if (gdIsMobileUA) window.location.href = gdStationDeepLink(uri);
+        wc.on('connect', (err, payload) => {
+          if (err){ gdShowPairFail('Station declined the connection — nothing connected. Tap CONNECT LUNCDASH to try again, or paste an address above just to look (read-only).'); done(false); return; }
+          const acc = (payload && payload.params && payload.params[0] && payload.params[0].accounts) || wc.accounts || [];
+          if (!acc[0]){ gdShowPairFail('Station connected but returned no Terra Classic address — nothing connected. Paste an address above just to look (read-only).'); done(false); return; }
+          try { localStorage.setItem(GD_DASH_WC_KEY, JSON.stringify(wc.session)); } catch (e) {}
+          done(true, acc[0]);
+        });
+      }).catch(err => {
+        gdShowPairFail("Station's WalletConnect bridge didn't answer" + (err && err.message ? ': ' + String(err.message).slice(0, 90) : '') + ' — nothing connected. Tap CONNECT LUNCDASH to try again, or paste an address above just to look (read-only).');
+        done(false);
+      });
+    }).then(addr => addr ? gdKitApplyAddress(addr, 'station') : false);
+  }).catch(err => {
+    gdDashBusy = false;
+    gdShowPairFail("The Station WalletConnect library couldn't load" + (err && err.message ? ': ' + String(err.message).slice(0, 90) : '') + ' — nothing connected. Tap CONNECT LUNCDASH to try again, or paste an address above just to look (read-only).');
+    return false;
+  });
+}
+/* ---- the chain definition: the LNC app's chainDef.js, verbatim
+   (LCD/RPC inlined from its config.js — the publicnode endpoints).
+   Columbus-5 is not in the upstream chain-registry package
+   CosmosKit consumes, so the app ships its own Chain + AssetList.
+   (Ported from LUNC Grand Prix, which ported it from the LNC app.) */
+const TERRA_CLASSIC_CHAIN = {
+  $schema: '../chain.schema.json',
+  chain_name: 'terraclassic',
+  status: 'live',
+  network_type: 'mainnet',
+  pretty_name: 'Terra Classic',
+  chain_id: 'columbus-5',
+  bech32_prefix: 'terra',
+  daemon_name: 'terrad',
+  node_home: '$HOME/.terra',
+  slip44: 330,
+  fees: {
+    fee_tokens: [
+      { denom: 'uluna', fixed_min_gas_price: 0.15, low_gas_price: 0.15, average_gas_price: 0.15, high_gas_price: 0.15 },
+    ],
+  },
+  staking: { staking_tokens: [{ denom: 'uluna' }] },
+  codebase: { git_repo: 'https://github.com/classic-terra/core', recommended_version: 'v4.1.1', compatible_versions: ['v4.1.1'] },
+  apis: {
+    rpc: [{ address: 'https://terra-classic-rpc.publicnode.com', provider: 'PublicNode' }],
+    rest: [{ address: 'https://terra-classic-lcd.publicnode.com', provider: 'PublicNode' }],
+    grpc: [],
+  },
+  explorers: [{ kind: 'Terra Finder', url: 'https://finder.terraclassic.community/mainnet', tx_page: 'https://finder.terraclassic.community/mainnet/tx/${txHash}' }],
+};
+const TERRA_CLASSIC_ASSETS = {
+  $schema: '../assetlist.schema.json',
+  chain_name: 'terraclassic',
+  assets: [
+    {
+      description: 'The native staking and gas token of Terra Classic.',
+      denom_units: [
+        { denom: 'uluna', exponent: 0 },
+        { denom: 'luna', exponent: 6 },
+      ],
+      base: 'uluna',
+      name: 'Terra Luna Classic',
+      display: 'luna',
+      symbol: 'LUNC',
+      logo_URIs: { png: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/terraclassic/images/lunc.png' },
+      coingecko_id: 'terra-luna',
+    },
+  ],
+};
+
+/* ---- the custom Galaxy Station WalletConnect wallet: the LNC
+   app's wallets.js, ported near-verbatim (the base classes arrive
+   with the lazily loaded @cosmos-kit/walletconnect bundle, so the
+   classes are built by this factory at load time). Galaxy Station
+   is not listed in the WalletConnect explorer registry, so no
+   upstream CosmosKit package exists for it; in its in-app browser
+   it injects window.station, covered by the Station entry — this
+   entry adds the standard pairing flow for other browsers. */
+/* Galaxy Station's genuine logo — the favicon its own site
+   serves; the wallet info below carries it, and the wallet-select
+   modal's Galaxy row shows the same art. */
+const GALAXY_STATION_LOGO = 'https://station.terraclassic.community/favicon.svg';
+function galaxyKitFrom(wc){
+  /* Galaxy Station has no WalletConnect Explorer listing (no
+     listing ID), so WCClient's Explorer lookup leaves wcCloudInfo
+     undefined and initAppUrl() throws before it can fall back to
+     the registry `mobile` links below — leaving redirect
+     permanently false and the modal stuck on the QR view. Seed an
+     empty wcCloudInfo so the fallback is reached (the same
+     pattern @cosmos-kit/keplr-mobile uses). */
+  class GalaxyClient extends wc.WCClient {
+    async initWCCloudInfo() {
+      this.wcCloudInfo = { mobile: {} };
+    }
+  }
+  const galaxyStationInfo = {
+    name: 'galaxy-station',
+    prettyName: 'Galaxy Station',
+    logo: GALAXY_STATION_LOGO,
+    mode: 'wallet-connect',
+    mobileDisabled: false,
+    rejectMessage: {
+      source: 'Request rejected',
+    },
+    downloads: [
+      {
+        link: 'https://station.terraclassic.community',
+      },
+    ],
+    supportedChains: ['terraclassic'],
+    walletconnect: {
+      name: 'Galaxy Station',
+      /* Galaxy Station returns base64-encoded pubkeys; with the
+         client default ('hex') account decoding after approval
+         would be wrong. */
+      encoding: 'base64',
+      mobile: {
+        /* Real app links, proven in the FRG app — NOT the project
+           website. Android goes through the Hexxagon intent link;
+           iOS only answers to its native scheme (the HTTPS site
+           just loads the web dashboard and strands the user). */
+        native: {
+          ios: 'galaxystation:',
+          android: 'https://station.hexxagon.io/wcV2',
+        },
+      },
+      /* Composes the pairing deep link from the native app URL +
+         the WalletConnect URI, modeled on @cosmos-kit/keplr-mobile:
+           iOS:     galaxystation://wcV2?<encoded wc uri>
+           Android: https://station.hexxagon.io/wcV2?<encoded wc uri>
+                    #Intent;package=io.hexxagon.station;scheme=galaxystation;end; */
+      formatNativeUrl: (appUrl, wcUri, os, _name) => {
+        const encodedWcUrl = encodeURIComponent(wcUri);
+        switch (os) {
+          case 'ios':
+            return `galaxystation://wcV2?${encodedWcUrl}`;
+          case 'android':
+            return `${appUrl}?${encodedWcUrl}#Intent;package=io.hexxagon.station;scheme=galaxystation;end;`;
+          default:
+            return `galaxystation://wcV2?${encodedWcUrl}`;
+        }
+      },
+    },
+  };
+  class ChainGalaxyStation extends wc.ChainWC {
+    constructor(walletInfo, chainInfo) {
+      super(walletInfo, chainInfo, GalaxyClient);
+    }
+  }
+  class GalaxyStationWallet extends wc.WCWallet {
+    constructor(walletInfo) {
+      super(walletInfo, ChainGalaxyStation, GalaxyClient);
+    }
+  }
+  return { GalaxyClient, ChainGalaxyStation, GalaxyStationWallet, galaxyStationInfo };
+}
+
+/* ---- the CosmosKit libraries, loaded lazily as ES modules from
+   esm.sh (plain, non-bundled entry points — the ?bundle build of
+   @cosmos-kit/keplr fails to resolve on esm.sh; the plain entries
+   resolve their own dependency graph and were smoke-verified on
+   2026-10-28). Nothing is fetched until a connect or a restore
+   actually needs the stack, and a load failure is said out loud
+   with the paste fallback left standing. The Buffer shim comes
+   first (the LNC app's polyfills.js does the same): WCClient
+   decodes account pubkeys with the global Buffer. */
+const KIT_PROJECT_ID = '7e363f1ed5d676ecc4ae2d40c5b83fbf';   /* the Reown project id the owner's other apps use */
+const KIT_CHAIN_NAME = 'terraclassic';   /* CosmosKit lookup key (chainDef chain_name) */
+const GD_GAS_PRICE = 28.325;   /* uluna per gas unit (manager signer options only — this page never signs) */
+const KIT_APP_URL = 'https://frg-fight-club.vercel.app/garuda-dash/';
+const KIT_URLS = {
+  buffer: 'https://esm.sh/buffer@6.0.3?bundle',
+  core: 'https://esm.sh/@cosmos-kit/core@2.18.1',
+  keplr: 'https://esm.sh/@cosmos-kit/keplr@2.17.1',
+  station: 'https://esm.sh/@cosmos-kit/station@2.15.1',
+  walletconnect: 'https://esm.sh/@cosmos-kit/walletconnect@2.15.1',
+  stargate: 'https://esm.sh/@cosmjs/stargate@0.33.1?bundle',
+};
+let kitTestHook = null;   /* headless hook only — { manager } or { libs } (or the libs themselves); never set in play */
+let kitLibsCache = null;
+let kitLibsPromise = null;
+function kitHook(){
+  if (kitTestHook) return kitTestHook;
+  return null;
+}
+function normalizeKitLibs(libs){
+  if (!libs || !libs.core || !libs.core.WalletManager || !libs.keplr || !libs.station || !libs.walletconnect)
+    throw new Error('the CosmosKit libraries loaded incomplete');
+  if (!libs.cosmjs || !libs.cosmjs.SigningStargateClient || !libs.cosmjs.GasPrice)
+    throw new Error('the signing library loaded incomplete');
+  const out = {
+    core: libs.core, keplr: libs.keplr, station: libs.station, walletconnect: libs.walletconnect,
+    cosmjs: libs.cosmjs, galaxy: galaxyKitFrom(libs.walletconnect),
+    chain: TERRA_CLASSIC_CHAIN, assets: TERRA_CLASSIC_ASSETS,
+  };
+  kitLibsCache = out;
+  return out;
+}
+function loadKitLibs(){
+  if (kitLibsCache) return Promise.resolve(kitLibsCache);
+  const hook = kitHook();
+  const hookLibs = hook && (hook.libs || (hook.core ? hook : null));
+  if (hookLibs)
+    return Promise.resolve().then(() => (typeof hookLibs === 'function' ? hookLibs() : hookLibs))
+      .then(raw => (raw && raw.galaxy) ? raw : normalizeGdKitLibs(raw));
+  if (!kitLibsPromise){
+    kitLibsPromise = Promise.resolve()
+      .then(() => import(KIT_URLS.buffer))
+      .then(bm => {
+        if (typeof globalThis !== 'undefined' && !globalThis.Buffer && bm && bm.Buffer) globalThis.Buffer = bm.Buffer;
+        if (typeof window !== 'undefined' && !window.global) window.global = window;
+      })
+      .then(() => Promise.all([import(KIT_URLS.core), import(KIT_URLS.keplr), import(KIT_URLS.station), import(KIT_URLS.walletconnect), import(KIT_URLS.stargate)]))
+      .then(([core, keplr, station, walletconnect, stargate]) => normalizeKitLibs({
+        core, keplr, station, walletconnect,
+        cosmjs: { SigningStargateClient: stargate && stargate.SigningStargateClient, GasPrice: stargate && stargate.GasPrice },
+      }))
+      .catch(err => { kitLibsPromise = null; throw err; });
+  }
+  return kitLibsPromise;
+}
+
+/* ---- the WalletManager: the LNC app's ChainProvider wiring
+   (wallets = keplr group + station group + the custom Galaxy
+   wallet; the same sign-client options, with this game's name
+   and URL; signer gas price at the game's buy rate — the
+   reference sets signingCosmwasm only, the game adds
+   signingStargate at the same price because its one signature is
+   a stargate MsgSend). onMounted runs un-awaited: it initializes
+   every WalletConnect client (network work) before it restores
+   stored accounts, and a connect must not queue behind that — a
+   chain wallet's own connect() initializes its client itself.
+   The restore path awaits it under a ceiling instead. */
+let kitManager = null;
+let kitMountedPromise = null;
+function kitNoopActions(){
+  return { viewOpen(){}, viewWalletRepo(){}, data(){}, state(){}, message(){}, clientState(){}, clientMessage(){}, render(){} };
+}
+function ensureKitManager(){
+  if (kitManager) return Promise.resolve(kitManager);
+  const hook = kitHook();
+  if (hook && hook.manager){
+    kitManager = hook.manager;
+    kitMountedPromise = Promise.resolve().then(() => (kitManager.onMounted ? kitManager.onMounted() : undefined)).catch(() => {});
+    kitMountedPromise.then(() => { gdKitAdopt(); });
+    return Promise.resolve(kitManager);
+  }
+  return loadKitLibs().then(kit => {
+    const wallets = [...kit.keplr.wallets, ...kit.station.wallets,
+      new kit.galaxy.GalaxyStationWallet(kit.galaxy.galaxyStationInfo)];
+    const wm = new kit.core.WalletManager(
+      [kit.chain], wallets, new kit.core.Logger('WARN'), false, true, undefined,
+      [kit.assets], 'icns',
+      { signClient: { projectId: KIT_PROJECT_ID, metadata: {
+          name: 'Garuda Dash', description: 'Garuda Dash — MY GARUDA read-only wallet connect (viewing NFTs only)', url: KIT_APP_URL, icons: [],
+          redirect: { native: KIT_APP_URL, universal: KIT_APP_URL } } } },
+      { signingCosmwasm: () => ({ gasPrice: kit.cosmjs.GasPrice.fromString(GD_GAS_PRICE + 'uluna') }),
+        signingStargate: () => ({ gasPrice: kit.cosmjs.GasPrice.fromString(GD_GAS_PRICE + 'uluna') }) },
+      undefined, undefined);
+    try {
+      const acts = kitNoopActions();
+      wm.setActions(acts);
+      (wm.walletRepos || []).forEach(repo => {
+        if (repo.setActions) repo.setActions(acts);
+        (repo.wallets || []).forEach(w => { if (w.setActions) w.setActions(acts); });
+      });
+      (wm.mainWallets || []).forEach(w => { if (w.setActions) w.setActions(acts); });
+    } catch (e) {}
+    kitManager = wm;
+    kitMountedPromise = Promise.resolve().then(() => wm.onMounted()).catch(() => {});
+    /* backstop: when the mount (and its stored-account restore)
+       finishes — whenever that is — adopt whatever it found */
+    kitMountedPromise.then(() => { gdKitAdopt(); });
+    return wm;
+  });
+}
+
+/* while a WalletConnect pairing waits, the client holds the
+   pairing URI (client.qrUrl). On a phone the client redirects
+   into the wallet app itself (client.redirect) and no box is
+   needed; anywhere else the box offers the raw link for the
+   wallet's own WalletConnect scanner — the honest desktop path
+   now that the generic modal is gone. */
+function watchPairing(cw, pretty){
+  let stopped = false, timer = null;
+  const tick = () => {
+    if (stopped) return;
+    try {
+      const client = cw.client;
+      const uri = client && client.qrUrl && client.qrUrl.data;
+      if (uri && !(client && client.redirect)){
+        showPairBox(uri);
+        gdKitHint('Approve the connection in ' + pretty + ' — or paste the pairing link shown in MY GARUDA into its WalletConnect scanner.');
+      }
+    } catch (e) {}
+    if (!stopped) timer = setTimeout(tick, 500);
+  };
+  timer = setTimeout(tick, 600);
+  return { stop(){ stopped = true; if (timer) clearTimeout(timer); } };
+}
+
+/* ---- connect ---- */
+function injectedKeplr(){ try { return (typeof window !== 'undefined' && window.keplr) || null; } catch (e) { return null; } }
+function injectedStation(){ try { return (typeof window !== 'undefined' && window.station) || null; } catch (e) { return null; } }
+const KIT_ENTRIES = [
+  { id: 'keplr', label: 'Keplr', resolve(){ return injectedKeplr() ? 'keplr-extension' : 'keplr-mobile'; } },
+  { id: 'galaxy', label: 'Galaxy Station', resolve(){ return 'galaxy-station'; } },
+  { id: 'station', label: 'LUNCDash / Station', resolve(){ return injectedStation() ? 'station-extension' : null; } },
+];
+function kitEntry(id){ for (const e of KIT_ENTRIES) if (e.id === id) return e; return null; }
+function kitFailLine(cw, pretty){
+  if (cw && cw.isWalletNotExist)
+    return pretty + " isn't available in this browser — open this page inside the " + pretty + ' app, or pick another wallet. You can also paste an address above just to look (read-only).';
+  if (cw && cw.isWalletRejected)
+    return 'Connection rejected in ' + pretty + ' — nothing connected. Tap its connect button to try again, or paste an address above just to look (read-only).';
+  const msg = cw && cw.message ? String(cw.message) : '';
+  return pretty + " couldn't connect" + (msg ? ': ' + msg.slice(0, 90) : '') + ' — nothing connected. Tap its connect button to try again, or paste an address above just to look (read-only).';
+}
+let kitConnecting = '';
+function kitConnect(entryId, opts){
+  const quiet = !!(opts && opts.quiet);
+  const entry = kitEntry(entryId);
+  if (!entry || kitConnecting) return Promise.resolve(false);
+  const walletName = entry.resolve();
+  if (!walletName){
+    if (entryId === 'station' && !quiet && typeof gdDashLegacyConnect === 'function')
+      return gdDashLegacyConnect();
+    if (!quiet)
+      gdShowPairFail(entry.label + ' only connects inside the ' + entry.label + " app's own browser — open this page there, or pick another wallet. You can also paste an address above just to look (read-only).");
+    return Promise.resolve(false);
+  }
+  kitConnecting = entryId;
+  /* (no wallet-picker modal in Garuda Dash 2014 the panel rows ARE the picker) */
+  if (!quiet) gdKitHint('Opening ' + entry.label + '…');
+  return ensureKitManager()
+    .then(wm => {
+      const cw = wm.getChainWallet(KIT_CHAIN_NAME, walletName);
+      if (!cw) throw new Error('the ' + entry.label + ' wallet is not registered');
+      const pretty = cw.walletPrettyName || entry.label;
+      if (!quiet) gdKitHint('Approve the connection in ' + pretty + ' — then come back to the game…');
+      const watch = watchPairing(cw, pretty);
+      return Promise.resolve().then(() => cw.connect())
+        .then(() => { watch.stop(); return { cw, pretty }; })
+        .catch(err => { watch.stop(); throw err; });
+    })
+    .then(({ cw, pretty }) => {
+      kitConnecting = '';
+      hidePairBox();
+      if (cw.isWalletConnected && cw.address){
+        kitChainWallet = cw; kitWalletName = walletName; kitPrettyName = pretty;
+        return gdKitApplyAddress(cw.address, entryId);
+      }
+      if (!quiet) gdShowPairFail(kitFailLine(cw, pretty));
+      return false;
+    })
+    .catch(err => {
+      kitConnecting = '';
+      hidePairBox();
+      console.log('[gd-nft] ' + entry.label + ' connect failed: ' + (err && err.message));
+      if (!quiet)
+        gdShowPairFail(entry.label + " couldn't connect" + (err && err.message ? ': ' + String(err.message).slice(0, 90) : '') + ' — nothing connected. Tap its connect button to try again, or paste an address above just to look (read-only).');
+      return false;
+    });
+}
+/* DISCONNECT tears the CosmosKit session down too (best effort —
+   exported for the page glue; the panel itself has no disconnect
+   button, matching the Keplr row's behavior). */
+function kitDisconnect(){
+  const cw = kitChainWallet;
+  kitChainWallet = null; kitWalletName = ''; kitPrettyName = '';
+  if (cw && typeof cw.disconnect === 'function')
+    return Promise.resolve().then(() => cw.disconnect()).catch(() => {});
+  return Promise.resolve();
+}
+
+/* ---- session restore: on load and on pageshow, adopt a live
+   CosmosKit session silently. Detection first: CosmosKit keeps
+   the current wallet under its own localStorage key (and the WC
+   sign clients theirs under wc@2:*) — with neither present and
+   no test hook injected there is nothing to restore and the
+   stack is not even loaded. */
+const KIT_WALLET_NAMES = ['keplr-extension', 'keplr-mobile', 'station-extension', 'galaxy-station'];
+function kitHasStoredState(){
+  try {
+    if (localStorage.getItem('cosmos-kit@2:core//current-wallet')) return true;
+  } catch (e) {}
+  try {
+    if (typeof localStorage.key === 'function' && typeof localStorage.length === 'number'){
+      for (let i = 0; i < localStorage.length; i++){
+        const k = localStorage.key(i);
+        if (k && (k.indexOf('wc@2:') === 0 || k.indexOf('cosmos-kit@2:') === 0)) return true;
+      }
+    }
+  } catch (e) {}
+  return false;
+}
+function kitScanAdopt(){
+  if (!kitManager || gdWalletVia) return false;
+  for (const name of KIT_WALLET_NAMES){
+    let cw = null;
+    try { cw = kitManager.getChainWallet(KIT_CHAIN_NAME, name); } catch (e) {}
+    if (cw && cw.isWalletConnected && cw.address && gdValidAddr(cw.address)){
+      kitChainWallet = cw; kitWalletName = name; kitPrettyName = cw.walletPrettyName || name;
+      gdKitApplyAddress(cw.address, name === 'galaxy-station' ? 'galaxy' : 'station');
+      return true;
+    }
+  }
+  return false;
+}
+let kitAdopting = false;
+function kitRestoreSession(){
+  if (kitAdopting) return Promise.resolve(false);
+  if (gdWalletVia) return Promise.resolve(true);
+  if (!kitHook() && !kitHasStoredState()) return Promise.resolve(false);
+  kitAdopting = true;
+  return ensureKitManager()
+    .then(() => Promise.race([kitMountedPromise || Promise.resolve(), new Promise(r => setTimeout(r, 6000))]))
+    .then(() => kitScanAdopt())
+    .catch(err => { console.log('[gd-nft] CosmosKit restore skipped: ' + (err && err.message)); return false; })
+    .then(ok => { kitAdopting = false; return ok; });
+}
+/* boot: restore first; with a stored address inside a wallet's own
+   browser, quietly upgrade the read-only restore to a live session
+   with that wallet (the behavior the injected-Keplr boot had). */
+function kitBootFlow(){
+  return kitRestoreSession().then(() => {
+    if (gdWalletVia || !gdWallet || gdWalletConnected) return;
+    if (injectedStation()) kitConnect('station', { quiet: true });
+  });
+}
+/* coming back to the page re-runs the stored-session check — the
+   return path matters: approving in the wallet app backgrounds
+   this page, and the session can land in CosmosKit's store while
+   this page's own connect promise never resolves */
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function')
+  window.addEventListener('pageshow', () => { kitRestoreSession(); });
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function')
+  document.addEventListener('visibilitychange', () => {
+    const vis = document.visibilityState ? document.visibilityState === 'visible' : !document.hidden;
+    if (vis) kitRestoreSession();
+  });
+
+
+/* boot the stored-session restore for the two new rows (no-op
+   without stored WC state — see kitRestoreSession). */
+try { kitBootFlow(); } catch (e) {}
+
 /* ---- panel wiring ---- */
 $('nftConnectBtn').onclick = gdConnectKeplr;
 $('nftCharBtn').onclick = gdToggleCharPicker;
