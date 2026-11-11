@@ -36,10 +36,27 @@
    7 game core · 8 screens/render · 9 QA hooks
    ===================================================================== */
 const W=916,H=412, cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+/* CLEAN/CRISP pass (Tom, Nov 10: "more clean, more crisp, more real
+   looking"): the canvas BACKING STORE renders above CSS pixels —
+   capped at 1.5x — so the hero, tracers, art and HUD text are sharp
+   on high-density phone screens. Drawing stays in game units —
+   fitCanvas() sets the transform — and the stage SCALE
+   (getBoundingClientRect) the input/paste-box/pair-box math reads is
+   CSS-based and unchanged. The cap is 1.5, not 2: measured in sandbox
+   Chromium, 2x doubled the frame cost (16.7ms -> ~29ms, i.e. ~34fps)
+   while 1.5x held ~60fps. Sustained frame pressure (rolling average
+   frame time over ~34ms for 3s) drops the cap to 1 automatically so a
+   hot phone keeps its frame rate; the drop is logged, never silent. */
+let DPR_CAP=1.5, dprDropLogged=false;
+let DPR=Math.min((typeof devicePixelRatio!=='undefined'?devicePixelRatio:1)||1,DPR_CAP);
 const GY=330;                       /* ground line (feet) */
 let PORTRAIT=false;   /* phone held upright: canvas is CSS-rotated to landscape */
 function fitCanvas(){
   PORTRAIT=innerWidth<innerHeight;
+  DPR=Math.min((typeof devicePixelRatio!=='undefined'?devicePixelRatio:1)||1,DPR_CAP);
+  const bw=Math.round(W*DPR), bh=Math.round(H*DPR);
+  if(cv.width!==bw||cv.height!==bh){ cv.width=bw; cv.height=bh; }
+  ctx.setTransform(DPR,0,0,DPR,0,0);
   if(PORTRAIT){
     /* rotate the stage so the 916x412 battlefield fills a portrait phone:
        the canvas keeps its landscape size, turned 90 degrees by CSS */
@@ -57,24 +74,24 @@ addEventListener('resize',fitCanvas); fitCanvas();
 /* ================= 1 · I18N (shared 18-language pattern) ================= */
 const LANGS=[["en","English"],["es","Español"],["pt","Português"],["fr","Français"],["de","Deutsch"],["it","Italiano"],["nl","Nederlands"],["ru","Русский"],["uk","Українська"],["tr","Türkçe"],["ar","العربية"],["hi","हिन्दी"],["id","Bahasa Indonesia"],["vi","Tiếng Việt"],["th","ไทย"],["ko","한국어"],["ja","日本語"],["zh","简体中文"]];
 const I18N={
-en:{tapStart:"TAP TO START",test:"🧪 TEST BUILD — private test run · scores save on this device only",mission:"MISSION",brief:"Operation Dawn Break",obj1:"Kill All Enemies",obj2:"Get The Orb",reward:"Reward",enter:"▶ ENTER MISSION",myFighter:"MY FIGHTER",nftBlurb:"Your Lunc Zombies-Commandos NFT is your fighter — like Garuda: pick one and you play as that Commando.",campaign:"CAMPAIGN — LEVEL 1 OF 40",lockedSoon:"LEVELS 2–40 — CAMPAIGN UNDER CONSTRUCTION",mintSoon:"Zombie 2.0 Fighters — mint coming",pastePh:"Paste your Terra Classic wallet address",lookup:"LOOK UP",connect:"CONNECT KEPLR",checking:"Checking the chain…",noNft:"No Commandos found in that wallet — you play as the base zombie hero. The full game still works.",lookupFail:"Couldn't reach the chain just now — you play as the base zombie hero. Try again later.",found:"{n} Commando(s) found — tap one to play as it:",playAs:"PLAYING AS",baseHero:"BASE ZOMBIE HERO",ownedOnly:"Showing wallet-owned Commandos (staked Commandos are not credited in this test).",rarityPower:"Power from the NFT's on-chain Rarity trait",fallbackPower:"Rarity not readable — base Commando power applied",bonusPower:"Squad bonus: +{n} Commando(s) backing your fighter",hp:"HP",ammo:"Ammo",bombs:"Bombs",kills:"Kills",time:"Time",complete:"✓ MISSION COMPLETE",failed:"✖ MISSION FAILED",dead:"Your fighter went down. The horde keeps the Orb… this time.",retry:"↻ TRY AGAIN",again:"↻ PLAY AGAIN",toTitle:"TITLE",best:"🏆 BEST — Score {s} · {t}",bestNone:"🏆 No completed run yet on this device",sndOn:"🔊 SOUND ON",sndOff:"🔇 SOUND OFF",points:"FRG + LUNC are in-game POINTS in this test. Prizes are handled by hand, outside the game.",helpKeys:"MOVE ◀ ▶ · JUMP Space · AIM Mouse or W/S (full arc ↑↓) · FIRE J · BOMB K",rotate:"↻ Rotate your phone for the full battlefield"},
-es:{tapStart:"TOCA PARA EMPEZAR",test:"🧪 VERSIÓN DE PRUEBA — privada · las marcas se guardan solo en este dispositivo",mission:"MISIÓN",obj1:"Elimina a todos los enemigos",obj2:"Consigue el Orbe",enter:"▶ ENTRAR A LA MISIÓN",myFighter:"MI LUCHADOR",nftBlurb:"Tu NFT Lunc Zombies-Commandos es tu luchador: elige uno y juegas como ese Comando.",pastePh:"Pega tu dirección de billetera Terra Classic",lookup:"BUSCAR",connect:"CONECTAR KEPLR",checking:"Consultando la cadena…",noNft:"No se encontraron Comandos en esa billetera: juegas como el héroe zombi base. El juego completo funciona igual.",lookupFail:"No se pudo consultar la cadena ahora: juegas como el héroe zombi base.",found:"{n} Comando(s) encontrados — toca uno para jugar como él:",playAs:"JUGANDO COMO",baseHero:"HÉROE ZOMBI BASE",ownedOnly:"Se muestran los Comandos de la billetera (los Comandos en staking no cuentan en esta prueba).",rarityPower:"Poder según el rasgo Rareza del NFT en la cadena",fallbackPower:"Rareza no legible: se aplicó el poder base de Comando",bonusPower:"Bono de escuadrón: +{n} Comando(s) apoyando a tu luchador",complete:"✓ MISIÓN COMPLETADA",failed:"✖ MISIÓN FALLIDA",dead:"Tu luchador cayó. La horda se queda con el Orbe… esta vez.",retry:"↻ INTENTAR DE NUEVO",again:"↻ JUGAR OTRA VEZ",toTitle:"TÍTULO",sndOn:"🔊 SONIDO SÍ",sndOff:"🔇 SONIDO NO",points:"FRG + LUNC son PUNTOS del juego en esta prueba. Los premios se entregan a mano, fuera del juego.",helpKeys:"MOVER ◀ ▶ · SALTAR Espacio · APUNTAR Ratón o W/S · DISPARAR J · BOMBA K"},
-pt:{tapStart:"TOQUE PARA COMEÇAR",test:"🧪 VERSÃO DE TESTE — privada · pontuações só neste dispositivo",mission:"MISSÃO",obj1:"Elimine todos os inimigos",obj2:"Pegue o Orbe",enter:"▶ ENTRAR NA MISSÃO",myFighter:"MEU LUTADOR",nftBlurb:"Seu NFT Lunc Zombies-Commandos é o seu lutador: escolha um e jogue como aquele Comando.",pastePh:"Cole seu endereço de carteira Terra Classic",lookup:"PROCURAR",connect:"CONECTAR KEPLR",checking:"Consultando a cadeia…",noNft:"Nenhum Comando nessa carteira — você joga como o herói zumbi base. O jogo completo funciona.",lookupFail:"Não foi possível consultar a cadeia agora — você joga como o herói zumbi base.",found:"{n} Comando(s) encontrados — toque em um para jogar como ele:",playAs:"JOGANDO COMO",baseHero:"HERÓI ZUMBI BASE",ownedOnly:"Mostrando Comandos da carteira (Comandos em staking não contam neste teste).",rarityPower:"Poder pelo traço Raridade do NFT na cadeia",fallbackPower:"Raridade ilegível — poder base de Comando aplicado",bonusPower:"Bônus de esquadrão: +{n} Comando(s) apoiando seu lutador",complete:"✓ MISSÃO COMPLETA",failed:"✖ MISSÃO FALHOU",dead:"Seu lutador caiu. A horda fica com o Orbe… desta vez.",retry:"↻ TENTAR DE NOVO",again:"↻ JOGAR DE NOVO",toTitle:"TÍTULO",sndOn:"🔊 SOM LIGADO",sndOff:"🔇 SOM DESLIGADO",points:"FRG + LUNC são PONTOS do jogo neste teste. Os prêmios são entregues à mão, fora do jogo.",helpKeys:"MOVER ◀ ▶ · PULAR Espaço · MIRAR Mouse ou W/S · ATIRAR J · BOMBA K"},
-fr:{tapStart:"TOUCHEZ POUR COMMENCER",test:"🧪 VERSION TEST — privée · scores sur cet appareil seulement",mission:"MISSION",obj1:"Éliminez tous les ennemis",obj2:"Récupérez l'Orbe",enter:"▶ ENTRER DANS LA MISSION",myFighter:"MON COMBATTANT",nftBlurb:"Votre NFT Lunc Zombies-Commandos est votre combattant : choisissez-en un et jouez ce Commando.",pastePh:"Collez votre adresse de portefeuille Terra Classic",lookup:"CHERCHER",connect:"CONNECTER KEPLR",checking:"Vérification sur la chaîne…",noNft:"Aucun Commando dans ce portefeuille — vous jouez le héros zombie de base. Le jeu complet fonctionne.",lookupFail:"Chaîne injoignable pour le moment — vous jouez le héros zombie de base.",found:"{n} Commando(s) trouvé(s) — touchez-en un pour jouer avec :",playAs:"VOUS JOUEZ",baseHero:"HÉROS ZOMBIE DE BASE",ownedOnly:"Commandos du portefeuille affichés (les Commandos en staking ne comptent pas dans ce test).",rarityPower:"Puissance selon le trait Rareté du NFT sur la chaîne",fallbackPower:"Rareté illisible — puissance Commando de base appliquée",bonusPower:"Bonus d'escouade : +{n} Commando(s) derrière votre combattant",complete:"✓ MISSION ACCOMPLIE",failed:"✖ MISSION ÉCHOUÉE",dead:"Votre combattant est tombé. La horde garde l'Orbe… cette fois.",retry:"↻ RÉESSAYER",again:"↻ REJOUER",toTitle:"TITRE",sndOn:"🔊 SON ACTIVÉ",sndOff:"🔇 SON COUPÉ",points:"FRG + LUNC sont des POINTS de jeu dans ce test. Les prix sont remis à la main, hors du jeu.",helpKeys:"BOUGER ◀ ▶ · SAUTER Espace · VISER Souris ou W/S · TIRER J · BOMBE K"},
-de:{tapStart:"TIPPEN ZUM STARTEN",test:"🧪 TESTVERSION — privat · Punkte nur auf diesem Gerät",mission:"MISSION",obj1:"Besiege alle Feinde",obj2:"Hol die Kugel (Orb)",enter:"▶ MISSION STARTEN",myFighter:"MEIN KÄMPFER",nftBlurb:"Dein Lunc Zombies-Commandos NFT ist dein Kämpfer: Wähle eines und spiele als dieser Commando.",pastePh:"Füge deine Terra-Classic-Wallet-Adresse ein",lookup:"SUCHEN",connect:"KEPLR VERBINDEN",checking:"Kette wird geprüft…",noNft:"Keine Commandos in dieser Wallet — du spielst den Basis-Zombiehelden. Das volle Spiel läuft trotzdem.",lookupFail:"Kette gerade nicht erreichbar — du spielst den Basis-Zombiehelden.",found:"{n} Commando(s) gefunden — tippe eines an, um als es zu spielen:",playAs:"DU SPIELST ALS",baseHero:"BASIS-ZOMBIEHELD",ownedOnly:"Commandos aus der Wallet werden gezeigt (gestakte Commandos zählen in diesem Test nicht).",rarityPower:"Stärke aus dem Rarity-Merkmal des NFT auf der Kette",fallbackPower:"Rarity nicht lesbar — Basis-Commando-Stärke angewendet",bonusPower:"Trupp-Bonus: +{n} Commando(s) stärken deinen Kämpfer",complete:"✓ MISSION GESCHAFFT",failed:"✖ MISSION GESCHEITERT",dead:"Dein Kämpfer ist gefallen. Die Horde behält die Kugel… diesmal.",retry:"↻ NOCHMAL VERSUCHEN",again:"↻ NOCHMAL SPIELEN",toTitle:"TITEL",sndOn:"🔊 TON AN",sndOff:"🔇 TON AUS",points:"FRG + LUNC sind in diesem Test Spiel-PUNKTE. Preise werden von Hand außerhalb des Spiels vergeben.",helpKeys:"LAUFEN ◀ ▶ · SPRINGEN Leertaste · ZIELEN Maus oder W/S · FEUER J · BOMBE K"},
-it:{tapStart:"TOCCA PER INIZIARE",test:"🧪 VERSIONE DI PROVA — privata · punteggi solo su questo dispositivo",mission:"MISSIONE",obj1:"Elimina tutti i nemici",obj2:"Prendi la Sfera",enter:"▶ ENTRA NELLA MISSIONE",myFighter:"IL MIO COMBATTENTE",nftBlurb:"Il tuo NFT Lunc Zombies-Commandos è il tuo combattente: scegline uno e giochi come quel Commando.",pastePh:"Incolla l'indirizzo del tuo wallet Terra Classic",lookup:"CERCA",connect:"COLLEGA KEPLR",checking:"Controllo sulla catena…",noNft:"Nessun Commando in quel wallet — giochi come l'eroe zombie base. Il gioco completo funziona.",lookupFail:"Catena non raggiungibile ora — giochi come l'eroe zombie base.",found:"{n} Commando trovati — toccane uno per giocare come lui:",playAs:"GIOCHI COME",baseHero:"EROE ZOMBIE BASE",ownedOnly:"Mostrati i Commando del wallet (i Commando in staking non contano in questo test).",rarityPower:"Potenza dal tratto Rarità dell'NFT sulla catena",fallbackPower:"Rarità non leggibile — potenza Commando base applicata",bonusPower:"Bonus squadra: +{n} Commando a supporto del tuo combattente",complete:"✓ MISSIONE COMPLETATA",failed:"✖ MISSIONE FALLITA",dead:"Il tuo combattente è caduto. L'orda tiene la Sfera… per questa volta.",retry:"↻ RIPROVA",again:"↻ GIOCA ANCORA",toTitle:"TITOLO",sndOn:"🔊 AUDIO ATTIVO",sndOff:"🔇 AUDIO SPENTO",points:"FRG + LUNC sono PUNTI di gioco in questo test. I premi sono consegnati a mano, fuori dal gioco.",helpKeys:"MUOVI ◀ ▶ · SALTA Spazio · MIRA Mouse o W/S · SPARA J · BOMBA K"},
-nl:{tapStart:"TIK OM TE STARTEN",test:"🧪 TESTVERSIE — privé · scores alleen op dit apparaat",mission:"MISSIE",obj1:"Versla alle vijanden",obj2:"Pak de Orb",enter:"▶ START DE MISSIE",myFighter:"MIJN VECHTER",nftBlurb:"Je Lunc Zombies-Commandos NFT is je vechter: kies er een en speel als die Commando.",pastePh:"Plak je Terra Classic wallet-adres",lookup:"OPZOEKEN",connect:"KEPLR VERBINDEN",checking:"Keten controleren…",noNft:"Geen Commandos in die wallet — je speelt als de basis zombieheld. Het volledige spel werkt.",lookupFail:"Keten nu niet bereikbaar — je speelt als de basis zombieheld.",found:"{n} Commando('s) gevonden — tik er een aan om ermee te spelen:",playAs:"JE SPEELT ALS",baseHero:"BASIS ZOMBIEHELD",ownedOnly:"Commandos uit de wallet getoond (gestakete Commandos tellen in deze test niet mee).",rarityPower:"Kracht uit het Rarity-kenmerk van de NFT op de keten",fallbackPower:"Rarity niet leesbaar — basis Commando-kracht toegepast",bonusPower:"Ploegbonus: +{n} Commando('s) steunen je vechter",complete:"✓ MISSIE VOLTOOID",failed:"✖ MISSIE MISLUKT",dead:"Je vechter is gevallen. De horde houdt de Orb… deze keer.",retry:"↻ OPNIEUW PROBEREN",again:"↻ SPEEL OPNIEUW",toTitle:"TITEL",sndOn:"🔊 GELUID AAN",sndOff:"🔇 GELUID UIT",points:"FRG + LUNC zijn spel-PUNTEN in deze test. Prijzen worden met de hand uitgereikt, buiten het spel.",helpKeys:"LOPEN ◀ ▶ · SPRINGEN Spatie · RICHTEN Muis of W/S · VUUR J · BOM K"},
-ru:{tapStart:"НАЖМИ, ЧТОБЫ ИГРАТЬ",test:"🧪 ТЕСТОВАЯ ВЕРСИЯ — приватная · очки только на этом устройстве",mission:"МИССИЯ",obj1:"Убей всех врагов",obj2:"Забери Сферу",enter:"▶ НАЧАТЬ МИССИЮ",myFighter:"МОЙ БОЕЦ",nftBlurb:"Твой NFT Lunc Zombies-Commandos — это твой боец: выбери одного и играй за этого Коммандо.",pastePh:"Вставь адрес кошелька Terra Classic",lookup:"НАЙТИ",connect:"ПОДКЛЮЧИТЬ KEPLR",checking:"Проверяем цепочку…",noNft:"В этом кошельке нет Коммандо — ты играешь за базового зомби-героя. Полная игра работает.",lookupFail:"Цепочка сейчас недоступна — ты играешь за базового зомби-героя.",found:"Найдено Коммандо: {n} — коснись одного, чтобы играть за него:",playAs:"ТЫ ИГРАЕШЬ ЗА",baseHero:"БАЗОВЫЙ ЗОМБИ-ГЕРОЙ",ownedOnly:"Показаны Коммандо из кошелька (Коммандо в стейкинге в этом тесте не засчитываются).",rarityPower:"Сила — из признака Rarity NFT в цепочке",fallbackPower:"Rarity не читается — применена базовая сила Коммандо",bonusPower:"Бонус отряда: +{n} Коммандо поддерживают твоего бойца",complete:"✓ МИССИЯ ВЫПОЛНЕНА",failed:"✖ МИССИЯ ПРОВАЛЕНА",dead:"Твой боец пал. Орда оставила Сферу себе… в этот раз.",retry:"↻ ПОПРОБОВАТЬ СНОВА",again:"↻ ИГРАТЬ СНОВА",toTitle:"ТИТУЛ",sndOn:"🔊 ЗВУК ВКЛ",sndOff:"🔇 ЗВУК ВЫКЛ",points:"FRG + LUNC в этом тесте — игровые ОЧКИ. Призы выдаются вручную вне игры.",helpKeys:"ДВИЖЕНИЕ ◀ ▶ · ПРЫЖОК Пробел · ПРИЦЕЛ Мышь или W/S · ОГОНЬ J · БОМБА K"},
-uk:{tapStart:"НАТИСНИ, ЩОБ ГРАТИ",test:"🧪 ТЕСТОВА ВЕРСІЯ — приватна · очки лише на цьому пристрої",mission:"МІСІЯ",obj1:"Вбий усіх ворогів",obj2:"Забери Сферу",enter:"▶ ПОЧАТИ МІСІЮ",myFighter:"МІЙ БОЄЦЬ",nftBlurb:"Твій NFT Lunc Zombies-Commandos — це твій боєць: обери одного і грай за цього Командо.",pastePh:"Встав адресу гаманця Terra Classic",lookup:"ЗНАЙТИ",connect:"ПІДКЛЮЧИТИ KEPLR",checking:"Перевіряємо ланцюг…",noNft:"У цьому гаманці немає Командо — ти граєш за базового зомбі-героя. Повна гра працює.",lookupFail:"Ланцюг зараз недоступний — ти граєш за базового зомбі-героя.",found:"Знайдено Командо: {n} — торкнися одного, щоб грати за нього:",playAs:"ТИ ГРАЄШ ЗА",baseHero:"БАЗОВИЙ ЗОМБІ-ГЕРОЙ",ownedOnly:"Показано Командо з гаманця (Командо у стейкінгу в цьому тесті не зараховуються).",rarityPower:"Сила — з ознаки Rarity NFT у ланцюгу",fallbackPower:"Rarity не читається — застосовано базову силу Командо",bonusPower:"Бонус загону: +{n} Командо підтримують твого бійця",complete:"✓ МІСІЮ ВИКОНАНО",failed:"✖ МІСІЮ ПРОВАЛЕНО",dead:"Твій боєць упав. Орда залишила Сферу собі… цього разу.",retry:"↻ СПРОБУВАТИ ЩЕ",again:"↻ ГРАТИ ЗНОВУ",toTitle:"ТИТУЛ",sndOn:"🔊 ЗВУК УВІМК",sndOff:"🔇 ЗВУК ВИМК",points:"FRG + LUNC у цьому тесті — ігрові ОЧКИ. Призи видаються вручну поза грою.",helpKeys:"РУХ ◀ ▶ · СТРИБОК Пробіл · ПРИЦІЛ Миша або W/S · ВОГОНЬ J · БОМБА K"},
-tr:{tapStart:"BAŞLAMAK İÇİN DOKUN",test:"🧪 TEST SÜRÜMÜ — özel · skorlar yalnızca bu cihazda",mission:"GÖREV",obj1:"Tüm düşmanları yok et",obj2:"Küre'yi al",enter:"▶ GÖREVE BAŞLA",myFighter:"SAVAŞÇIM",nftBlurb:"Lunc Zombies-Commandos NFT'in senin savaşçın: birini seç ve o Komando olarak oyna.",pastePh:"Terra Classic cüzdan adresini yapıştır",lookup:"ARA",connect:"KEPLR BAĞLA",checking:"Zincir kontrol ediliyor…",noNft:"Bu cüzdanda Komando yok — temel zombi kahraman olarak oynarsın. Oyunun tamamı çalışır.",lookupFail:"Zincire şu an ulaşılamıyor — temel zombi kahraman olarak oynarsın.",found:"{n} Komando bulundu — birine dokun, onunla oyna:",playAs:"ŞUNUNLA OYNUYORSUN",baseHero:"TEMEL ZOMBİ KAHRAMAN",ownedOnly:"Cüzdandaki Komandolar gösteriliyor (stake edilmiş Komandolar bu testte sayılmaz).",rarityPower:"Güç, NFT'nin zincirdeki Rarity özelliğinden",fallbackPower:"Rarity okunamadı — temel Komando gücü uygulandı",bonusPower:"Takım bonusu: +{n} Komando savaşçını destekliyor",complete:"✓ GÖREV TAMAMLANDI",failed:"✖ GÖREV BAŞARISIZ",dead:"Savaşçın düştü. Sürü Küre'yi elinde tutuyor… bu seferlik.",retry:"↻ TEKRAR DENE",again:"↻ TEKRAR OYNA",toTitle:"BAŞLIK",sndOn:"🔊 SES AÇIK",sndOff:"🔇 SES KAPALI",points:"Bu testte FRG + LUNC oyun PUANLARIDIR. Ödüller oyun dışında elle verilir.",helpKeys:"HAREKET ◀ ▶ · ZIPLA Boşluk · NİŞAN Fare veya W/S · ATEŞ J · BOMBA K"},
-ar:{tapStart:"انقر للبدء",test:"🧪 نسخة تجريبية — خاصة · النقاط على هذا الجهاز فقط",mission:"المهمة",obj1:"اقضِ على كل الأعداء",obj2:"خذ الجرم السماوي",enter:"▶ ادخل المهمة",myFighter:"مقاتلي",nftBlurb:"‏NFT Lunc Zombies-Commandos هو مقاتلك: اختر واحدًا والعب بهذا الكوماندو.",pastePh:"الصق عنوان محفظة Terra Classic",lookup:"بحث",connect:"اتصال KEPLR",checking:"جارٍ التحقق من السلسلة…",noNft:"لا يوجد كوماندو في هذه المحفظة — تلعب بالبطل الزومبي الأساسي. اللعبة الكاملة تعمل.",lookupFail:"تعذر الوصول إلى السلسلة الآن — تلعب بالبطل الزومبي الأساسي.",found:"تم العثور على {n} كوماندو — انقر واحدًا للعب به:",playAs:"تلعب بـ",baseHero:"البطل الزومبي الأساسي",ownedOnly:"يتم عرض كوماندو المحفظة (الكوماندو المُخزّن لا يُحتسب في هذا الاختبار).",rarityPower:"القوة من سمة الندرة Rarity الخاصة بـ NFT على السلسلة",fallbackPower:"الندرة غير قابلة للقراءة — تم تطبيق قوة الكوماندو الأساسية",bonusPower:"مكافأة الفرقة: +{n} كوماندو يدعمون مقاتلك",complete:"✓ اكتملت المهمة",failed:"✖ فشلت المهمة",dead:"سقط مقاتلك. الحشد يحتفظ بالجرم… هذه المرة.",retry:"↻ حاول مجددًا",again:"↻ العب مجددًا",toTitle:"العنوان",sndOn:"🔊 الصوت يعمل",sndOff:"🔇 الصوت صامت",points:"في هذا الاختبار FRG + LUNC نقاط داخل اللعبة. الجوائز تُسلّم يدويًا خارج اللعبة.",helpKeys:"تحرك ◀ ▶ · اقفز مسافة · صوّب فأرة أو W/S · أطلق J · قنبلة K"},
-hi:{tapStart:"शुरू करने के लिए टैप करो",test:"🧪 टेस्ट बिल्ड — निजी · स्कोर केवल इस डिवाइस पर",mission:"मिशन",obj1:"सभी दुश्मनों को मारो",obj2:"ऑर्ब हासिल करो",enter:"▶ मिशन शुरू करो",myFighter:"मेरा फाइटर",nftBlurb:"तुम्हारा Lunc Zombies-Commandos NFT ही तुम्हारा फाइटर है: एक चुनो और उसी कमांडो बनकर खेलो।",pastePh:"अपना Terra Classic वॉलेट पता चिपकाओ",lookup:"खोजो",connect:"KEPLR जोड़ो",checking:"चेन जांच रहे हैं…",noNft:"उस वॉलेट में कोई कमांडो नहीं — तुम बेस ज़ॉम्बी हीरो बनकर खेलते हो। पूरा खेल चलता है।",lookupFail:"अभी चेन तक पहुँच नहीं हुई — तुम बेस ज़ॉम्बी हीरो बनकर खेलते हो।",found:"{n} कमांडो मिले — किसी एक पर टैप करो और उससे खेलो:",playAs:"तुम खेल रहे हो",baseHero:"बेस ज़ॉम्बी हीरो",ownedOnly:"वॉलेट के कमांडो दिखाए गए (स्टेक किए कमांडो इस टेस्ट में नहीं गिने जाते)।",rarityPower:"शक्ति NFT के ऑन-चेन Rarity गुण से",fallbackPower:"Rarity पढ़ा नहीं गया — बेस कमांडो शक्ति लागू",bonusPower:"स्क्वाड बोनस: +{n} कमांडो तुम्हारे फाइटर के साथ",complete:"✓ मिशन पूरा",failed:"✖ मिशन असफल",dead:"तुम्हारा फाइटर गिर गया। झुंड ने ऑर्ब रख लिया… इस बार।",retry:"↻ फिर कोशिश करो",again:"↻ फिर खेलो",toTitle:"टाइटल",sndOn:"🔊 आवाज़ चालू",sndOff:"🔇 आवाज़ बंद",points:"इस टेस्ट में FRG + LUNC खेल के अंक हैं। इनाम खेल के बाहर हाथ से दिए जाते हैं।",helpKeys:"चलो ◀ ▶ · कूदो Space · निशाना Mouse या W/S · फायर J · बम K"},
-id:{tapStart:"KETUK UNTUK MULAI",test:"🧪 VERSI TES — pribadi · skor hanya di perangkat ini",mission:"MISI",obj1:"Kalahkan semua musuh",obj2:"Ambil Orb",enter:"▶ MASUK MISI",myFighter:"PETARUNGKU",nftBlurb:"NFT Lunc Zombies-Commandos milikmu adalah petarungmu: pilih satu dan bermainlah sebagai Komando itu.",pastePh:"Tempel alamat dompet Terra Classic kamu",lookup:"CARI",connect:"HUBUNGKAN KEPLR",checking:"Memeriksa rantai…",noNft:"Tidak ada Komando di dompet itu — kamu bermain sebagai pahlawan zombie dasar. Game lengkap tetap berjalan.",lookupFail:"Rantai tidak terjangkau sekarang — kamu bermain sebagai pahlawan zombie dasar.",found:"{n} Komando ditemukan — ketuk satu untuk bermain sebagai dia:",playAs:"BERMAIN SEBAGAI",baseHero:"PAHLAWAN ZOMBIE DASAR",ownedOnly:"Menampilkan Komando di dompet (Komando yang di-stake tidak dihitung di tes ini).",rarityPower:"Kekuatan dari sifat Rarity NFT di rantai",fallbackPower:"Rarity tak terbaca — kekuatan Komando dasar diterapkan",bonusPower:"Bonus skuad: +{n} Komando mendukung petarungmu",complete:"✓ MISI SELESAI",failed:"✖ MISI GAGAL",dead:"Petarungmu tumbang. Kawanan menyimpan Orb… kali ini.",retry:"↻ COBA LAGI",again:"↻ MAIN LAGI",toTitle:"JUDUL",sndOn:"🔊 SUARA NYALA",sndOff:"🔇 SUARA MATI",points:"Di tes ini FRG + LUNC adalah POIN dalam game. Hadiah diberikan manual, di luar game.",helpKeys:"GERAK ◀ ▶ · LOMPAT Spasi · BIDIK Mouse atau W/S · TEMBAK J · BOM K"},
-vi:{tapStart:"CHẠM ĐỂ BẮT ĐẦU",test:"🧪 BẢN THỬ NGHIỆM — riêng tư · điểm chỉ lưu trên thiết bị này",mission:"NHIỆM VỤ",obj1:"Tiêu diệt mọi kẻ địch",obj2:"Lấy Quả Cầu",enter:"▶ VÀO NHIỆM VỤ",myFighter:"CHIẾN BINH CỦA TÔI",nftBlurb:"NFT Lunc Zombies-Commandos của bạn là chiến binh của bạn: chọn một và chơi như Commando đó.",pastePh:"Dán địa chỉ ví Terra Classic của bạn",lookup:"TRA CỨU",connect:"KẾT NỐI KEPLR",checking:"Đang kiểm tra chuỗi…",noNft:"Không có Commando trong ví đó — bạn chơi anh hùng zombie cơ bản. Trò chơi đầy đủ vẫn chạy.",lookupFail:"Không tới được chuỗi lúc này — bạn chơi anh hùng zombie cơ bản.",found:"Tìm thấy {n} Commando — chạm vào một để chơi như nó:",playAs:"ĐANG CHƠI NHƯ",baseHero:"ANH HÙNG ZOMBIE CƠ BẢN",ownedOnly:"Hiển thị Commando trong ví (Commando đang stake không được tính trong bản thử này).",rarityPower:"Sức mạnh từ thuộc tính Rarity của NFT trên chuỗi",fallbackPower:"Không đọc được Rarity — áp dụng sức mạnh Commando cơ bản",bonusPower:"Thưởng đội: +{n} Commando hỗ trợ chiến binh của bạn",complete:"✓ HOÀN THÀNH NHIỆM VỤ",failed:"✖ NHIỆM VỤ THẤT BẠI",dead:"Chiến binh của bạn đã ngã. Bầy đàn giữ Quả Cầu… lần này.",retry:"↻ THỬ LẠI",again:"↻ CHƠI LẠI",toTitle:"TIÊU ĐỀ",sndOn:"🔊 BẬT ÂM THANH",sndOff:"🔇 TẮT ÂM THANH",points:"Trong bản thử này FRG + LUNC là ĐIỂM trong game. Giải thưởng trao tay, ngoài game.",helpKeys:"DI CHUYỂN ◀ ▶ · NHẢY Space · NGẮM Chuột hoặc W/S · BẮN J · BOM K"},
-th:{tapStart:"แตะเพื่อเริ่ม",test:"🧪 ฉบับทดสอบ — ส่วนตัว · คะแนนเก็บในอุปกรณ์นี้เท่านั้น",mission:"ภารกิจ",obj1:"กำจัดศัตรูทั้งหมด",obj2:"เก็บลูกแก้ว Orb",enter:"▶ เข้าสู่ภารกิจ",myFighter:"นักสู้ของฉัน",nftBlurb:"NFT Lunc Zombies-Commandos ของคุณคือนักสู้ของคุณ: เลือกหนึ่งตัวแล้วเล่นเป็นคอมมานโดตัวนั้น",pastePh:"วางที่อยู่กระเป๋า Terra Classic ของคุณ",lookup:"ค้นหา",connect:"เชื่อมต่อ KEPLR",checking:"กำลังตรวจสอบเชน…",noNft:"ไม่พบคอมมานโดในกระเป๋านั้น — คุณเล่นเป็นฮีโร่ซอมบี้พื้นฐาน เกมเต็มยังเล่นได้",lookupFail:"ติดต่อเชนไม่ได้ตอนนี้ — คุณเล่นเป็นฮีโร่ซอมบี้พื้นฐาน",found:"พบ {n} คอมมานโด — แตะหนึ่งตัวเพื่อเล่นเป็นตัวนั้น:",playAs:"กำลังเล่นเป็น",baseHero:"ฮีโร่ซอมบี้พื้นฐาน",ownedOnly:"แสดงคอมมานโดในกระเป๋า (คอมมานโดที่สเตกไม่นับในฉบับทดสอบนี้)",rarityPower:"พลังจากคุณสมบัติ Rarity ของ NFT บนเชน",fallbackPower:"อ่าน Rarity ไม่ได้ — ใช้พลังคอมมานโดพื้นฐาน",bonusPower:"โบนัสทีม: +{n} คอมมานโดหนุนนักสู้ของคุณ",complete:"✓ ภารกิจสำเร็จ",failed:"✖ ภารกิจล้มเหลว",dead:"นักสู้ของคุณล้มลง ฝูงซอมบี้เก็บ Orb ไว้… ครั้งนี้",retry:"↻ ลองอีกครั้ง",again:"↻ เล่นอีกครั้ง",toTitle:"หน้าหลัก",sndOn:"🔊 เปิดเสียง",sndOff:"🔇 ปิดเสียง",points:"ในฉบับทดสอบนี้ FRG + LUNC เป็นแต้มในเกม รางวัลมอบด้วยมือ นอกเกม",helpKeys:"เดิน ◀ ▶ · กระโดด Space · เล็ง เมาส์หรือ W/S · ยิง J · ระเบิด K"},
-ko:{tapStart:"탭하여 시작",test:"🧪 테스트 빌드 — 비공개 · 점수는 이 기기에만 저장",mission:"미션",obj1:"모든 적 처치",obj2:"오브 획득",enter:"▶ 미션 시작",myFighter:"내 파이터",nftBlurb:"당신의 Lunc Zombies-Commandos NFT가 당신의 파이터입니다. 하나를 골라 그 코만도로 플레이하세요.",pastePh:"Terra Classic 지갑 주소를 붙여넣으세요",lookup:"조회",connect:"KEPLR 연결",checking:"체인 확인 중…",noNft:"그 지갑에 코만도가 없습니다 — 기본 좀비 히어로로 플레이합니다. 전체 게임이 작동합니다.",lookupFail:"지금 체인에 연결할 수 없습니다 — 기본 좀비 히어로로 플레이합니다.",found:"코만도 {n}개 발견 — 탭해서 그 코만도로 플레이:",playAs:"플레이 중",baseHero:"기본 좀비 히어로",ownedOnly:"지갑 소유 코만도만 표시됩니다 (스테이킹된 코만도는 이 테스트에서 인정되지 않습니다).",rarityPower:"NFT의 온체인 Rarity 특성에서 오는 힘",fallbackPower:"Rarity를 읽을 수 없음 — 기본 코만도 힘 적용",bonusPower:"분대 보너스: 코만도 +{n}개가 파이터를 지원",complete:"✓ 미션 완료",failed:"✖ 미션 실패",dead:"파이터가 쓰러졌습니다. 무리가 오브를 지킵니다… 이번에는요.",retry:"↻ 다시 시도",again:"↻ 다시 플레이",toTitle:"타이틀",sndOn:"🔊 소리 켬",sndOff:"🔇 소리 끔",points:"이 테스트에서 FRG + LUNC는 게임 내 포인트입니다. 상품은 게임 밖에서 수동으로 지급됩니다.",helpKeys:"이동 ◀ ▶ · 점프 Space · 조준 마우스 또는 W/S · 발사 J · 폭탄 K"},
-ja:{tapStart:"タップしてスタート",test:"🧪 テストビルド — 非公開 · スコアはこの端末のみに保存",mission:"ミッション",obj1:"敵をすべて倒せ",obj2:"オーブを手に入れろ",enter:"▶ ミッション開始",myFighter:"マイファイター",nftBlurb:"あなたのLunc Zombies-Commandos NFTがあなたのファイターです。1つ選んで、そのコマンドーとしてプレイしましょう。",pastePh:"Terra Classicのウォレットアドレスを貼り付け",lookup:"検索",connect:"KEPLRを接続",checking:"チェーンを確認中…",noNft:"そのウォレットにコマンドーはありません — 基本のゾンビヒーローでプレイします。ゲーム全体は動作します。",lookupFail:"今はチェーンに届きません — 基本のゾンビヒーローでプレイします。",found:"コマンドー{n}体が見つかりました — タップしてそのコマンドーでプレイ:",playAs:"プレイ中",baseHero:"基本ゾンビヒーロー",ownedOnly:"ウォレット所有のコマンドーを表示（ステーキング中のコマンドーはこのテストでは加算されません）。",rarityPower:"NFTのオンチェーンRarity特性によるパワー",fallbackPower:"Rarityが読めません — 基本コマンドーパワーを適用",bonusPower:"分隊ボーナス: コマンドー+{n}体がファイターを支援",complete:"✓ ミッション完了",failed:"✖ ミッション失敗",dead:"ファイターが倒れました。群れがオーブを守ります…今回は。",retry:"↻ もう一度挑戦",again:"↻ もう一度プレイ",toTitle:"タイトル",sndOn:"🔊 サウンドON",sndOff:"🔇 サウンドOFF",points:"このテストではFRGとLUNCはゲーム内ポイントです。賞品はゲーム外で手渡しされます。",helpKeys:"移動 ◀ ▶ · ジャンプ Space · 照準 マウスまたは W/S · 射撃 J · 爆弾 K"},
-zh:{tapStart:"点按开始",test:"🧪 测试版 — 私人测试 · 分数仅存于本设备",mission:"任务",obj1:"消灭所有敌人",obj2:"夺取宝珠",enter:"▶ 进入任务",myFighter:"我的战士",nftBlurb:"你的 Lunc Zombies-Commandos NFT 就是你的战士:选一个,就以那个突击队员的身份作战。",pastePh:"粘贴你的 Terra Classic 钱包地址",lookup:"查询",connect:"连接 KEPLR",checking:"正在查询链上数据…",noNft:"该钱包里没有突击队员 — 你将以基础僵尸英雄作战。完整游戏照常可玩。",lookupFail:"暂时连不上链 — 你将以基础僵尸英雄作战。",found:"找到 {n} 名突击队员 — 点选一名以其身份作战:",playAs:"当前战士",baseHero:"基础僵尸英雄",ownedOnly:"仅显示钱包持有的突击队员(本测试不计质押中的突击队员)。",rarityPower:"力量来自 NFT 的链上 Rarity 属性",fallbackPower:"无法读取 Rarity — 已应用基础突击队员力量",bonusPower:"小队加成:+{n} 名突击队员支援你的战士",complete:"✓ 任务完成",failed:"✖ 任务失败",dead:"你的战士倒下了。尸群守住了宝珠……这一次。",retry:"↻ 再试一次",again:"↻ 再玩一次",toTitle:"标题",sndOn:"🔊 声音开",sndOff:"🔇 声音关",points:"本测试中 FRG + LUNC 为游戏内积分。奖品在游戏外手动发放。",helpKeys:"移动 ◀ ▶ · 跳跃 空格 · 瞄准 鼠标或 W/S · 开火 J · 炸弹 K"}
+en:{tapStart:"TAP TO START",test:"🧪 TEST BUILD — private test run · scores save on this device only",mission:"MISSION",brief:"Operation Dawn Break",obj1:"Kill All Enemies",obj2:"Get The Orb",reward:"Reward",enter:"▶ ENTER MISSION",myFighter:"MY FIGHTER",nftBlurb:"Your Lunc Zombies-Commandos NFT is your fighter — like Garuda: pick one and you play as that Commando.",campaign:"CAMPAIGN — LEVEL 1 OF 40",lockedSoon:"LEVELS 2–40 — CAMPAIGN UNDER CONSTRUCTION",mintSoon:"Zombie 2.0 Fighters — mint coming",pastePh:"Paste your Terra Classic wallet address",lookup:"LOOK UP",connect:"CONNECT KEPLR",connectGalaxy:"🌌 GALAXY STATION",connectDash:"🚀 LUNCDASH",pasteStay:"You can also paste an address above just to look (read-only).",connectFail:"nothing connected. Tap its connect button to try again, or paste an address above just to look (read-only).",checking:"Checking the chain…",noNft:"No Commandos found in that wallet — you play as the base zombie hero. The full game still works.",lookupFail:"Couldn't reach the chain just now — you play as the base zombie hero. Try again later.",found:"{n} Commando(s) found — tap one to play as it:",playAs:"PLAYING AS",baseHero:"BASE ZOMBIE HERO",ownedOnly:"Showing wallet-owned Commandos (staked Commandos are not credited in this test).",rarityPower:"Power from the NFT's on-chain Rarity trait",fallbackPower:"Rarity not readable — base Commando power applied",bonusPower:"Squad bonus: +{n} Commando(s) backing your fighter",hp:"HP",ammo:"Ammo",bombs:"Bombs",kills:"Kills",time:"Time",complete:"✓ MISSION COMPLETE",failed:"✖ MISSION FAILED",dead:"Your fighter went down. The horde keeps the Orb… this time.",retry:"↻ TRY AGAIN",again:"↻ PLAY AGAIN",toTitle:"TITLE",best:"🏆 BEST — Score {s} · {t}",bestNone:"🏆 No completed run yet on this device",sndOn:"🔊 SOUND ON",sndOff:"🔇 SOUND OFF",points:"FRG + LUNC are in-game POINTS in this test. Prizes are handled by hand, outside the game.",helpKeys:"MOVE ◀ ▶ · JUMP Space · AIM Mouse or W/S (full arc ↑↓) · FIRE J · BOMB K",rotate:"↻ Rotate your phone for the full battlefield"},
+es:{tapStart:"TOCA PARA EMPEZAR",test:"🧪 VERSIÓN DE PRUEBA — privada · las marcas se guardan solo en este dispositivo",mission:"MISIÓN",obj1:"Elimina a todos los enemigos",obj2:"Consigue el Orbe",enter:"▶ ENTRAR A LA MISIÓN",myFighter:"MI LUCHADOR",nftBlurb:"Tu NFT Lunc Zombies-Commandos es tu luchador: elige uno y juegas como ese Comando.",pastePh:"Pega tu dirección de billetera Terra Classic",lookup:"BUSCAR",connect:"CONECTAR KEPLR",connectGalaxy:"🌌 CONECTAR GALAXY STATION",connectDash:"🚀 LUNCDASH",checking:"Consultando la cadena…",noNft:"No se encontraron Comandos en esa billetera: juegas como el héroe zombi base. El juego completo funciona igual.",lookupFail:"No se pudo consultar la cadena ahora: juegas como el héroe zombi base.",found:"{n} Comando(s) encontrados — toca uno para jugar como él:",playAs:"JUGANDO COMO",baseHero:"HÉROE ZOMBI BASE",ownedOnly:"Se muestran los Comandos de la billetera (los Comandos en staking no cuentan en esta prueba).",rarityPower:"Poder según el rasgo Rareza del NFT en la cadena",fallbackPower:"Rareza no legible: se aplicó el poder base de Comando",bonusPower:"Bono de escuadrón: +{n} Comando(s) apoyando a tu luchador",complete:"✓ MISIÓN COMPLETADA",failed:"✖ MISIÓN FALLIDA",dead:"Tu luchador cayó. La horda se queda con el Orbe… esta vez.",retry:"↻ INTENTAR DE NUEVO",again:"↻ JUGAR OTRA VEZ",toTitle:"TÍTULO",sndOn:"🔊 SONIDO SÍ",sndOff:"🔇 SONIDO NO",points:"FRG + LUNC son PUNTOS del juego en esta prueba. Los premios se entregan a mano, fuera del juego.",helpKeys:"MOVER ◀ ▶ · SALTAR Espacio · APUNTAR Ratón o W/S · DISPARAR J · BOMBA K"},
+pt:{tapStart:"TOQUE PARA COMEÇAR",test:"🧪 VERSÃO DE TESTE — privada · pontuações só neste dispositivo",mission:"MISSÃO",obj1:"Elimine todos os inimigos",obj2:"Pegue o Orbe",enter:"▶ ENTRAR NA MISSÃO",myFighter:"MEU LUTADOR",nftBlurb:"Seu NFT Lunc Zombies-Commandos é o seu lutador: escolha um e jogue como aquele Comando.",pastePh:"Cole seu endereço de carteira Terra Classic",lookup:"PROCURAR",connect:"CONECTAR KEPLR",connectGalaxy:"🌌 CONECTAR GALAXY STATION",connectDash:"🚀 LUNCDASH",checking:"Consultando a cadeia…",noNft:"Nenhum Comando nessa carteira — você joga como o herói zumbi base. O jogo completo funciona.",lookupFail:"Não foi possível consultar a cadeia agora — você joga como o herói zumbi base.",found:"{n} Comando(s) encontrados — toque em um para jogar como ele:",playAs:"JOGANDO COMO",baseHero:"HERÓI ZUMBI BASE",ownedOnly:"Mostrando Comandos da carteira (Comandos em staking não contam neste teste).",rarityPower:"Poder pelo traço Raridade do NFT na cadeia",fallbackPower:"Raridade ilegível — poder base de Comando aplicado",bonusPower:"Bônus de esquadrão: +{n} Comando(s) apoiando seu lutador",complete:"✓ MISSÃO COMPLETA",failed:"✖ MISSÃO FALHOU",dead:"Seu lutador caiu. A horda fica com o Orbe… desta vez.",retry:"↻ TENTAR DE NOVO",again:"↻ JOGAR DE NOVO",toTitle:"TÍTULO",sndOn:"🔊 SOM LIGADO",sndOff:"🔇 SOM DESLIGADO",points:"FRG + LUNC são PONTOS do jogo neste teste. Os prêmios são entregues à mão, fora do jogo.",helpKeys:"MOVER ◀ ▶ · PULAR Espaço · MIRAR Mouse ou W/S · ATIRAR J · BOMBA K"},
+fr:{tapStart:"TOUCHEZ POUR COMMENCER",test:"🧪 VERSION TEST — privée · scores sur cet appareil seulement",mission:"MISSION",obj1:"Éliminez tous les ennemis",obj2:"Récupérez l'Orbe",enter:"▶ ENTRER DANS LA MISSION",myFighter:"MON COMBATTANT",nftBlurb:"Votre NFT Lunc Zombies-Commandos est votre combattant : choisissez-en un et jouez ce Commando.",pastePh:"Collez votre adresse de portefeuille Terra Classic",lookup:"CHERCHER",connect:"CONNECTER KEPLR",connectGalaxy:"🌌 CONNECTER GALAXY STATION",connectDash:"🚀 LUNCDASH",checking:"Vérification sur la chaîne…",noNft:"Aucun Commando dans ce portefeuille — vous jouez le héros zombie de base. Le jeu complet fonctionne.",lookupFail:"Chaîne injoignable pour le moment — vous jouez le héros zombie de base.",found:"{n} Commando(s) trouvé(s) — touchez-en un pour jouer avec :",playAs:"VOUS JOUEZ",baseHero:"HÉROS ZOMBIE DE BASE",ownedOnly:"Commandos du portefeuille affichés (les Commandos en staking ne comptent pas dans ce test).",rarityPower:"Puissance selon le trait Rareté du NFT sur la chaîne",fallbackPower:"Rareté illisible — puissance Commando de base appliquée",bonusPower:"Bonus d'escouade : +{n} Commando(s) derrière votre combattant",complete:"✓ MISSION ACCOMPLIE",failed:"✖ MISSION ÉCHOUÉE",dead:"Votre combattant est tombé. La horde garde l'Orbe… cette fois.",retry:"↻ RÉESSAYER",again:"↻ REJOUER",toTitle:"TITRE",sndOn:"🔊 SON ACTIVÉ",sndOff:"🔇 SON COUPÉ",points:"FRG + LUNC sont des POINTS de jeu dans ce test. Les prix sont remis à la main, hors du jeu.",helpKeys:"BOUGER ◀ ▶ · SAUTER Espace · VISER Souris ou W/S · TIRER J · BOMBE K"},
+de:{tapStart:"TIPPEN ZUM STARTEN",test:"🧪 TESTVERSION — privat · Punkte nur auf diesem Gerät",mission:"MISSION",obj1:"Besiege alle Feinde",obj2:"Hol die Kugel (Orb)",enter:"▶ MISSION STARTEN",myFighter:"MEIN KÄMPFER",nftBlurb:"Dein Lunc Zombies-Commandos NFT ist dein Kämpfer: Wähle eines und spiele als dieser Commando.",pastePh:"Füge deine Terra-Classic-Wallet-Adresse ein",lookup:"SUCHEN",connect:"KEPLR VERBINDEN",connectGalaxy:"🌌 GALAXY STATION VERBINDEN",connectDash:"🚀 LUNCDASH",checking:"Kette wird geprüft…",noNft:"Keine Commandos in dieser Wallet — du spielst den Basis-Zombiehelden. Das volle Spiel läuft trotzdem.",lookupFail:"Kette gerade nicht erreichbar — du spielst den Basis-Zombiehelden.",found:"{n} Commando(s) gefunden — tippe eines an, um als es zu spielen:",playAs:"DU SPIELST ALS",baseHero:"BASIS-ZOMBIEHELD",ownedOnly:"Commandos aus der Wallet werden gezeigt (gestakte Commandos zählen in diesem Test nicht).",rarityPower:"Stärke aus dem Rarity-Merkmal des NFT auf der Kette",fallbackPower:"Rarity nicht lesbar — Basis-Commando-Stärke angewendet",bonusPower:"Trupp-Bonus: +{n} Commando(s) stärken deinen Kämpfer",complete:"✓ MISSION GESCHAFFT",failed:"✖ MISSION GESCHEITERT",dead:"Dein Kämpfer ist gefallen. Die Horde behält die Kugel… diesmal.",retry:"↻ NOCHMAL VERSUCHEN",again:"↻ NOCHMAL SPIELEN",toTitle:"TITEL",sndOn:"🔊 TON AN",sndOff:"🔇 TON AUS",points:"FRG + LUNC sind in diesem Test Spiel-PUNKTE. Preise werden von Hand außerhalb des Spiels vergeben.",helpKeys:"LAUFEN ◀ ▶ · SPRINGEN Leertaste · ZIELEN Maus oder W/S · FEUER J · BOMBE K"},
+it:{tapStart:"TOCCA PER INIZIARE",test:"🧪 VERSIONE DI PROVA — privata · punteggi solo su questo dispositivo",mission:"MISSIONE",obj1:"Elimina tutti i nemici",obj2:"Prendi la Sfera",enter:"▶ ENTRA NELLA MISSIONE",myFighter:"IL MIO COMBATTENTE",nftBlurb:"Il tuo NFT Lunc Zombies-Commandos è il tuo combattente: scegline uno e giochi come quel Commando.",pastePh:"Incolla l'indirizzo del tuo wallet Terra Classic",lookup:"CERCA",connect:"COLLEGA KEPLR",connectGalaxy:"🌌 COLLEGA GALAXY STATION",connectDash:"🚀 LUNCDASH",checking:"Controllo sulla catena…",noNft:"Nessun Commando in quel wallet — giochi come l'eroe zombie base. Il gioco completo funziona.",lookupFail:"Catena non raggiungibile ora — giochi come l'eroe zombie base.",found:"{n} Commando trovati — toccane uno per giocare come lui:",playAs:"GIOCHI COME",baseHero:"EROE ZOMBIE BASE",ownedOnly:"Mostrati i Commando del wallet (i Commando in staking non contano in questo test).",rarityPower:"Potenza dal tratto Rarità dell'NFT sulla catena",fallbackPower:"Rarità non leggibile — potenza Commando base applicata",bonusPower:"Bonus squadra: +{n} Commando a supporto del tuo combattente",complete:"✓ MISSIONE COMPLETATA",failed:"✖ MISSIONE FALLITA",dead:"Il tuo combattente è caduto. L'orda tiene la Sfera… per questa volta.",retry:"↻ RIPROVA",again:"↻ GIOCA ANCORA",toTitle:"TITOLO",sndOn:"🔊 AUDIO ATTIVO",sndOff:"🔇 AUDIO SPENTO",points:"FRG + LUNC sono PUNTI di gioco in questo test. I premi sono consegnati a mano, fuori dal gioco.",helpKeys:"MUOVI ◀ ▶ · SALTA Spazio · MIRA Mouse o W/S · SPARA J · BOMBA K"},
+nl:{tapStart:"TIK OM TE STARTEN",test:"🧪 TESTVERSIE — privé · scores alleen op dit apparaat",mission:"MISSIE",obj1:"Versla alle vijanden",obj2:"Pak de Orb",enter:"▶ START DE MISSIE",myFighter:"MIJN VECHTER",nftBlurb:"Je Lunc Zombies-Commandos NFT is je vechter: kies er een en speel als die Commando.",pastePh:"Plak je Terra Classic wallet-adres",lookup:"OPZOEKEN",connect:"KEPLR VERBINDEN",connectGalaxy:"🌌 GALAXY STATION VERBINDEN",connectDash:"🚀 LUNCDASH",checking:"Keten controleren…",noNft:"Geen Commandos in die wallet — je speelt als de basis zombieheld. Het volledige spel werkt.",lookupFail:"Keten nu niet bereikbaar — je speelt als de basis zombieheld.",found:"{n} Commando('s) gevonden — tik er een aan om ermee te spelen:",playAs:"JE SPEELT ALS",baseHero:"BASIS ZOMBIEHELD",ownedOnly:"Commandos uit de wallet getoond (gestakete Commandos tellen in deze test niet mee).",rarityPower:"Kracht uit het Rarity-kenmerk van de NFT op de keten",fallbackPower:"Rarity niet leesbaar — basis Commando-kracht toegepast",bonusPower:"Ploegbonus: +{n} Commando('s) steunen je vechter",complete:"✓ MISSIE VOLTOOID",failed:"✖ MISSIE MISLUKT",dead:"Je vechter is gevallen. De horde houdt de Orb… deze keer.",retry:"↻ OPNIEUW PROBEREN",again:"↻ SPEEL OPNIEUW",toTitle:"TITEL",sndOn:"🔊 GELUID AAN",sndOff:"🔇 GELUID UIT",points:"FRG + LUNC zijn spel-PUNTEN in deze test. Prijzen worden met de hand uitgereikt, buiten het spel.",helpKeys:"LOPEN ◀ ▶ · SPRINGEN Spatie · RICHTEN Muis of W/S · VUUR J · BOM K"},
+ru:{tapStart:"НАЖМИ, ЧТОБЫ ИГРАТЬ",test:"🧪 ТЕСТОВАЯ ВЕРСИЯ — приватная · очки только на этом устройстве",mission:"МИССИЯ",obj1:"Убей всех врагов",obj2:"Забери Сферу",enter:"▶ НАЧАТЬ МИССИЮ",myFighter:"МОЙ БОЕЦ",nftBlurb:"Твой NFT Lunc Zombies-Commandos — это твой боец: выбери одного и играй за этого Коммандо.",pastePh:"Вставь адрес кошелька Terra Classic",lookup:"НАЙТИ",connect:"ПОДКЛЮЧИТЬ KEPLR",connectGalaxy:"🌌 ПОДКЛЮЧИТЬ GALAXY STATION",connectDash:"🚀 LUNCDASH",checking:"Проверяем цепочку…",noNft:"В этом кошельке нет Коммандо — ты играешь за базового зомби-героя. Полная игра работает.",lookupFail:"Цепочка сейчас недоступна — ты играешь за базового зомби-героя.",found:"Найдено Коммандо: {n} — коснись одного, чтобы играть за него:",playAs:"ТЫ ИГРАЕШЬ ЗА",baseHero:"БАЗОВЫЙ ЗОМБИ-ГЕРОЙ",ownedOnly:"Показаны Коммандо из кошелька (Коммандо в стейкинге в этом тесте не засчитываются).",rarityPower:"Сила — из признака Rarity NFT в цепочке",fallbackPower:"Rarity не читается — применена базовая сила Коммандо",bonusPower:"Бонус отряда: +{n} Коммандо поддерживают твоего бойца",complete:"✓ МИССИЯ ВЫПОЛНЕНА",failed:"✖ МИССИЯ ПРОВАЛЕНА",dead:"Твой боец пал. Орда оставила Сферу себе… в этот раз.",retry:"↻ ПОПРОБОВАТЬ СНОВА",again:"↻ ИГРАТЬ СНОВА",toTitle:"ТИТУЛ",sndOn:"🔊 ЗВУК ВКЛ",sndOff:"🔇 ЗВУК ВЫКЛ",points:"FRG + LUNC в этом тесте — игровые ОЧКИ. Призы выдаются вручную вне игры.",helpKeys:"ДВИЖЕНИЕ ◀ ▶ · ПРЫЖОК Пробел · ПРИЦЕЛ Мышь или W/S · ОГОНЬ J · БОМБА K"},
+uk:{tapStart:"НАТИСНИ, ЩОБ ГРАТИ",test:"🧪 ТЕСТОВА ВЕРСІЯ — приватна · очки лише на цьому пристрої",mission:"МІСІЯ",obj1:"Вбий усіх ворогів",obj2:"Забери Сферу",enter:"▶ ПОЧАТИ МІСІЮ",myFighter:"МІЙ БОЄЦЬ",nftBlurb:"Твій NFT Lunc Zombies-Commandos — це твій боєць: обери одного і грай за цього Командо.",pastePh:"Встав адресу гаманця Terra Classic",lookup:"ЗНАЙТИ",connect:"ПІДКЛЮЧИТИ KEPLR",connectGalaxy:"🌌 ПІДКЛЮЧИТИ GALAXY STATION",connectDash:"🚀 LUNCDASH",checking:"Перевіряємо ланцюг…",noNft:"У цьому гаманці немає Командо — ти граєш за базового зомбі-героя. Повна гра працює.",lookupFail:"Ланцюг зараз недоступний — ти граєш за базового зомбі-героя.",found:"Знайдено Командо: {n} — торкнися одного, щоб грати за нього:",playAs:"ТИ ГРАЄШ ЗА",baseHero:"БАЗОВИЙ ЗОМБІ-ГЕРОЙ",ownedOnly:"Показано Командо з гаманця (Командо у стейкінгу в цьому тесті не зараховуються).",rarityPower:"Сила — з ознаки Rarity NFT у ланцюгу",fallbackPower:"Rarity не читається — застосовано базову силу Командо",bonusPower:"Бонус загону: +{n} Командо підтримують твого бійця",complete:"✓ МІСІЮ ВИКОНАНО",failed:"✖ МІСІЮ ПРОВАЛЕНО",dead:"Твій боєць упав. Орда залишила Сферу собі… цього разу.",retry:"↻ СПРОБУВАТИ ЩЕ",again:"↻ ГРАТИ ЗНОВУ",toTitle:"ТИТУЛ",sndOn:"🔊 ЗВУК УВІМК",sndOff:"🔇 ЗВУК ВИМК",points:"FRG + LUNC у цьому тесті — ігрові ОЧКИ. Призи видаються вручну поза грою.",helpKeys:"РУХ ◀ ▶ · СТРИБОК Пробіл · ПРИЦІЛ Миша або W/S · ВОГОНЬ J · БОМБА K"},
+tr:{tapStart:"BAŞLAMAK İÇİN DOKUN",test:"🧪 TEST SÜRÜMÜ — özel · skorlar yalnızca bu cihazda",mission:"GÖREV",obj1:"Tüm düşmanları yok et",obj2:"Küre'yi al",enter:"▶ GÖREVE BAŞLA",myFighter:"SAVAŞÇIM",nftBlurb:"Lunc Zombies-Commandos NFT'in senin savaşçın: birini seç ve o Komando olarak oyna.",pastePh:"Terra Classic cüzdan adresini yapıştır",lookup:"ARA",connect:"KEPLR BAĞLA",connectGalaxy:"🌌 GALAXY STATION BAĞLA",connectDash:"🚀 LUNCDASH",checking:"Zincir kontrol ediliyor…",noNft:"Bu cüzdanda Komando yok — temel zombi kahraman olarak oynarsın. Oyunun tamamı çalışır.",lookupFail:"Zincire şu an ulaşılamıyor — temel zombi kahraman olarak oynarsın.",found:"{n} Komando bulundu — birine dokun, onunla oyna:",playAs:"ŞUNUNLA OYNUYORSUN",baseHero:"TEMEL ZOMBİ KAHRAMAN",ownedOnly:"Cüzdandaki Komandolar gösteriliyor (stake edilmiş Komandolar bu testte sayılmaz).",rarityPower:"Güç, NFT'nin zincirdeki Rarity özelliğinden",fallbackPower:"Rarity okunamadı — temel Komando gücü uygulandı",bonusPower:"Takım bonusu: +{n} Komando savaşçını destekliyor",complete:"✓ GÖREV TAMAMLANDI",failed:"✖ GÖREV BAŞARISIZ",dead:"Savaşçın düştü. Sürü Küre'yi elinde tutuyor… bu seferlik.",retry:"↻ TEKRAR DENE",again:"↻ TEKRAR OYNA",toTitle:"BAŞLIK",sndOn:"🔊 SES AÇIK",sndOff:"🔇 SES KAPALI",points:"Bu testte FRG + LUNC oyun PUANLARIDIR. Ödüller oyun dışında elle verilir.",helpKeys:"HAREKET ◀ ▶ · ZIPLA Boşluk · NİŞAN Fare veya W/S · ATEŞ J · BOMBA K"},
+ar:{tapStart:"انقر للبدء",test:"🧪 نسخة تجريبية — خاصة · النقاط على هذا الجهاز فقط",mission:"المهمة",obj1:"اقضِ على كل الأعداء",obj2:"خذ الجرم السماوي",enter:"▶ ادخل المهمة",myFighter:"مقاتلي",nftBlurb:"‏NFT Lunc Zombies-Commandos هو مقاتلك: اختر واحدًا والعب بهذا الكوماندو.",pastePh:"الصق عنوان محفظة Terra Classic",lookup:"بحث",connect:"اتصال KEPLR",connectGalaxy:"🌌 اتصال GALAXY STATION",connectDash:"🚀 LUNCDASH",checking:"جارٍ التحقق من السلسلة…",noNft:"لا يوجد كوماندو في هذه المحفظة — تلعب بالبطل الزومبي الأساسي. اللعبة الكاملة تعمل.",lookupFail:"تعذر الوصول إلى السلسلة الآن — تلعب بالبطل الزومبي الأساسي.",found:"تم العثور على {n} كوماندو — انقر واحدًا للعب به:",playAs:"تلعب بـ",baseHero:"البطل الزومبي الأساسي",ownedOnly:"يتم عرض كوماندو المحفظة (الكوماندو المُخزّن لا يُحتسب في هذا الاختبار).",rarityPower:"القوة من سمة الندرة Rarity الخاصة بـ NFT على السلسلة",fallbackPower:"الندرة غير قابلة للقراءة — تم تطبيق قوة الكوماندو الأساسية",bonusPower:"مكافأة الفرقة: +{n} كوماندو يدعمون مقاتلك",complete:"✓ اكتملت المهمة",failed:"✖ فشلت المهمة",dead:"سقط مقاتلك. الحشد يحتفظ بالجرم… هذه المرة.",retry:"↻ حاول مجددًا",again:"↻ العب مجددًا",toTitle:"العنوان",sndOn:"🔊 الصوت يعمل",sndOff:"🔇 الصوت صامت",points:"في هذا الاختبار FRG + LUNC نقاط داخل اللعبة. الجوائز تُسلّم يدويًا خارج اللعبة.",helpKeys:"تحرك ◀ ▶ · اقفز مسافة · صوّب فأرة أو W/S · أطلق J · قنبلة K"},
+hi:{tapStart:"शुरू करने के लिए टैप करो",test:"🧪 टेस्ट बिल्ड — निजी · स्कोर केवल इस डिवाइस पर",mission:"मिशन",obj1:"सभी दुश्मनों को मारो",obj2:"ऑर्ब हासिल करो",enter:"▶ मिशन शुरू करो",myFighter:"मेरा फाइटर",nftBlurb:"तुम्हारा Lunc Zombies-Commandos NFT ही तुम्हारा फाइटर है: एक चुनो और उसी कमांडो बनकर खेलो।",pastePh:"अपना Terra Classic वॉलेट पता चिपकाओ",lookup:"खोजो",connect:"KEPLR जोड़ो",connectGalaxy:"🌌 GALAXY STATION जोड़ो",connectDash:"🚀 LUNCDASH",checking:"चेन जांच रहे हैं…",noNft:"उस वॉलेट में कोई कमांडो नहीं — तुम बेस ज़ॉम्बी हीरो बनकर खेलते हो। पूरा खेल चलता है।",lookupFail:"अभी चेन तक पहुँच नहीं हुई — तुम बेस ज़ॉम्बी हीरो बनकर खेलते हो।",found:"{n} कमांडो मिले — किसी एक पर टैप करो और उससे खेलो:",playAs:"तुम खेल रहे हो",baseHero:"बेस ज़ॉम्बी हीरो",ownedOnly:"वॉलेट के कमांडो दिखाए गए (स्टेक किए कमांडो इस टेस्ट में नहीं गिने जाते)।",rarityPower:"शक्ति NFT के ऑन-चेन Rarity गुण से",fallbackPower:"Rarity पढ़ा नहीं गया — बेस कमांडो शक्ति लागू",bonusPower:"स्क्वाड बोनस: +{n} कमांडो तुम्हारे फाइटर के साथ",complete:"✓ मिशन पूरा",failed:"✖ मिशन असफल",dead:"तुम्हारा फाइटर गिर गया। झुंड ने ऑर्ब रख लिया… इस बार।",retry:"↻ फिर कोशिश करो",again:"↻ फिर खेलो",toTitle:"टाइटल",sndOn:"🔊 आवाज़ चालू",sndOff:"🔇 आवाज़ बंद",points:"इस टेस्ट में FRG + LUNC खेल के अंक हैं। इनाम खेल के बाहर हाथ से दिए जाते हैं।",helpKeys:"चलो ◀ ▶ · कूदो Space · निशाना Mouse या W/S · फायर J · बम K"},
+id:{tapStart:"KETUK UNTUK MULAI",test:"🧪 VERSI TES — pribadi · skor hanya di perangkat ini",mission:"MISI",obj1:"Kalahkan semua musuh",obj2:"Ambil Orb",enter:"▶ MASUK MISI",myFighter:"PETARUNGKU",nftBlurb:"NFT Lunc Zombies-Commandos milikmu adalah petarungmu: pilih satu dan bermainlah sebagai Komando itu.",pastePh:"Tempel alamat dompet Terra Classic kamu",lookup:"CARI",connect:"HUBUNGKAN KEPLR",connectGalaxy:"🌌 HUBUNGKAN GALAXY STATION",connectDash:"🚀 LUNCDASH",checking:"Memeriksa rantai…",noNft:"Tidak ada Komando di dompet itu — kamu bermain sebagai pahlawan zombie dasar. Game lengkap tetap berjalan.",lookupFail:"Rantai tidak terjangkau sekarang — kamu bermain sebagai pahlawan zombie dasar.",found:"{n} Komando ditemukan — ketuk satu untuk bermain sebagai dia:",playAs:"BERMAIN SEBAGAI",baseHero:"PAHLAWAN ZOMBIE DASAR",ownedOnly:"Menampilkan Komando di dompet (Komando yang di-stake tidak dihitung di tes ini).",rarityPower:"Kekuatan dari sifat Rarity NFT di rantai",fallbackPower:"Rarity tak terbaca — kekuatan Komando dasar diterapkan",bonusPower:"Bonus skuad: +{n} Komando mendukung petarungmu",complete:"✓ MISI SELESAI",failed:"✖ MISI GAGAL",dead:"Petarungmu tumbang. Kawanan menyimpan Orb… kali ini.",retry:"↻ COBA LAGI",again:"↻ MAIN LAGI",toTitle:"JUDUL",sndOn:"🔊 SUARA NYALA",sndOff:"🔇 SUARA MATI",points:"Di tes ini FRG + LUNC adalah POIN dalam game. Hadiah diberikan manual, di luar game.",helpKeys:"GERAK ◀ ▶ · LOMPAT Spasi · BIDIK Mouse atau W/S · TEMBAK J · BOM K"},
+vi:{tapStart:"CHẠM ĐỂ BẮT ĐẦU",test:"🧪 BẢN THỬ NGHIỆM — riêng tư · điểm chỉ lưu trên thiết bị này",mission:"NHIỆM VỤ",obj1:"Tiêu diệt mọi kẻ địch",obj2:"Lấy Quả Cầu",enter:"▶ VÀO NHIỆM VỤ",myFighter:"CHIẾN BINH CỦA TÔI",nftBlurb:"NFT Lunc Zombies-Commandos của bạn là chiến binh của bạn: chọn một và chơi như Commando đó.",pastePh:"Dán địa chỉ ví Terra Classic của bạn",lookup:"TRA CỨU",connect:"KẾT NỐI KEPLR",connectGalaxy:"🌌 KẾT NỐI GALAXY STATION",connectDash:"🚀 LUNCDASH",checking:"Đang kiểm tra chuỗi…",noNft:"Không có Commando trong ví đó — bạn chơi anh hùng zombie cơ bản. Trò chơi đầy đủ vẫn chạy.",lookupFail:"Không tới được chuỗi lúc này — bạn chơi anh hùng zombie cơ bản.",found:"Tìm thấy {n} Commando — chạm vào một để chơi như nó:",playAs:"ĐANG CHƠI NHƯ",baseHero:"ANH HÙNG ZOMBIE CƠ BẢN",ownedOnly:"Hiển thị Commando trong ví (Commando đang stake không được tính trong bản thử này).",rarityPower:"Sức mạnh từ thuộc tính Rarity của NFT trên chuỗi",fallbackPower:"Không đọc được Rarity — áp dụng sức mạnh Commando cơ bản",bonusPower:"Thưởng đội: +{n} Commando hỗ trợ chiến binh của bạn",complete:"✓ HOÀN THÀNH NHIỆM VỤ",failed:"✖ NHIỆM VỤ THẤT BẠI",dead:"Chiến binh của bạn đã ngã. Bầy đàn giữ Quả Cầu… lần này.",retry:"↻ THỬ LẠI",again:"↻ CHƠI LẠI",toTitle:"TIÊU ĐỀ",sndOn:"🔊 BẬT ÂM THANH",sndOff:"🔇 TẮT ÂM THANH",points:"Trong bản thử này FRG + LUNC là ĐIỂM trong game. Giải thưởng trao tay, ngoài game.",helpKeys:"DI CHUYỂN ◀ ▶ · NHẢY Space · NGẮM Chuột hoặc W/S · BẮN J · BOM K"},
+th:{tapStart:"แตะเพื่อเริ่ม",test:"🧪 ฉบับทดสอบ — ส่วนตัว · คะแนนเก็บในอุปกรณ์นี้เท่านั้น",mission:"ภารกิจ",obj1:"กำจัดศัตรูทั้งหมด",obj2:"เก็บลูกแก้ว Orb",enter:"▶ เข้าสู่ภารกิจ",myFighter:"นักสู้ของฉัน",nftBlurb:"NFT Lunc Zombies-Commandos ของคุณคือนักสู้ของคุณ: เลือกหนึ่งตัวแล้วเล่นเป็นคอมมานโดตัวนั้น",pastePh:"วางที่อยู่กระเป๋า Terra Classic ของคุณ",lookup:"ค้นหา",connect:"เชื่อมต่อ KEPLR",connectGalaxy:"🌌 เชื่อมต่อ GALAXY STATION",connectDash:"🚀 LUNCDASH",checking:"กำลังตรวจสอบเชน…",noNft:"ไม่พบคอมมานโดในกระเป๋านั้น — คุณเล่นเป็นฮีโร่ซอมบี้พื้นฐาน เกมเต็มยังเล่นได้",lookupFail:"ติดต่อเชนไม่ได้ตอนนี้ — คุณเล่นเป็นฮีโร่ซอมบี้พื้นฐาน",found:"พบ {n} คอมมานโด — แตะหนึ่งตัวเพื่อเล่นเป็นตัวนั้น:",playAs:"กำลังเล่นเป็น",baseHero:"ฮีโร่ซอมบี้พื้นฐาน",ownedOnly:"แสดงคอมมานโดในกระเป๋า (คอมมานโดที่สเตกไม่นับในฉบับทดสอบนี้)",rarityPower:"พลังจากคุณสมบัติ Rarity ของ NFT บนเชน",fallbackPower:"อ่าน Rarity ไม่ได้ — ใช้พลังคอมมานโดพื้นฐาน",bonusPower:"โบนัสทีม: +{n} คอมมานโดหนุนนักสู้ของคุณ",complete:"✓ ภารกิจสำเร็จ",failed:"✖ ภารกิจล้มเหลว",dead:"นักสู้ของคุณล้มลง ฝูงซอมบี้เก็บ Orb ไว้… ครั้งนี้",retry:"↻ ลองอีกครั้ง",again:"↻ เล่นอีกครั้ง",toTitle:"หน้าหลัก",sndOn:"🔊 เปิดเสียง",sndOff:"🔇 ปิดเสียง",points:"ในฉบับทดสอบนี้ FRG + LUNC เป็นแต้มในเกม รางวัลมอบด้วยมือ นอกเกม",helpKeys:"เดิน ◀ ▶ · กระโดด Space · เล็ง เมาส์หรือ W/S · ยิง J · ระเบิด K"},
+ko:{tapStart:"탭하여 시작",test:"🧪 테스트 빌드 — 비공개 · 점수는 이 기기에만 저장",mission:"미션",obj1:"모든 적 처치",obj2:"오브 획득",enter:"▶ 미션 시작",myFighter:"내 파이터",nftBlurb:"당신의 Lunc Zombies-Commandos NFT가 당신의 파이터입니다. 하나를 골라 그 코만도로 플레이하세요.",pastePh:"Terra Classic 지갑 주소를 붙여넣으세요",lookup:"조회",connect:"KEPLR 연결",connectGalaxy:"🌌 GALAXY STATION 연결",connectDash:"🚀 LUNCDASH",checking:"체인 확인 중…",noNft:"그 지갑에 코만도가 없습니다 — 기본 좀비 히어로로 플레이합니다. 전체 게임이 작동합니다.",lookupFail:"지금 체인에 연결할 수 없습니다 — 기본 좀비 히어로로 플레이합니다.",found:"코만도 {n}개 발견 — 탭해서 그 코만도로 플레이:",playAs:"플레이 중",baseHero:"기본 좀비 히어로",ownedOnly:"지갑 소유 코만도만 표시됩니다 (스테이킹된 코만도는 이 테스트에서 인정되지 않습니다).",rarityPower:"NFT의 온체인 Rarity 특성에서 오는 힘",fallbackPower:"Rarity를 읽을 수 없음 — 기본 코만도 힘 적용",bonusPower:"분대 보너스: 코만도 +{n}개가 파이터를 지원",complete:"✓ 미션 완료",failed:"✖ 미션 실패",dead:"파이터가 쓰러졌습니다. 무리가 오브를 지킵니다… 이번에는요.",retry:"↻ 다시 시도",again:"↻ 다시 플레이",toTitle:"타이틀",sndOn:"🔊 소리 켬",sndOff:"🔇 소리 끔",points:"이 테스트에서 FRG + LUNC는 게임 내 포인트입니다. 상품은 게임 밖에서 수동으로 지급됩니다.",helpKeys:"이동 ◀ ▶ · 점프 Space · 조준 마우스 또는 W/S · 발사 J · 폭탄 K"},
+ja:{tapStart:"タップしてスタート",test:"🧪 テストビルド — 非公開 · スコアはこの端末のみに保存",mission:"ミッション",obj1:"敵をすべて倒せ",obj2:"オーブを手に入れろ",enter:"▶ ミッション開始",myFighter:"マイファイター",nftBlurb:"あなたのLunc Zombies-Commandos NFTがあなたのファイターです。1つ選んで、そのコマンドーとしてプレイしましょう。",pastePh:"Terra Classicのウォレットアドレスを貼り付け",lookup:"検索",connect:"KEPLRを接続",connectGalaxy:"🌌 GALAXY STATIONを接続",connectDash:"🚀 LUNCDASH",checking:"チェーンを確認中…",noNft:"そのウォレットにコマンドーはありません — 基本のゾンビヒーローでプレイします。ゲーム全体は動作します。",lookupFail:"今はチェーンに届きません — 基本のゾンビヒーローでプレイします。",found:"コマンドー{n}体が見つかりました — タップしてそのコマンドーでプレイ:",playAs:"プレイ中",baseHero:"基本ゾンビヒーロー",ownedOnly:"ウォレット所有のコマンドーを表示（ステーキング中のコマンドーはこのテストでは加算されません）。",rarityPower:"NFTのオンチェーンRarity特性によるパワー",fallbackPower:"Rarityが読めません — 基本コマンドーパワーを適用",bonusPower:"分隊ボーナス: コマンドー+{n}体がファイターを支援",complete:"✓ ミッション完了",failed:"✖ ミッション失敗",dead:"ファイターが倒れました。群れがオーブを守ります…今回は。",retry:"↻ もう一度挑戦",again:"↻ もう一度プレイ",toTitle:"タイトル",sndOn:"🔊 サウンドON",sndOff:"🔇 サウンドOFF",points:"このテストではFRGとLUNCはゲーム内ポイントです。賞品はゲーム外で手渡しされます。",helpKeys:"移動 ◀ ▶ · ジャンプ Space · 照準 マウスまたは W/S · 射撃 J · 爆弾 K"},
+zh:{tapStart:"点按开始",test:"🧪 测试版 — 私人测试 · 分数仅存于本设备",mission:"任务",obj1:"消灭所有敌人",obj2:"夺取宝珠",enter:"▶ 进入任务",myFighter:"我的战士",nftBlurb:"你的 Lunc Zombies-Commandos NFT 就是你的战士:选一个,就以那个突击队员的身份作战。",pastePh:"粘贴你的 Terra Classic 钱包地址",lookup:"查询",connect:"连接 KEPLR",connectGalaxy:"🌌 连接 GALAXY STATION",connectDash:"🚀 LUNCDASH",checking:"正在查询链上数据…",noNft:"该钱包里没有突击队员 — 你将以基础僵尸英雄作战。完整游戏照常可玩。",lookupFail:"暂时连不上链 — 你将以基础僵尸英雄作战。",found:"找到 {n} 名突击队员 — 点选一名以其身份作战:",playAs:"当前战士",baseHero:"基础僵尸英雄",ownedOnly:"仅显示钱包持有的突击队员(本测试不计质押中的突击队员)。",rarityPower:"力量来自 NFT 的链上 Rarity 属性",fallbackPower:"无法读取 Rarity — 已应用基础突击队员力量",bonusPower:"小队加成:+{n} 名突击队员支援你的战士",complete:"✓ 任务完成",failed:"✖ 任务失败",dead:"你的战士倒下了。尸群守住了宝珠……这一次。",retry:"↻ 再试一次",again:"↻ 再玩一次",toTitle:"标题",sndOn:"🔊 声音开",sndOff:"🔇 声音关",points:"本测试中 FRG + LUNC 为游戏内积分。奖品在游戏外手动发放。",helpKeys:"移动 ◀ ▶ · 跳跃 空格 · 瞄准 鼠标或 W/S · 开火 J · 炸弹 K"}
 };
 /* generic keys every language falls back to English for */
 const DEF={brief:"Operation Dawn Break",reward:"REWARD",hp:"HP",ammo:"Ammo",bombs:"Bombs",kills:"Kills",time:"TIME",best:"🏆 BEST — {s} · {t}",bestNone:"🏆 No completed run yet",rotate:"↻ Rotate for the full battlefield",campaign:"CAMPAIGN — LEVEL 1 OF 40",lockedSoon:"LEVELS 2–40 — CAMPAIGN UNDER CONSTRUCTION",mintSoon:"Zombie 2.0 Fighters — mint coming"};
@@ -151,8 +168,8 @@ function speckle(g,w,h,n,cols,aMin,aMax,sMin,sMax){for(let i=0;i<n;i++){g.global
 const swampFar=makeStrip(1600,412,(g,w,h)=>{
   const gr=g.createLinearGradient(0,0,0,h);gr.addColorStop(0,'#2c4a3a');gr.addColorStop(.5,'#1a2f22');gr.addColorStop(1,'#0b1710');
   g.fillStyle=gr;g.fillRect(0,0,w,h);
-  for(let i=0;i<40;i++){g.globalAlpha=rr(.05,.13);g.fillStyle='#cfe8b0';g.beginPath();g.ellipse(rr(0,w),rr(0,240),rr(30,110),rr(16,50),rr(0,3),0,7);g.fill();}
-  for(let i=0;i<120;i++){g.globalAlpha=rr(.18,.42);g.fillStyle=['#33523d','#223a2a','#42654a','#182b1d'][(rnd()*4)|0];g.beginPath();g.ellipse(rr(0,w),rr(-10,190),rr(26,96),rr(18,58),rr(0,3),0,7);g.fill();}
+  for(let i=0;i<40;i++){g.globalAlpha=rr(.04,.09);g.fillStyle='#cfe8b0';g.beginPath();g.ellipse(rr(0,w),rr(0,240),rr(30,110),rr(16,50),rr(0,3),0,7);g.fill();}
+  for(let i=0;i<120;i++){g.globalAlpha=rr(.13,.3);g.fillStyle=['#33523d','#223a2a','#42654a','#182b1d'][(rnd()*4)|0];g.beginPath();g.ellipse(rr(0,w),rr(-10,190),rr(26,96),rr(18,58),rr(0,3),0,7);g.fill();}
   g.globalAlpha=1;
   for(let i=0;i<9;i++){const x=rr(0,w),tw=rr(14,30);g.globalAlpha=rr(.25,.45);g.fillStyle='#0d1a10';g.fillRect(x,rr(120,190),tw,h);g.globalAlpha=1;}
   g.strokeStyle='rgba(96,138,100,.35)';
@@ -172,7 +189,7 @@ const swampMid=makeStrip(1600,412,(g,w,h)=>{
     const dir=rnd()<.5?-1:1;
     g.beginPath();g.moveTo(tw/2,topY+rr(50,110));g.quadraticCurveTo(tw/2+dir*50,topY+rr(30,70),tw/2+dir*rr(80,130),topY+rr(6,44));g.stroke();
     g.restore();
-    g.globalAlpha=rr(.55,.85);g.fillStyle=['#24402c','#2f5238','#1a2f20'][(rnd()*3)|0];
+    g.globalAlpha=rr(.42,.68);g.fillStyle=['#24402c','#2f5238','#1a2f20'][(rnd()*3)|0];
     g.beginPath();g.ellipse(x+lean*.4,topY+rr(10,50),rr(56,110),rr(26,48),rr(0,3),0,7);g.fill();g.globalAlpha=1;
     g.strokeStyle='rgba(64,104,70,.6)';
     for(let m=0;m<4;m++){const mx=x+rr(-14,tw+10);g.lineWidth=rr(2,4.4);g.beginPath();g.moveTo(mx,topY+rr(40,100));g.quadraticCurveTo(mx+rr(-9,9),rr(150,220),mx+rr(-15,15),rr(210,320));g.stroke();}
@@ -182,6 +199,9 @@ const groundStrip=makeStrip(1600,120,(g,w,h)=>{
   const gr=g.createLinearGradient(0,0,0,h);gr.addColorStop(0,'#3d5231');gr.addColorStop(.18,'#2c4023');gr.addColorStop(.5,'#1d2c17');gr.addColorStop(1,'#101a0c');
   g.fillStyle=gr;g.fillRect(0,0,w,h);
   speckle(g,w,h,900,['#5d7d43','#729457','#243619','#0c1408'],.1,.35,1,5);
+  /* crisp ground/water edge: one hard light line on the ground lip instead
+     of the soft gradient smear (clean pass, Nov 10) */
+  g.globalAlpha=.5;g.fillStyle='#9dc98a';g.fillRect(0,0,w,2);g.globalAlpha=1;
   for(let i=0;i<160;i++){g.strokeStyle='rgba(110,150,80,.5)';g.lineWidth=1.4;const x=rr(0,w);g.beginPath();g.moveTo(x,rr(2,20));g.quadraticCurveTo(x+rr(-3,3),rr(-2,8),x+rr(-6,6),rr(-8,0));g.stroke();}
 });
 function drawRuin(x,y,w,h){
@@ -194,6 +214,10 @@ function drawRuin(x,y,w,h){
   for(let i=0;i<w/34;i++){g.beginPath();const cx2=i*34+((i%2)?8:20);g.moveTo(cx2,0);g.lineTo(cx2,h);g.stroke();}
   speckle(g,w,h,26,['#2e4423','#56743c','#191408'],.15,.4,2,7);
   g.fillStyle='rgba(74,110,52,.85)';g.beginPath();g.ellipse(w/2,2,w/2,7,0,0,7);g.fill();
+  /* crisp silhouette: a hard top edge + one corner highlight so the ruin
+     reads as cut stone against the swamp instead of a smudge (Nov 10) */
+  g.fillStyle='rgba(226,214,178,.5)';g.fillRect(0,0,w,2);
+  g.fillStyle='rgba(240,230,196,.35)';g.fillRect(0,0,2,h);
   g.fillStyle='rgba(20,16,8,.35)';g.fillRect(0,h-5,w,5);
   g.restore();
 }
@@ -594,7 +618,7 @@ const COLLECTIONS=[
 const LCD='https://terra-classic-lcd.publicnode.com';
 const RARITY_MULT={Common:1,Uncommon:1.1,Rare:1.25,Epic:1.5,Legendary:1.75,Mythic:2};
 let fighter=null;          /* {name,id,rarity,skin,style,img,imgOk,mult,powerNote} */
-let nftList=[], nftStatus='', nftAddr='';
+let nftList=[], nftStatus='', nftAddr='', nftFailMsg='';
 function b64(o){return btoa(unescape(encodeURIComponent(JSON.stringify(o))));}
 async function lcdSmart(contract,q){
   const r=await fetch(LCD+'/cosmwasm/wasm/v1/contract/'+contract+'/smart/'+b64(q));
@@ -657,6 +681,729 @@ function selectFighter(i){
 }
 function clearFighter(){fighter=null;}
 function drawFighterCardImages(){ /* token images load async — repaint if on brief screen */ if(screen==='brief')render(performance.now()); }
+
+/* ================= MY FIGHTER — Galaxy Station connect (gd-kit port) =================
+   Tom's standing order (Nov 10): the three-connect standard — Keplr +
+   Galaxy Station + LUNCDash one-tap connects alongside paste, read-only,
+   the Garuda gd-pattern. Sequencing (Nov 10 20:51): Keplr is the row
+   above; GALAXY lands here, reusing the Garuda gd-kit code Tom
+   phone-confirmed on Garuda Dash the same night (CosmosKit + the custom
+   Galaxy WalletConnect wallet ported from LUNC Grand Prix) — glue below
+   is rewritten for this panel's canvas UI, the ported core follows with
+   mechanical renames only.
+   LUNCDASH: PROVEN Nov 10 21:07 ET — Tom phone-confirmed the route on
+   Garuda (commit a90fc8f): legacy WalletConnect v1 over LUNCDash's
+   OWN bridge https://walletconnect.luncdash.com, a pairing sheet
+   (raw wc: link + QR + OPEN/COPY), and OPEN = the app's own deep link,
+   package-pinned on Android (intent://…#Intent;scheme=luncdash;
+   package=com.luncdash.wallet;end;) and raw luncdash:// on iOS.
+   Ported below from that commit with Zombie names/branding only —
+   the config lives in LUNCDASH_CONNECT_CONFIG, the connect in
+   z2LuncDashConnect. In LUNCDash's own in-app browser (window.station
+   injected) the same row goes through the kit's station-extension,
+   exactly as Garuda's row does.
+   READ-ONLY, exactly like the Keplr row and paste: a connect returns
+   an address, lookupNFT reads the chain, and NOTHING is ever signed —
+   no message, no transaction. A declined or unanswered connect says
+   so plainly (nftStatus 'connfail') and paste stays up. */
+const LUNCDASH_CONNECT_CONFIG = {   /* proven route (Garuda a90fc8f, Tom phone-confirmed Nov 10) — the isolated config block */
+  bridge: 'https://walletconnect.luncdash.com',
+  sessionKey: 'cosmes.wallet.luncdash.wcSession',
+  androidPackage: 'com.luncdash.wallet',
+  deepLink: (uri) => 'luncdash://wallet_connect?' + encodeURIComponent('payload=' + encodeURIComponent(uri)),
+  openHref: (uri) => (typeof z2IsMobileUA !== 'undefined' && z2IsMobileUA && /Android/i.test(navigator.userAgent || ''))
+    ? 'intent://wallet_connect?' + encodeURIComponent('payload=' + encodeURIComponent(uri)) + '#Intent;scheme=luncdash;package=com.luncdash.wallet;end;'
+    : LUNCDASH_CONNECT_CONFIG.deepLink(uri),
+};
+const z2IsMobileUA = /Android|webOS|iPhone|iPad|iPod/i.test(navigator.userAgent);
+/* Garuda's gdDeepLinkKeplrMobile, verbatim behavior: when Keplr is not
+   injected on a phone, hand this page to the Keplr app's own browser
+   (where the Keplr row then appears). Desktop / Keplr present: no-op. */
+function keplrDeepLinkMobile(){
+  if (typeof window !== 'undefined' && window.keplr) return false;
+  if (!z2IsMobileUA) return false;
+  window.location.href = 'keplrwallet://web-browser?url=' + encodeURIComponent(window.location.href);
+  return true;
+}
+let z2WalletVia = '';        /* '' (paste / Keplr row) | 'galaxy' — which connect route set the fighter wallet */
+function z2ValidAddr(a){ return /^terra1[02-9ac-hj-np-z]{38}$/.test(String(a || '')); }
+let kitChainWallet = null;
+let kitWalletName = '';      /* 'galaxy-station' */
+let kitPrettyName = '';      /* its pretty name ('Galaxy Station') */
+function z2KitHint(msg){
+  /* transient connect progress lives on the pair box (the canvas status
+     line is lookupNFT's — never clobbered mid-connect); while the
+     LUNCDash pairing sheet is up, progress goes to the CANVAS status
+     line instead (Garuda's gdKitHint pattern — its hints are the
+     pairing instructions and the OPEN watchdog, and the sheet's own
+     hint slot stays for the Galaxy flow) */
+  if (z2DashSheetOn && msg){ nftStatus = 'dashint'; nftFailMsg = msg; render(performance.now()); return; }
+  const hint = document.getElementById('z2PairHint');
+  if (hint) hint.textContent = msg || '';
+  const b = document.getElementById('z2PairBox');
+  if (b && msg) b.style.display = 'block';
+}
+function z2ShowPairFail(msg){
+  z2DashSheetOn = false;
+  z2PairExtras(false);
+  const b = document.getElementById('z2PairBox'); if (b) b.style.display = 'none';
+  const inp = document.getElementById('z2PairUri'); if (inp) inp.value = '';
+  if (msg){ nftStatus = 'connfail'; nftFailMsg = msg; render(performance.now()); }
+}
+/* the ported core calls showPairBox/hidePairBox for the raw wc:
+   pairing link — here they drive this panel's own pair box */
+function showPairBox(uri){
+  const inp = document.getElementById('z2PairUri');
+  if (inp) inp.value = uri;
+  const b = document.getElementById('z2PairBox');
+  if (b) b.style.display = 'block';
+}
+function hidePairBox(){
+  z2DashSheetOn = false;
+  z2PairExtras(false);
+  const b = document.getElementById('z2PairBox'); if (b) b.style.display = 'none';
+  const inp = document.getElementById('z2PairUri'); if (inp) inp.value = '';
+  const hint = document.getElementById('z2PairHint'); if (hint) hint.textContent = '';
+}
+/* A finished connect lands in the SAME loader the Keplr row and paste
+   use — the panel fills and lookupNFT reads the chain, exactly as
+   before. */
+function z2KitApplyAddress(addr, via){
+  hidePairBox();
+  if (!z2ValidAddr(addr)){
+    z2ShowPairFail('That wallet returned an address this chain cannot read — nothing connected. ' + T('pasteStay'));
+    return Promise.resolve(false);
+  }
+  z2WalletVia = via || '';
+  pasteInput.value = addr;
+  lookupNFT(addr);
+  return Promise.resolve(true);
+}
+/* normalizeKitLibs (in the ported core) ends by adopting a restored
+   session via this name — declared here (function-hoisted) so the
+   core can stay byte-close to Garuda's. */
+function z2KitAdopt(){ return kitScanAdopt(); }
+/* the pair box: DOM, shown on the brief screen only (same lifecycle as
+   the paste box), positioned under the MY FIGHTER panel in DOM coords */
+const pairBox = document.createElement('div');
+pairBox.id = 'z2PairBox';
+pairBox.style.cssText = 'position:absolute;display:none;width:410px;max-width:92vw;background:rgba(6,22,22,.94);border:1.6px dashed rgba(64,200,190,.7);border-radius:8px;padding:7px 9px;z-index:6;box-sizing:border-box;font-size:11.5px;color:#dff7f1;text-align:center;word-break:break-all;';
+pairBox.innerHTML = '<div>' + 'WalletConnect pairing link — paste it into your wallet\'s scanner:' + '</div>'
+  + '<div id="z2PairHint" style="margin-top:3px;color:#ffd968;"></div>'
+  + '<input id="z2PairUri" readonly style="width:100%;margin-top:5px;font-size:11px;box-sizing:border-box;background:rgba(0,0,0,.35);color:#e6f5f0;border:1px solid rgba(64,200,190,.4);border-radius:4px;padding:4px;">'
+  + '<canvas id="z2PairQr" width="180" height="180" style="display:none;margin:8px auto 2px;background:#fff;border-radius:8px"></canvas>'
+  + '<div id="z2PairActs" style="display:none;gap:7px;justify-content:center;margin-top:7px;flex-wrap:wrap;">'
+  + '<a id="z2PairOpen" href="#" style="text-decoration:none;display:inline-block;cursor:pointer;color:#fff;border-radius:10px;padding:9px 18px;font-size:13px;font-weight:900;letter-spacing:.05em;background:linear-gradient(180deg,#8d99c9,#5a6699);box-shadow:0 4px 0 #39406b;">🚀 OPEN LUNCDASH</a>'
+  + '<button id="z2PairCopy" type="button" style="cursor:pointer;color:#dff7f1;background:rgba(64,200,190,.14);border:1.4px solid rgba(64,200,190,.7);border-radius:10px;padding:9px 14px;font-size:12.5px;font-weight:800;">📋 COPY LINK</button>'
+  + '</div>';
+document.getElementById('wrap').appendChild(pairBox);
+function layoutPairBox(){
+  const r = cv.getBoundingClientRect(), wr = document.getElementById('wrap').getBoundingClientRect();
+  if (PORTRAIT){
+    const s = r.height / W;
+    pairBox.style.left = ((r.left - wr.left) + (H - 356) * s) + 'px';
+    pairBox.style.top = ((r.top - wr.top) + 468 * s) + 'px';
+    pairBox.style.width = (410 * s) + 'px';
+    pairBox.style.transform = 'rotate(90deg)';
+    pairBox.style.transformOrigin = '0 0';
+  } else {
+    const sx = r.width / W;
+    pairBox.style.left = ((r.left - wr.left) + 468 * sx) + 'px';
+    pairBox.style.top = ((r.top - wr.top) + 356 * (r.height / H)) + 'px';
+    pairBox.style.width = (410 * sx) + 'px';
+    pairBox.style.transform = '';
+  }
+}
+/* ---- LUNCDash pairing sheet extras (ported from Garuda a90fc8f —
+   gdPairExtras / gdDashRenderQr / COPY LINK / OPEN watchdog, renamed;
+   the sheet elements live in the pair box above). QR + OPEN/COPY are
+   LUNCDash-only: Galaxy's showPairBox never reveals them and every
+   hide path turns them back off. ---- */
+let z2DashSheetOn = false;
+let z2DashQrPromise = null;
+function z2DashRenderQr(uri){
+  const qrCv = document.getElementById('z2PairQr');
+  if (!qrCv) return;
+  if (!z2DashQrPromise){
+    z2DashQrPromise = import('https://esm.sh/qrcode@1.5.4?bundle')
+      .then(m => m.default || m)
+      .catch(err => { z2DashQrPromise = null; throw err; });
+  }
+  z2DashQrPromise.then(QR => {
+    if (!QR || typeof QR.toCanvas !== 'function') return;
+    QR.toCanvas(qrCv, uri, { width: 180, margin: 1 }, err => { if (!err) qrCv.style.display = 'block'; });
+  }).catch(() => { /* QR is a bonus — the raw link + COPY LINK still work */ });
+}
+function z2PairExtras(on, uri){
+  const acts = document.getElementById('z2PairActs');
+  if (acts) acts.style.display = on ? 'flex' : 'none';
+  const qrCv = document.getElementById('z2PairQr');
+  if (qrCv && !on) qrCv.style.display = 'none';
+  if (on && uri){
+    const a = document.getElementById('z2PairOpen');
+    if (a) a.href = LUNCDASH_CONNECT_CONFIG.openHref(uri);
+    z2DashRenderQr(uri);
+  }
+}
+function showDashPairBox(uri){
+  z2DashSheetOn = true;
+  showPairBox(uri);
+  z2PairExtras(true, uri);
+}
+/* COPY LINK: copies the raw wc: URI for the LUNCDash app's own
+   WalletConnect scanner (Garuda's gdPairCopy wiring, renamed). */
+const z2PairCopyBtn = document.getElementById('z2PairCopy');
+if (z2PairCopyBtn) z2PairCopyBtn.onclick = () => {
+  const inp = document.getElementById('z2PairUri');
+  const uri = inp ? inp.value : '';
+  if (!uri) return;
+  const copied = () => z2KitHint('Pairing link copied — open LUNCDash, paste it into its WalletConnect scanner, and approve. Your Commandos then load here.');
+  if (navigator.clipboard && navigator.clipboard.writeText)
+    navigator.clipboard.writeText(uri).then(copied).catch(() => { try { inp.select(); document.execCommand('copy'); copied(); } catch (e) {} });
+  else { try { inp.select(); document.execCommand('copy'); copied(); } catch (e) {} }
+};
+/* OPEN LUNCDASH watchdog (Garuda's, renamed): the button hands the
+   pairing link straight to the app — never a website. If this page is
+   still in front a few seconds later, the app didn't take it: say so
+   plainly and point at COPY LINK / paste-view instead. */
+const z2PairOpenBtn = document.getElementById('z2PairOpen');
+if (z2PairOpenBtn) z2PairOpenBtn.onclick = () => {
+  if (!z2PairOpenBtn.href || z2PairOpenBtn.href.endsWith('#')) return;
+  setTimeout(() => {
+    if (!document.hidden && !z2WalletVia)
+      z2KitHint('Still here? If the LUNCDash app didn\'t open, it may not be installed on this phone. Tap COPY LINK, open LUNCDash yourself, and paste the link into its WalletConnect scanner — or paste an address above just to look (read-only).');
+  }, 2500);
+};
+/* ---- LUNCDash connect: legacy WalletConnect v1 to the LUNC Dash
+   app's OWN bridge (ported from Garuda a90fc8f — gdLuncDashConnect,
+   renamed; "Garudas" -> "Commandos" in the copy). LUNC Dash is a
+   standalone wallet app (Android package com.luncdash.wallet) holding
+   its own keys — NOT a Station front-end. It speaks legacy WC v1
+   over https://walletconnect.luncdash.com — the exact stack
+   luncback.com's wallet layer runs (cosmes LuncDashController):
+   bridge session cached under cosmes' own LUNC Dash key, pairing URI
+   handed to this panel's pairing sheet. The client library is
+   @walletconnect/legacy-client from esm.sh, loaded lazily on first
+   use. Read-only: only the session's accounts are read — no request
+   is ever sent to the wallet. ---- */
+let z2DashWcPromise = null;
+function z2DashLoadLegacyClient(){
+  if (!z2DashWcPromise){
+    z2DashWcPromise = import('https://esm.sh/@walletconnect/client@1.8.0?bundle')
+      .then(m => m.default || m.WalletConnect || m)
+      .catch(err => { z2DashWcPromise = null; throw err; });
+  }
+  return z2DashWcPromise;
+}
+let z2DashBusy = false;
+function z2LuncDashConnect(){
+  if (z2DashBusy) return Promise.resolve(false);
+  z2DashBusy = true;
+  showDashPairBox('');
+  z2KitHint('Opening LUNCDash… getting a pairing link from the LUNCDash WalletConnect bridge.');
+  return z2DashLoadLegacyClient().then(WC => {
+    let cached = null;
+    try { cached = JSON.parse(localStorage.getItem(LUNCDASH_CONNECT_CONFIG.sessionKey) || 'null'); } catch (e) {}
+    const wc = new WC({ bridge: LUNCDASH_CONNECT_CONFIG.bridge, qrcode: false, session: cached || undefined });
+    return new Promise((resolve) => {
+      let settled = false;
+      const done = (ok, val) => { if (!settled){ settled = true; z2DashBusy = false; resolve(ok ? val : false); } };
+      wc.on('session_update', (_err, payload) => {
+        const acc = payload && payload.params && payload.params[0] && payload.params[0].accounts;
+        if (acc && acc[0]){
+          try { localStorage.setItem(LUNCDASH_CONNECT_CONFIG.sessionKey, JSON.stringify(wc.session)); } catch (e) {}
+          done(true, acc[0]);
+        }
+      });
+      wc.on('disconnect', () => {
+        try { localStorage.removeItem(LUNCDASH_CONNECT_CONFIG.sessionKey); } catch (e) {}
+        z2ShowPairFail('LUNCDash closed the WalletConnect session before an address came back — nothing connected. Tap CONNECT LUNCDASH to try again, or paste an address above just to look (read-only).');
+        done(false);
+      });
+      if (wc.connected && cached && cached.accounts && cached.accounts[0]){
+        try { localStorage.setItem(LUNCDASH_CONNECT_CONFIG.sessionKey, JSON.stringify(wc.session)); } catch (e) {}
+        done(true, cached.accounts[0]);
+        return;
+      }
+      if (wc.connected){ try { wc.killSession(); } catch (e) {} }
+      wc.createSession().then(() => {
+        const uri = wc.uri;
+        if (!uri) throw new Error('no pairing URI');
+        showDashPairBox(uri);
+        z2KitHint(z2IsMobileUA
+          ? 'Tap OPEN LUNCDASH below — the LUNCDash app opens with this connection; approve it there. If the app doesn\'t open, tap COPY LINK and paste it into LUNCDash\'s WalletConnect scanner.'
+          : 'Scan the QR code with the LUNCDash app\'s WalletConnect scanner — or copy the pairing link into it. Approve in the app and your Commandos load here.');
+        wc.on('connect', (err, payload) => {
+          if (err){ z2ShowPairFail('LUNCDash declined the connection — nothing connected. Tap CONNECT LUNCDASH to try again, or paste an address above just to look (read-only).'); done(false); return; }
+          const acc = (payload && payload.params && payload.params[0] && payload.params[0].accounts) || wc.accounts || [];
+          if (!acc[0]){ z2ShowPairFail('LUNCDash connected but returned no Terra Classic address — nothing connected. Paste an address above just to look (read-only).'); done(false); return; }
+          try { localStorage.setItem(LUNCDASH_CONNECT_CONFIG.sessionKey, JSON.stringify(wc.session)); } catch (e) {}
+          done(true, acc[0]);
+        });
+      }).catch(err => {
+        z2ShowPairFail("The LUNCDash WalletConnect bridge didn't answer" + (err && err.message ? ': ' + String(err.message).slice(0, 90) : '') + ' — nothing connected. Tap CONNECT LUNCDASH to try again, or paste an address above just to look (read-only).');
+        done(false);
+      });
+    }).then(addr => addr ? z2KitApplyAddress(addr, 'luncdash') : false);
+  }).catch(err => {
+    z2DashBusy = false;
+    z2ShowPairFail("The WalletConnect library couldn't load" + (err && err.message ? ': ' + String(err.message).slice(0, 90) : '') + ' — nothing connected. Tap CONNECT LUNCDASH to try again, or paste an address above just to look (read-only).');
+    return false;
+  });
+}
+/* returning visit: if a LUNCDash session was approved earlier and is
+   still cached, adopt its address quietly (Garuda's gdLuncDashRestore
+   — the cosmes restore pattern; nothing loads when no session is
+   cached). */
+function z2LuncDashRestore(){
+  if (z2WalletVia) return;
+  let cached = null;
+  try { cached = JSON.parse(localStorage.getItem(LUNCDASH_CONNECT_CONFIG.sessionKey) || 'null'); } catch (e) {}
+  if (!cached || !cached.accounts || !cached.accounts[0]) return;
+  z2DashLoadLegacyClient().then(WC => {
+    if (z2WalletVia) return;
+    const wc = new WC({ bridge: LUNCDASH_CONNECT_CONFIG.bridge, qrcode: false, session: cached });
+    if (wc.connected && wc.accounts && wc.accounts[0]) z2KitApplyAddress(wc.accounts[0], 'luncdash');
+  }).catch(() => { /* a stale session restores nothing; the row still works */ });
+}
+try { z2LuncDashRestore(); } catch (e) {}
+
+/* ---- the chain definition: the LNC app's chainDef.js, verbatim
+   (LCD/RPC inlined from its config.js — the publicnode endpoints).
+   Columbus-5 is not in the upstream chain-registry package
+   CosmosKit consumes, so the app ships its own Chain + AssetList.
+   (Ported from LUNC Grand Prix, which ported it from the LNC app.) */
+const TERRA_CLASSIC_CHAIN = {
+  $schema: '../chain.schema.json',
+  chain_name: 'terraclassic',
+  status: 'live',
+  network_type: 'mainnet',
+  pretty_name: 'Terra Classic',
+  chain_id: 'columbus-5',
+  bech32_prefix: 'terra',
+  daemon_name: 'terrad',
+  node_home: '$HOME/.terra',
+  slip44: 330,
+  fees: {
+    fee_tokens: [
+      { denom: 'uluna', fixed_min_gas_price: 0.15, low_gas_price: 0.15, average_gas_price: 0.15, high_gas_price: 0.15 },
+    ],
+  },
+  staking: { staking_tokens: [{ denom: 'uluna' }] },
+  codebase: { git_repo: 'https://github.com/classic-terra/core', recommended_version: 'v4.1.1', compatible_versions: ['v4.1.1'] },
+  apis: {
+    rpc: [{ address: 'https://terra-classic-rpc.publicnode.com', provider: 'PublicNode' }],
+    rest: [{ address: 'https://terra-classic-lcd.publicnode.com', provider: 'PublicNode' }],
+    grpc: [],
+  },
+  explorers: [{ kind: 'Terra Finder', url: 'https://finder.terraclassic.community/mainnet', tx_page: 'https://finder.terraclassic.community/mainnet/tx/${txHash}' }],
+};
+const TERRA_CLASSIC_ASSETS = {
+  $schema: '../assetlist.schema.json',
+  chain_name: 'terraclassic',
+  assets: [
+    {
+      description: 'The native staking and gas token of Terra Classic.',
+      denom_units: [
+        { denom: 'uluna', exponent: 0 },
+        { denom: 'luna', exponent: 6 },
+      ],
+      base: 'uluna',
+      name: 'Terra Luna Classic',
+      display: 'luna',
+      symbol: 'LUNC',
+      logo_URIs: { png: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/terraclassic/images/lunc.png' },
+      coingecko_id: 'terra-luna',
+    },
+  ],
+};
+
+/* ---- the custom Galaxy Station WalletConnect wallet: the LNC
+   app's wallets.js, ported near-verbatim (the base classes arrive
+   with the lazily loaded @cosmos-kit/walletconnect bundle, so the
+   classes are built by this factory at load time). Galaxy Station
+   is not listed in the WalletConnect explorer registry, so no
+   upstream CosmosKit package exists for it; in its in-app browser
+   it injects window.station, covered by the Station entry — this
+   entry adds the standard pairing flow for other browsers. */
+/* Galaxy Station's genuine logo — the favicon its own site
+   serves; the wallet info below carries it, and the wallet-select
+   modal's Galaxy row shows the same art. */
+const GALAXY_STATION_LOGO = 'https://station.terraclassic.community/favicon.svg';
+function galaxyKitFrom(wc){
+  /* Galaxy Station has no WalletConnect Explorer listing (no
+     listing ID), so WCClient's Explorer lookup leaves wcCloudInfo
+     undefined and initAppUrl() throws before it can fall back to
+     the registry `mobile` links below — leaving redirect
+     permanently false and the modal stuck on the QR view. Seed an
+     empty wcCloudInfo so the fallback is reached (the same
+     pattern @cosmos-kit/keplr-mobile uses). */
+  class GalaxyClient extends wc.WCClient {
+    async initWCCloudInfo() {
+      this.wcCloudInfo = { mobile: {} };
+    }
+  }
+  const galaxyStationInfo = {
+    name: 'galaxy-station',
+    prettyName: 'Galaxy Station',
+    logo: GALAXY_STATION_LOGO,
+    mode: 'wallet-connect',
+    mobileDisabled: false,
+    rejectMessage: {
+      source: 'Request rejected',
+    },
+    downloads: [
+      {
+        link: 'https://station.terraclassic.community',
+      },
+    ],
+    supportedChains: ['terraclassic'],
+    walletconnect: {
+      name: 'Galaxy Station',
+      /* Galaxy Station returns base64-encoded pubkeys; with the
+         client default ('hex') account decoding after approval
+         would be wrong. */
+      encoding: 'base64',
+      mobile: {
+        /* Real app links, proven in the FRG app — NOT the project
+           website. Android goes through the Hexxagon intent link;
+           iOS only answers to its native scheme (the HTTPS site
+           just loads the web dashboard and strands the user). */
+        native: {
+          ios: 'galaxystation:',
+          android: 'https://station.hexxagon.io/wcV2',
+        },
+      },
+      /* Composes the pairing deep link from the native app URL +
+         the WalletConnect URI, modeled on @cosmos-kit/keplr-mobile:
+           iOS:     galaxystation://wcV2?<encoded wc uri>
+           Android: https://station.hexxagon.io/wcV2?<encoded wc uri>
+                    #Intent;package=io.hexxagon.station;scheme=galaxystation;end; */
+      formatNativeUrl: (appUrl, wcUri, os, _name) => {
+        const encodedWcUrl = encodeURIComponent(wcUri);
+        switch (os) {
+          case 'ios':
+            return `galaxystation://wcV2?${encodedWcUrl}`;
+          case 'android':
+            return `${appUrl}?${encodedWcUrl}#Intent;package=io.hexxagon.station;scheme=galaxystation;end;`;
+          default:
+            return `galaxystation://wcV2?${encodedWcUrl}`;
+        }
+      },
+    },
+  };
+  class ChainGalaxyStation extends wc.ChainWC {
+    constructor(walletInfo, chainInfo) {
+      super(walletInfo, chainInfo, GalaxyClient);
+    }
+  }
+  class GalaxyStationWallet extends wc.WCWallet {
+    constructor(walletInfo) {
+      super(walletInfo, ChainGalaxyStation, GalaxyClient);
+    }
+  }
+  return { GalaxyClient, ChainGalaxyStation, GalaxyStationWallet, galaxyStationInfo };
+}
+const KIT_PROJECT_ID = '7e363f1ed5d676ecc4ae2d40c5b83fbf';   /* the Reown project id the owner's other apps use */
+const KIT_CHAIN_NAME = 'terraclassic';   /* CosmosKit lookup key (chainDef chain_name) */
+const GD_GAS_PRICE = 28.325;   /* uluna per gas unit (manager signer options only — this page never signs) */
+const KIT_APP_URL = 'https://frg-fight-club.vercel.app/zombie-2-test/';
+const KIT_URLS = {
+  buffer: 'https://esm.sh/buffer@6.0.3?bundle',
+  core: 'https://esm.sh/@cosmos-kit/core@2.18.1',
+  keplr: 'https://esm.sh/@cosmos-kit/keplr@2.17.1',
+  station: 'https://esm.sh/@cosmos-kit/station@2.15.1',
+  walletconnect: 'https://esm.sh/@cosmos-kit/walletconnect@2.15.1',
+  stargate: 'https://esm.sh/@cosmjs/stargate@0.33.1?bundle',
+};
+let kitTestHook = null;   /* headless hook only — { manager } or { libs } (or the libs themselves); never set in play */
+let kitLibsCache = null;
+let kitLibsPromise = null;
+function kitHook(){
+  if (kitTestHook) return kitTestHook;
+  return null;
+}
+function normalizeKitLibs(libs){
+  if (!libs || !libs.core || !libs.core.WalletManager || !libs.keplr || !libs.station || !libs.walletconnect)
+    throw new Error('the CosmosKit libraries loaded incomplete');
+  if (!libs.cosmjs || !libs.cosmjs.SigningStargateClient || !libs.cosmjs.GasPrice)
+    throw new Error('the signing library loaded incomplete');
+  const out = {
+    core: libs.core, keplr: libs.keplr, station: libs.station, walletconnect: libs.walletconnect,
+    cosmjs: libs.cosmjs, galaxy: galaxyKitFrom(libs.walletconnect),
+    chain: TERRA_CLASSIC_CHAIN, assets: TERRA_CLASSIC_ASSETS,
+  };
+  kitLibsCache = out;
+  return out;
+}
+function loadKitLibs(){
+  if (kitLibsCache) return Promise.resolve(kitLibsCache);
+  const hook = kitHook();
+  const hookLibs = hook && (hook.libs || (hook.core ? hook : null));
+  if (hookLibs)
+    return Promise.resolve().then(() => (typeof hookLibs === 'function' ? hookLibs() : hookLibs))
+      .then(raw => (raw && raw.galaxy) ? raw : normalizeZ2KitLibs(raw));
+  if (!kitLibsPromise){
+    kitLibsPromise = Promise.resolve()
+      .then(() => import(KIT_URLS.buffer))
+      .then(bm => {
+        if (typeof globalThis !== 'undefined' && !globalThis.Buffer && bm && bm.Buffer) globalThis.Buffer = bm.Buffer;
+        if (typeof window !== 'undefined' && !window.global) window.global = window;
+      })
+      .then(() => Promise.all([import(KIT_URLS.core), import(KIT_URLS.keplr), import(KIT_URLS.station), import(KIT_URLS.walletconnect), import(KIT_URLS.stargate)]))
+      .then(([core, keplr, station, walletconnect, stargate]) => normalizeKitLibs({
+        core, keplr, station, walletconnect,
+        cosmjs: { SigningStargateClient: stargate && stargate.SigningStargateClient, GasPrice: stargate && stargate.GasPrice },
+      }))
+      .catch(err => { kitLibsPromise = null; throw err; });
+  }
+  return kitLibsPromise;
+}
+
+/* ---- the WalletManager: the LNC app's ChainProvider wiring
+   (wallets = keplr group + station group + the custom Galaxy
+   wallet; the same sign-client options, with this game's name
+   and URL; signer gas price at the game's buy rate — the
+   reference sets signingCosmwasm only, the game adds
+   signingStargate at the same price because its one signature is
+   a stargate MsgSend). onMounted runs un-awaited: it initializes
+   every WalletConnect client (network work) before it restores
+   stored accounts, and a connect must not queue behind that — a
+   chain wallet's own connect() initializes its client itself.
+   The restore path awaits it under a ceiling instead. */
+let kitManager = null;
+let kitMountedPromise = null;
+function kitNoopActions(){
+  return { viewOpen(){}, viewWalletRepo(){}, data(){}, state(){}, message(){}, clientState(){}, clientMessage(){}, render(){} };
+}
+function ensureKitManager(){
+  if (kitManager) return Promise.resolve(kitManager);
+  const hook = kitHook();
+  if (hook && hook.manager){
+    kitManager = hook.manager;
+    kitMountedPromise = Promise.resolve().then(() => (kitManager.onMounted ? kitManager.onMounted() : undefined)).catch(() => {});
+    kitMountedPromise.then(() => { z2KitAdopt(); });
+    return Promise.resolve(kitManager);
+  }
+  return loadKitLibs().then(kit => {
+    const wallets = [...kit.keplr.wallets, ...kit.station.wallets,
+      new kit.galaxy.GalaxyStationWallet(kit.galaxy.galaxyStationInfo)];
+    const wm = new kit.core.WalletManager(
+      [kit.chain], wallets, new kit.core.Logger('WARN'), false, true, undefined,
+      [kit.assets], 'icns',
+      { signClient: { projectId: KIT_PROJECT_ID, metadata: {
+          name: 'LUNA CLASSIC ZOMBIE 2.0', description: 'Zombie 2.0 — MY FIGHTER read-only wallet connect (viewing NFTs only)', url: KIT_APP_URL, icons: [],
+          redirect: { native: KIT_APP_URL, universal: KIT_APP_URL } } } },
+      { signingCosmwasm: () => ({ gasPrice: kit.cosmjs.GasPrice.fromString(GD_GAS_PRICE + 'uluna') }),
+        signingStargate: () => ({ gasPrice: kit.cosmjs.GasPrice.fromString(GD_GAS_PRICE + 'uluna') }) },
+      undefined, undefined);
+    try {
+      const acts = kitNoopActions();
+      wm.setActions(acts);
+      (wm.walletRepos || []).forEach(repo => {
+        if (repo.setActions) repo.setActions(acts);
+        (repo.wallets || []).forEach(w => { if (w.setActions) w.setActions(acts); });
+      });
+      (wm.mainWallets || []).forEach(w => { if (w.setActions) w.setActions(acts); });
+    } catch (e) {}
+    kitManager = wm;
+    kitMountedPromise = Promise.resolve().then(() => wm.onMounted()).catch(() => {});
+    /* backstop: when the mount (and its stored-account restore)
+       finishes — whenever that is — adopt whatever it found */
+    kitMountedPromise.then(() => { z2KitAdopt(); });
+    return wm;
+  });
+}
+
+/* while a WalletConnect pairing waits, the client holds the
+   pairing URI (client.qrUrl). On a phone the client redirects
+   into the wallet app itself (client.redirect) and no box is
+   needed; anywhere else the box offers the raw link for the
+   wallet's own WalletConnect scanner — the honest desktop path
+   now that the generic modal is gone. */
+function watchPairing(cw, pretty){
+  let stopped = false, timer = null;
+  const tick = () => {
+    if (stopped) return;
+    try {
+      const client = cw.client;
+      const uri = client && client.qrUrl && client.qrUrl.data;
+      if (uri && !(client && client.redirect)){
+        showPairBox(uri);
+        z2KitHint('Approve the connection in ' + pretty + ' — or paste the pairing link shown in MY GARUDA into its WalletConnect scanner.');
+      }
+    } catch (e) {}
+    if (!stopped) timer = setTimeout(tick, 500);
+  };
+  timer = setTimeout(tick, 600);
+  return { stop(){ stopped = true; if (timer) clearTimeout(timer); } };
+}
+
+/* ---- connect ---- */
+function injectedKeplr(){ try { return (typeof window !== 'undefined' && window.keplr) || null; } catch (e) { return null; } }
+function injectedStation(){ try { return (typeof window !== 'undefined' && window.station) || null; } catch (e) { return null; } }
+function injectedStation(){ try { return (typeof window !== 'undefined' && window.station) || null; } catch (e) { return null; } }
+const KIT_ENTRIES = [
+  { id: 'galaxy', label: 'Galaxy Station', resolve(){ return 'galaxy-station'; } },
+  { id: 'station', label: 'LUNCDash', resolve(){ return injectedStation() ? 'station-extension' : null; } },
+];
+function kitEntry(id){ for (const e of KIT_ENTRIES) if (e.id === id) return e; return null; }
+function kitFailLine(cw, pretty){
+  if (cw && cw.isWalletNotExist)
+    return pretty + " isn't available in this browser — open this page inside the " + pretty + ' app, or pick another wallet. You can also paste an address above just to look (read-only).';
+  if (cw && cw.isWalletRejected)
+    return 'Connection rejected in ' + pretty + ' — nothing connected. Tap its connect button to try again, or paste an address above just to look (read-only).';
+  const msg = cw && cw.message ? String(cw.message) : '';
+  return pretty + " couldn't connect" + (msg ? ': ' + msg.slice(0, 90) : '') + ' — nothing connected. Tap its connect button to try again, or paste an address above just to look (read-only).';
+}
+let kitConnecting = '';
+function kitConnect(entryId, opts){
+  const quiet = !!(opts && opts.quiet);
+  const entry = kitEntry(entryId);
+  if (!entry || kitConnecting) return Promise.resolve(false);
+  const walletName = entry.resolve();
+  if (!walletName){
+    if (entryId === 'station' && !quiet && typeof z2LuncDashConnect === 'function')
+      return z2LuncDashConnect();
+    if (!quiet)
+      z2ShowPairFail(entry.label + ' is not reachable from this browser — ' + T('pasteStay'));
+    return Promise.resolve(false);
+  }
+  kitConnecting = entryId;
+  /* (no wallet-picker modal in Garuda Dash 2014 the panel rows ARE the picker) */
+  if (!quiet) z2KitHint('Opening ' + entry.label + '…');
+  return ensureKitManager()
+    .then(wm => {
+      const cw = wm.getChainWallet(KIT_CHAIN_NAME, walletName);
+      if (!cw) throw new Error('the ' + entry.label + ' wallet is not registered');
+      const pretty = cw.walletPrettyName || entry.label;
+      if (!quiet) z2KitHint('Approve the connection in ' + pretty + ' — then come back to the game…');
+      const watch = watchPairing(cw, pretty);
+      return Promise.resolve().then(() => cw.connect())
+        .then(() => { watch.stop(); return { cw, pretty }; })
+        .catch(err => { watch.stop(); throw err; });
+    })
+    .then(({ cw, pretty }) => {
+      kitConnecting = '';
+      hidePairBox();
+      if (cw.isWalletConnected && cw.address){
+        kitChainWallet = cw; kitWalletName = walletName; kitPrettyName = pretty;
+        return z2KitApplyAddress(cw.address, entryId);
+      }
+      if (!quiet) z2ShowPairFail(kitFailLine(cw, pretty));
+      return false;
+    })
+    .catch(err => {
+      kitConnecting = '';
+      hidePairBox();
+      console.log('[z2-nft] ' + entry.label + ' connect failed: ' + (err && err.message));
+      if (!quiet)
+        z2ShowPairFail(entry.label + " couldn't connect" + (err && err.message ? ': ' + String(err.message).slice(0, 90) : '') + ' — ' + T('connectFail'));
+      return false;
+    });
+}
+/* DISCONNECT tears the CosmosKit session down too (best effort —
+   exported for the page glue; the panel itself has no disconnect
+   button, matching the Keplr row's behavior). */
+function kitDisconnect(){
+  const cw = kitChainWallet;
+  kitChainWallet = null; kitWalletName = ''; kitPrettyName = '';
+  if (cw && typeof cw.disconnect === 'function')
+    return Promise.resolve().then(() => cw.disconnect()).catch(() => {});
+  return Promise.resolve();
+}
+
+/* ---- session restore: on load and on pageshow, adopt a live
+   CosmosKit session silently. Detection first: CosmosKit keeps
+   the current wallet under its own localStorage key (and the WC
+   sign clients theirs under wc@2:*) — with neither present and
+   no test hook injected there is nothing to restore and the
+   stack is not even loaded. */
+const KIT_WALLET_NAMES = ['keplr-extension', 'keplr-mobile', 'station-extension', 'galaxy-station'];
+function kitHasStoredState(){
+  try {
+    if (localStorage.getItem('cosmos-kit@2:core//current-wallet')) return true;
+  } catch (e) {}
+  try {
+    if (typeof localStorage.key === 'function' && typeof localStorage.length === 'number'){
+      for (let i = 0; i < localStorage.length; i++){
+        const k = localStorage.key(i);
+        if (k && (k.indexOf('wc@2:') === 0 || k.indexOf('cosmos-kit@2:') === 0)) return true;
+      }
+    }
+  } catch (e) {}
+  return false;
+}
+function kitScanAdopt(){
+  if (!kitManager || z2WalletVia) return false;
+  for (const name of KIT_WALLET_NAMES){
+    let cw = null;
+    try { cw = kitManager.getChainWallet(KIT_CHAIN_NAME, name); } catch (e) {}
+    if (cw && cw.isWalletConnected && cw.address && z2ValidAddr(cw.address)){
+      kitChainWallet = cw; kitWalletName = name; kitPrettyName = cw.walletPrettyName || name;
+      z2KitApplyAddress(cw.address, name === 'galaxy-station' ? 'galaxy' : 'luncdash');
+      return true;
+    }
+  }
+  return false;
+}
+let kitAdopting = false;
+function kitRestoreSession(){
+  if (kitAdopting) return Promise.resolve(false);
+  if (z2WalletVia) return Promise.resolve(true);
+  if (!kitHook() && !kitHasStoredState()) return Promise.resolve(false);
+  kitAdopting = true;
+  return ensureKitManager()
+    .then(() => Promise.race([kitMountedPromise || Promise.resolve(), new Promise(r => setTimeout(r, 6000))]))
+    .then(() => kitScanAdopt())
+    .catch(err => { console.log('[z2-nft] CosmosKit restore skipped: ' + (err && err.message)); return false; })
+    .then(ok => { kitAdopting = false; return ok; });
+}
+/* boot: restore first; with a stored address inside a wallet's own
+   browser, quietly upgrade the read-only restore to a live session
+   with that wallet (the behavior the injected-Keplr boot had). */
+function kitBootFlow(){
+  return kitRestoreSession().then(() => {
+    if (z2WalletVia) return;
+  });
+}
+/* raw esm.sh modules -> the shape normalizeKitLibs returns, with
+   the extra decode error GP's hook path never produced: the WC
+   bundle imports @walletconnect/* submodules that carry their own
+   copies of @cosmjs packages, and mixing the two copies makes the
+   chain-wallet constructors throw Realm-brand errors ("Expected a
+   Uint8Array" / "not a valid instance"). When that shape appears,
+   drop the WC bundle's own Galaxy factory and pass its base
+   classes through — same classes GP's full-bundle hook used. */
+function normalizeZ2KitLibs(raw){
+  try { return normalizeKitLibs(raw); }
+  catch (e) {
+    const msg = String((e && e.message) || e);
+    if (!/Uint8Array|valid instance|Realm|instanceof/.test(msg)) throw e;
+    const cleaned = Object.assign({}, raw);
+    try {
+      const wc = Object.assign({}, raw.walletconnect);
+      delete wc.GalaxyClient; delete wc.ChainGalaxyStation; delete wc.GalaxyStationWallet;
+      cleaned.walletconnect = wc;
+    } catch (e2) {}
+    return normalizeKitLibs(cleaned);
+  }
+}
+/* button wiring — the rows themselves (no picker modal in Garuda) */
+/* coming back to the page re-runs the stored-session check — the
+   return path matters: approving in the wallet app backgrounds
+   this page, and the session can land in CosmosKit's store while
+   this page's own connect promise never resolves */
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function')
+  window.addEventListener('pageshow', () => { kitRestoreSession(); });
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function')
+  document.addEventListener('visibilitychange', () => {
+    const vis = document.visibilityState ? document.visibilityState === 'visible' : !document.hidden;
+    if (vis) kitRestoreSession();
+  });
+/* boot the stored-session restore (no-op without stored WC state —
+   see kitRestoreSession in the ported core) */
+try { kitBootFlow(); } catch (e) {}
 
 /* ================= 6 · INPUT ================= */
 const keys={};
@@ -1188,7 +1935,7 @@ function drawTitle(t){
   const pulse=.75+.25*Math.sin(t*3.2);
   g.save(); g.globalAlpha=pulse; g.textAlign='center';
   g.font='900 26px "Arial Black",Arial,sans-serif'; g.fillStyle='#ffd94d';
-  g.shadowColor='rgba(0,0,0,.8)'; g.shadowBlur=8;
+  g.shadowColor='rgba(0,0,0,.8)'; g.shadowBlur=8/DPR;
   g.fillText(T('tapStart'),W/2,H-72);
   g.restore(); g.textAlign='left';
   g.fillStyle='rgba(230,238,240,.8)'; g.font='600 11px Arial'; g.textAlign='center';
@@ -1248,8 +1995,8 @@ function drawBrief(t){
      slot 102..136 (DOM, see ADDR_SLOT) · buttons 144..174 · status from 190 ·
      fighter cards 200..272 · small print 284/296 · fighter box 302..346. */
   const px=452, pw=442;
-  g.fillStyle='rgba(8,16,12,.94)'; roundRect(px,26,pw,324,10); g.fill();
-  g.strokeStyle='#f5c542'; g.lineWidth=1.8; roundRect(px,26,pw,324,10); g.stroke();
+  g.fillStyle='rgba(8,16,12,.94)'; roundRect(px,18,pw,368,10); g.fill();
+  g.strokeStyle='#f5c542'; g.lineWidth=1.8; roundRect(px,18,pw,368,10); g.stroke();
   g.fillStyle='#ffd968'; g.font='900 16px Arial'; g.textAlign='center';
   g.fillText('🎖 '+T('myFighter'),px+pw/2,52); g.textAlign='left';
   g.fillStyle='rgba(230,245,240,.85)'; g.font='600 11px Arial';
@@ -1259,14 +2006,33 @@ function drawBrief(t){
   regBtn('lookup',px+16,144,120,30,()=>{const v=pasteInput.value.trim(); if(v)lookupNFT(v);});
   const hasKeplr=typeof window!=='undefined'&&!!window.keplr;
   if(hasKeplr){
-    drawBtn(px+148,144,150,30,T('connect'),{fs:12,fill:'rgba(40,34,8,.95)',col:'#ffd94d'});
-    regBtn('keplr',px+148,144,150,30,async()=>{ try{ await window.keplr.enable('columbus-5'); const off=window.keplr.getOfflineSigner('columbus-5'); const acc=await off.getAccounts(); if(acc&&acc[0]){pasteInput.value=acc[0].address; lookupNFT(acc[0].address);} }catch(e){ nftStatus='fail'; } });
+    drawBtn(px+148,144,128,30,T('connect'),{fs:11.5,fill:'rgba(40,34,8,.95)',col:'#ffd94d'});
+    regBtn('keplr',px+148,144,128,30,async()=>{ try{ await window.keplr.enable('columbus-5'); const off=window.keplr.getOfflineSigner('columbus-5'); const acc=await off.getAccounts(); if(acc&&acc[0]){pasteInput.value=acc[0].address; lookupNFT(acc[0].address);} }catch(e){ nftStatus='fail'; } });
   }
+  /* Galaxy Station — one-tap WalletConnect (gd-kit port below; the row is
+     always drawn: on a phone the tap hands off to the Galaxy app, on
+     desktop the pairing link shows in the pair box). FIRST tap action
+     is Garuda's mobile Keplr rescue (gdConnectKeplr's own behavior):
+     on a phone with no Keplr injected, the tap hands the page to the
+     Keplr app's browser, where the Keplr row appears — this row is
+     the only Galaxy/Keplr entry point in that state, since the Keplr
+     row itself only exists when Keplr is injected; everywhere else
+     the tap goes straight to kitConnect('galaxy'). */
+  drawBtn(px+288,144,142,30,T('connectGalaxy'),{fs:11,fill:'rgba(16,26,52,.95)',stroke:'rgba(120,160,255,.8)',col:'#cfe0ff'});
+  regBtn('galaxy',px+288,144,142,30,()=>{ if(keplrDeepLinkMobile())return; z2ShowPairFail(''); kitConnect('galaxy'); });
+  /* LUNCDash — the third row (proven route, Garuda a90fc8f): inside
+     LUNCDash's own browser the kit's station-extension answers; anywhere
+     else kitConnect falls through to z2LuncDashConnect (legacy WC v1,
+     LUNCDash's own bridge + the pairing sheet) */
+  drawBtn(px+16,180,150,30,T('connectDash'),{fs:11.5,fill:'rgba(24,28,52,.95)',stroke:'rgba(141,153,201,.85)',col:'#dbe2ff'});
+  regBtn('luncdash',px+16,180,150,30,()=>{ z2ShowPairFail(''); kitConnect('station'); });
   /* status / results */
-  let ry=190;
+  let ry=226;
   g.font='600 11.5px Arial';
   if(nftStatus==='checking'){ g.fillStyle='#ffd968'; g.fillText(T('checking'),px+16,ry); }
   else if(nftStatus==='fail'){ g.fillStyle='#ff9d8a'; wrapText(T('lookupFail'),px+16,ry,pw-32,13.5); }
+  else if(nftStatus==='connfail'){ g.fillStyle='#ff9d8a'; wrapText(nftFailMsg,px+16,ry,pw-32,13); }
+  else if(nftStatus==='dashint'){ g.fillStyle='#ffd968'; wrapText(nftFailMsg,px+16,ry,pw-32,13); }
   else if(nftStatus==='none'){ g.fillStyle='#ff9d8a'; wrapText(T('noNft'),px+16,ry,pw-32,13.5); }
   else if(nftStatus==='found'){
     g.fillStyle='#9fe8a9'; g.fillText(TF('found',{n:nftList.length}),px+16,ry); ry+=8;
@@ -1293,12 +2059,12 @@ function drawBrief(t){
   /* collection 2 slot — honest placeholder, no dead buttons (contract not known yet);
      the slot shows while the results area leaves room for it */
   if(nftStatus!=='found')for(const col of COLLECTIONS.filter(c=>!c.live)){
-    g.fillStyle='rgba(16,20,26,.9)'; roundRect(px+16,234,pw-32,26,6); g.fill();
-    g.strokeStyle='rgba(150,170,200,.45)'; g.lineWidth=1.1; g.setLineDash([4,3]); roundRect(px+16,234,pw-32,26,6); g.stroke(); g.setLineDash([]);
+    g.fillStyle='rgba(16,20,26,.9)'; roundRect(px+16,270,pw-32,26,6); g.fill();
+    g.strokeStyle='rgba(150,170,200,.45)'; g.lineWidth=1.1; g.setLineDash([4,3]); roundRect(px+16,270,pw-32,26,6); g.stroke(); g.setLineDash([]);
     g.fillStyle='rgba(210,224,240,.8)'; g.font='700 11px Arial';
-    g.fillText('🎖 '+T('mintSoon'),px+26,251);
+    g.fillText('🎖 '+T('mintSoon'),px+26,287);
   }
-  const fy=(nftStatus==='found')?302:272;
+  const fy=(nftStatus==='found')?338:308;
   const fh=(nftStatus==='found')?44:46;
   g.fillStyle='rgba(20,34,24,.9)'; roundRect(px+16,fy,pw-32,fh,6); g.fill();
   g.strokeStyle='rgba(245,197,66,.5)'; g.lineWidth=1.1; roundRect(px+16,fy,pw-32,fh,6); g.stroke();
@@ -1317,11 +2083,11 @@ function drawBrief(t){
     g.fillStyle='#e6f5f0'; g.fillText(T('playAs')+': '+T('baseHero'),px+24,fy+18);
   }
   /* title-screen shortcuts also live here */
-  drawLangSelector(22,H-46);
-  drawSoundToggle(W-142,H-46);
+  drawLangSelector(22,286);
+  drawSoundToggle(22,330);
   const best=loadBest();
   g.fillStyle='rgba(255,217,104,.9)'; g.font='700 11.5px Arial'; g.textAlign='center';
-  g.fillText(best?TF('best',{s:best.score,t:fmtTime(best.time)}):T('bestNone'),W/2,H-52);
+  g.textAlign='left'; g.fillText(best?TF('best',{s:best.score,t:fmtTime(best.time)}):T('bestNone'),24,H-8); g.textAlign='center';
   g.textAlign='left';
 }
 function wrapText(txt,x,y,maxW,lh){
@@ -1352,9 +2118,10 @@ function drawWorld(){
   /* water overlay across the raft stretch — the raft reads as floating */
   if(cam>1250){
     const wat=g.createLinearGradient(0,314,0,H);
-    wat.addColorStop(0,'rgba(46,90,72,.88)'); wat.addColorStop(.3,'rgba(27,53,42,.92)'); wat.addColorStop(1,'rgba(10,26,18,.96)');
+    wat.addColorStop(0,'rgba(46,90,72,.88)'); wat.addColorStop(.06,'rgba(27,53,42,.95)'); wat.addColorStop(1,'rgba(10,26,18,.97)');
     const wx0=Math.max(0,LV.raft.x0-cam), wx1=Math.min(W,LV.raft.x1+30-cam);
     if(wx1>wx0){ g.fillStyle=wat; g.fillRect(wx0,314,wx1-wx0,H-314);
+      g.fillStyle='rgba(214,244,220,.55)'; g.fillRect(wx0,314,wx1-wx0,1.6);
       g.strokeStyle='rgba(190,230,200,.3)'; g.lineWidth=1.4;
       for(let i=0;i<14;i++){const wxl=wx0+((i*97+G.t*22)%Math.max(30,(wx1-wx0))); g.globalAlpha=.2+.15*Math.sin(G.t*2+i); g.beginPath(); g.moveTo(wxl,330+((i*31)%66)); g.lineTo(wxl+16,330+((i*31)%66)); g.stroke();}
       g.globalAlpha=1; }
@@ -1368,7 +2135,7 @@ function drawWorld(){
   for(let i=0;i<3;i++){
     const my=236+i*38, off=Math.sin(t*.24+i*2)*26;
     const mg=g.createLinearGradient(0,my,0,my+30);
-    mg.addColorStop(0,'rgba(200,220,205,0)'); mg.addColorStop(.5,'rgba(200,220,205,.13)'); mg.addColorStop(1,'rgba(200,220,205,0)');
+    mg.addColorStop(0,'rgba(200,220,205,0)'); mg.addColorStop(.5,'rgba(200,220,205,.09)'); mg.addColorStop(1,'rgba(200,220,205,0)');
     g.fillStyle=mg; g.fillRect(0,my+off*.2,W,30);
   }
   /* raft */
@@ -1668,13 +2435,21 @@ function render(now){
      (fitCanvas), so no rotate nag is needed — the game just plays turned. */
   pasteBox.style.display=(screen==='brief'&&!langOpen)?'block':'none';
   if(screen==='brief')layoutPasteBox();
+  if(screen!=='brief'&&pairBox.style.display!=='none')pairBox.style.display='none';
+  else if(screen==='brief'&&pairBox.style.display!=='none')layoutPairBox();
 }
 /* language selector opens picker (override the cycling registration) */
 
 /* ================= 9 · MAIN LOOP + QA HOOKS ================= */
 let lastT=performance.now();
+let frameCostAvg=0, slowSince=0;
 function loop(now){
   const dt=Math.min(.05,(now-lastT)/1000); lastT=now;
+  frameCostAvg=frameCostAvg*.95+dt*.05;
+  if(DPR_CAP>1){
+    if(frameCostAvg>.034){ if(!slowSince)slowSince=now; else if(now-slowSince>3000){ DPR_CAP=1; if(!dprDropLogged){ dprDropLogged=true; console.log('[z2] sustained frame pressure — render scale dropped to 1x to hold frame rate'); } fitCanvas(); } }
+    else slowSince=0;
+  }
   if(screen==='play'&&G)stepGame(dt);
   else if(screen==='dead'&&G){G.deadT+=dt; stepParts(dt);}
   render(now);
@@ -1691,7 +2466,10 @@ window.__z2={
     lastBombT:G?G.lastBombT:-1, aimA:G?+((G.hero.aimA||0).toFixed(3)):0, cut:fighter?(fighter.cut?'ready':(fighter.cutFail?'failed':'none')):null,
     enemies:G?G.enemies.filter(e=>e.dead===0).map(e=>({kind:e.kind,x:Math.round(e.x),y:Math.round(e.y)})):[],
     level:LV.n, campaign:CAMPAIGN_TOTAL,
-    nftStatus,nftCount:nftList.length,best:loadBest()};},
+    nftStatus,nftCount:nftList.length,best:loadBest(),
+    dpr:DPR, backing:[cv.width,cv.height], walletVia:z2WalletVia,
+    pairVisible:pairBox.style.display!=='none', pairUri:(document.getElementById('z2PairUri')||{}).value||'',
+    dashSheet:z2DashSheetOn, openHref:(document.getElementById('z2PairOpen')||{}).href||''};},
   start(){screen='brief';},
   enter(){newGame();},
   key(k,down){ if(down){keys[k]=true; if(k===' ')jumpQueued=true; if(k==='k')bombQueued=true;} else keys[k]=false; },
