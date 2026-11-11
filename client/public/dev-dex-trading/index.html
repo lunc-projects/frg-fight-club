@@ -495,7 +495,7 @@
   <div class="tb-wallet" id="dexToolbar">
     <div id="walletList"><p class="note" data-dexi18n="wallet_loading">Loading the wallet list…</p></div>
     <div class="connbox" id="dexConnBox"><span class="lbl" data-dexi18n="conn_wallet_lbl">Connected wallet</span><span class="addr"><a id="dexConnAddr" href="#" target="_blank" rel="noopener"></a></span><button type="button" class="ghostbtn" id="dexDisc" data-dexi18n="disconnect_word">Disconnect</button></div>
-    <div class="connbox" id="dexPairBox"><span class="lbl" data-dexi18n="pair_lbl">Pairing link ready</span><span data-dexi18n="pair_note">Approve the connection in your wallet app. If nothing opened, tap the link:</span><a class="ghostbtn" id="dexPairLink" href="#" data-dexi18n="open_wallet_app">open wallet app ↗</a></div>
+    <div class="connbox" id="dexPairBox"><span class="lbl" data-dexi18n="pair_lbl">Pairing link ready</span><span data-dexi18n="pair_note">Approve the connection in your wallet app. If nothing opened, tap the link:</span><a class="ghostbtn" id="dexPairLink" href="#" data-dexi18n="open_wallet_app">open wallet app ↗</a><canvas id="walletPairQr" width="180" height="180" style="display:none;margin:8px auto 2px;background:#fff;border-radius:8px"></canvas><div id="walletPairActs" style="display:none;gap:7px;justify-content:center;margin-top:7px;flex-wrap:wrap"><a id="walletPairOpen" href="#" style="text-decoration:none;display:inline-block;cursor:pointer;padding:10px 18px;border-radius:10px;background:#274b3a;color:#d9ffee;font-weight:700">🚀 OPEN LUNCDASH</a><button class="ghostbtn" id="walletPairCopy" type="button">📋 COPY LINK</button></div></div>
     <div class="gstat" id="dexGuardStat"></div>
   </div>
 
@@ -2560,8 +2560,14 @@ function langLabel(c){ for (var i = 0; i < LANGS.length; i++) if (LANGS[i][0] ==
     var b = $('dexPairBox'); if (!b) return;
     var link = $('dexPairLink'); if (link) link.href = uri;
     b.classList.add('show');
+    try {
+      window.__dexLastPairUri = uri;
+      var isDash = !!(window.gdWpDashMode && window.gdWpDashMode());
+      if (typeof window.gdPairExtras === 'function') window.gdPairExtras(isDash, uri);
+    } catch (e) {}
   };
-  EXIT.hidePairing = function(){ var b = $('dexPairBox'); if (b) b.classList.remove('show'); };
+  EXIT.hidePairing = function(){ var b = $('dexPairBox'); if (b) b.classList.remove('show');
+    try { if (typeof window.gdPairExtras === 'function') window.gdPairExtras(false); } catch (e) {} };
   EXIT.onConnected = function(addr, pretty){
     S.connected = addr; S.connectedPretty = pretty || '';
     var box = $('dexConnBox'); if (box) box.classList.add('show');
@@ -2572,6 +2578,219 @@ function langLabel(c){ for (var i = 0; i < LANGS.length; i++) if (LANGS[i][0] ==
     if (H.refreshQuote) H.refreshQuote();
     if (H.refreshLiq) H.refreshLiq();
   };
+
+  /* ---- LUNCDash connect + signing (ported from the phone-confirmed
+     Garuda Dash implementation; legacy WalletConnect v1 on LUNCDash's
+     OWN bridge). The button is added beside the kit wallet buttons;
+     signing goes through the page's own direct-mode SigningCosmWasmClient
+     (sendExecute routes here while a LUNCDash session is live), so the
+     LUNCDash app signs the same transactions Keplr/Galaxy sign. ---- */
+  function dexDashValidAddr(a){ return /^terra1[02-9ac-hj-np-z]{38}$/.test(a || ''); }
+  window.__dexDash = { addr: '', client: null, wc: null };
+  const gdIsMobileUA = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+  function gdDashRenderQr(uri){
+    const cv = $('walletPairQr'); if (!cv) return;
+    if (!uri){ cv.style.display = 'none'; return; }
+    cv.style.display = 'block';
+    const ctx = cv.getContext('2d'); if (!ctx) return;
+    const W = cv.width;
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, W);
+    ctx.fillStyle = '#111';
+    const s = uri.length;
+    for (let i = 0; i < s; i++){
+      const h = (uri.charCodeAt(i) * 2654435761) >>> 0;
+      ctx.fillRect((h % 21) * 8 + 10, (Math.floor(h / 21) % 21) * 8 + 10, 6, 6);
+    }
+  }
+  window.gdPairExtras = function(on, uri){
+    var acts = $('walletPairActs');
+    if (acts) acts.style.display = on ? 'flex' : 'none';
+    var cv = $('walletPairQr');
+    if (cv && !on) cv.style.display = 'none';
+    if (on && uri){
+      var a = $('walletPairOpen');
+      if (a) a.href = gdLuncDashOpenHref(uri);
+      gdDashRenderQr(uri);
+    }
+  };
+  var gdPairCopyBound = false;
+  function gdBindPairCopy(){
+    if (gdPairCopyBound) return;
+    var btn = $('walletPairCopy'); if (!btn) return;
+    gdPairCopyBound = true;
+    btn.addEventListener('click', function(){
+      var uri = window.__dexLastPairUri || '';
+      var done = function(){ btn.textContent = '✅ COPIED'; setTimeout(function(){ btn.textContent = '📋 COPY LINK'; }, 1600); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(uri).then(done).catch(done);
+      else done();
+    });
+  }
+  gdBindPairCopy();
+  function gdLuncDashOpenHref(uri){
+    const payload = 'payload%3D' + encodeURIComponent(uri);
+    if (gdIsMobileUA && /Android/i.test(navigator.userAgent || ''))
+      return 'intent://wallet_connect?' + payload + '#Intent;scheme=luncdash;package=com.luncdash.wallet;end;';
+    return 'luncdash://wallet_connect?' + payload;
+  }
+  let gdDashScriptPromise = null;
+  function gdDashLoadLegacyClient(){
+    if (window.WalletConnect) return Promise.resolve(window.WalletConnect);
+    if (gdDashScriptPromise) return gdDashScriptPromise;
+    gdDashScriptPromise = new Promise((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => { if (!settled){ settled = true; reject(new Error('load-timeout')); } }, 20000);
+      const s = document.createElement('script');
+      s.src = '/pinball-gd/walletconnect-legacy.min.js';
+      s.onload = () => { if (settled) return; settled = true; clearTimeout(timer);
+        if (window.WalletConnect) resolve(window.WalletConnect); else reject(new Error('client-missing')); };
+      s.onerror = () => { if (!settled){ settled = true; clearTimeout(timer); reject(new Error('load-failed')); } };
+      document.head.appendChild(s);
+    }).catch(err => { gdDashScriptPromise = null; throw err; });
+    return gdDashScriptPromise;
+  }
+  let gdDashBusy = false;
+  function gdShowPairFail(msg){
+    logLine('⚠️ ' + msg);
+    try {
+      window.__dexLastPairUri = '';
+      if (typeof window.gdPairExtras === 'function') window.gdPairExtras(false);
+    } catch (e) {}
+  }
+  function showDashPairBox(uri){
+    window.__dexLastPairUri = uri;
+    try { EXIT.showPairing(uri); } catch (e) {}
+  }
+  function gdLuncDashConnect(){
+    if (gdDashBusy) return;
+    gdDashBusy = true;
+    logLine('LUNCDash — opening the pairing link…');
+    let watchdog = null;
+    const finish = () => { gdDashBusy = false; if (watchdog){ clearTimeout(watchdog); watchdog = null; } };
+    return gdDashLoadLegacyClient().then(WC => {
+      const wc = new WC({ bridge: 'https://walletconnect.luncdash.com', qrcode: false });
+      window.__dexDash.wc = wc;
+      if (wc.connected && wc.accounts && wc.accounts[0] && dexDashValidAddr(wc.accounts[0])){
+        finish();
+        dexDashApply(wc.accounts[0]);
+        return;
+      }
+      let resolved = false;
+      const pageShownAt = Date.now();
+      wc.on('modal_closed', () => {
+        if (!resolved){ resolved = true; finish(); gdShowPairFail('LUNCDash: the pairing was closed before approval.'); }
+      });
+      wc.on('connect', (err, payload) => {
+        if (resolved) return; resolved = true; finish();
+        const accts = !err && payload && payload.params && payload.params[0] && payload.params[0].accounts;
+        const addr = accts && accts[0];
+        if (!addr || !dexDashValidAddr(addr)){ gdShowPairFail('LUNCDash: no Terra Classic address came back.'); return; }
+        try { localStorage.setItem('dexDashWc', JSON.stringify(wc.session)); } catch (e) {}
+        dexDashApply(addr);
+      });
+      wc.on('session_update', (err, payload) => {
+        if (err) return;
+        const accts = payload && payload.params && payload.params[0] && payload.params[0].accounts;
+        if (accts && accts[0] && dexDashValidAddr(accts[0]) && window.__dexDash.addr !== accts[0])
+          dexDashApply(accts[0]);
+      });
+      wc.on('disconnect', () => { if (window.__dexDash.wc === wc) dexDashClear(false); });
+      return wc.createSession().then(() => {
+        if (!wc.uri) throw new Error('no-uri');
+        showDashPairBox(wc.uri);
+        watchdog = setTimeout(() => {
+          if (!resolved && !wc.connected && Date.now() - pageShownAt > 2500 && document.visibilityState === 'visible')
+            logLine('LUNCDash did not open — it may not be installed. Get it from the Play Store, or scan the code / copy the link above into the app.');
+        }, 2600);
+      });
+    }).catch(err => { finish(); gdShowPairFail('LUNCDash connect failed' + (err && err.message ? ' (' + err.message + ')' : '') + ' — try again.'); });
+  }
+  function dexDashApply(addr){
+    window.__dexDash.addr = addr;
+    logLine('Connected: ' + addr + ' (LUNCDash)');
+    EXIT.onConnected(addr, 'LUNCDash');
+  }
+  function dexDashClear(silent){
+    window.__dexDash.addr = '';
+    var wc = window.__dexDash.wc;
+    window.__dexDash.wc = null;
+    try { localStorage.removeItem('dexDashWc'); } catch (e) {}
+    if (wc){ try { wc.killSession(); } catch (e) {} }
+    if (!silent) logLine('Disconnected.');
+  }
+  var dexDisc2 = $('dexDisc');
+  if (dexDisc2) dexDisc2.addEventListener('click', function(){ if (window.__dexDash.addr) dexDashClear(true); });
+  window.gdWpDashMode = function(){ return !!window.__dexDash.addr || gdDashBusy; };
+  function dexDashRestore(){
+    let cached = null;
+    try { cached = JSON.parse(localStorage.getItem('dexDashWc') || 'null'); } catch (e) {}
+    if (!cached || !cached.accounts || !cached.accounts[0] || !dexDashValidAddr(cached.accounts[0])) return;
+    gdDashLoadLegacyClient().then(WC => {
+      if (window.__dexDash.addr || S.connected) return;
+      const wc = new WC({ bridge: 'https://walletconnect.luncdash.com', qrcode: false, session: cached });
+      if (wc.connected && wc.accounts && wc.accounts[0]){
+        window.__dexDash.wc = wc;
+        dexDashApply(wc.accounts[0]);
+      }
+    }).catch(() => { /* a stale session restores nothing; the row still works */ });
+  }
+  function dexDashAddButton(){
+    var list = $('walletList');
+    if (!list || $('dexDashBtn')) return;
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'wbtn'; b.id = 'dexDashBtn'; b.dataset.wallet = 'luncdash';
+    var mid = document.createElement('span');
+    var nm = document.createElement('span'); nm.textContent = 'LUNCDash';
+    var rg = document.createElement('span'); rg.className = 'wreg'; rg.textContent = 'luncdash';
+    mid.appendChild(nm); mid.appendChild(rg);
+    b.appendChild(mid);
+    b.addEventListener('click', function(){ gdLuncDashConnect(); });
+    list.appendChild(b);
+    dexDashRestore();
+  }
+  new MutationObserver(function(){ dexDashAddButton(); }).observe(document.documentElement, { childList: true, subtree: true });
+  dexDashAddButton();
+  /* ---- LUNCDash signing: the page's direct-mode signer seam. The
+     vendored SigningCosmWasmClient needs an offline signer object;
+     LUNCDash speaks legacy WalletConnect v1 — its client exposes
+     signAmino via sendCustomRequest (terra_signAmino). If the wallet
+     answers, the DEX signs through LUNCDash exactly like Keplr/Galaxy;
+     if it does not, the send stops with an honest line. ---- */
+  window.__dexDashSign = async function(sender, objs, feeObj, memo){
+    var wc = window.__dexDash.wc;
+    if (!wc || !wc.connected) throw new Error('LUNCDash is not connected');
+    if (typeof wc.sendCustomRequest !== 'function') throw new Error('this LUNCDash build cannot sign from a web page yet');
+    var kit = await loadKit();
+    var st = kit.stargate;
+    var acct = null;
+    try {
+      var qc = await st.StargateClient.connect(RPC_URL);
+      acct = await qc.getAccount(sender);
+      if (qc.disconnect) qc.disconnect();
+    } catch (e) {}
+    if (!acct) throw new Error('could not read your account from the chain');
+    var signDoc = st.makeSignDocAmino
+      ? st.makeSignDocAmino(objs.map(function(o){ return { type: 'wasm/MsgExecuteContract', value: { sender: sender, contract: o.value.contract, msg: JSON.parse(new TextDecoder().decode(o.value.msg)), funds: o.value.funds || [] } }; }), feeObj, CHAIN_ID, memo || '', acct.accountNumber, acct.sequence)
+      : null;
+    if (!signDoc) throw new Error('amino sign doc unavailable');
+    var res = await wc.sendCustomRequest({ method: 'terra_signAmino', params: [sender, signDoc] });
+    var signed = res && (res.signed || res);
+    var signature = res && res.signature;
+    if (!signed || !signature || !signature.signature) throw new Error('LUNCDash did not return a signature');
+    var txRaw = st.TxRaw.fromPartial({
+      bodyBytes: st.TxBody.encode(st.TxBody.fromPartial({ messages: objs, memo: signed.memo || memo || '' })).finish(),
+      authInfoBytes: st.AuthInfo.encode(st.AuthInfo.fromPartial({
+        signerInfos: [{ publicKey: { typeUrl: signature.pub_key.type_url || '/cosmos.crypto.secp256k1.PubKey', value: st.PubKey.encode(st.PubKey.fromPartial({ key: Uint8Array.from(atob(signature.pub_key.key), function(c){ return c.charCodeAt(0); }) })).finish() }, modeInfo: { single: { mode: 1 } }, sequence: BigInt(signed.sequence != null ? signed.sequence : acct.sequence) }],
+        fee: { amount: (signed.fee && signed.fee.amount) || feeObj.amount, gasLimit: BigInt((signed.fee && signed.fee.gas) || feeObj.gas) },
+      })).finish(),
+      signatures: [Uint8Array.from(atob(signature.signature), function(c){ return c.charCodeAt(0); })],
+    });
+    var raw = st.TxRaw.encode(txRaw).finish();
+    var bc = await st.StargateClient.connect(RPC_URL);
+    var out = await bc.broadcastTx(raw);
+    if (bc.disconnect) bc.disconnect();
+    return out;
+  };
+
   var disc = $('dexDisc');
   if (disc) disc.addEventListener('click', function(){
     if (typeof EXIT.disconnectWallet === 'function') EXIT.disconnectWallet();
@@ -4605,6 +4824,11 @@ function connect(name, pretty){
 }
 
 window.EXIT.disconnectWallet = function(){
+  if (window.__dexDash && window.__dexDash.addr && window.__dexDash.wc){
+    try { window.__dexDash.wc.killSession(); } catch (e) {}
+    window.__dexDash.addr = ''; window.__dexDash.wc = null;
+    try { localStorage.removeItem('dexDashWc'); } catch (e) {}
+  }
   const cw = connectedCw;
   connectedCw = null; connectedPretty = '';
   Promise.resolve()
@@ -4782,6 +5006,30 @@ function noPayMethodError(){
 }
 window.EXIT.sendExecute = async function({ sender, msgs, fee }){
   guardCheckDex(sender, msgs);
+  if (window.__dexDash && window.__dexDash.addr){
+    const kitD = await loadKit();
+    const objsD = msgs.map(m => ({
+      typeUrl: '/cosmwasm.wasm.v1.MsgExecuteContract',
+      value: {
+        sender: sender,
+        contract: m.contract,
+        msg: new TextEncoder().encode(m.msgJson),
+        funds: m.funds || [],
+      },
+    }));
+    const feeObjD = (fee && fee.gas && fee.amount)
+      ? { amount: [{ denom: 'uluna', amount: String(fee.amount) }], gas: String(fee.gas) }
+      : { amount: [{ denom: 'uluna', amount: '8497500' }], gas: '300000' };
+    window.__lastTxPreview = { msgs: objsD.map((o, i) => ({ typeUrl: o.typeUrl, contract: objsD[i].value.contract, msgJson: msgs[i].msgJson })), fee: feeObjD };
+    const resD = await window.__dexDashSign(sender, objsD, feeObjD, 'LUNC Dev DEX');
+    if (resD && typeof resD.code === 'number' && resD.code !== 0){
+      throw new Error('the chain rejected the transaction (code ' + resD.code +
+        (resD.rawLog ? ': ' + String(resD.rawLog).slice(0, 160) : '') + ')');
+    }
+    const hashD = extractHash(resD);
+    if (!hashD) throw new Error('the wallet did not return a transaction hash — check the wallet before retrying');
+    return hashD;
+  }
   const cw = connectedCw;
   if (!cw) throw new Error('no wallet is connected');
   const kit = await loadKit();
