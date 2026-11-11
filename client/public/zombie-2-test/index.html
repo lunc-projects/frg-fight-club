@@ -37,9 +37,20 @@
    ===================================================================== */
 const W=916,H=412, cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 const GY=330;                       /* ground line (feet) */
+let PORTRAIT=false;   /* phone held upright: canvas is CSS-rotated to landscape */
 function fitCanvas(){
-  const s=Math.min(innerWidth/W, innerHeight/H);
-  cv.style.width=(W*s)+'px'; cv.style.height=(H*s)+'px';
+  PORTRAIT=innerWidth<innerHeight;
+  if(PORTRAIT){
+    /* rotate the stage so the 916x412 battlefield fills a portrait phone:
+       the canvas keeps its landscape size, turned 90 degrees by CSS */
+    const s=Math.min(innerHeight/W, innerWidth/H);
+    cv.style.width=(W*s)+'px'; cv.style.height=(H*s)+'px';
+    cv.style.transform='rotate(90deg)';
+  } else {
+    const s=Math.min(innerWidth/W, innerHeight/H);
+    cv.style.width=(W*s)+'px'; cv.style.height=(H*s)+'px';
+    cv.style.transform='';
+  }
 }
 addEventListener('resize',fitCanvas); fitCanvas();
 
@@ -372,7 +383,15 @@ const joy={active:false,id:-1,dx:0,dy:0,cx:64,cy:336};
 let fireHeld=false, bombQueued=false, jumpQueued=false;
 const cvPos={x:0,y:0,s:1};
 function refreshCvPos(){const r=cv.getBoundingClientRect(); cvPos.x=r.left; cvPos.y=r.top; cvPos.s=r.width/W;}
-function toGame(e){return {x:(e.clientX-cvPos.x)/cvPos.s, y:(e.clientY-cvPos.y)/cvPos.s};}
+function toGame(e){
+  if(PORTRAIT){
+    /* CSS rotate(90deg) maps game (x,y) -> client (left + (H-y)*s, top + x*s);
+       invert it so taps land where the player sees them */
+    const r=cv.getBoundingClientRect(), s=r.height/W;
+    return {x:(e.clientY-r.top)/s, y:H-(e.clientX-r.left)/s};
+  }
+  return {x:(e.clientX-cvPos.x)/cvPos.s, y:(e.clientY-cvPos.y)/cvPos.s};
+}
 let uiHits=[];   /* rebuilt every frame: {x,y,w,h,fn,id} */
 function hitAt(x,y){for(let i=uiHits.length-1;i>=0;i--){const b=uiHits[i]; if(x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h)return b;} return null;}
 cv.addEventListener('pointerdown',e=>{
@@ -430,10 +449,21 @@ pasteInput.addEventListener('blur',()=>pasteFocused=false);
 pasteInput.addEventListener('keydown',e=>{e.stopPropagation(); if(e.key==='Enter'){const v=pasteInput.value.trim(); if(v)lookupNFT(v);}});
 function layoutPasteBox(){
   const r=cv.getBoundingClientRect(), wr=document.getElementById('wrap').getBoundingClientRect();
-  const sx=r.width/W, sy=r.height/H;
-  pasteBox.style.left=((r.left-wr.left)+452*sx)+'px';
-  pasteBox.style.top=((r.top-wr.top)+96*sy)+'px';
-  pasteBox.style.width=(416*sx)+'px';
+  if(PORTRAIT){
+    /* rotated stage: game point (452,96) -> client (left+(H-96)*s, top+452*s) */
+    const s=r.height/W;
+    pasteBox.style.left=((r.left-wr.left)+(H-96)*s)+'px';
+    pasteBox.style.top=((r.top-wr.top)+452*s)+'px';
+    pasteBox.style.width=(36*s)+'px';
+    pasteBox.style.transform='rotate(90deg)';
+    pasteBox.style.transformOrigin='0 0';
+  } else {
+    const sx=r.width/W, sy=r.height/H;
+    pasteBox.style.left=((r.left-wr.left)+452*sx)+'px';
+    pasteBox.style.top=((r.top-wr.top)+96*sy)+'px';
+    pasteBox.style.width=(416*sx)+'px';
+    pasteBox.style.transform='';
+  }
   pasteInput.placeholder=T('pastePh');
 }
 
@@ -1148,16 +1178,8 @@ function render(now){
   }
   ctx.restore();
   if(langOpen)drawLangGrid();
-  /* portrait phones: the 916x412 stage letterboxes small — show a clear
-     rotate hint so the full battlefield is one turn away (does not block) */
-  if(innerWidth<innerHeight){
-    ctx.save(); ctx.textAlign='center';
-    ctx.fillStyle='rgba(3,7,5,.82)'; roundRect(W/2-190,H-30,380,22,11); ctx.fill();
-    ctx.strokeStyle='rgba(245,197,66,.5)'; ctx.lineWidth=1; roundRect(W/2-190,H-30,380,22,11); ctx.stroke();
-    ctx.fillStyle='#ffd968'; ctx.font='700 12px Arial';
-    ctx.fillText(T('rotate'),W/2,H-15);
-    ctx.restore();
-  }
+  /* portrait phones: the stage itself is CSS-rotated to fill the screen
+     (fitCanvas), so no rotate nag is needed — the game just plays turned. */
   pasteBox.style.display=(screen==='brief'&&!langOpen)?'block':'none';
   if(screen==='brief')layoutPasteBox();
 }
