@@ -78,6 +78,17 @@
       is created with <b>no minter — ever</b>. This page never holds your keys; signing happens
       only inside Keplr.</p>
     <button id="connectBtn">Connect Keplr</button>
+    <button id="dashViewBtn" type="button">🚀 View with LUNCDash (view only)</button>
+    <div id="tfPairBox" style="display:none;margin-top:8px;font-size:12px">
+      <div>WalletConnect pairing link — paste it into LUNCDash's scanner, or tap OPEN:</div>
+      <input id="tfPairUri" readonly style="width:min(340px,86vw);margin-top:4px;font-size:11px" autocomplete="off" spellcheck="false">
+      <canvas id="walletPairQr" width="180" height="180" style="display:none;margin:8px auto 2px;background:#fff;border-radius:8px"></canvas>
+      <div id="walletPairActs" style="display:none;gap:7px;justify-content:center;margin-top:7px;flex-wrap:wrap">
+        <a id="walletPairOpen" href="#" style="text-decoration:none;display:inline-block;cursor:pointer;padding:10px 18px;border-radius:10px;background:#274b3a;color:#d9ffee;font-weight:700">🚀 OPEN LUNCDASH</a>
+        <button id="walletPairCopy" type="button">📋 COPY LINK</button>
+      </div>
+      <p class="hint">Viewing only — creating a token still signs in Keplr. Galaxy Station users: open this page inside the Galaxy app browser and use Connect Keplr.</p>
+    </div>
     <div class="log" id="walletLog"></div>
   </div>
 
@@ -249,6 +260,121 @@
       renderCreateReview();
     }).catch(function(e){ showErr(escapeHtml(e.message || String(e))); });
   });
+  /* ---- LUNCDash VIEW (read-only): legacy WC v1 on LUNCDash's own
+     bridge — the phone-confirmed Garuda Dash pattern. Sets the same
+     creator address the Keplr button sets (display/quote/review);
+     the fee SEND keeps signing in Keplr (sendFee checks window.keplr),
+     and the page says so. ---- */
+  function gdValidAddr(a){ return /^terra1[02-9ac-hj-np-z]{38}$/.test(a || ''); }
+  const gdIsMobileUA = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+  function gdDashRenderQr(uri){
+    const cv = $('walletPairQr'); if (!cv) return;
+    if (!uri){ cv.style.display = 'none'; return; }
+    cv.style.display = 'block';
+    const ctx = cv.getContext('2d'); if (!ctx) return;
+    const W = cv.width;
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, W);
+    ctx.fillStyle = '#111';
+    const s = uri.length;
+    for (let i = 0; i < s; i++){
+      const h = (uri.charCodeAt(i) * 2654435761) >>> 0;
+      ctx.fillRect((h % 21) * 8 + 10, (Math.floor(h / 21) % 21) * 8 + 10, 6, 6);
+    }
+  }
+  function gdPairExtras(on, uri){
+    const acts = $('walletPairActs');
+    if (acts) acts.style.display = on ? 'flex' : 'none';
+    const cv = $('walletPairQr');
+    if (cv && !on) cv.style.display = 'none';
+    if (on && uri){
+      const a = $('walletPairOpen');
+      if (a) a.href = gdLuncDashOpenHref(uri);
+      gdDashRenderQr(uri);
+    }
+  }
+  function gdLuncDashOpenHref(uri){
+    const payload = 'payload%3D' + encodeURIComponent(uri);
+    if (gdIsMobileUA && /Android/i.test(navigator.userAgent || ''))
+      return 'intent://wallet_connect?' + payload + '#Intent;scheme=luncdash;package=com.luncdash.wallet;end;';
+    return 'luncdash://wallet_connect?' + payload;
+  }
+  function showDashPairBox(uri){
+    const box = $('tfPairBox'); if (box) box.style.display = 'block';
+    const inp = $('tfPairUri'); if (inp){ inp.value = uri; }
+    gdPairExtras(true, uri);
+  }
+  function gdShowPairFail(msg){
+    showErr(msg);
+    const box = $('tfPairBox'); if (box) box.style.display = 'none';
+    gdPairExtras(false);
+  }
+  const gdPairCopyBtn = $('walletPairCopy');
+  if (gdPairCopyBtn) gdPairCopyBtn.addEventListener('click', function(){
+    const inp = $('tfPairUri');
+    const uri = inp ? inp.value : '';
+    const done = () => { gdPairCopyBtn.textContent = '✅ COPIED'; setTimeout(() => { gdPairCopyBtn.textContent = '📋 COPY LINK'; }, 1600); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(uri).then(done).catch(done);
+    else done();
+  });
+  let gdDashScriptPromise = null;
+  function gdDashLoadLegacyClient(){
+    if (window.WalletConnect) return Promise.resolve(window.WalletConnect);
+    if (gdDashScriptPromise) return gdDashScriptPromise;
+    gdDashScriptPromise = new Promise((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => { if (!settled){ settled = true; reject(new Error('load-timeout')); } }, 20000);
+      const s = document.createElement('script');
+      s.src = '/pinball-gd/walletconnect-legacy.min.js';
+      s.onload = () => { if (settled) return; settled = true; clearTimeout(timer);
+        if (window.WalletConnect) resolve(window.WalletConnect); else reject(new Error('client-missing')); };
+      s.onerror = () => { if (!settled){ settled = true; clearTimeout(timer); reject(new Error('load-failed')); } };
+      document.head.appendChild(s);
+    }).catch(err => { gdDashScriptPromise = null; throw err; });
+    return gdDashScriptPromise;
+  }
+  let gdDashBusy = false;
+  function gdLuncDashConnect(){
+    if (gdDashBusy) return;
+    gdDashBusy = true;
+    clearErr();
+    log('walletLog', 'LUNCDash — opening the pairing link…');
+    let watchdog = null;
+    const finish = () => { gdDashBusy = false; if (watchdog){ clearTimeout(watchdog); watchdog = null; } };
+    return gdDashLoadLegacyClient().then(WC => {
+      const wc = new WC({ bridge: 'https://walletconnect.luncdash.com', qrcode: false });
+      const apply = addr => {
+        state.creator = addr;
+        log('walletLog', 'Viewing as: ' + addr + '\nThis wallet would become the token creator + admin. Creating still signs in Keplr.');
+        state.quote = null; $('quoteBox').innerHTML = '';
+        renderCreateReview();
+        const box = $('tfPairBox'); if (box) box.style.display = 'none';
+        gdPairExtras(false);
+      };
+      if (wc.connected && wc.accounts && wc.accounts[0] && gdValidAddr(wc.accounts[0])){ finish(); apply(wc.accounts[0]); return; }
+      let resolved = false;
+      const pageShownAt = Date.now();
+      wc.on('modal_closed', () => {
+        if (!resolved){ resolved = true; finish(); gdShowPairFail('LUNCDash: the pairing was closed before approval.'); }
+      });
+      wc.on('connect', (err, payload) => {
+        if (resolved) return; resolved = true; finish();
+        const accts = !err && payload && payload.params && payload.params[0] && payload.params[0].accounts;
+        const addr = accts && accts[0];
+        if (!addr || !gdValidAddr(addr)){ gdShowPairFail('LUNCDash: no Terra Classic address came back.'); return; }
+        apply(addr);
+      });
+      return wc.createSession().then(() => {
+        if (!wc.uri) throw new Error('no-uri');
+        showDashPairBox(wc.uri);
+        watchdog = setTimeout(() => {
+          if (!resolved && !wc.connected && Date.now() - pageShownAt > 2500 && document.visibilityState === 'visible')
+            log('walletLog', 'LUNCDash did not open — it may not be installed. Get it from the Play Store, or scan the code / copy the link above into the app.');
+        }, 2600);
+      });
+    }).catch(err => { finish(); gdShowPairFail('LUNCDash connect failed' + (err && err.message ? ' (' + err.message + ')' : '') + ' — try again.'); });
+  }
+  $('dashViewBtn').addEventListener('click', gdLuncDashConnect);
+
   if (window.addEventListener) window.addEventListener('keplr_keystorechange', function(){
     state.creator = null;
     log('walletLog', 'Wallet changed in Keplr — connect again.');
