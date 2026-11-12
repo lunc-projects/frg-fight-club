@@ -57,9 +57,9 @@
   .tbtn{position:absolute;border-radius:50%;border:2px solid rgba(255,255,255,.5);background:rgba(10,20,12,.45);
     color:#fff;font-weight:900;pointer-events:auto;display:flex;align-items:center;justify-content:center;text-shadow:0 1px 3px #000}
   .tbtn:active{background:rgba(59,157,255,.5)}
-  #btnfire{right:20px;bottom:24px;width:92px;height:92px;font-size:15px;border-color:rgba(120,190,255,.85)}
-  #btnbomb{right:126px;bottom:34px;width:62px;height:62px;font-size:12px}
-  #btnjump{right:32px;bottom:130px;width:62px;height:62px;font-size:12px}
+  #btnfire{right:16px;bottom:22px;width:108px;height:108px;font-size:17px;border-color:rgba(120,190,255,.85)}
+  #btnbomb{right:136px;bottom:30px;width:72px;height:72px;font-size:13px}
+  #btnjump{right:38px;bottom:142px;width:72px;height:72px;font-size:13px}
   /* ---------- overlays ---------- */
   .screen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;z-index:5}
   #brief{background:linear-gradient(rgba(4,10,5,.80),rgba(4,10,5,.93)),url('keyart-fps.jpg') center/cover no-repeat #060c06;overflow-y:auto;padding:14px}
@@ -128,7 +128,7 @@
   </div>
   <div class="panel" id="fighterPanel">
     <h3>🎖 MY FIGHTER — YOUR NFT IS YOUR FIGHTER</h3>
-    <p style="font-size:12.5px">Paste your Terra Classic wallet address — your Lunc Zombies-Commandos load read-only (no connect, no signing). Your fighter's art rides on your forearm command patch, its colors set your kit trim, and its rarity sets your power. No NFT? You play the standard zombie commando at full strength.</p>
+    <p style="font-size:12.5px">Paste your Terra Classic wallet address — your Lunc Zombies-Commandos load read-only (no connect, no signing). Your fighter's art shows on its card below — its rarity sets your power (HP and damage). No NFT? You play the standard zombie commando at full strength.</p>
     <div id="addrrow">
       <input id="addr" placeholder="terra1… wallet address" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
       <button class="gbtn" id="lookup">LOOK UP</button>
@@ -536,14 +536,13 @@ const kitMats={ sleeve:new THREE.MeshStandardMaterial({color:0x5c6136,roughness:
   viewModel.add(rifle); viewModel.userData.rifle=rifle;
   const handGeo=new THREE.BoxGeometry(.085,.07,.17);
   const handR=new THREE.Mesh(handGeo,kitMats.glove); handR.position.set(.24,-.31,-.36); viewModel.add(handR);
-  const foreR=new THREE.Mesh(new THREE.BoxGeometry(.095,.085,.34),kitMats.sleeve);
-  foreR.position.set(.35,-.35,-.15); foreR.rotation.set(.55,0,-.6); viewModel.add(foreR);
   const handL=new THREE.Mesh(handGeo,kitMats.glove); handL.position.set(.09,-.27,-.63); viewModel.add(handL);
-  const foreL=new THREE.Mesh(new THREE.BoxGeometry(.095,.085,.36),kitMats.sleeve);
-  foreL.position.set(-.23,-.37,-.33); foreL.rotation.set(.5,0,1.15); viewModel.add(foreL);
-  /* the NFT command patch — rides on the left forearm, angled up toward the eye.
-     Before any NFT is picked it is a PLAIN dark patch screen (no emblem);
-     once a fighter is selected the NFT's own art replaces it. */
+  /* FOREARM PATCH ASSEMBLY REMOVED from the play view (Tom, Nov 11): the
+     black diamond patch screen AND the yellow sleeve/forearm boxes are gone
+     — the first-person view is hands + rifle only. The patch object still
+     exists OFF-SCENE (never added to the view model) so fighter selection
+     can load the NFT art and sample its colours exactly as before; the
+     selected fighter's art now lives in the MY FIGHTER panel. */
   const patchIdle=(()=>{ const [c,x]=cnv(128);
     x.fillStyle='#101a14'; x.fillRect(0,0,128,128);
     x.strokeStyle='rgba(120,220,190,.5)'; x.lineWidth=3; x.strokeRect(4,4,120,120);
@@ -553,8 +552,7 @@ const kitMats={ sleeve:new THREE.MeshStandardMaterial({color:0x5c6136,roughness:
     const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; return t; })();
   const patch=new THREE.Mesh(new THREE.PlaneGeometry(.135,.135),
     new THREE.MeshBasicMaterial({map:patchIdle}));
-  patch.position.set(-.075,-.245,-.48); patch.rotation.set(-.6,0,.8);
-  viewModel.add(patch); viewModel.userData.patch=patch;
+  viewModel.userData.patch=patch; /* deliberately NOT added to viewModel */
   const muzzle=new THREE.Object3D(); muzzle.position.set(.24,-.185,-.92); viewModel.add(muzzle);
   viewModel.userData.muzzle=muzzle;
   const flash=new THREE.Mesh(new THREE.PlaneGeometry(.3,.3),
@@ -660,6 +658,28 @@ function collide(px,pz){
   }
   return [px,pz];
 }
+/* PLAYER movement resolve (Tom, Nov 11 — "hard to use", nose-against
+   pillars): axis-separated with a body radius. Each axis moves and resolves
+   on its own, so running diagonally into a wall or pillar SLIDES along it —
+   the tangential motion is never eaten — and the radius keeps the camera
+   (near plane .1) from ever sitting inside the geometry. Enemies keep the
+   point resolve above; the player gets this swept version. */
+const PRAD=.35;
+function sweepAxis(px,pz,axis){
+  for(const c of colliders){
+    const x0=c.x0-PRAD,x1=c.x1+PRAD,z0=c.z0-PRAD,z1=c.z1+PRAD;
+    if(px>x0&&px<x1&&pz>z0&&pz<z1){
+      if(axis===0) px=(px-x0<x1-px)?x0:x1; else pz=(pz-z0<z1-pz)?z0:z1;
+    }
+  }
+  return [px,pz];
+}
+function moveSlide(px,pz,dx,dz){
+  px+=dx; [px,pz]=sweepAxis(px,pz,0);
+  pz+=dz; [px,pz]=sweepAxis(px,pz,1);
+  [px,pz]=sweepAxis(px,pz,0); /* a z-push can land inside a second box */
+  return [px,pz];
+}
 function groundAt(x,z,onRaftDeck){
   if(onRaftDeck) return .47;
   if(z<6&&z>-22&&Math.abs(x)<7.5) return -.62; // basin water floor
@@ -715,6 +735,11 @@ addEventListener('keyup',e=>{ keys[e.key.toLowerCase()]=false;
   if(e.key===' ') keys['fire']=false; });
 const stick={active:false,id:-1,dx:0,dy:0};
 const look={id:-1,lx:0,ly:0};
+/* look deltas queue here (radians) and are applied through a damper in
+   updatePlayer — a hard flick spreads over a few frames instead of whipping
+   the view wall-to-wall in one (Tom, Nov 11: "hard to use"). The total turn
+   is preserved: whatever the damper doesn't apply this frame carries over. */
+let pendYaw=0, pendPitch=0;
 /* stick-follow state: anchored target heading + drag-look block latch */
 let followYaw=null, followOff=0, followBlocked=false;
 const angWrap=a=>Math.atan2(Math.sin(a),Math.cos(a));
@@ -737,8 +762,8 @@ function bindControls(){
            so you can aim at your feet or near-straight up without flipping.
            A manual drag also takes over aim from the stick-follow. */
         followBlocked=true; followYaw=null;
-        G.yaw-=(t.clientX-look.lx)*.0062; G.pitch-=(t.clientY-look.ly)*.0062;
-        G.pitch=clamp(G.pitch,-1.45,1.45); look.lx=t.clientX; look.ly=t.clientY;
+        pendYaw-=(t.clientX-look.lx)*.0056; pendPitch-=(t.clientY-look.ly)*.0056;
+        look.lx=t.clientX; look.ly=t.clientY;
       }
     }
     if(G.screen==='play') e.preventDefault();
@@ -759,8 +784,8 @@ function bindControls(){
   cv.addEventListener('mousedown',e=>{ mdown=true; mx=e.clientX; my=e.clientY; });
   addEventListener('mousemove',e=>{ if(!mdown) return;
     followBlocked=true; followYaw=null;
-    G.yaw-=(e.clientX-mx)*.0052; G.pitch-=(e.clientY-my)*.0052;
-    G.pitch=clamp(G.pitch,-1.45,1.45); mx=e.clientX; my=e.clientY; });
+    pendYaw-=(e.clientX-mx)*.0048; pendPitch-=(e.clientY-my)*.0048;
+    mx=e.clientX; my=e.clientY; });
   addEventListener('mouseup',()=>mdown=false);
   const bf=document.getElementById('btnfire'), bb=document.getElementById('btnbomb'), bj=document.getElementById('btnjump');
   const on=(el,fn)=>{ el.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();fn(true);},{passive:false});
@@ -880,6 +905,25 @@ function heroFire(){
     if(yAt<gy-.1||yAt>gy+2.05) continue;         /* passes over / under the body */
     if(t<bestT){ bestT=t; bestE=e; }
   }
+  /* AIM ASSIST (Tom, Nov 11) — soft magnetism, phone-FPS standard: the shot
+     missed clean, but if the crosshair passed within a ≈2.9° cone of an
+     enemy's chest (≤30 m, and cover still blocks), the fired ray eases onto
+     the body. The crosshair itself never moves and there is no visible
+     snap; anything outside the cone misses exactly as before. */
+  if(!bestE){
+    const CONE=.05; /* radians ≈ 2.9° */
+    let aAng=CONE;
+    for(const e of enemies){ if(e.dead) continue;
+      const gy=groundAt(e.x,e.z,false);
+      tmpV.set(e.x,gy+1.05,e.z).sub(rayO);
+      const t=tmpV.length(); if(t<.4||t>30) continue;
+      tmpV.normalize();
+      const ang=Math.acos(clamp(tmpV.dot(aimDir),-1,1));
+      if(ang<aAng&&!rayBlocked(t,rayO.x,rayO.z,tmpV.x,tmpV.z)){
+        aAng=ang; bestE=e; bestT=t; rayT.copy(tmpV); }
+    }
+    if(bestE) aimDir.copy(rayT); /* the comet tracer follows the eased ray */
+  }
   let hitT=70;
   if(bestE&&!rayBlocked(bestT,rayO.x,rayO.z,aimDir.x,aimDir.z)){ hitT=bestT; hurtEnemy(bestE,34*G.mult); }
   else if(bestE){ hitT=bestT; } /* tracer dies on the cover */
@@ -975,6 +1019,16 @@ function updateEnemy(e,dt){
 /* ---------------- player / world update ---------------- */
 let spawned=SPAWN_TABLE.map(()=>false);
 function updatePlayer(dt){
+  /* damped look application: ~63% of the queued turn lands within ~65 ms,
+     the rest carries over — same total turn, no whiplash. Pitch keeps its
+     ±83° stops; queued pitch is dropped at the stops so it can't wind up. */
+  if(pendYaw||pendPitch){
+    const k=1-Math.exp(-dt*15);
+    G.yaw+=pendYaw*k; pendYaw-=pendYaw*k;
+    G.pitch+=pendPitch*k; pendPitch-=pendPitch*k;
+    if(G.pitch>1.45){ G.pitch=1.45; pendPitch=0; }
+    if(G.pitch<-1.45){ G.pitch=-1.45; pendPitch=0; }
+  }
   const fwd={x:-Math.sin(G.yaw),z:-Math.cos(G.yaw)}, rgt={x:Math.cos(G.yaw),z:-Math.sin(G.yaw)};
   let ix=0,iz=0;
   if(stick.active){ ix=stick.dx; iz=stick.dy; }
@@ -997,11 +1051,11 @@ function updatePlayer(dt){
      Pitch is never touched. */
   if(stick.active&&Math.hypot(stick.dx,stick.dy)>.25){
     const off=Math.atan2(-stick.dx,-stick.dy);
-    if(followBlocked){ if(Math.abs(angWrap(off-followOff))>.45){ followBlocked=false; followYaw=null; } }
+    if(followBlocked){ if(Math.abs(angWrap(off-followOff))>.8){ followBlocked=false; followYaw=null; } }
     if(!followBlocked){
-      if(followYaw===null||Math.abs(angWrap(off-followOff))>.45){ followOff=off; followYaw=G.yaw+off; }
+      if(followYaw===null||Math.abs(angWrap(off-followOff))>.8){ followOff=off; followYaw=G.yaw+off; }
       const d=angWrap(followYaw-G.yaw);
-      G.yaw+=clamp(d*(1-Math.exp(-dt*3)),-2.2*dt,2.2*dt);
+      G.yaw+=clamp(d*(1-Math.exp(-dt*2.4)),-1.5*dt,1.5*dt);
     }
   } else { followYaw=null; followBlocked=false; }
   /* raft carry + motion — explicit state machine (the first version's wait
@@ -1023,8 +1077,7 @@ function updatePlayer(dt){
     if(raft.position.z>=RAFT.z0-.001) RAFT.state='atStart';
   }
   if(onDeck) player.pos.z+=raft.position.z-prevRaftZ;
-  player.pos.x+=player.vel.x*dt; player.pos.z+=player.vel.z*dt;
-  [player.pos.x,player.pos.z]=collide(player.pos.x,player.pos.z);
+  [player.pos.x,player.pos.z]=moveSlide(player.pos.x,player.pos.z,player.vel.x*dt,player.vel.z*dt);
   player.pos.x=clamp(player.pos.x,-10.9,10.9); player.pos.z=clamp(player.pos.z,-45.5,37.5);
   /* vertical */
   const gy=groundAt(player.pos.x,player.pos.z,onDeck);
@@ -1147,7 +1200,8 @@ function selectFighter(i){
   document.querySelectorAll('.card').forEach((c,j)=>c.classList.toggle('sel',nftList[j]&&nftList[j].id===it.id));
   $('selff').textContent='PLAYING AS: '+it.name+(it.rarity?' · '+it.rarity:'')+' · ⚡×'+G.mult+
     (known?'':' · rarity unreadable — base power');
-  /* art → forearm patch texture + kit trim sampled from the art */
+  /* art → off-scene patch texture (kept so the colour sample runs as before;
+     the art itself shows in the panel card, not in the play view) */
   new THREE.TextureLoader().load(it.image,tex=>{
     tex.colorSpace=THREE.SRGBColorSpace;
     const patch=viewModel.userData.patch;
@@ -1160,7 +1214,7 @@ function selectFighter(i){
       if(n>12){ const col=new THREE.Color(r/n/255,g/n/255,b/n/255);
         kitMats.sleeve.color.copy(col).lerp(new THREE.Color(0x444444),.25); }
     }catch(e){ /* palette sample is a bonus; patch still applied */ }
-  },undefined,()=>{ $('selff').textContent+=' · (patch art could not load — colors only)'; });
+  },undefined,()=>{ $('selff').textContent+=' · (art could not load — colors only)'; });
 }
 
 /* ---------------- flow ---------------- */
