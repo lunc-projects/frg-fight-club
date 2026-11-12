@@ -78,6 +78,8 @@
   .gbtn{background:rgba(10,40,40,.95);border:1.6px solid rgba(64,200,190,.9);color:#dff7f1;border-radius:7px;
     padding:10px 14px;font-weight:900;font-size:13px;cursor:pointer}
   .gbtn.gold{background:rgba(60,48,8,.95);border-color:#f5c542;color:#ffd94d}
+  .sensbtn{flex:1;padding:15px 6px;font-size:14px}
+  .sensbtn.sel{background:#f5c542;color:#241a00;border-color:#ffe9a3}
   #nftstatus{font-size:12.5px;margin-top:8px;color:#cfeee8;min-height:16px}
   #cards{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
   .card{width:86px;background:rgba(14,26,20,.95);border:1.4px solid rgba(160,200,190,.4);border-radius:8px;padding:5px;cursor:pointer;text-align:center}
@@ -137,8 +139,17 @@
     <div id="cards"></div>
     <div id="selff"></div>
   </div>
+  <div class="panel" id="sensPanel">
+    <h3>🎚️ LOOK SPEED — HOW FAST THE VIEW TURNS</h3>
+    <div style="display:flex;gap:8px">
+      <button class="gbtn sensbtn" data-s="calm">🐢 CALM</button>
+      <button class="gbtn sensbtn" data-s="normal">NORMAL</button>
+      <button class="gbtn sensbtn" data-s="fast">FAST ⚡</button>
+    </div>
+    <p style="font-size:12.5px">CALM turns smooth and slow — pick it if the view feels jumpy. Your choice is saved on this device.</p>
+  </div>
   <button class="gbtn gold" id="startbtn">▶ START MISSION</button>
-  <div class="helpline">📱 Phone: left stick moves · drag right side to look — full 360°, up & down · FIRE / 💣 / JUMP buttons.<br>🖥 Desktop: WASD moves · mouse drag looks · SPACE fires · B bomb · SHIFT jump.<br>FRG + LUNC on this page are POINTS only.</div>
+  <div class="helpline">📱 Phone: left stick moves · drag right side to look — full 360°, up & down · the LOOK SPEED panel above sets how fast the view turns · FIRE / 💣 / JUMP buttons.<br>🖥 Desktop: WASD moves · mouse drag looks · SPACE fires · B bomb · SHIFT jump.<br>FRG + LUNC on this page are POINTS only.</div>
 </div>
 
 <div class="screen" id="end">
@@ -735,19 +746,34 @@ addEventListener('keyup',e=>{ keys[e.key.toLowerCase()]=false;
   if(e.key===' ') keys['fire']=false; });
 const stick={active:false,id:-1,dx:0,dy:0};
 const look={id:-1,lx:0,ly:0};
-/* look deltas queue here (radians) and are applied through a damper in
-   updatePlayer — a hard flick spreads over a few frames instead of whipping
-   the view wall-to-wall in one (Tom, Nov 11: "hard to use"). The total turn
-   is preserved: whatever the damper doesn't apply this frame carries over. */
-let pendYaw=0, pendPitch=0;
-/* stick-follow state: anchored target heading + drag-look block latch */
-let followYaw=null, followOff=0, followBlocked=false;
+/* LOOK MODEL (Tom, Nov 11: turning "jumps too much" / "still too touchy").
+   The old code dumped raw drag deltas ×0.0056 into a queue and the frame
+   damper applied 1−exp(−15·dt) of the WHOLE queue — at the game's 50 ms dt
+   cap that's 53% of a flick landing in ONE frame, and Android delivers
+   touchmove in bursts, so left/right turning lurched. Now drag input only
+   QUEUES angle; a turn VELOCITY (accelerating in, easing out, hard rate
+   and per-frame caps) delivers it — a flick becomes a fast glide, never
+   a jump, whatever the frame rate or event batching. */
+const SENS={ calm:{scale:.66}, normal:{scale:1}, fast:{scale:1.5} };
+let sensMode='calm'; /* default CALM — Tom's complaint is "too touchy" */
+try{ const s=localStorage.getItem('z2sens'); if(s&&SENS[s]) sensMode=s; }catch(e){}
+const LOOK={ yawBase:.0030, pitchBase:.0044, gain:22, accel:34,
+  maxRateYaw:2.9, maxRatePitch:2.6, capYaw:.055, capPitch:.05,
+  qMaxYaw:.9, qMaxPitch:.55 };
+let qYaw=0, qPitch=0, vYaw=0, vPitch=0;
+function queueLook(dx,dy,mouse){
+  const s=SENS[sensMode].scale*(mouse?.9:1);
+  qYaw=clamp(qYaw-dx*LOOK.yawBase*s,-LOOK.qMaxYaw,LOOK.qMaxYaw);
+  qPitch=clamp(qPitch-dy*LOOK.pitchBase*s,-LOOK.qMaxPitch,LOOK.qMaxPitch);
+}
+/* stick-follow state: world-anchored heading the camera glides toward */
+let followAnchor=null, followAnchorTgt=null, followOff=0, followVel=0, followBlocked=false;
 const angWrap=a=>Math.atan2(Math.sin(a),Math.cos(a));
 let fireHeld=false, bombQueued=false, jumpQueued=false;
 function bindControls(){
   const cv=renderer.domElement;
   const stickEl=document.getElementById('stick'), nub=document.getElementById('sticknub');
-  function setNub(){ nub.style.transform=`translate(calc(-50% + ${stick.dx*32}px), calc(-50% + ${stick.dy*32}px))`; }
+  function setNub(rx,ry){ nub.style.transform=`translate(calc(-50% + ${(rx||0)*32}px), calc(-50% + ${(ry||0)*32}px))`; }
   stickEl.addEventListener('touchstart',e=>{ e.preventDefault(); const t=e.changedTouches[0];
     stick.active=true; stick.id=t.identifier; },{passive:false});
   addEventListener('touchmove',e=>{
@@ -755,14 +781,19 @@ function bindControls(){
       if(stick.active&&t.identifier===stick.id){
         const r=stickEl.getBoundingClientRect();
         let dx=(t.clientX-(r.left+r.width/2))/(r.width/2), dy=(t.clientY-(r.top+r.height/2))/(r.height/2);
-        const m=Math.hypot(dx,dy); if(m>1){ dx/=m; dy/=m; }
-        stick.dx=dx; stick.dy=dy; setNub();
+        let m=Math.hypot(dx,dy); if(m>1){ dx/=m; dy/=m; m=1; }
+        setNub(dx,dy); /* the nub follows the raw thumb... */
+        /* ...but movement uses a deadzone + 1.35-power response curve: tiny
+           pushes register NOTHING (no veer), small pushes steer finely, and
+           only a full push reaches full speed. */
+        if(m<.14){ stick.dx=0; stick.dy=0; }
+        else { const cm=Math.pow((m-.14)/.86,1.35)/m; stick.dx=dx*cm; stick.dy=dy*cm; }
       } else if(look.id===t.identifier){
         /* yaw is UNBOUNDED (full 360° and keep turning); pitch stops at ±83°
            so you can aim at your feet or near-straight up without flipping.
            A manual drag also takes over aim from the stick-follow. */
-        followBlocked=true; followYaw=null;
-        pendYaw-=(t.clientX-look.lx)*.0056; pendPitch-=(t.clientY-look.ly)*.0056;
+        followBlocked=true; followAnchor=null; followAnchorTgt=null; followVel=0;
+        queueLook(t.clientX-look.lx, t.clientY-look.ly, false);
         look.lx=t.clientX; look.ly=t.clientY;
       }
     }
@@ -770,7 +801,7 @@ function bindControls(){
   },{passive:false});
   addEventListener('touchend',e=>{
     for(const t of e.changedTouches){
-      if(t.identifier===stick.id){ stick.active=false; stick.dx=stick.dy=0; setNub(); }
+      if(t.identifier===stick.id){ stick.active=false; stick.dx=stick.dy=0; setNub(0,0); }
       if(t.identifier===look.id) look.id=-1;
     }
   });
@@ -783,8 +814,8 @@ function bindControls(){
   let mdown=false,mx=0,my=0;
   cv.addEventListener('mousedown',e=>{ mdown=true; mx=e.clientX; my=e.clientY; });
   addEventListener('mousemove',e=>{ if(!mdown) return;
-    followBlocked=true; followYaw=null;
-    pendYaw-=(e.clientX-mx)*.0048; pendPitch-=(e.clientY-my)*.0048;
+    followBlocked=true; followAnchor=null; followAnchorTgt=null; followVel=0;
+    queueLook(e.clientX-mx, e.clientY-my, true);
     mx=e.clientX; my=e.clientY; });
   addEventListener('mouseup',()=>mdown=false);
   const bf=document.getElementById('btnfire'), bb=document.getElementById('btnbomb'), bj=document.getElementById('btnjump');
@@ -1019,15 +1050,28 @@ function updateEnemy(e,dt){
 /* ---------------- player / world update ---------------- */
 let spawned=SPAWN_TABLE.map(()=>false);
 function updatePlayer(dt){
-  /* damped look application: ~63% of the queued turn lands within ~65 ms,
-     the rest carries over — same total turn, no whiplash. Pitch keeps its
-     ±83° stops; queued pitch is dropped at the stops so it can't wind up. */
-  if(pendYaw||pendPitch){
-    const k=1-Math.exp(-dt*15);
-    G.yaw+=pendYaw*k; pendYaw-=pendYaw*k;
-    G.pitch+=pendPitch*k; pendPitch-=pendPitch*k;
-    if(G.pitch>1.45){ G.pitch=1.45; pendPitch=0; }
-    if(G.pitch<-1.45){ G.pitch=-1.45; pendPitch=0; }
+  /* VELOCITY look application: the queued angle is delivered by a turn
+     rate that accelerates toward the queue's demand (gain 22/s, capped at
+     2.9 rad/s yaw / 2.6 rad/s pitch, accel 34 rad/s²) and the per-frame
+     rotation is HARD-CAPPED (0.055 rad yaw / 0.05 rad pitch) — so no frame
+     can lurch at any frame rate. When the rate would overshoot the queued
+     remainder, it settles exactly on it and stops: no spin-after-flick.
+     Pitch keeps its ±83° stops; queue + velocity drop at the stops. */
+  if(qYaw||vYaw){
+    let want=qYaw?clamp(qYaw*LOOK.gain,-LOOK.maxRateYaw,LOOK.maxRateYaw):0;
+    vYaw+=clamp(want-vYaw,-LOOK.accel*dt,LOOK.accel*dt);
+    let step=clamp(vYaw*dt,-LOOK.capYaw,LOOK.capYaw);
+    if(Math.abs(step)>=Math.abs(qYaw)){ step=qYaw; qYaw=0; vYaw=0; } else qYaw-=step;
+    G.yaw+=step;
+  }
+  if(qPitch||vPitch){
+    let want=qPitch?clamp(qPitch*LOOK.gain,-LOOK.maxRatePitch,LOOK.maxRatePitch):0;
+    vPitch+=clamp(want-vPitch,-LOOK.accel*dt,LOOK.accel*dt);
+    let step=clamp(vPitch*dt,-LOOK.capPitch,LOOK.capPitch);
+    if(Math.abs(step)>=Math.abs(qPitch)){ step=qPitch; qPitch=0; vPitch=0; } else qPitch-=step;
+    G.pitch+=step;
+    if(G.pitch>1.45){ G.pitch=1.45; qPitch=0; vPitch=0; }
+    if(G.pitch<-1.45){ G.pitch=-1.45; qPitch=0; vPitch=0; }
   }
   const fwd={x:-Math.sin(G.yaw),z:-Math.cos(G.yaw)}, rgt={x:Math.cos(G.yaw),z:-Math.sin(G.yaw)};
   let ix=0,iz=0;
@@ -1048,16 +1092,28 @@ function updatePlayer(dt){
      (facing + push offset); it only re-anchors when the stick is pushed in a
      clearly new direction or re-pushed after centering. A manual drag-look
      takes over aim and blocks the follow until the stick changes direction.
-     Pitch is never touched. */
-  if(stick.active&&Math.hypot(stick.dx,stick.dy)>.25){
+     Pitch is never touched.
+     SMOOTHNESS PASS (Nov 11, "jumps too much"): the direction now comes from
+     the curved stick (deadzoned, so atan2 can't flap near centre) and follow
+     only engages past 0.35 push; re-anchor hysteresis widened 0.8→1.1 rad;
+     a re-anchor GLIDES the anchor to the new heading (≤2.2 rad/s) instead of
+     snapping the target; and the camera chases on its own velocity — capped
+     at 1.0 rad/s (was 1.5), accel 5 rad/s² — so a sideways push is a smooth
+     swing with eased ends, never a step. */
+  if(stick.active&&Math.hypot(stick.dx,stick.dy)>.35){
     const off=Math.atan2(-stick.dx,-stick.dy);
-    if(followBlocked){ if(Math.abs(angWrap(off-followOff))>.8){ followBlocked=false; followYaw=null; } }
+    if(followBlocked){ if(Math.abs(angWrap(off-followOff))>1.1){ followBlocked=false; followAnchor=null; followAnchorTgt=null; followVel=0; } }
     if(!followBlocked){
-      if(followYaw===null||Math.abs(angWrap(off-followOff))>.8){ followOff=off; followYaw=G.yaw+off; }
-      const d=angWrap(followYaw-G.yaw);
-      G.yaw+=clamp(d*(1-Math.exp(-dt*2.4)),-1.5*dt,1.5*dt);
+      if(followAnchor===null){ followOff=off; followAnchor=followAnchorTgt=G.yaw+off; }
+      else if(Math.abs(angWrap(off-followOff))>1.1){ followOff=off; followAnchorTgt=G.yaw+off; }
+      const da=angWrap(followAnchorTgt-followAnchor);
+      followAnchor+=clamp(da,-2.2*dt,2.2*dt);
+      const d=angWrap(followAnchor-G.yaw);
+      const want=clamp(d*3.2,-1.0,1.0);
+      followVel+=clamp(want-followVel,-5*dt,5*dt);
+      G.yaw+=followVel*dt;
     }
-  } else { followYaw=null; followBlocked=false; }
+  } else { followAnchor=null; followAnchorTgt=null; followVel=0; followBlocked=false; }
   /* raft carry + motion — explicit state machine (the first version's wait
      condition included the home end, so the raft waited at the dock forever) */
   const onDeck=Math.abs(player.pos.x-raft.position.x)<2.35&&Math.abs(player.pos.z-raft.position.z)<2.85&&player.pos.y<1.1;
@@ -1224,6 +1280,7 @@ function resetGame(){
   for(const s of shots){ s.active=false; s.grp.visible=false; }
   Object.assign(G,{hp:G.maxHp,ammo:226,bombs:14,frg:5.2,lunc:518,kills:0,time:0,pitch:0,yaw:0,
     reload:0,orbTaken:false,vy:0,screen:'play',hurtT:0});
+  qYaw=qPitch=vYaw=vPitch=0; followAnchor=followAnchorTgt=null; followVel=0; followBlocked=false;
   player.pos.set(0,0,33); player.vel.set(0,0,0);
   raft.position.z=RAFT.z0; RAFT.wait=0; RAFT.state='atStart';
   orbShield.visible=true; orbLight.intensity=2.2;
@@ -1240,6 +1297,10 @@ $('startbtn').onclick=startGame;
 $('againbtn').onclick=startGame;
 $('retrybtn').onclick=startGame;
 $('lookup').onclick=()=>lookupNFT($('addr').value);
+function paintSens(){ document.querySelectorAll('.sensbtn').forEach(b=>b.classList.toggle('sel',b.dataset.s===sensMode)); }
+document.querySelectorAll('.sensbtn').forEach(b=>b.onclick=()=>{ sensMode=b.dataset.s;
+  try{ localStorage.setItem('z2sens',sensMode); }catch(e){} paintSens(); });
+paintSens();
 $('addr').addEventListener('keydown',e=>{ if(e.key==='Enter') lookupNFT($('addr').value); e.stopPropagation(); });
 bindControls(); updateHUD();
 
@@ -1303,6 +1364,8 @@ addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight;
 
 /* QA hooks (used by the automated play-test harness) */
 window.__z3d={ G, player, enemies, start:startGame, reset:resetGame,
+  sens:()=>sensMode, setSens:m=>{ if(SENS[m]){ sensMode=m; paintSens(); } },
+  lookState:()=>({qYaw,vYaw,qPitch,vPitch,followVel,followAnchor,followAnchorTgt}),
   vm:viewModel, scene, camera, raft,
   pose(){ G.poster=true;
     for(const e of enemies) scene.remove(e.g); enemies.length=0;
