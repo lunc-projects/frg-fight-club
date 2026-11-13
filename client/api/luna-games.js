@@ -56,6 +56,10 @@
 // records behind ?tokenslot=1 (see the token-slot block below). The
 // handler re-verifies every payment on the public LCD itself before
 // recording it; the burn counter only ever shows verified totals.
+// Kava Admin Panel access code: this router also holds the panel's
+// access-code hash server-side behind ?kavacode=1 (see the kava-code
+// block below), so the owner can change the code from inside the
+// panel and the code itself never passes through chat or any person.
 // Stores each player's BEST score in Upstash Redis sorted sets (all-time +
 // current ISO week) plus a name map, per game prefix. Telegram WebApp
 // initData is verified against the LUNC Assistant Bot token when present
@@ -2217,6 +2221,151 @@ export async function tokenSlotHandler(req, res) {
 }
 /* token-slot:end */
 
+/* kava-code:start — KAVA ADMIN PANEL access code, server-side hash.
+   The panel (client/public/kava-books-k7x9/) used to carry its access
+   code's SHA-256 baked into the page, so changing the code meant a
+   redeploy and the code passing through whoever edited the file. Now
+   the code's hash lives HERE, in Upstash key kbk:codehash, and the
+   owner changes it from inside the unlocked panel — the code itself
+   never leaves his browser; only SHA-256 hashes (of the code, trimmed
+   + upper-cased — the normalisation the page has always used) travel.
+   Reached via /api/luna-games?kavacode=1 directly (no vercel.json
+   rewrite needed, same as ?garudasettings=). The stored hash is
+   NEVER returned: GET answers only {set: bool} and POST
+   kavaCodeCheck only {ok: bool}.
+   Bootstrap: while kbk:codehash is unset, KBK_BOOTSTRAP_HASH below —
+   the hash that shipped baked into the page — is the valid code, so
+   the panel keeps working until the owner's first in-panel change.
+   After that first set the stored hash alone rules and the bootstrap
+   stops working.
+   Brute-force rail: failed code attempts are counted per client IP
+   (the IP is itself hashed into the counter key name, so no raw IPs
+   are stored); 8 failures inside a 15-minute window lock that IP out
+   of BOTH actions for 15 minutes, and any success clears its
+   counter. It holds no keys, signs nothing, moves no funds. */
+const KBK_CODE_KEY = 'kbk:codehash';
+const KBK_BOOTSTRAP_HASH = 'bf8015e0382709b50393a46ad4b6feb150b192bdb26684f7f42a8edc015035a5';
+const KBK_MAX_FAILS = 8;
+const KBK_FAIL_WINDOW_SEC = 15 * 60;
+const KBK_LOCKOUT_SEC = 15 * 60;
+
+function kbkIsHash(v) { return typeof v === 'string' && /^[0-9a-f]{64}$/.test(v); }
+
+function kbkHashEq(a, b) {
+  const ba = Buffer.from(String(a)), bb = Buffer.from(String(b));
+  return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
+}
+
+function kbkIpTag(req) {
+  const xff = String((req.headers && req.headers['x-forwarded-for']) || '');
+  const ip = xff.split(',')[0].trim() || (req.socket && req.socket.remoteAddress) || 'unknown';
+  return crypto.createHash('sha256').update(ip).digest('hex').slice(0, 16);
+}
+
+async function kbkEffectiveHash() {
+  const out = await upstashPipeline([['GET', KBK_CODE_KEY]]);
+  const v = out[0] && out[0].result;
+  return kbkIsHash(v) ? v : KBK_BOOTSTRAP_HASH;
+}
+
+async function kbkLockState(tag) {
+  const out = await upstashPipeline([['GET', 'kbk:lock:' + tag], ['TTL', 'kbk:lock:' + tag]]);
+  const locked = !!(out[0] && out[0].result);
+  const ttl = out[1] && typeof out[1].result === 'number' && out[1].result > 0 ? out[1].result : KBK_LOCKOUT_SEC;
+  return { locked, retryAfterSec: locked ? ttl : 0 };
+}
+
+/* Record one failed attempt; returns true when this failure tripped
+   the lockout. */
+async function kbkRecordFail(tag) {
+  const out = await upstashPipeline([['INCR', 'kbk:fail:' + tag]]);
+  const n = (out[0] && out[0].result) || 0;
+  if (n === 1) {
+    try { await upstashPipeline([['EXPIRE', 'kbk:fail:' + tag, KBK_FAIL_WINDOW_SEC]]); } catch (e) { /* window is best-effort */ }
+  }
+  if (n >= KBK_MAX_FAILS) {
+    await upstashPipeline([['SET', 'kbk:lock:' + tag, '1', 'EX', KBK_LOCKOUT_SEC], ['DEL', 'kbk:fail:' + tag]]);
+    return true;
+  }
+  return false;
+}
+
+async function kbkClearFails(tag) {
+  try { await upstashPipeline([['DEL', 'kbk:fail:' + tag]]); } catch (e) { /* best-effort */ }
+}
+
+export async function kavaCodeHandler(req, res) {
+  if (req.method !== 'GET' && req.method !== 'POST') {
+    return res.status(405).json({ ok: false, error: 'method not allowed' });
+  }
+  if (!process.env.NEONRUSH_UPSTASH_URL || !process.env.NEONRUSH_UPSTASH_TOKEN) {
+    return res.status(500).json({ ok: false, unavailable: true, error: 'storage not configured' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+
+  if (req.method === 'GET') {
+    try {
+      const out = await upstashPipeline([['GET', KBK_CODE_KEY]]);
+      return res.status(200).json({ ok: true, set: kbkIsHash(out[0] && out[0].result) });
+    } catch (e) {
+      console.error('kava code state read failed', e && e.message);
+      return res.status(500).json({ ok: false, unavailable: true, error: 'code service unavailable' });
+    }
+  }
+
+  // POST
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }
+  if (!body || typeof body !== 'object') return res.status(400).json({ ok: false, error: 'bad request' });
+  const action = String(body.action || '');
+  const tag = kbkIpTag(req);
+
+  if (action === 'kavaCodeCheck') {
+    const hash = String(body.hash || '').toLowerCase();
+    if (!kbkIsHash(hash)) return res.status(400).json({ ok: false, error: 'bad hash' });
+    try {
+      const lock = await kbkLockState(tag);
+      if (lock.locked) return res.status(200).json({ ok: false, locked: true, retryAfterSec: lock.retryAfterSec, error: 'too many tries — locked for a bit' });
+      const effective = await kbkEffectiveHash();
+      if (kbkHashEq(hash, effective)) {
+        await kbkClearFails(tag);
+        return res.status(200).json({ ok: true });
+      }
+      const tripped = await kbkRecordFail(tag);
+      return res.status(200).json({ ok: false, locked: tripped, error: 'code not right' });
+    } catch (e) {
+      console.error('kava code check failed', e && e.message);
+      return res.status(500).json({ ok: false, unavailable: true, error: 'code service unavailable' });
+    }
+  }
+
+  if (action === 'kavaCodeSet') {
+    const currentHash = String(body.currentHash || '').toLowerCase();
+    const newHash = String(body.newHash || '').toLowerCase();
+    if (!kbkIsHash(currentHash) || !kbkIsHash(newHash)) {
+      return res.status(400).json({ ok: false, error: 'bad hash' });
+    }
+    try {
+      const lock = await kbkLockState(tag);
+      if (lock.locked) return res.status(200).json({ ok: false, locked: true, retryAfterSec: lock.retryAfterSec, error: 'too many tries — locked for a bit' });
+      const effective = await kbkEffectiveHash();
+      if (!kbkHashEq(currentHash, effective)) {
+        const tripped = await kbkRecordFail(tag);
+        return res.status(200).json({ ok: false, locked: tripped, error: 'current code is not right' });
+      }
+      await upstashPipeline([['SET', KBK_CODE_KEY, newHash]]);
+      await kbkClearFails(tag);
+      return res.status(200).json({ ok: true, set: true });
+    } catch (e) {
+      console.error('kava code set failed', e && e.message);
+      return res.status(500).json({ ok: false, unavailable: true, error: 'code service unavailable' });
+    }
+  }
+
+  return res.status(400).json({ ok: false, error: 'unknown action' });
+}
+/* kava-code:end */
+
 /* hussy-signals:start — DEV STUDIO SIGNALS chain-token candle relay,
    folded into this router for the same 12-function-cap reason as the
    fx-signal relay above. Reached via ?hsig=<TOKEN> (the signals page
@@ -2320,6 +2469,11 @@ export default async function handler(req, res) {
      the token-slot block above). Runs before game dispatch; game
      requests never carry ?tokenslot. */
   if (req.query && req.query.tokenslot !== undefined) return tokenSlotHandler(req, res);
+  /* Kava Admin Panel access code: the panel calls
+     /api/luna-games?kavacode=1 directly (see the kava-code block
+     above). Server-side code hash; the stored hash itself is never
+     returned — only {set} and {ok} booleans. */
+  if (req.query && req.query.kavacode !== undefined) return kavaCodeHandler(req, res);
   /* Garuda Dash payout admin: /api/garuda-admin is rewritten to
      /api/luna-games?garudaadmin=1 (see the garuda-admin block above). */
   if (req.query && req.query.garudaadmin !== undefined) return garudaAdminHandler(req, res);

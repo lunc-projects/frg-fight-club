@@ -80,6 +80,15 @@ h2.sec:first-child{margin-top:2px;}
 #codeInput:focus{border-color:var(--red);}
 #gateBtn{width:100%; margin-top:12px; background:var(--red); color:#fff; border:0; border-radius:12px; padding:13px; font-size:16px; font-weight:900;}
 #gateErr{color:var(--red2); font-size:13px; font-weight:700; min-height:18px; margin-top:9px;}
+#gateNote{color:var(--amber); font-size:12.5px; font-weight:600; min-height:16px; margin-top:6px;}
+/* change-code card */
+.code-inp{width:100%; background:#0a0d13; border:1.5px solid var(--line); border-radius:12px; color:var(--ink); padding:12px 14px; font-size:16px; font-weight:700; outline:none;}
+.code-inp:focus{border-color:var(--red);}
+#ccBtn{background:var(--red); color:#fff; border:0; border-radius:12px; padding:12px 18px; font-size:15px; font-weight:900; justify-self:start;}
+#ccBtn:active{transform:scale(.98);}
+#ccMsg{font-size:13.5px; font-weight:700; min-height:18px;}
+#ccMsg.ok{color:var(--green);}
+#ccMsg.bad{color:var(--red2);}
 #panel{display:none;}
 .loading{color:var(--ink3); font-weight:600; padding:14px 4px;}
 @media (max-width:560px){ .kpi .big{font-size:20px;} nav.tabs{top:61px;} }
@@ -95,6 +104,7 @@ h2.sec:first-child{margin-top:2px;}
     <input id="codeInput" type="password" inputmode="text" autocomplete="off" placeholder="ACCESS CODE" aria-label="Access code">
     <button id="gateBtn">Unlock</button>
     <div id="gateErr"></div>
+    <div id="gateNote"></div>
   </div>
 </div>
 
@@ -210,33 +220,126 @@ h2.sec:first-child{margin-top:2px;}
   <div id="contractsWrap"><div class="loading">Reading contract state…</div></div>
 </section>
 
-<p class="foot">Built on Kava Chain with Kava Origin. · Read-only panel — it can look, never touch. Figures marked live are read from https://evm.kava.io each refresh; the ledger is the verified Nov 13, 2026 record.</p>
+<div class="card" id="codeCard" style="margin-top:22px;">
+  <h3>🔑 Change access code</h3>
+  <p class="mut">Set a new code for this panel. You type it here and it goes straight to the panel's own lock — only its fingerprint (a SHA-256 hash) is stored, never the code itself, and it never passes through chat or any person. After a change, this browser locks again so you can prove the new code works.</p>
+  <div style="display:grid; gap:10px; max-width:430px;">
+    <input class="code-inp" id="ccCurrent" type="password" autocomplete="off" placeholder="Current code" aria-label="Current code">
+    <input class="code-inp" id="ccNew" type="password" autocomplete="off" placeholder="New code" aria-label="New code">
+    <input class="code-inp" id="ccRepeat" type="password" autocomplete="off" placeholder="New code again" aria-label="New code again">
+    <button id="ccBtn">Change code</button>
+    <div id="ccMsg"></div>
+  </div>
+</div>
+
+<p class="foot">Built on Kava Chain with Kava Origin. · Read-only panel — it can look, never touch. Figures marked live are read from https://evm.kava.io each refresh; the ledger is the verified Nov 13, 2026 record.<span id="offlineNote"></span></p>
 </div>
 </div>
 
 <script>
 'use strict';
 /* ============ ACCESS GATE ============
-   To change the code: hash the new code (SHA-256 of the code, trimmed and
-   upper-cased) and replace the ACCESS_HASH value on the next line. One line.
+   The code's SHA-256 lives server-side (the ?kavacode= route in the
+   shared API); the owner changes it from inside the panel (the 🔑
+   card at the bottom) and only hashes ever travel. BOOTSTRAP_HASH
+   below is the original baked-in code's hash: it stays valid until
+   the first in-panel code change, and it is the offline fallback
+   when the API can't be reached.
    This is a privacy screen over public chain data — not a vault. */
-const ACCESS_HASH = 'bf8015e0382709b50393a46ad4b6feb150b192bdb26684f7f42a8edc015035a5';
+const BOOTSTRAP_HASH = 'bf8015e0382709b50393a46ad4b6feb150b192bdb26684f7f42a8edc015035a5';
+const CODE_API = '/api/luna-games?kavacode=1';
 async function sha256hex(s){
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
   return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 const gateEl = document.getElementById('gate'), panelEl = document.getElementById('panel');
-function unlock(){ gateEl.style.display='none'; panelEl.style.display='block'; startPanel(); }
+function unlock(){
+  gateEl.style.display='none'; panelEl.style.display='block';
+  if (sessionStorage.getItem('kbk_offline')==='1'){
+    document.getElementById('offlineNote').textContent = ' · Offline mode — the code was checked against the built-in code only; changing the code needs the connection back.';
+  }
+  startPanel();
+}
+function gateNote(msg){ document.getElementById('gateNote').textContent = msg || ''; }
+/* Ask the server whether this hash is the code. Returns 'ok',
+   'wrong', 'locked', or 'down' (server unreachable/unavailable —
+   the caller then falls back to the built-in bootstrap hash). The
+   stored hash itself is never sent to the page. */
+async function codeCheckViaApi(hash){
+  try{
+    const r = await fetch(CODE_API, {method:'POST', headers:{'content-type':'application/json'},
+      body: JSON.stringify({action:'kavaCodeCheck', hash})});
+    const j = await r.json();
+    if (j && j.unavailable) return 'down';
+    if (j && j.ok === true) return 'ok';
+    if (j && j.locked) return 'locked';
+    if (j && j.ok === false) return 'wrong';
+    return 'down';
+  }catch(e){ return 'down'; }
+}
 async function tryUnlock(){
   const v = document.getElementById('codeInput').value.trim().toUpperCase();
   const err = document.getElementById('gateErr');
   if (!v){ err.textContent='Type the code first.'; return; }
-  if ((await sha256hex(v)) === ACCESS_HASH){ sessionStorage.setItem('kbk_unlocked','1'); err.textContent=''; unlock(); }
-  else err.textContent='That code is not right — try again.';
+  err.textContent='Checking…';
+  const hash = await sha256hex(v);
+  const verdict = await codeCheckViaApi(hash);
+  if (verdict === 'ok'){
+    sessionStorage.setItem('kbk_unlocked','1'); sessionStorage.removeItem('kbk_offline');
+    err.textContent=''; gateNote(''); unlock(); return;
+  }
+  if (verdict === 'locked'){ err.textContent='Too many wrong tries — locked for a few minutes. Wait, then try again.'; return; }
+  if (verdict === 'wrong'){ err.textContent='That code is not right — try again.'; return; }
+  /* Server down: fall back to the built-in bootstrap code, and say so. */
+  gateNote("Offline mode — the panel server can't be reached, so only the built-in code works here.");
+  if (hash === BOOTSTRAP_HASH){
+    sessionStorage.setItem('kbk_unlocked','1'); sessionStorage.setItem('kbk_offline','1');
+    err.textContent=''; unlock(); return;
+  }
+  err.textContent='That code is not right — try again.';
 }
 document.getElementById('gateBtn').addEventListener('click', tryUnlock);
 document.getElementById('codeInput').addEventListener('keydown', e=>{ if(e.key==='Enter') tryUnlock(); });
 if (sessionStorage.getItem('kbk_unlocked')==='1') unlock();
+else {
+  /* Early heads-up when the code server is unreachable. */
+  const down = ()=>gateNote("Offline mode — the panel server can't be reached, so only the built-in code works here.");
+  fetch(CODE_API).then(r=>r.json()).then(j=>{ if (!j || j.unavailable || j.ok !== true) down(); }).catch(down);
+}
+
+/* ============ CHANGE CODE (owner, inside the panel) ============ */
+async function changeCode(){
+  const msg = document.getElementById('ccMsg');
+  const cur = document.getElementById('ccCurrent').value.trim().toUpperCase();
+  const nw = document.getElementById('ccNew').value.trim().toUpperCase();
+  const rp = document.getElementById('ccRepeat').value.trim().toUpperCase();
+  const say = (txt, cls)=>{ msg.textContent = txt; msg.className = cls || ''; };
+  if (!cur || !nw || !rp){ say('Fill in all three boxes.', 'bad'); return; }
+  if (nw !== rp){ say("The two new codes don't match — nothing changed.", 'bad'); return; }
+  if (nw === cur){ say('The new code is the same as the current one — nothing changed.', 'bad'); return; }
+  say('Changing…', '');
+  let j = null;
+  try{
+    const r = await fetch(CODE_API, {method:'POST', headers:{'content-type':'application/json'},
+      body: JSON.stringify({action:'kavaCodeSet', currentHash: await sha256hex(cur), newHash: await sha256hex(nw)})});
+    j = await r.json();
+  }catch(e){ j = null; }
+  if (!j || j.unavailable){ say("Couldn't reach the panel server — code not changed. Check the connection and try again.", 'bad'); return; }
+  if (j.locked){ say('Too many wrong tries — locked for a few minutes. Code not changed.', 'bad'); return; }
+  if (!j.ok){ say('Current code is not right — nothing was changed.', 'bad'); return; }
+  document.getElementById('ccCurrent').value='';
+  document.getElementById('ccNew').value='';
+  document.getElementById('ccRepeat').value='';
+  say('Code changed. Use the new code next time.', 'ok');
+  /* Lock this browser again so the new code gets proven right away. */
+  sessionStorage.removeItem('kbk_unlocked'); sessionStorage.removeItem('kbk_offline');
+  document.getElementById('codeInput').value='';
+  document.getElementById('gateErr').textContent='';
+  gateNote('Code changed — enter the NEW code to get back in.');
+  panelEl.style.display='none'; gateEl.style.display='flex';
+  window.scrollTo(0,0);
+}
+document.getElementById('ccBtn').addEventListener('click', changeCode);
 
 /* ============ CONSTANTS ============ */
 const RPCS = ['https://evm.kava.io','https://evm2.kava.io'];
