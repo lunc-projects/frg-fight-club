@@ -496,6 +496,21 @@
       </div>
       <div id="burnStatus" style="font-size:12.5px; min-height:16px; text-align:center"></div>
     </div>
+    <div class="admsec" id="gdSettingsSection">
+      <h3>🎮 GAME SETTINGS</h3>
+      <p style="font-size:12.5px; text-align:center; margin:0 0 6px">Tune the whole game with the ➖ / ➕ buttons — or tap a preset — then press SAVE SETTINGS. Changes apply the next time a player loads the game; a run already being played never changes mid-game. A gold • next to a number means it differs from the game's original tuning.</p>
+      <div class="nftRow">
+        <button class="play alt" id="gdSetEasyBtn" style="flex:1">😊 EASY</button>
+        <button class="play alt" id="gdSetNormalBtn" style="flex:1">🎯 NORMAL</button>
+        <button class="play alt" id="gdSetHardBtn" style="flex:1">🔥 HARD</button>
+      </div>
+      <div id="gdSetRows"></div>
+      <div class="nftRow">
+        <button class="play" id="gdSetSaveBtn" style="flex:1">💾 SAVE SETTINGS</button>
+        <button class="play alt" id="gdSetResetBtn" style="flex:1">⟲ RESET ALL TO DEFAULTS</button>
+      </div>
+      <div id="gdSetStatus" style="font-size:12.5px; min-height:16px; text-align:center"></div>
+    </div>
     <div class="admsec" id="gdEditorSection">
       <h3>🛠️ LEVEL EDITOR — FULL EDIT</h3>
       <p style="font-size:12.5px; text-align:center; margin:0 0 6px">Design any level: drag floors, platforms and enemies where you want them. Nothing changes for players until you press PUBLISH — and UNDO always brings back the version before it. Coins appear by themselves along floors and platforms. The nest (goal) and the hero start are placed by the game engine and stay fixed.</p>
@@ -1053,7 +1068,7 @@ function gdRiseField(grounds){
   }
   return { riseAt, floorY: grounds.map((g, i) => Math.round(g.y - rise[i])) };
 }
-function gdMakeBoss(n, finX, finY){
+function gdMakeBossBase(n, finX, finY){
   if (n === 10 || n === 40){
     return { x: NEST_X - 300, minX: finX + 60, maxX: NEST_X - 170, y: finY, w: 72, h: 96,
       hp: n === 40 ? 12 : 8, maxHp: n === 40 ? 12 : 8, stun: 0, dir: 1, speed: 34, chargeT: 0, chargeDir: 1, hop: 0, hopV: 0,
@@ -1074,6 +1089,17 @@ function gdMakeBoss(n, finX, finY){
     hp: D.hp, maxHp: D.hp, stun: 0, dir: 1, speed: D.speed, chargeT: 0, chargeDir: 1, hop: 0, hopV: 0,
     dead: false, enraged: false, sword: false, name: D.name, bonus: D.bonus,
     body: D.body, accent: D.accent, crown: D.crown, hitT: 0, dmgT: 0, dmgHp: D.hp };
+}
+/* GAME SETTINGS on bosses: the panel's boss health +/- and enemy
+   speed % scale every boss the table builds. A level published in
+   the level editor still wins afterwards — gdApplyEditorData
+   replaces hp/speed for that level outright. */
+function gdMakeBoss(n, finX, finY){
+  const b = gdMakeBossBase(n, finX, finY);
+  const hp = Math.max(1, Math.min(99, b.hp + GD_SET.bossHpBonus));
+  b.hp = hp; b.maxHp = hp; b.dmgHp = hp;
+  b.speed = Math.round(b.speed * GD_SET.foeSpeedPct / 100);
+  return b;
 }
 /* ================= BOSS ARRIVAL — suspense (Tom, Nov 8) =================
    Entering a boss arena: the level music drops away into a tense
@@ -1208,6 +1234,38 @@ function drawBossPowerBar(b){
   ctx.restore();
 }
 
+/* ============ GAME SETTINGS (team admin panel, Nov 13) ============
+   The Garuda team tunes the whole game from the private admin
+   panel's GAME SETTINGS section — difficulty and economy numbers,
+   stored server-side (see ?garudasettings=1 in luna-games.js). They
+   are fetched ONCE at load and applied over the built-in defaults
+   below, which are EXACTLY the tuning this game shipped with — so
+   with nothing set in the panel, the game plays exactly as before,
+   and if the fetch fails the defaults simply stand. Settings apply
+   at load only: a run already in progress is never changed
+   mid-game. Every value is re-checked against the same ranges the
+   server enforces before it is used. */
+const GD_SET_DEFS = {
+  shuStart: [5, 0, 20], shuPerLevel: [1, 0, 5], shuPickup: [1, 1, 5], shuMax: [12, 1, 30],
+  livesStart: [3, 1, 9], livesMax: [5, 1, 9],
+  foeHitsCap: [8, 1, 12], foeHitsStep: [5, 1, 10], bruteBonus: [1, 0, 5],
+  bossHpBonus: [0, -6, 20], bossThrowsPerMin: [0, 0, 60],
+  foeSpeedPct: [100, 50, 200], hurtGraceSec: [1.6, 0.5, 3],
+};
+const GD_SET = {};
+for (const k of Object.keys(GD_SET_DEFS)) GD_SET[k] = GD_SET_DEFS[k][0];
+function gdApplyGameSettings(s){
+  if (!s || typeof s !== 'object') return;
+  for (const k of Object.keys(GD_SET_DEFS)){
+    if (s[k] === undefined) continue;
+    const v = Number(s[k]);
+    if (!Number.isFinite(v)) continue;
+    GD_SET[k] = Math.min(GD_SET_DEFS[k][2], Math.max(GD_SET_DEFS[k][1], v));
+  }
+  /* the shuriken economy reads these three lets (declared below) */
+  SHU_START = GD_SET.shuStart; SHU_MAX = GD_SET.shuMax; SHU_PICK = GD_SET.shuPickup;
+}
+
 /* ============ LEVEL EDITOR OVERRIDES (Garuda team admin editor) ====
    The team's visual editor (private admin panel) stores per-level
    layout DATA on the server (grounds / step platforms / patrol
@@ -1295,6 +1353,18 @@ function gdApplyEditorData(L, d){
   } catch (e) { /* defaults stand */ }
   GD_EDIT_LOADED = true;
 })();
+
+/* Game Settings fetch — same one-shot pattern as the editor
+   overrides above: silent on failure, defaults stand. */
+(async function gdLoadGameSettings(){
+  try {
+    const r = await fetch('/api/luna-games?garudasettings=1', { cache: 'no-cache' });
+    if (!r.ok) return;
+    const d = await r.json();
+    gdApplyGameSettings(d && d.settings);
+  } catch (e) { /* defaults stand */ }
+})();
+
 
 /* ============ TOWER LEVELS v3 — the real game's tower level system ====
    Tom's design (Nov 8, 22:10; v3 separation Nov 8, 22:53): a TALL
@@ -1586,8 +1656,8 @@ const ARCHETYPES = {
    its remaining hits as red pips over its head (drawFoePips) — the
    honest read, without touching the HUD. */
 function foeBandHits(n, kind){
-  const base = Math.min(8, Math.ceil(n / 5));
-  return kind === 'brute' ? base + 1 : base;
+  const base = Math.min(GD_SET.foeHitsCap, Math.ceil(n / GD_SET.foeHitsStep));
+  return kind === 'brute' ? base + GD_SET.bruteBonus : base;
 }
 /* ================= climb-direction variety =================
    (Jon's review #2, Nov 12) — the tower layout itself is one authored
@@ -2367,7 +2437,7 @@ function startLevel(n, quiet, withIntro){
      SHU_START — between levels the stars carry over untouched. */
   if (gdFreshRun){ shuAmmo = SHU_START; gdFreshRun = false; }
   shurikens = []; bossShots = []; throwCd = 0;
-  walkers = L.walkerDefs.map(d => { const hits = foeBandHits(level, d.kind); return { ...d, hp: hits, maxHp: hits, x: (d.minX + d.maxX) / 2, dir: 1, stun: 0, dead: false }; });
+  walkers = L.walkerDefs.map(d => { const hits = foeBandHits(level, d.kind); return { ...d, speed: Math.round((d.speed || 0) * GD_SET.foeSpeedPct / 100), hp: hits, maxHp: hits, x: (d.minX + d.maxX) / 2, dir: 1, stun: 0, dead: false }; });
   bats = (L.batDefs || []).map(d => ({ ...d, w: 28, h: 20,
     x: d.ax - 14, y: d.ay + 22, state: 'hang', t: 0, stun: 0, dead: false,
     vy: 0, dirF: 1, diveT: 0, diveDur: 0, fromCx: 0, fromCy: 0, toCx: 0, toCy: 0 }));
@@ -2388,7 +2458,7 @@ function startLevel(n, quiet, withIntro){
 }
 function resetRun(n){
   gdFreshRun = true;
-  score = 0; coinCount = 0; lives = 3; elapsed = 0;
+  score = 0; coinCount = 0; lives = GD_SET.livesStart; elapsed = 0;
   runFeathers = 0; totalTimeBonus = 0; lastTierCross = null;
   maxLevelReached = n;
   startLevel(n, false, true);
@@ -2418,8 +2488,8 @@ function levelComplete(){
     return;
   }
   unlocked = Math.max(unlocked, level + 1);
-  lives = Math.min(5, lives + 1);
-  shuAmmo = Math.min(SHU_MAX, shuAmmo + 1);   /* Jon's review #2: completing a level grants +1 shuriken */
+  lives = Math.min(GD_SET.livesMax, lives + 1);
+  shuAmmo = Math.min(SHU_MAX, shuAmmo + GD_SET.shuPerLevel);   /* Jon's review #2: completing a level grants shurikens (GAME SETTINGS: per-level grant) */
   saveProgress();
   hud();
   $('lvlKicker').textContent = 'LEVEL ' + level + ' COMPLETE';
@@ -2430,7 +2500,7 @@ function levelComplete(){
       (lastMedal ? MEDAL_EMOJI[lastMedal] + ' <b>' + lastMedal.toUpperCase() + '</b> MEDAL!' : 'no medal (bronze is ' + PAR_TIMES[level - 1].b + 's)') +
       (lastMedalBest ? ' · 🏆 NEW BEST!' : ' · your best ' + bestTime(level).toFixed(1) + 's') +
     `<br>🪶 Hidden feathers: <b>${featherLevelGot(level)}/3</b> here · <b>${featherTotal()}/120</b> total` +
-    `<br>🌀 +1 shuriken for finishing — <b>${shuAmmo}</b> stars carry into LV ${level + 1}` +
+    `<br>🌀 +${GD_SET.shuPerLevel} shuriken for finishing — <b>${shuAmmo}</b> stars carry into LV ${level + 1}` +
     (lastSkinUnlock ? `<br>🎉 NEW SKIN UNLOCKED: ${lastSkinUnlock}! Pick it on the menu.` : '') +
     (lastTierCross ? `<br>🎉 NEW HEADBAND: ${lastTierCross}!` : '') +
     `<br>Next: <b>LV ${level + 1} · ${THEMES[level].name}</b> — it gets hotter.`;
@@ -2465,7 +2535,7 @@ function hurt(fromPit){
   if (!fromPit && gdShield > 0){
     gdShield--;
     stompChain = 0;
-    invuln = 1.6; flinchT = 0.35;
+    invuln = GD_SET.hurtGraceSec; flinchT = 0.35;
     P.vy = -270; P.vx = -P.face * 190;
     shakeT = Math.max(shakeT, 0.5);
     burst(P.x + P.w / 2, P.y + P.h / 2, 14, '#7fe7ff', 190, 0.5, 2.8, 200);
@@ -2492,7 +2562,7 @@ function hurt(fromPit){
     shakeT = Math.max(shakeT, 0.85);   /* damage: bigger shake than a stomp, no freeze */
     burst(P.x + P.w / 2, P.y + P.h / 2, 8, '#ff8fa8', 140, 0.4, 2.4, 200);
   }
-  invuln = 1.6;
+  invuln = GD_SET.hurtGraceSec;
   flinchT = 0.35;
   airJumps = 0;
   beep(160, 0, 0.18, 'sawtooth', 0.11);
@@ -2587,7 +2657,7 @@ let shurikens = [];        /* live player stars {x,y,vx,vy,t,dead} */
 let shuPickups = [];       /* unclaimed ammo stars in the world {x,y,taken} */
 let shuAmmo = 0, throwCd = 0;
 let gdFreshRun = true;   /* set by resetRun only: the next startLevel is a new run and restocks to SHU_START */
-const SHU_START = 5, SHU_MAX = 12, SHU_PICK = 1;
+let SHU_START = 5, SHU_MAX = 12, SHU_PICK = 1;   /* GAME SETTINGS mirrors — gdApplyGameSettings re-points these at the panel values on load */
 function buildShuPickups(){
   shuPickups = [];
   L_PLATFORMS.forEach((p, i) => { if (i % 4 === 1) shuPickups.push({ x: p[0] + p[2] / 2, y: p[1] - 24, taken: false }); });
@@ -2715,6 +2785,7 @@ function drawShurikenShape(x, y, r, rot, fill){
 let bossShots = [];   /* {x,y,vx,vy,t,kind,dead} kind 'star' | 'grenade' */
 function gdBossThrowInterval(){
   if (boss && boss.throwsPerMin > 0) return 60 / boss.throwsPerMin;
+  if (GD_SET.bossThrowsPerMin > 0) return 60 / GD_SET.bossThrowsPerMin;   /* GAME SETTINGS: panel-wide throw pace (0 = the formula below) */
   let iv = 3.4 - (level - 1) * 0.055;
   if (boss && boss.enraged) iv *= 0.72;
   return Math.max(1.45, iv);
@@ -6752,7 +6823,7 @@ function gdAdminRender(){
   $('admTabWeek').className = 'play' + (gdAdminTab === 'week' ? '' : ' alt');
   /* v2 sections appear only after a successful key unlock. */
   $('adminExtras').style.display = gdAdminData ? 'block' : 'none';
-  if (gdAdminData){ gdRenderPayouts(); gdRenderTimer(); gdRenderAdminAccess(); }
+  if (gdAdminData){ gdRenderPayouts(); gdRenderTimer(); gdRenderAdminAccess(); gdRenderGameSettings(); }
   else { const os = $('gdOwnerSection'); if (os) os.remove(); gdOwnerWired = false; }
   const rows = gdAdminData ? (gdAdminData[gdAdminTab] || []) : [];
   const box = $('adminRows');
@@ -6986,6 +7057,136 @@ $('burnSaveBtn').onclick = async () => {
     gdLoadPublicStrip();
   } catch (e) { st.textContent = 'Not saved — try again.'; }
 };
+
+/* ================= GAME SETTINGS (owner + team admin) =========
+   The whole game's tuning, as one-click steppers. The server is
+   the source of truth: the panel GET carries gameSettings
+   {settings (effective), defaults, defs (ranges)}; the steppers
+   edit a local copy; SAVE posts the full map to the same gated
+   endpoint (action setGameSettings), RESET posts
+   resetGameSettings after a two-tap confirm. Presets only fill
+   the form — nothing is saved until SAVE is pressed. Both roles
+   (owner and team admin) may save; the server re-checks the
+   session on every call, exactly like the other panel actions. */
+const GD_SET_META = [
+  ['shuStart', '🌀 Shurikens at run start', 'Stars in hand when a new run begins.'],
+  ['shuPerLevel', '🌀 Shurikens for finishing a level', 'Earned each time a level is completed.'],
+  ['shuPickup', '🌀 Shurikens from a star pickup', 'Each silver star picked up inside a level.'],
+  ['shuMax', '🌀 Shuriken carry limit', 'The most stars a player can hold at once.'],
+  ['livesStart', '❤️ Lives at run start', ''],
+  ['livesMax', '❤️ Lives limit', 'Finishing a level adds +1 life, up to this limit.'],
+  ['foeHitsCap', '🛡️ Toughest enemy — hits to beat', 'Enemies gain +1 hit every few levels, up to this many.'],
+  ['foeHitsStep', '🛡️ Levels per +1 enemy hit', 'Every this many levels, enemies take one more hit to beat.'],
+  ['bruteBonus', '🛡️ Extra hits for brutes', 'Brutes always take this many hits MORE than normal enemies.'],
+  ['bossHpBonus', '👑 Boss health + / −', 'Added to (or taken from) every boss\'s health. A level designed in the Level Editor keeps its own boss health.'],
+  ['bossThrowsPerMin', '👑 Boss throws per minute', '0 = AUTO, the game\'s built-in pace. A number sets every boss\'s throw pace — a Level Editor setting for one level still wins on that level.'],
+  ['foeSpeedPct', '🏃 Enemy speed %', '100 = normal patrol speed for enemies and bosses.'],
+  ['hurtGraceSec', '✨ Safety seconds after a hit', 'How long the hero cannot be hurt again after taking a hit.'],
+];
+const GD_SET_PRESETS = {
+  easy: { shuStart: 8, shuPerLevel: 2, shuPickup: 1, shuMax: 16, livesStart: 4, livesMax: 6, foeHitsCap: 5, foeHitsStep: 8, bruteBonus: 1, bossHpBonus: -3, bossThrowsPerMin: 0, foeSpeedPct: 85, hurtGraceSec: 2.2 },
+  hard: { shuStart: 3, shuPerLevel: 1, shuPickup: 1, shuMax: 8, livesStart: 2, livesMax: 4, foeHitsCap: 10, foeHitsStep: 4, bruteBonus: 2, bossHpBonus: 3, bossThrowsPerMin: 0, foeSpeedPct: 115, hurtGraceSec: 1.2 },
+};
+let gdSetForm = null;      /* working copy the steppers edit */
+let gdSetSaved = null;     /* the server-reported effective map the form was seeded from */
+let gdSetResetArm = false;
+function gdSetFmt(key, v){
+  return key === 'hurtGraceSec' ? Number(v).toFixed(1) : String(Math.round(v));
+}
+function gdSetDirty(){
+  if (!gdSetForm || !gdSetSaved) return false;
+  return Object.keys(gdSetForm).some((k) => gdSetForm[k] !== gdSetSaved[k]);
+}
+function gdRenderGameSettings(){
+  const gs = gdAdminData && gdAdminData.gameSettings;
+  const box = $('gdSetRows');
+  if (!box) return;
+  if (!gs || !gs.settings || !gs.defaults){
+    box.innerHTML = '<p style="text-align:center; opacity:.8; font-size:12.5px">Game settings unavailable — reload the panel.</p>';
+    return;
+  }
+  if (!gdSetForm || gdSetSaved !== gs.settings){
+    gdSetForm = { ...gs.settings };
+    gdSetSaved = gs.settings;
+  }
+  box.innerHTML = '';
+  for (const [key, label, hint] of GD_SET_META){
+    const def = (gs.defs || []).find((d) => d.key === key) || { min: 0, max: 99, step: 1 };
+    const row = document.createElement('div'); row.className = 'admrow';
+    const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = label;
+    const minus = document.createElement('button'); minus.className = 'play alt'; minus.textContent = '➖';
+    minus.setAttribute('aria-label', 'less ' + label);
+    const val = document.createElement('span'); val.className = 'sc';
+    val.textContent = gdSetFmt(key, gdSetForm[key]) + (gdSetForm[key] !== gs.defaults[key] ? ' •' : '');
+    const plus = document.createElement('button'); plus.className = 'play alt'; plus.textContent = '➕';
+    plus.setAttribute('aria-label', 'more ' + label);
+    const bump = (dir) => {
+      const step = def.step || 1;
+      let v = Math.round((gdSetForm[key] + dir * step) * 1000) / 1000;
+      v = Math.min(def.max, Math.max(def.min, v));
+      if (v === gdSetForm[key]) return;
+      gdSetForm[key] = v;
+      gdSetResetArm = false;
+      gdRenderGameSettings();
+      const st = $('gdSetStatus');
+      if (st) st.textContent = gdSetDirty() ? 'Unsaved changes — press 💾 SAVE SETTINGS to make them live.' : '';
+    };
+    minus.onclick = () => bump(-1);
+    plus.onclick = () => bump(1);
+    row.append(nm, minus, val, plus);
+    box.appendChild(row);
+    if (hint){
+      const h = document.createElement('div');
+      h.style.cssText = 'font-size:11.5px; opacity:.75; text-align:center; margin:-2px 0 4px';
+      h.textContent = hint;
+      box.appendChild(h);
+    }
+  }
+}
+async function gdSetPost(payload, okText){
+  const st = $('gdSetStatus');
+  st.textContent = 'Saving…';
+  try {
+    const { r, d } = await gdAdminPost(payload);
+    if (r.status === 401){ st.textContent = gdAdminAuthFailMsg(); return; }
+    if (!r.ok || !d || !d.gameSettings){
+      st.textContent = (d && d.error) ? ('Not saved: ' + d.error) : 'Not saved — try again.';
+      return;
+    }
+    if (gdAdminData) gdAdminData.gameSettings = d.gameSettings;
+    gdSetSaved = null;   /* force the form to re-seed from the server map */
+    gdRenderGameSettings();
+    st.textContent = okText;
+  } catch (e) { st.textContent = 'Not saved — try again.'; }
+}
+$('gdSetSaveBtn').onclick = () => {
+  if (!gdSetForm){ $('gdSetStatus').textContent = 'Load the panel first.'; return; }
+  gdSetResetArm = false;
+  gdSetPost({ action: 'setGameSettings', settings: gdSetForm },
+    '✅ Saved — players get these settings the next time the game loads.');
+};
+$('gdSetResetBtn').onclick = () => {
+  const st = $('gdSetStatus');
+  if (!gdSetResetArm){
+    gdSetResetArm = true;
+    st.textContent = 'Tap ⟲ RESET again to put EVERY setting back to the game\'s original tuning.';
+    return;
+  }
+  gdSetResetArm = false;
+  gdSetPost({ action: 'resetGameSettings' },
+    '✅ All settings are back to the game\'s original tuning.');
+};
+function gdSetPreset(name){
+  const gs = gdAdminData && gdAdminData.gameSettings;
+  if (!gs || !gs.settings) return;
+  gdSetForm = name === 'normal' ? { ...gs.defaults } : { ...gs.settings, ...GD_SET_PRESETS[name] };
+  gdSetResetArm = false;
+  gdRenderGameSettings();
+  $('gdSetStatus').textContent = 'Preset filled in — press 💾 SAVE SETTINGS to make it live.';
+}
+$('gdSetEasyBtn').onclick = () => gdSetPreset('easy');
+$('gdSetNormalBtn').onclick = () => gdSetPreset('normal');
+$('gdSetHardBtn').onclick = () => gdSetPreset('hard');
 
 /* ================= v4: Timer Payouts + leaderboard restart =======
    Built ON TOP of the v3 sign-in: every call below goes through

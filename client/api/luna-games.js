@@ -633,7 +633,14 @@ export async function ethereumRpcHandler(req, res) {
      no-op it reports honestly (the env entry only changes in Vercel).
    - Every admin-list change is appended to an audit list in the same
      store (gd:admin:audit, newest first, capped at 50): {at, by,
-     action, addr, old, new} — shown only in the owner's panel. */
+     action, addr, old, new} — shown only in the owner's panel.
+   v6 additions (GAME SETTINGS — Nov 13): the GET also returns
+   `gameSettings` (effective map + defaults + ranges), and POST
+   actions "setGameSettings" / "resetGameSettings" write the game's
+   tuning overrides (gd:gamesettings) — allowed for owner AND team
+   admin sessions (unlike admin management above); the game reads
+   the merged map key-free via ?garudasettings=1. See the
+   garuda-settings block below for the full contract. */
 const GD_TXHASH_RE = /^[0-9A-Fa-f]{64}$/;
 const GD_ADDR_RE = /^terra1[0-9a-z]{38}$/;
 /* ---- v5: two-tier admin (owner + team admins) ----
@@ -997,6 +1004,18 @@ async function garudaAdminHandler(req, res) {
         return res.status(502).json({ error: 'store unavailable' });
       }
     }
+    /* Game Settings writes (see the garuda-settings block): owner
+       AND team-admin sessions may tune the game — the same gate as
+       the timer actions below. Only admin-LIST management (above)
+       is owner-only. */
+    if (body.action === 'setGameSettings' || body.action === 'resetGameSettings') {
+      try {
+        return await gdSettingsAction(req, res, body, sessAddr || 'key');
+      } catch (e) {
+        console.error('garuda settings action failed', e && e.message);
+        return res.status(502).json({ error: 'store unavailable' });
+      }
+    }
     /* v4: Timer Payouts + leaderboard restart actions — same gate as
        every other admin action (wallet sign-in session or key). */
     if (body.action === 'setPayTimer' || body.action === 'stopPayTimer' ||
@@ -1110,6 +1129,9 @@ async function garudaAdminHandler(req, res) {
     /* v4: the timer setting + any waiting payout run ride along so
        the panel can draw the Timer Payouts box in the same load. */
     const tState = await gdTimerState();
+    /* Game Settings ride along too, for every gated caller (the
+       panel's GAME SETTINGS section renders from this). */
+    const gsState = await gdSettingsEffective();
     /* v5: who is asking + (owner only) the admin-access state. Admin
        sessions and the key get role only — the admin list and audit
        trail are never served to a non-owner. */
@@ -1127,6 +1149,7 @@ async function garudaAdminHandler(req, res) {
     return res.status(200).json({
       all: shape(all), week: shape(week), payouts, burnWallet,
       payTimer: tState.payTimer, payRun: tState.payRun,
+      gameSettings: gdSettingsPayload(gsState.effective),
       role: sessRole || (keyOk ? 'key' : null),
       ownerWallet: ownerWallet || null,
       adminAccess,
@@ -1201,6 +1224,141 @@ async function gdAdminAccessAction(req, res, body) {
   return res.status(200).json(await state());
 }
 /* garuda-admin:end */
+
+/* garuda-settings:start — Garuda Dash GAME SETTINGS (Nov 13, Tom's
+   order: the Garuda admin must be able to adjust the whole game with
+   easy one-step click directions). The owner or a team admin tunes
+   the game's difficulty / economy numbers from the panel's GAME
+   SETTINGS section; the values live server-side in the same store
+   (gd:gamesettings — a JSON map of OVERRIDES only; an absent key
+   means "the game's built-in default"). The public game reads the
+   merged effective map at load via ?garudasettings=1 and applies it
+   over its identical built-in defaults; if the fetch fails, the
+   defaults stand, so the game can never break because settings are
+   unreachable. Settings apply on game LOAD only — a run already in
+   progress never changes mid-game.
+   Writes ride the garuda-admin gate (owner session, team-admin
+   session, or the break-glass key — the same callers the Timer
+   Payouts actions accept). Admin-LIST management stays owner-only
+   and is untouched by this block. Every change is audited through
+   gdAdminAudit (the gd:admin:audit list, shown in the owner's
+   panel) with the full old -> new effective maps.
+   The defaults below are the game's shipped tuning (Nov 12 build):
+   foe hits = min(8, ceil(level/5)), brutes +1; boss HP from
+   gdMakeBoss (table + cycle bonus); boss throws follow the level
+   formula unless a per-minute rate is set; shurikens start 5,
+   +1 per finished level, +1 per pickup, carry cap 12; lives start
+   3, cap 5; post-hit invulnerability 1.6s; enemy speed 100%. */
+const GD_SET_KEY = 'gd:gamesettings';
+const GD_SET_DEFS = [
+  { key: 'shuStart',         def: 5,   min: 0,   max: 20,  step: 1 },
+  { key: 'shuPerLevel',      def: 1,   min: 0,   max: 5,   step: 1 },
+  { key: 'shuPickup',        def: 1,   min: 1,   max: 5,   step: 1 },
+  { key: 'shuMax',           def: 12,  min: 1,   max: 30,  step: 1 },
+  { key: 'livesStart',       def: 3,   min: 1,   max: 9,   step: 1 },
+  { key: 'livesMax',         def: 5,   min: 1,   max: 9,   step: 1 },
+  { key: 'foeHitsCap',       def: 8,   min: 1,   max: 12,  step: 1 },
+  { key: 'foeHitsStep',      def: 5,   min: 1,   max: 10,  step: 1 },
+  { key: 'bruteBonus',       def: 1,   min: 0,   max: 5,   step: 1 },
+  { key: 'bossHpBonus',      def: 0,   min: -6,  max: 20,  step: 1 },
+  { key: 'bossThrowsPerMin', def: 0,   min: 0,   max: 60,  step: 1 },
+  { key: 'foeSpeedPct',      def: 100, min: 50,  max: 200, step: 5 },
+  { key: 'hurtGraceSec',     def: 1.6, min: 0.5, max: 3,   step: 0.1 },
+];
+function gdSetDefaults() {
+  const o = {};
+  for (const d of GD_SET_DEFS) o[d.key] = d.def;
+  return o;
+}
+function gdSetRound(d, v) {
+  const r = Math.round(v / d.step) * d.step;
+  return Math.round(r * 1000) / 1000;
+}
+/* Validate a settings map. On WRITE (strict) any unknown key,
+   non-number or out-of-range value rejects the whole write (null);
+   on READ of the stored map the same problems are ignored per key,
+   so a corrupt or future record can never poison the game. */
+function gdSetValidate(input, strict) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  const clean = {};
+  for (const k of Object.keys(input)) {
+    const d = GD_SET_DEFS.find((x) => x.key === k);
+    if (!d) { if (strict) return null; continue; }
+    const v = Number(input[k]);
+    if (!Number.isFinite(v)) { if (strict) return null; continue; }
+    const r = gdSetRound(d, v);
+    if (r < d.min || r > d.max) { if (strict) return null; continue; }
+    clean[k] = r;
+  }
+  return clean;
+}
+async function gdSettingsStored() {
+  try {
+    const out = await upstashPipeline([['GET', GD_SET_KEY]]);
+    const raw = (out && out[0] && out[0].result) || null;
+    if (!raw) return {};
+    let parsed = null;
+    try { parsed = JSON.parse(raw); } catch (e) { return {}; }
+    return gdSetValidate(parsed, false) || {};
+  } catch (e) { return {}; }
+}
+async function gdSettingsEffective() {
+  const stored = await gdSettingsStored();
+  return { stored, effective: { ...gdSetDefaults(), ...stored } };
+}
+function gdSettingsPayload(effective) {
+  return {
+    settings: effective,
+    defaults: gdSetDefaults(),
+    defs: GD_SET_DEFS.map((d) => ({ key: d.key, min: d.min, max: d.max, step: d.step })),
+  };
+}
+/* Public read for the game page: the merged effective settings and
+   nothing else (no admin data rides this route). Store unconfigured
+   or unreadable -> the built-in defaults, so the answer is always a
+   complete, valid map. */
+async function garudaSettingsHandler(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'method not allowed' });
+  let effective = gdSetDefaults();
+  if (process.env.NEONRUSH_UPSTASH_URL && process.env.NEONRUSH_UPSTASH_TOKEN) {
+    try { effective = (await gdSettingsEffective()).effective; } catch (e) { /* defaults stand */ }
+  }
+  res.setHeader('Cache-Control', 's-maxage=30, stale-while-revalidate=60');
+  return res.status(200).json({ ok: true, settings: effective });
+}
+/* Admin writes, dispatched from garudaAdminHandler AFTER its gate;
+   `by` is the caller's sign-in wallet, or 'key' for the break-glass
+   key. Reset deletes the overrides record entirely, returning the
+   game to its exact shipped tuning. Both actions answer with the
+   panel payload so the section re-renders from server truth. */
+async function gdSettingsAction(req, res, body, by) {
+  const now = new Date().toISOString();
+  const defaults = gdSetDefaults();
+  if (body.action === 'resetGameSettings') {
+    const prev = (await gdSettingsEffective()).effective;
+    await upstashPipeline([['DEL', GD_SET_KEY]]);
+    await gdAdminAudit({ at: now, by, action: 'game-settings-reset', addr: by, old: prev, new: defaults });
+    return res.status(200).json({ ok: true, gameSettings: gdSettingsPayload(defaults) });
+  }
+  /* action === 'setGameSettings' */
+  const clean = gdSetValidate(body.settings, true);
+  if (!clean || !Object.keys(clean).length) {
+    return res.status(400).json({ ok: false, error: 'bad settings' });
+  }
+  const { stored, effective: prev } = await gdSettingsEffective();
+  const merged = { ...stored, ...clean };
+  const overrides = {};
+  for (const k of Object.keys(merged)) if (merged[k] !== defaults[k]) overrides[k] = merged[k];
+  if (Object.keys(overrides).length) {
+    await upstashPipeline([['SET', GD_SET_KEY, JSON.stringify(overrides)]]);
+  } else {
+    await upstashPipeline([['DEL', GD_SET_KEY]]);
+  }
+  const next = { ...defaults, ...overrides };
+  await gdAdminAudit({ at: now, by, action: 'game-settings', addr: by, old: prev, new: next });
+  return res.status(200).json({ ok: true, gameSettings: gdSettingsPayload(next) });
+}
+/* garuda-settings:end */
 
 /* garuda-timer:start — v4: Timer Payouts + leaderboard restart.
    The ADMIN sets a timer once (gd:paytimer); a Vercel cron calls
@@ -2174,6 +2332,11 @@ export default async function handler(req, res) {
      ?garudapublic=1 directly (see the garuda-public block above).
      Display data only — never a winner wallet. */
   if (req.query && req.query.garudapublic !== undefined) return garudaPublicHandler(req, res);
+  /* Garuda Dash GAME SETTINGS: the game page calls
+     ?garudasettings=1 directly (see the garuda-settings block below).
+     Public read of the merged effective settings; writes ride the
+     garuda-admin gate, never this route. */
+  if (req.query && req.query.garudasettings !== undefined) return garudaSettingsHandler(req, res);
   /* Garuda Dash LEVEL EDITOR data: ?garudaedit=1 (see the garuda-edit
      block above). Published reads are public; writes are admin-gated. */
   if (req.query && req.query.garudaedit !== undefined) return garudaEditHandler(req, res);
