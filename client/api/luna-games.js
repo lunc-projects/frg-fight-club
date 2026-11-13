@@ -2366,6 +2366,219 @@ export async function kavaCodeHandler(req, res) {
 }
 /* kava-code:end */
 
+/* toms-dev:start — TOM'S DEV private chat queue (client/public/
+   toms-dev/). One partner talks to "Tom's Dev" in a chat thread:
+   his messages are build requests stored server-side, and the
+   owner's replies (posted from the same page's owner mode) land back
+   in the thread as Tom's Dev bubbles. Storage: Upstash — the request
+   rows are hashes tda:req:<id> (fields: id, text, status, result,
+   created, updated) and tda:reqs is the newest-first id list.
+   Access: a DEDICATED code whose SHA-256 lives in tda:codehash —
+   fully separate from the Kava panel's kbk key. Only hashes travel
+   (trim + upper-case normalisation, same as the panel); the stored
+   hash is NEVER returned: GET answers only {set: bool}.
+   Bootstrap: while tda:codehash is unset, TDA_BOOTSTRAP_HASH below —
+   the SHA-256 of the starter code TOMSDEV-START — is the valid code,
+   so the owner can open the page and set the real code from owner
+   mode. After that first set the stored hash alone rules.
+   EVERY queue action (tdaNew/tdaList/tdaStatus/tdaDone) re-verifies
+   the presented hash server-side; there is no session to ride.
+   Brute-force rail mirrors the panel's: failed attempts counted per
+   client IP (IP hashed into the counter key); 8 failures inside 15
+   minutes lock that IP out of ALL tda actions for 15 minutes; any
+   success clears the counter. v1 access control is the one shared
+   code for both sides (the owner mode toggle on the page is a UI
+   convenience, not a second credential) — stated plainly on purpose.
+   It holds no keys, signs nothing, moves no funds. */
+const TDA_CODE_KEY = 'tda:codehash';
+const TDA_BOOTSTRAP_HASH = '133c984e1122da6dc2c291e088d843a06968f9f14b34de5e0f8b99eb876db145';
+const TDA_MAX_FAILS = 8;
+const TDA_FAIL_WINDOW_SEC = 15 * 60;
+const TDA_LOCKOUT_SEC = 15 * 60;
+const TDA_LIST_CAP = 50;
+const TDA_TEXT_MAX = 2000;
+const TDA_RESULT_MAX = 4000;
+
+function tdaIsHash(v) { return typeof v === 'string' && /^[0-9a-f]{64}$/.test(v); }
+
+function tdaHashEq(a, b) {
+  const ba = Buffer.from(String(a)), bb = Buffer.from(String(b));
+  return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
+}
+
+function tdaIpTag(req) {
+  const xff = String((req.headers && req.headers['x-forwarded-for']) || '');
+  const ip = xff.split(',')[0].trim() || (req.socket && req.socket.remoteAddress) || 'unknown';
+  return crypto.createHash('sha256').update(ip).digest('hex').slice(0, 16);
+}
+
+async function tdaEffectiveHash() {
+  const out = await upstashPipeline([['GET', TDA_CODE_KEY]]);
+  const v = out[0] && out[0].result;
+  return tdaIsHash(v) ? v : TDA_BOOTSTRAP_HASH;
+}
+
+async function tdaLockState(tag) {
+  const out = await upstashPipeline([['GET', 'tda:lock:' + tag], ['TTL', 'tda:lock:' + tag]]);
+  const locked = !!(out[0] && out[0].result);
+  const ttl = out[1] && typeof out[1].result === 'number' && out[1].result > 0 ? out[1].result : TDA_LOCKOUT_SEC;
+  return { locked, retryAfterSec: locked ? ttl : 0 };
+}
+
+/* Record one failed attempt; returns true when this failure tripped
+   the lockout. */
+async function tdaRecordFail(tag) {
+  const out = await upstashPipeline([['INCR', 'tda:fail:' + tag]]);
+  const n = (out[0] && out[0].result) || 0;
+  if (n === 1) {
+    try { await upstashPipeline([['EXPIRE', 'tda:fail:' + tag, TDA_FAIL_WINDOW_SEC]]); } catch (e) { /* window is best-effort */ }
+  }
+  if (n >= TDA_MAX_FAILS) {
+    await upstashPipeline([['SET', 'tda:lock:' + tag, '1', 'EX', TDA_LOCKOUT_SEC], ['DEL', 'tda:fail:' + tag]]);
+    return true;
+  }
+  return false;
+}
+
+async function tdaClearFails(tag) {
+  try { await upstashPipeline([['DEL', 'tda:fail:' + tag]]); } catch (e) { /* best-effort */ }
+}
+
+/* Verify a presented code hash. On failure this WRITES the response
+   and returns false; on success it clears the fail counter and
+   returns true. Used by every gated tda action. */
+async function tdaAuth(req, res, tag, hash) {
+  if (!tdaIsHash(hash)) { res.status(400).json({ ok: false, error: 'bad hash' }); return false; }
+  const lock = await tdaLockState(tag);
+  if (lock.locked) {
+    res.status(200).json({ ok: false, locked: true, retryAfterSec: lock.retryAfterSec, error: 'too many tries — locked for a bit' });
+    return false;
+  }
+  const effective = await tdaEffectiveHash();
+  if (tdaHashEq(hash, effective)) { await tdaClearFails(tag); return true; }
+  const tripped = await tdaRecordFail(tag);
+  res.status(200).json({ ok: false, locked: tripped, error: 'code not right' });
+  return false;
+}
+
+function tdaHashToObj(flat) {
+  const o = {};
+  if (Array.isArray(flat)) for (let i = 0; i + 1 < flat.length; i += 2) o[flat[i]] = flat[i + 1];
+  return o;
+}
+
+function tdaPublicReq(o) {
+  return {
+    id: String(o.id || ''),
+    text: String(o.text || ''),
+    status: ['received', 'building', 'done'].includes(o.status) ? o.status : 'received',
+    result: String(o.result || ''),
+    created: Number(o.created) || 0,
+    updated: Number(o.updated) || 0,
+  };
+}
+
+export async function tdaHandler(req, res) {
+  if (req.method !== 'GET' && req.method !== 'POST') {
+    return res.status(405).json({ ok: false, error: 'method not allowed' });
+  }
+  if (!process.env.NEONRUSH_UPSTASH_URL || !process.env.NEONRUSH_UPSTASH_TOKEN) {
+    return res.status(500).json({ ok: false, unavailable: true, error: 'storage not configured' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+
+  if (req.method === 'GET') {
+    try {
+      const out = await upstashPipeline([['GET', TDA_CODE_KEY]]);
+      return res.status(200).json({ ok: true, set: tdaIsHash(out[0] && out[0].result) });
+    } catch (e) {
+      console.error('tda state read failed', e && e.message);
+      return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+    }
+  }
+
+  // POST
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }
+  if (!body || typeof body !== 'object') return res.status(400).json({ ok: false, error: 'bad request' });
+  const action = String(body.action || '');
+  const tag = tdaIpTag(req);
+
+  try {
+    if (action === 'tdaCodeCheck') {
+      const ok = await tdaAuth(req, res, tag, String(body.hash || '').toLowerCase());
+      if (ok) return res.status(200).json({ ok: true });
+      return undefined;
+    }
+
+    if (action === 'tdaCodeSet') {
+      const currentHash = String(body.currentHash || '').toLowerCase();
+      const newHash = String(body.newHash || '').toLowerCase();
+      if (!tdaIsHash(newHash)) return res.status(400).json({ ok: false, error: 'bad hash' });
+      const ok = await tdaAuth(req, res, tag, currentHash);
+      if (!ok) return undefined;
+      await upstashPipeline([['SET', TDA_CODE_KEY, newHash]]);
+      return res.status(200).json({ ok: true, set: true });
+    }
+
+    if (action === 'tdaNew') {
+      const ok = await tdaAuth(req, res, tag, String(body.hash || '').toLowerCase());
+      if (!ok) return undefined;
+      const text = String(body.text || '').trim().slice(0, TDA_TEXT_MAX);
+      if (!text) return res.status(400).json({ ok: false, error: 'empty message' });
+      const now = Date.now();
+      const id = 'r' + now.toString(36) + crypto.randomBytes(4).toString('hex');
+      await upstashPipeline([
+        ['HSET', 'tda:req:' + id, 'id', id, 'text', text, 'status', 'received', 'result', '', 'created', String(now), 'updated', String(now)],
+        ['LPUSH', 'tda:reqs', id],
+        ['LTRIM', 'tda:reqs', 0, 199],
+      ]);
+      return res.status(200).json({ ok: true, id });
+    }
+
+    if (action === 'tdaList') {
+      const ok = await tdaAuth(req, res, tag, String(body.hash || '').toLowerCase());
+      if (!ok) return undefined;
+      const idsOut = await upstashPipeline([['LRANGE', 'tda:reqs', 0, TDA_LIST_CAP - 1]]);
+      const ids = (idsOut[0] && idsOut[0].result) || [];
+      if (!ids.length) return res.status(200).json({ ok: true, reqs: [] });
+      const rows = await upstashPipeline(ids.map(id => ['HGETALL', 'tda:req:' + id]));
+      const reqs = rows.map(r => tdaPublicReq(tdaHashToObj(r && r.result))).filter(r => r.id);
+      return res.status(200).json({ ok: true, reqs });
+    }
+
+    if (action === 'tdaStatus' || action === 'tdaDone') {
+      const ok = await tdaAuth(req, res, tag, String(body.hash || '').toLowerCase());
+      if (!ok) return undefined;
+      const id = String(body.id || '');
+      if (!/^r[a-z0-9]{6,24}$/.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const cur = await upstashPipeline([['HGETALL', 'tda:req:' + id]]);
+      const existing = tdaHashToObj(cur[0] && cur[0].result);
+      if (!existing.id) return res.status(404).json({ ok: false, error: 'no such request' });
+      const now = String(Date.now());
+      if (action === 'tdaStatus') {
+        const status = String(body.status || '');
+        if (status !== 'building' && status !== 'received') {
+          return res.status(400).json({ ok: false, error: 'bad status' });
+        }
+        if (existing.status === 'done') return res.status(200).json({ ok: false, error: 'already done' });
+        await upstashPipeline([['HSET', 'tda:req:' + id, 'status', status, 'updated', now]]);
+        return res.status(200).json({ ok: true, id, status });
+      }
+      const result = String(body.result || '').trim().slice(0, TDA_RESULT_MAX);
+      if (!result) return res.status(400).json({ ok: false, error: 'empty reply' });
+      await upstashPipeline([['HSET', 'tda:req:' + id, 'status', 'done', 'result', result, 'updated', now]]);
+      return res.status(200).json({ ok: true, id, status: 'done' });
+    }
+
+    return res.status(400).json({ ok: false, error: 'unknown action' });
+  } catch (e) {
+    console.error('tda action failed', action, e && e.message);
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+}
+/* toms-dev:end */
+
 /* hussy-signals:start — DEV STUDIO SIGNALS chain-token candle relay,
    folded into this router for the same 12-function-cap reason as the
    fx-signal relay above. Reached via ?hsig=<TOKEN> (the signals page
@@ -2474,6 +2687,11 @@ export default async function handler(req, res) {
      above). Server-side code hash; the stored hash itself is never
      returned — only {set} and {ok} booleans. */
   if (req.query && req.query.kavacode !== undefined) return kavaCodeHandler(req, res);
+  /* Tom's Dev private chat queue: the page calls
+     /api/luna-games?tda=1 directly (see the toms-dev block above).
+     Dedicated code hash in tda:codehash — NOT the panel's kbk key;
+     every queue action re-verifies the hash server-side. */
+  if (req.query && req.query.tda !== undefined) return tdaHandler(req, res);
   /* Garuda Dash payout admin: /api/garuda-admin is rewritten to
      /api/luna-games?garudaadmin=1 (see the garuda-admin block above). */
   if (req.query && req.query.garudaadmin !== undefined) return garudaAdminHandler(req, res);
