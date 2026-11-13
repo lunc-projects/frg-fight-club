@@ -160,6 +160,15 @@ header{position:sticky; top:0; z-index:50; background:rgba(18,18,43,.92); backdr
 #barNote{max-width:760px; margin:6px auto 0; font-size:12.5px; font-weight:700; min-height:15px; color:var(--amber);}
 #noTokens{display:none; max-width:760px; margin:0 auto; text-align:center; font-weight:900; font-size:15px; color:var(--amber); padding:6px 0 2px;}
 #noTokens.show{display:block;}
+#seatPaused{display:none; max-width:760px; margin:0 auto; text-align:center; font-weight:900; font-size:15px; color:var(--amber); padding:6px 0 2px;}
+#seatPaused.show{display:block;}
+/* renewal card (seat view) */
+#topupCard{display:none;}
+#topupCard.show{display:block;}
+#topupCard .wl{font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12.5px; word-break:break-all; background:#10102a; border:1.5px dashed rgba(34,211,238,.45); border-radius:12px; padding:9px 11px; margin:6px 0 8px;}
+#topupCard input{width:100%; background:#10102a; border:1.5px solid var(--line); border-radius:12px; color:var(--ink); padding:10px 12px; font-size:14px; font-weight:600; outline:none; margin:0 0 8px; font-family:inherit;}
+#topupCard input:focus{border-color:var(--cyan);}
+#topupCard input[readonly]{opacity:.75;}
 /* gate */
 #gate{position:fixed; inset:0; z-index:100; background:
   radial-gradient(900px 480px at 50% -10%, rgba(34,211,238,.2), transparent 60%),
@@ -260,6 +269,16 @@ header{position:sticky; top:0; z-index:50; background:rgba(18,18,43,.92); backdr
       <div class="amsg" id="nsMsg"></div>
     </div>
     <p class="mut">New seats start with the pool share above — top up or set an exact balance from the seat's row any time.</p>
+    <h3>🔁 Owner — seat renewals (LUNC)</h3>
+    <p>Seats renew for <b>$5 a week</b>, paid in LUNC to your wallet below. A verified payment adds 7 days and refills the seat's tokens up to its share. New seats include their first week — they're paid through 7 days from the day you make them. A lapsed seat can still read everything; it just can't post until it renews. A seat's Terra wallet (set on its row below, or bound by its first renewal) is the only wallet that can renew it.</p>
+    <p id="rwInfo">Loading renewal settings…</p>
+    <div class="ob-grid">
+      <input class="code-inp" id="rwWallet" type="text" autocomplete="off" placeholder="LUNC wallet that receives renewals (terra1…)">
+      <input class="code-inp" id="rwPrice" type="number" min="0" step="0.5" inputmode="decimal" placeholder="Price per week in USD (blank = $5)">
+      <button class="abtn" id="rwBtn">Save renewal settings</button>
+      <div class="amsg" id="rwMsg"></div>
+    </div>
+    <div id="renewList"><p class="mut">Loading renewals…</p></div>
     <p class="mut" style="margin-top:12px;">Security: triple-checked — code, live probes, independent review.</p>
   </div>
 </div>
@@ -267,6 +286,7 @@ header{position:sticky; top:0; z-index:50; background:rgba(18,18,43,.92); backdr
 <section class="section on" id="sec-chat">
   <div id="threadWrap" style="padding:0;">
     <div class="scope">Ask for anything we build — <b>tokens, staking &amp; farms, liquidity, bots, games, websites</b>. Type it below like you'd say it; Tom's Dev builds it and the answer lands back in this thread. On-chain builds you can do yourself live in the 🛠️ Build Tools tab.</div>
+    <div class="card" id="topupCard"><div id="tuBody"><p class="mut">Loading renewal…</p></div></div>
     <select id="seatFilter" aria-label="Filter by seat"></select>
     <div id="thread"><div class="empty">Loading…</div></div>
   </div>
@@ -339,6 +359,7 @@ header{position:sticky; top:0; z-index:50; background:rgba(18,18,43,.92); backdr
 </section>
 
 <div id="inputBar">
+  <div id="seatPaused">⏸️ Seat paused — renew for $5/week in LUNC to keep building.</div>
   <div id="noTokens">🎟️ Out of tokens — ask Tom to top up.</div>
   <div class="ib-in" id="ibIn">
     <textarea id="msgInput" rows="1" placeholder="What do you want built?" aria-label="What do you want built?"></textarea>
@@ -397,6 +418,25 @@ function seatChipUpdate(){
   }
   chip.classList.remove('show');
 }
+/* Seat input-bar state, one place: a LAPSED seat shows the
+   paused line (renewal is the fix — it also refills tokens),
+   a live seat at 0 shows the out-of-tokens line, otherwise
+   the input shows. Fed by unlock, the thread poll (tdaList
+   returns the seat's live figures) and the renewal card. */
+function applySeatState(seat){
+  if (!seat) return;
+  if (seat.tokens !== undefined && seat.tokens !== null && seat.tokens !== '') sessionStorage.setItem('tda_seat_tokens', String(seat.tokens));
+  if (seat.used !== undefined && seat.used !== null) sessionStorage.setItem('tda_seat_used', String(seat.used || 0));
+  if (seat.paidThrough) sessionStorage.setItem('tda_seat_pt', String(seat.paidThrough));
+  seatChipUpdate();
+  const pt = seat.paidThrough || Number(sessionStorage.getItem('tda_seat_pt') || 0);
+  const lapsed = seat.lapsed !== undefined ? !!seat.lapsed : (pt > 0 && pt <= Date.now());
+  const tk = sessionStorage.getItem('tda_seat_tokens');
+  const out = tk !== null && tk !== '' && Number(tk) <= 0;
+  $('seatPaused').classList.toggle('show', lapsed);
+  $('noTokens').classList.toggle('show', !lapsed && out);
+  $('ibIn').style.display = (lapsed || out) ? 'none' : '';
+}
 function unlock(){
   gateEl.style.display='none'; appEl.style.display='block';
   if (sessionStorage.getItem('tda_offline')==='1'){
@@ -409,7 +449,11 @@ function unlock(){
   refresh(true);
   startAutoRefresh();
   checkSetState();
-  if (isOwner()) loadSeats();
+  if (isOwner()){ loadSeats(); loadRenews(); }
+  if (myTier() === 'seat'){
+    applySeatState({ tokens: sessionStorage.getItem('tda_seat_tokens'), used: sessionStorage.getItem('tda_seat_used'), paidThrough: Number(sessionStorage.getItem('tda_seat_pt') || 0) || undefined });
+    loadTopup();
+  }
 }
 function gateNote(msg){ $('gateNote').textContent = msg || ''; }
 
@@ -429,8 +473,10 @@ async function tryUnlock(){
       sessionStorage.setItem('tda_seat_name', j.seat.name || '');
       sessionStorage.setItem('tda_seat_tokens', String(j.seat.tokens));
       sessionStorage.setItem('tda_seat_used', String(j.seat.used || 0));
+      sessionStorage.setItem('tda_seat_pt', String(j.seat.paidThrough || ''));
+      sessionStorage.setItem('tda_seat_wallet', j.seat.wallet || '');
     } else {
-      sessionStorage.removeItem('tda_seat_id'); sessionStorage.removeItem('tda_seat_name'); sessionStorage.removeItem('tda_seat_tokens'); sessionStorage.removeItem('tda_seat_used');
+      sessionStorage.removeItem('tda_seat_id'); sessionStorage.removeItem('tda_seat_name'); sessionStorage.removeItem('tda_seat_tokens'); sessionStorage.removeItem('tda_seat_used'); sessionStorage.removeItem('tda_seat_pt'); sessionStorage.removeItem('tda_seat_wallet');
     }
     err.textContent=''; gateNote(''); unlock(); return;
   }
@@ -449,7 +495,7 @@ $('gateBtn').addEventListener('click', tryUnlock);
 $('codeInput').addEventListener('keydown', e=>{ if(e.key==='Enter') tryUnlock(); });
 
 function lock(){
-  ['tda_unlocked','tda_hash','tda_offline','tda_tier','tda_seat_id','tda_seat_name','tda_seat_tokens'].forEach(k=>sessionStorage.removeItem(k));
+  ['tda_unlocked','tda_hash','tda_offline','tda_tier','tda_seat_id','tda_seat_name','tda_seat_tokens','tda_seat_used','tda_seat_pt','tda_seat_wallet'].forEach(k=>sessionStorage.removeItem(k));
   stopAutoRefresh();
   $('ownerBar').classList.remove('on');
   appEl.style.display='none'; gateEl.style.display='flex';
@@ -560,7 +606,8 @@ function renderSeats(){
     '<div class="seatrow' + (s.active ? '' : ' arch') + '" data-seat="' + esc(s.id) + '">'
     + '<div class="sr-top"><span class="sr-name">' + esc(s.name) + '</span>'
     + (s.active ? '<span class="pill live">ACTIVE</span>' : '<span class="pill arch">REMOVED</span>')
-    + '<span class="sr-meta">🎟️ Tokens left: ' + s.tokens + ' · Used so far: ' + s.used + ' · ' + s.reqs + ' requests</span></div>'
+    + (s.active && s.lapsed ? '<span class="pill arch">⏸ PAUSED</span>' : '')
+    + '<span class="sr-meta">🎟️ Tokens left: ' + s.tokens + ' · Used so far: ' + s.used + ' · ' + s.reqs + ' requests · Paid through ' + esc(fmtDate(s.paidThrough)) + '</span></div>'
     + (s.active ?
       '<div class="sr-actions">'
       + '<input type="number" min="0" step="1" placeholder="Tokens" id="tk-' + esc(s.id) + '">'
@@ -571,6 +618,8 @@ function renderSeats(){
       + '<button class="sbtn" data-sact="gencode" data-id="' + esc(s.id) + '">🔑 Make new code</button>'
       + '<input class="nm" type="text" placeholder="Seat name" id="nm-' + esc(s.id) + '" value="' + esc(s.name) + '">'
       + '<button class="sbtn" data-sact="rename" data-id="' + esc(s.id) + '">Rename</button>'
+      + '<input class="code" type="text" style="width:250px;" placeholder="Terra wallet — renewals must come from it" id="wl-' + esc(s.id) + '" value="' + esc(s.wallet || '') + '">'
+      + '<button class="sbtn" data-sact="wallet" data-id="' + esc(s.id) + '">Save wallet</button>'
       + '<button class="sbtn warn" data-sact="remove" data-id="' + esc(s.id) + '">Remove seat</button>'
       + '</div><div class="amsg" id="sm-' + esc(s.id) + '"></div>' : '')
     + '</div>'
@@ -613,6 +662,13 @@ $('seatList').addEventListener('click', async e=>{
       const j = await api({action:'tdaSeatCode', hash: myHash(), seatId: id, generate: true});
       if (j && j.ok && j.code){ showOneTimeCode(j.code, 'New code for "' + (j.seat.name || 'seat') + '" — their old code is dead.'); seatMsg(id, 'Fresh code made — it is in the green card above the seat list. Send it to them now.', 'ok'); }
       else seatMsg(id, (j && j.error) || 'Could not make a new code.', 'bad');
+    }
+    else if (act === 'wallet'){
+      const inp = $('wl-' + id);
+      const v = (inp ? inp.value : '').trim();
+      const j = await api({action:'tdaSeatWallet', hash: myHash(), seatId: id, wallet: v});
+      if (j && j.ok){ seatMsg(id, v ? 'Wallet saved — only payments from this wallet can renew the seat.' : 'Wallet cleared — the seat\'s first renewal will bind its wallet again.', 'ok'); loadSeats(); }
+      else seatMsg(id, (j && j.error) || 'Could not save the wallet.', 'bad');
     }
     else if (act === 'remove'){
       if (b.dataset.armed !== '1'){ b.dataset.armed = '1'; b.textContent = 'Tap again to remove'; b.disabled = false; return; }
@@ -677,6 +733,151 @@ async function createSeat(){
   loadSeats();
 }
 $('nsBtn').addEventListener('click', createSeat);
+
+/* ============ SEAT RENEWALS ($5/week in LUNC) ============
+   Paste-and-verify, like the owner's other apps: the seat
+   sends LUNC from its own wallet, pastes the wallet + the
+   transaction hash, and the SERVER checks the payment on
+   chain (right wallet, right sender, worth the week at the
+   live price, never used before) before it credits anything.
+   This page holds no keys and moves no funds. */
+function fmtDate(ts){
+  if (!ts) return '';
+  return new Date(ts).toLocaleDateString([], {month:'short', day:'numeric', year:'numeric'});
+}
+let topupInfo = null;
+async function loadTopup(){
+  if (myTier() !== 'seat') return;
+  $('topupCard').classList.add('show');
+  try{
+    const j = await api({action:'tdaRenewInfo', hash: myHash()});
+    if (!j || !j.ok){ $('tuBody').innerHTML = '<p class="fail">Couldn\'t load renewal info.</p>'; return; }
+    topupInfo = j;
+    if (j.seat) applySeatState(j.seat);
+    renderTopup();
+  }catch(e){ $('tuBody').innerHTML = '<p class="fail">Couldn\'t load renewal info — server unreachable.</p>'; }
+}
+function renderTopup(){
+  const j = topupInfo; if (!j) return;
+  const el = $('tuBody');
+  const head = '<h3>🔁 Renew your seat — $' + esc(String(j.priceUsd)) + '/week in LUNC</h3>';
+  let status = '';
+  if (j.seat && j.seat.paidThrough){
+    status = j.seat.lapsed
+      ? '<p style="color:var(--amber); font-weight:800;">⏸️ Your seat lapsed on ' + esc(fmtDate(j.seat.paidThrough)) + ' — renew to keep building. You can still read everything.</p>'
+      : '<p>✅ Your seat is paid through <b>' + esc(fmtDate(j.seat.paidThrough)) + '</b>. Renewing adds 7 more days.</p>';
+  }
+  if (!j.enabled){
+    el.innerHTML = head + status + '<p>Renewals open soon — Tom is setting this up.</p>';
+    return;
+  }
+  let h = head + status;
+  if (j.priceOk){
+    h += '<p>Send <b>' + Number(j.luncAmount).toLocaleString() + ' LUNC</b> — that\'s $' + esc(String(j.priceUsd)) + ' at the live price right now (1 LUNC ≈ $' + esc(String(j.luncUsd)) + '). The price is read again when your payment is checked, and anything worth <b>$' + Number(j.minUsd).toFixed(2) + '</b> or more counts — a little room for the price to wiggle.</p>';
+  } else {
+    h += '<p>The LUNC price can\'t be read right now, so the exact amount can\'t be shown — send about a week\'s worth and check the payment below; it\'s valued at the live price when it\'s checked.</p>';
+  }
+  h += '<p style="margin-bottom:2px;">Send LUNC to Tom\'s wallet:</p>'
+    + '<div class="wl">' + esc(j.wallet) + '</div>'
+    + '<button class="sbtn" id="tuCopy">📋 Copy the wallet</button>';
+  if (j.memo){
+    h += '<p style="margin:10px 0 2px;">Put this <b>memo</b> on the send — exactly. It\'s how the payment knows it\'s yours; without it, the payment can\'t renew your seat:</p>'
+      + '<div class="wl">' + esc(j.memo) + '</div>'
+      + '<button class="sbtn" id="tuCopyMemo">📋 Copy the memo</button>';
+  }
+  const bound = (j.seat && j.seat.wallet) || '';
+  if (bound) h += '<p class="mut" style="margin-top:10px;">Your wallet on this seat is the one below — payments must come from it. Ask Tom if it ever needs changing.</p>';
+  h += '<input id="tuSender" type="text" autocomplete="off" placeholder="Your wallet — the one you sent from (terra1…)" value="' + esc(bound) + '"' + (bound ? ' readonly' : '') + '>'
+    + '<input id="tuHash" type="text" autocomplete="off" placeholder="Transaction hash (from your wallet, after you send)">'
+    + '<button class="abtn" id="tuBtn">Check my payment</button>'
+    + '<div class="amsg" id="tuMsg"></div>'
+    + '<p class="mut">Nothing is credited until the payment checks out on-chain: right wallet, your wallet as the sender, your memo on it, sent within the last 7 days, worth the week, and never used before.</p>';
+  el.innerHTML = h;
+  $('tuBtn').addEventListener('click', submitTopup);
+  const cm = $('tuCopyMemo');
+  if (cm) cm.addEventListener('click', async ()=>{
+    try{ await navigator.clipboard.writeText(j.memo); cm.textContent = '✅ Copied'; }
+    catch(e){
+      const wl = el.querySelectorAll('.wl')[1];
+      if (wl){ const r = document.createRange(); r.selectNodeContents(wl); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); }
+      cm.textContent = 'Selected — long-press to copy';
+    }
+    setTimeout(()=>{ const b = $('tuCopyMemo'); if (b) b.textContent = '📋 Copy the memo'; }, 2200);
+  });
+  $('tuCopy').addEventListener('click', async ()=>{
+    try{ await navigator.clipboard.writeText(j.wallet); $('tuCopy').textContent = '✅ Copied'; }
+    catch(e){
+      const r = document.createRange(); r.selectNodeContents(el.querySelector('.wl'));
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      $('tuCopy').textContent = 'Selected — long-press to copy';
+    }
+    setTimeout(()=>{ const b = $('tuCopy'); if (b) b.textContent = '📋 Copy the wallet'; }, 2200);
+  });
+}
+async function submitTopup(){
+  const msg = $('tuMsg');
+  const say = (t, c)=>{ msg.textContent = t; msg.className = 'amsg ' + (c || ''); };
+  const sender = $('tuSender').value.trim();
+  const txHash = $('tuHash').value.trim();
+  if (!sender || !txHash){ say('Paste your wallet and the transaction hash first.', 'bad'); return; }
+  const btn = $('tuBtn'); btn.disabled = true;
+  say('Checking your payment on-chain…', '');
+  let j = null;
+  try{ j = await api({action:'tdaRenewSubmit', hash: myHash(), sender, txHash}); }
+  catch(e){ j = null; }
+  btn.disabled = false;
+  if (!j){ say("Can't reach the server right now — your payment was not checked. Try again.", 'bad'); return; }
+  if (!j.ok){ say(j.error || 'That payment did not check out.', 'bad'); return; }
+  say('✅ Paid — worth $' + Number(j.usd).toFixed(2) + '. Your seat now runs through ' + fmtDate(j.paidThrough) + ' and your balance is ' + Number(j.tokens).toLocaleString() + ' tokens.', 'ok');
+  $('tuHash').value = '';
+  loadTopup();
+  refresh(true);
+}
+
+/* ---- owner: renewal settings + the renewals list ---- */
+let renewSettings = null;
+function renderRenewSettings(){
+  const s = renewSettings, info = $('rwInfo'); if (!info) return;
+  if (!s){ info.textContent = "Couldn't load the renewal settings."; return; }
+  if (s.renewSet){
+    info.textContent = 'Renewals are ON — payments go to ' + s.renewWallet + ' · $' + s.renewPriceUsd + ' per week · 7 days per payment.';
+    if (!$('rwWallet').value) $('rwWallet').value = s.renewWallet;
+  } else {
+    info.textContent = 'Renewals are OFF — set the receiving wallet below to open them. Until then seats see "Renewals open soon".';
+  }
+}
+async function loadRenews(){
+  if (!isOwner()) return;
+  const box = $('renewList');
+  try{
+    const j = await api({action:'tdaRenewList', hash: myHash()});
+    if (!j || !j.ok){ box.innerHTML = '<p class="fail">Couldn\'t load the renewals.</p>'; return; }
+    renewSettings = j.settings || null;
+    renderRenewSettings();
+    if (!j.renewals.length){ box.innerHTML = '<p class="mut">No renewals yet.</p>'; return; }
+    box.innerHTML = j.renewals.map(x =>
+      '<div class="seatrow"><div class="sr-top"><span class="sr-name">' + esc(x.seatName || 'Seat') + '</span>'
+      + '<span class="sr-meta">' + Number(x.lunc).toLocaleString() + ' LUNC · worth $' + Number(x.usd).toFixed(2) + ' · paid through ' + esc(fmtDate(x.paidThrough)) + ' · ' + esc(fmtDate(x.created)) + '</span></div>'
+      + '<div class="sr-meta" style="margin-top:4px;">from <span class="mono">' + esc(x.sender) + '</span> · <a href="https://finder.terraclassic.community/mainnet/tx/' + esc(x.txhash) + '" target="_blank" rel="noopener">View the payment ↗</a></div></div>'
+    ).join('');
+  }catch(e){ box.innerHTML = '<p class="fail">Couldn\'t load the renewals — server unreachable.</p>'; }
+}
+async function saveRenewSettings(){
+  const msg = $('rwMsg');
+  const say = (t, c)=>{ msg.textContent = t; msg.className = 'amsg ' + (c || ''); };
+  const wallet = $('rwWallet').value.trim();
+  const priceRaw = $('rwPrice').value;
+  say('Saving…', '');
+  let j = null;
+  try{ j = await api({action:'tdaRenewSettingsSet', hash: myHash(), wallet, priceUsd: priceRaw === '' ? '' : Number(priceRaw)}); }
+  catch(e){ j = null; }
+  if (!j || !j.ok){ say((j && j.error) || "Couldn't save the renewal settings.", 'bad'); return; }
+  renewSettings = j.settings;
+  renderRenewSettings();
+  say(j.settings.renewSet ? 'Saved — renewals are ON.' : 'Saved — renewals are OFF (no receiving wallet).', 'ok');
+  loadRenews();
+}
+$('rwBtn').addEventListener('click', saveRenewSettings);
 </script>
 
 <script>
@@ -765,14 +966,7 @@ async function refresh(forceScroll){
     if (j && j.ok === true){
       render(j.reqs);
       barNote('');
-      if (j.seat){
-        sessionStorage.setItem('tda_seat_tokens', String(j.seat.tokens));
-        sessionStorage.setItem('tda_seat_used', String(j.seat.used || 0));
-        seatChipUpdate();
-        const out = j.seat.tokens <= 0;
-        $('noTokens').classList.toggle('show', out);
-        $('ibIn').style.display = out ? 'none' : '';
-      }
+      if (j.seat) applySeatState(j.seat);
       if (forceScroll || wasNear) scrollBottom();
     } else if (j && j.locked){
       barNote('Too many wrong tries — locked for a few minutes.');
@@ -842,6 +1036,10 @@ async function send(){
       ta.value=''; ta.style.height='auto';
       barNote('');
       await refresh(true);
+    } else if (j && j.seatPaused){
+      $('seatPaused').classList.add('show'); $('noTokens').classList.remove('show'); $('ibIn').style.display = 'none';
+      barNote('');
+      loadTopup();
     } else if (j && j.noTokens){
       $('noTokens').classList.add('show'); $('ibIn').style.display = 'none';
       barNote('');

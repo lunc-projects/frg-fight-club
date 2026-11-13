@@ -2421,6 +2421,56 @@ export async function kavaCodeHandler(req, res) {
    Rotating a
    seat's code can generate a fresh code the same way
    (tdaSeatCode with generate: true).
+   SEAT RENEWALS (Nov 13 reshape — replaces the earlier
+   per-1,000-LUNC top-up rate idea): a seat costs $5 A WEEK,
+   paid in LUNC (tdaRenewSubmit). The seat pastes the wallet
+   it sent from + the transaction hash; the server reads the
+   tx itself (by-hash on the house Terra Classic LCD — the
+   house FCD host's single-tx path 404s, probed 2026-11-13;
+   the parser also accepts the FCD amino shape) and requires:
+   the tx succeeded, it carries a bank send TO the owner's
+   receiving wallet (tda:settings renewWallet), the sending
+   wallet matches the seat's wallet, and the hash was never
+   credited before (tda:renew:used:<txhash>, claimed with
+   SET NX only AFTER every check passes, so a refused attempt
+   never burns a hash). The LUNC sent is valued at the LIVE
+   price at verification time — CoinPaprika primary,
+   CoinGecko fallback, the Wallet Scope pair; when both
+   answer they must agree within 25% or the check refuses —
+   and must be worth at least 95% of the weekly price
+   (renewPriceUsd, default $5 → $4.75 floor) to absorb price
+   wiggle between send and check. A verified payment extends
+   the seat's paidThrough by 7 days from the LATER of now and
+   the current paidThrough, and tops the token balance UP TO
+   the seat's share allowance (the pool share above) — never
+   above it, never down. Renewal records live in tda:renew:<id>
+   hashes with tda:renews the newest-first list, for the
+   owner's reconciliation list (tdaRenewList).
+   A seat whose paidThrough has passed is LAPSED: it can
+   still unlock and READ everything, but tdaNew refuses
+   server-side ({seatPaused: true}). New seats start with
+   paidThrough = creation + 7 days (the first week is
+   included); seat rows written before renewals existed fall
+   back to created + 7 days the same way.
+   WALLET BINDING (anti-race): payments are public on-chain,
+   so a hash alone proves nothing about WHICH seat paid. A
+   seat's sending wallet is therefore bound to the seat —
+   set by the owner (tdaSeatWallet) or by the seat's first
+   successful renewal — and afterwards only that wallet's
+   sends can renew the seat; a wallet bound to one active
+   seat can never renew another.
+   MEMO + FRESHNESS (review hardening, Nov 13): the payment
+   must also carry the seat's renewal memo (TD-<seatId>) —
+   intent fixed at send time, so a chain-watcher can't claim
+   someone else's payment for their own seat, and an old
+   payment made for another purpose never qualifies — and
+   its block time must be within the last 7 days, so a cheap
+   payment can't be warehoused against a later price rise.
+   Prices are valued at the LOWER of the two house feeds
+   when both answer; submits are throttled per seat and
+   serialised per seat (a short lock) so concurrent credits
+   can't collapse; settings and binding are re-validated on
+   fresh reads after the claim, before any credit lands.
    EVERY gated action re-verifies the presented hash server-side;
    there is no session to ride. Brute-force rail mirrors the
    panels': failed attempts counted per client IP (IP hashed into
@@ -2440,6 +2490,16 @@ const TDA_TEXT_MAX = 2000;
 const TDA_RESULT_MAX = 4000;
 const TDA_NAME_MAX = 40;
 const TDA_TOKENS_MAX = 100000000;
+const TDA_RENEW_PERIOD_MS = 7 * 24 * 3600 * 1000;
+const TDA_RENEW_DEFAULT_USD = 5;
+const TDA_RENEW_TOLERANCE = 0.95;
+const TDA_RENEW_MAX_AGE_MS = 7 * 24 * 3600 * 1000;
+const TDA_RENEW_TRY_MAX = 30;
+const TDA_RENEW_TRY_WINDOW_SEC = 10 * 60;
+const TDA_PRICE_CACHE_MS = 30 * 1000;
+const TDA_TX_LOOKUP = 'https://terra-classic-lcd.publicnode.com/cosmos/tx/v1beta1/txs/';
+const TDA_PAPRIKA_LUNC = 'https://api.coinpaprika.com/v1/tickers/luna-terra';
+const TDA_GECKO_LUNC = 'https://api.coingecko.com/api/v3/simple/price?ids=terra-luna&vs_currencies=usd';
 
 function tdaIsHash(v) { return typeof v === 'string' && /^[0-9a-f]{64}$/.test(v); }
 
@@ -2529,14 +2589,182 @@ async function tdaGetSettings() {
   const raw = o.monthlyPool;
   const pool = (raw === undefined || raw === '') ? null : tdaParseTokens(raw, null);
   const poolSet = pool !== null && pool > 0;
+  const renewWallet = tdaTerraAddr(o.renewWallet || '') ? String(o.renewWallet).trim().toLowerCase() : null;
+  const priceRaw = Number(o.renewPriceUsd);
+  const renewPriceUsd = (Number.isFinite(priceRaw) && priceRaw > 0 && priceRaw <= 1000) ? priceRaw : TDA_RENEW_DEFAULT_USD;
   return {
     monthlyPool: poolSet ? pool : null,
     poolSet,
     seatShare: poolSet ? Math.floor(pool / 4) : TDA_DEFAULT_NEW_SEAT_TOKENS,
+    renewWallet,
+    renewPriceUsd,
+    renewSet: !!renewWallet,
   };
 }
 
+function tdaTerraAddr(v) {
+  return /^terra1[a-z0-9]{38}$/.test(String(v || '').trim().toLowerCase());
+}
+
+/* Strict form for OWNER-ENTERED wallets: the shape check plus
+   the bech32 checksum (BIP-173 polymod). A bad-checksum wallet
+   saved into the settings would silently brick every renewal
+   (no real payment can ever match it), so owner entries must
+   be real addresses. The seat's pasted SENDER keeps the shape
+   check only — there the exact on-chain leg match is the real
+   gate, and on-chain addresses are valid by construction. */
+const TDA_BECH32 = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+function tdaBech32Polymod(values) {
+  const GEN = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+  let chk = 1;
+  for (const v of values) {
+    const top = chk >> 25;
+    chk = ((chk & 0x1ffffff) << 5) ^ v;
+    for (let i = 0; i < 5; i++) if ((top >> i) & 1) chk ^= GEN[i];
+  }
+  return chk;
+}
+function tdaTerraAddrStrict(v) {
+  const a = String(v || '').trim().toLowerCase();
+  if (!tdaTerraAddr(a)) return false;
+  const pos = a.lastIndexOf('1');
+  const hrp = a.slice(0, pos), data = a.slice(pos + 1);
+  if (hrp !== 'terra' || data.length < 6) return false;
+  const vals = [];
+  for (let i = 0; i < hrp.length; i++) vals.push(hrp.charCodeAt(i) >> 5);
+  vals.push(0);
+  for (let i = 0; i < hrp.length; i++) vals.push(hrp.charCodeAt(i) & 31);
+  for (const c of data) {
+    const idx = TDA_BECH32.indexOf(c);
+    if (idx < 0) return false;
+    vals.push(idx);
+  }
+  return tdaBech32Polymod(vals) === 1;
+}
+
+/* The memo a seat's renewal payment must carry. It names the
+   seat at SEND time — before the payment exists — so a public
+   hash can only ever renew the seat the payer intended, never
+   a watcher's seat. */
+function tdaRenewMemo(seatId) {
+  return 'TD-' + String(seatId || '').toUpperCase();
+}
+
+/* A seat's paid-through instant (ms). Rows written before
+   renewals existed carry no paidThrough — they get the same
+   first-week-included treatment as new seats: created + 7d. */
+function tdaSeatPaidThrough(o) {
+  const pt = Number(o && o.paidThrough);
+  if (Number.isFinite(pt) && pt > 0) return pt;
+  const created = Number(o && o.created) || 0;
+  return created + TDA_RENEW_PERIOD_MS;
+}
+
+function tdaParseUsd(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0 || n > 1000) return null;
+  return Math.round(n * 100) / 100;
+}
+
+/* Which active seat owns this Terra wallet (binding), or null. */
+async function tdaWalletOwnerSeat(wallet) {
+  const out = await upstashPipeline([['LRANGE', 'tda:seats', 0, -1]]);
+  const ids = (out[0] && out[0].result) || [];
+  if (!ids.length) return null;
+  const rows = await upstashPipeline(ids.map(id => ['HGETALL', 'tda:seat:' + id]));
+  for (const r of rows) {
+    const o = tdaHashToObj(r && r.result);
+    if (o.id && String(o.active) === '1' && String(o.wallet || '') === wallet) return String(o.id);
+  }
+  return null;
+}
+
+async function tdaFetchJson(url, timeoutMs) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), timeoutMs || 10000);
+  try {
+    const r = await fetch(url, { signal: ctl.signal, headers: { 'User-Agent': 'toms-dev' } });
+    if (!r || !r.ok) throw new Error('http ' + (r ? r.status : 'none'));
+    return await r.json();
+  } finally { clearTimeout(t); }
+}
+
+/* The LIVE LUNC/USD price at verification time — the house
+   path Wallet Scope uses: CoinPaprika primary, CoinGecko
+   fallback. Both are read when both answer, and they must
+   agree within 25%: a wild disagreement means a feed is
+   broken or manipulated, and the honest move is to refuse
+   the check (the seat's payment is untouched and can be
+   re-checked), never to credit off a bad price. When both
+   answer, payments are valued at the LOWER of the two — the
+   conservative side for accepting money — so a feed quoting
+   high can never inflate a payment past the floor. A
+   successful read is cached for 30 s (the renewal submit
+   path is also throttled per seat), so seat traffic can't
+   burn the price APIs' quota. Returns {usd, source} or null
+   when no trustworthy price exists. */
+let tdaPriceCache = null;
+async function tdaLuncPrice() {
+  if (tdaPriceCache && (Date.now() - tdaPriceCache.at) < TDA_PRICE_CACHE_MS) return tdaPriceCache.val;
+  const read = async (url, pick) => {
+    try { const v = pick(await tdaFetchJson(url, 8000)); return (Number.isFinite(v) && v > 0) ? v : null; }
+    catch (e) { return null; }
+  };
+  const [p, g] = await Promise.all([
+    read(TDA_PAPRIKA_LUNC, j => j && j.quotes && j.quotes.USD && Number(j.quotes.USD.price)),
+    read(TDA_GECKO_LUNC, j => j && j['terra-luna'] && Number(j['terra-luna'].usd)),
+  ]);
+  let val = null;
+  if (p && g) {
+    if (Math.abs(p - g) / Math.min(p, g) > 0.25) return null;
+    val = { usd: Math.min(p, g), source: 'cross-checked' };
+  }
+  else if (p) val = { usd: p, source: 'coinpaprika' };
+  else if (g) val = { usd: g, source: 'coingecko' };
+  if (val) tdaPriceCache = { at: Date.now(), val };
+  return val;
+}
+
+/* Read one transaction by hash from the house LCD and reduce
+   it to the facts a renewal needs: did it succeed, and its
+   bank-send legs (from, to, uluna as BigInt — amounts exceed
+   float precision at the top end). The FCD amino shape is
+   accepted too, in case the lookup host ever serves it.
+   Returns {found:false} for a hash the chain doesn't know
+   (or an unreachable reader — the seat is told to retry,
+   and nothing is claimed or credited either way). */
+async function tdaLookupTx(txhash) {
+  let j = null;
+  try { j = await tdaFetchJson(TDA_TX_LOOKUP + txhash, 10000); }
+  catch (e) { return { found: false }; }
+  const sends = [];
+  const pushLegs = (msgs, typeOf, valOf) => {
+    for (const m of msgs || []) {
+      if (!m || !String(typeOf(m)).endsWith('MsgSend')) continue;
+      const v = valOf(m) || {};
+      let tot = 0n;
+      for (const c of (v.amount || [])) {
+        if (c && c.denom === 'uluna') { try { tot += BigInt(String(c.amount)); } catch (e) { /* skip bad leg */ } }
+      }
+      sends.push({ from: String(v.from_address || ''), to: String(v.to_address || ''), uluna: tot });
+    }
+  };
+  if (j && j.tx_response) {
+    const tr = j.tx_response;
+    const code = tr.code === undefined || tr.code === null ? 0 : Number(tr.code);
+    pushLegs(((tr.tx || {}).body || {}).messages, m => m['@type'], m => m);
+    return { found: true, success: code === 0, sends, timestamp: String(tr.timestamp || ''), memo: String(((tr.tx || {}).body || {}).memo || '') };
+  }
+  if (j && j.tx && j.tx.value && Array.isArray(j.tx.value.msg)) {
+    const code = j.code === undefined || j.code === null ? 0 : Number(j.code);
+    pushLegs(j.tx.value.msg, m => m.type, m => m.value);
+    return { found: true, success: code === 0, sends, timestamp: String(j.timestamp || ''), memo: String(j.tx.value.memo || '') };
+  }
+  return { found: false };
+}
+
 function tdaPublicSeat(o) {
+  const paidThrough = tdaSeatPaidThrough(o);
   return {
     id: String(o.id || ''),
     name: String(o.name || ''),
@@ -2545,6 +2773,9 @@ function tdaPublicSeat(o) {
     reqs: Math.max(0, parseInt(o.reqs, 10) || 0),
     active: String(o.active) === '1',
     created: Number(o.created) || 0,
+    paidThrough,
+    lapsed: paidThrough <= Date.now(),
+    wallet: String(o.wallet || ''),
   };
 }
 
@@ -2712,7 +2943,7 @@ export async function tdaHandler(req, res) {
       if (!auth) return undefined;
       if (auth.tier === 'owner') return res.status(200).json({ ok: true, tier: 'owner' });
       const s = tdaPublicSeat(auth.seat);
-      return res.status(200).json({ ok: true, tier: 'seat', seat: { id: s.id, name: s.name, tokens: s.tokens, used: s.used } });
+      return res.status(200).json({ ok: true, tier: 'seat', seat: { id: s.id, name: s.name, tokens: s.tokens, used: s.used, paidThrough: s.paidThrough, lapsed: s.lapsed, wallet: s.wallet } });
     }
 
     /* Owner-code changes — owner only. tdaCodeSet and tdaRotate
@@ -2769,10 +3000,10 @@ export async function tdaHandler(req, res) {
         return res.status(200).json({ ok: false, error: 'that code is already in use' });
       }
       await upstashPipeline([
-        ['HSET', 'tda:seat:' + id, 'id', id, 'name', name, 'codehash', newHash, 'tokens', String(tokens), 'used', '0', 'reqs', '0', 'active', '1', 'created', String(now)],
+        ['HSET', 'tda:seat:' + id, 'id', id, 'name', name, 'codehash', newHash, 'tokens', String(tokens), 'used', '0', 'reqs', '0', 'active', '1', 'created', String(now), 'paidThrough', String(now + TDA_RENEW_PERIOD_MS)],
         ['LPUSH', 'tda:seats', id],
       ]);
-      const seat = tdaPublicSeat({ id, name, tokens: String(tokens), used: '0', reqs: '0', active: '1', created: String(now) });
+      const seat = tdaPublicSeat({ id, name, tokens: String(tokens), used: '0', reqs: '0', active: '1', created: String(now), paidThrough: String(now + TDA_RENEW_PERIOD_MS) });
       return res.status(200).json({ ok: true, seat });
     }
 
@@ -2797,10 +3028,10 @@ export async function tdaHandler(req, res) {
         return res.status(500).json({ ok: false, error: 'could not generate a code — try again' });
       }
       await upstashPipeline([
-        ['HSET', 'tda:seat:' + id, 'id', id, 'name', name, 'codehash', gen.hash, 'tokens', String(tokens), 'used', '0', 'reqs', '0', 'active', '1', 'created', String(now)],
+        ['HSET', 'tda:seat:' + id, 'id', id, 'name', name, 'codehash', gen.hash, 'tokens', String(tokens), 'used', '0', 'reqs', '0', 'active', '1', 'created', String(now), 'paidThrough', String(now + TDA_RENEW_PERIOD_MS)],
         ['LPUSH', 'tda:seats', id],
       ]);
-      const seat = tdaPublicSeat({ id, name, tokens: String(tokens), used: '0', reqs: '0', active: '1', created: String(now) });
+      const seat = tdaPublicSeat({ id, name, tokens: String(tokens), used: '0', reqs: '0', active: '1', created: String(now), paidThrough: String(now + TDA_RENEW_PERIOD_MS) });
       return res.status(200).json({ ok: true, seat, code: gen.plain, shownOnce: true });
     }
 
@@ -2833,7 +3064,7 @@ export async function tdaHandler(req, res) {
       return res.status(200).json({ ok: true, seats, settings });
     }
 
-    if (action === 'tdaSeatCode' || action === 'tdaSeatTokens' || action === 'tdaSeatRemove' || action === 'tdaSeatName') {
+    if (action === 'tdaSeatCode' || action === 'tdaSeatTokens' || action === 'tdaSeatRemove' || action === 'tdaSeatName' || action === 'tdaSeatWallet') {
       const auth = await tdaAuthTier(req, res, tag, String(body.hash || '').toLowerCase(), 'owner');
       if (!auth) return undefined;
       const seatId = String(body.seatId || '');
@@ -2855,6 +3086,25 @@ export async function tdaHandler(req, res) {
         if (!name) return res.status(400).json({ ok: false, error: 'seat needs a name' });
         await upstashPipeline([['HSET', 'tda:seat:' + seatId, 'name', name]]);
         return res.status(200).json({ ok: true, seat: tdaPublicSeat({ ...seat, name }) });
+      }
+
+      if (action === 'tdaSeatWallet') {
+        /* The owner binds (or clears) the seat's Terra wallet —
+           the only wallet whose sends can renew this seat. An
+           empty value clears the binding; the seat's first
+           successful renewal binds its wallet again. */
+        const wallet = String(body.wallet || '').trim().toLowerCase();
+        if (wallet !== '' && !tdaTerraAddrStrict(wallet)) {
+          return res.status(400).json({ ok: false, error: 'that wallet address does not look right — check it character by character' });
+        }
+        if (wallet !== '') {
+          const ownerSeat = await tdaWalletOwnerSeat(wallet);
+          if (ownerSeat && ownerSeat !== seatId) {
+            return res.status(200).json({ ok: false, error: 'that wallet is already on another seat' });
+          }
+        }
+        await upstashPipeline([['HSET', 'tda:seat:' + seatId, 'wallet', wallet]]);
+        return res.status(200).json({ ok: true, seat: tdaPublicSeat({ ...seat, wallet }) });
       }
 
       if (action === 'tdaSeatCode') {
@@ -2920,6 +3170,13 @@ export async function tdaHandler(req, res) {
       if (!text) return res.status(400).json({ ok: false, error: 'empty message' });
       let seatId = 'owner';
       if (auth.tier === 'seat') {
+        /* A lapsed seat can read everything but cannot post —
+           renewal is the way back in, and it also refills the
+           balance up to the share, so this refusal is checked
+           before the balance one. */
+        if (tdaSeatPaidThrough(auth.seat) <= Date.now()) {
+          return res.status(200).json({ ok: false, seatPaused: true, error: 'seat paused — renew to keep building' });
+        }
         const bal = parseInt(auth.seat.tokens, 10) || 0;
         if (bal <= 0) {
           return res.status(200).json({ ok: false, noTokens: true, error: 'out of tokens — ask Tom to top up' });
@@ -2968,7 +3225,7 @@ export async function tdaHandler(req, res) {
       const ids = (idsOut[0] && idsOut[0].result) || [];
       if (!ids.length) {
         const base = { ok: true, reqs: [] };
-        if (auth.tier === 'seat') { const s = tdaPublicSeat(auth.seat); base.seat = { id: s.id, name: s.name, tokens: s.tokens, used: s.used }; }
+        if (auth.tier === 'seat') { const s = tdaPublicSeat(auth.seat); base.seat = { id: s.id, name: s.name, tokens: s.tokens, used: s.used, paidThrough: s.paidThrough, lapsed: s.lapsed }; }
         return res.status(200).json(base);
       }
       const rows = await upstashPipeline(ids.map(id => ['HGETALL', 'tda:req:' + id]));
@@ -2988,7 +3245,7 @@ export async function tdaHandler(req, res) {
       }
       const reqs = objs.map(o => tdaPublicReq(o, names[String(o.seatId || 'owner')]));
       const out = { ok: true, reqs };
-      if (auth.tier === 'seat') { const s = tdaPublicSeat(auth.seat); out.seat = { id: s.id, name: s.name, tokens: s.tokens, used: s.used }; }
+      if (auth.tier === 'seat') { const s = tdaPublicSeat(auth.seat); out.seat = { id: s.id, name: s.name, tokens: s.tokens, used: s.used, paidThrough: s.paidThrough, lapsed: s.lapsed }; }
       return res.status(200).json(out);
     }
 
@@ -3045,6 +3302,282 @@ export async function tdaHandler(req, res) {
         if (seat) tokensLeft = Math.max(0, parseInt(seat.tokens, 10) || 0);
       }
       return res.status(200).json({ ok: true, id, status: 'done', tokensLeft });
+    }
+
+    /* ---- Seat renewals ($5/week in LUNC, paste-and-verify) ---- */
+
+    if (action === 'tdaRenewInfo') {
+      const auth = await tdaAuthTier(req, res, tag, String(body.hash || '').toLowerCase(), 'any');
+      if (!auth) return undefined;
+      const s = await tdaGetSettings();
+      const base = { ok: true, priceUsd: s.renewPriceUsd, periodDays: 7, tolerance: TDA_RENEW_TOLERANCE };
+      if (auth.tier === 'seat') {
+        const ps = tdaPublicSeat(auth.seat);
+        base.seat = { paidThrough: ps.paidThrough, lapsed: ps.lapsed, tokens: ps.tokens, wallet: ps.wallet };
+        base.memo = tdaRenewMemo(String(auth.seat.id));
+      }
+      if (!s.renewSet) return res.status(200).json({ ...base, enabled: false });
+      const price = await tdaLuncPrice();
+      if (!price) return res.status(200).json({ ...base, enabled: true, wallet: s.renewWallet, priceOk: false });
+      return res.status(200).json({
+        ...base, enabled: true, wallet: s.renewWallet, priceOk: true,
+        luncUsd: price.usd, priceSource: price.source,
+        luncAmount: Math.ceil(s.renewPriceUsd / price.usd),
+        minUsd: Math.round(s.renewPriceUsd * TDA_RENEW_TOLERANCE * 100) / 100,
+      });
+    }
+
+    if (action === 'tdaRenewSubmit') {
+      const auth = await tdaAuthTier(req, res, tag, String(body.hash || '').toLowerCase(), 'any');
+      if (!auth) return undefined;
+      if (auth.tier !== 'seat') {
+        return res.status(200).json({ ok: false, error: 'Renewals credit a seat — open the page with a seat code.' });
+      }
+      const seatId = String(auth.seat.id);
+      const sender = String(body.sender || '').trim().toLowerCase();
+      const txhash = String(body.txHash || '').trim().toUpperCase();
+      if (!tdaTerraAddr(sender)) return res.status(400).json({ ok: false, error: 'That wallet address does not look right — paste the wallet you sent from.' });
+      if (!/^[0-9A-F]{64}$/.test(txhash)) return res.status(400).json({ ok: false, error: 'That transaction hash does not look right — it is 64 characters, letters and numbers.' });
+      const s = await tdaGetSettings();
+      if (!s.renewSet) {
+        return res.status(200).json({ ok: false, notSetup: true, error: 'Renewals open soon — Tom is setting this up.' });
+      }
+      /* Throttle BEFORE the binding checks and any external
+         fetch: a seat gets at most TDA_RENEW_TRY_MAX payment
+         checks per window, so one seat can't burn the chain
+         reader's or the price APIs' quota for everyone — and
+         can't probe other seats' wallet bindings at speed
+         either. The window is self-healing: any attempt that
+         finds the counter without a TTL re-arms the expiry,
+         so a single lost EXPIRE can never lock a seat out
+         for good. */
+      const tryKey = 'tda:renew:try:' + seatId;
+      const tryOut = await upstashPipeline([['INCR', tryKey], ['TTL', tryKey]]);
+      const tries = (tryOut[0] && tryOut[0].result) || 0;
+      const tryTtl = tryOut[1] && tryOut[1].result;
+      if (tryTtl === -1) {
+        try { await upstashPipeline([['EXPIRE', tryKey, TDA_RENEW_TRY_WINDOW_SEC]]); } catch (e) { /* best-effort */ }
+      }
+      if (tries > TDA_RENEW_TRY_MAX) {
+        return res.status(200).json({ ok: false, error: 'Too many payment checks — wait a few minutes and try again.' });
+      }
+      /* Wallet binding: only the seat's own wallet can renew
+         it. An unbound seat binds the wallet of its first
+         successful renewal — but never a wallet another
+         active seat already owns. */
+      const bound = String(auth.seat.wallet || '');
+      if (bound && bound !== sender) {
+        return res.status(200).json({ ok: false, error: 'That payment came from a different wallet than the one on this seat.' });
+      }
+      if (!bound) {
+        const ownerSeat = await tdaWalletOwnerSeat(sender);
+        if (ownerSeat && ownerSeat !== seatId) {
+          return res.status(200).json({ ok: false, error: 'That wallet is already on another seat — ask Tom to sort it out.' });
+        }
+      }
+      const usedOut = await upstashPipeline([['GET', 'tda:renew:used:' + txhash]]);
+      if (usedOut[0] && usedOut[0].result) {
+        return res.status(200).json({ ok: false, alreadyUsed: true, error: 'That payment was already used.' });
+      }
+      const tx = await tdaLookupTx(txhash);
+      if (!tx.found) {
+        return res.status(200).json({ ok: false, notFound: true, error: 'Payment not found yet — if you just sent it, wait a minute and try again.' });
+      }
+      if (!tx.success) {
+        return res.status(200).json({ ok: false, error: 'That transaction failed on-chain, so it cannot be used.' });
+      }
+      let toWallet = 0n, anyToWallet = false;
+      for (const leg of tx.sends) {
+        if (leg.to === s.renewWallet) {
+          anyToWallet = true;
+          if (leg.from === sender) toWallet += leg.uluna;
+        }
+      }
+      if (!anyToWallet) {
+        return res.status(200).json({ ok: false, error: 'That payment did not go to the renewal wallet shown on this card.' });
+      }
+      if (toWallet === 0n) {
+        return res.status(200).json({ ok: false, error: 'That payment came from a different wallet than the one you pasted.' });
+      }
+      /* The memo is the payment's intent: it must name THIS
+         seat, exactly as shown on the seat's card. A payment
+         anyone can watch land on-chain still can't renew a
+         seat it wasn't addressed to, and an old payment for
+         something else never carried the memo at all. */
+      const memoWant = tdaRenewMemo(seatId);
+      if (String(tx.memo || '').trim() !== memoWant) {
+        return res.status(200).json({ ok: false, error: 'That payment does not carry your renewal memo — the memo must be exactly: ' + memoWant });
+      }
+      /* Freshness: the payment must be recent (block time
+         from the chain, not the client's clock), so a seat
+         can't warehouse a cheap payment and cash it in on a
+         later price rise. */
+      const txTime = Date.parse(tx.timestamp || '');
+      if (!Number.isFinite(txTime)) {
+        return res.status(200).json({ ok: false, error: "Couldn't confirm when that payment was made — send a fresh payment and check it right away." });
+      }
+      if (Date.now() - txTime > TDA_RENEW_MAX_AGE_MS) {
+        return res.status(200).json({ ok: false, error: 'That payment is too old — a renewal needs a payment from the last 7 days.' });
+      }
+      if (txTime - Date.now() > 3600000) {
+        return res.status(200).json({ ok: false, error: "That payment's time looks wrong — try again in a few minutes." });
+      }
+      /* Value the payment at the LIVE price read now. Nothing
+         is claimed or credited before this point, so every
+         refusal above leaves the hash usable and the seat
+         untouched. */
+      const price = await tdaLuncPrice();
+      if (!price) {
+        return res.status(200).json({ ok: false, priceDown: true, error: "Couldn't read the LUNC price just now — wait a moment and try again. Your payment is safe; nothing was used." });
+      }
+      const lunc = Number(toWallet) / 1e6;
+      const usd = lunc * price.usd;
+      const minUsd = s.renewPriceUsd * TDA_RENEW_TOLERANCE;
+      if (usd < minUsd) {
+        return res.status(200).json({ ok: false, tooSmall: true, usd: Math.round(usd * 100) / 100, error: 'That payment is worth about $' + usd.toFixed(2) + ' right now — a week needs $' + s.renewPriceUsd.toFixed(2) + ' (we accept $' + minUsd.toFixed(2) + ' or more, to allow for price wiggles).' });
+      }
+      /* One renewal at a time per seat: the lock (30 s,
+         self-expiring) keeps two concurrent submits from
+         both computing off the same seat snapshot and
+         collapsing two payments into one extension. The
+         lock is taken BEFORE the claim, so a refused submit
+         never burns the payment. */
+      const lockToken = crypto.randomBytes(8).toString('hex');
+      const lockOut = await upstashPipeline([['SET', 'tda:renew:lock:' + seatId, lockToken, 'NX', 'EX', 30]]);
+      if (!lockOut[0] || !lockOut[0].result) {
+        return res.status(200).json({ ok: false, error: 'Another renewal for this seat is being checked right now — wait a few seconds, then look at your paid-through date before trying again.' });
+      }
+      try {
+        /* Claim the hash atomically — from here the payment
+           is spent, even if two submits race. */
+        const now = Date.now();
+        const recId = 'n' + now.toString(36) + crypto.randomBytes(4).toString('hex');
+        const claim = await upstashPipeline([['SET', 'tda:renew:used:' + txhash, recId, 'NX']]);
+        if (!claim[0] || !claim[0].result) {
+          return res.status(200).json({ ok: false, alreadyUsed: true, error: 'That payment was already used.' });
+        }
+        const releaseClaim = async () => { try { await upstashPipeline([['DEL', 'tda:renew:used:' + txhash]]); } catch (e) { /* best-effort */ } };
+        /* From the claim until the credit lands, ANY failure
+           releases the claim: no credit can have been applied
+           yet, so releasing is provably safe and the seat can
+           retry the same payment. The one exception is an
+           ambiguous pipeline failure whose read-back ALSO
+           fails — there the claim is kept (never risk a
+           double credit) and the owner reconciles by hand. */
+        let keepClaim = false;
+        try {
+          const fresh = await tdaGetSeat(seatId);
+          if (!fresh || String(fresh.active) !== '1') {
+            await releaseClaim();
+            return res.status(200).json({ ok: false, error: 'This seat is not active.' });
+          }
+          /* Re-validate against FRESH state — the settings
+             and the binding may have changed while the
+             (slow) chain and price reads were in flight,
+             and nothing decided from the stale snapshot
+             may overwrite them. */
+          const s2 = await tdaGetSettings();
+          if (!s2.renewSet || s2.renewWallet !== s.renewWallet || s2.renewPriceUsd !== s.renewPriceUsd) {
+            await releaseClaim();
+            return res.status(200).json({ ok: false, error: 'Renewal settings changed while your payment was being checked — nothing was used. Try again.' });
+          }
+          const boundF = String(fresh.wallet || '');
+          if (boundF && boundF !== sender) {
+            await releaseClaim();
+            return res.status(200).json({ ok: false, error: 'That payment came from a different wallet than the one on this seat.' });
+          }
+          if (!boundF) {
+            const ownerNow = await tdaWalletOwnerSeat(sender);
+            if (ownerNow && ownerNow !== seatId) {
+              await releaseClaim();
+              return res.status(200).json({ ok: false, error: 'That wallet is already on another seat — ask Tom to sort it out.' });
+            }
+          }
+          const ptNew = Math.max(now, tdaSeatPaidThrough(fresh)) + TDA_RENEW_PERIOD_MS;
+          const newBal = Math.max(Math.max(0, parseInt(fresh.tokens, 10) || 0), s2.seatShare);
+          try {
+            await upstashPipeline([
+              ['HSET', 'tda:seat:' + seatId, 'paidThrough', String(ptNew), 'tokens', String(newBal), 'wallet', sender],
+              ['HSET', 'tda:renew:' + recId, 'id', recId, 'seatId', seatId, 'seatName', String(fresh.name || ''), 'sender', sender, 'txhash', txhash, 'uluna', toWallet.toString(), 'usd', usd.toFixed(2), 'luncPrice', String(price.usd), 'priceUsd', String(s2.renewPriceUsd), 'paidThrough', String(ptNew), 'created', String(now)],
+              ['LPUSH', 'tda:renews', recId],
+              ['LTRIM', 'tda:renews', 0, 199],
+            ]);
+          } catch (e) {
+            /* Ambiguous write: verify before deciding. If
+               the extension landed, this is a success; if
+               it provably didn't, the outer catch releases
+               the claim so the seat can retry; if the
+               read-back itself fails, keep the claim. */
+            let applied = false, readable = false;
+            try {
+              const chk = await tdaGetSeat(seatId);
+              if (chk) { readable = true; applied = Number(chk.paidThrough) === ptNew; }
+            } catch (e2) { /* unreadable */ }
+            if (applied) {
+              return res.status(200).json({ ok: true, paidThrough: ptNew, tokens: newBal, lunc, usd: Math.round(usd * 100) / 100 });
+            }
+            if (!readable) keepClaim = true;
+            throw e;
+          }
+          return res.status(200).json({ ok: true, paidThrough: ptNew, tokens: newBal, lunc, usd: Math.round(usd * 100) / 100 });
+        } catch (e) {
+          if (!keepClaim) await releaseClaim();
+          throw e;
+        }
+      } finally {
+        /* Release only OUR lock: if it expired mid-flight
+           and a successor took it, their lock is theirs. */
+        try {
+          const cur = await upstashPipeline([['GET', 'tda:renew:lock:' + seatId]]);
+          if (cur[0] && cur[0].result === lockToken) {
+            await upstashPipeline([['DEL', 'tda:renew:lock:' + seatId]]);
+          }
+        } catch (e) { /* expires on its own */ }
+      }
+    }
+
+    if (action === 'tdaRenewSettingsSet') {
+      const auth = await tdaAuthTier(req, res, tag, String(body.hash || '').toLowerCase(), 'owner');
+      if (!auth) return undefined;
+      const wallet = String(body.wallet === undefined || body.wallet === null ? '' : body.wallet).trim().toLowerCase();
+      if (wallet !== '' && !tdaTerraAddrStrict(wallet)) {
+        return res.status(400).json({ ok: false, error: 'that wallet address does not look right — check it character by character' });
+      }
+      const cmds = [['HSET', 'tda:settings', 'renewWallet', wallet]];
+      if (body.priceUsd !== undefined && body.priceUsd !== null && body.priceUsd !== '') {
+        const p = tdaParseUsd(body.priceUsd);
+        if (p === null) return res.status(400).json({ ok: false, error: 'bad price' });
+        cmds.push(['HSET', 'tda:settings', 'renewPriceUsd', String(p)]);
+      }
+      await upstashPipeline(cmds);
+      const s = await tdaGetSettings();
+      return res.status(200).json({ ok: true, settings: s });
+    }
+
+    if (action === 'tdaRenewList') {
+      const auth = await tdaAuthTier(req, res, tag, String(body.hash || '').toLowerCase(), 'owner');
+      if (!auth) return undefined;
+      const s = await tdaGetSettings();
+      const settings = { renewWallet: s.renewWallet, renewPriceUsd: s.renewPriceUsd, renewSet: s.renewSet };
+      const out = await upstashPipeline([['LRANGE', 'tda:renews', 0, 199]]);
+      const ids = (out[0] && out[0].result) || [];
+      if (!ids.length) return res.status(200).json({ ok: true, renewals: [], settings });
+      const rows = await upstashPipeline(ids.map(id => ['HGETALL', 'tda:renew:' + id]));
+      const renewals = rows.map(r => {
+        const o = tdaHashToObj(r && r.result);
+        return {
+          id: String(o.id || ''),
+          seatId: String(o.seatId || ''),
+          seatName: String(o.seatName || ''),
+          sender: String(o.sender || ''),
+          txhash: String(o.txhash || ''),
+          lunc: (Number(o.uluna) || 0) / 1e6,
+          usd: Number(o.usd) || 0,
+          paidThrough: Number(o.paidThrough) || 0,
+          created: Number(o.created) || 0,
+        };
+      }).filter(x => x.id).slice(0, TDA_LIST_CAP);
+      return res.status(200).json({ ok: true, renewals, settings });
     }
 
     return res.status(400).json({ ok: false, error: 'unknown action' });
