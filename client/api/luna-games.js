@@ -2366,31 +2366,70 @@ export async function kavaCodeHandler(req, res) {
 }
 /* kava-code:end */
 
-/* toms-dev:start — TOM'S DEV private chat queue (client/public/
-   toms-dev/). One partner talks to "Tom's Dev" in a chat thread:
-   his messages are build requests stored server-side, and the
-   owner's replies (posted from the same page's owner mode) land back
-   in the thread as Tom's Dev bubbles. Storage: Upstash — the request
-   rows are hashes tda:req:<id> (fields: id, text, status, result,
-   created, updated) and tda:reqs is the newest-first id list.
-   Access: a DEDICATED code whose SHA-256 lives in tda:codehash —
-   fully separate from the Kava panel's kbk key. Only hashes travel
-   (trim + upper-case normalisation, same as the panel); the stored
-   hash is NEVER returned: GET answers only {set: bool}.
-   Bootstrap: while tda:codehash is unset, TDA_BOOTSTRAP_HASH below —
-   the SHA-256 of the starter code TOMSDEV-START — is the valid code,
-   so the owner can open the page and set the real code from owner
-   mode. After that first set the stored hash alone rules.
-   EVERY queue action (tdaNew/tdaList/tdaStatus/tdaDone) re-verifies
-   the presented hash server-side; there is no session to ride.
-   Brute-force rail mirrors the panel's: failed attempts counted per
-   client IP (IP hashed into the counter key); 8 failures inside 15
-   minutes lock that IP out of ALL tda actions for 15 minutes; any
-   success clears the counter. v1 access control is the one shared
-   code for both sides (the owner mode toggle on the page is a UI
-   convenience, not a second credential) — stated plainly on purpose.
-   It holds no keys, signs nothing, moves no funds. */
-const TDA_CODE_KEY = 'tda:codehash';
+/* toms-dev:start — TOM'S DEV private workspace (client/public/
+   toms-dev/). A full development app: users ("seats") chat with
+   "Tom's Dev" — their messages are build requests stored
+   server-side, the owner's replies land back in the thread — and
+   work from live read-only Launchpad sections (builds, the fee
+   wallet, build-tool guides, a Launchpad snapshot). The page
+   holds no keys, signs nothing, moves no funds; chain reads are
+   public eth_call/eth_getLogs reads.
+   Storage: Upstash — request rows are hashes tda:req:<id>
+   (fields: id, seatId, text, status, result, created, updated),
+   tda:reqs is the newest-first id list, seats are hashes
+   tda:seat:<id> (fields: id, name, codehash, tokens, reqs,
+   active, created) with tda:seats the newest-first seat list and
+   tda:seatbycode:<sha256> mapping a seat's code hash to its seat.
+   Access (v2): TWO TIERS. The owner code's SHA-256 lives in
+   tda:ownercode; each seat has its OWN code (hash stored on the
+   seat row). Only hashes travel (trim + upper-case normalisation,
+   same as the panels); stored hashes are NEVER returned: GET
+   answers only {ownerSet: bool, partnerSet: bool} (partnerSet =
+   at least one active seat exists).
+   Tiers: tdaList/tdaNew accept the owner or the seat that owns
+   the thread — A SEAT SEES ONLY ITS OWN ROWS; the owner sees all.
+   tdaStatus/tdaDone, every code change (tdaCodeSet / tdaRotate)
+   and every seat action (tdaSeat*) are OWNER ONLY: a seat code
+   presented for an owner action gets a plain "owner code
+   required", never data. Rows written before seats existed have
+   no seatId and belong to the owner view only.
+   Setup order is enforced server-side: the owner code must be
+   SET before any seat can be created (the bootstrap seat alone
+   cannot create seats).
+   Bootstrap: while NO owner code is stored, TDA_BOOTSTRAP_HASH
+   below — the SHA-256 of the starter code TOMSDEV-START — counts
+   as the owner seat, so the owner can open the page and set the
+   real owner code. The moment an owner code is set, the bootstrap
+   is dead everywhere. Migration: the v1 single code lived in
+   tda:codehash; if set and tda:ownercode is not, that hash IS the
+   owner hash (rotating the owner code deletes the legacy key).
+   TOKENS: building runs on tokens. Each seat carries a token
+   balance set by the owner (create / top-up / adjust). A seat at
+   0 cannot post (tdaNew refuses server-side). When the owner
+   completes a job via tdaDone with a `tokens` amount, that
+   amount is decremented from the seat's balance (clamped at 0) —
+   that is the only place usage is recorded, and it is recorded
+   by the owner side, by design.
+   ENTRY CODES: the owner can also create a seat with ONE PRESS
+   (tdaSeatQuickCreate): the SERVER generates a strong code
+   (TD-XXXXXX-XXXXXX from an unambiguous alphabet, rejection-
+   sampled crypto randomness), stores only its hash, and returns
+   the plain code exactly once, in that response — it is never
+   retrievable afterwards. A new seat's starting balance is 25%
+   of the owner's monthly token pool (tda:settings monthlyPool,
+   rounded down), or the 100,000 default while no pool is set.
+   Rotating a
+   seat's code can generate a fresh code the same way
+   (tdaSeatCode with generate: true).
+   EVERY gated action re-verifies the presented hash server-side;
+   there is no session to ride. Brute-force rail mirrors the
+   panels': failed attempts counted per client IP (IP hashed into
+   the counter key); 8 failures inside 15 minutes lock that IP
+   out of ALL tda actions for 15 minutes; any success clears the
+   counter. A valid seat code refused at an owner-only action is
+   NOT counted as a failure — it is not a guess. */
+const TDA_OWNER_KEY = 'tda:ownercode';
+const TDA_LEGACY_KEY = 'tda:codehash';
 const TDA_BOOTSTRAP_HASH = '133c984e1122da6dc2c291e088d843a06968f9f14b34de5e0f8b99eb876db145';
 const TDA_MAX_FAILS = 8;
 const TDA_FAIL_WINDOW_SEC = 15 * 60;
@@ -2398,6 +2437,8 @@ const TDA_LOCKOUT_SEC = 15 * 60;
 const TDA_LIST_CAP = 50;
 const TDA_TEXT_MAX = 2000;
 const TDA_RESULT_MAX = 4000;
+const TDA_NAME_MAX = 40;
+const TDA_TOKENS_MAX = 100000000;
 
 function tdaIsHash(v) { return typeof v === 'string' && /^[0-9a-f]{64}$/.test(v); }
 
@@ -2412,10 +2453,125 @@ function tdaIpTag(req) {
   return crypto.createHash('sha256').update(ip).digest('hex').slice(0, 16);
 }
 
-async function tdaEffectiveHash() {
-  const out = await upstashPipeline([['GET', TDA_CODE_KEY]]);
-  const v = out[0] && out[0].result;
-  return tdaIsHash(v) ? v : TDA_BOOTSTRAP_HASH;
+function tdaHashToObj(flat) {
+  const o = {};
+  if (Array.isArray(flat)) for (let i = 0; i + 1 < flat.length; i += 2) o[flat[i]] = flat[i + 1];
+  return o;
+}
+
+/* The stored owner hash: tda:ownercode, falling back to the v1
+   legacy key (which counts as the owner seat until rotated).
+   Only ever compared, never returned. */
+async function tdaStoredOwner() {
+  const out = await upstashPipeline([['GET', TDA_OWNER_KEY], ['GET', TDA_LEGACY_KEY]]);
+  const own = out[0] && out[0].result;
+  const leg = out[1] && out[1].result;
+  const ownerHash = tdaIsHash(own) ? own : (tdaIsHash(leg) ? leg : null);
+  return { ownerHash, ownerSet: !!ownerHash };
+}
+
+/* Generated entry codes: TD-XXXXXX-XXXXXX from an unambiguous
+   alphabet (no I, L, O, 0 or 1 — 31 symbols). Bytes are
+   rejection-sampled (>= 248 discarded) so every symbol is
+   equally likely; crypto.randomBytes is the only source. The
+   plain code is returned exactly once, by the action that
+   generated it; only its SHA-256 is ever stored. */
+const TDA_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const TDA_DEFAULT_NEW_SEAT_TOKENS = 100000;
+
+function tdaGenCodePlain() {
+  let s = '';
+  while (s.length < 12) {
+    const bytes = crypto.randomBytes(24);
+    for (const b of bytes) {
+      if (b >= 248) continue;
+      s += TDA_CODE_ALPHABET[b % 31];
+      if (s.length === 12) break;
+    }
+  }
+  return 'TD-' + s.slice(0, 6) + '-' + s.slice(6);
+}
+
+function tdaCodeHash(plain) {
+  return crypto.createHash('sha256').update(String(plain).trim().toUpperCase()).digest('hex');
+}
+
+/* Generate a code whose hash collides with nothing live: not
+   the owner hash, not the bootstrap, not any seat's code. */
+async function tdaFreshGenCode(ownerHash) {
+  for (let i = 0; i < 10; i++) {
+    const plain = tdaGenCodePlain();
+    const hash = tdaCodeHash(plain);
+    if (ownerHash && tdaHashEq(hash, ownerHash)) continue;
+    if (tdaHashEq(hash, TDA_BOOTSTRAP_HASH)) continue;
+    const clash = await upstashPipeline([['GET', 'tda:seatbycode:' + hash]]);
+    if (clash[0] && clash[0].result) continue;
+    return { plain, hash };
+  }
+  return null;
+}
+
+/* Owner settings (tda:settings hash). TOKEN RULE (owner, Nov
+   13): a seat's starting balance is 25% OF THE MONTHLY TOKEN
+   POOL (monthlyPool, set by the owner in the panel), rounded
+   down. While no pool is set, seats start at the plain default
+   of 100,000 and the panel labels it as the default. The owner
+   can still top up / set any seat's exact balance afterwards. */
+async function tdaGetSettings() {
+  const out = await upstashPipeline([['HGETALL', 'tda:settings']]);
+  const o = tdaHashToObj(out[0] && out[0].result);
+  const raw = o.monthlyPool;
+  const pool = (raw === undefined || raw === '') ? null : tdaParseTokens(raw, null);
+  const poolSet = pool !== null && pool > 0;
+  return {
+    monthlyPool: poolSet ? pool : null,
+    poolSet,
+    seatShare: poolSet ? Math.floor(pool / 4) : TDA_DEFAULT_NEW_SEAT_TOKENS,
+  };
+}
+
+function tdaPublicSeat(o) {
+  return {
+    id: String(o.id || ''),
+    name: String(o.name || ''),
+    tokens: Math.max(0, parseInt(o.tokens, 10) || 0),
+    used: Math.max(0, parseInt(o.used, 10) || 0),
+    reqs: Math.max(0, parseInt(o.reqs, 10) || 0),
+    active: String(o.active) === '1',
+    created: Number(o.created) || 0,
+  };
+}
+
+async function tdaGetSeat(seatId) {
+  if (!/^s[a-z0-9]{6,24}$/.test(String(seatId || ''))) return null;
+  const out = await upstashPipeline([['HGETALL', 'tda:seat:' + seatId]]);
+  const o = tdaHashToObj(out[0] && out[0].result);
+  return o.id ? o : null;
+}
+
+/* Resolve a presented code hash to its seat, or null. A seat
+   resolves only while active, and the mapping must agree with
+   the hash stored on the seat row itself (a stale mapping left
+   by a rotation or removal never resolves). */
+async function tdaResolveSeat(hash) {
+  const out = await upstashPipeline([['GET', 'tda:seatbycode:' + hash]]);
+  const seatId = out[0] && out[0].result;
+  if (!seatId) return null;
+  const o = await tdaGetSeat(String(seatId));
+  if (!o || String(o.active) !== '1') return null;
+  if (!tdaHashEq(String(o.codehash || ''), hash)) return null;
+  return o;
+}
+
+async function tdaAnyActiveSeat() {
+  const out = await upstashPipeline([['LRANGE', 'tda:seats', 0, -1]]);
+  const ids = (out[0] && out[0].result) || [];
+  if (!ids.length) return false;
+  const rows = await upstashPipeline(ids.map(id => ['HGETALL', 'tda:seat:' + id]));
+  return rows.some(r => {
+    const o = tdaHashToObj(r && r.result);
+    return o.id && String(o.active) === '1';
+  });
 }
 
 async function tdaLockState(tag) {
@@ -2444,38 +2600,59 @@ async function tdaClearFails(tag) {
   try { await upstashPipeline([['DEL', 'tda:fail:' + tag]]); } catch (e) { /* best-effort */ }
 }
 
-/* Verify a presented code hash. On failure this WRITES the response
-   and returns false; on success it clears the fail counter and
-   returns true. Used by every gated tda action. */
-async function tdaAuth(req, res, tag, hash) {
-  if (!tdaIsHash(hash)) { res.status(400).json({ ok: false, error: 'bad hash' }); return false; }
+/* Verify a presented code hash for an action. need is 'any'
+   (owner or the seat itself) or 'owner'. On success returns
+   {tier:'owner'} or {tier:'seat', seat} and clears the fail
+   counter. On failure this WRITES the response and returns null:
+   a bad hash counts toward the lockout; a REAL seat code at an
+   owner-only action is refused plainly ({ownerRequired: true}),
+   is NOT counted, and never returns data. */
+async function tdaAuthTier(req, res, tag, hash, need) {
+  if (!tdaIsHash(hash)) { res.status(400).json({ ok: false, error: 'bad hash' }); return null; }
   const lock = await tdaLockState(tag);
   if (lock.locked) {
     res.status(200).json({ ok: false, locked: true, retryAfterSec: lock.retryAfterSec, error: 'too many tries — locked for a bit' });
-    return false;
+    return null;
   }
-  const effective = await tdaEffectiveHash();
-  if (tdaHashEq(hash, effective)) { await tdaClearFails(tag); return true; }
+  const stored = await tdaStoredOwner();
+  const isOwner = (stored.ownerHash && tdaHashEq(hash, stored.ownerHash)) ||
+    (!stored.ownerHash && tdaHashEq(hash, TDA_BOOTSTRAP_HASH));
+  if (isOwner) { await tdaClearFails(tag); return { tier: 'owner' }; }
+  const seat = await tdaResolveSeat(hash);
+  if (seat) {
+    if (need === 'owner') {
+      res.status(200).json({ ok: false, ownerRequired: true, error: 'owner code required' });
+      return null;
+    }
+    await tdaClearFails(tag);
+    return { tier: 'seat', seat };
+  }
   const tripped = await tdaRecordFail(tag);
   res.status(200).json({ ok: false, locked: tripped, error: 'code not right' });
-  return false;
+  return null;
 }
 
-function tdaHashToObj(flat) {
-  const o = {};
-  if (Array.isArray(flat)) for (let i = 0; i + 1 < flat.length; i += 2) o[flat[i]] = flat[i + 1];
-  return o;
-}
-
-function tdaPublicReq(o) {
+function tdaPublicReq(o, seatName) {
   return {
     id: String(o.id || ''),
+    seatId: String(o.seatId || 'owner'),
+    seatName: seatName || '',
     text: String(o.text || ''),
     status: ['received', 'building', 'done'].includes(o.status) ? o.status : 'received',
     result: String(o.result || ''),
+    tokensUsed: Math.max(0, parseInt(o.tokensUsed, 10) || 0),
     created: Number(o.created) || 0,
     updated: Number(o.updated) || 0,
   };
+}
+
+/* Parse an optional token amount (create / adjust / usage).
+   Returns a non-negative integer, or null when malformed. */
+function tdaParseTokens(v, fallback) {
+  if (v === undefined || v === null || v === '') return fallback;
+  const n = Number(v);
+  if (!Number.isFinite(n) || Math.floor(n) !== n || n < 0 || n > TDA_TOKENS_MAX) return null;
+  return n;
 }
 
 export async function tdaHandler(req, res) {
@@ -2489,8 +2666,9 @@ export async function tdaHandler(req, res) {
 
   if (req.method === 'GET') {
     try {
-      const out = await upstashPipeline([['GET', TDA_CODE_KEY]]);
-      return res.status(200).json({ ok: true, set: tdaIsHash(out[0] && out[0].result) });
+      const stored = await tdaStoredOwner();
+      const partnerSet = await tdaAnyActiveSeat();
+      return res.status(200).json({ ok: true, ownerSet: stored.ownerSet, partnerSet });
     } catch (e) {
       console.error('tda state read failed', e && e.message);
       return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
@@ -2506,50 +2684,256 @@ export async function tdaHandler(req, res) {
 
   try {
     if (action === 'tdaCodeCheck') {
-      const ok = await tdaAuth(req, res, tag, String(body.hash || '').toLowerCase());
-      if (ok) return res.status(200).json({ ok: true });
-      return undefined;
+      const auth = await tdaAuthTier(req, res, tag, String(body.hash || '').toLowerCase(), 'any');
+      if (!auth) return undefined;
+      if (auth.tier === 'owner') return res.status(200).json({ ok: true, tier: 'owner' });
+      const s = tdaPublicSeat(auth.seat);
+      return res.status(200).json({ ok: true, tier: 'seat', seat: { id: s.id, name: s.name, tokens: s.tokens, used: s.used } });
     }
 
-    if (action === 'tdaCodeSet') {
+    /* Owner-code changes — owner only. tdaCodeSet and tdaRotate
+       both rotate the OWNER code (seat codes live on the seats
+       and are managed with tdaSeatCode). Rotating deletes the v1
+       legacy key so only tda:ownercode rules afterwards. */
+    if (action === 'tdaCodeSet' || action === 'tdaRotate') {
       const currentHash = String(body.currentHash || '').toLowerCase();
       const newHash = String(body.newHash || '').toLowerCase();
       if (!tdaIsHash(newHash)) return res.status(400).json({ ok: false, error: 'bad hash' });
-      const ok = await tdaAuth(req, res, tag, currentHash);
-      if (!ok) return undefined;
-      await upstashPipeline([['SET', TDA_CODE_KEY, newHash]]);
-      return res.status(200).json({ ok: true, set: true });
+      const auth = await tdaAuthTier(req, res, tag, currentHash, 'owner');
+      if (!auth) return undefined;
+      await upstashPipeline([['SET', TDA_OWNER_KEY, newHash], ['DEL', TDA_LEGACY_KEY]]);
+      return res.status(200).json({ ok: true, set: true, ownerSet: true });
+    }
+
+    if (action === 'tdaSeatCreate') {
+      const auth = await tdaAuthTier(req, res, tag, String(body.hash || '').toLowerCase(), 'owner');
+      if (!auth) return undefined;
+      const stored = await tdaStoredOwner();
+      if (!stored.ownerSet) {
+        return res.status(200).json({ ok: false, error: 'set the owner code first' });
+      }
+      const name = String(body.name || '').trim().slice(0, TDA_NAME_MAX);
+      if (!name) return res.status(400).json({ ok: false, error: 'seat needs a name' });
+      const newHash = String(body.newHash || '').toLowerCase();
+      if (!tdaIsHash(newHash)) return res.status(400).json({ ok: false, error: 'bad hash' });
+      if (tdaHashEq(newHash, stored.ownerHash) || tdaHashEq(newHash, TDA_BOOTSTRAP_HASH)) {
+        return res.status(200).json({ ok: false, error: 'that code is already in use' });
+      }
+      const clash = await upstashPipeline([['GET', 'tda:seatbycode:' + newHash]]);
+      if (clash[0] && clash[0].result) {
+        return res.status(200).json({ ok: false, error: 'that code is already in use' });
+      }
+      /* Starting balance = the pool share (25% of the monthly
+         pool, or the 100,000 default) — the owner adjusts the
+         balance afterwards with tdaSeatTokens. */
+      const settings = await tdaGetSettings();
+      const tokens = settings.seatShare;
+      const now = Date.now();
+      const id = 's' + now.toString(36) + crypto.randomBytes(4).toString('hex');
+      await upstashPipeline([
+        ['HSET', 'tda:seat:' + id, 'id', id, 'name', name, 'codehash', newHash, 'tokens', String(tokens), 'used', '0', 'reqs', '0', 'active', '1', 'created', String(now)],
+        ['LPUSH', 'tda:seats', id],
+        ['SET', 'tda:seatbycode:' + newHash, id],
+      ]);
+      const seat = tdaPublicSeat({ id, name, tokens: String(tokens), used: '0', reqs: '0', active: '1', created: String(now) });
+      return res.status(200).json({ ok: true, seat });
+    }
+
+    /* ONE PRESS: create the next seat with a server-generated
+       entry code. The plain code rides back in THIS response
+       only — afterwards only its hash exists anywhere. */
+    if (action === 'tdaSeatQuickCreate') {
+      const auth = await tdaAuthTier(req, res, tag, String(body.hash || '').toLowerCase(), 'owner');
+      if (!auth) return undefined;
+      const stored = await tdaStoredOwner();
+      if (!stored.ownerSet) {
+        return res.status(200).json({ ok: false, error: 'set the owner code first' });
+      }
+      const name = String(body.name || '').trim().slice(0, TDA_NAME_MAX);
+      const gen = await tdaFreshGenCode(stored.ownerHash);
+      if (!gen) return res.status(500).json({ ok: false, error: 'could not generate a code — try again' });
+      const settings = await tdaGetSettings();
+      const tokens = settings.seatShare;
+      const now = Date.now();
+      const id = 's' + now.toString(36) + crypto.randomBytes(4).toString('hex');
+      await upstashPipeline([
+        ['HSET', 'tda:seat:' + id, 'id', id, 'name', name, 'codehash', gen.hash, 'tokens', String(tokens), 'used', '0', 'reqs', '0', 'active', '1', 'created', String(now)],
+        ['LPUSH', 'tda:seats', id],
+        ['SET', 'tda:seatbycode:' + gen.hash, id],
+      ]);
+      const seat = tdaPublicSeat({ id, name, tokens: String(tokens), used: '0', reqs: '0', active: '1', created: String(now) });
+      return res.status(200).json({ ok: true, seat, code: gen.plain, shownOnce: true });
+    }
+
+    /* Owner settings: the monthly token pool. An empty value
+       clears the pool (back to the 100,000 default share). */
+    if (action === 'tdaSettingsSet') {
+      const auth = await tdaAuthTier(req, res, tag, String(body.hash || '').toLowerCase(), 'owner');
+      if (!auth) return undefined;
+      const raw = body.monthlyPool;
+      if (raw === '' || raw === null || raw === undefined) {
+        await upstashPipeline([['HSET', 'tda:settings', 'monthlyPool', '']]);
+      } else {
+        const pool = tdaParseTokens(raw, null);
+        if (pool === null) return res.status(400).json({ ok: false, error: 'bad pool amount' });
+        await upstashPipeline([['HSET', 'tda:settings', 'monthlyPool', String(pool)]]);
+      }
+      const settings = await tdaGetSettings();
+      return res.status(200).json({ ok: true, settings });
+    }
+
+    if (action === 'tdaSeatList') {
+      const auth = await tdaAuthTier(req, res, tag, String(body.hash || '').toLowerCase(), 'owner');
+      if (!auth) return undefined;
+      const settings = await tdaGetSettings();
+      const out = await upstashPipeline([['LRANGE', 'tda:seats', 0, -1]]);
+      const ids = (out[0] && out[0].result) || [];
+      if (!ids.length) return res.status(200).json({ ok: true, seats: [], settings });
+      const rows = await upstashPipeline(ids.map(id => ['HGETALL', 'tda:seat:' + id]));
+      const seats = rows.map(r => tdaPublicSeat(tdaHashToObj(r && r.result))).filter(s => s.id);
+      return res.status(200).json({ ok: true, seats, settings });
+    }
+
+    if (action === 'tdaSeatCode' || action === 'tdaSeatTokens' || action === 'tdaSeatRemove' || action === 'tdaSeatName') {
+      const auth = await tdaAuthTier(req, res, tag, String(body.hash || '').toLowerCase(), 'owner');
+      if (!auth) return undefined;
+      const seatId = String(body.seatId || '');
+      const seat = await tdaGetSeat(seatId);
+      if (!seat) return res.status(404).json({ ok: false, error: 'no such seat' });
+
+      if (action === 'tdaSeatRemove') {
+        /* Archive, never delete: the seat row and its thread stay
+           on record; the code stops resolving at once. */
+        await upstashPipeline([
+          ['HSET', 'tda:seat:' + seatId, 'active', '0'],
+          ['DEL', 'tda:seatbycode:' + String(seat.codehash || '')],
+        ]);
+        return res.status(200).json({ ok: true, seat: tdaPublicSeat({ ...seat, active: '0' }) });
+      }
+
+      if (action === 'tdaSeatName') {
+        const name = String(body.name || '').trim().slice(0, TDA_NAME_MAX);
+        if (!name) return res.status(400).json({ ok: false, error: 'seat needs a name' });
+        await upstashPipeline([['HSET', 'tda:seat:' + seatId, 'name', name]]);
+        return res.status(200).json({ ok: true, seat: tdaPublicSeat({ ...seat, name }) });
+      }
+
+      if (action === 'tdaSeatCode') {
+        /* generate: true — the server makes a fresh code and
+           returns the plain code ONCE, like quick-create. A
+           typed rotation (newHash) never returns a plain code. */
+        if (body.generate === true) {
+          const stored = await tdaStoredOwner();
+          const gen = await tdaFreshGenCode(stored.ownerHash);
+          if (!gen) return res.status(500).json({ ok: false, error: 'could not generate a code — try again' });
+          await upstashPipeline([
+            ['DEL', 'tda:seatbycode:' + String(seat.codehash || '')],
+            ['SET', 'tda:seatbycode:' + gen.hash, seatId],
+            ['HSET', 'tda:seat:' + seatId, 'codehash', gen.hash],
+          ]);
+          return res.status(200).json({ ok: true, seat: tdaPublicSeat(seat), code: gen.plain, shownOnce: true });
+        }
+        const newHash = String(body.newHash || '').toLowerCase();
+        if (!tdaIsHash(newHash)) return res.status(400).json({ ok: false, error: 'bad hash' });
+        const stored = await tdaStoredOwner();
+        if ((stored.ownerHash && tdaHashEq(newHash, stored.ownerHash)) || tdaHashEq(newHash, TDA_BOOTSTRAP_HASH)) {
+          return res.status(200).json({ ok: false, error: 'that code is already in use' });
+        }
+        const clash = await upstashPipeline([['GET', 'tda:seatbycode:' + newHash]]);
+        if (clash[0] && clash[0].result && clash[0].result !== seatId) {
+          return res.status(200).json({ ok: false, error: 'that code is already in use' });
+        }
+        await upstashPipeline([
+          ['DEL', 'tda:seatbycode:' + String(seat.codehash || '')],
+          ['SET', 'tda:seatbycode:' + newHash, seatId],
+          ['HSET', 'tda:seat:' + seatId, 'codehash', newHash],
+        ]);
+        return res.status(200).json({ ok: true, seat: tdaPublicSeat(seat) });
+      }
+
+      /* tdaSeatTokens: mode 'set' (exact balance) or 'add'
+         (top-up / adjust by a signed amount). Result clamps at 0. */
+      const mode = body.mode === 'add' ? 'add' : 'set';
+      const amount = tdaParseTokens(body.amount, null);
+      if (amount === null && mode === 'set') return res.status(400).json({ ok: false, error: 'bad token amount' });
+      if (mode === 'add') {
+        const delta = Number(body.amount);
+        if (!Number.isFinite(delta) || Math.floor(delta) !== delta || Math.abs(delta) > TDA_TOKENS_MAX) {
+          return res.status(400).json({ ok: false, error: 'bad token amount' });
+        }
+        const out = await upstashPipeline([['HINCRBY', 'tda:seat:' + seatId, 'tokens', delta]]);
+        let bal = (out[0] && out[0].result) || 0;
+        if (bal < 0) { await upstashPipeline([['HSET', 'tda:seat:' + seatId, 'tokens', '0']]); bal = 0; }
+        return res.status(200).json({ ok: true, seat: tdaPublicSeat({ ...seat, tokens: String(bal) }) });
+      }
+      await upstashPipeline([['HSET', 'tda:seat:' + seatId, 'tokens', String(amount)]]);
+      return res.status(200).json({ ok: true, seat: tdaPublicSeat({ ...seat, tokens: String(amount) }) });
     }
 
     if (action === 'tdaNew') {
-      const ok = await tdaAuth(req, res, tag, String(body.hash || '').toLowerCase());
-      if (!ok) return undefined;
+      const auth = await tdaAuthTier(req, res, tag, String(body.hash || '').toLowerCase(), 'any');
+      if (!auth) return undefined;
       const text = String(body.text || '').trim().slice(0, TDA_TEXT_MAX);
       if (!text) return res.status(400).json({ ok: false, error: 'empty message' });
+      let seatId = 'owner';
+      if (auth.tier === 'seat') {
+        const bal = parseInt(auth.seat.tokens, 10) || 0;
+        if (bal <= 0) {
+          return res.status(200).json({ ok: false, noTokens: true, error: 'out of tokens — ask Tom to top up' });
+        }
+        seatId = String(auth.seat.id);
+      } else if (body.seatId) {
+        /* The owner may post into a seat's thread (or leave the
+           seat off for the owner's own thread). */
+        const target = await tdaGetSeat(String(body.seatId));
+        if (target) seatId = String(target.id);
+      }
       const now = Date.now();
       const id = 'r' + now.toString(36) + crypto.randomBytes(4).toString('hex');
-      await upstashPipeline([
-        ['HSET', 'tda:req:' + id, 'id', id, 'text', text, 'status', 'received', 'result', '', 'created', String(now), 'updated', String(now)],
+      const cmds = [
+        ['HSET', 'tda:req:' + id, 'id', id, 'seatId', seatId, 'text', text, 'status', 'received', 'result', '', 'tokensUsed', '0', 'created', String(now), 'updated', String(now)],
         ['LPUSH', 'tda:reqs', id],
         ['LTRIM', 'tda:reqs', 0, 199],
-      ]);
+      ];
+      if (auth.tier === 'seat') cmds.push(['HINCRBY', 'tda:seat:' + seatId, 'reqs', 1]);
+      await upstashPipeline(cmds);
       return res.status(200).json({ ok: true, id });
     }
 
     if (action === 'tdaList') {
-      const ok = await tdaAuth(req, res, tag, String(body.hash || '').toLowerCase());
-      if (!ok) return undefined;
-      const idsOut = await upstashPipeline([['LRANGE', 'tda:reqs', 0, TDA_LIST_CAP - 1]]);
+      const auth = await tdaAuthTier(req, res, tag, String(body.hash || '').toLowerCase(), 'any');
+      if (!auth) return undefined;
+      const idsOut = await upstashPipeline([['LRANGE', 'tda:reqs', 0, 199]]);
       const ids = (idsOut[0] && idsOut[0].result) || [];
-      if (!ids.length) return res.status(200).json({ ok: true, reqs: [] });
+      if (!ids.length) {
+        const base = { ok: true, reqs: [] };
+        if (auth.tier === 'seat') { const s = tdaPublicSeat(auth.seat); base.seat = { id: s.id, name: s.name, tokens: s.tokens, used: s.used }; }
+        return res.status(200).json(base);
+      }
       const rows = await upstashPipeline(ids.map(id => ['HGETALL', 'tda:req:' + id]));
-      const reqs = rows.map(r => tdaPublicReq(tdaHashToObj(r && r.result))).filter(r => r.id);
-      return res.status(200).json({ ok: true, reqs });
+      let objs = rows.map(r => tdaHashToObj(r && r.result)).filter(o => o.id);
+      /* Seat isolation: a seat's list is filtered to its own rows
+         server-side — other seats' rows never leave this function. */
+      if (auth.tier === 'seat') objs = objs.filter(o => String(o.seatId || '') === String(auth.seat.id));
+      objs = objs.slice(0, TDA_LIST_CAP);
+      /* Resolve seat names for owner labels (few seats; archived
+         seats keep their names so old threads stay attributed). */
+      const seatIds = [...new Set(objs.map(o => String(o.seatId || 'owner')))];
+      const names = {};
+      for (const sid of seatIds) {
+        if (sid === 'owner') { names[sid] = 'Owner'; continue; }
+        const s = await tdaGetSeat(sid);
+        names[sid] = s ? String(s.name || '') : '';
+      }
+      const reqs = objs.map(o => tdaPublicReq(o, names[String(o.seatId || 'owner')]));
+      const out = { ok: true, reqs };
+      if (auth.tier === 'seat') { const s = tdaPublicSeat(auth.seat); out.seat = { id: s.id, name: s.name, tokens: s.tokens, used: s.used }; }
+      return res.status(200).json(out);
     }
 
     if (action === 'tdaStatus' || action === 'tdaDone') {
-      const ok = await tdaAuth(req, res, tag, String(body.hash || '').toLowerCase());
-      if (!ok) return undefined;
+      const auth = await tdaAuthTier(req, res, tag, String(body.hash || '').toLowerCase(), 'owner');
+      if (!auth) return undefined;
       const id = String(body.id || '');
       if (!/^r[a-z0-9]{6,24}$/.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
       const cur = await upstashPipeline([['HGETALL', 'tda:req:' + id]]);
@@ -2567,8 +2951,29 @@ export async function tdaHandler(req, res) {
       }
       const result = String(body.result || '').trim().slice(0, TDA_RESULT_MAX);
       if (!result) return res.status(400).json({ ok: false, error: 'empty reply' });
-      await upstashPipeline([['HSET', 'tda:req:' + id, 'status', 'done', 'result', result, 'updated', now]]);
-      return res.status(200).json({ ok: true, id, status: 'done' });
+      const used = tdaParseTokens(body.tokens, 0);
+      if (used === null) return res.status(400).json({ ok: false, error: 'bad token amount' });
+      await upstashPipeline([['HSET', 'tda:req:' + id, 'status', 'done', 'result', result, 'tokensUsed', String(used), 'updated', now]]);
+      /* Record the usage against the seat's balance — the only
+         place tokens move, owner-side, clamped at 0. HINCRBY is
+         atomic; the clamp fixes the floor right after. */
+      let tokensLeft = null;
+      const seatId = String(existing.seatId || 'owner');
+      if (used > 0 && seatId !== 'owner') {
+        const seat = await tdaGetSeat(seatId);
+        if (seat) {
+          /* Balance down and lifetime `used` up by the SAME
+             amount, in one pipeline — one source of truth, and
+             `used` can never go negative. */
+          const out = await upstashPipeline([
+            ['HINCRBY', 'tda:seat:' + seatId, 'tokens', -used],
+            ['HINCRBY', 'tda:seat:' + seatId, 'used', used],
+          ]);
+          tokensLeft = (out[0] && out[0].result) || 0;
+          if (tokensLeft < 0) { await upstashPipeline([['HSET', 'tda:seat:' + seatId, 'tokens', '0']]); tokensLeft = 0; }
+        }
+      }
+      return res.status(200).json({ ok: true, id, status: 'done', tokensLeft });
     }
 
     return res.status(400).json({ ok: false, error: 'unknown action' });
