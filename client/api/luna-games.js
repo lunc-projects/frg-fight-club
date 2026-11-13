@@ -2397,7 +2397,7 @@ export async function kavaCodeHandler(req, res) {
    SET before any seat can be created (the bootstrap seat alone
    cannot create seats).
    Bootstrap: while NO owner code is stored, TDA_BOOTSTRAP_HASH
-   below — the SHA-256 of the starter code TOMSDEV-START — counts
+   below — the SHA-256 of the starter code — counts
    as the owner seat, so the owner can open the page and set the
    real owner code. The moment an owner code is set, the bootstrap
    is dead everywhere. Migration: the v1 single code lived in
@@ -2435,6 +2435,7 @@ const TDA_MAX_FAILS = 8;
 const TDA_FAIL_WINDOW_SEC = 15 * 60;
 const TDA_LOCKOUT_SEC = 15 * 60;
 const TDA_LIST_CAP = 50;
+const TDA_SEAT_OPEN_CAP = 25;
 const TDA_TEXT_MAX = 2000;
 const TDA_RESULT_MAX = 4000;
 const TDA_NAME_MAX = 40;
@@ -2448,8 +2449,13 @@ function tdaHashEq(a, b) {
 }
 
 function tdaIpTag(req) {
+  /* The lockout key must not be spoofable: the FIRST
+     x-forwarded-for entry is whatever the client claims, so we
+     key on the LAST entry — the one the platform edge appended
+     for the actual connection — falling back to the socket. */
   const xff = String((req.headers && req.headers['x-forwarded-for']) || '');
-  const ip = xff.split(',')[0].trim() || (req.socket && req.socket.remoteAddress) || 'unknown';
+  const parts = xff.split(',').map(s => s.trim()).filter(Boolean);
+  const ip = parts[parts.length - 1] || (req.socket && req.socket.remoteAddress) || 'unknown';
   return crypto.createHash('sha256').update(ip).digest('hex').slice(0, 16);
 }
 
@@ -2563,6 +2569,18 @@ async function tdaResolveSeat(hash) {
   return o;
 }
 
+/* Atomically claim a code hash for a seat (SET NX): true when
+   the mapping now points at seatId (fresh claim or already
+   ours), false when another seat holds it. Closes the
+   check-then-write gap where two creates with the same code
+   could both pass the clash check. */
+async function tdaClaimCode(hash, seatId) {
+  const out = await upstashPipeline([['SET', 'tda:seatbycode:' + hash, seatId, 'NX']]);
+  if (out[0] && out[0].result) return true;
+  const cur = await upstashPipeline([['GET', 'tda:seatbycode:' + hash]]);
+  return !!(cur[0] && cur[0].result === seatId);
+}
+
 async function tdaAnyActiveSeat() {
   const out = await upstashPipeline([['LRANGE', 'tda:seats', 0, -1]]);
   const ids = (out[0] && out[0].result) || [];
@@ -2624,7 +2642,13 @@ async function tdaAuthTier(req, res, tag, hash, need) {
       res.status(200).json({ ok: false, ownerRequired: true, error: 'owner code required' });
       return null;
     }
-    await tdaClearFails(tag);
+    /* A seat success does NOT clear the fail counter: if it
+       did, a seat holder could interleave one valid call every
+       few guesses and brute-force the owner code forever
+       without ever tripping the lockout. Only the owner's own
+       success clears it. A seat's valid calls still WORK while
+       its counter is below the lock threshold — the counter
+       only bites when it trips. */
     return { tier: 'seat', seat };
   }
   const tripped = await tdaRecordFail(tag);
@@ -2701,6 +2725,17 @@ export async function tdaHandler(req, res) {
       if (!tdaIsHash(newHash)) return res.status(400).json({ ok: false, error: 'bad hash' });
       const auth = await tdaAuthTier(req, res, tag, currentHash, 'owner');
       if (!auth) return undefined;
+      /* Collision guard (same as every seat-code path): the
+         owner code must never BE a seat's code — that would
+         silently promote the seat to owner — and never the
+         bootstrap hash, which is a publicly known starter. */
+      if (tdaHashEq(newHash, TDA_BOOTSTRAP_HASH)) {
+        return res.status(200).json({ ok: false, error: 'that code is already in use' });
+      }
+      const clash = await upstashPipeline([['GET', 'tda:seatbycode:' + newHash]]);
+      if (clash[0] && clash[0].result) {
+        return res.status(200).json({ ok: false, error: 'that code is already in use' });
+      }
       await upstashPipeline([['SET', TDA_OWNER_KEY, newHash], ['DEL', TDA_LEGACY_KEY]]);
       return res.status(200).json({ ok: true, set: true, ownerSet: true });
     }
@@ -2730,10 +2765,12 @@ export async function tdaHandler(req, res) {
       const tokens = settings.seatShare;
       const now = Date.now();
       const id = 's' + now.toString(36) + crypto.randomBytes(4).toString('hex');
+      if (!(await tdaClaimCode(newHash, id))) {
+        return res.status(200).json({ ok: false, error: 'that code is already in use' });
+      }
       await upstashPipeline([
         ['HSET', 'tda:seat:' + id, 'id', id, 'name', name, 'codehash', newHash, 'tokens', String(tokens), 'used', '0', 'reqs', '0', 'active', '1', 'created', String(now)],
         ['LPUSH', 'tda:seats', id],
-        ['SET', 'tda:seatbycode:' + newHash, id],
       ]);
       const seat = tdaPublicSeat({ id, name, tokens: String(tokens), used: '0', reqs: '0', active: '1', created: String(now) });
       return res.status(200).json({ ok: true, seat });
@@ -2756,10 +2793,12 @@ export async function tdaHandler(req, res) {
       const tokens = settings.seatShare;
       const now = Date.now();
       const id = 's' + now.toString(36) + crypto.randomBytes(4).toString('hex');
+      if (!(await tdaClaimCode(gen.hash, id))) {
+        return res.status(500).json({ ok: false, error: 'could not generate a code — try again' });
+      }
       await upstashPipeline([
         ['HSET', 'tda:seat:' + id, 'id', id, 'name', name, 'codehash', gen.hash, 'tokens', String(tokens), 'used', '0', 'reqs', '0', 'active', '1', 'created', String(now)],
         ['LPUSH', 'tda:seats', id],
-        ['SET', 'tda:seatbycode:' + gen.hash, id],
       ]);
       const seat = tdaPublicSeat({ id, name, tokens: String(tokens), used: '0', reqs: '0', active: '1', created: String(now) });
       return res.status(200).json({ ok: true, seat, code: gen.plain, shownOnce: true });
@@ -2826,9 +2865,11 @@ export async function tdaHandler(req, res) {
           const stored = await tdaStoredOwner();
           const gen = await tdaFreshGenCode(stored.ownerHash);
           if (!gen) return res.status(500).json({ ok: false, error: 'could not generate a code — try again' });
+          if (!(await tdaClaimCode(gen.hash, seatId))) {
+            return res.status(500).json({ ok: false, error: 'could not generate a code — try again' });
+          }
           await upstashPipeline([
             ['DEL', 'tda:seatbycode:' + String(seat.codehash || '')],
-            ['SET', 'tda:seatbycode:' + gen.hash, seatId],
             ['HSET', 'tda:seat:' + seatId, 'codehash', gen.hash],
           ]);
           return res.status(200).json({ ok: true, seat: tdaPublicSeat(seat), code: gen.plain, shownOnce: true });
@@ -2843,9 +2884,11 @@ export async function tdaHandler(req, res) {
         if (clash[0] && clash[0].result && clash[0].result !== seatId) {
           return res.status(200).json({ ok: false, error: 'that code is already in use' });
         }
+        if (!(await tdaClaimCode(newHash, seatId))) {
+          return res.status(200).json({ ok: false, error: 'that code is already in use' });
+        }
         await upstashPipeline([
           ['DEL', 'tda:seatbycode:' + String(seat.codehash || '')],
-          ['SET', 'tda:seatbycode:' + newHash, seatId],
           ['HSET', 'tda:seat:' + seatId, 'codehash', newHash],
         ]);
         return res.status(200).json({ ok: true, seat: tdaPublicSeat(seat) });
@@ -2882,6 +2925,24 @@ export async function tdaHandler(req, res) {
           return res.status(200).json({ ok: false, noTokens: true, error: 'out of tokens — ask Tom to top up' });
         }
         seatId = String(auth.seat.id);
+        /* Flood rail: the queue is one shared list, trimmed to
+           the newest 200 — a seat that could post without limit
+           could push everyone else's rows out of it. A seat may
+           hold at most TDA_SEAT_OPEN_CAP unfinished requests;
+           finishing jobs (owner-side) frees slots again. */
+        const idsOut = await upstashPipeline([['LRANGE', 'tda:reqs', 0, 199]]);
+        const ids = (idsOut[0] && idsOut[0].result) || [];
+        if (ids.length) {
+          const rows = await upstashPipeline(ids.map(x => ['HGETALL', 'tda:req:' + x]));
+          let open = 0;
+          for (const rw of rows) {
+            const o = tdaHashToObj(rw && rw.result);
+            if (o.id && String(o.seatId || '') === seatId && o.status !== 'done') open++;
+          }
+          if (open >= TDA_SEAT_OPEN_CAP) {
+            return res.status(200).json({ ok: false, error: 'too many open requests — Tom is working through them; post again once some are done' });
+          }
+        }
       } else if (body.seatId) {
         /* The owner may post into a seat's thread (or leave the
            seat off for the owner's own thread). */
@@ -2954,24 +3015,34 @@ export async function tdaHandler(req, res) {
       const used = tdaParseTokens(body.tokens, 0);
       if (used === null) return res.status(400).json({ ok: false, error: 'bad token amount' });
       await upstashPipeline([['HSET', 'tda:req:' + id, 'status', 'done', 'result', result, 'tokensUsed', String(used), 'updated', now]]);
-      /* Record the usage against the seat's balance — the only
-         place tokens move, owner-side, clamped at 0. HINCRBY is
-         atomic; the clamp fixes the floor right after. */
+      /* Charge the seat for this completion — IDEMPOTENTLY.
+         The amount that moves is the DELTA between the new
+         figure and what this row already charged, so pressing
+         Done twice (double-tap, client retry) charges once, and
+         editing a done row's figure settles the difference
+         either way. A positive delta deducts at most the actual
+         balance (the lifetime `used` counter rises by what was
+         REALLY deducted, never more); a negative delta refunds
+         at most what the seat has ever used, so `used` can
+         never go negative either. Values are computed from the
+         seat row and written back in one pipeline. */
       let tokensLeft = null;
       const seatId = String(existing.seatId || 'owner');
-      if (used > 0 && seatId !== 'owner') {
+      const delta = used - (parseInt(existing.tokensUsed, 10) || 0);
+      if (delta !== 0 && seatId !== 'owner') {
         const seat = await tdaGetSeat(seatId);
         if (seat) {
-          /* Balance down and lifetime `used` up by the SAME
-             amount, in one pipeline — one source of truth, and
-             `used` can never go negative. */
-          const out = await upstashPipeline([
-            ['HINCRBY', 'tda:seat:' + seatId, 'tokens', -used],
-            ['HINCRBY', 'tda:seat:' + seatId, 'used', used],
-          ]);
-          tokensLeft = (out[0] && out[0].result) || 0;
-          if (tokensLeft < 0) { await upstashPipeline([['HSET', 'tda:seat:' + seatId, 'tokens', '0']]); tokensLeft = 0; }
+          const bal = Math.max(0, parseInt(seat.tokens, 10) || 0);
+          const usedBefore = Math.max(0, parseInt(seat.used, 10) || 0);
+          let newBal = bal, applied = 0;
+          if (delta > 0) { applied = Math.min(delta, bal); newBal = bal - applied; }
+          else { applied = -Math.min(-delta, usedBefore); newBal = bal - applied; }
+          await upstashPipeline([['HSET', 'tda:seat:' + seatId, 'tokens', String(newBal), 'used', String(usedBefore + applied)]]);
+          tokensLeft = newBal;
         }
+      } else if (seatId !== 'owner') {
+        const seat = await tdaGetSeat(seatId);
+        if (seat) tokensLeft = Math.max(0, parseInt(seat.tokens, 10) || 0);
       }
       return res.status(200).json({ ok: true, id, status: 'done', tokensLeft });
     }
