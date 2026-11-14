@@ -2899,7 +2899,8 @@ function tdaPublicReq(o, seatName) {
     seatId: String(o.seatId || 'owner'),
     seatName: seatName || '',
     text: String(o.text || ''),
-    status: ['received', 'building', 'done'].includes(o.status) ? o.status : 'received',
+    status: ['received', 'building', 'done', 'closed'].includes(o.status) ? o.status : 'received',
+    closedBy: String(o.closedBy || ''),
     result: String(o.result || ''),
     tokensUsed: Math.max(0, parseInt(o.tokensUsed, 10) || 0),
     created: Number(o.created) || 0,
@@ -3196,7 +3197,9 @@ export async function tdaHandler(req, res) {
           let open = 0;
           for (const rw of rows) {
             const o = tdaHashToObj(rw && rw.result);
-            if (o.id && String(o.seatId || '') === seatId && o.status !== 'done') open++;
+            /* Open = still in play. Done and seat-finished
+               (closed) projects no longer hold a slot. */
+            if (o.id && String(o.seatId || '') === seatId && o.status !== 'done' && o.status !== 'closed') open++;
           }
           if (open >= TDA_SEAT_OPEN_CAP) {
             return res.status(200).json({ ok: false, error: 'too many open requests — Tom is working through them; post again once some are done' });
@@ -3304,6 +3307,39 @@ export async function tdaHandler(req, res) {
         if (seat) tokensLeft = Math.max(0, parseInt(seat.tokens, 10) || 0);
       }
       return res.status(200).json({ ok: true, id, status: 'done', tokensLeft });
+    }
+
+    if (action === 'tdaClose' || action === 'tdaDelete') {
+      const auth = await tdaAuthTier(req, res, tag, String(body.hash || '').toLowerCase(), 'any');
+      if (!auth) return undefined;
+      const id = String(body.id || '');
+      if (!/^r[a-z0-9]{6,24}$/.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const cur = await upstashPipeline([['HGETALL', 'tda:req:' + id]]);
+      const existing = tdaHashToObj(cur[0] && cur[0].result);
+      if (!existing.id) return res.status(404).json({ ok: false, error: 'no such request' });
+      /* A seat touches only its OWN projects; the owner any. */
+      if (auth.tier === 'seat' && String(existing.seatId || '') !== String(auth.seat.id)) {
+        return res.status(200).json({ ok: false, error: 'not your project' });
+      }
+      if (action === 'tdaClose') {
+        /* Finish (Projects board): a STATUS only. Token charging
+           stays exactly as today — owner-side at delivery
+           (tdaDone) — closing never charges or refunds. closedBy
+           records who closed it so the owner's views can show
+           "closed by user". A closed project leaves the active
+           list and frees its open-cap slot (see tdaNew). */
+        if (existing.status !== 'closed') {
+          await upstashPipeline([['HSET', 'tda:req:' + id, 'status', 'closed', 'closedBy', auth.tier, 'updated', String(Date.now())]]);
+        }
+        return res.status(200).json({ ok: true, id, status: 'closed' });
+      }
+      /* tdaDelete: the record is REMOVED — the row hash is
+         deleted and the id pulled from the shared list, so the
+         storage/queue space is actually freed ("cuts back on
+         memory"). No soft-delete, no recycle bin. Deleting also
+         frees the seat's open-cap slot. */
+      await upstashPipeline([['DEL', 'tda:req:' + id], ['LREM', 'tda:reqs', 0, id]]);
+      return res.status(200).json({ ok: true, id, deleted: true });
     }
 
     /* ---- Seat refills ($5 in LUNC, wallet-connect one-button) ---- */
