@@ -837,7 +837,9 @@ const SPAWN_TABLE=[
      ahead — materialisation distance is √(dx² + ~15²) ≥ 14 m for any player
      x. The old table fired 2.5–12 m ahead, and one entry (3.2,-24.5, trigger
      -26) materialised 3.5 m BEHIND the player. A distance guard in the spawn
-     loop (below) enforces ≥14 m even if a trigger is crossed in a big step. */
+     loop (below) enforces ≥14 m even if a trigger is crossed in a big step,
+     and the frontal-spawn rule (spawnFacingOK, below) enforces the ±80°
+     frontal arc at the materialisation moment — no pop-ups behind, ever. */
   ['zed',null,0,-4.2,19],['zed',null,1,4.6,18.6],
   ['zed',30.5,2,-4.6,15.5],['zed',25.5,3,5,10.5],['zed',23,0,0,8],
   ['zed',12,1,-8.6,-3],['zed',6,2,8.6,-9],['zed',1,3,-8.6,-14],['zed',-2,1,8.6,-17],
@@ -890,6 +892,21 @@ function logSpawn(e){
   spawnLog.push({kind:e.kind,x:e.x,z:e.z,px:Math.round(player.pos.x*10)/10,
     pz:Math.round(player.pos.z*10)/10,dist:Math.round(d*100)/100,
     bearing:Math.round(bearing*100)/100});
+}
+/* FRONTAL-SPAWN RULE (owner, Nov 13: "Only have zombies pop up in front of
+   you not behind you"): a spawn may materialise ONLY inside the player's
+   frontal arc — within ±80° of the current look direction (horizontal) —
+   and never inside the 14 m bubble. A post that fails either test simply
+   has not spawned yet: it waits (unarmed enemies stay pending) until the
+   player faces its way at range. The arc is never relaxed to force a
+   placement. Movement after materialisation is untouched — this gates
+   the pop-up moment only. */
+const SPAWN_ARC_COS=Math.cos(80*Math.PI/180); /* ≈0.17365 */
+function spawnFacingOK(x,z){
+  const dx=x-player.pos.x, dz=z-player.pos.z, d=Math.hypot(dx,dz);
+  if(d<14) return false;
+  const fx=-Math.sin(G.yaw), fz=-Math.cos(G.yaw);
+  return (dx*fx+dz*fz)/d>=SPAWN_ARC_COS;
 }
 function tableSpawn(sp){
   const e=spawnEnemy(sp[0],sp[2],sp[3],sp[4]);
@@ -1472,15 +1489,17 @@ function updatePlayer(dt){
   if(bombQueued){ bombQueued=false; throwBomb(); }
   if(G.reload>0){ G.reload-=dt; if(G.reload<=0){ G.ammo=226; updateHUD(); } }
   /* spawns by progress — a crossed trigger only ARMS its enemy; the enemy
-     materialises (tableSpawn) the first frame it sits ≥14 m from the player.
-     The trigger lines already sit 15 m before each post, so this is normally
-     the same frame; the queue is the guarantee for big movement steps: ZERO
-     spawns inside the 14 m bubble, in any direction — the rear pocket
-     included, because the check is a plain distance. */
+     materialises (tableSpawn) the first frame its post passes the frontal
+     test (spawnFacingOK): ≥14 m away AND inside the ±80° frontal arc of
+     the player's current look. The trigger lines already sit 15 m before
+     each post, so facing the way you're walking this is normally the same
+     frame; the queue is the guarantee for big movement steps and for
+     turns: ZERO spawns inside the 14 m bubble and ZERO pop-ups behind
+     the player — a post behind your back waits until you face it. */
   SPAWN_TABLE.forEach((sp,i)=>{ if(sp[1]===null||spawned[i]) return;
     if(player.pos.z<sp[1]){ spawned[i]=true; pendingSpawns.push(i); } });
   for(let k=pendingSpawns.length-1;k>=0;k--){ const sp=SPAWN_TABLE[pendingSpawns[k]];
-    if(Math.hypot(player.pos.x-sp[3],player.pos.z-sp[4])>=14){
+    if(spawnFacingOK(sp[3],sp[4])){
       pendingSpawns.splice(k,1); tableSpawn(sp); } }
   manageActivations();
   /* orb */
@@ -1610,17 +1629,21 @@ function resetGame(){
   for(const e of enemies){ scene.remove(e.g); }
   enemies.length=0; spawned=SPAWN_TABLE.map(()=>false);
   pendingSpawns.length=0; spawnLog.length=0;
-  /* pre-placed posts: in the world from the first frame, in plain sight down
-     the hall (14.6 m / 15.1 m from the start point) — no materialisation.
-     Their tighter activation radius keeps them posted until the player
-     actually advances on them. */
-  SPAWN_TABLE.forEach((sp,i)=>{ if(sp[1]===null){ spawned[i]=true;
-    tableSpawn(sp).actR=12.5; } });
   for(const s of shots){ s.active=false; s.grp.visible=false; }
   Object.assign(G,{hp:G.maxHp,ammo:226,bombs:14,frg:5.2,lunc:518,kills:0,time:0,pitch:0,yaw:0,
     reload:0,orbTaken:false,vy:0,screen:'play',hurtT:0});
   qYaw=qPitch=vYaw=vPitch=0; followAnchor=followAnchorTgt=null; followVel=0; followBlocked=false;
   player.pos.set(0,0,33); player.vel.set(0,0,0);
+  /* pre-placed posts: placed only AFTER the pose reset above, so they are
+     judged — like every spawn — against the state the player actually
+     sees: in plain sight down the hall (14.6 m / 15.1 m from the start
+     point, ≈17° off the start facing — well inside the frontal arc).
+     Their tighter activation radius keeps them posted until the player
+     actually advances on them. If one ever failed the frontal test it
+     would wait in the pending queue instead of popping up behind. */
+  SPAWN_TABLE.forEach((sp,i)=>{ if(sp[1]===null){ spawned[i]=true;
+    if(spawnFacingOK(sp[3],sp[4])) tableSpawn(sp).actR=12.5;
+    else pendingSpawns.push(i); } });
   raft.position.z=RAFT.z0; RAFT.wait=0; RAFT.state='atStart';
   orbShield.visible=true; orbLight.intensity=2.2;
   updateHUD(); objMsg('☠ Kill all '+G.total+' — then take the ORB 🔮');
