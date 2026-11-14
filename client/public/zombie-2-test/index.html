@@ -1948,7 +1948,7 @@ function dismissKeyboard(){ if(document.activeElement===pasteInput)pasteInput.bl
    the browser chrome shrinks the stage, the box grew past its slot and
    covered the LOOK UP button. In portrait it also had width/height swapped,
    squeezing the field into a 36-unit stub.) */
-const ADDR_SLOT={x:468,y:102,w:410,h:34};
+const ADDR_SLOT={x:468,y:82,w:410,h:34};
 function layoutPasteBox(){
   const r=cv.getBoundingClientRect(), wr=document.getElementById('wrap').getBoundingClientRect();
   let ts; /* stage scale along the slot's thickness — sizes the ✕ target */
@@ -2543,6 +2543,32 @@ function drawBrief(t){
   g.fillStyle='#ff5340'; g.beginPath(); g.arc(0,0,4.6,0,7); g.fill(); g.restore();
   g.strokeStyle='rgba(232,255,249,.8)'; g.lineWidth=2; g.beginPath(); g.arc(-190,-58,11,0,7); g.stroke();
   g.restore();
+  /* brief layout pre-pass — the MY FIGHTER panel is sized to its content
+     and the bottom-centre level-name card is placed BELOW it, so the two
+     can never overlap (Tom's Nov 13 phone report: the grown panel covered
+     the card). Wrap counts are measured with the same fonts the draw code
+     uses; the tab auto-switch runs here so the layout matches the tab
+     that is about to be drawn. */
+  if(nftStatus!==lastNftStatus){ if(nftStatus==='checking'||nftStatus==='found')briefTab='nft'; lastNftStatus=nftStatus; }
+  const px=452, pw=442;
+  let playNote='';
+  if(fighter){
+    playNote=fighter.powerNote;
+    if(nftList.length>1)playNote+='  ·  '+TF('bonusPower',{n:Math.min(3,nftList.length-1)});
+    if(fighterImgFailed())playNote+='  ·  NFT image failed to load — color fighter shown in level';
+    else if(fighter.cutFail)playNote+='  ·  Cut-out unavailable for this art — framed fighter shown in level';
+  }
+  let playFy=308;
+  if(briefTab==='nft'&&nftStatus==='found'){
+    g.font='600 10px Arial';
+    const ownedEnd=301+(wrapLines(T('ownedOnly'),pw-32)-1)*10.5+3;
+    playFy=Math.max(308,Math.ceil(ownedEnd+6));
+  }
+  let playFh=30;
+  if(fighter){ g.font='600 10px Arial'; playFh=Math.ceil(33+(wrapLines(playNote,pw-48)-1)*10.5); }
+  const panelBottom=Math.max(346,playFy+playFh+8);
+  const cardY=Math.max(356,panelBottom+6), cardH=Math.min(48,H-6-cardY), cardFs=cardH>=44?19:(cardH>=36?17:15);
+  window.__z2L={mission:[22,26,404,200],fighter:[px,10,pw,panelBottom-10],card:[W/2-168,cardY,336,cardH]};
   /* left panel — mission */
   g.fillStyle='rgba(6,22,22,.9)'; roundRect(22,26,404,200,8); g.fill();
   g.strokeStyle='rgba(64,200,190,.75)'; g.lineWidth=1.6; roundRect(22,26,404,200,8); g.stroke();
@@ -2561,28 +2587,29 @@ function drawBrief(t){
   drawBtn(198,186,218,30,T('play3d'),{fs:13,fill:'rgba(30,16,52,.95)',stroke:'#b78bff',col:'#e9dcff'});
   regBtn('play3d',198,186,218,30,()=>{ location.href='https://frg-fight-club.vercel.app/zombie-3d-test/'; });
   g.save(); g.textAlign='center';
-  g.fillStyle='rgba(6,22,22,.9)'; roundRect(W/2-168,H-60,336,52,8); g.fill();
-  g.strokeStyle='rgba(64,200,190,.75)'; g.lineWidth=1.6; roundRect(W/2-168,H-60,336,52,8); g.stroke();
-  g.fillStyle='#f2fbf8'; g.font='700 20px Arial'; g.fillText(LV.n===1?T('brief'):LV.name,W/2,H-28);
+  g.fillStyle='rgba(6,22,22,.9)'; roundRect(W/2-168,cardY,336,cardH,8); g.fill();
+  g.strokeStyle='rgba(64,200,190,.75)'; g.lineWidth=1.6; roundRect(W/2-168,cardY,336,cardH,8); g.stroke();
+  g.fillStyle='#f2fbf8'; g.font='700 '+cardFs+'px Arial'; g.fillText(LV.n===1?T('brief'):LV.name,W/2,cardY+cardH/2+cardFs*.36);
   g.restore();
-  /* right panel — MY FIGHTER. Vertical budget (panel 26..350; nothing may
-     overlap — Tom's Nov 10 report): title 52 · blurb 68/81 · address field
-     slot 102..136 (DOM, see ADDR_SLOT) · buttons 144..174 · status from 190 ·
-     fighter cards 200..272 · small print 284/296 · fighter box 302..346. */
-  const px=452, pw=442;
-  g.fillStyle='rgba(8,16,12,.94)'; roundRect(px,18,pw,368,10); g.fill();
-  g.strokeStyle='#f5c542'; g.lineWidth=1.8; roundRect(px,18,pw,368,10); g.stroke();
+  /* right panel — MY FIGHTER (px/pw + panelBottom from the pre-pass).
+     Vertical budget: panel 10..panelBottom (346 in the common states) ·
+     title 40 · blurb 53/65 · address field slot 82..116 (DOM, see
+     ADDR_SLOT) · buttons 122..152 · dash 158..188 · tabs 194..218 ·
+     status from 228 · free cards 236..304 · fighter box at playFy.
+     The level-name card sits below panelBottom — no overlaps. */
+  g.fillStyle='rgba(8,16,12,.94)'; roundRect(px,10,pw,panelBottom-10,10); g.fill();
+  g.strokeStyle='#f5c542'; g.lineWidth=1.8; roundRect(px,10,pw,panelBottom-10,10); g.stroke();
   g.fillStyle='#ffd968'; g.font='900 16px Arial'; g.textAlign='center';
-  g.fillText('🎖 '+T('myFighter'),px+pw/2,52); g.textAlign='left';
+  g.fillText('🎖 '+T('myFighter'),px+pw/2,40); g.textAlign='left';
   g.fillStyle='rgba(230,245,240,.85)'; g.font='600 11px Arial';
-  wrapText(T('nftBlurb'),px+16,68,pw-32,13);
+  wrapText(T('nftBlurb'),px+16,53,pw-32,12);
   /* paste box is DOM (positioned in layoutPasteBox into ADDR_SLOT: y 102..136) */
-  drawBtn(px+16,144,120,30,T('lookup'),{fs:12.5,fill:'rgba(10,40,40,.95)',stroke:'rgba(64,200,190,.9)',col:'#dff7f1'});
-  regBtn('lookup',px+16,144,120,30,()=>{const v=pasteInput.value.trim(); if(v)lookupNFT(v);});
+  drawBtn(px+16,122,120,30,T('lookup'),{fs:12.5,fill:'rgba(10,40,40,.95)',stroke:'rgba(64,200,190,.9)',col:'#dff7f1'});
+  regBtn('lookup',px+16,122,120,30,()=>{const v=pasteInput.value.trim(); if(v)lookupNFT(v);});
   const hasKeplr=typeof window!=='undefined'&&!!window.keplr;
   if(hasKeplr){
-    drawBtn(px+148,144,128,30,T('connect'),{fs:11.5,fill:'rgba(40,34,8,.95)',col:'#ffd94d'});
-    regBtn('keplr',px+148,144,128,30,async()=>{ try{ await window.keplr.enable('columbus-5'); const off=window.keplr.getOfflineSigner('columbus-5'); const acc=await off.getAccounts(); if(acc&&acc[0]){pasteInput.value=acc[0].address; lookupNFT(acc[0].address);} }catch(e){ nftStatus='fail'; } });
+    drawBtn(px+148,122,128,30,T('connect'),{fs:11.5,fill:'rgba(40,34,8,.95)',col:'#ffd94d'});
+    regBtn('keplr',px+148,122,128,30,async()=>{ try{ await window.keplr.enable('columbus-5'); const off=window.keplr.getOfflineSigner('columbus-5'); const acc=await off.getAccounts(); if(acc&&acc[0]){pasteInput.value=acc[0].address; lookupNFT(acc[0].address);} }catch(e){ nftStatus='fail'; } });
   }
   /* Galaxy Station — one-tap WalletConnect (gd-kit port below; the row is
      always drawn: on a phone the tap hands off to the Galaxy app, on
@@ -2593,35 +2620,35 @@ function drawBrief(t){
      the only Galaxy/Keplr entry point in that state, since the Keplr
      row itself only exists when Keplr is injected; everywhere else
      the tap goes straight to kitConnect('galaxy'). */
-  drawBtn(px+288,144,142,30,T('connectGalaxy'),{fs:11,fill:'rgba(16,26,52,.95)',stroke:'rgba(120,160,255,.8)',col:'#cfe0ff'});
-  regBtn('galaxy',px+288,144,142,30,()=>{ if(keplrDeepLinkMobile())return; z2ShowPairFail(''); kitConnect('galaxy'); });
+  drawBtn(px+288,122,142,30,T('connectGalaxy'),{fs:11,fill:'rgba(16,26,52,.95)',stroke:'rgba(120,160,255,.8)',col:'#cfe0ff'});
+  regBtn('galaxy',px+288,122,142,30,()=>{ if(keplrDeepLinkMobile())return; z2ShowPairFail(''); kitConnect('galaxy'); });
   /* LUNCDash — the third row (proven route, Garuda a90fc8f): inside
      LUNCDash's own browser the kit's station-extension answers; anywhere
      else kitConnect falls through to z2LuncDashConnect (legacy WC v1,
      LUNCDash's own bridge + the pairing sheet) */
-  drawBtn(px+16,180,150,30,T('connectDash'),{fs:11.5,fill:'rgba(24,28,52,.95)',stroke:'rgba(141,153,201,.85)',col:'#dbe2ff'});
-  regBtn('luncdash',px+16,180,150,30,()=>{ z2ShowPairFail(''); kitConnect('station'); });
-  /* fighter source tabs — the 3 FREE fighters sit alongside the NFT option */
-  if(nftStatus!==lastNftStatus){ if(nftStatus==='checking'||nftStatus==='found')briefTab='nft'; lastNftStatus=nftStatus; }
-  drawBtn(px+16,216,150,26,T('tabFree'),{fs:11.5,fill:briefTab==='free'?'rgba(60,50,10,.95)':'rgba(8,24,24,.92)',stroke:briefTab==='free'?'#f5c542':'rgba(64,200,190,.5)',col:'#e6f5f0'});
-  regBtn('tab-free',px+16,216,150,26,()=>{briefTab='free'; SFX.click();});
-  drawBtn(px+174,216,150,26,T('tabNft'),{fs:11.5,fill:briefTab==='nft'?'rgba(60,50,10,.95)':'rgba(8,24,24,.92)',stroke:briefTab==='nft'?'#f5c542':'rgba(64,200,190,.5)',col:'#e6f5f0'});
-  regBtn('tab-nft',px+174,216,150,26,()=>{briefTab='nft'; SFX.click();});
+  drawBtn(px+16,158,150,30,T('connectDash'),{fs:11.5,fill:'rgba(24,28,52,.95)',stroke:'rgba(141,153,201,.85)',col:'#dbe2ff'});
+  regBtn('luncdash',px+16,158,150,30,()=>{ z2ShowPairFail(''); kitConnect('station'); });
+  /* fighter source tabs — the 3 FREE fighters sit alongside the NFT option
+     (the status→tab auto-switch runs in the layout pre-pass above) */
+  drawBtn(px+16,194,150,24,T('tabFree'),{fs:11.5,fill:briefTab==='free'?'rgba(60,50,10,.95)':'rgba(8,24,24,.92)',stroke:briefTab==='free'?'#f5c542':'rgba(64,200,190,.5)',col:'#e6f5f0'});
+  regBtn('tab-free',px+16,194,150,24,()=>{briefTab='free'; SFX.click();});
+  drawBtn(px+174,194,150,24,T('tabNft'),{fs:11.5,fill:briefTab==='nft'?'rgba(60,50,10,.95)':'rgba(8,24,24,.92)',stroke:briefTab==='nft'?'#f5c542':'rgba(64,200,190,.5)',col:'#e6f5f0'});
+  regBtn('tab-nft',px+174,194,150,24,()=>{briefTab='nft'; SFX.click();});
   /* status / results */
-  let ry=254;
+  let ry=228;
   if(briefTab==='free'){
     g.fillStyle='rgba(230,245,240,.8)'; g.font='600 11px Arial';
     g.fillText(T('pickFree'),px+16,ry);
     FREE_KEYS.forEach((fk,i)=>{
-      const cx=px+16+i*138, cy=262, cw2=130, ch2=80;
+      const cx=px+16+i*138, cy=236, cw2=130, ch2=68;
       const sel=!fighter&&freePick===i;
       g.fillStyle=sel?'rgba(70,56,10,.95)':'rgba(14,26,20,.95)'; roundRect(cx,cy,cw2,ch2,8); g.fill();
       g.strokeStyle=sel?'#f5c542':'rgba(160,200,190,.4)'; g.lineWidth=sel?2.4:1.2; roundRect(cx,cy,cw2,ch2,8); g.stroke();
-      const F=FIGS[fk]; if(F)drawSpritePortrait(F,cx+34,cy+5,62,50);
+      const F=FIGS[fk]; if(F)drawSpritePortrait(F,cx+39,cy+3,52,40);
       g.fillStyle='#fff'; g.font='900 12px Arial'; g.textAlign='center';
-      g.fillText(FREE_NAMES[i],cx+cw2/2,cy+68);
+      g.fillText(FREE_NAMES[i],cx+cw2/2,cy+55);
       g.fillStyle='#8fb8ae'; g.font='700 8.5px Arial';
-      g.fillText(T('basePower'),cx+cw2/2,cy+78);
+      g.fillText(T('basePower'),cx+cw2/2,cy+65);
       g.textAlign='left';
       regBtn('free-'+i,cx,cy,cw2,ch2,()=>{ freePick=i; localStorage.setItem('z2free',String(i)); clearFighter(); SFX.click(); });
     });
@@ -2634,51 +2661,48 @@ function drawBrief(t){
   else if(nftStatus==='none'){ g.fillStyle='#ff9d8a'; wrapText(T('noNft'),px+16,ry,pw-32,13.5); }
   else if(nftStatus==='found'){
     g.fillStyle='#9fe8a9'; g.fillText(TF('found',{n:nftList.length}),px+16,ry); ry+=8;
-    const cw=56, ch=60;
+    const cw=56, ch=52;
     nftList.slice(0,6).forEach((it,i)=>{
       const cx=px+16+i*(cw+7), cy=ry+2;
       const sel=fighter&&fighter.id===it.id;
       g.fillStyle=sel?'rgba(70,56,10,.95)':'rgba(14,26,20,.95)'; roundRect(cx,cy,cw,ch,7); g.fill();
       g.strokeStyle=sel?'#f5c542':'rgba(160,200,190,.4)'; g.lineWidth=sel?2.2:1.2; roundRect(cx,cy,cw,ch,7); g.stroke();
-      if(it.imgObj&&it.imgOk){ try{ g.save(); roundRectPath(g,cx+5,cy+4,cw-10,cw-10,5); g.clip(); g.drawImage(it.imgObj,cx+5,cy+4,cw-10,cw-10); g.restore(); }catch(e){ drawPortrait(g,fighterStyle(it.skin),cx+cw/2,cy+28,.85); } }
-      else drawPortrait(g,fighterStyle(it.skin),cx+cw/2,cy+28,.85);
+      if(it.imgObj&&it.imgOk){ try{ g.save(); roundRectPath(g,cx+5,cy+3,cw-10,40,5); g.clip(); g.drawImage(it.imgObj,cx+5,cy+3,cw-10,40); g.restore(); }catch(e){ drawPortrait(g,fighterStyle(it.skin),cx+cw/2,cy+23,.75); } }
+      else drawPortrait(g,fighterStyle(it.skin),cx+cw/2,cy+23,.75);
       g.fillStyle='#e6f5f0'; g.font='700 9.5px Arial'; g.textAlign='center';
-      g.fillText('#'+it.id,cx+cw/2,cy+ch-13);
+      g.fillText('#'+it.id,cx+cw/2,cy+ch-12);
       g.fillStyle=it.rarity?'#ffd968':'#8fb8ae'; g.font='700 8.5px Arial';
       g.fillText(it.rarity||'—',cx+cw/2,cy+ch-2);
       g.textAlign='left';
       regBtn('nft-'+it.id,cx,cy,cw,ch,()=>{selectFighter(i);});
     });
-    ry+=ch+12;
+    ry+=ch+8;
     g.fillStyle='rgba(230,245,240,.7)'; g.font='600 10px Arial';
-    wrapText(T('ownedOnly'),px+16,ry+6,pw-32,12);
+    wrapText(T('ownedOnly'),px+16,ry+5,pw-32,10.5);
   }
   }
   /* current fighter line + the power rule that was applied (labeled, never silent) */
   /* collection 2 slot — honest placeholder, no dead buttons (contract not known yet);
      the slot shows while the results area leaves room for it */
   if(briefTab==='nft'&&nftStatus!=='found')for(const col of COLLECTIONS.filter(c=>!c.live)){
-    g.fillStyle='rgba(16,20,26,.9)'; roundRect(px+16,306,pw-32,26,6); g.fill();
-    g.strokeStyle='rgba(150,170,200,.45)'; g.lineWidth=1.1; g.setLineDash([4,3]); roundRect(px+16,306,pw-32,26,6); g.stroke(); g.setLineDash([]);
+    g.fillStyle='rgba(16,20,26,.9)'; roundRect(px+16,270,pw-32,26,6); g.fill();
+    g.strokeStyle='rgba(150,170,200,.45)'; g.lineWidth=1.1; g.setLineDash([4,3]); roundRect(px+16,270,pw-32,26,6); g.stroke(); g.setLineDash([]);
     g.fillStyle='rgba(210,224,240,.8)'; g.font='700 11px Arial';
-    g.fillText('🎖 '+T('mintSoon'),px+26,323);
+    g.fillText('🎖 '+T('mintSoon'),px+26,287);
   }
-  const fy=344, fh=40;
-  g.fillStyle='rgba(20,34,24,.9)'; roundRect(px+16,fy,pw-32,fh,6); g.fill();
-  g.strokeStyle='rgba(245,197,66,.5)'; g.lineWidth=1.1; roundRect(px+16,fy,pw-32,fh,6); g.stroke();
+  /* PLAYING AS box — playFy/playFh come from the layout pre-pass, sized to
+     the measured content so the box always sits inside the panel */
+  g.fillStyle='rgba(20,34,24,.9)'; roundRect(px+16,playFy,pw-32,playFh,6); g.fill();
+  g.strokeStyle='rgba(245,197,66,.5)'; g.lineWidth=1.1; roundRect(px+16,playFy,pw-32,playFh,6); g.stroke();
   g.font='700 11.5px Arial';
   if(fighter){
-    g.fillStyle='#ffd968'; g.fillText(T('playAs')+': ',px+24,fy+16);
+    g.fillStyle='#ffd968'; g.fillText(T('playAs')+': ',px+24,playFy+15);
     const w1=g.measureText(T('playAs')+': ').width;
-    g.fillStyle='#fff'; g.fillText(fighter.name+(fighter.rarity?' · '+fighter.rarity:'')+'  ·  ⚡×'+fighter.mult,px+24+w1,fy+16);
+    g.fillStyle='#fff'; g.fillText(fighter.name+(fighter.rarity?' · '+fighter.rarity:'')+'  ·  ⚡×'+fighter.mult,px+24+w1,playFy+15);
     g.fillStyle='rgba(230,245,240,.75)'; g.font='600 10px Arial';
-    let note=fighter.powerNote;
-    if(nftList.length>1)note+='  ·  '+TF('bonusPower',{n:Math.min(3,nftList.length-1)});
-    if(fighterImgFailed())note+='  ·  NFT image failed to load — color fighter shown in level';
-    else if(fighter.cutFail)note+='  ·  Cut-out unavailable for this art — framed fighter shown in level';
-    wrapText(note,px+24,fy+29,pw-48,11);
+    wrapText(playNote,px+24,playFy+25,pw-48,10.5);
   } else {
-    g.fillStyle='#e6f5f0'; g.fillText(T('playAs')+': '+FREE_NAMES[freePick]+' · '+T('basePower'),px+24,fy+18);
+    g.fillStyle='#e6f5f0'; g.fillText(T('playAs')+': '+FREE_NAMES[freePick]+' · '+T('basePower'),px+24,playFy+17);
   }
   /* title-screen shortcuts also live here */
   drawLangSelector(22,286);
@@ -2697,6 +2721,18 @@ function wrapText(txt,x,y,maxW,lh){
   }
   if(line)ctx.fillText(line,x,yy);
   return yy;
+}
+/* line count wrapText would produce (same greedy algorithm; caller sets
+   ctx.font first) — used by the brief layout pre-pass to size boxes to
+   their content instead of guessing heights */
+function wrapLines(txt,maxW){
+  const words=String(txt).split(' '); let lines=1, line='';
+  for(const w of words){
+    const test=line?line+' '+w:w;
+    if(ctx.measureText(test).width>maxW&&line){lines++; line=w;}
+    else line=test;
+  }
+  return lines;
 }
 /* ---- gameplay world ---- */
 function drawWorld(){
