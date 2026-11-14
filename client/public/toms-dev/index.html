@@ -735,12 +735,14 @@ async function createSeat(){
 $('nsBtn').addEventListener('click', createSeat);
 
 /* ============ SEAT RENEWALS ($5/week in LUNC) ============
-   Paste-and-verify, like the owner's other apps: the seat
-   sends LUNC from its own wallet, pastes the wallet + the
-   transaction hash, and the SERVER checks the payment on
-   chain (right wallet, right sender, worth the week at the
-   live price, never used before) before it credits anything.
-   This page holds no keys and moves no funds. */
+   Wallet-connect one-button pay (owner order, Nov 13): the
+   seat connects Keplr, Galaxy Station or LUNCDash on the
+   card, presses Pay, and signs a plain no-memo MsgSend in
+   its own wallet. The SERVER still checks the payment on
+   chain (right wallet, the tx's actual sender, worth the
+   week at the live price, never used before) before it
+   credits anything. This page holds no keys; signing
+   happens inside the seat's own wallet app. */
 function fmtDate(ts){
   if (!ts) return '';
   return new Date(ts).toLocaleDateString([], {month:'short', day:'numeric', year:'numeric'});
@@ -755,7 +757,530 @@ async function loadTopup(){
     topupInfo = j;
     if (j.seat) applySeatState(j.seat);
     renderTopup();
+    tuBootWallet();
   }catch(e){ $('tuBody').innerHTML = '<p class="fail">Couldn\'t load renewal info — server unreachable.</p>'; }
+}
+/* ============ SEAT RENEWAL WALLET (one-button pay) ============
+   The seat connects a wallet ON THE CARD — Keplr, Galaxy
+   Station or LUNCDash, the house three-connect standard —
+   and presses one Pay button. The page builds a plain
+   MsgSend of the shown LUNC amount to Tom's renewal wallet
+   with NO memo, the connected wallet signs it (amino, the
+   same doc for all three wallets), the page assembles and
+   broadcasts the tx itself, then hands the hash to the
+   server (tdaRenewSubmit), which re-reads the tx on-chain
+   and credits the seat only if everything checks out. This
+   page never holds a key; signing happens inside the
+   seat's own wallet app. */
+
+/* tda-wallet:start — pure pieces (no DOM): the proto tx
+   assembler for ONE amino-signed MsgSend, the sign-doc
+   builder, and the signed-doc match check. The assembler's
+   layout follows the protobuf spec field by field:
+   TxRaw{1 body_bytes, 2 auth_info_bytes, 3 signatures};
+   TxBody{1 messages, 2 memo}; Any{1 type_url, 2 value};
+   MsgSend{1 from_address, 2 to_address, 3 amount};
+   Coin{1 denom, 2 amount}; AuthInfo{1 signer_infos, 2 fee};
+   SignerInfo{1 public_key, 2 mode_info, 3 sequence};
+   PubKey{1 key}; ModeInfo{1 single}; Single{1 mode = 127,
+   SIGN_MODE_LEGACY_AMINO_JSON}; Fee{1 amount, 2 gas_limit}. */
+const TU_CHAIN_ID = 'columbus-5';
+const TU_LCD = 'https://terra-classic-lcd.publicnode.com';
+const TU_GAS_LIMIT = 300000;
+const TU_GAS_PRICE = 28.325;
+const TU_FEE_MICRO = String(Math.ceil(TU_GAS_LIMIT * TU_GAS_PRICE));
+function tuB64(bytes){ let s = ''; bytes.forEach(b => { s += String.fromCharCode(b); }); return btoa(s); }
+function tuB64ToBytes(s){
+  try {
+    const bin = atob(String(s || ''));
+    if (!bin.length) return null;
+    return new Uint8Array([...bin].map(c => c.charCodeAt(0)));
+  } catch (e) { return null; }
+}
+function tuVarint(n){ const out = []; let v = BigInt(n); do { let b = Number(v & 127n); v >>= 7n; if (v) b |= 128; out.push(b); } while (v); return out; }
+function tuTag(field, wire){ return tuVarint((field << 3) | wire); }
+function tuLenField(field, bytes){ return [...tuTag(field, 2), ...tuVarint(bytes.length), ...bytes]; }
+function tuVarField(field, n){ return [...tuTag(field, 0), ...tuVarint(n)]; }
+function tuUtf8(s){ return [...new TextEncoder().encode(s)]; }
+function tuBuildTxBytes(o){
+  const coinB = [...tuLenField(1, tuUtf8('uluna')), ...tuLenField(2, tuUtf8(String(o.amountMicro)))];
+  const msgSend = [...tuLenField(1, tuUtf8(o.from)), ...tuLenField(2, tuUtf8(o.to)), ...tuLenField(3, coinB)];
+  let bodyBytes = tuLenField(1, [...tuLenField(1, tuUtf8('/cosmos.bank.v1beta1.MsgSend')), ...tuLenField(2, msgSend)]);
+  bodyBytes = bodyBytes.concat(tuLenField(2, tuUtf8(o.memo || '')));
+  const pkVal = [...tuLenField(1, o.pubkey)];
+  const pk = [...tuLenField(1, tuUtf8('/cosmos.crypto.secp256k1.PubKey')), ...tuLenField(2, pkVal)];
+  const single = [...tuVarField(1, 127)];
+  const modeInfo = [...tuLenField(1, single)];
+  const signerInfo = [...tuLenField(1, pk), ...tuLenField(2, modeInfo), ...tuVarField(3, o.sequence)];
+  const feeCoin = [...tuLenField(1, tuUtf8('uluna')), ...tuLenField(2, tuUtf8(String(o.feeMicro)))];
+  const fee = [...tuLenField(1, feeCoin), ...tuVarField(2, o.gasLimit)];
+  const auth = [...tuLenField(1, signerInfo), ...tuLenField(2, fee)];
+  return new Uint8Array([...tuLenField(1, bodyBytes), ...tuLenField(2, auth), ...tuLenField(3, o.signature)]);
+}
+function tuBuildSignDoc(o){
+  return {
+    account_number: String(o.accountNumber),
+    chain_id: TU_CHAIN_ID,
+    fee: { amount: [{ denom: 'uluna', amount: String(o.feeMicro) }], gas: String(o.gasLimit) },
+    memo: '',
+    msgs: [{ type: 'cosmos-sdk/MsgSend', value: { from_address: o.from, to_address: o.to, amount: [{ denom: 'uluna', amount: String(o.amountMicro) }] } }],
+    sequence: String(o.sequence),
+  };
+}
+/* The signed doc must be the doc we built — field by field,
+   never a wallet-edited variant. */
+function tuSignedDocMatches(built, signed){
+  try {
+    if (!signed) return false;
+    const b = built.msgs[0], s = (signed.msgs || [])[0];
+    if (!s || s.type !== b.type) return false;
+    const bv = b.value, sv = s.value || {};
+    if (sv.from_address !== bv.from_address || sv.to_address !== bv.to_address) return false;
+    const ba = bv.amount[0], sa = (sv.amount || [])[0] || {};
+    if (sa.denom !== ba.denom || String(sa.amount) !== String(ba.amount)) return false;
+    const bf = built.fee, sf = signed.fee || {}, sfa = (sf.amount || [])[0] || {};
+    if (String(sf.gas) !== String(bf.gas) || sfa.denom !== 'uluna' || String(sfa.amount) !== String(bf.amount[0].amount)) return false;
+    return signed.chain_id === built.chain_id
+      && String(signed.account_number) === String(built.account_number)
+      && String(signed.sequence) === String(built.sequence)
+      && (signed.memo || '') === '';
+  } catch (e) { return false; }
+}
+function tuValidAddr(a){ return /^terra1[02-9ac-hj-np-z]{38}$/.test(String(a || '')); }
+/* tda-wallet:end */
+
+/* ---- wallet state ---- */
+const TU_DASH_WC_KEY = 'cosmes.wallet.luncdash.wcSession';
+const TU_PENDING_KEY = 'tda_pending_renewal';
+const tuIsMobileUA = /Android|webOS|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+let tuWallet = null;      /* { mode:'keplr'|'keplr-wc'|'galaxy'|'luncdash', addr, cw?, wc? } */
+let tuBusy = false;
+let tuPairState = { uri: '', dash: false };
+let tuLastMsg = { text: '', cls: '' };
+let tuBooted = false;
+const TU_WALLET_LABEL = { keplr: 'Keplr', 'keplr-wc': 'Keplr', galaxy: 'Galaxy Station', luncdash: 'LUNCDash' };
+
+function tuMsg(t, c){
+  tuLastMsg = { text: t || '', cls: c || '' };
+  const m = $('tuMsg');
+  if (m){ m.textContent = tuLastMsg.text; m.className = 'amsg ' + tuLastMsg.cls; }
+}
+function tuSetWallet(w){
+  tuWallet = w;
+  tuHidePair();
+  renderTopup();
+}
+function tuNoPayError(){
+  const e = new Error("this wallet app can't sign from its browser — nothing was sent. Try Keplr or Galaxy Station.");
+  e.noPayMethod = true;
+  return e;
+}
+
+/* ---- pairing sheet (house pattern: QR + raw link + OPEN + COPY) ---- */
+function tuPairHtml(){
+  return '<div id="tuPair" hidden style="margin:12px 0; padding:12px; border:1.5px dashed rgba(34,211,238,.45); border-radius:12px; background:#10102a; text-align:center;">'
+    + '<div style="margin-bottom:8px; font-size:13px; color:var(--ink2);">WalletConnect pairing link — paste it into your wallet\'s scanner:</div>'
+    + '<input id="tuPairUri" readonly style="width:100%; box-sizing:border-box;">'
+    + '<canvas id="tuPairQr" width="180" height="180" style="display:none; margin:4px auto; background:#fff; border-radius:8px;"></canvas>'
+    + '<div id="tuPairActs" style="display:none; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:6px;">'
+    + '<a id="tuPairOpen" href="#" style="display:inline-block; padding:9px 16px; border-radius:999px; background:var(--card2); color:var(--ink); border:1px solid var(--line); text-decoration:none; font-weight:800; font-size:12.5px;">🚀 OPEN LUNCDASH</a>'
+    + '<button class="sbtn" id="tuPairCopy" type="button">📋 COPY LINK</button>'
+    + '</div></div>';
+}
+function tuShowPair(uri, dash, keep){
+  tuPairState = { uri: uri || '', dash: !!dash };
+  const box = $('tuPair'); if (!box || !uri) return;
+  box.hidden = false;
+  const inp = $('tuPairUri'); if (inp) inp.value = uri;
+  const acts = $('tuPairActs');
+  if (acts) acts.style.display = dash ? 'flex' : 'none';
+  if (dash){
+    const a = $('tuPairOpen');
+    if (a) a.href = tuDashOpenHref(uri);
+    tuRenderQr(uri);
+  }
+}
+function tuHidePair(){
+  tuPairState = { uri: '', dash: false };
+  const box = $('tuPair'); if (box) box.hidden = true;
+  const inp = $('tuPairUri'); if (inp) inp.value = '';
+  const cv = $('tuPairQr'); if (cv) cv.style.display = 'none';
+}
+let tuQrPromise = null;
+function tuRenderQr(uri){
+  const cv = $('tuPairQr');
+  if (!cv) return;
+  if (!tuQrPromise){
+    tuQrPromise = import('https://esm.sh/qrcode@1.5.4?bundle')
+      .then(m => m.default || m)
+      .catch(err => { tuQrPromise = null; throw err; });
+  }
+  tuQrPromise.then(QR => {
+    if (!QR || typeof QR.toCanvas !== 'function') return;
+    QR.toCanvas(cv, uri, { width: 180, margin: 1 }, err => { if (!err) cv.style.display = 'block'; });
+  }).catch(() => { /* QR is a bonus — the raw link + COPY LINK still work */ });
+}
+/* The LUNCDash app's own deep link (the cosmes scheme the
+   house apps ship): luncdash://wallet_connect?payload=<uri>,
+   package-pinned into an Android intent on Android. */
+function tuDashOpenHref(uri){
+  const payload = encodeURIComponent('payload=' + encodeURIComponent(uri));
+  if (tuIsMobileUA && /Android/i.test(navigator.userAgent || ''))
+    return 'intent://wallet_connect?' + payload + '#Intent;scheme=luncdash;package=com.luncdash.wallet;end;';
+  return 'luncdash://wallet_connect?' + payload;
+}
+
+/* ---- Keplr (injected provider — the Pinball pattern) ---- */
+async function tuWaitForKeplr(timeoutMs){
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    if (window.keplr) return window.keplr;
+    await new Promise(r => setTimeout(r, 120));
+  }
+  return null;
+}
+async function tuConnectKeplr(){
+  if (tuBusy) return;
+  tuBusy = true;
+  tuMsg('Opening Keplr…');
+  try {
+    let provider = await tuWaitForKeplr(tuIsMobileUA ? 2500 : 1200);
+    if (!provider || !window.keplr){
+      if (tuIsMobileUA){
+        tuMsg('Keplr not found — opening the Keplr app…');
+        window.location.href = 'keplrwallet://web-browser?url=' + encodeURIComponent(window.location.href);
+        return;
+      }
+      provider = await tuWaitForKeplr(4000);
+      if (!window.keplr){
+        tuMsg('Keplr was not found. On a phone, open this page inside the Keplr app browser. On a computer, install the Keplr extension — or pick Galaxy Station or LUNCDash.', 'bad');
+        return;
+      }
+    }
+    await window.keplr.enable(TU_CHAIN_ID);
+    const key = await window.keplr.getKey(TU_CHAIN_ID);
+    if (!key || !tuValidAddr(key.bech32Address)) throw new Error('no usable address came back');
+    tuSetWallet({ mode: 'keplr', addr: key.bech32Address });
+  } catch (e) {
+    tuMsg('Keplr connection was declined or failed — nothing connected.', 'bad');
+  } finally { tuBusy = false; }
+}
+
+/* ---- CosmosKit (Galaxy Station + Keplr mobile), loaded
+   lazily from esm.sh exactly like the owner's other apps:
+   same pinned versions, same chain definition, same custom
+   Galaxy factory, same Reown project id. Only the Galaxy and
+   Keplr-mobile entries are used from this card. ---- */
+const TU_CHAIN = {
+  $schema: '../chain.schema.json', chain_name: 'terraclassic', status: 'live', network_type: 'mainnet',
+  pretty_name: 'Terra Classic', chain_id: 'columbus-5', bech32_prefix: 'terra', daemon_name: 'terrad',
+  node_home: '$HOME/.terra', slip44: 330,
+  fees: { fee_tokens: [{ denom: 'uluna', fixed_min_gas_price: 0.15, low_gas_price: 0.15, average_gas_price: 0.15, high_gas_price: 0.15 }] },
+  staking: { staking_tokens: [{ denom: 'uluna' }] },
+  codebase: { git_repo: 'https://github.com/classic-terra/core', recommended_version: 'v4.1.1', compatible_versions: ['v4.1.1'] },
+  apis: {
+    rpc: [{ address: 'https://terra-classic-rpc.publicnode.com', provider: 'PublicNode' }],
+    rest: [{ address: 'https://terra-classic-lcd.publicnode.com', provider: 'PublicNode' }],
+    grpc: [],
+  },
+  explorers: [{ kind: 'Terra Finder', url: 'https://finder.terraclassic.community/mainnet', tx_page: 'https://finder.terraclassic.community/mainnet/tx/${txHash}' }],
+};
+const TU_ASSETS = {
+  $schema: '../assetlist.schema.json', chain_name: 'terraclassic',
+  assets: [{
+    description: 'The native staking and gas token of Terra Classic.',
+    denom_units: [{ denom: 'uluna', exponent: 0 }, { denom: 'luna', exponent: 6 }],
+    base: 'uluna', name: 'Terra Luna Classic', display: 'luna', symbol: 'LUNC',
+    logo_URIs: { png: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/terraclassic/images/lunc.png' },
+    coingecko_id: 'terra-luna',
+  }],
+};
+const TU_GALAXY_LOGO = 'https://station.terraclassic.community/favicon.svg';
+function tuGalaxyKitFrom(wc){
+  class GalaxyClient extends wc.WCClient {
+    async initWCCloudInfo() { this.wcCloudInfo = { mobile: {} }; }
+  }
+  const galaxyStationInfo = {
+    name: 'galaxy-station', prettyName: 'Galaxy Station', logo: TU_GALAXY_LOGO, mode: 'wallet-connect',
+    mobileDisabled: false,
+    rejectMessage: { source: 'Request rejected' },
+    downloads: [{ link: 'https://station.terraclassic.community' }],
+    supportedChains: ['terraclassic'],
+    walletconnect: {
+      name: 'Galaxy Station', encoding: 'base64',
+      mobile: { native: { ios: 'galaxystation:', android: 'https://station.hexxagon.io/wcV2' } },
+      formatNativeUrl: (appUrl, wcUri, os, _name) => {
+        const encodedWcUrl = encodeURIComponent(wcUri);
+        switch (os) {
+          case 'ios': return `galaxystation://wcV2?${encodedWcUrl}`;
+          case 'android': return `${appUrl}?${encodedWcUrl}#Intent;package=io.hexxagon.station;scheme=galaxystation;end;`;
+          default: return `galaxystation://wcV2?${encodedWcUrl}`;
+        }
+      },
+    },
+  };
+  class ChainGalaxyStation extends wc.ChainWC {
+    constructor(walletInfo, chainInfo) { super(walletInfo, chainInfo, GalaxyClient); }
+  }
+  class GalaxyStationWallet extends wc.WCWallet {
+    constructor(walletInfo) { super(walletInfo, ChainGalaxyStation, GalaxyClient); }
+  }
+  return { GalaxyStationWallet, galaxyStationInfo };
+}
+const TU_KIT_PROJECT_ID = '7e363f1ed5d676ecc4ae2d40c5b83fbf';
+const TU_KIT_APP_URL = 'https://frg-fight-club.vercel.app/toms-dev/';
+const TU_KIT_URLS = {
+  buffer: 'https://esm.sh/buffer@6.0.3?bundle',
+  core: 'https://esm.sh/@cosmos-kit/core@2.18.1',
+  keplr: 'https://esm.sh/@cosmos-kit/keplr@2.17.1',
+  station: 'https://esm.sh/@cosmos-kit/station@2.15.1',
+  walletconnect: 'https://esm.sh/@cosmos-kit/walletconnect@2.15.1',
+  stargate: 'https://esm.sh/@cosmjs/stargate@0.33.1?bundle',
+};
+let tuKitCache = null, tuKitPromise = null, tuKitManager = null, tuKitMounted = null, tuKitConnecting = false;
+function tuNormalizeKit(raw){
+  if (!raw || !raw.core || !raw.core.WalletManager || !raw.keplr || !raw.station || !raw.walletconnect)
+    throw new Error('the wallet libraries loaded incomplete');
+  if (!raw.cosmjs || !raw.cosmjs.GasPrice) throw new Error('the signing library loaded incomplete');
+  const out = { core: raw.core, keplr: raw.keplr, station: raw.station, walletconnect: raw.walletconnect,
+    cosmjs: raw.cosmjs, galaxy: tuGalaxyKitFrom(raw.walletconnect) };
+  tuKitCache = out;
+  return out;
+}
+function tuNormalizeKitSafe(raw){
+  try { return tuNormalizeKit(raw); }
+  catch (e) {
+    const msg = String((e && e.message) || e);
+    if (!/Uint8Array|valid instance|Realm|instanceof/.test(msg)) throw e;
+    const cleaned = Object.assign({}, raw);
+    try {
+      const wc = Object.assign({}, raw.walletconnect);
+      delete wc.GalaxyClient; delete wc.ChainGalaxyStation; delete wc.GalaxyStationWallet;
+      cleaned.walletconnect = wc;
+    } catch (e2) {}
+    return tuNormalizeKit(cleaned);
+  }
+}
+function tuLoadKit(){
+  if (tuKitCache) return Promise.resolve(tuKitCache);
+  if (!tuKitPromise){
+    tuKitPromise = Promise.resolve()
+      .then(() => import(TU_KIT_URLS.buffer))
+      .then(bm => {
+        if (!globalThis.Buffer && bm && bm.Buffer) globalThis.Buffer = bm.Buffer;
+        if (!window.global) window.global = window;
+      })
+      .then(() => Promise.all([import(TU_KIT_URLS.core), import(TU_KIT_URLS.keplr), import(TU_KIT_URLS.station), import(TU_KIT_URLS.walletconnect), import(TU_KIT_URLS.stargate)]))
+      .then(([core, keplr, station, walletconnect, stargate]) => tuNormalizeKitSafe({
+        core, keplr, station, walletconnect,
+        cosmjs: { GasPrice: stargate && stargate.GasPrice },
+      }))
+      .catch(err => { tuKitPromise = null; throw err; });
+  }
+  return tuKitPromise;
+}
+function tuEnsureManager(){
+  if (tuKitManager) return Promise.resolve(tuKitManager);
+  return tuLoadKit().then(kit => {
+    const wallets = [...kit.keplr.wallets, ...kit.station.wallets,
+      new kit.galaxy.GalaxyStationWallet(kit.galaxy.galaxyStationInfo)];
+    const wm = new kit.core.WalletManager(
+      [TU_CHAIN], wallets, new kit.core.Logger('WARN'), false, true, undefined,
+      [TU_ASSETS], 'icns',
+      { signClient: { projectId: TU_KIT_PROJECT_ID, metadata: {
+          name: "Tom's Dev", description: "Tom's Dev — renew your seat for $5 a week in LUNC, signed in your own wallet", url: TU_KIT_APP_URL, icons: [],
+          redirect: { native: TU_KIT_APP_URL, universal: TU_KIT_APP_URL } } } },
+      { signingCosmwasm: () => ({ gasPrice: kit.cosmjs.GasPrice.fromString(TU_GAS_PRICE + 'uluna') }),
+        signingStargate: () => ({ gasPrice: kit.cosmjs.GasPrice.fromString(TU_GAS_PRICE + 'uluna') }) },
+      undefined, undefined);
+    try {
+      const acts = { viewOpen(){}, viewWalletRepo(){}, data(){}, state(){}, message(){}, clientState(){}, clientMessage(){}, render(){} };
+      wm.setActions(acts);
+      (wm.walletRepos || []).forEach(r => { if (r.setActions) r.setActions(acts); (r.wallets || []).forEach(w => { if (w.setActions) w.setActions(acts); }); });
+      (wm.mainWallets || []).forEach(w => { if (w.setActions) w.setActions(acts); });
+    } catch (e) {}
+    tuKitManager = wm;
+    tuKitMounted = Promise.resolve().then(() => wm.onMounted()).catch(() => {});
+    return wm;
+  });
+}
+function tuWatchPairing(cw){
+  let stopped = false, timer = null;
+  const tick = () => {
+    if (stopped) return;
+    try {
+      const client = cw.client;
+      const uri = client && client.qrUrl && client.qrUrl.data;
+      if (uri && !(client && client.redirect)) tuShowPair(uri, false);
+    } catch (e) {}
+    if (!stopped) timer = setTimeout(tick, 500);
+  };
+  timer = setTimeout(tick, 600);
+  return { stop(){ stopped = true; if (timer) clearTimeout(timer); } };
+}
+function tuKitConnect(walletName, mode, pretty){
+  if (tuKitConnecting || tuBusy) return;
+  tuKitConnecting = true; tuBusy = true;
+  tuMsg('Opening ' + pretty + '…');
+  tuEnsureManager()
+    .then(wm => {
+      const cw = wm.getChainWallet('terraclassic', walletName);
+      if (!cw) throw new Error('the ' + pretty + ' wallet is not registered');
+      tuMsg('Approve the connection in ' + pretty + ' — then come back to this page.');
+      const watch = tuWatchPairing(cw);
+      return Promise.resolve().then(() => cw.connect())
+        .then(() => { watch.stop(); return cw; })
+        .catch(err => { watch.stop(); throw err; });
+    })
+    .then(cw => {
+      tuKitConnecting = false; tuBusy = false;
+      if (cw.isWalletConnected && cw.address && tuValidAddr(cw.address)){
+        tuSetWallet({ mode, addr: cw.address, cw });
+      } else if (cw.isWalletNotExist) {
+        tuMsg(pretty + " isn't available in this browser — open this page inside the " + pretty + ' app, or pick another wallet.', 'bad');
+      } else if (cw.isWalletRejected) {
+        tuMsg('Connection rejected in ' + pretty + ' — nothing connected.', 'bad');
+      } else {
+        tuMsg(pretty + " couldn't connect — nothing connected. Tap its button to try again.", 'bad');
+      }
+    })
+    .catch(err => {
+      tuKitConnecting = false; tuBusy = false;
+      tuHidePair();
+      tuMsg(pretty + " couldn't connect" + (err && err.message ? ': ' + String(err.message).slice(0, 90) : '') + ' — nothing connected.', 'bad');
+    });
+}
+function tuConnectGalaxy(){ tuKitConnect('galaxy-station', 'galaxy', 'Galaxy Station'); }
+function tuConnectKeplrMobile(){ tuKitConnect('keplr-mobile', 'keplr-wc', 'Keplr'); }
+
+/* ---- LUNCDash (standalone app — legacy WalletConnect v1,
+   its OWN bridge; signs via the raw terra_signAmino custom
+   request, the bridge the LUNC Dev DEX proves. The pairing
+   sheet gives every joiner an OPEN button and a COPY LINK
+   button — the LUNCDash app has no wallet browser.) ---- */
+let tuDashClientPromise = null;
+function tuLoadDashClient(){
+  if (!tuDashClientPromise){
+    tuDashClientPromise = import('https://esm.sh/@walletconnect/client@1.8.0?bundle')
+      .then(m => {
+        const WC = m.default || m.WalletConnect || m;
+        if (!WC || typeof WC !== 'function') throw new Error('the LUNCDash bridge library loaded incomplete');
+        return WC;
+      })
+      .catch(err => { tuDashClientPromise = null; throw err; });
+  }
+  return tuDashClientPromise;
+}
+function tuDashAddrEv(ev){
+  try {
+    const p = (ev && (ev.payload || ev)) || {};
+    const params = p.params || [];
+    const first = Array.isArray(params) ? params[0] : params;
+    const accs = (first && first.accounts) || [];
+    return accs.find(a => tuValidAddr(a)) || null;
+  } catch (e) { return null; }
+}
+function tuDashSessionGet(){
+  try {
+    const raw = localStorage.getItem(TU_DASH_WC_KEY);
+    const s = raw ? JSON.parse(raw) : null;
+    return (s && s.connected && Array.isArray(s.accounts)) ? s : null;
+  } catch (e) { return null; }
+}
+function tuConnectDash(){
+  if (tuBusy) return;
+  tuBusy = true;
+  tuMsg('Opening LUNCDash…');
+  tuLoadDashClient().then(WC => {
+    const wc = new WC({ bridge: 'https://walletconnect.luncdash.com', qrcodeModal: null });
+    wc.on('session_update', ev => {
+      const addr = tuDashAddrEv(ev);
+      if (addr) tuSetWallet({ mode: 'luncdash', addr, wc });
+    });
+    wc.on('connect', ev => {
+      const addr = tuDashAddrEv(ev);
+      if (addr) tuSetWallet({ mode: 'luncdash', addr, wc });
+    });
+    wc.on('disconnect', () => {
+      if (tuWallet && tuWallet.mode === 'luncdash'){ tuWallet = null; renderTopup(); }
+    });
+    if (wc.connected){
+      const addr = (wc.accounts || []).find(a => tuValidAddr(a));
+      if (addr){ tuSetWallet({ mode: 'luncdash', addr, wc }); tuBusy = false; }
+      return;
+    }
+    wc.createSession().then(() => {
+      const uri = wc.uri || '';
+      if (!uri) throw new Error('LUNCDash did not hand back a pairing link');
+      tuBusy = false;
+      tuMsg('LUNCDash is a standalone wallet with no browser, so it pairs by link: tap 🚀 OPEN LUNCDASH (or 📋 COPY LINK, then paste the link into the app). Approve there, then come back — this page picks the wallet up by itself.');
+      tuShowPair(uri, true);
+    }).catch(() => {
+      tuBusy = false;
+      tuMsg('LUNCDash pairing could not start — tap its button to try again.', 'bad');
+    });
+  }).catch(() => {
+    tuBusy = false;
+    tuMsg('The LUNCDash bridge could not load — check your connection and try again.', 'bad');
+  });
+}
+/* ---- quiet restores (best effort, seat card load only) ---- */
+function tuRestoreKit(){
+  let has = false;
+  try { has = Object.keys(localStorage).some(k => /^(cosmos-kit|cosmoskit|@cosmos-kit|cosmjs|cosmes)/i.test(k)); } catch (e) {}
+  if (!has) return;
+  tuEnsureManager().then(wm => Promise.race([tuKitMounted || Promise.resolve(), new Promise(r => setTimeout(r, 6000))])
+    .then(() => new Promise(r => setTimeout(r, 900)))
+    .then(() => {
+      if (tuWallet) return;
+      for (const n of ['keplr-mobile', 'galaxy-station']){
+        try {
+          const cw = wm.getChainWallet('terraclassic', n);
+          if (cw && cw.isWalletConnected && cw.address && tuValidAddr(cw.address)){
+            tuSetWallet({ mode: n === 'galaxy-station' ? 'galaxy' : 'keplr-wc', addr: cw.address, cw });
+            return;
+          }
+        } catch (e) {}
+      }
+    })).catch(() => {});
+}
+function tuRestoreDash(){
+  const session = tuDashSessionGet();
+  const cached = session && session.accounts.find(a => tuValidAddr(a));
+  if (!cached) return;
+  tuLoadDashClient().then(WC => {
+    let wc = null;
+    try { wc = new WC({ bridge: 'https://walletconnect.luncdash.com', qrcodeModal: null, session }); } catch (e) {}
+    if (!wc || !wc.connected) return;
+    const addr = (wc.accounts || []).find(a => tuValidAddr(a)) || cached;
+    if (addr && !tuWallet) tuSetWallet({ mode: 'luncdash', addr, wc });
+    if (wc.on) wc.on('disconnect', () => {
+      if (tuWallet && tuWallet.mode === 'luncdash'){ tuWallet = null; renderTopup(); }
+    });
+  }).catch(() => {});
+}
+
+/* ---- the card ---- */
+function tuWalletBoxHtml(j){
+  const bound = (j.seat && j.seat.wallet) || '';
+  if (!j.priceOk)
+    return '<p>The LUNC price can\'t be read right now, so the amount can\'t be set — wait a moment and reopen this tab.</p>';
+  if (!tuWallet){
+    return (bound ? '<p style="margin-bottom:6px;">This seat renews from <b>' + esc(bound) + '</b> — connect that wallet to pay.</p>'
+      : '<p style="margin-bottom:6px;">Connect the wallet you\'ll pay from. Paying sets it as this seat\'s wallet, and only that wallet can renew the seat after that.</p>')
+      + '<div style="display:flex; gap:8px; flex-wrap:wrap; margin:8px 0;">'
+      + '<button class="sbtn" id="tuConnKeplr" type="button">🔗 Keplr</button>'
+      + '<button class="sbtn" id="tuConnGalaxy" type="button">🌌 Galaxy Station</button>'
+      + '<button class="sbtn" id="tuConnDash" type="button">🚀 LUNCDash</button>'
+      + '</div>';
+  }
+  const mismatch = bound && bound !== tuWallet.addr;
+  return '<p>✅ Connected: <b>' + esc(tuWallet.addr) + '</b> (' + esc(TU_WALLET_LABEL[tuWallet.mode] || 'wallet') + ')</p>'
+    + (mismatch ? '<p style="color:var(--amber); font-weight:800;">This seat renews from ' + esc(bound) + ' — connect that wallet to pay.</p>' : '')
+    + '<div style="display:flex; gap:8px; flex-wrap:wrap; margin:8px 0;">'
+    + '<button class="abtn" id="tuPayBtn" type="button"' + (mismatch ? ' disabled' : '') + '>💸 Pay $' + esc(String(j.priceUsd)) + '/week in LUNC</button>'
+    + '<button class="sbtn" id="tuChangeWallet" type="button">Use a different wallet</button>'
+    + '</div>';
 }
 function renderTopup(){
   const j = topupInfo; if (!j) return;
@@ -764,74 +1289,188 @@ function renderTopup(){
   let status = '';
   if (j.seat && j.seat.paidThrough){
     status = j.seat.lapsed
-      ? '<p style="color:var(--amber); font-weight:800;">⏸️ Your seat lapsed on ' + esc(fmtDate(j.seat.paidThrough)) + ' — renew to keep building. You can still read everything.</p>'
+      ? '<p style="color:var(--amber); font-weight:800;">⏸️ Seat paused — renew for $5/week in LUNC to keep building.</p>'
       : '<p>✅ Your seat is paid through <b>' + esc(fmtDate(j.seat.paidThrough)) + '</b>. Renewing adds 7 more days.</p>';
   }
   if (!j.enabled){
     el.innerHTML = head + status + '<p>Renewals open soon — Tom is setting this up.</p>';
+    tuLastMsg = { text: '', cls: '' };
     return;
   }
   let h = head + status;
-  if (j.priceOk){
-    h += '<p>Send <b>' + Number(j.luncAmount).toLocaleString() + ' LUNC</b> — that\'s $' + esc(String(j.priceUsd)) + ' at the live price right now (1 LUNC ≈ $' + esc(String(j.luncUsd)) + '). The price is read again when your payment is checked, and anything worth <b>$' + Number(j.minUsd).toFixed(2) + '</b> or more counts — a little room for the price to wiggle.</p>';
-  } else {
-    h += '<p>The LUNC price can\'t be read right now, so the exact amount can\'t be shown — send about a week\'s worth and check the payment below; it\'s valued at the live price when it\'s checked.</p>';
-  }
-  h += '<p style="margin-bottom:2px;">Send LUNC to Tom\'s wallet:</p>'
-    + '<div class="wl">' + esc(j.wallet) + '</div>'
-    + '<button class="sbtn" id="tuCopy">📋 Copy the wallet</button>';
-  if (j.memo){
-    h += '<p style="margin:10px 0 2px;">Put this <b>memo</b> on the send — exactly. It\'s how the payment knows it\'s yours; without it, the payment can\'t renew your seat:</p>'
-      + '<div class="wl">' + esc(j.memo) + '</div>'
-      + '<button class="sbtn" id="tuCopyMemo">📋 Copy the memo</button>';
-  }
-  const bound = (j.seat && j.seat.wallet) || '';
-  if (bound) h += '<p class="mut" style="margin-top:10px;">Your wallet on this seat is the one below — payments must come from it. Ask Tom if it ever needs changing.</p>';
-  h += '<input id="tuSender" type="text" autocomplete="off" placeholder="Your wallet — the one you sent from (terra1…)" value="' + esc(bound) + '"' + (bound ? ' readonly' : '') + '>'
-    + '<input id="tuHash" type="text" autocomplete="off" placeholder="Transaction hash (from your wallet, after you send)">'
-    + '<button class="abtn" id="tuBtn">Check my payment</button>'
+  if (j.priceOk)
+    h += '<p>Send <b>~' + Number(j.luncAmount).toLocaleString() + ' LUNC</b> — that\'s $' + esc(String(j.priceUsd)) + ' at the live price right now (1 LUNC ≈ $' + esc(String(j.luncUsd)) + '). Anything worth <b>$' + Number(j.minUsd).toFixed(2) + '</b> or more counts — a little room for the price to wiggle.</p>';
+  h += '<div id="tuWalletBox">' + tuWalletBoxHtml(j) + '</div>'
+    + tuPairHtml()
     + '<div class="amsg" id="tuMsg"></div>'
-    + '<p class="mut">Nothing is credited until the payment checks out on-chain: right wallet, your wallet as the sender, your memo on it, sent within the last 7 days, worth the week, and never used before.</p>';
+    + '<p class="mut">Nothing is credited until the payment checks out on-chain: it went to Tom\'s wallet, it came from your connected wallet, it was sent within the last 7 days, it is worth the week, and it was never used before. Your wallet also pays the network fee and the Terra Classic burn tax on top of the amount.</p>';
   el.innerHTML = h;
-  $('tuBtn').addEventListener('click', submitTopup);
-  const cm = $('tuCopyMemo');
-  if (cm) cm.addEventListener('click', async ()=>{
-    try{ await navigator.clipboard.writeText(j.memo); cm.textContent = '✅ Copied'; }
-    catch(e){
-      const wl = el.querySelectorAll('.wl')[1];
-      if (wl){ const r = document.createRange(); r.selectNodeContents(wl); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); }
-      cm.textContent = 'Selected — long-press to copy';
-    }
-    setTimeout(()=>{ const b = $('tuCopyMemo'); if (b) b.textContent = '📋 Copy the memo'; }, 2200);
-  });
-  $('tuCopy').addEventListener('click', async ()=>{
-    try{ await navigator.clipboard.writeText(j.wallet); $('tuCopy').textContent = '✅ Copied'; }
-    catch(e){
-      const r = document.createRange(); r.selectNodeContents(el.querySelector('.wl'));
-      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
-      $('tuCopy').textContent = 'Selected — long-press to copy';
-    }
-    setTimeout(()=>{ const b = $('tuCopy'); if (b) b.textContent = '📋 Copy the wallet'; }, 2200);
-  });
+  tuWireCard();
+  if (tuLastMsg.text) tuMsg(tuLastMsg.text, tuLastMsg.cls);
+  if (tuPairState.uri) tuShowPair(tuPairState.uri, tuPairState.dash, true);
 }
-async function submitTopup(){
-  const msg = $('tuMsg');
-  const say = (t, c)=>{ msg.textContent = t; msg.className = 'amsg ' + (c || ''); };
-  const sender = $('tuSender').value.trim();
-  const txHash = $('tuHash').value.trim();
-  if (!sender || !txHash){ say('Paste your wallet and the transaction hash first.', 'bad'); return; }
-  const btn = $('tuBtn'); btn.disabled = true;
-  say('Checking your payment on-chain…', '');
+function tuWireCard(){
+  const k = $('tuConnKeplr'); if (k) k.onclick = () => { if (tuIsMobileUA && !window.keplr) tuConnectKeplrMobile(); else tuConnectKeplr(); };
+  const g = $('tuConnGalaxy'); if (g) g.onclick = tuConnectGalaxy;
+  const d = $('tuConnDash'); if (d) d.onclick = tuConnectDash;
+  const p = $('tuPayBtn'); if (p) p.onclick = payTopup;
+  const c = $('tuChangeWallet'); if (c) c.onclick = tuChangeWallet;
+  const cp = $('tuPairCopy'); if (cp) cp.onclick = () => {
+    const inp = $('tuPairUri'); const v = inp && inp.value;
+    if (!v) return;
+    if (navigator.clipboard && navigator.clipboard.writeText)
+      navigator.clipboard.writeText(v).then(() => tuMsg('Pairing link copied — paste it into LUNCDash.'), () => { inp.select(); document.execCommand('copy'); });
+    else { inp.select(); document.execCommand('copy'); }
+  };
+  const oa = $('tuPairOpen'); if (oa) oa.onclick = () => {
+    setTimeout(() => {
+      if (!tuWallet && !document.hidden)
+        tuMsg('Still here? If LUNCDash did not open, tap 📋 COPY LINK and paste the pairing link into the app instead.');
+    }, 4000);
+  };
+}
+async function tuChangeWallet(){
+  const w = tuWallet;
+  tuWallet = null;
+  tuHidePair();
+  try {
+    if (w && (w.mode === 'galaxy' || w.mode === 'keplr-wc') && w.cw && w.cw.disconnect) await w.cw.disconnect();
+    if (w && w.mode === 'luncdash' && w.wc && w.wc.connected){ await w.wc.killSession(); try { localStorage.removeItem(TU_DASH_WC_KEY); } catch (e) {} }
+  } catch (e) {}
+  tuMsg('Wallet disconnected — pick a wallet to connect.');
+  renderTopup();
+}
+
+/* ---- sign + broadcast + submit ---- */
+async function tuSignAmino(addr, signDoc){
+  const w = tuWallet;
+  if (!w || w.addr !== addr) throw new Error('the connected wallet changed — nothing was sent');
+  if (w.mode === 'keplr'){
+    if (!window.keplr || !window.keplr.signAmino) throw tuNoPayError();
+    return window.keplr.signAmino(TU_CHAIN_ID, addr, signDoc);
+  }
+  if (w.mode === 'galaxy' || w.mode === 'keplr-wc'){
+    if (!w.cw || typeof w.cw.signAmino !== 'function') throw tuNoPayError();
+    return w.cw.signAmino(TU_CHAIN_ID, addr, signDoc, {});
+  }
+  if (w.mode === 'luncdash'){
+    const wc = w.wc;
+    if (!wc || !wc.connected) throw new Error('LUNCDash is not connected any more');
+    if (typeof wc.sendCustomRequest !== 'function') throw tuNoPayError();
+    const res = await wc.sendCustomRequest({ method: 'terra_signAmino', params: [addr, signDoc] });
+    const signed = res && (res.signed || res);
+    const signature = res && res.signature;
+    if (!signed || !signature || !signature.signature) throw new Error('LUNCDash did not return a signature');
+    return { signed, signature };
+  }
+  throw tuNoPayError();
+}
+async function tuLcdAccount(addr){
+  try {
+    const r = await fetch(TU_LCD + '/cosmos/auth/v1beta1/accounts/' + addr);
+    if (!r.ok) return null;
+    const j = await r.json();
+    let a = j && j.account;
+    if (!a) return null;
+    if (a.base_account) a = a.base_account;
+    return {
+      accountNumber: String(a.account_number || '0'),
+      sequence: Number(a.sequence || 0),
+      pubkey: (a.pub_key && a.pub_key.key) ? tuB64ToBytes(a.pub_key.key) : null,
+    };
+  } catch (e) { return null; }
+}
+async function payTopup(){
+  if (tuBusy) return;
+  const j = topupInfo;
+  if (!j || !j.enabled || !j.priceOk) return;
+  const w = tuWallet;
+  if (!w){ tuMsg('Connect your wallet first.', 'bad'); return; }
+  const bound = (j.seat && j.seat.wallet) || '';
+  if (bound && bound !== w.addr){ tuMsg('This seat renews from ' + bound + ' — connect that wallet to pay.', 'bad'); return; }
+  tuBusy = true;
+  try {
+    const amountMicro = (BigInt(Math.floor(Number(j.luncAmount))) * 1000000n).toString();
+    tuMsg('Reading your account from the chain…');
+    const acct = await tuLcdAccount(w.addr);
+    if (!acct){ tuMsg('That wallet has no account on-chain yet — it needs a little LUNC first. Nothing was sent.', 'bad'); return; }
+    const signDoc = tuBuildSignDoc({ from: w.addr, to: j.wallet, amountMicro, feeMicro: TU_FEE_MICRO, gasLimit: TU_GAS_LIMIT, accountNumber: acct.accountNumber, sequence: acct.sequence });
+    tuMsg('Check the payment in your wallet and approve it…');
+    let res = null;
+    try { res = await tuSignAmino(w.addr, signDoc); }
+    catch (e) {
+      if (e && e.noPayMethod) tuMsg(e.message, 'bad');
+      else tuMsg('The signing was declined or failed in the wallet — nothing was sent.', 'bad');
+      return;
+    }
+    const signed = res && res.signed, signature = res && res.signature;
+    if (!signed || !signature || !signature.signature){ tuMsg('The wallet did not return a signature — nothing was sent.', 'bad'); return; }
+    if (!tuSignedDocMatches(signDoc, signed)){ tuMsg('The wallet changed the payment — nothing was sent. Try again.', 'bad'); return; }
+    const pubkey = tuB64ToBytes(signature.pub_key && signature.pub_key.key) || acct.pubkey;
+    const sigBytes = tuB64ToBytes(signature.signature);
+    if (!pubkey || pubkey.length !== 33 || !sigBytes || sigBytes.length !== 64){ tuMsg('Could not read the signing key from the wallet — nothing was sent.', 'bad'); return; }
+    const txBytes = tuBuildTxBytes({ from: w.addr, to: j.wallet, amountMicro, memo: '', pubkey, sequence: Number(signed.sequence), feeMicro: signed.fee.amount[0].amount, gasLimit: Number(signed.fee.gas), signature: sigBytes });
+    tuMsg('Sending your payment…');
+    const bc = await fetch(TU_LCD + '/cosmos/tx/v1beta1/txs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tx_bytes: tuB64(txBytes), mode: 'BROADCAST_MODE_SYNC' }) });
+    const bj = await bc.json().catch(() => null);
+    const txResp = (bj && bj.tx_response) || {};
+    if (typeof txResp.code === 'number' && txResp.code !== 0){
+      tuMsg('The chain rejected that payment before it landed (code ' + txResp.code + ') — no LUNC moved. Check the wallet holds enough for the amount plus the network fee and the burn tax, then try again.', 'bad');
+      return;
+    }
+    const hash = txResp.txhash;
+    if (!hash){ tuMsg('The chain did not return a payment hash — check your wallet before trying again.', 'bad'); return; }
+    try { sessionStorage.setItem(TU_PENDING_KEY, JSON.stringify({ hash, addr: w.addr, at: Date.now() })); } catch (e) {}
+    await submitRenewal(w.addr, hash, 0);
+  } catch (e) {
+    tuMsg('Something went wrong before anything was credited — ' + String((e && e.message) || 'error').slice(0, 90), 'bad');
+  } finally { tuBusy = false; }
+}
+async function submitRenewal(addr, hash, attempt){
+  tuMsg('Payment sent — checking it on-chain…');
   let j = null;
-  try{ j = await api({action:'tdaRenewSubmit', hash: myHash(), sender, txHash}); }
-  catch(e){ j = null; }
-  btn.disabled = false;
-  if (!j){ say("Can't reach the server right now — your payment was not checked. Try again.", 'bad'); return; }
-  if (!j.ok){ say(j.error || 'That payment did not check out.', 'bad'); return; }
-  say('✅ Paid — worth $' + Number(j.usd).toFixed(2) + '. Your seat now runs through ' + fmtDate(j.paidThrough) + ' and your balance is ' + Number(j.tokens).toLocaleString() + ' tokens.', 'ok');
-  $('tuHash').value = '';
-  loadTopup();
-  refresh(true);
+  try { j = await api({ action: 'tdaRenewSubmit', hash: myHash(), sender: addr, txHash: hash }); } catch (e) { j = null; }
+  if (!j){ tuMsg("Can't reach the server right now — your payment is on-chain but hasn't been checked. Reopen this card in a minute and it will be checked again.", 'bad'); return; }
+  if (j.ok){
+    try { sessionStorage.removeItem(TU_PENDING_KEY); } catch (e) {}
+    tuMsg('✅ Paid — worth $' + Number(j.usd).toFixed(2) + '. Your seat now runs through ' + fmtDate(j.paidThrough) + ' and your balance is ' + Number(j.tokens).toLocaleString() + ' tokens.', 'ok');
+    refresh(true);
+    loadTopup();
+    return;
+  }
+  if (j.notFound && attempt < 10){
+    tuMsg('Payment sent — waiting for it to land on-chain…');
+    setTimeout(() => { submitRenewal(addr, hash, attempt + 1); }, 6000);
+    return;
+  }
+  if (j.alreadyUsed){
+    const before = topupInfo && topupInfo.seat ? topupInfo.seat.paidThrough : 0;
+    await loadTopup();
+    const nowPt = topupInfo && topupInfo.seat ? topupInfo.seat.paidThrough : 0;
+    if (nowPt && nowPt !== before){
+      try { sessionStorage.removeItem(TU_PENDING_KEY); } catch (e) {}
+      tuMsg('✅ Your payment already landed — your seat runs through ' + fmtDate(nowPt) + '.', 'ok');
+      return;
+    }
+  }
+  tuMsg(j.error || 'That payment did not check out.', 'bad');
+}
+function tuBootWallet(){
+  if (tuBooted) return;
+  tuBooted = true;
+  /* resume a payment that was broadcast but never submitted
+     (the tab closed right after signing, say) */
+  try {
+    const raw = sessionStorage.getItem(TU_PENDING_KEY);
+    if (raw){
+      const p = JSON.parse(raw);
+      if (p && p.hash && tuValidAddr(p.addr) && Date.now() - (p.at || 0) < 7 * 24 * 3600 * 1000)
+        submitRenewal(p.addr, p.hash, 0);
+      else sessionStorage.removeItem(TU_PENDING_KEY);
+    }
+  } catch (e) {}
+  try { tuRestoreDash(); } catch (e) {}
+  try { tuRestoreKit(); } catch (e) {}
 }
 
 /* ---- owner: renewal settings + the renewals list ---- */

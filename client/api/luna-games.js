@@ -2423,14 +2423,18 @@ export async function kavaCodeHandler(req, res) {
    (tdaSeatCode with generate: true).
    SEAT RENEWALS (Nov 13 reshape — replaces the earlier
    per-1,000-LUNC top-up rate idea): a seat costs $5 A WEEK,
-   paid in LUNC (tdaRenewSubmit). The seat pastes the wallet
-   it sent from + the transaction hash; the server reads the
-   tx itself (by-hash on the house Terra Classic LCD — the
-   house FCD host's single-tx path 404s, probed 2026-11-13;
-   the parser also accepts the FCD amino shape) and requires:
+   paid in LUNC (tdaRenewSubmit). The seat connects a wallet
+   on the card and presses one Pay button: the page signs a
+   plain bank send from the connected wallet and hands the
+   server the resulting hash (the wallet it connected as
+   the claimed sender). The server reads the tx itself
+   (by-hash on the house Terra Classic LCD — the house FCD
+   host's single-tx path 404s, probed 2026-11-13; the
+   parser also accepts the FCD amino shape) and requires:
    the tx succeeded, it carries a bank send TO the owner's
-   receiving wallet (tda:settings renewWallet), the sending
-   wallet matches the seat's wallet, and the hash was never
+   receiving wallet (tda:settings renewWallet), the send's
+   ACTUAL sender (read from the tx, never just the claim)
+   matches the seat's wallet, and the hash was never
    credited before (tda:renew:used:<txhash>, claimed with
    SET NX only AFTER every check passes, so a refused attempt
    never burns a hash). The LUNC sent is valued at the LIVE
@@ -2459,12 +2463,16 @@ export async function kavaCodeHandler(req, res) {
    successful renewal — and afterwards only that wallet's
    sends can renew the seat; a wallet bound to one active
    seat can never renew another.
-   MEMO + FRESHNESS (review hardening, Nov 13): the payment
-   must also carry the seat's renewal memo (TD-<seatId>) —
-   intent fixed at send time, so a chain-watcher can't claim
-   someone else's payment for their own seat, and an old
-   payment made for another purpose never qualifies — and
-   its block time must be within the last 7 days, so a cheap
+   NO MEMO (owner order, Nov 13 evening): the paste-a-memo
+   card was too confusing, so the payment carries NO memo
+   and attribution is the tx's actual sender + the wallet
+   binding — the connected wallet pays, its address is what
+   the chain shows as the sender, and that is what binds.
+   A payment that still carries THIS seat's TD- memo (sent
+   the old way) passes as before; a payment carrying a
+   DIFFERENT seat's TD- memo can never credit this seat.
+   FRESHNESS (review hardening, Nov 13): the payment's
+   block time must be within the last 7 days, so a cheap
    payment can't be warehoused against a later price rise.
    Prices are valued at the LOWER of the two house feeds
    when both answer; submits are throttled per seat and
@@ -2642,10 +2650,12 @@ function tdaTerraAddrStrict(v) {
   return tdaBech32Polymod(vals) === 1;
 }
 
-/* The memo a seat's renewal payment must carry. It names the
-   seat at SEND time — before the payment exists — so a public
-   hash can only ever renew the seat the payer intended, never
-   a watcher's seat. */
+/* A seat's renewal memo (TD-<seatId>). No longer required
+   on a payment — attribution is the tx's actual sender plus
+   the wallet binding — but it still names its seat: a
+   payment carrying one seat's memo can never credit
+   another, and tdaRenewInfo still hands it out for anyone
+   sending the old way. */
 function tdaRenewMemo(seatId) {
   return 'TD-' + String(seatId || '').toUpperCase();
 }
@@ -3304,7 +3314,7 @@ export async function tdaHandler(req, res) {
       return res.status(200).json({ ok: true, id, status: 'done', tokensLeft });
     }
 
-    /* ---- Seat renewals ($5/week in LUNC, paste-and-verify) ---- */
+    /* ---- Seat renewals ($5/week in LUNC, wallet-connect one-button) ---- */
 
     if (action === 'tdaRenewInfo') {
       const auth = await tdaAuthTier(req, res, tag, String(body.hash || '').toLowerCase(), 'any');
@@ -3334,9 +3344,14 @@ export async function tdaHandler(req, res) {
         return res.status(200).json({ ok: false, error: 'Renewals credit a seat — open the page with a seat code.' });
       }
       const seatId = String(auth.seat.id);
-      const sender = String(body.sender || '').trim().toLowerCase();
+      /* The claimed sender: the wallet the seat connected on
+         the card. It is a claim only — attribution below is
+         derived from the transaction itself, and the two
+         must agree. It may be omitted, in which case the tx
+         must name exactly one sender. */
+      const claimedSender = String(body.sender || '').trim().toLowerCase();
       const txhash = String(body.txHash || '').trim().toUpperCase();
-      if (!tdaTerraAddr(sender)) return res.status(400).json({ ok: false, error: 'That wallet address does not look right — paste the wallet you sent from.' });
+      if (claimedSender && !tdaTerraAddr(claimedSender)) return res.status(400).json({ ok: false, error: 'That wallet address does not look right.' });
       if (!/^[0-9A-F]{64}$/.test(txhash)) return res.status(400).json({ ok: false, error: 'That transaction hash does not look right — it is 64 characters, letters and numbers.' });
       const s = await tdaGetSettings();
       if (!s.renewSet) {
@@ -3361,6 +3376,53 @@ export async function tdaHandler(req, res) {
       if (tries > TDA_RENEW_TRY_MAX) {
         return res.status(200).json({ ok: false, error: 'Too many payment checks — wait a few minutes and try again.' });
       }
+      const tx = await tdaLookupTx(txhash);
+      if (!tx.found) {
+        return res.status(200).json({ ok: false, notFound: true, error: 'Payment not found yet — if you just sent it, wait a minute and try again.' });
+      }
+      if (!tx.success) {
+        return res.status(200).json({ ok: false, error: 'That transaction failed on-chain, so it cannot be used.' });
+      }
+      /* Attribution (no-memo flow): the payment's sender is
+         read from the transaction itself — the bank-send
+         legs that actually reached the renewal wallet. The
+         seat's claimed (connected) wallet must be the
+         wallet those legs came from; amounts are summed
+         over THAT sender's legs only, so a send bundled
+         with someone else's money never inflates this
+         seat's payment. With no claim, the tx must name
+         exactly one sender. */
+      const legsTo = tx.sends.filter(l => l.to === s.renewWallet && l.uluna > 0n);
+      if (!legsTo.length) {
+        return res.status(200).json({ ok: false, error: 'That payment did not go to the renewal wallet.' });
+      }
+      let sender = '', toWallet = 0n;
+      if (claimedSender) {
+        for (const leg of legsTo) if (leg.from === claimedSender) toWallet += leg.uluna;
+        if (toWallet === 0n) {
+          return res.status(200).json({ ok: false, error: 'That payment came from a different wallet than the one you connected.' });
+        }
+        sender = claimedSender;
+      } else {
+        const froms = [...new Set(legsTo.map(l => l.from))];
+        if (froms.length !== 1) {
+          return res.status(200).json({ ok: false, error: 'That payment came from more than one wallet, so it cannot be matched to this seat.' });
+        }
+        sender = froms[0];
+        for (const leg of legsTo) toWallet += leg.uluna;
+      }
+      /* No memo is required any more (owner order — the
+         memo card was too confusing). Two memo cases still
+         matter: a payment carrying THIS seat's TD- memo
+         (sent the old way) passes as before, and a payment
+         carrying a DIFFERENT seat's TD- memo was addressed
+         to that seat and can never credit this one. Any
+         other memo text is ignored. */
+      const memoSeen = String(tx.memo || '').trim();
+      const memoWant = tdaRenewMemo(seatId);
+      if (memoSeen && memoSeen !== memoWant && /^TD-/i.test(memoSeen)) {
+        return res.status(200).json({ ok: false, error: "That payment carries a different seat's renewal memo, so it can't renew this seat." });
+      }
       /* Wallet binding: only the seat's own wallet can renew
          it. An unbound seat binds the wallet of its first
          successful renewal — but never a wallet another
@@ -3378,35 +3440,6 @@ export async function tdaHandler(req, res) {
       const usedOut = await upstashPipeline([['GET', 'tda:renew:used:' + txhash]]);
       if (usedOut[0] && usedOut[0].result) {
         return res.status(200).json({ ok: false, alreadyUsed: true, error: 'That payment was already used.' });
-      }
-      const tx = await tdaLookupTx(txhash);
-      if (!tx.found) {
-        return res.status(200).json({ ok: false, notFound: true, error: 'Payment not found yet — if you just sent it, wait a minute and try again.' });
-      }
-      if (!tx.success) {
-        return res.status(200).json({ ok: false, error: 'That transaction failed on-chain, so it cannot be used.' });
-      }
-      let toWallet = 0n, anyToWallet = false;
-      for (const leg of tx.sends) {
-        if (leg.to === s.renewWallet) {
-          anyToWallet = true;
-          if (leg.from === sender) toWallet += leg.uluna;
-        }
-      }
-      if (!anyToWallet) {
-        return res.status(200).json({ ok: false, error: 'That payment did not go to the renewal wallet shown on this card.' });
-      }
-      if (toWallet === 0n) {
-        return res.status(200).json({ ok: false, error: 'That payment came from a different wallet than the one you pasted.' });
-      }
-      /* The memo is the payment's intent: it must name THIS
-         seat, exactly as shown on the seat's card. A payment
-         anyone can watch land on-chain still can't renew a
-         seat it wasn't addressed to, and an old payment for
-         something else never carried the memo at all. */
-      const memoWant = tdaRenewMemo(seatId);
-      if (String(tx.memo || '').trim() !== memoWant) {
-        return res.status(200).json({ ok: false, error: 'That payment does not carry your renewal memo — the memo must be exactly: ' + memoWant });
       }
       /* Freshness: the payment must be recent (block time
          from the chain, not the client's clock), so a seat
