@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Kava Gem Breaker — Kava Launchpad</title>
+<meta name="description" content="Smash the gem walls in the geode forge! A Kava Launchpad game.">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; overflow:hidden; background:#070608; }
+  body {
+    font-family:'Trebuchet MS','Segoe UI',Verdana,sans-serif; color:#ffeeda;
+    user-select:none; -webkit-user-select:none; touch-action:none;
+    display:flex; flex-direction:column;
+  }
+  /* ---------- header ---------- */
+  #hdr {
+    display:flex; align-items:center; gap:8px; padding:6px 10px;
+    background:linear-gradient(180deg, rgba(16,14,13,.97), rgba(9,8,8,.94));
+    border-bottom:2px solid rgba(255,166,35,.4); z-index:5;
+    box-shadow:0 2px 14px rgba(255,140,20,.18);
+  }
+  #hdr img.orb { width:40px; height:40px; border-radius:50%; box-shadow:0 0 12px rgba(255,120,40,.75); }
+  #hdr .ttl { line-height:1; white-space:nowrap; min-width:0; overflow:hidden; }
+  #hdr .ttl b {
+    font-size:13.5px; letter-spacing:0.2px; display:block; white-space:nowrap;
+    background:linear-gradient(180deg,#fff8ec,#ffd08a 45%,#f5a623 75%,#ffe9b0);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    filter:drop-shadow(0 2px 3px rgba(0,0,0,.55));
+  }
+  #hdr .ttl span { font-size:9px; letter-spacing:1.6px; color:#5fd8c6; font-weight:bold; white-space:nowrap; }
+  #hdr .sp { flex:1; }
+  .hbtn {
+    background:linear-gradient(180deg,#2e2a26,#17140f); color:#ffd9ae; border:1px solid rgba(255,170,80,.5);
+    border-radius:12px; padding:6px 9px; font-size:15px; cursor:pointer; font-family:inherit;
+  }
+  #langSel {
+    max-width:92px; background:linear-gradient(180deg,#2e2a26,#17140f); color:#ffd9ae;
+    border:1px solid rgba(255,170,80,.5); border-radius:12px; padding:6px 2px; font-size:11.5px;
+    font-family:inherit; cursor:pointer;
+  }
+  /* ---------- HUD ---------- */
+  #hud {
+    display:flex; gap:8px; align-items:center; padding:6px 10px; z-index:5;
+    background:linear-gradient(180deg, rgba(7,6,6,.9), rgba(7,6,6,.55) 80%, transparent);
+  }
+  .chip {
+    background:rgba(10,9,8,.78); border:1.5px solid rgba(255,170,80,.5); border-radius:999px;
+    padding:4px 12px; font-weight:bold; font-size:15px; color:#ffe9c9; white-space:nowrap;
+    box-shadow:inset 0 0 12px rgba(255,140,20,.18);
+  }
+  .chip small { color:#f5a623; font-size:10px; letter-spacing:1px; display:block; line-height:1; text-align:center; }
+  .chip .v { font-size:17px; }
+  #comboChip { border-color:rgba(95,216,198,.85); color:#a9f2e4; display:none; }
+  /* ---------- stage ---------- */
+  #wrap { position:relative; flex:1; overflow:hidden; }
+  canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  /* ---------- overlays ---------- */
+  .veil {
+    position:absolute; inset:0; z-index:8; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:12px; text-align:center; padding:18px;
+    background:radial-gradient(ellipse at 50% 35%, rgba(24,18,10,.5), rgba(4,3,3,.85) 75%);
+  }
+  .veil[hidden] { display:none; }
+  .bigtitle {
+    font-size:40px; letter-spacing:1px; font-weight:900; line-height:.98;
+    background:linear-gradient(180deg,#fff8ee,#ffd08a 40%,#f5a623 72%,#7df0dd);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    filter:drop-shadow(0 3px 6px rgba(0,0,0,.65));
+  }
+  .tag { font-size:16.5px; color:#ffdcae; max-width:420px; text-shadow:0 2px 6px #000; }
+  .how { font-size:13.5px; color:#f7c489; max-width:400px; line-height:1.45; text-shadow:0 1px 4px #000; }
+  .play {
+    font-family:inherit; font-weight:900; font-size:20px; letter-spacing:1px; cursor:pointer;
+    color:#3a2104; background:linear-gradient(180deg,#ffe9a8,#ffc63e 55%,#f5a623);
+    border:2px solid #fff0bc; border-radius:999px; padding:13px 42px;
+    box-shadow:0 0 22px rgba(255,170,40,.5), 0 5px 0 #8a4d05;
+  }
+  .play:active { transform:translateY(3px); box-shadow:0 0 22px rgba(255,170,40,.5), 0 2px 0 #8a4d05; }
+  .play.alt {
+    color:#ffdcae; background:linear-gradient(180deg,#2e2a26,#171310);
+    border-color:rgba(255,160,90,.55); box-shadow:0 4px 0 #0a0806; font-size:15px; padding:10px 22px;
+  }
+  .play[disabled] { opacity:.55; }
+  .scorebig { font-size:26px; font-weight:900; color:#ffd76a; text-shadow:0 2px 8px #000; }
+  .bestline { font-size:14px; color:#ffcf9e; }
+  .newbest { color:#ffe98a; font-weight:900; letter-spacing:1px; animation:pulse 0.8s infinite alternate; }
+  @keyframes pulse { from{ transform:scale(1);} to{ transform:scale(1.09);} }
+  #nameInput {
+    font-family:inherit; font-size:16px; text-align:center; padding:9px 12px; width:min(260px,80vw);
+    border-radius:12px; border:1.5px solid rgba(255,170,80,.6); background:rgba(14,12,10,.92); color:#ffe9c9;
+  }
+  .status { min-height:20px; font-size:14px; color:#ffd76a; text-shadow:0 1px 4px #000; }
+  #boardList { width:min(360px,88vw); max-height:46vh; overflow-y:auto; }
+  #boardList .row {
+    display:flex; align-items:center; gap:8px; padding:6px 12px; margin:4px 0;
+    background:rgba(14,12,10,.82); border:1px solid rgba(255,150,60,.32); border-radius:12px; font-size:15px;
+  }
+  #boardList .rk { color:#ffb066; font-weight:900; min-width:30px; }
+  #boardList .nm { flex:1; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #boardList .sc { font-weight:900; color:#ffd76a; }
+  .tabs { display:flex; gap:8px; }
+  #toast {
+    position:absolute; left:50%; bottom:14px; transform:translateX(-50%); z-index:9;
+    background:rgba(14,12,10,.93); border:1px solid rgba(255,170,80,.6); color:#ffe9c9;
+    padding:7px 16px; border-radius:999px; font-size:14px; opacity:0; transition:opacity .25s; pointer-events:none;
+  }
+</style>
+</head>
+<body>
+<div id="hdr">
+  <img class="orb" src="assets/kl-orb.png" alt="KL">
+  <div class="ttl"><b>KAVA GEM BREAKER</b><span>KAVA LAUNCHPAD</span></div>
+  <div class="sp"></div>
+  <button class="hbtn" id="boardBtn" title="Leaderboard">🏆</button>
+  <button class="hbtn" id="muteBtn">🔊</button>
+  <select id="langSel" aria-label="Language"></select>
+</div>
+<div id="hud">
+  <div class="chip"><small id="scoreLbl">SCORE</small><span class="v" id="scoreV">0</span></div>
+  <div class="chip" id="comboChip">🔗 <span class="v" id="comboV">x2</span></div>
+  <div class="chip"><small id="wallLbl">WALL</small><span class="v" id="wallV">1</span></div>
+  <div class="sp" style="flex:1"></div>
+  <div class="chip"><small id="ballsLbl">BALLS</small><span class="v" id="ballsV">🔮🔮🔮</span></div>
+  <div class="chip"><small id="bestLbl">BEST</small><span class="v" id="bestV">0</span></div>
+</div>
+<div id="wrap">
+  <canvas id="cv"></canvas>
+
+  <div class="veil" id="startScreen">
+    <img src="assets/kl-orb.png" alt="" style="width:74px;height:74px;border-radius:50%;box-shadow:0 0 26px rgba(255,140,30,.8)">
+    <div class="bigtitle">KAVA<br>GEM BREAKER</div>
+    <div class="tag" id="tagline">Smash the gem walls!</div>
+    <div class="how" id="howto">Drag to move the paddle and bounce the orb into the gem wall. Chain breaks for combo multipliers, catch falling gems for bonuses — clear the wall to forge deeper!</div>
+    <button class="play" id="startBtn">▶ PLAY</button>
+    <button class="play alt" id="startBoardBtn">🏆 Leaderboard</button>
+  </div>
+
+  <div class="veil" id="overScreen" hidden>
+    <div class="bigtitle" id="overTitle" style="font-size:36px">GAME OVER</div>
+    <div class="scorebig"><span id="yourScoreLbl">Your score</span>: <span id="finalScore">0</span></div>
+    <div class="bestline"><span id="bestLbl2">Best</span>: <span id="finalBest">0</span> <span class="newbest" id="newBest" hidden>★ NEW BEST!</span></div>
+    <input id="nameInput" maxlength="16" autocomplete="off">
+    <button class="play" id="submitBtn" style="font-size:16px; padding:11px 30px">Submit score</button>
+    <div class="status" id="submitStatus"></div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:center">
+      <button class="play alt" id="againBtn">↻ Play again</button>
+      <button class="play alt" id="overBoardBtn">🏆 Leaderboard</button>
+    </div>
+  </div>
+
+  <div class="veil" id="boardScreen" hidden>
+    <div class="bigtitle" style="font-size:30px">🏆 <span id="boardTitle">Leaderboard</span></div>
+    <div class="tabs">
+      <button class="play" id="tabAll" style="font-size:14px; padding:8px 18px">All-time</button>
+      <button class="play alt" id="tabWeek" style="font-size:14px; padding:8px 18px">This week</button>
+    </div>
+    <div id="boardList"></div>
+    <button class="play alt" id="boardClose">✕ Close</button>
+  </div>
+
+  <div id="toast"></div>
+</div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+
+/* ================= I18N (shared 18-language pattern) ================= */
+const LANGS=[["en","English"],["es","Español"],["pt","Português"],["fr","Français"],["de","Deutsch"],["it","Italiano"],["nl","Nederlands"],["ru","Русский"],["uk","Українська"],["tr","Türkçe"],["ar","العربية"],["hi","हिन्दी"],["id","Bahasa Indonesia"],["vi","Tiếng Việt"],["th","ไทย"],["ko","한국어"],["ja","日本語"],["zh","简体中文"]];
+const I18N={
+en:{tagline:"Smash the gem walls!",howto:"Drag to move the paddle and bounce the orb into the gem wall. Chain breaks for combo multipliers, catch falling gems for bonuses — clear the wall to forge deeper!",play:"▶ PLAY",score:"SCORE",best:"BEST",wall:"WALL",balls:"BALLS",board:"Leaderboard",all:"All-time",week:"This week",loading:"Loading…",boardOff:"Board unavailable right now.",noScores:"No scores yet — be the first! 🏆",over:"GAME OVER",yourScore:"Your score",namePh:"Your name",submit:"Submit score",saving:"Saving…",saved:"Saved!",couldNot:"Could not save — try again.",again:"↻ Play again",close:"✕ Close",clearW:"WALL CLEARED!",wide:"WIDE PADDLE!",bonus:"+BONUS GEM!",newBest:"★ NEW BEST!"},
+es:{tagline:"¡Rompe los muros de gemas!",howto:"Arrastra para mover la paleta y rebotar la esfera contra el muro de gemas. Encadena roturas para multiplicar el combo, atrapa las gemas que caen para bonificaciones: ¡limpia el muro y avanza en la forja!",play:"▶ JUGAR",score:"PUNTOS",best:"RÉCORD",wall:"MURO",balls:"ESFERAS",board:"Clasificación",all:"Histórico",week:"Esta semana",loading:"Cargando…",boardOff:"Clasificación no disponible ahora.",noScores:"Aún no hay puntos. ¡Sé el primero! 🏆",over:"FIN DEL JUEGO",yourScore:"Tus puntos",namePh:"Tu nombre",submit:"Enviar puntos",saving:"Guardando…",saved:"¡Guardado!",couldNot:"No se pudo guardar. Inténtalo de nuevo.",again:"↻ Jugar otra vez",close:"✕ Cerrar",clearW:"¡MURO LIMPIO!",wide:"¡PALETA ANCHA!",bonus:"+¡GEMA BONUS!",newBest:"★ ¡NUEVO RÉCORD!"},
+pt:{tagline:"Quebre os muros de gemas!",howto:"Arraste para mover a raquete e rebater a esfera no muro de gemas. Encadeie quebras para multiplicar o combo, pegue as gemas que caem para bônus — limpe o muro e avance na forja!",play:"▶ JOGAR",score:"PONTOS",best:"RECORDE",wall:"MURO",balls:"ESFERAS",board:"Classificação",all:"Geral",week:"Esta semana",loading:"Carregando…",boardOff:"Classificação indisponível agora.",noScores:"Sem pontos ainda — seja o primeiro! 🏆",over:"FIM DE JOGO",yourScore:"Seus pontos",namePh:"Seu nome",submit:"Enviar pontos",saving:"Salvando…",saved:"Salvo!",couldNot:"Não foi possível salvar — tente de novo.",again:"↻ Jogar de novo",close:"✕ Fechar",clearW:"MURO LIMPO!",wide:"RAQUETE LARGA!",bonus:"+GEMA BÔNUS!",newBest:"★ NOVO RECORDE!"},
+fr:{tagline:"Brise les murs de gemmes !",howto:"Fais glisser pour déplacer la raquette et renvoyer l'orbe dans le mur de gemmes. Enchaîne les casses pour multiplier le combo, attrape les gemmes qui tombent pour des bonus — dégage le mur pour forger plus loin !",play:"▶ JOUER",score:"SCORE",best:"RECORD",wall:"MUR",balls:"ORBE",board:"Classement",all:"Tout temps",week:"Cette semaine",loading:"Chargement…",boardOff:"Classement indisponible pour le moment.",noScores:"Pas encore de scores — à toi la première place ! 🏆",over:"PARTIE TERMINÉE",yourScore:"Ton score",namePh:"Ton nom",submit:"Envoyer le score",saving:"Enregistrement…",saved:"Enregistré !",couldNot:"Échec de l'enregistrement — réessaie.",again:"↻ Rejouer",close:"✕ Fermer",clearW:"MUR DÉGAGÉ !",wide:"RAQUETTE LARGE !",bonus:"+GEMME BONUS !",newBest:"★ NOUVEAU RECORD !"},
+de:{tagline:"Zerschlage die Edelsteinmauern!",howto:"Ziehe, um das Paddel zu bewegen und die Kugel in die Edelsteinmauer zu prallen. Verkette Treffer für Combo-Multiplikatoren, fange fallende Edelsteine für Boni — räume die Mauer frei und schmiede dich tiefer!",play:"▶ SPIELEN",score:"PUNKTE",best:"BESTLEISTUNG",wall:"MAUER",balls:"KUGELN",board:"Rangliste",all:"Gesamt",week:"Diese Woche",loading:"Lädt…",boardOff:"Rangliste gerade nicht verfügbar.",noScores:"Noch keine Punkte — sei der Erste! 🏆",over:"SPIEL VORBEI",yourScore:"Deine Punkte",namePh:"Dein Name",submit:"Punkte senden",saving:"Speichert…",saved:"Gespeichert!",couldNot:"Speichern fehlgeschlagen — versuch es erneut.",again:"↻ Nochmal spielen",close:"✕ Schließen",clearW:"MAUER GERÄUMT!",wide:"BREITES PADDEL!",bonus:"+BONUS-EDELSTEIN!",newBest:"★ NEUER REKORD!"},
+it:{tagline:"Distruggi i muri di gemme!",howto:"Trascina per muovere la paletta e rimbalzare la sfera contro il muro di gemme. Collega le rotture per moltiplicare la combo, acchiappa le gemme cadenti per i bonus: libera il muro e avanza nella forgia!",play:"▶ GIOCA",score:"PUNTI",best:"RECORD",wall:"MURO",balls:"SFERE",board:"Classifica",all:"Di sempre",week:"Questa settimana",loading:"Caricamento…",boardOff:"Classifica non disponibile ora.",noScores:"Nessun punteggio ancora — sii il primo! 🏆",over:"PARTITA FINITA",yourScore:"I tuoi punti",namePh:"Il tuo nome",submit:"Invia punti",saving:"Salvataggio…",saved:"Salvato!",couldNot:"Salvataggio non riuscito — riprova.",again:"↻ Gioca ancora",close:"✕ Chiudi",clearW:"MURO LIBERATO!",wide:"PALETTA LARGA!",bonus:"+GEMMA BONUS!",newBest:"★ NUOVO RECORD!"},
+nl:{tagline:"Breek de edelsteenmuren!",howto:"Sleep om het batje te bewegen en de bal in de edelsteenmuur te kaatsen. Koppel breuken voor combo-vermenigvuldigers, vang vallende edelstenen voor bonussen — ruim de muur op en smeed dieper!",play:"▶ SPELEN",score:"SCORE",best:"BESTE",wall:"MUUR",balls:"BALLEN",board:"Ranglijst",all:"Allertijden",week:"Deze week",loading:"Laden…",boardOff:"Ranglijst nu niet beschikbaar.",noScores:"Nog geen scores — wees de eerste! 🏆",over:"SPEL VOORBIJ",yourScore:"Jouw score",namePh:"Jouw naam",submit:"Score verzenden",saving:"Opslaan…",saved:"Opgeslagen!",couldNot:"Opslaan mislukt — probeer opnieuw.",again:"↻ Opnieuw spelen",close:"✕ Sluiten",clearW:"MUUR GERUIMD!",wide:"BREED BATJE!",bonus:"+BONUS-EDELSTEEN!",newBest:"★ NIEUW RECORD!"},
+ru:{tagline:"Круши стены из самоцветов!",howto:"Веди лопатку, чтобы отбивать шар в стену из самоцветов. Собирай цепочки разрушений ради множителя комбо, лови падающие самоцветы ради бонусов — расчисти стену и куй глубже!",play:"▶ ИГРАТЬ",score:"ОЧКИ",best:"РЕКОРД",wall:"СТЕНА",balls:"ШАРЫ",board:"Таблица лидеров",all:"За всё время",week:"Эта неделя",loading:"Загрузка…",boardOff:"Таблица сейчас недоступна.",noScores:"Очков пока нет — стань первым! 🏆",over:"ИГРА ОКОНЧЕНА",yourScore:"Твои очки",namePh:"Твоё имя",submit:"Отправить результат",saving:"Сохраняем…",saved:"Сохранено!",couldNot:"Не удалось сохранить — попробуй ещё раз.",again:"↻ Играть снова",close:"✕ Закрыть",clearW:"СТЕНА РАСЧИЩЕНА!",wide:"ШИРОКАЯ ЛОПАТКА!",bonus:"+БОНУСНЫЙ САМОЦВЕТ!",newBest:"★ НОВЫЙ РЕКОРД!"},
+uk:{tagline:"Трощи стіни з самоцвітів!",howto:"Веди лопатку, щоб відбивати кулю в стіну з самоцвітів. Ланцюж руйнувань дає множник комбо, лови падаючі самоцвіти заради бонусів — розчисти стіну й куй глибше!",play:"▶ ГРАТИ",score:"ОЧКИ",best:"РЕКОРД",wall:"СТІНА",balls:"КУЛІ",board:"Таблиця лідерів",all:"За весь час",week:"Цей тиждень",loading:"Завантаження…",boardOff:"Таблиця зараз недоступна.",noScores:"Очок ще немає — стань першим! 🏆",over:"ГРУ ЗАВЕРШЕНО",yourScore:"Твої очки",namePh:"Твоє ім'я",submit:"Надіслати результат",saving:"Зберігаємо…",saved:"Збережено!",couldNot:"Не вдалося зберегти — спробуй ще раз.",again:"↻ Грати знову",close:"✕ Закрити",clearW:"СТІНУ РОЗЧИЩЕНО!",wide:"ШИРОКА ЛОПАТКА!",bonus:"+БОНУСНИЙ САМОЦВІТ!",newBest:"★ НОВИЙ РЕКОРД!"},
+tr:{tagline:"Mücevher duvarlarını parçala!",howto:"Kürek hareketi için sürükle ve topu mücevher duvarına sektir. Kırma zincirleriyle kombo çarpanını büyüt, düşen mücevherleri bonus için yakala — duvarı temizle ve demirhanede derine in!",play:"▶ OYNA",score:"SKOR",best:"REKOR",wall:"DUVAR",balls:"TOPLAR",board:"Liderlik Tablosu",all:"Tüm zamanlar",week:"Bu hafta",loading:"Yükleniyor…",boardOff:"Tablo şu anda kullanılamıyor.",noScores:"Henüz skor yok — ilk sen ol! 🏆",over:"OYUN BİTTİ",yourScore:"Skorun",namePh:"Adın",submit:"Skoru gönder",saving:"Kaydediliyor…",saved:"Kaydedildi!",couldNot:"Kaydedilemedi — tekrar dene.",again:"↻ Tekrar oyna",close:"✕ Kapat",clearW:"DUVAR TEMİZLENDİ!",wide:"GENİŞ KÜREK!",bonus:"+BONUS MÜCEVHER!",newBest:"★ YENİ REKOR!"},
+ar:{tagline:"حطّم جدران الأحجار الكريمة!",howto:"اسحب لتحريك المضرب وارتداد الكرة إلى جدار الأحجار. اربط التحطيمات لمضاعفات الكومبو، وامسك الأحجار الساقطة للمكافآت — نظّف الجدار وتقدّم في المسبك!",play:"▶ العب",score:"النقاط",best:"الأفضل",wall:"الجدار",balls:"الكرات",board:"لوحة المتصدرين",all:"كل الأوقات",week:"هذا الأسبوع",loading:"جارٍ التحميل…",boardOff:"اللوحة غير متاحة الآن.",noScores:"لا نقاط بعد — كن الأول! 🏆",over:"انتهت اللعبة",yourScore:"نقاطك",namePh:"اسمك",submit:"إرسال النقاط",saving:"جارٍ الحفظ…",saved:"تم الحفظ!",couldNot:"تعذّر الحفظ — حاول مجددًا.",again:"↻ العب مجددًا",close:"✕ إغلاق",clearW:"تم تنظيف الجدار!",wide:"مضرب عريض!",bonus:"+حجر إضافي!",newBest:"★ رقم قياسي جديد!"},
+hi:{tagline:"रत्नों की दीवारें तोड़ो!",howto:"पैडल हिलाने के लिए खींचो और गेंद को रत्नों की दीवार से टकराओ। तोड़ने की शृंखला से कॉम्बो गुणक बढ़ाओ, गिरते रत्न पकड़कर बोनस पाओ — दीवार साफ़ करो और भट्ठी में आगे बढ़ो!",play:"▶ खेलो",score:"स्कोर",best:"सर्वश्रेष्ठ",wall:"दीवार",balls:"गेंदें",board:"लीडरबोर्ड",all:"सर्वकालिक",week:"इस सप्ताह",loading:"लोड हो रहा है…",boardOff:"बोर्ड अभी उपलब्ध नहीं है।",noScores:"अभी कोई स्कोर नहीं — पहले बनो! 🏆",over:"खेल खत्म",yourScore:"तुम्हारा स्कोर",namePh:"तुम्हारा नाम",submit:"स्कोर भेजो",saving:"सहेज रहे हैं…",saved:"सहेजा गया!",couldNot:"सहेज नहीं पाए — फिर कोशिश करो।",again:"↻ फिर खेलो",close:"✕ बंद करो",clearW:"दीवार साफ़!",wide:"चौड़ा पैडल!",bonus:"+बोनस रत्न!",newBest:"★ नया रिकॉर्ड!"},
+id:{tagline:"Hancurkan dinding permata!",howto:"Seret untuk menggerakkan dayung dan memantulkan bola ke dinding permata. Rangkai pecahan untuk pengganda kombo, tangkap permata jatuh untuk bonus — bersihkan dinding dan tempa lebih dalam!",play:"▶ MAIN",score:"SKOR",best:"TERBAIK",wall:"DINDING",balls:"BOLA",board:"Papan Peringkat",all:"Sepanjang masa",week:"Minggu ini",loading:"Memuat…",boardOff:"Papan tidak tersedia sekarang.",noScores:"Belum ada skor — jadilah yang pertama! 🏆",over:"PERMAINAN SELESAI",yourScore:"Skormu",namePh:"Namamu",submit:"Kirim skor",saving:"Menyimpan…",saved:"Tersimpan!",couldNot:"Gagal menyimpan — coba lagi.",again:"↻ Main lagi",close:"✕ Tutup",clearW:"DINDING BERSIH!",wide:"DAYUNG LEBAR!",bonus:"+PERMATA BONUS!",newBest:"★ REKOR BARU!"},
+vi:{tagline:"Phá vỡ các bức tường đá quý!",howto:"Kéo để di chuyển vợt và nảy bóng vào tường đá quý. Nối các lần phá để nhân hệ số combo, bắt đá quý rơi để nhận thưởng — dọn sạch tường và tiến sâu vào lò rèn!",play:"▶ CHƠI",score:"ĐIỂM",best:"CAO NHẤT",wall:"TƯỜNG",balls:"BÓNG",board:"Bảng xếp hạng",all:"Mọi thời đại",week:"Tuần này",loading:"Đang tải…",boardOff:"Bảng hiện không khả dụng.",noScores:"Chưa có điểm — hãy là người đầu tiên! 🏆",over:"KẾT THÚC",yourScore:"Điểm của bạn",namePh:"Tên của bạn",submit:"Gửi điểm",saving:"Đang lưu…",saved:"Đã lưu!",couldNot:"Không lưu được — thử lại.",again:"↻ Chơi lại",close:"✕ Đóng",clearW:"ĐÃ DỌN TƯỜNG!",wide:"VỢT RỘNG!",bonus:"+ĐÁ QUÝ THƯỞNG!",newBest:"★ KỶ LỤC MỚI!"},
+th:{tagline:"ทุบกำแพงอัญมณีให้แตก!",howto:"ลากเพื่อขยับไม้พายและเด้งลูกบอลเข้ากำแพงอัญมณี โซ่การทำลายเพื่อตัวคูณคอมโบ จับอัญมณีที่ร่วงลงมาเพื่อโบนัส — เคลียร์กำแพงแล้วตีเหล็กลึกลงไป!",play:"▶ เล่น",score:"คะแนน",best:"ดีที่สุด",wall:"กำแพง",balls:"ลูกบอล",board:"ตารางคะแนน",all:"ตลอดกาล",week:"สัปดาห์นี้",loading:"กำลังโหลด…",boardOff:"ตารางไม่พร้อมใช้งานตอนนี้",noScores:"ยังไม่มีคะแนน — เป็นคนแรกเลย! 🏆",over:"จบเกม",yourScore:"คะแนนของคุณ",namePh:"ชื่อของคุณ",submit:"ส่งคะแนน",saving:"กำลังบันทึก…",saved:"บันทึกแล้ว!",couldNot:"บันทึกไม่สำเร็จ — ลองอีกครั้ง",again:"↻ เล่นอีกครั้ง",close:"✕ ปิด",clearW:"เคลียร์กำแพงแล้ว!",wide:"ไม้พายกว้าง!",bonus:"+อัญมณีโบนัส!",newBest:"★ สถิติใหม่!"},
+ko:{tagline:"보석 벽을 부숴라!",howto:"드래그해서 패들을 움직이고 공을 보석 벽에 튕기세요. 연속 파괴로 콤보 배율을 올리고, 떨어지는 보석을 잡아 보너스를 받으세요 — 벽을 비우고 대장간 깊숙이 나아가세요!",play:"▶ 플레이",score:"점수",best:"최고 기록",wall:"벽",balls:"공",board:"리더보드",all:"전체 기간",week:"이번 주",loading:"로딩 중…",boardOff:"지금은 보드를 볼 수 없어요.",noScores:"아직 점수가 없어요 — 첫 번째가 되세요! 🏆",over:"게임 오버",yourScore:"내 점수",namePh:"이름",submit:"점수 제출",saving:"저장 중…",saved:"저장됨!",couldNot:"저장 실패 — 다시 시도하세요.",again:"↻ 다시 플레이",close:"✕ 닫기",clearW:"벽 청소 완료!",wide:"넓은 패들!",bonus:"+보너스 보석!",newBest:"★ 신기록!"},
+ja:{tagline:"ジェムの壁を砕こう！",howto:"ドラッグでパドルを動かし、ボールをジェムの壁に跳ね返そう。連続で壊してコンボ倍率を上げ、落ちてくるジェムをキャッチしてボーナス — 壁をクリアして鍛冶場の奥へ！",play:"▶ プレイ",score:"スコア",best:"ベスト",wall:"壁",balls:"ボール",board:"リーダーボード",all:"総合",week:"今週",loading:"読み込み中…",boardOff:"現在ボードは利用できません。",noScores:"まだスコアがありません — 一番乗りしよう！ 🏆",over:"ゲームオーバー",yourScore:"あなたのスコア",namePh:"あなたの名前",submit:"スコアを送信",saving:"保存中…",saved:"保存しました！",couldNot:"保存できませんでした — もう一度お試しください。",again:"↻ もう一度プレイ",close:"✕ 閉じる",clearW:"壁クリア！",wide:"ワイドパドル！",bonus:"+ボーナスジェム！",newBest:"★ 新記録！"},
+zh:{tagline:"砸碎宝石墙！",howto:"拖动移动球拍，把宝珠弹向宝石墙。连锁击碎可提升连击倍率，接住掉落的宝石获得奖励——清空墙体，向熔炉深处进发！",play:"▶ 开始游戏",score:"分数",best:"最高分",wall:"墙",balls:"宝珠",board:"排行榜",all:"总榜",week:"本周",loading:"加载中…",boardOff:"排行榜暂时不可用。",noScores:"暂无分数——来当第一名！🏆",over:"游戏结束",yourScore:"你的分数",namePh:"你的名字",submit:"提交分数",saving:"保存中…",saved:"已保存！",couldNot:"保存失败——请重试。",again:"↻ 再玩一次",close:"✕ 关闭",clearW:"墙已清空！",wide:"加宽球拍！",bonus:"+奖励宝石！",newBest:"★ 新纪录！"}
+};
+let LANG = localStorage.getItem('kavaBreakerLang') || 'en'; if (!I18N[LANG]) LANG = 'en';
+function T(k){ const d = I18N[LANG]; return (d && d[k]) || I18N.en[k] || k; }
+const langSel = $('langSel');
+LANGS.forEach(([code, label]) => { const o = document.createElement('option'); o.value = code; o.textContent = '🌐 ' + label; langSel.appendChild(o); });
+langSel.value = LANG;
+function applyLang(){
+  document.documentElement.lang = LANG;
+  $('tagline').textContent = T('tagline');
+  $('howto').textContent = T('howto');
+  $('startBtn').textContent = T('play');
+  $('startBoardBtn').textContent = '🏆 ' + T('board');
+  $('scoreLbl').textContent = T('score');
+  $('bestLbl').textContent = T('best');
+  $('bestLbl2').textContent = T('best');
+  $('wallLbl').textContent = T('wall');
+  $('ballsLbl').textContent = T('balls');
+  $('overTitle').textContent = T('over');
+  $('yourScoreLbl').textContent = T('yourScore');
+  $('nameInput').placeholder = T('namePh');
+  $('submitBtn').textContent = T('submit');
+  $('againBtn').textContent = T('again');
+  $('overBoardBtn').textContent = '🏆 ' + T('board');
+  $('boardTitle').textContent = T('board');
+  $('tabAll').textContent = T('all');
+  $('tabWeek').textContent = T('week');
+  $('boardClose').textContent = T('close');
+  $('newBest').textContent = T('newBest');
+  if (boardData || boardErr) renderBoard();
+}
+langSel.onchange = () => { LANG = langSel.value; localStorage.setItem('kavaBreakerLang', LANG); applyLang(); };
+
+/* ================= telegram ================= */
+try { if (window.Telegram && window.Telegram.WebApp) { window.Telegram.WebApp.ready(); window.Telegram.WebApp.expand(); } } catch (e) {}
+
+/* ================= assets ================= */
+const IMG = {};
+function loadImg(key, src){ const i = new Image(); i.src = src; IMG[key] = i; }
+loadImg('bg', 'assets/bg.jpg');
+loadImg('orb', 'assets/kl-orb.png');
+
+/* ================= audio (tiny synth) ================= */
+let AC = null, muted = localStorage.getItem('kavaBreakerMute') === '1';
+function ensureAudio(){ if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } if (AC && AC.state === 'suspended') AC.resume(); }
+function blip(f0, f1, dur, type, vol){
+  if (!AC || muted) return;
+  const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(f0, t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(30, f1), t + dur);
+  g.gain.setValueAtTime(vol || 0.12, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g); g.connect(AC.destination);
+  o.start(t); o.stop(t + dur);
+}
+const sndBreak = chain => blip(340 + Math.min(chain, 24) * 26, 760 + Math.min(chain, 24) * 34, 0.11, 'triangle', 0.13);
+const sndPaddle = () => blip(190, 130, 0.07, 'square', 0.07);
+const sndWallHit = () => blip(140, 110, 0.05, 'square', 0.05);
+const sndBonus = () => { blip(660, 990, 0.1, 'sine', 0.12); setTimeout(() => blip(990, 1320, 0.12, 'sine', 0.12), 70); };
+const sndLose = () => blip(300, 55, 0.4, 'sawtooth', 0.11);
+const sndClear = () => { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => blip(f, f, 0.16, 'triangle', 0.12), i * 85)); };
+const sndOver = () => { blip(392, 392, 0.16, 'triangle', 0.12); setTimeout(() => blip(311, 311, 0.16, 'triangle', 0.12), 150); setTimeout(() => blip(233, 180, 0.34, 'triangle', 0.12), 300); };
+$('muteBtn').textContent = muted ? '🔇' : '🔊';
+$('muteBtn').onclick = () => { muted = !muted; localStorage.setItem('kavaBreakerMute', muted ? '1' : '0'); $('muteBtn').textContent = muted ? '🔇' : '🔊'; if (!muted) ensureAudio(); };
+
+/* ================= game state ================= */
+const cv = $('cv'), ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+function resize(){
+  const r = $('wrap').getBoundingClientRect();
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = Math.max(280, r.width); H = Math.max(320, r.height);
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  layout();
+}
+addEventListener('resize', resize);
+
+/* ---- gem types: colour = points ---- */
+const GEMS = {
+  amber:   { pts: 50,  hi: '#ffe9a8', mid: '#f5a623', lo: '#8a4d05', glow: 'rgba(245,166,35,0.85)' },
+  teal:    { pts: 75,  hi: '#c8fff4', mid: '#19b8a6', lo: '#0a5a50', glow: 'rgba(25,184,166,0.85)' },
+  ruby:    { pts: 100, hi: '#ffc2cd', mid: '#e0344e', lo: '#7d0a28', glow: 'rgba(224,52,78,0.85)' },
+  violet:  { pts: 150, hi: '#e2d6ff', mid: '#8b5cf6', lo: '#4c1d95', glow: 'rgba(139,92,246,0.85)' },
+  diamond: { pts: 250, hi: '#ffffff', mid: '#bfe6ff', lo: '#4d7fa8', glow: 'rgba(170,225,255,0.9)' },
+};
+const ROW_CYCLE = ['amber', 'teal', 'ruby', 'teal', 'amber', 'violet', 'ruby', 'diamond'];
+
+/* ---- field geometry ---- */
+const field = { left: 10, right: 0, top: 10, cols: 8, bw: 0, bh: 0, wallTop: 0 };
+const paddle = { x: 0, tx: 0, w: 0, baseW: 0, h: 13, y: 0, wideT: 0 };
+const ball = { x: 0, y: 0, vx: 0, vy: 0, r: 8, speed: 0, stuck: true };
+let blocks = [], drops = [], parts = [], pops = [];
+let state = 'menu'; // menu | play | over
+let score = 0, best = +(localStorage.getItem('kavaBreakerBest') || 0);
+let ballsLeft = 3, wall = 1, chain = 0, elapsed = 0, startStamp = 0, bannerT = 0;
+
+function layout(){
+  field.right = W - 10;
+  field.cols = clamp(Math.round((W - 20) / 46), 6, 10);
+  field.bw = (field.right - field.left) / field.cols;
+  field.bh = clamp(H * 0.034, 18, 28);
+  field.wallTop = Math.round(H * 0.085);
+  paddle.baseW = clamp(W * 0.235, 74, 150);
+  paddle.w = paddle.baseW * (paddle.wideT > 0 ? 1.5 : 1);
+  paddle.y = H - clamp(H * 0.085, 44, 76);
+  if (!paddle.x) { paddle.x = W / 2; paddle.tx = W / 2; }
+  paddle.x = clamp(paddle.x, field.left + paddle.w / 2, field.right - paddle.w / 2);
+  paddle.tx = clamp(paddle.tx, field.left + paddle.w / 2, field.right - paddle.w / 2);
+  ball.r = clamp(Math.min(W, H) * 0.021, 6.5, 10);
+  if (ball.stuck){ ball.x = paddle.x; ball.y = paddle.y - ball.r - 1; }
+}
+function ballSpeed(){ return clamp(Math.min(W, H) * 0.92, 300, 430) * (1 + Math.min(0.55, (wall - 1) * 0.07)); }
+function mult(){ return 1 + Math.min(4, Math.floor(chain / 6)); }
+
+function buildWall(){
+  blocks = [];
+  const rows = Math.min(9, 5 + Math.floor((wall - 1) / 1));
+  const rowsN = Math.min(9, 4 + wall);
+  for (let r = 0; r < rowsN; r++){
+    let type = ROW_CYCLE[(r + (wall - 1) * 2) % ROW_CYCLE.length];
+    if (wall < 2 && type === 'violet') type = 'ruby';
+    if (wall < 4 && type === 'diamond') type = 'violet';
+    if (wall < 2 && type === 'diamond') type = 'ruby';
+    for (let c = 0; c < field.cols; c++){
+      const hard = wall >= 3 && Math.random() < 0.18;
+      blocks.push({ c, r, type, hp: hard ? 2 : 1, maxHp: hard ? 2 : 1, alive: true });
+    }
+  }
+}
+function blockRect(b){
+  return { x: field.left + b.c * field.bw + 2, y: field.wallTop + b.r * (field.bh + 4) + 2, w: field.bw - 4, h: field.bh - 4 };
+}
+function serve(){
+  ball.stuck = true;
+  ball.x = paddle.x; ball.y = paddle.y - ball.r - 1;
+  ball.vx = 0; ball.vy = 0;
+  chain = 0;
+}
+function launch(){
+  if (!ball.stuck || state !== 'play') return;
+  const s = ballSpeed();
+  const a = -Math.PI / 2 + (Math.random() * 0.5 - 0.25);
+  ball.vx = Math.cos(a) * s; ball.vy = Math.sin(a) * s;
+  ball.stuck = false;
+  blip(420, 620, 0.08, 'triangle', 0.09);
+}
+function reset(){
+  score = 0; ballsLeft = 3; wall = 1; chain = 0; elapsed = 0;
+  drops = []; parts = []; pops = []; paddle.wideT = 0;
+  layout(); buildWall(); serve();
+  syncHud();
+}
+function syncHud(){
+  $('scoreV').textContent = score;
+  $('bestV').textContent = best;
+  $('wallV').textContent = wall;
+  $('ballsV').textContent = ballsLeft > 0 ? '🔮'.repeat(ballsLeft) + '⚪'.repeat(Math.max(0, 3 - ballsLeft)) : '⚪⚪⚪';
+  const cc = $('comboChip');
+  if (chain >= 3){ cc.style.display = ''; $('comboV').textContent = 'x' + mult() + ' · ' + chain; } else cc.style.display = 'none';
+}
+function startGame(){
+  ensureAudio();
+  reset();
+  state = 'play';
+  startStamp = performance.now();
+  $('startScreen').hidden = true;
+  $('overScreen').hidden = true;
+  $('boardScreen').hidden = true;
+}
+function gameOver(){
+  state = 'over';
+  sndOver();
+  const isNew = score > best;
+  if (isNew){ best = score; localStorage.setItem('kavaBreakerBest', best); }
+  $('finalScore').textContent = score;
+  $('finalBest').textContent = best;
+  $('newBest').hidden = !isNew;
+  prefillName();
+  $('submitBtn').disabled = false;
+  $('submitStatus').textContent = '';
+  $('overScreen').hidden = false;
+  syncHud();
+}
+function burst(x, y, color, n){
+  for (let i = 0; i < (n || 12); i++){
+    const a = Math.random() * Math.PI * 2, s = 40 + Math.random() * 170;
+    parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, life: 0.5 + Math.random() * 0.35, t: 0, color, r: 1.4 + Math.random() * 2.6 });
+  }
+}
+function popText(x, y, text, color){
+  pops.push({ x, y, text, color: color || '#ffd76a', t: 0, life: 0.9 });
+}
+function breakBlock(b){
+  const rc = blockRect(b), cx = rc.x + rc.w / 2, cy = rc.y + rc.h / 2;
+  const g = GEMS[b.type];
+  chain++;
+  const pts = g.pts * mult();
+  score += pts;
+  burst(cx, cy, g.mid, b.type === 'diamond' ? 20 : 12);
+  popText(cx, cy - 6, '+' + pts, g.hi);
+  sndBreak(chain);
+  if (Math.random() < 0.075){
+    drops.push({ x: cx, y: cy, vy: H * 0.30, kind: Math.random() < 0.5 ? 'wide' : 'gem', r: 11, spin: Math.random() * 6.28 });
+  }
+  syncHud();
+}
+function clearWall(){
+  score += 250 * wall;
+  wall++;
+  bannerT = 1.6;
+  popText(W / 2, H * 0.42, T('clearW') + ' +' + (250 * (wall - 1)), '#7df0dd');
+  sndClear();
+  buildWall();
+  serve();
+  syncHud();
+}
+function loseBall(){
+  ballsLeft--;
+  chain = 0;
+  sndLose();
+  burst(ball.x, H - 8, '#f5a623', 14);
+  syncHud();
+  if (ballsLeft <= 0){ gameOver(); return; }
+  serve();
+}
+/* ---- ball physics, substepped so fast balls never tunnel ---- */
+function moveBall(dt){
+  let remaining = dt;
+  let guard = 0;
+  while (remaining > 0 && guard++ < 8){
+    const stepDt = Math.min(remaining, ball.r / (ballSpeed() * 1.6));
+    remaining -= stepDt;
+    if (ball.stuck) return;
+    ball.x += ball.vx * stepDt;
+    ball.y += ball.vy * stepDt;
+    /* side + top walls */
+    if (ball.x - ball.r < field.left){ ball.x = field.left + ball.r; ball.vx = Math.abs(ball.vx); sndWallHit(); }
+    if (ball.x + ball.r > field.right){ ball.x = field.right - ball.r; ball.vx = -Math.abs(ball.vx); sndWallHit(); }
+    if (ball.y - ball.r < field.top){ ball.y = field.top + ball.r; ball.vy = Math.abs(ball.vy); sndWallHit(); }
+    /* paddle */
+    if (ball.vy > 0 && ball.y + ball.r >= paddle.y && ball.y - ball.r <= paddle.y + paddle.h + 4 &&
+        ball.x >= paddle.x - paddle.w / 2 - ball.r && ball.x <= paddle.x + paddle.w / 2 + ball.r){
+      const off = clamp((ball.x - paddle.x) / (paddle.w / 2), -1, 1);
+      const ang = -Math.PI / 2 + off * (Math.PI * 0.38);
+      const s = Math.hypot(ball.vx, ball.vy) || ballSpeed();
+      ball.vx = Math.cos(ang) * s; ball.vy = Math.sin(ang) * s;
+      ball.y = paddle.y - ball.r - 0.5;
+      chain = 0;
+      sndPaddle();
+      syncHud();
+    }
+    /* blocks */
+    let hit = null, hitRect = null;
+    for (const b of blocks){
+      if (!b.alive) continue;
+      const rc = blockRect(b);
+      if (ball.x + ball.r > rc.x && ball.x - ball.r < rc.x + rc.w && ball.y + ball.r > rc.y && ball.y - ball.r < rc.y + rc.h){ hit = b; hitRect = rc; break; }
+    }
+    if (hit){
+      const cx = hitRect.x + hitRect.w / 2, cy = hitRect.y + hitRect.h / 2;
+      const dx = (ball.x - cx) / (hitRect.w / 2), dy = (ball.y - cy) / (hitRect.h / 2);
+      if (Math.abs(dx) > Math.abs(dy)) ball.vx = dx > 0 ? Math.abs(ball.vx) : -Math.abs(ball.vx);
+      else ball.vy = dy > 0 ? Math.abs(ball.vy) : -Math.abs(ball.vy);
+      hit.hp--;
+      if (hit.hp <= 0){
+        hit.alive = false;
+        breakBlock(hit);
+        if (blocks.every(b => !b.alive)){ clearWall(); return; }
+      } else {
+        burst(ball.x, ball.y, '#cfd6dd', 5);
+        sndWallHit();
+      }
+    }
+    /* floor */
+    if (ball.y - ball.r > H + 6){ loseBall(); return; }
+  }
+}
+function step(dt){
+  if (state !== 'play') return;
+  elapsed = (performance.now() - startStamp) / 1000;
+  paddle.x += (paddle.tx - paddle.x) * Math.min(1, dt * 18);
+  paddle.x = clamp(paddle.x, field.left + paddle.w / 2, field.right - paddle.w / 2);
+  if (paddle.wideT > 0){
+    paddle.wideT -= dt;
+    if (paddle.wideT <= 0){ paddle.wideT = 0; paddle.w = paddle.baseW; paddle.x = clamp(paddle.x, field.left + paddle.w / 2, field.right - paddle.w / 2); }
+  }
+  if (ball.stuck){ ball.x = paddle.x; ball.y = paddle.y - ball.r - 1; }
+  else moveBall(dt);
+  /* falling bonus gems */
+  for (let i = drops.length - 1; i >= 0; i--){
+    const d = drops[i];
+    d.y += d.vy * dt; d.spin += dt * 3;
+    if (d.y + d.r >= paddle.y && d.y - d.r <= paddle.y + paddle.h + 4 && Math.abs(d.x - paddle.x) <= paddle.w / 2 + d.r){
+      if (d.kind === 'wide'){
+        paddle.wideT = 10; paddle.w = paddle.baseW * 1.5;
+        popText(paddle.x, paddle.y - 22, T('wide'), '#7df0dd');
+      } else {
+        const pts = 250 * mult();
+        score += pts;
+        popText(paddle.x, paddle.y - 22, '+' + pts + ' ' + T('bonus'), '#bfe9ff');
+      }
+      burst(d.x, d.y, d.kind === 'wide' ? '#19b8a6' : '#bfe6ff', 12);
+      sndBonus();
+      drops.splice(i, 1);
+      syncHud();
+      continue;
+    }
+    if (d.y - d.r > H + 4) drops.splice(i, 1);
+  }
+  if (bannerT > 0) bannerT -= dt;
+  for (let i = parts.length - 1; i >= 0; i--){ const q = parts[i]; q.t += dt; q.x += q.vx * dt; q.y += q.vy * dt; q.vy += 300 * dt; if (q.t > q.life) parts.splice(i, 1); }
+  for (let i = pops.length - 1; i >= 0; i--){ const q = pops[i]; q.t += dt; q.y -= 40 * dt; if (q.t > q.life) pops.splice(i, 1); }
+}
+
+/* ---- drawing ---- */
+function rr(c, x, y, w, h, r){
+  r = Math.min(r, w / 2, h / 2);
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r);
+  c.closePath();
+}
+function drawGemBlock(c, b){
+  const rc = blockRect(b), g = GEMS[b.type];
+  c.save();
+  c.shadowColor = g.glow; c.shadowBlur = 7;
+  const grad = c.createLinearGradient(rc.x, rc.y, rc.x + rc.w, rc.y + rc.h);
+  grad.addColorStop(0, g.hi); grad.addColorStop(0.45, g.mid); grad.addColorStop(1, g.lo);
+  rr(c, rc.x, rc.y, rc.w, rc.h, 5);
+  c.fillStyle = grad; c.fill();
+  c.shadowBlur = 0;
+  /* facets */
+  c.strokeStyle = 'rgba(255,255,255,0.35)'; c.lineWidth = 1;
+  c.beginPath();
+  c.moveTo(rc.x + 3, rc.y + rc.h - 3); c.lineTo(rc.x + rc.w * 0.42, rc.y + 3); c.lineTo(rc.x + rc.w - 3, rc.y + rc.h - 3);
+  c.moveTo(rc.x + rc.w * 0.42, rc.y + 3); c.lineTo(rc.x + rc.w * 0.42, rc.y + rc.h - 3);
+  c.stroke();
+  /* top gloss */
+  const gl = c.createLinearGradient(rc.x, rc.y, rc.x, rc.y + rc.h);
+  gl.addColorStop(0, 'rgba(255,255,255,0.4)'); gl.addColorStop(0.5, 'rgba(255,255,255,0.02)');
+  rr(c, rc.x, rc.y, rc.w, rc.h, 5); c.fillStyle = gl; c.fill();
+  /* hardened blocks: riveted metal rim + crack once chipped */
+  if (b.maxHp > 1){
+    c.strokeStyle = 'rgba(220,228,235,0.85)'; c.lineWidth = 2;
+    rr(c, rc.x + 1, rc.y + 1, rc.w - 2, rc.h - 2, 4); c.stroke();
+    if (b.hp < b.maxHp){
+      c.strokeStyle = 'rgba(10,8,6,0.75)'; c.lineWidth = 1.4;
+      c.beginPath();
+      c.moveTo(rc.x + rc.w * 0.2, rc.y + 2); c.lineTo(rc.x + rc.w * 0.45, rc.y + rc.h * 0.5); c.lineTo(rc.x + rc.w * 0.35, rc.y + rc.h - 2);
+      c.moveTo(rc.x + rc.w * 0.45, rc.y + rc.h * 0.5); c.lineTo(rc.x + rc.w * 0.75, rc.y + rc.h * 0.45);
+      c.stroke();
+    }
+  }
+  c.restore();
+}
+function drawDrop(c, d){
+  c.save();
+  c.translate(d.x, d.y);
+  c.rotate(Math.sin(d.spin) * 0.25);
+  c.shadowColor = d.kind === 'wide' ? 'rgba(25,184,166,0.95)' : 'rgba(170,225,255,0.95)';
+  c.shadowBlur = 13;
+  if (d.kind === 'wide'){
+    const g = c.createLinearGradient(-d.r, -d.r, d.r, d.r);
+    g.addColorStop(0, '#c8fff4'); g.addColorStop(0.5, '#19b8a6'); g.addColorStop(1, '#0a5a50');
+    c.fillStyle = g;
+    c.beginPath(); c.moveTo(0, -d.r); c.lineTo(d.r, 0); c.lineTo(0, d.r); c.lineTo(-d.r, 0); c.closePath(); c.fill();
+    c.shadowBlur = 0;
+    c.fillStyle = '#06231f'; c.font = '900 ' + Math.round(d.r * 1.05) + 'px Trebuchet MS, sans-serif';
+    c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('⇔', 0, 1);
+  } else {
+    const g = c.createRadialGradient(-d.r * 0.3, -d.r * 0.35, d.r * 0.2, 0, 0, d.r * 1.15);
+    g.addColorStop(0, '#ffffff'); g.addColorStop(0.55, '#bfe6ff'); g.addColorStop(1, '#4d7fa8');
+    c.fillStyle = g;
+    c.beginPath(); c.arc(0, 0, d.r, 0, 6.283); c.fill();
+    c.shadowBlur = 0;
+    c.fillStyle = 'rgba(255,255,255,0.85)';
+    c.beginPath(); c.arc(-d.r * 0.32, -d.r * 0.36, d.r * 0.2, 0, 6.283); c.fill();
+  }
+  c.restore();
+}
+/* rising forge embers */
+const embers = [];
+for (let i = 0; i < 36; i++) embers.push({ x: Math.random(), y: Math.random(), r: 0.8 + Math.random() * 1.8, s: 0.014 + Math.random() * 0.04, o: 0.3 + Math.random() * 0.6, ph: Math.random() * 6.28 });
+function draw(){
+  ctx.clearRect(0, 0, W, H);
+  const bg = IMG.bg;
+  if (bg && bg.complete && bg.naturalWidth){
+    const s = Math.max(W / bg.naturalWidth, H / bg.naturalHeight);
+    const dw = bg.naturalWidth * s, dh = bg.naturalHeight * s;
+    ctx.drawImage(bg, (W - dw) / 2, (H - dh) / 2, dw, dh);
+  } else {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#17130e'); g.addColorStop(1, '#070608');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  }
+  /* darken the play centre so gems + orb pop */
+  const vg = ctx.createRadialGradient(W / 2, H * 0.42, H * 0.16, W / 2, H * 0.46, H * 0.78);
+  vg.addColorStop(0, 'rgba(4,3,3,0.34)'); vg.addColorStop(1, 'rgba(4,3,3,0)');
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+  /* chamber rails */
+  ctx.fillStyle = 'rgba(255,170,80,0.14)';
+  ctx.fillRect(field.left - 3, field.top - 3, 3, H);
+  ctx.fillRect(field.right, field.top - 3, 3, H);
+  ctx.fillRect(field.left - 3, field.top - 3, field.right - field.left + 6, 3);
+  const now = performance.now() / 1000;
+  for (const e of embers){
+    const y = (1 - ((e.y + now * e.s) % 1)) * H;
+    const x = e.x * W + Math.sin(now * 0.8 + e.ph) * 8;
+    ctx.globalAlpha = e.o * (0.55 + 0.45 * Math.sin(now * 2.4 + e.ph));
+    ctx.fillStyle = '#ffb054';
+    ctx.beginPath(); ctx.arc(x, y, e.r, 0, 6.283); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  /* gem wall */
+  for (const b of blocks) if (b.alive) drawGemBlock(ctx, b);
+  /* drops */
+  for (const d of drops) drawDrop(ctx, d);
+  /* paddle: molten-metal bar with the KL orb riding centre */
+  const px = paddle.x - paddle.w / 2, py = paddle.y;
+  ctx.save();
+  ctx.shadowColor = 'rgba(255,140,20,0.65)'; ctx.shadowBlur = 12;
+  const pg = ctx.createLinearGradient(px, py, px, py + paddle.h);
+  pg.addColorStop(0, '#ffe9a8'); pg.addColorStop(0.4, '#c8ccd4'); pg.addColorStop(0.75, '#6d727c'); pg.addColorStop(1, '#f5a623');
+  rr(ctx, px, py, paddle.w, paddle.h, 7);
+  ctx.fillStyle = pg; ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(255,220,160,0.8)'; ctx.lineWidth = 1.2;
+  rr(ctx, px + 1, py + 1, paddle.w - 2, paddle.h - 2, 6); ctx.stroke();
+  const oi = IMG.orb, os = paddle.h + 13;
+  if (oi && oi.complete && oi.naturalWidth){
+    ctx.save();
+    ctx.shadowColor = 'rgba(255,90,40,0.9)'; ctx.shadowBlur = 10;
+    ctx.drawImage(oi, paddle.x - os / 2, py + paddle.h / 2 - os / 2, os, os);
+    ctx.restore();
+  }
+  ctx.restore();
+  /* the orb (ball) */
+  ctx.save();
+  ctx.shadowColor = 'rgba(255,170,60,0.95)'; ctx.shadowBlur = 16;
+  const bg2 = ctx.createRadialGradient(ball.x - ball.r * 0.35, ball.y - ball.r * 0.4, ball.r * 0.15, ball.x, ball.y, ball.r * 1.2);
+  bg2.addColorStop(0, '#fff6da'); bg2.addColorStop(0.45, '#ffc63e'); bg2.addColorStop(1, '#e07b12');
+  ctx.fillStyle = bg2;
+  ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, 6.283); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.beginPath(); ctx.arc(ball.x - ball.r * 0.33, ball.y - ball.r * 0.38, ball.r * 0.22, 0, 6.283); ctx.fill();
+  ctx.restore();
+  /* particles */
+  for (const q of parts){
+    ctx.globalAlpha = Math.max(0, 1 - q.t / q.life);
+    ctx.fillStyle = q.color;
+    ctx.beginPath(); ctx.arc(q.x, q.y, q.r, 0, 6.283); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  /* floating pops */
+  ctx.textAlign = 'center';
+  for (const q of pops){
+    ctx.globalAlpha = Math.max(0, 1 - q.t / q.life);
+    ctx.font = '900 18px Trebuchet MS, sans-serif';
+    ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(8,5,2,0.85)';
+    ctx.strokeText(q.text, q.x, q.y);
+    ctx.fillStyle = q.color;
+    ctx.fillText(q.text, q.x, q.y);
+  }
+  ctx.globalAlpha = 1;
+  /* wall-clear banner */
+  if (bannerT > 0){
+    ctx.globalAlpha = Math.min(1, bannerT);
+    ctx.font = '900 ' + Math.round(clamp(W * 0.075, 22, 34)) + 'px Trebuchet MS, sans-serif';
+    ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(5,10,9,0.9)';
+    const bt = T('clearW');
+    ctx.strokeText(bt, W / 2, H * 0.46);
+    ctx.fillStyle = '#7df0dd';
+    ctx.fillText(bt, W / 2, H * 0.46);
+    ctx.globalAlpha = 1;
+  }
+  /* tap-to-launch hint */
+  if (state === 'play' && ball.stuck){
+    ctx.globalAlpha = 0.65 + 0.35 * Math.sin(now * 4);
+    ctx.font = '900 15px Trebuchet MS, sans-serif';
+    ctx.fillStyle = '#ffdcae';
+    ctx.fillText('▲ TAP', paddle.x, paddle.y - 26);
+    ctx.globalAlpha = 1;
+  }
+}
+
+/* ================= input: drag + keys ================= */
+let dragging = false;
+function ptrX(e){ const r = cv.getBoundingClientRect(); return (e.clientX - r.left); }
+cv.addEventListener('pointerdown', e => { ensureAudio(); dragging = true; paddle.tx = clamp(ptrX(e), field.left + paddle.w / 2, field.right - paddle.w / 2); cv.setPointerCapture(e.pointerId); if (state === 'play') launch(); });
+cv.addEventListener('pointermove', e => { if (dragging) paddle.tx = clamp(ptrX(e), field.left + paddle.w / 2, field.right - paddle.w / 2); });
+addEventListener('pointerup', () => { dragging = false; });
+addEventListener('keydown', e => {
+  if (e.code === 'ArrowLeft') paddle.tx = clamp(paddle.tx - 48, field.left + paddle.w / 2, field.right - paddle.w / 2);
+  if (e.code === 'ArrowRight') paddle.tx = clamp(paddle.tx + 48, field.left + paddle.w / 2, field.right - paddle.w / 2);
+  if (e.code === 'Space'){
+    e.preventDefault();
+    if (state === 'play') launch(); else if (state === 'menu') startGame();
+  }
+  if (e.code === 'KeyM') $('muteBtn').onclick();
+});
+
+/* ================= leaderboard (house pattern) ================= */
+const API_URL = 'https://frg-fight-club.vercel.app/api/luna-games?game=kava-breaker';
+function prefillName(){
+  const inp = $('nameInput');
+  const tg = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe;
+  const tname = tg && tg.user && tg.user.first_name;
+  inp.value = (localStorage.getItem('kavaBreakerName') || tname || 'Guest').slice(0, 16);
+}
+let boardData = null, boardTab = 'all', boardErr = false;
+async function loadBoard(){
+  $('boardList').innerHTML = '<p style="text-align:center; opacity:.85">' + T('loading') + '</p>';
+  boardErr = false;
+  try {
+    const r = await fetch(API_URL);
+    if (!r.ok) throw new Error('board ' + r.status);
+    boardData = await r.json();
+  } catch (e) { boardData = null; boardErr = true; }
+  renderBoard();
+}
+function renderBoard(){
+  $('tabAll').className = 'play' + (boardTab === 'all' ? '' : ' alt');
+  $('tabAll').style.cssText = 'font-size:14px; padding:8px 18px';
+  $('tabWeek').className = 'play' + (boardTab === 'week' ? '' : ' alt');
+  $('tabWeek').style.cssText = 'font-size:14px; padding:8px 18px';
+  if (boardErr || !boardData){ $('boardList').innerHTML = '<p style="text-align:center; opacity:.85">' + T('boardOff') + '</p>'; return; }
+  const rows = boardData[boardTab] || [];
+  if (!rows.length){ $('boardList').innerHTML = '<p style="text-align:center; opacity:.85">' + T('noScores') + '</p>'; return; }
+  $('boardList').innerHTML = rows.map((r, i) =>
+    '<div class="row"><span class="rk">' + (i + 1) + '.</span><span class="nm"></span><span class="sc">' + r.score + '</span></div>'
+  ).join('');
+  [...$('boardList').querySelectorAll('.row .nm')].forEach((el, i) => { el.textContent = rows[i].name; });
+}
+function openBoard(){
+  $('boardScreen').hidden = false;
+  boardTab = 'all';
+  loadBoard();
+}
+$('tabAll').onclick = () => { boardTab = 'all'; renderBoard(); };
+$('tabWeek').onclick = () => { boardTab = 'week'; renderBoard(); };
+$('boardClose').onclick = () => { $('boardScreen').hidden = true; };
+$('boardBtn').onclick = openBoard;
+$('startBoardBtn').onclick = openBoard;
+$('overBoardBtn').onclick = openBoard;
+$('submitBtn').onclick = async () => {
+  const btn = $('submitBtn');
+  btn.disabled = true;
+  const name = ($('nameInput').value.trim() || 'Guest').slice(0, 16);
+  localStorage.setItem('kavaBreakerName', name);
+  $('submitStatus').textContent = T('saving');
+  const initData = (window.Telegram && window.Telegram.WebApp && window.Telegram.initData) || '';
+  try {
+    const r = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, name, score, seconds: Math.max(1, Math.round(elapsed)) }),
+    });
+    const d = await r.json();
+    if (d && d.ok){
+      $('submitStatus').textContent = d.rank ? ('🏆 #' + d.rank + ' — ' + T('saved')) : T('saved');
+      boardData = null;
+    } else {
+      $('submitStatus').textContent = T('couldNot');
+      btn.disabled = false;
+    }
+  } catch (e) {
+    $('submitStatus').textContent = T('couldNot');
+    btn.disabled = false;
+  }
+};
+$('startBtn').onclick = startGame;
+$('againBtn').onclick = () => { $('overScreen').hidden = true; startGame(); };
+
+/* ================= main loop ================= */
+let lastT = 0;
+function loop(ts){
+  requestAnimationFrame(loop);
+  const now = ts / 1000;
+  const dt = Math.min(0.033, lastT ? now - lastT : 0.016);
+  lastT = now;
+  step(dt);
+  draw();
+}
+
+/* ================= test API (house QA hooks) ================= */
+window.KBR = {
+  start: startGame,
+  step, draw, launch, serve,
+  setPaddle(x){ paddle.x = x; paddle.tx = x; },
+  paddleX: () => paddle.x,
+  paddleW: () => paddle.w,
+  paddleRect: () => ({ x: paddle.x - paddle.w / 2, y: paddle.y, w: paddle.w, h: paddle.h }),
+  ball: () => ({ x: ball.x, y: ball.y, vx: ball.vx, vy: ball.vy, stuck: ball.stuck }),
+  setBall(x, y, vx, vy){ ball.x = x; ball.y = y; ball.vx = vx; ball.vy = vy; ball.stuck = false; },
+  state: () => state,
+  score: () => score,
+  balls: () => ballsLeft,
+  wall: () => wall,
+  chain: () => chain,
+  mult: () => mult(),
+  blocks: () => blocks.filter(b => b.alive).map(b => ({ type: b.type, hp: b.hp, rect: blockRect(b) })),
+  blocksLeft: () => blocks.filter(b => b.alive).length,
+  keepOnly(n){ const alive = blocks.filter(b => b.alive); alive.slice(n).forEach(b => { b.alive = false; }); },
+  setBalls(n){ ballsLeft = n; syncHud(); },
+  drops: () => drops.map(d => ({ kind: d.kind, x: d.x, y: d.y })),
+  dropBonus(kind, x, y){ drops.push({ x, y, vy: H * 0.30, kind, r: 11, spin: 0 }); },
+  elapsed: () => elapsed,
+};
+
+resize();
+applyLang();
+syncHud();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

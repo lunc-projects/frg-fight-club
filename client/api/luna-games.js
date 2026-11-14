@@ -132,6 +132,11 @@ const GAMES = {
      combo multiplier up to x5, so the rails are sized from that —
      never reject a real run. */
   'kava-pets': { prefix: 'kavapets', maxScore: 500000, minSec: 5, maxSec: 3600, rateMul: 1600, rateBase: 3000 },
+  /* Kava Gem Breaker (Kava Launchpad brick-breaker, client/public/
+     kava-breaker/, board read by @KavaLaunchpadbot /top): blocks score
+     50–250 x a combo multiplier up to x5, plus wall-clear bonuses and
+     bonus gems — rails sized from that, never reject a real run. */
+  'kava-breaker': { prefix: 'kavabrk', maxScore: 500000, minSec: 5, maxSec: 3600, rateMul: 1600, rateBase: 3000 },
   /* Cookie Sniper (the DO community game): score comes from crumbles,
      combos, boss and clear bonuses across up to 10 levels — a perfect
      full run lands around ~90k, so the cap stays generous per the
