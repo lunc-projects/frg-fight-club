@@ -2078,6 +2078,7 @@ const WALLETS = [
 ];
 const SEL = { tokensByCreator:'0xdd961859', stakingsByCreator:'0x043525bf',
   allTokensLength:'0xdbb80e42', allTokens:'0x634282af', allPairsLength:'0x574f2ba3',
+  allPairs:'0x1e3dd18b', token0:'0x0dfe1681', token1:'0xd21220a7',
   totalSupply:'0x18160ddd', decimals:'0x313ce567', name:'0x06fdde03', symbol:'0x95d89b41',
   creationFee:'0xdce0b4e4', stakeToken:'0x51ed6a30', rewardToken:'0xf7c618c1' };
 const FEE_PAID_TOPIC = '0xbf6afbaffb3b955bebbf43430bbf8eecb8d34ff86f293f592203ab5ed79c5268';
@@ -2100,6 +2101,7 @@ async function rpc(method, params){
   throw lastErr || new Error('rpc failed');
 }
 const padAddr = a => a.toLowerCase().replace('0x','').padStart(64,'0');
+const padUint = n => BigInt(n).toString(16).padStart(64,'0');
 async function ethCall(to, data){ return await rpc('eth_call', [{to, data}, 'latest']); }
 async function callUint(to, data){ const r = await ethCall(to, data); return (r && r !== '0x') ? BigInt(r) : 0n; }
 async function callAddr(to, data){ const r = await ethCall(to, data); return (r && r !== '0x') ? '0x' + r.slice(-40) : null; }
@@ -2151,6 +2153,40 @@ async function loadBuilds(){
   const box = $('buildsBody');
   box.innerHTML = '<p class="mut">Loading…</p>';
   const parts = [];
+  /* the DEX itself — every pair on the DEX factory, live */
+  let dexRows = '';
+  try{
+    const nPairs = Number(await callUint(DEX_FACTORY, SEL.allPairsLength));
+    if (!nPairs) dexRows = '<p class="mut">No pairs on the DEX yet.</p>';
+    else {
+      const pairAddrs = [];
+      for (let i=0;i<nPairs;i++){
+        const pa = await callAddr(DEX_FACTORY, SEL.allPairs + padUint(i));
+        if (pa) pairAddrs.push(pa);
+      }
+      const details = await Promise.all(pairAddrs.map(async p => {
+        let s0 = '', s1 = '';
+        try{
+          const [t0, t1] = await Promise.all([callAddr(p, SEL.token0), callAddr(p, SEL.token1)]);
+          [s0, s1] = await Promise.all([
+            t0 ? callString(t0, SEL.symbol).catch(()=> '') : '',
+            t1 ? callString(t1, SEL.symbol).catch(()=> '') : '',
+          ]);
+          if (!s0 && t0) s0 = shortAddr(t0);
+          if (!s1 && t1) s1 = shortAddr(t1);
+        }catch(e){ /* symbols fall back to ? below */ }
+        return { p, s0: s0 || '?', s1: s1 || '?' };
+      }));
+      dexRows = details.map(d =>
+        '<div class="build-row"><div><span class="sym">' + esc(d.s0) + ' / ' + esc(d.s1) + '</span>'
+        + '<div class="nm">Trading pair on the DEX</div>'
+        + '<a class="mono" href="' + EXPLORER + '/address/' + d.p + '" target="_blank" rel="noopener">' + shortAddr(d.p) + ' ↗</a></div>'
+        + '<div class="meta"><div>DEX</div><div class="big">Pair</div></div></div>'
+      ).join('');
+    }
+  }catch(e){ dexRows = '<p class="fail">Couldn\'t load the DEX pairs.</p>'; }
+  dexRows += '<p style="margin-top:10px;"><a href="https://KavaLaunchPad.com" target="_blank" rel="noopener">Open the DEX →</a></p>';
+  parts.push('<div class="card"><h3>🔁 The DEX</h3>' + dexRows + '</div>');
   for (const w of WALLETS){
     let rows = '';
     try{
