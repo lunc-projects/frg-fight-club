@@ -137,6 +137,14 @@ const GAMES = {
      50–250 x a combo multiplier up to x5, plus wall-clear bonuses and
      bonus gems — rails sized from that, never reject a real run. */
   'kava-breaker': { prefix: 'kavabrk', maxScore: 500000, minSec: 5, maxSec: 3600, rateMul: 1600, rateBase: 3000 },
+  /* Kava Crystal Rush (Kava Launchpad endless climber,
+     client/public/kava-rush/, board read by @KavaLaunchpadbot /top
+     once it is registered there): score = climbed px / 10 (climb
+     speed ramps 260 -> 600 px/s, so 26 -> 60 pts/s) + gems x 50
+     (~1 gem per ~340px climbed). The fastest honest sustained rate
+     is ~160 pts/s, so the rails below stay generous per the house
+     rule — never reject a real run. */
+  'kava-rush': { prefix: 'kavarush', maxScore: 500000, minSec: 5, maxSec: 3600, rateMul: 400, rateBase: 2000 },
   /* Cookie Sniper (the DO community game): score comes from crumbles,
      combos, boss and clear bonuses across up to 10 levels — a perfect
      full run lands around ~90k, so the cap stays generous per the
