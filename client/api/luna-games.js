@@ -127,6 +127,11 @@ const GAMES = {
   voidclash: { prefix: 'vclash', maxScore: 200000, minSec: 5, maxSec: 3600, rateMul: 300, rateBase: 1000 },
   'moonfelt-poker': { prefix: 'mpoker', maxScore: 10000000, minSec: 10, maxSec: 14400, rateMul: 10000, rateBase: 100000 },
   'comet-rush': { prefix: 'comet', maxScore: 200000, minSec: 5, maxSec: 7200, rateMul: 200, rateBase: 2000 },
+  /* Kava Pets (Kava Launchpad catch game, client/public/kava-pets/,
+     board read by @KavaLaunchpadbot /top): pets score 100/150/500 x a
+     combo multiplier up to x5, so the rails are sized from that —
+     never reject a real run. */
+  'kava-pets': { prefix: 'kavapets', maxScore: 500000, minSec: 5, maxSec: 3600, rateMul: 1600, rateBase: 3000 },
   /* Cookie Sniper (the DO community game): score comes from crumbles,
      combos, boss and clear bonuses across up to 10 levels — a perfect
      full run lands around ~90k, so the cap stays generous per the

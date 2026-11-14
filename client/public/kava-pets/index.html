@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Kava Pets — Kava Launchpad</title>
+<meta name="description" content="Catch the crystal pets in the Kava cavern! A Kava Launchpad game.">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; overflow:hidden; background:#160407; }
+  body {
+    font-family:'Trebuchet MS','Segoe UI',Verdana,sans-serif; color:#ffe9d6;
+    user-select:none; -webkit-user-select:none; touch-action:none;
+    display:flex; flex-direction:column;
+  }
+  /* ---------- header ---------- */
+  #hdr {
+    display:flex; align-items:center; gap:8px; padding:6px 10px;
+    background:linear-gradient(180deg, rgba(30,4,8,.96), rgba(22,3,6,.92));
+    border-bottom:2px solid rgba(255,120,60,.35); z-index:5;
+    box-shadow:0 2px 14px rgba(255,60,20,.25);
+  }
+  #hdr img.orb { width:40px; height:40px; border-radius:50%; box-shadow:0 0 12px rgba(255,70,40,.8); }
+  #hdr .ttl { line-height:1; white-space:nowrap; }
+  #hdr .ttl b {
+    font-size:19px; letter-spacing:0.5px; display:block; white-space:nowrap;
+    background:linear-gradient(180deg,#fff6ec,#ffc98a 45%,#ff7a3c 75%,#ffe9b0);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    text-shadow:0 2px 0 rgba(0,0,0,.0);
+    filter:drop-shadow(0 2px 3px rgba(0,0,0,.55));
+  }
+  #hdr .ttl span { font-size:9px; letter-spacing:1.6px; color:#ffab7a; font-weight:bold; white-space:nowrap; }
+  #hdr .sp { flex:1; }
+  .hbtn {
+    background:linear-gradient(180deg,#5a130f,#3a0a08); color:#ffd9ae; border:1px solid rgba(255,150,80,.5);
+    border-radius:12px; padding:6px 9px; font-size:15px; cursor:pointer; font-family:inherit;
+  }
+  #langSel {
+    max-width:104px; background:linear-gradient(180deg,#5a130f,#3a0a08); color:#ffd9ae;
+    border:1px solid rgba(255,150,80,.5); border-radius:12px; padding:6px 4px; font-size:12.5px;
+    font-family:inherit; cursor:pointer;
+  }
+  /* ---------- HUD ---------- */
+  #hud {
+    display:flex; gap:8px; align-items:center; padding:6px 10px; z-index:5;
+    background:linear-gradient(180deg, rgba(22,3,6,.88), rgba(22,3,6,.55) 80%, transparent);
+  }
+  .chip {
+    background:rgba(20,2,5,.72); border:1.5px solid rgba(255,170,80,.55); border-radius:999px;
+    padding:4px 12px; font-weight:bold; font-size:15px; color:#ffe9c9; white-space:nowrap;
+    box-shadow:inset 0 0 12px rgba(255,90,30,.25);
+  }
+  .chip small { color:#ffab7a; font-size:10px; letter-spacing:1px; display:block; line-height:1; text-align:center; }
+  .chip .v { font-size:17px; }
+  #hearts { font-size:16px; letter-spacing:1px; }
+  #comboChip { border-color:rgba(255,215,110,.85); color:#ffe98a; display:none; }
+  /* ---------- stage ---------- */
+  #wrap { position:relative; flex:1; overflow:hidden; }
+  canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  /* ---------- overlays ---------- */
+  .veil {
+    position:absolute; inset:0; z-index:8; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:12px; text-align:center; padding:18px;
+    background:radial-gradient(ellipse at 50% 35%, rgba(40,5,8,.45), rgba(10,1,2,.82) 75%);
+  }
+  .veil[hidden] { display:none; }
+  .bigtitle {
+    font-size:44px; letter-spacing:1px; font-weight:900; line-height:.95;
+    background:linear-gradient(180deg,#fff8ee,#ffd08a 40%,#ff8438 72%,#ffdf9e);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    filter:drop-shadow(0 3px 6px rgba(0,0,0,.65));
+  }
+  .tag { font-size:16.5px; color:#ffdcae; max-width:420px; text-shadow:0 2px 6px #000; }
+  .how { font-size:13.5px; color:#ffb98c; max-width:400px; line-height:1.45; text-shadow:0 1px 4px #000; }
+  .play {
+    font-family:inherit; font-weight:900; font-size:20px; letter-spacing:1px; cursor:pointer;
+    color:#43160a; background:linear-gradient(180deg,#ffe9a8,#ffc63e 55%,#ff9a1f);
+    border:2px solid #fff0bc; border-radius:999px; padding:13px 42px;
+    box-shadow:0 0 22px rgba(255,170,40,.55), 0 5px 0 #a3540d;
+  }
+  .play:active { transform:translateY(3px); box-shadow:0 0 22px rgba(255,170,40,.55), 0 2px 0 #a3540d; }
+  .play.alt {
+    color:#ffdcae; background:linear-gradient(180deg,#57150f,#380b07);
+    border-color:rgba(255,160,90,.6); box-shadow:0 4px 0 #20040a; font-size:15px; padding:10px 22px;
+  }
+  .play[disabled] { opacity:.55; }
+  .scorebig { font-size:26px; font-weight:900; color:#ffd76a; text-shadow:0 2px 8px #000; }
+  .bestline { font-size:14px; color:#ffcf9e; }
+  .newbest { color:#ffe98a; font-weight:900; letter-spacing:1px; animation:pulse 0.8s infinite alternate; }
+  @keyframes pulse { from{ transform:scale(1);} to{ transform:scale(1.09);} }
+  #nameInput {
+    font-family:inherit; font-size:16px; text-align:center; padding:9px 12px; width:min(260px,80vw);
+    border-radius:12px; border:1.5px solid rgba(255,170,80,.65); background:rgba(25,4,7,.9); color:#ffe9c9;
+  }
+  .status { min-height:20px; font-size:14px; color:#ffd76a; text-shadow:0 1px 4px #000; }
+  #boardList { width:min(360px,88vw); max-height:46vh; overflow-y:auto; }
+  #boardList .row {
+    display:flex; align-items:center; gap:8px; padding:6px 12px; margin:4px 0;
+    background:rgba(24,3,6,.78); border:1px solid rgba(255,140,70,.35); border-radius:12px; font-size:15px;
+  }
+  #boardList .rk { color:#ffb066; font-weight:900; min-width:30px; }
+  #boardList .nm { flex:1; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #boardList .sc { font-weight:900; color:#ffd76a; }
+  .tabs { display:flex; gap:8px; }
+  #toast {
+    position:absolute; left:50%; bottom:14px; transform:translateX(-50%); z-index:9;
+    background:rgba(24,3,6,.92); border:1px solid rgba(255,170,80,.6); color:#ffe9c9;
+    padding:7px 16px; border-radius:999px; font-size:14px; opacity:0; transition:opacity .25s; pointer-events:none;
+  }
+</style>
+</head>
+<body>
+<div id="hdr">
+  <img class="orb" src="assets/kl-orb.png" alt="KL">
+  <div class="ttl"><b>KAVA PETS</b><span>KAVA LAUNCHPAD</span></div>
+  <div class="sp"></div>
+  <button class="hbtn" id="boardBtn" title="Leaderboard">🏆</button>
+  <button class="hbtn" id="muteBtn">🔊</button>
+  <select id="langSel" aria-label="Language"></select>
+</div>
+<div id="hud">
+  <div class="chip"><small id="scoreLbl">SCORE</small><span class="v" id="scoreV">0</span></div>
+  <div class="chip" id="comboChip">🔥 <span class="v" id="comboV">x2</span></div>
+  <div class="sp" style="flex:1"></div>
+  <div class="chip"><span id="hearts">❤️❤️❤️</span></div>
+  <div class="chip"><small id="bestLbl">BEST</small><span class="v" id="bestV">0</span></div>
+</div>
+<div id="wrap">
+  <canvas id="cv"></canvas>
+
+  <div class="veil" id="startScreen">
+    <img src="assets/kl-orb.png" alt="" style="width:74px;height:74px;border-radius:50%;box-shadow:0 0 26px rgba(255,70,40,.85)">
+    <div class="bigtitle">KAVA<br>PETS</div>
+    <div class="tag" id="tagline">Catch the crystal pets!</div>
+    <div class="how" id="howto">Drag to move the basket. Catch pets for points — miss one and you lose a heart. Diamond pets are worth the most!</div>
+    <button class="play" id="startBtn">▶ PLAY</button>
+    <button class="play alt" id="startBoardBtn">🏆 Leaderboard</button>
+  </div>
+
+  <div class="veil" id="overScreen" hidden>
+    <div class="bigtitle" id="overTitle" style="font-size:36px">GAME OVER</div>
+    <div class="scorebig"><span id="yourScoreLbl">Your score</span>: <span id="finalScore">0</span></div>
+    <div class="bestline"><span id="bestLbl2">Best</span>: <span id="finalBest">0</span> <span class="newbest" id="newBest" hidden>★ NEW BEST!</span></div>
+    <input id="nameInput" maxlength="16" autocomplete="off">
+    <button class="play" id="submitBtn" style="font-size:16px; padding:11px 30px">Submit score</button>
+    <div class="status" id="submitStatus"></div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:center">
+      <button class="play alt" id="againBtn">↻ Play again</button>
+      <button class="play alt" id="overBoardBtn">🏆 Leaderboard</button>
+    </div>
+  </div>
+
+  <div class="veil" id="boardScreen" hidden>
+    <div class="bigtitle" style="font-size:30px">🏆 <span id="boardTitle">Leaderboard</span></div>
+    <div class="tabs">
+      <button class="play" id="tabAll" style="font-size:14px; padding:8px 18px">All-time</button>
+      <button class="play alt" id="tabWeek" style="font-size:14px; padding:8px 18px">This week</button>
+    </div>
+    <div id="boardList"></div>
+    <button class="play alt" id="boardClose">✕ Close</button>
+  </div>
+
+  <div id="toast"></div>
+</div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+
+/* ================= I18N (shared 18-language pattern) ================= */
+const LANGS=[["en","English"],["es","Español"],["pt","Português"],["fr","Français"],["de","Deutsch"],["it","Italiano"],["nl","Nederlands"],["ru","Русский"],["uk","Українська"],["tr","Türkçe"],["ar","العربية"],["hi","हिन्दी"],["id","Bahasa Indonesia"],["vi","Tiếng Việt"],["th","ไทย"],["ko","한국어"],["ja","日本語"],["zh","简体中文"]];
+const I18N={
+en:{tagline:"Catch the crystal pets!",howto:"Drag to move the basket. Catch pets for points — miss one and you lose a heart. Diamond pets are worth the most!",play:"▶ PLAY",score:"SCORE",best:"BEST",board:"Leaderboard",all:"All-time",week:"This week",loading:"Loading…",boardOff:"Board unavailable right now.",noScores:"No scores yet — be the first! 🏆",over:"GAME OVER",yourScore:"Your score",namePh:"Your name",submit:"Submit score",saving:"Saving…",saved:"Saved!",couldNot:"Could not save — try again.",again:"↻ Play again",close:"✕ Close",catchW:"CATCH!",newBest:"★ NEW BEST!"},
+es:{tagline:"¡Atrapa las mascotas de cristal!",howto:"Arrastra para mover la cesta. Atrapa mascotas para sumar puntos: si se te escapa una, pierdes un corazón. ¡Las de diamante valen más!",play:"▶ JUGAR",score:"PUNTOS",best:"RÉCORD",board:"Clasificación",all:"Histórico",week:"Esta semana",loading:"Cargando…",boardOff:"Clasificación no disponible ahora.",noScores:"Aún no hay puntos. ¡Sé el primero! 🏆",over:"FIN DEL JUEGO",yourScore:"Tus puntos",namePh:"Tu nombre",submit:"Enviar puntos",saving:"Guardando…",saved:"¡Guardado!",couldNot:"No se pudo guardar. Inténtalo de nuevo.",again:"↻ Jugar otra vez",close:"✕ Cerrar",catchW:"¡ATRAPADO!",newBest:"★ ¡NUEVO RÉCORD!"},
+pt:{tagline:"Pegue os pets de cristal!",howto:"Arraste para mover a cesta. Pegue pets para marcar pontos — se um escapar, você perde um coração. Os de diamante valem mais!",play:"▶ JOGAR",score:"PONTOS",best:"RECORDE",board:"Classificação",all:"Geral",week:"Esta semana",loading:"Carregando…",boardOff:"Classificação indisponível agora.",noScores:"Sem pontos ainda — seja o primeiro! 🏆",over:"FIM DE JOGO",yourScore:"Seus pontos",namePh:"Seu nome",submit:"Enviar pontos",saving:"Salvando…",saved:"Salvo!",couldNot:"Não foi possível salvar — tente de novo.",again:"↻ Jogar de novo",close:"✕ Fechar",catchW:"PEGUEI!",newBest:"★ NOVO RECORDE!"},
+fr:{tagline:"Attrape les animaux de cristal !",howto:"Fais glisser pour déplacer le panier. Attrape les animaux pour marquer des points — si tu en rates un, tu perds un cœur. Ceux en diamant valent le plus !",play:"▶ JOUER",score:"SCORE",best:"RECORD",board:"Classement",all:"Tout temps",week:"Cette semaine",loading:"Chargement…",boardOff:"Classement indisponible pour le moment.",noScores:"Pas encore de scores — à toi la première place ! 🏆",over:"PARTIE TERMINÉE",yourScore:"Ton score",namePh:"Ton nom",submit:"Envoyer le score",saving:"Enregistrement…",saved:"Enregistré !",couldNot:"Échec de l'enregistrement — réessaie.",again:"↻ Rejouer",close:"✕ Fermer",catchW:"ATTRAPÉ !",newBest:"★ NOUVEAU RECORD !"},
+de:{tagline:"Fange die Kristalltiere!",howto:"Ziehe, um den Korb zu bewegen. Fange Tiere für Punkte — verpasst du eines, verlierst du ein Herz. Diamanttiere zählen am meisten!",play:"▶ SPIELEN",score:"PUNKTE",best:"BESTLEISTUNG",board:"Rangliste",all:"Gesamt",week:"Diese Woche",loading:"Lädt…",boardOff:"Rangliste gerade nicht verfügbar.",noScores:"Noch keine Punkte — sei der Erste! 🏆",over:"SPIEL VORBEI",yourScore:"Deine Punkte",namePh:"Dein Name",submit:"Punkte senden",saving:"Speichert…",saved:"Gespeichert!",couldNot:"Speichern fehlgeschlagen — versuch es erneut.",again:"↻ Nochmal spielen",close:"✕ Schließen",catchW:"GEFANGEN!",newBest:"★ NEUER REKORD!"},
+it:{tagline:"Cattura gli animali di cristallo!",howto:"Trascina per muovere il cesto. Cattura gli animali per fare punti: se ne perdi uno, perdi un cuore. Quelli di diamante valgono di più!",play:"▶ GIOCA",score:"PUNTI",best:"RECORD",board:"Classifica",all:"Di sempre",week:"Questa settimana",loading:"Caricamento…",boardOff:"Classifica non disponibile ora.",noScores:"Nessun punteggio ancora — sii il primo! 🏆",over:"PARTITA FINITA",yourScore:"I tuoi punti",namePh:"Il tuo nome",submit:"Invia punti",saving:"Salvataggio…",saved:"Salvato!",couldNot:"Salvataggio non riuscito — riprova.",again:"↻ Gioca ancora",close:"✕ Chiudi",catchW:"PRESO!",newBest:"★ NUOVO RECORD!"},
+nl:{tagline:"Vang de kristallen dieren!",howto:"Sleep om de mand te bewegen. Vang dieren voor punten — mis je er een, dan verlies je een hart. Diamanten dieren zijn het meeste waard!",play:"▶ SPELEN",score:"SCORE",best:"BESTE",board:"Ranglijst",all:"Allertijden",week:"Deze week",loading:"Laden…",boardOff:"Ranglijst nu niet beschikbaar.",noScores:"Nog geen scores — wees de eerste! 🏆",over:"SPEL VOORBIJ",yourScore:"Jouw score",namePh:"Jouw naam",submit:"Score verzenden",saving:"Opslaan…",saved:"Opgeslagen!",couldNot:"Opslaan mislukt — probeer opnieuw.",again:"↻ Opnieuw spelen",close:"✕ Sluiten",catchW:"GEVANGEN!",newBest:"★ NIEUW RECORD!"},
+ru:{tagline:"Лови хрустальных питомцев!",howto:"Веди корзину пальцем. Лови питомцев ради очков: пропустишь одного — потеряешь сердце. Алмазные ценятся дороже всех!",play:"▶ ИГРАТЬ",score:"ОЧКИ",best:"РЕКОРД",board:"Таблица лидеров",all:"За всё время",week:"Эта неделя",loading:"Загрузка…",boardOff:"Таблица сейчас недоступна.",noScores:"Очков пока нет — стань первым! 🏆",over:"ИГРА ОКОНЧЕНА",yourScore:"Твои очки",namePh:"Твоё имя",submit:"Отправить результат",saving:"Сохраняем…",saved:"Сохранено!",couldNot:"Не удалось сохранить — попробуй ещё раз.",again:"↻ Играть снова",close:"✕ Закрыть",catchW:"ПОЙМАЛ!",newBest:"★ НОВЫЙ РЕКОРД!"},
+uk:{tagline:"Лови кришталевих улюбленців!",howto:"Веди кошик пальцем. Лови улюбленців заради очок: пропустиш одного — втратиш серце. Діамантові цінуються найдорожче!",play:"▶ ГРАТИ",score:"ОЧКИ",best:"РЕКОРД",board:"Таблиця лідерів",all:"За весь час",week:"Цей тиждень",loading:"Завантаження…",boardOff:"Таблиця зараз недоступна.",noScores:"Очок ще немає — стань першим! 🏆",over:"ГРУ ЗАВЕРШЕНО",yourScore:"Твої очки",namePh:"Твоє ім'я",submit:"Надіслати результат",saving:"Зберігаємо…",saved:"Збережено!",couldNot:"Не вдалося зберегти — спробуй ще раз.",again:"↻ Грати знову",close:"✕ Закрити",catchW:"СПІЙМАВ!",newBest:"★ НОВИЙ РЕКОРД!"},
+tr:{tagline:"Kristal evcil hayvanları yakala!",howto:"Sepeti hareket ettirmek için sürükle. Puan için hayvanları yakala — birini kaçırırsan bir kalp kaybedersin. Elmas olanlar en değerli!",play:"▶ OYNA",score:"SKOR",best:"REKOR",board:"Liderlik Tablosu",all:"Tüm zamanlar",week:"Bu hafta",loading:"Yükleniyor…",boardOff:"Tablo şu anda kullanılamıyor.",noScores:"Henüz skor yok — ilk sen ol! 🏆",over:"OYUN BİTTİ",yourScore:"Skorun",namePh:"Adın",submit:"Skoru gönder",saving:"Kaydediliyor…",saved:"Kaydedildi!",couldNot:"Kaydedilemedi — tekrar dene.",again:"↻ Tekrar oyna",close:"✕ Kapat",catchW:"YAKALADIN!",newBest:"★ YENİ REKOR!"},
+ar:{tagline:"امسك الحيوانات الكريستالية!",howto:"اسحب لتحريك السلة. امسك الحيوانات لتسجيل النقاط — إذا فاتك واحد تخسر قلبًا. حيوانات الألماس هي الأغلى!",play:"▶ العب",score:"النقاط",best:"الأفضل",board:"لوحة المتصدرين",all:"كل الأوقات",week:"هذا الأسبوع",loading:"جارٍ التحميل…",boardOff:"اللوحة غير متاحة الآن.",noScores:"لا نقاط بعد — كن الأول! 🏆",over:"انتهت اللعبة",yourScore:"نقاطك",namePh:"اسمك",submit:"إرسال النقاط",saving:"جارٍ الحفظ…",saved:"تم الحفظ!",couldNot:"تعذّر الحفظ — حاول مجددًا.",again:"↻ العب مجددًا",close:"✕ إغلاق",catchW:"أمسكته!",newBest:"★ رقم قياسي جديد!"},
+hi:{tagline:"क्रिस्टल पालतू जानवरों को पकड़ो!",howto:"टोकरी हिलाने के लिए खींचो। अंकों के लिए जानवर पकड़ो — एक छूटा तो एक दिल जाएगा। हीरे वाले सबसे कीमती हैं!",play:"▶ खेलो",score:"स्कोर",best:"सर्वश्रेष्ठ",board:"लीडरबोर्ड",all:"सर्वकालिक",week:"इस सप्ताह",loading:"लोड हो रहा है…",boardOff:"बोर्ड अभी उपलब्ध नहीं है।",noScores:"अभी कोई स्कोर नहीं — पहले बनो! 🏆",over:"खेल खत्म",yourScore:"तुम्हारा स्कोर",namePh:"तुम्हारा नाम",submit:"स्कोर भेजो",saving:"सहेज रहे हैं…",saved:"सहेजा गया!",couldNot:"सहेज नहीं पाए — फिर कोशिश करो।",again:"↻ फिर खेलो",close:"✕ बंद करो",catchW:"पकड़ा!",newBest:"★ नया रिकॉर्ड!"},
+id:{tagline:"Tangkap hewan kristal!",howto:"Seret untuk menggerakkan keranjang. Tangkap hewan untuk poin — lewatkan satu dan kamu kehilangan hati. Hewan berlian paling berharga!",play:"▶ MAIN",score:"SKOR",best:"TERBAIK",board:"Papan Peringkat",all:"Sepanjang masa",week:"Minggu ini",loading:"Memuat…",boardOff:"Papan tidak tersedia sekarang.",noScores:"Belum ada skor — jadilah yang pertama! 🏆",over:"PERMAINAN SELESAI",yourScore:"Skormu",namePh:"Namamu",submit:"Kirim skor",saving:"Menyimpan…",saved:"Tersimpan!",couldNot:"Gagal menyimpan — coba lagi.",again:"↻ Main lagi",close:"✕ Tutup",catchW:"DAPAT!",newBest:"★ REKOR BARU!"},
+vi:{tagline:"Bắt các thú cưng pha lê!",howto:"Kéo để di chuyển giỏ. Bắt thú để ghi điểm — lỡ một con là mất một tim. Thú kim cương đáng giá nhất!",play:"▶ CHƠI",score:"ĐIỂM",best:"CAO NHẤT",board:"Bảng xếp hạng",all:"Mọi thời đại",week:"Tuần này",loading:"Đang tải…",boardOff:"Bảng hiện không khả dụng.",noScores:"Chưa có điểm — hãy là người đầu tiên! 🏆",over:"KẾT THÚC",yourScore:"Điểm của bạn",namePh:"Tên của bạn",submit:"Gửi điểm",saving:"Đang lưu…",saved:"Đã lưu!",couldNot:"Không lưu được — thử lại.",again:"↻ Chơi lại",close:"✕ Đóng",catchW:"BẮT ĐƯỢC!",newBest:"★ KỶ LỤC MỚI!"},
+th:{tagline:"จับสัตว์เลี้ยงคริสตัล!",howto:"ลากเพื่อขยับตะกร้า จับสัตว์เพื่อทำคะแนน — พลาดหนึ่งตัวจะเสียหัวใจหนึ่งดวง สัตว์เพชรมีค่าที่สุด!",play:"▶ เล่น",score:"คะแนน",best:"ดีที่สุด",board:"ตารางคะแนน",all:"ตลอดกาล",week:"สัปดาห์นี้",loading:"กำลังโหลด…",boardOff:"ตารางไม่พร้อมใช้งานตอนนี้",noScores:"ยังไม่มีคะแนน — เป็นคนแรกเลย! 🏆",over:"จบเกม",yourScore:"คะแนนของคุณ",namePh:"ชื่อของคุณ",submit:"ส่งคะแนน",saving:"กำลังบันทึก…",saved:"บันทึกแล้ว!",couldNot:"บันทึกไม่สำเร็จ — ลองอีกครั้ง",again:"↻ เล่นอีกครั้ง",close:"✕ ปิด",catchW:"จับได้!",newBest:"★ สถิติใหม่!"},
+ko:{tagline:"크리스탈 펫을 잡아라!",howto:"드래그해서 바구니를 움직이세요. 펫을 잡으면 점수 — 하나 놓치면 하트 하나를 잃습니다. 다이아몬드 펫이 가장 비싸요!",play:"▶ 플레이",score:"점수",best:"최고 기록",board:"리더보드",all:"전체 기간",week:"이번 주",loading:"로딩 중…",boardOff:"지금은 보드를 볼 수 없어요.",noScores:"아직 점수가 없어요 — 첫 번째가 되세요! 🏆",over:"게임 오버",yourScore:"내 점수",namePh:"이름",submit:"점수 제출",saving:"저장 중…",saved:"저장됨!",couldNot:"저장 실패 — 다시 시도하세요.",again:"↻ 다시 플레이",close:"✕ 닫기",catchW:"잡았다!",newBest:"★ 신기록!"},
+ja:{tagline:"クリスタルペットをつかまえよう！",howto:"ドラッグでバスケットを動かそう。ペットをキャッチして得点 — 逃すとハートを1つ失うよ。ダイヤモンドのペットが一番高得点！",play:"▶ プレイ",score:"スコア",best:"ベスト",board:"リーダーボード",all:"総合",week:"今週",loading:"読み込み中…",boardOff:"現在ボードは利用できません。",noScores:"まだスコアがありません — 一番乗りしよう！ 🏆",over:"ゲームオーバー",yourScore:"あなたのスコア",namePh:"あなたの名前",submit:"スコアを送信",saving:"保存中…",saved:"保存しました！",couldNot:"保存できませんでした — もう一度お試しください。",again:"↻ もう一度プレイ",close:"✕ 閉じる",catchW:"キャッチ！",newBest:"★ 新記録！"},
+zh:{tagline:"抓住水晶宠物！",howto:"拖动来移动篮子。抓住宠物得分——漏掉一只就少一颗心。钻石宠物最值钱！",play:"▶ 开始游戏",score:"分数",best:"最高分",board:"排行榜",all:"总榜",week:"本周",loading:"加载中…",boardOff:"排行榜暂时不可用。",noScores:"暂无分数——来当第一名！🏆",over:"游戏结束",yourScore:"你的分数",namePh:"你的名字",submit:"提交分数",saving:"保存中…",saved:"已保存！",couldNot:"保存失败——请重试。",again:"↻ 再玩一次",close:"✕ 关闭",catchW:"抓住了！",newBest:"★ 新纪录！"}
+};
+let LANG = localStorage.getItem('kavaPetsLang') || 'en'; if (!I18N[LANG]) LANG = 'en';
+function T(k){ const d = I18N[LANG]; return (d && d[k]) || I18N.en[k] || k; }
+const langSel = $('langSel');
+LANGS.forEach(([code, label]) => { const o = document.createElement('option'); o.value = code; o.textContent = '🌐 ' + label; langSel.appendChild(o); });
+langSel.value = LANG;
+function applyLang(){
+  document.documentElement.lang = LANG;
+  $('tagline').textContent = T('tagline');
+  $('howto').textContent = T('howto');
+  $('startBtn').textContent = T('play');
+  $('startBoardBtn').textContent = '🏆 ' + T('board');
+  $('scoreLbl').textContent = T('score');
+  $('bestLbl').textContent = T('best');
+  $('bestLbl2').textContent = T('best');
+  $('overTitle').textContent = T('over');
+  $('yourScoreLbl').textContent = T('yourScore');
+  $('nameInput').placeholder = T('namePh');
+  $('submitBtn').textContent = T('submit');
+  $('againBtn').textContent = T('again');
+  $('overBoardBtn').textContent = '🏆 ' + T('board');
+  $('boardTitle').textContent = T('board');
+  $('tabAll').textContent = T('all');
+  $('tabWeek').textContent = T('week');
+  $('boardClose').textContent = T('close');
+  $('newBest').textContent = T('newBest');
+  if (boardData || boardErr) renderBoard();
+}
+langSel.onchange = () => { LANG = langSel.value; localStorage.setItem('kavaPetsLang', LANG); applyLang(); };
+
+/* ================= telegram ================= */
+try { if (window.Telegram && window.Telegram.WebApp) { window.Telegram.WebApp.ready(); window.Telegram.WebApp.expand(); } } catch (e) {}
+
+/* ================= assets ================= */
+const IMG = {};
+function loadImg(key, src){ const i = new Image(); i.src = src; IMG[key] = i; }
+loadImg('bg', 'assets/bg.jpg');
+loadImg('red', 'assets/pet-red.png');
+loadImg('amber', 'assets/pet-amber.png');
+loadImg('diamond', 'assets/pet-diamond.png');
+loadImg('catcher', 'assets/catcher.png');
+
+/* ================= audio (tiny synth) ================= */
+let AC = null, muted = localStorage.getItem('kavaPetsMute') === '1';
+function ensureAudio(){ if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } if (AC && AC.state === 'suspended') AC.resume(); }
+function blip(f0, f1, dur, type, vol){
+  if (!AC || muted) return;
+  const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(f0, t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(30, f1), t + dur);
+  g.gain.setValueAtTime(vol || 0.12, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g); g.connect(AC.destination);
+  o.start(t); o.stop(t + dur);
+}
+const sndCatch = combo => blip(520 + Math.min(combo, 12) * 45, 940 + Math.min(combo, 12) * 60, 0.14, 'triangle', 0.14);
+const sndMiss = () => blip(220, 60, 0.3, 'sawtooth', 0.10);
+const sndOver = () => { blip(392, 392, 0.16, 'triangle', 0.12); setTimeout(() => blip(311, 311, 0.16, 'triangle', 0.12), 150); setTimeout(() => blip(233, 180, 0.34, 'triangle', 0.12), 300); };
+$('muteBtn').textContent = muted ? '🔇' : '🔊';
+$('muteBtn').onclick = () => { muted = !muted; localStorage.setItem('kavaPetsMute', muted ? '1' : '0'); $('muteBtn').textContent = muted ? '🔇' : '🔊'; if (!muted) ensureAudio(); };
+
+/* ================= game state ================= */
+const cv = $('cv'), ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+function resize(){
+  const r = $('wrap').getBoundingClientRect();
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = Math.max(280, r.width); H = Math.max(320, r.height);
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  layoutCatcher();
+}
+addEventListener('resize', resize);
+
+const TYPES = {
+  red:     { pts: 100, w: 0.60, scale: 1.0,  spd: 1.0 },
+  amber:   { pts: 150, w: 0.30, scale: 0.94, spd: 1.08 },
+  diamond: { pts: 500, w: 0.10, scale: 0.8,  spd: 1.3 },
+};
+let state = 'menu'; // menu | play | over
+let score = 0, best = +(localStorage.getItem('kavaPetsBest') || 0);
+let lives = 3, combo = 0, elapsed = 0, startStamp = 0;
+let pets = [], parts = [], pops = [], spawnT = 0;
+let ambientOn = true; // QA hook can pause the ambient spawner for precision tests
+const catcher = { x: 0, tx: 0, w: 0, h: 0, y: 0 };
+function layoutCatcher(){
+  catcher.h = clamp(H * 0.235, 110, 250);
+  catcher.w = catcher.h * (513 / 900);
+  catcher.y = H - catcher.h - Math.max(6, H * 0.012);
+  if (!catcher.x) { catcher.x = W / 2; catcher.tx = W / 2; }
+  catcher.x = clamp(catcher.x, catcher.w * 0.36, W - catcher.w * 0.36);
+  catcher.tx = clamp(catcher.tx, catcher.w * 0.36, W - catcher.w * 0.36);
+}
+/* basket catch zone inside the catcher sprite (measured from the art) */
+const BASKET = { cx: 0.566, rimY: 0.40, halfW: 0.375 };
+function basketCX(){ return catcher.x - catcher.w / 2 + catcher.w * BASKET.cx; }
+function basketRimY(){ return catcher.y + catcher.h * BASKET.rimY; }
+
+function pickType(){
+  const r = Math.random();
+  if (r < TYPES.diamond.w) return 'diamond';
+  if (r < TYPES.diamond.w + TYPES.amber.w) return 'amber';
+  return 'red';
+}
+function spawnPet(type, x){
+  const t = TYPES[type];
+  const size = clamp(Math.min(W, H) * 0.155, 46, 96) * t.scale;
+  const speedBase = (H * 0.34 + elapsed * 2.4) * t.spd;
+  pets.push({
+    type, x: (typeof x === 'number') ? x : size / 2 + Math.random() * (W - size),
+    y: -size / 2 - Math.random() * 30, size,
+    vy: speedBase * (0.85 + Math.random() * 0.35),
+    sway: Math.random() * Math.PI * 2, swayAmp: 8 + Math.random() * 16,
+    rot: (Math.random() - 0.5) * 0.3, vr: (Math.random() - 0.5) * 0.5,
+    pulse: Math.random() * Math.PI * 2,
+  });
+}
+function burst(x, y, color, n){
+  for (let i = 0; i < (n || 14); i++){
+    const a = Math.random() * Math.PI * 2, s = 40 + Math.random() * 150;
+    parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 60, life: 0.55 + Math.random() * 0.3, t: 0, color, r: 1.5 + Math.random() * 2.6 });
+  }
+}
+function popText(x, y, text, color){
+  pops.push({ x, y, text, color: color || '#ffd76a', t: 0, life: 0.85 });
+}
+/* ambient cavern dust */
+const dust = [];
+for (let i = 0; i < 42; i++) dust.push({ x: Math.random(), y: Math.random(), r: 0.8 + Math.random() * 1.9, s: 0.008 + Math.random() * 0.03, o: 0.25 + Math.random() * 0.55, ph: Math.random() * 6.28 });
+
+function reset(){
+  score = 0; lives = 3; combo = 0; elapsed = 0; pets = []; parts = []; pops = []; spawnT = 0.35;
+  catcher.x = W / 2; catcher.tx = W / 2;
+  syncHud();
+}
+function syncHud(){
+  $('scoreV').textContent = score;
+  $('bestV').textContent = best;
+  $('hearts').textContent = lives > 0 ? '❤️'.repeat(lives) + '🖤'.repeat(3 - lives) : '🖤🖤🖤';
+  const cc = $('comboChip');
+  if (combo >= 2){ cc.style.display = ''; $('comboV').textContent = 'x' + mult(); } else cc.style.display = 'none';
+}
+function mult(){ return 1 + Math.min(4, Math.floor(combo / 4)); }
+
+function startGame(){
+  ensureAudio();
+  reset();
+  state = 'play';
+  startStamp = performance.now();
+  $('startScreen').hidden = true;
+  $('overScreen').hidden = true;
+  $('boardScreen').hidden = true;
+}
+function gameOver(){
+  state = 'over';
+  sndOver();
+  const isNew = score > best;
+  if (isNew){ best = score; localStorage.setItem('kavaPetsBest', best); }
+  $('finalScore').textContent = score;
+  $('finalBest').textContent = best;
+  $('newBest').hidden = !isNew;
+  prefillName();
+  $('submitBtn').disabled = false;
+  $('submitStatus').textContent = '';
+  $('overScreen').hidden = false;
+  syncHud();
+}
+function step(dt){
+  if (state !== 'play') return;
+  elapsed = (performance.now() - startStamp) / 1000;
+  /* catcher eases toward target */
+  catcher.x += (catcher.tx - catcher.x) * Math.min(1, dt * 16);
+  /* spawner: interval tightens as the run goes on */
+  spawnT -= dt;
+  const interval = clamp(0.92 - elapsed * 0.008, 0.38, 0.92);
+  if (spawnT <= 0){ if (ambientOn) spawnPet(pickType()); spawnT = interval * (0.7 + Math.random() * 0.6); }
+  const rimY = basketRimY(), bcx = basketCX(), halfW = catcher.w * BASKET.halfW;
+  const floorY = H - 4;
+  for (let i = pets.length - 1; i >= 0; i--){
+    const p = pets[i];
+    p.sway += dt * 2.1; p.pulse += dt * 5; p.rot += p.vr * dt;
+    p.y += p.vy * dt * (1 + elapsed * 0.004);
+    p.x += Math.sin(p.sway) * p.swayAmp * dt;
+    /* caught? pet centre crosses the basket rim inside the basket span */
+    if (p.y + p.size * 0.32 >= rimY && p.y - p.size * 0.3 < rimY + 26 && Math.abs(p.x - bcx) < halfW + p.size * 0.18){
+      const pts = TYPES[p.type].pts * mult();
+      score += pts; combo++;
+      popText(p.x, rimY - 14, '+' + pts, p.type === 'diamond' ? '#bfe9ff' : '#ffd76a');
+      if (combo === 2 || combo % 4 === 0) popText(bcx, rimY - 46, T('catchW') + ' x' + combo, '#ffe98a');
+      burst(p.x, rimY, p.type === 'diamond' ? '#cfeeff' : (p.type === 'amber' ? '#ffcf6a' : '#ff7d6a'), p.type === 'diamond' ? 22 : 13);
+      sndCatch(combo);
+      pets.splice(i, 1);
+      syncHud();
+      continue;
+    }
+    if (p.y - p.size / 2 > floorY){
+      lives--; combo = 0;
+      burst(p.x, floorY - 6, '#8a4a3a', 10);
+      popText(p.x, floorY - 34, '💔', '#ff9a8a');
+      sndMiss();
+      pets.splice(i, 1);
+      syncHud();
+      if (lives <= 0){ gameOver(); return; }
+    }
+  }
+  for (let i = parts.length - 1; i >= 0; i--){ const q = parts[i]; q.t += dt; q.x += q.vx * dt; q.y += q.vy * dt; q.vy += 260 * dt; if (q.t > q.life) parts.splice(i, 1); }
+  for (let i = pops.length - 1; i >= 0; i--){ const q = pops[i]; q.t += dt; q.y -= 42 * dt; if (q.t > q.life) pops.splice(i, 1); }
+}
+function drawGemFallback(c, p){
+  const r = p.size / 2;
+  const g = c.createRadialGradient(p.x - r * 0.3, p.y - r * 0.35, r * 0.15, p.x, p.y, r);
+  const cols = { red: ['#ffb3c2', '#e01e4e', '#7d0a28'], amber: ['#fff0b3', '#f5a623', '#8a4d05'], diamond: ['#ffffff', '#bfe6ff', '#4d7fa8'] }[p.type];
+  g.addColorStop(0, cols[0]); g.addColorStop(0.55, cols[1]); g.addColorStop(1, cols[2]);
+  c.fillStyle = g;
+  c.beginPath(); c.arc(p.x, p.y, r, 0, 6.283); c.fill();
+  c.fillStyle = '#241014';
+  c.beginPath(); c.arc(p.x - r * 0.32, p.y - r * 0.05, r * 0.11, 0, 6.283); c.arc(p.x + r * 0.32, p.y - r * 0.05, r * 0.11, 0, 6.283); c.fill();
+  c.strokeStyle = '#241014'; c.lineWidth = Math.max(2, r * 0.07);
+  c.beginPath(); c.arc(p.x, p.y + r * 0.28, r * 0.2, 0.15 * Math.PI, 0.85 * Math.PI); c.stroke();
+}
+function draw(){
+  ctx.clearRect(0, 0, W, H);
+  /* background: cover-fit cavern art */
+  const bg = IMG.bg;
+  if (bg && bg.complete && bg.naturalWidth){
+    const s = Math.max(W / bg.naturalWidth, H / bg.naturalHeight);
+    const dw = bg.naturalWidth * s, dh = bg.naturalHeight * s;
+    ctx.drawImage(bg, (W - dw) / 2, (H - dh) / 2, dw, dh);
+  } else {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#2a070d'); g.addColorStop(1, '#12030a');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  }
+  /* warm light glow from the shaft */
+  const lg = ctx.createRadialGradient(W * 0.55, H * 0.1, 10, W * 0.55, H * 0.1, H * 0.75);
+  lg.addColorStop(0, 'rgba(255,190,90,0.16)'); lg.addColorStop(1, 'rgba(255,190,90,0)');
+  ctx.fillStyle = lg; ctx.fillRect(0, 0, W, H);
+  /* ambient dust */
+  const now = performance.now() / 1000;
+  for (const d of dust){
+    const y = ((d.y + now * d.s) % 1) * H;
+    const x = d.x * W + Math.sin(now * 0.7 + d.ph) * 9;
+    ctx.globalAlpha = d.o * (0.6 + 0.4 * Math.sin(now * 2 + d.ph));
+    ctx.fillStyle = '#ffcf8f';
+    ctx.beginPath(); ctx.arc(x, y, d.r, 0, 6.283); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  /* pets */
+  for (const p of pets){
+    const img = IMG[p.type];
+    const s = p.size * (1 + Math.sin(p.pulse) * 0.035);
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rot + Math.sin(p.sway) * 0.06);
+    ctx.shadowColor = p.type === 'diamond' ? 'rgba(160,220,255,0.9)' : (p.type === 'amber' ? 'rgba(255,180,60,0.85)' : 'rgba(255,60,80,0.85)');
+    ctx.shadowBlur = 16;
+    if (img && img.complete && img.naturalWidth) ctx.drawImage(img, -s / 2, -s / 2, s, s);
+    else { ctx.shadowBlur = 0; drawGemFallback(ctx, { x: 0, y: 0, size: s, type: p.type }); }
+    ctx.restore();
+  }
+  /* catcher */
+  const ci = IMG.catcher;
+  const bob = state === 'play' ? Math.sin(now * 2.4) * 2.2 : 0;
+  if (ci && ci.complete && ci.naturalWidth){
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = 12; ctx.shadowOffsetY = 5;
+    ctx.drawImage(ci, catcher.x - catcher.w / 2, catcher.y + bob, catcher.w, catcher.h);
+    ctx.restore();
+  } else {
+    ctx.fillStyle = '#8a5a22';
+    ctx.beginPath(); ctx.ellipse(basketCX(), basketRimY(), catcher.w * BASKET.halfW, 14, 0, 0, 6.283); ctx.fill();
+  }
+  /* particles */
+  for (const q of parts){
+    ctx.globalAlpha = Math.max(0, 1 - q.t / q.life);
+    ctx.fillStyle = q.color;
+    ctx.beginPath(); ctx.arc(q.x, q.y, q.r, 0, 6.283); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  /* floating score pops */
+  ctx.textAlign = 'center';
+  for (const q of pops){
+    ctx.globalAlpha = Math.max(0, 1 - q.t / q.life);
+    ctx.font = '900 19px Trebuchet MS, sans-serif';
+    ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(30,2,6,0.85)';
+    ctx.strokeText(q.text, q.x, q.y);
+    ctx.fillStyle = q.color;
+    ctx.fillText(q.text, q.x, q.y);
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* ================= input: drag + keys ================= */
+let dragging = false;
+function ptrX(e){ const r = cv.getBoundingClientRect(); return (e.clientX - r.left); }
+cv.addEventListener('pointerdown', e => { ensureAudio(); dragging = true; catcher.tx = clamp(ptrX(e), catcher.w * 0.36, W - catcher.w * 0.36); cv.setPointerCapture(e.pointerId); });
+cv.addEventListener('pointermove', e => { if (dragging) catcher.tx = clamp(ptrX(e), catcher.w * 0.36, W - catcher.w * 0.36); });
+addEventListener('pointerup', () => { dragging = false; });
+addEventListener('keydown', e => {
+  if (e.code === 'ArrowLeft') catcher.tx = clamp(catcher.tx - 46, catcher.w * 0.36, W - catcher.w * 0.36);
+  if (e.code === 'ArrowRight') catcher.tx = clamp(catcher.tx + 46, catcher.w * 0.36, W - catcher.w * 0.36);
+  if (e.code === 'Space' && state !== 'play'){ e.preventDefault(); startGame(); }
+  if (e.code === 'KeyM') $('muteBtn').onclick();
+});
+document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'play') startStamp += 0; /* elapsed derives from stamp; hidden tab rAF stalls anyway */ });
+
+/* ================= leaderboard (house pattern) ================= */
+const API_URL = 'https://frg-fight-club.vercel.app/api/luna-games?game=kava-pets';
+function prefillName(){
+  const inp = $('nameInput');
+  const tg = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe;
+  const tname = tg && tg.user && tg.user.first_name;
+  inp.value = (localStorage.getItem('kavaPetsName') || tname || 'Guest').slice(0, 16);
+}
+let boardData = null, boardTab = 'all', boardErr = false;
+async function loadBoard(){
+  $('boardList').innerHTML = '<p style="text-align:center; opacity:.85">' + T('loading') + '</p>';
+  boardErr = false;
+  try {
+    const r = await fetch(API_URL);
+    if (!r.ok) throw new Error('board ' + r.status);
+    boardData = await r.json();
+  } catch (e) { boardData = null; boardErr = true; }
+  renderBoard();
+}
+function renderBoard(){
+  $('tabAll').className = 'play' + (boardTab === 'all' ? '' : ' alt');
+  $('tabAll').style.cssText = 'font-size:14px; padding:8px 18px';
+  $('tabWeek').className = 'play' + (boardTab === 'week' ? '' : ' alt');
+  $('tabWeek').style.cssText = 'font-size:14px; padding:8px 18px';
+  if (boardErr || !boardData){ $('boardList').innerHTML = '<p style="text-align:center; opacity:.85">' + T('boardOff') + '</p>'; return; }
+  const rows = boardData[boardTab] || [];
+  if (!rows.length){ $('boardList').innerHTML = '<p style="text-align:center; opacity:.85">' + T('noScores') + '</p>'; return; }
+  $('boardList').innerHTML = rows.map((r, i) =>
+    '<div class="row"><span class="rk">' + (i + 1) + '.</span><span class="nm"></span><span class="sc">' + r.score + '</span></div>'
+  ).join('');
+  [...$('boardList').querySelectorAll('.row .nm')].forEach((el, i) => { el.textContent = rows[i].name; });
+}
+function openBoard(){
+  $('boardScreen').hidden = false;
+  boardTab = 'all';
+  loadBoard();
+}
+$('tabAll').onclick = () => { boardTab = 'all'; renderBoard(); };
+$('tabWeek').onclick = () => { boardTab = 'week'; renderBoard(); };
+$('boardClose').onclick = () => { $('boardScreen').hidden = true; };
+$('boardBtn').onclick = openBoard;
+$('startBoardBtn').onclick = openBoard;
+$('overBoardBtn').onclick = openBoard;
+$('submitBtn').onclick = async () => {
+  const btn = $('submitBtn');
+  btn.disabled = true;
+  const name = ($('nameInput').value.trim() || 'Guest').slice(0, 16);
+  localStorage.setItem('kavaPetsName', name);
+  $('submitStatus').textContent = T('saving');
+  const initData = (window.Telegram && window.Telegram.WebApp && window.Telegram.initData) || '';
+  try {
+    const r = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, name, score, seconds: Math.max(1, Math.round(elapsed)) }),
+    });
+    const d = await r.json();
+    if (d && d.ok){
+      $('submitStatus').textContent = d.rank ? ('🏆 #' + d.rank + ' — ' + T('saved')) : T('saved');
+      boardData = null;
+    } else {
+      $('submitStatus').textContent = T('couldNot');
+      btn.disabled = false;
+    }
+  } catch (e) {
+    $('submitStatus').textContent = T('couldNot');
+    btn.disabled = false;
+  }
+};
+$('startBtn').onclick = startGame;
+$('againBtn').onclick = () => { $('overScreen').hidden = true; startGame(); };
+
+/* ================= main loop ================= */
+let lastT = 0;
+function loop(ts){
+  requestAnimationFrame(loop);
+  const now = ts / 1000;
+  const dt = Math.min(0.033, lastT ? now - lastT : 0.016);
+  lastT = now;
+  step(dt);
+  draw();
+}
+
+/* ================= test API (house QA hooks) ================= */
+window.KP = {
+  start: startGame,
+  step, draw,
+  spawnPet, pickType,
+  setCatcher(x){ catcher.x = x; catcher.tx = x; },
+  catcherX: () => catcher.x,
+  basket: () => ({ cx: basketCX(), rimY: basketRimY(), halfW: catcher.w * BASKET.halfW }),
+  state: () => state,
+  score: () => score,
+  lives: () => lives,
+  combo: () => combo,
+  pets: () => pets.map(p => ({ type: p.type, x: p.x, y: p.y, size: p.size })),
+  setLives(n){ lives = n; syncHud(); },
+  setAmbient(on){ ambientOn = !!on; },
+  clearPets(){ pets = []; },
+  elapsed: () => elapsed,
+};
+
+resize();
+applyLang();
+syncHud();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
