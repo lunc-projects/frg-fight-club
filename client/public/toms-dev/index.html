@@ -322,6 +322,9 @@ header{position:sticky; top:0; z-index:50; background:rgba(18,18,43,.92); backdr
   <h3>📈 Progress — what everyone is building <button class="sbtn" id="progClose" type="button" style="float:right;">✕ Close</button></h3>
   <p class="mut" style="margin:0 0 10px;">Your watch view — spot scams, copycat sites or anything malicious.</p>
   <div id="progList"><p class="mut">Loading…</p></div>
+  <h4 style="margin:16px 0 4px; font-size:15px;">🗑️ Deleted — backup (accidents can be restored)</h4>
+  <p class="mut" style="margin:0 0 10px;">Delete forever removes the backup too — that can't be undone.</p>
+  <div id="trashList"><p class="mut">Loading…</p></div>
 </div></div>
 
 <section class="section on" id="sec-chat">
@@ -371,6 +374,13 @@ header{position:sticky; top:0; z-index:50; background:rgba(18,18,43,.92); backdr
 <section class="section" id="sec-tools">
   <h2>🗂️ Projects</h2>
   <p class="lede">Your projects — finish or delete them when you're done.</p>
+  <div class="card">
+    <h3>🛠️ Start a project</h3>
+    <div class="pform">
+      <input id="pjWhat" type="text" placeholder="What are you building? (e.g. DEX)" aria-label="What are you building?">
+      <button class="abtn" type="button" data-start="project">Start in Chat →</button>
+    </div>
+  </div>
   <div class="card">
     <h3>🪙 Create a Token</h3>
     <div class="pform">
@@ -715,6 +725,8 @@ function renderSeats(){
     + (s.active ?
       '<div class="sr-actions">'
       + '<div class="sr-group"><button class="sbtn" data-sact="progress" data-id="' + esc(s.id) + '">📈 Progress</button></div>'
+      + '<div class="sr-group"><input class="nm" type="text" placeholder="Project name (e.g. DEX)" id="pj-' + esc(s.id) + '">'
+      + '<button class="sbtn" data-sact="addproj" data-id="' + esc(s.id) + '">➕ Add project</button></div>'
       + '<div class="sr-group"><input type="number" min="0" step="1" placeholder="Tokens" id="tk-' + esc(s.id) + '">'
       + '<button class="sbtn" data-sact="add" data-id="' + esc(s.id) + '">➕ Add</button>'
       + '<button class="sbtn" data-sact="set" data-id="' + esc(s.id) + '">Set exact</button></div>'
@@ -745,7 +757,54 @@ async function openProgress(seatId){
   try { await refresh(true); } catch (e) {}
   if (!seatsCache.length){ try { await loadSeats(); } catch (e) {} }
   renderProgress(seatId);
+  loadTrash();
 }
+/* 🗑️ Deleted — backup: the OWNER-ONLY safety net under the
+   Projects board's Delete. Deleted projects land here (from
+   the server's backup store); Restore puts one back on its
+   seat's board with its status intact, Delete forever wipes
+   the backup copy too — two-tap armed, like the board. */
+async function loadTrash(){
+  const box = $('trashList'); if (!box) return;
+  try{
+    const j = await api({action:'tdaTrashList', hash: myHash()});
+    if (!j || !j.ok){ box.innerHTML = '<p class="fail">Couldn\'t load the backup.</p>'; return; }
+    renderTrash(j.trash || []);
+  }catch(e){ box.innerHTML = '<p class="fail">Couldn\'t load the backup — server unreachable.</p>'; }
+}
+function renderTrash(items){
+  const box = $('trashList'); if (!box) return;
+  if (!items.length){ box.innerHTML = '<p class="mut">Nothing in the backup.</p>'; return; }
+  box.innerHTML = items.map(r =>
+    '<div class="prog-seat">'
+    + '<div class="pg-top"><span class="pg-name">' + esc(r.seatName || 'Seat') + '</span>'
+    + '<span class="pill arch">' + esc(r.status || '') + '</span></div>'
+    + '<p>' + esc(String(r.text || '').slice(0, 100)) + (String(r.text || '').length > 100 ? '…' : '') + '</p>'
+    + '<p class="mut">Deleted ' + esc(fmtDate(r.deletedAt)) + '</p>'
+    + '<p style="margin-top:8px;"><button class="sbtn" data-trash="restore" data-id="' + esc(r.id) + '">Restore</button> '
+    + '<button class="sbtn warn" data-trash="forever" data-id="' + esc(r.id) + '">Delete forever</button></p>'
+    + '</div>'
+  ).join('');
+}
+let trashArm = { id: '', at: 0 };
+$('trashList').addEventListener('click', async e=>{
+  const b = e.target.closest('button[data-trash]');
+  if (!b) return;
+  const id = b.getAttribute('data-id'), act = b.getAttribute('data-trash');
+  if (act === 'forever' && !(trashArm.id === id && Date.now() - trashArm.at < 3000)){
+    trashArm = { id, at: Date.now() };
+    b.textContent = 'Are you sure?';
+    setTimeout(()=>{ if (trashArm.id === id){ trashArm = { id: '', at: 0 }; if (b.isConnected) b.textContent = 'Delete forever'; } }, 3000);
+    return;
+  }
+  trashArm = { id: '', at: 0 };
+  b.disabled = true;
+  try{
+    const j = await api({ action: act === 'restore' ? 'tdaRestore' : 'tdaTrashDelete', hash: myHash(), id });
+    if (j && j.ok){ loadTrash(); refresh(false); }
+    else b.disabled = false;
+  }catch(err){ b.disabled = false; }
+});
 function renderProgress(focusId){
   const box = $('progList'); if (!box) return;
   const seats = seatsCache.filter(s => s.active);
@@ -799,7 +858,15 @@ $('seatList').addEventListener('click', async e=>{
   if (b.tagName !== 'BUTTON') return;
   b.disabled = true;
   try{
-    if (act === 'add' || act === 'set'){
+    if (act === 'addproj'){
+      const inp = $('pj-' + id);
+      const v = (inp ? inp.value : '').trim();
+      if (!v){ seatMsg(id, 'Type the project name first.', 'bad'); b.disabled = false; return; }
+      const j = await api({action:'tdaNew', hash: myHash(), seatId: id, addProject: true, text: v});
+      if (j && j.ok){ seatMsg(id, 'Project added: ' + v + ' — it is on their board now. Tracking only, never charges.', 'ok'); if (inp) inp.value = ''; refresh(false); }
+      else seatMsg(id, (j && j.error) || "Couldn't add the project.", 'bad');
+    }
+    else if (act === 'add' || act === 'set'){
       const inp = $('tk-' + id);
       const amount = inp ? Number(inp.value) : NaN;
       if (!Number.isFinite(amount) || Math.floor(amount) !== amount || amount < 0){ seatMsg(id, 'Type a whole number of tokens first.', 'bad'); b.disabled = false; return; }
@@ -1815,7 +1882,11 @@ async function startFromForm(btn){
   const kind = btn.getAttribute('data-start');
   const val = id => { const el = $(id); return el ? el.value.trim() : ''; };
   let text = '';
-  if (kind === 'token'){
+  if (kind === 'project'){
+    const w = val('pjWhat');
+    if (!w){ briefBtn(btn, 'Fill in the fields first'); return; }
+    text = 'New project: ' + w;
+  } else if (kind === 'token'){
     const n = val('tfName'), s = val('tfSymbol'), q = val('tfSupply');
     if (!n || !s || !q){ briefBtn(btn, 'Fill in the fields first'); return; }
     text = 'Create a token — Name: ' + n + ' · Symbol: ' + s + ' · Supply: ' + q + ' (Kava factory)';
@@ -1858,7 +1929,7 @@ $('sec-tools').addEventListener('click', async e => {
   const id = b.getAttribute('data-id'), act = b.getAttribute('data-pact');
   if (act === 'del' && !(projArmDel.id === id && Date.now() - projArmDel.at < 3000)){
     projArmDel = { id, at: Date.now() };
-    b.textContent = 'Tap again to delete';
+    b.textContent = 'Are you sure?';
     setTimeout(()=>{ if (projArmDel.id === id){ projArmDel = { id: '', at: 0 }; if (b.isConnected) b.textContent = '🗑️ Delete'; } }, 3000);
     return;
   }

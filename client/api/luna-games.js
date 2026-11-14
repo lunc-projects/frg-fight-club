@@ -2415,6 +2415,12 @@ export async function kavaCodeHandler(req, res) {
    amount is decremented from the seat's balance (clamped at 0) —
    that is the only place usage is recorded, and it is recorded
    by the owner side, by design.
+   OWNER-ADDED PROJECTS: the owner can drop a project straight
+   into a seat's board (tdaNew with seatId + addProject, owner
+   tier only). The row is flagged ownerAdded and titled exactly
+   what the owner typed. It is a TRACKING entry: tdaDone on it
+   records 0 tokens used and never moves the seat's balance —
+   normal seat-posted projects charge as above.
    ENTRY CODES: the owner can also create a seat with ONE PRESS
    (tdaSeatQuickCreate): the SERVER generates a strong code
    (TD-XXXXXX-XXXXXX from an unambiguous alphabet, rejection-
@@ -2905,7 +2911,9 @@ function tdaPublicReq(o, seatName) {
     seatName: seatName || '',
     text: String(o.text || ''),
     status: ['received', 'building', 'done', 'closed'].includes(o.status) ? o.status : 'received',
+    ownerAdded: String(o.ownerAdded || '') === '1',
     closedBy: String(o.closedBy || ''),
+    deletedAt: Number(o.deletedAt) || 0,
     result: String(o.result || ''),
     tokensUsed: Math.max(0, parseInt(o.tokensUsed, 10) || 0),
     created: Number(o.created) || 0,
@@ -3181,7 +3189,15 @@ export async function tdaHandler(req, res) {
       const text = String(body.text || '').trim().slice(0, TDA_TEXT_MAX);
       if (!text) return res.status(400).json({ ok: false, error: 'empty message' });
       let seatId = 'owner';
+      let ownerAdded = false;
       if (auth.tier === 'seat') {
+        /* Add-project is an owner-side control: a seat aiming
+           the flag at ANOTHER seat is refused outright. (A
+           seat's own posts always land in its own thread —
+           the seatId field is ignored for seats below.) */
+        if (body.addProject === true && body.seatId && String(body.seatId) !== String(auth.seat.id)) {
+          return res.status(200).json({ ok: false, error: 'not your seat — a seat can only add projects to itself' });
+        }
         /* No weekly clock: the balance is the only gate.
            At 0 the seat can read everything but cannot post —
            a refill is the way back in. */
@@ -3212,14 +3228,22 @@ export async function tdaHandler(req, res) {
         }
       } else if (body.seatId) {
         /* The owner may post into a seat's thread (or leave the
-           seat off for the owner's own thread). */
+           seat off for the owner's own thread). With addProject
+           the post is a PROJECT on that seat's board, titled
+           exactly what the owner typed and flagged ownerAdded —
+           a tracking entry that never charges (see tdaDone). */
         const target = await tdaGetSeat(String(body.seatId));
-        if (target) seatId = String(target.id);
+        if (target) {
+          seatId = String(target.id);
+          if (body.addProject === true) ownerAdded = true;
+        }
       }
       const now = Date.now();
       const id = 'r' + now.toString(36) + crypto.randomBytes(4).toString('hex');
+      const rowCmd = ['HSET', 'tda:req:' + id, 'id', id, 'seatId', seatId, 'text', text, 'status', 'received', 'result', '', 'tokensUsed', '0', 'created', String(now), 'updated', String(now)];
+      if (ownerAdded) rowCmd.push('ownerAdded', '1');
       const cmds = [
-        ['HSET', 'tda:req:' + id, 'id', id, 'seatId', seatId, 'text', text, 'status', 'received', 'result', '', 'tokensUsed', '0', 'created', String(now), 'updated', String(now)],
+        rowCmd,
         ['LPUSH', 'tda:reqs', id],
         ['LTRIM', 'tda:reqs', 0, 199],
       ];
@@ -3267,6 +3291,9 @@ export async function tdaHandler(req, res) {
       const cur = await upstashPipeline([['HGETALL', 'tda:req:' + id]]);
       const existing = tdaHashToObj(cur[0] && cur[0].result);
       if (!existing.id) return res.status(404).json({ ok: false, error: 'no such request' });
+      /* A project sitting in the delete backup is out of play:
+         it cannot be statused or completed until restored. */
+      if (String(existing.deletedAt || '')) return res.status(404).json({ ok: false, error: 'no such request' });
       const now = String(Date.now());
       if (action === 'tdaStatus') {
         const status = String(body.status || '');
@@ -3279,8 +3306,13 @@ export async function tdaHandler(req, res) {
       }
       const result = String(body.result || '').trim().slice(0, TDA_RESULT_MAX);
       if (!result) return res.status(400).json({ ok: false, error: 'empty reply' });
-      const used = tdaParseTokens(body.tokens, 0);
+      let used = tdaParseTokens(body.tokens, 0);
       if (used === null) return res.status(400).json({ ok: false, error: 'bad token amount' });
+      /* Owner-added projects are TRACKING entries: completing
+         one never charges the seat, whatever figure the caller
+         sent — the row records 0 used and the balance below
+         does not move. */
+      if (String(existing.ownerAdded || '') === '1') used = 0;
       await upstashPipeline([['HSET', 'tda:req:' + id, 'status', 'done', 'result', result, 'tokensUsed', String(used), 'updated', now]]);
       /* Charge the seat for this completion — IDEMPOTENTLY.
          The amount that moves is the DELTA between the new
@@ -3322,6 +3354,9 @@ export async function tdaHandler(req, res) {
       const cur = await upstashPipeline([['HGETALL', 'tda:req:' + id]]);
       const existing = tdaHashToObj(cur[0] && cur[0].result);
       if (!existing.id) return res.status(404).json({ ok: false, error: 'no such request' });
+      /* Already in the backup = already deleted: a second
+         close/delete 404s like the project was never there. */
+      if (String(existing.deletedAt || '')) return res.status(404).json({ ok: false, error: 'no such request' });
       /* A seat touches only its OWN projects; the owner any. */
       if (auth.tier === 'seat' && String(existing.seatId || '') !== String(auth.seat.id)) {
         return res.status(200).json({ ok: false, error: 'not your project' });
@@ -3338,13 +3373,75 @@ export async function tdaHandler(req, res) {
         }
         return res.status(200).json({ ok: true, id, status: 'closed' });
       }
-      /* tdaDelete: the record is REMOVED — the row hash is
-         deleted and the id pulled from the shared list, so the
-         storage/queue space is actually freed ("cuts back on
-         memory"). No soft-delete, no recycle bin. Deleting also
-         frees the seat's open-cap slot. */
-      await upstashPipeline([['DEL', 'tda:req:' + id], ['LREM', 'tda:reqs', 0, id]]);
+      /* tdaDelete: the project leaves the board and every list
+         at once (board stays lean, the open-cap slot frees),
+         but the record is NOT destroyed — it moves to the
+         OWNER-ONLY backup (tda:trash, newest first, capped at
+         100) so an accidental delete can be restored from the
+         owner's Progress panel. Backups pushed past the cap
+         lose their row for real — that, and the owner's Delete
+         forever (tdaTrashDelete), is where the memory is
+         actually saved. */
+      const nowD = String(Date.now());
+      const tr = await upstashPipeline([['LRANGE', 'tda:trash', 0, -1]]);
+      const oldTrash = (tr[0] && tr[0].result) || [];
+      const dropped = oldTrash.slice(99);
+      const cmds = [
+        ['HSET', 'tda:req:' + id, 'deletedAt', nowD, 'updated', nowD],
+        ['LREM', 'tda:reqs', 0, id],
+        ['LPUSH', 'tda:trash', id],
+        ['LTRIM', 'tda:trash', 0, 99],
+      ];
+      for (const d of dropped) if (d !== id) cmds.push(['DEL', 'tda:req:' + d]);
+      await upstashPipeline(cmds);
       return res.status(200).json({ ok: true, id, deleted: true });
+    }
+
+    if (action === 'tdaTrashList' || action === 'tdaRestore' || action === 'tdaTrashDelete') {
+      /* The delete backup is OWNER-ONLY end to end: seats never
+         see it, and a seat calling any of these is refused by
+         the owner tier check itself. */
+      const auth = await tdaAuthTier(req, res, tag, String(body.hash || '').toLowerCase(), 'owner');
+      if (!auth) return undefined;
+      if (action === 'tdaTrashList') {
+        const idsOut = await upstashPipeline([['LRANGE', 'tda:trash', 0, -1]]);
+        const ids = (idsOut[0] && idsOut[0].result) || [];
+        if (!ids.length) return res.status(200).json({ ok: true, trash: [] });
+        const rows = await upstashPipeline(ids.map(x => ['HGETALL', 'tda:req:' + x]));
+        const objs = rows.map(r => tdaHashToObj(r && r.result)).filter(o => o.id);
+        const seatIds = [...new Set(objs.map(o => String(o.seatId || 'owner')))];
+        const names = {};
+        for (const sid of seatIds) {
+          if (sid === 'owner') { names[sid] = 'Owner'; continue; }
+          const s = await tdaGetSeat(sid);
+          names[sid] = s ? String(s.name || '') : '';
+        }
+        return res.status(200).json({ ok: true, trash: objs.map(o => tdaPublicReq(o, names[String(o.seatId || 'owner')])) });
+      }
+      const id = String(body.id || '');
+      if (!/^r[a-z0-9]{6,24}$/.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const cur = await upstashPipeline([['HGETALL', 'tda:req:' + id]]);
+      const existing = tdaHashToObj(cur[0] && cur[0].result);
+      if (!existing.id || !String(existing.deletedAt || '')) {
+        return res.status(404).json({ ok: false, error: 'not in the backup' });
+      }
+      if (action === 'tdaTrashDelete') {
+        /* Delete forever: the backup copy is destroyed too —
+           the row hash is DELeted and the id pulled from the
+           backup list. The one delete that cannot be undone. */
+        await upstashPipeline([['DEL', 'tda:req:' + id], ['LREM', 'tda:trash', 0, id]]);
+        return res.status(200).json({ ok: true, id, deletedForever: true });
+      }
+      /* tdaRestore: the project returns to its seat's board
+         with its prior status untouched; the backup entry and
+         the deletedAt flag clear. */
+      await upstashPipeline([
+        ['HSET', 'tda:req:' + id, 'deletedAt', '', 'updated', String(Date.now())],
+        ['LREM', 'tda:trash', 0, id],
+        ['LPUSH', 'tda:reqs', id],
+        ['LTRIM', 'tda:reqs', 0, 199],
+      ]);
+      return res.status(200).json({ ok: true, id, restored: true });
     }
 
     /* ---- Seat refills ($5 in LUNC, wallet-connect one-button) ---- */
