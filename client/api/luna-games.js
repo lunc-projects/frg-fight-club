@@ -2415,15 +2415,14 @@ export async function kavaCodeHandler(req, res) {
    (TD-XXXXXX-XXXXXX from an unambiguous alphabet, rejection-
    sampled crypto randomness), stores only its hash, and returns
    the plain code exactly once, in that response — it is never
-   retrievable afterwards. A new seat's starting balance is 25%
-   of the owner's monthly token pool (tda:settings monthlyPool,
-   rounded down), or the 100,000 default while no pool is set.
-   Rotating a
+   retrievable afterwards. A new seat's starting balance is the
+   TOKENS PER SEAT setting (tda:settings seatTokens,
+   120,000,000 by default). Rotating a
    seat's code can generate a fresh code the same way
    (tdaSeatCode with generate: true).
-   SEAT RENEWALS (Nov 13 reshape — replaces the earlier
-   per-1,000-LUNC top-up rate idea): a seat costs $5 A WEEK,
-   paid in LUNC (tdaRenewSubmit). The seat connects a wallet
+   SEAT REFILLS (Nov 13 — replaces the earlier per-1,000-LUNC
+   top-up rate idea and the short-lived $5/week clock): a
+   refill costs $5, paid in LUNC (tdaRenewSubmit). The seat connects a wallet
    on the card and presses one Pay button: the page signs a
    plain bank send from the connected wallet and hands the
    server the resulting hash (the wallet it connected as
@@ -2441,21 +2440,21 @@ export async function kavaCodeHandler(req, res) {
    price at verification time — CoinPaprika primary,
    CoinGecko fallback, the Wallet Scope pair; when both
    answer they must agree within 25% or the check refuses —
-   and must be worth at least 95% of the weekly price
+   and must be worth at least 95% of the refill price
    (renewPriceUsd, default $5 → $4.75 floor) to absorb price
-   wiggle between send and check. A verified payment extends
-   the seat's paidThrough by 7 days from the LATER of now and
-   the current paidThrough, and tops the token balance UP TO
-   the seat's share allowance (the pool share above) — never
-   above it, never down. Renewal records live in tda:renew:<id>
-   hashes with tda:renews the newest-first list, for the
-   owner's reconciliation list (tdaRenewList).
-   A seat whose paidThrough has passed is LAPSED: it can
-   still unlock and READ everything, but tdaNew refuses
-   server-side ({seatPaused: true}). New seats start with
-   paidThrough = creation + 7 days (the first week is
-   included); seat rows written before renewals existed fall
-   back to created + 7 days the same way.
+   wiggle between send and check. A verified payment tops
+   the token balance UP TO the seat's share allowance (the
+   pool share above) — never above it, never down. Refill
+   records live in tda:renew:<id> hashes with tda:renews the
+   newest-first list, for the owner's reconciliation list
+   (tdaRenewList) — the refill history.
+   NO WEEKLY CLOCK (owner ruling, Nov 13): a seat is ACTIVE
+   while its token balance is above 0 — dates gate nothing.
+   At 0 the seat can still unlock and READ everything, but
+   tdaNew refuses server-side ({noTokens: true}) and a
+   refill is the way back. The paidThrough field still
+   written on seat rows is legacy data from the weekly
+   model; nothing reads it.
    WALLET BINDING (anti-race): payments are public on-chain,
    so a hash alone proves nothing about WHICH seat paid. A
    seat's sending wallet is therefore bound to the seat —
@@ -2551,7 +2550,7 @@ async function tdaStoredOwner() {
    plain code is returned exactly once, by the action that
    generated it; only its SHA-256 is ever stored. */
 const TDA_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-const TDA_DEFAULT_NEW_SEAT_TOKENS = 100000;
+const TDA_SEAT_TOKENS_DEFAULT = 120000000;
 
 function tdaGenCodePlain() {
   let s = '';
@@ -2585,25 +2584,24 @@ async function tdaFreshGenCode(ownerHash) {
   return null;
 }
 
-/* Owner settings (tda:settings hash). TOKEN RULE (owner, Nov
-   13): a seat's starting balance is 25% OF THE MONTHLY TOKEN
-   POOL (monthlyPool, set by the owner in the panel), rounded
-   down. While no pool is set, seats start at the plain default
-   of 100,000 and the panel labels it as the default. The owner
-   can still top up / set any seat's exact balance afterwards. */
+/* Owner settings (tda:settings hash). TOKEN RULE (owner,
+   Nov 13, final): TOKENS PER SEAT is one direct number —
+   120,000,000 by default, owner-editable in the panel
+   (tdaSettingsSet seatTokens). New seats start at it; a
+   verified refill tops a seat UP TO it. No pool, no
+   percentages. The owner can still top up / set any seat's
+   exact balance afterwards. */
 async function tdaGetSettings() {
   const out = await upstashPipeline([['HGETALL', 'tda:settings']]);
   const o = tdaHashToObj(out[0] && out[0].result);
-  const raw = o.monthlyPool;
-  const pool = (raw === undefined || raw === '') ? null : tdaParseTokens(raw, null);
-  const poolSet = pool !== null && pool > 0;
+  const rawT = o.seatTokens;
+  const parsedT = (rawT === undefined || rawT === '') ? null : tdaParseTokens(rawT, null);
+  const seatTokens = (parsedT !== null && parsedT > 0) ? parsedT : TDA_SEAT_TOKENS_DEFAULT;
   const renewWallet = tdaTerraAddr(o.renewWallet || '') ? String(o.renewWallet).trim().toLowerCase() : null;
   const priceRaw = Number(o.renewPriceUsd);
   const renewPriceUsd = (Number.isFinite(priceRaw) && priceRaw > 0 && priceRaw <= 1000) ? priceRaw : TDA_RENEW_DEFAULT_USD;
   return {
-    monthlyPool: poolSet ? pool : null,
-    poolSet,
-    seatShare: poolSet ? Math.floor(pool / 4) : TDA_DEFAULT_NEW_SEAT_TOKENS,
+    seatTokens,
     renewWallet,
     renewPriceUsd,
     renewSet: !!renewWallet,
@@ -2660,9 +2658,10 @@ function tdaRenewMemo(seatId) {
   return 'TD-' + String(seatId || '').toUpperCase();
 }
 
-/* A seat's paid-through instant (ms). Rows written before
-   renewals existed carry no paidThrough — they get the same
-   first-week-included treatment as new seats: created + 7d. */
+/* LEGACY (weekly model, retired Nov 13): a seat's
+   paid-through instant. Nothing gates on it any more —
+   seats are active while their balance is above 0. Kept
+   only because seat rows still carry the stored field. */
 function tdaSeatPaidThrough(o) {
   const pt = Number(o && o.paidThrough);
   if (Number.isFinite(pt) && pt > 0) return pt;
@@ -2774,7 +2773,6 @@ async function tdaLookupTx(txhash) {
 }
 
 function tdaPublicSeat(o) {
-  const paidThrough = tdaSeatPaidThrough(o);
   return {
     id: String(o.id || ''),
     name: String(o.name || ''),
@@ -2783,8 +2781,6 @@ function tdaPublicSeat(o) {
     reqs: Math.max(0, parseInt(o.reqs, 10) || 0),
     active: String(o.active) === '1',
     created: Number(o.created) || 0,
-    paidThrough,
-    lapsed: paidThrough <= Date.now(),
     wallet: String(o.wallet || ''),
   };
 }
@@ -2953,7 +2949,7 @@ export async function tdaHandler(req, res) {
       if (!auth) return undefined;
       if (auth.tier === 'owner') return res.status(200).json({ ok: true, tier: 'owner' });
       const s = tdaPublicSeat(auth.seat);
-      return res.status(200).json({ ok: true, tier: 'seat', seat: { id: s.id, name: s.name, tokens: s.tokens, used: s.used, paidThrough: s.paidThrough, lapsed: s.lapsed, wallet: s.wallet } });
+      return res.status(200).json({ ok: true, tier: 'seat', seat: { id: s.id, name: s.name, tokens: s.tokens, used: s.used, wallet: s.wallet } });
     }
 
     /* Owner-code changes — owner only. tdaCodeSet and tdaRotate
@@ -3003,7 +2999,7 @@ export async function tdaHandler(req, res) {
          pool, or the 100,000 default) — the owner adjusts the
          balance afterwards with tdaSeatTokens. */
       const settings = await tdaGetSettings();
-      const tokens = settings.seatShare;
+      const tokens = settings.seatTokens;
       const now = Date.now();
       const id = 's' + now.toString(36) + crypto.randomBytes(4).toString('hex');
       if (!(await tdaClaimCode(newHash, id))) {
@@ -3031,7 +3027,7 @@ export async function tdaHandler(req, res) {
       const gen = await tdaFreshGenCode(stored.ownerHash);
       if (!gen) return res.status(500).json({ ok: false, error: 'could not generate a code — try again' });
       const settings = await tdaGetSettings();
-      const tokens = settings.seatShare;
+      const tokens = settings.seatTokens;
       const now = Date.now();
       const id = 's' + now.toString(36) + crypto.randomBytes(4).toString('hex');
       if (!(await tdaClaimCode(gen.hash, id))) {
@@ -3045,18 +3041,18 @@ export async function tdaHandler(req, res) {
       return res.status(200).json({ ok: true, seat, code: gen.plain, shownOnce: true });
     }
 
-    /* Owner settings: the monthly token pool. An empty value
-       clears the pool (back to the 100,000 default share). */
+    /* Owner settings: TOKENS PER SEAT. An empty value clears
+       the setting (back to the 120,000,000 default). */
     if (action === 'tdaSettingsSet') {
       const auth = await tdaAuthTier(req, res, tag, String(body.hash || '').toLowerCase(), 'owner');
       if (!auth) return undefined;
-      const raw = body.monthlyPool;
+      const raw = body.seatTokens;
       if (raw === '' || raw === null || raw === undefined) {
-        await upstashPipeline([['HSET', 'tda:settings', 'monthlyPool', '']]);
+        await upstashPipeline([['HSET', 'tda:settings', 'seatTokens', '']]);
       } else {
-        const pool = tdaParseTokens(raw, null);
-        if (pool === null) return res.status(400).json({ ok: false, error: 'bad pool amount' });
-        await upstashPipeline([['HSET', 'tda:settings', 'monthlyPool', String(pool)]]);
+        const n = tdaParseTokens(raw, null);
+        if (n === null || n <= 0) return res.status(400).json({ ok: false, error: 'bad token amount' });
+        await upstashPipeline([['HSET', 'tda:settings', 'seatTokens', String(n)]]);
       }
       const settings = await tdaGetSettings();
       return res.status(200).json({ ok: true, settings });
@@ -3180,16 +3176,12 @@ export async function tdaHandler(req, res) {
       if (!text) return res.status(400).json({ ok: false, error: 'empty message' });
       let seatId = 'owner';
       if (auth.tier === 'seat') {
-        /* A lapsed seat can read everything but cannot post —
-           renewal is the way back in, and it also refills the
-           balance up to the share, so this refusal is checked
-           before the balance one. */
-        if (tdaSeatPaidThrough(auth.seat) <= Date.now()) {
-          return res.status(200).json({ ok: false, seatPaused: true, error: 'seat paused — renew to keep building' });
-        }
+        /* No weekly clock: the balance is the only gate.
+           At 0 the seat can read everything but cannot post —
+           a refill is the way back in. */
         const bal = parseInt(auth.seat.tokens, 10) || 0;
         if (bal <= 0) {
-          return res.status(200).json({ ok: false, noTokens: true, error: 'out of tokens — ask Tom to top up' });
+          return res.status(200).json({ ok: false, noTokens: true, error: 'out of tokens — refill to keep building' });
         }
         seatId = String(auth.seat.id);
         /* Flood rail: the queue is one shared list, trimmed to
@@ -3235,7 +3227,7 @@ export async function tdaHandler(req, res) {
       const ids = (idsOut[0] && idsOut[0].result) || [];
       if (!ids.length) {
         const base = { ok: true, reqs: [] };
-        if (auth.tier === 'seat') { const s = tdaPublicSeat(auth.seat); base.seat = { id: s.id, name: s.name, tokens: s.tokens, used: s.used, paidThrough: s.paidThrough, lapsed: s.lapsed }; }
+        if (auth.tier === 'seat') { const s = tdaPublicSeat(auth.seat); base.seat = { id: s.id, name: s.name, tokens: s.tokens, used: s.used }; }
         return res.status(200).json(base);
       }
       const rows = await upstashPipeline(ids.map(id => ['HGETALL', 'tda:req:' + id]));
@@ -3255,7 +3247,7 @@ export async function tdaHandler(req, res) {
       }
       const reqs = objs.map(o => tdaPublicReq(o, names[String(o.seatId || 'owner')]));
       const out = { ok: true, reqs };
-      if (auth.tier === 'seat') { const s = tdaPublicSeat(auth.seat); out.seat = { id: s.id, name: s.name, tokens: s.tokens, used: s.used, paidThrough: s.paidThrough, lapsed: s.lapsed }; }
+      if (auth.tier === 'seat') { const s = tdaPublicSeat(auth.seat); out.seat = { id: s.id, name: s.name, tokens: s.tokens, used: s.used }; }
       return res.status(200).json(out);
     }
 
@@ -3314,16 +3306,16 @@ export async function tdaHandler(req, res) {
       return res.status(200).json({ ok: true, id, status: 'done', tokensLeft });
     }
 
-    /* ---- Seat renewals ($5/week in LUNC, wallet-connect one-button) ---- */
+    /* ---- Seat refills ($5 in LUNC, wallet-connect one-button) ---- */
 
     if (action === 'tdaRenewInfo') {
       const auth = await tdaAuthTier(req, res, tag, String(body.hash || '').toLowerCase(), 'any');
       if (!auth) return undefined;
       const s = await tdaGetSettings();
-      const base = { ok: true, priceUsd: s.renewPriceUsd, periodDays: 7, tolerance: TDA_RENEW_TOLERANCE };
+      const base = { ok: true, priceUsd: s.renewPriceUsd, tolerance: TDA_RENEW_TOLERANCE };
       if (auth.tier === 'seat') {
         const ps = tdaPublicSeat(auth.seat);
-        base.seat = { paidThrough: ps.paidThrough, lapsed: ps.lapsed, tokens: ps.tokens, wallet: ps.wallet };
+        base.seat = { tokens: ps.tokens, wallet: ps.wallet };
         base.memo = tdaRenewMemo(String(auth.seat.id));
       }
       if (!s.renewSet) return res.status(200).json({ ...base, enabled: false });
@@ -3341,7 +3333,7 @@ export async function tdaHandler(req, res) {
       const auth = await tdaAuthTier(req, res, tag, String(body.hash || '').toLowerCase(), 'any');
       if (!auth) return undefined;
       if (auth.tier !== 'seat') {
-        return res.status(200).json({ ok: false, error: 'Renewals credit a seat — open the page with a seat code.' });
+        return res.status(200).json({ ok: false, error: 'Refills credit a seat — open the page with a seat code.' });
       }
       const seatId = String(auth.seat.id);
       /* The claimed sender: the wallet the seat connected on
@@ -3450,7 +3442,7 @@ export async function tdaHandler(req, res) {
         return res.status(200).json({ ok: false, error: "Couldn't confirm when that payment was made — send a fresh payment and check it right away." });
       }
       if (Date.now() - txTime > TDA_RENEW_MAX_AGE_MS) {
-        return res.status(200).json({ ok: false, error: 'That payment is too old — a renewal needs a payment from the last 7 days.' });
+        return res.status(200).json({ ok: false, error: 'That payment is too old — a refill needs a payment from the last 7 days.' });
       }
       if (txTime - Date.now() > 3600000) {
         return res.status(200).json({ ok: false, error: "That payment's time looks wrong — try again in a few minutes." });
@@ -3467,7 +3459,7 @@ export async function tdaHandler(req, res) {
       const usd = lunc * price.usd;
       const minUsd = s.renewPriceUsd * TDA_RENEW_TOLERANCE;
       if (usd < minUsd) {
-        return res.status(200).json({ ok: false, tooSmall: true, usd: Math.round(usd * 100) / 100, error: 'That payment is worth about $' + usd.toFixed(2) + ' right now — a week needs $' + s.renewPriceUsd.toFixed(2) + ' (we accept $' + minUsd.toFixed(2) + ' or more, to allow for price wiggles).' });
+        return res.status(200).json({ ok: false, tooSmall: true, usd: Math.round(usd * 100) / 100, error: 'That payment is worth about $' + usd.toFixed(2) + ' right now — a refill needs $' + s.renewPriceUsd.toFixed(2) + ' (we accept $' + minUsd.toFixed(2) + ' or more, to allow for price wiggles).' });
       }
       /* One renewal at a time per seat: the lock (30 s,
          self-expiring) keeps two concurrent submits from
@@ -3478,7 +3470,7 @@ export async function tdaHandler(req, res) {
       const lockToken = crypto.randomBytes(8).toString('hex');
       const lockOut = await upstashPipeline([['SET', 'tda:renew:lock:' + seatId, lockToken, 'NX', 'EX', 30]]);
       if (!lockOut[0] || !lockOut[0].result) {
-        return res.status(200).json({ ok: false, error: 'Another renewal for this seat is being checked right now — wait a few seconds, then look at your paid-through date before trying again.' });
+        return res.status(200).json({ ok: false, error: 'Another refill for this seat is being checked right now — wait a few seconds, then check your balance before trying again.' });
       }
       try {
         /* Claim the hash atomically — from here the payment
@@ -3512,7 +3504,7 @@ export async function tdaHandler(req, res) {
           const s2 = await tdaGetSettings();
           if (!s2.renewSet || s2.renewWallet !== s.renewWallet || s2.renewPriceUsd !== s.renewPriceUsd) {
             await releaseClaim();
-            return res.status(200).json({ ok: false, error: 'Renewal settings changed while your payment was being checked — nothing was used. Try again.' });
+            return res.status(200).json({ ok: false, error: 'Refill settings changed while your payment was being checked — nothing was used. Try again.' });
           }
           const boundF = String(fresh.wallet || '');
           if (boundF && boundF !== sender) {
@@ -3526,33 +3518,34 @@ export async function tdaHandler(req, res) {
               return res.status(200).json({ ok: false, error: 'That wallet is already on another seat — ask Tom to sort it out.' });
             }
           }
-          const ptNew = Math.max(now, tdaSeatPaidThrough(fresh)) + TDA_RENEW_PERIOD_MS;
-          const newBal = Math.max(Math.max(0, parseInt(fresh.tokens, 10) || 0), s2.seatShare);
+          const newBal = Math.max(Math.max(0, parseInt(fresh.tokens, 10) || 0), s2.seatTokens);
           try {
             await upstashPipeline([
-              ['HSET', 'tda:seat:' + seatId, 'paidThrough', String(ptNew), 'tokens', String(newBal), 'wallet', sender],
-              ['HSET', 'tda:renew:' + recId, 'id', recId, 'seatId', seatId, 'seatName', String(fresh.name || ''), 'sender', sender, 'txhash', txhash, 'uluna', toWallet.toString(), 'usd', usd.toFixed(2), 'luncPrice', String(price.usd), 'priceUsd', String(s2.renewPriceUsd), 'paidThrough', String(ptNew), 'created', String(now)],
+              ['HSET', 'tda:seat:' + seatId, 'tokens', String(newBal), 'wallet', sender],
+              ['HSET', 'tda:renew:' + recId, 'id', recId, 'seatId', seatId, 'seatName', String(fresh.name || ''), 'sender', sender, 'txhash', txhash, 'uluna', toWallet.toString(), 'usd', usd.toFixed(2), 'luncPrice', String(price.usd), 'priceUsd', String(s2.renewPriceUsd), 'tokens', String(newBal), 'created', String(now)],
               ['LPUSH', 'tda:renews', recId],
               ['LTRIM', 'tda:renews', 0, 199],
             ]);
           } catch (e) {
             /* Ambiguous write: verify before deciding. If
-               the extension landed, this is a success; if
+               the refill landed (the seat already shows the
+               intended balance + wallet — the credit is
+               idempotent in effect), this is a success; if
                it provably didn't, the outer catch releases
                the claim so the seat can retry; if the
                read-back itself fails, keep the claim. */
             let applied = false, readable = false;
             try {
               const chk = await tdaGetSeat(seatId);
-              if (chk) { readable = true; applied = Number(chk.paidThrough) === ptNew; }
+              if (chk) { readable = true; applied = (parseInt(chk.tokens, 10) || 0) === newBal && String(chk.wallet || '') === sender; }
             } catch (e2) { /* unreadable */ }
             if (applied) {
-              return res.status(200).json({ ok: true, paidThrough: ptNew, tokens: newBal, lunc, usd: Math.round(usd * 100) / 100 });
+              return res.status(200).json({ ok: true, tokens: newBal, lunc, usd: Math.round(usd * 100) / 100 });
             }
             if (!readable) keepClaim = true;
             throw e;
           }
-          return res.status(200).json({ ok: true, paidThrough: ptNew, tokens: newBal, lunc, usd: Math.round(usd * 100) / 100 });
+          return res.status(200).json({ ok: true, tokens: newBal, lunc, usd: Math.round(usd * 100) / 100 });
         } catch (e) {
           if (!keepClaim) await releaseClaim();
           throw e;
@@ -3606,7 +3599,7 @@ export async function tdaHandler(req, res) {
           txhash: String(o.txhash || ''),
           lunc: (Number(o.uluna) || 0) / 1e6,
           usd: Number(o.usd) || 0,
-          paidThrough: Number(o.paidThrough) || 0,
+          tokens: Number(o.tokens) || 0,
           created: Number(o.created) || 0,
         };
       }).filter(x => x.id).slice(0, TDA_LIST_CAP);
