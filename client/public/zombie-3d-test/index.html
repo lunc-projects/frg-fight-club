@@ -88,6 +88,8 @@
   .sensbtn.sel{background:#f5c542;color:#241a00;border-color:#ffe9a3}
   .folbtn{flex:1;padding:15px 6px;font-size:14px}
   .folbtn.sel{background:#f5c542;color:#241a00;border-color:#ffe9a3}
+  .afbtn{flex:1;padding:15px 6px;font-size:14px}
+  .afbtn.sel{background:#f5c542;color:#241a00;border-color:#ffe9a3}
   #nftstatus{font-size:12.5px;margin-top:8px;color:#cfeee8;min-height:16px}
   #cards{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
   .card{width:86px;background:rgba(14,26,20,.95);border:1.4px solid rgba(160,200,190,.4);border-radius:8px;padding:5px;cursor:pointer;text-align:center}
@@ -162,6 +164,12 @@
       <button class="gbtn folbtn" data-f="on">ON — VIEW TURNS WITH THE STICK</button>
     </div>
     <p style="font-size:12.5px">OFF (the steady-aim setup): the stick moves YOU — push left, you step left, and the view only turns when you drag it. ON: the view swings toward where you walk, like before. Saved on this device.</p>
+    <h3>🔫 AUTO-FIRE — SHOOTS WHEN YOUR CROSSHAIR IS ON AN ENEMY</h3>
+    <div style="display:flex;gap:8px">
+      <button class="gbtn afbtn" data-a="on">ON — AUTO-FIRE</button>
+      <button class="gbtn afbtn" data-a="off">OFF — I PULL THE TRIGGER</button>
+    </div>
+    <p style="font-size:12.5px">ON (the phone-FPS standard): while your crosshair is on a live enemy the gun fires by itself — you just aim. It stops the moment the crosshair leaves him. The FIRE button always works too, and sliding your thumb on the FIRE button fine-aims while you shoot. Saved on this device.</p>
     <p style="font-size:12.5px">🎯 AIM HELP, always on: hold FIRE and your drags aim finer; when the crosshair is near an enemy the view slows down, so you can settle on him instead of skating past.</p>
   </div>
   <button class="gbtn gold" id="startbtn">▶ START MISSION</button>
@@ -1047,6 +1055,15 @@ try{ const s=localStorage.getItem('z2sens'); if(s&&SENS[s]) sensMode=s; }catch(e
    turns ONLY by drag-look. ON restores the Nov 11 follow feel. */
 let followOn=false;
 try{ followOn=localStorage.getItem('z2follow')==='1'; }catch(e){}
+/* AUTO-FIRE (phone-FPS standard, Tom approved Nov 14): DEFAULT ON for this
+   test build. While the crosshair is on a live enemy (crossOn, computed
+   per frame beside the sticky aim) the gun fires on the normal cadence;
+   it stops the moment the crosshair leaves the body. Manual FIRE and the
+   desktop SPACE key always work regardless of this setting. */
+let autoFireOn=true;
+try{ const a=localStorage.getItem('z2autofire'); if(a!==null) autoFireOn=a==='1'; }catch(e){}
+let aimAng=9, crossOn=false; /* per-frame crosshair picture (radians to the
+   nearest live enemy + whether the crosshair is on a body with clear LoS) */
 /* STICKY AIM: slowF eases toward 0.5 as the crosshair closes within ~4° of a
    live enemy (1.0 = no slowdown). Computed per frame in updatePlayer and
    read by queueLook — input-side, so a drag near a body simply travels less
@@ -1069,6 +1086,10 @@ function queueLook(dx,dy,mouse){
 let followAnchor=null, followAnchorTgt=null, followOff=0, followVel=0, followBlocked=false;
 const angWrap=a=>Math.atan2(Math.sin(a),Math.cos(a));
 let fireHeld=false, bombQueued=false, jumpQueued=false;
+/* FIRE-button micro-aim: the touch id + last position of the thumb holding
+   FIRE, so sliding it aims while shooting (tracked on the window by id —
+   the drag keeps working if the thumb drifts off the button's edge). */
+const fireTouch={id:-1,lx:0,ly:0};
 function bindControls(){
   const cv=renderer.domElement;
   const stickEl=document.getElementById('stick'), nub=document.getElementById('sticknub');
@@ -1095,6 +1116,13 @@ function bindControls(){
         followBlocked=true; followAnchor=null; followAnchorTgt=null; followVel=0;
         queueLook(t.clientX-look.lx, t.clientY-look.ly, false);
         look.lx=t.clientX; look.ly=t.clientY;
+      } else if(fireTouch.id===t.identifier){
+        /* FIRE micro-aim: sliding the firing thumb drags the view by the
+           same smoothed look model; queueLook applies the firing precision
+           scale (×0.35) because fireHeld is true — small, settled moves. */
+        followBlocked=true; followAnchor=null; followAnchorTgt=null; followVel=0;
+        queueLook(t.clientX-fireTouch.lx, t.clientY-fireTouch.ly, false);
+        fireTouch.lx=t.clientX; fireTouch.ly=t.clientY;
       }
     }
     if(G.screen==='play') e.preventDefault();
@@ -1103,6 +1131,7 @@ function bindControls(){
     for(const t of e.changedTouches){
       if(t.identifier===stick.id){ stick.active=false; stick.dx=stick.dy=0; setNub(0,0); }
       if(t.identifier===look.id) look.id=-1;
+      if(t.identifier===fireTouch.id){ fireTouch.id=-1; fireHeld=false; }
     }
   });
   cv.addEventListener('touchstart',e=>{
@@ -1123,7 +1152,17 @@ function bindControls(){
     el.addEventListener('touchend',e=>{e.preventDefault();fn(false);},{passive:false});
     el.addEventListener('mousedown',e=>{e.preventDefault();fn(true);});
     el.addEventListener('mouseup',()=>fn(false)); };
-  on(bf,v=>fireHeld=v); on(bb,v=>{ if(v) bombQueued=true; }); on(bj,v=>{ if(v) jumpQueued=true; });
+  /* FIRE gets custom handlers (not the generic on/off): touchstart also
+     arms the micro-aim drag tracked in the window touchmove above. The
+     button's own touchstart stopPropagation keeps the canvas from also
+     claiming this touch as a look drag — one touch, one job. */
+  bf.addEventListener('touchstart',e=>{ e.preventDefault(); e.stopPropagation();
+    const t=e.changedTouches[0];
+    fireTouch.id=t.identifier; fireTouch.lx=t.clientX; fireTouch.ly=t.clientY;
+    fireHeld=true; },{passive:false});
+  bf.addEventListener('mousedown',e=>{ e.preventDefault(); fireHeld=true; });
+  bf.addEventListener('mouseup',()=>fireHeld=false);
+  on(bb,v=>{ if(v) bombQueued=true; }); on(bj,v=>{ if(v) jumpQueued=true; });
 }
 
 /* ---------------- HUD ---------------- */
@@ -1385,17 +1424,31 @@ function updatePlayer(dt){
      ~2.5/s) so the slowdown fades in and out — no snap, no fighting, and
      the crosshair never moves on its own. */
   { let slowTgt=1;
+    aimAng=9; crossOn=false;
     if(G.screen==='play'){
       const cp=Math.cos(G.pitch), fx=-Math.sin(G.yaw)*cp, fy=Math.sin(G.pitch), fz=-Math.cos(G.yaw)*cp;
       const ex=player.pos.x, ey=player.pos.y+1.62, ez=player.pos.z;
-      let best=.07; /* ≈4° */
+      let best=.10, bestE=null, bestD=0; /* sticky window ≈5.7° (was ≈4°) */
       for(const e of enemies){ if(e.dead) continue;
         const dx=e.x-ex, dy=(groundAt(e.x,e.z,false)+1.05)-ey, dz=e.z-ez;
         const d=Math.hypot(dx,dy,dz); if(d<.4||d>30) continue;
         const ang=Math.acos(clamp((dx*fx+dy*fy+dz*fz)/d,-1,1));
-        if(ang<best) best=ang;
+        if(ang<best){ best=ang; bestE=e; bestD=d; }
       }
-      if(best<.07) slowTgt=.5+.5*(best/.07);
+      /* stronger sticky: the factor now falls to 0.35 at dead centre
+         (was 0.5) across the wider window — drags near a body travel
+         about a third as far, so settling on him is easy; the crosshair
+         itself still never moves on its own. */
+      if(bestE){ aimAng=best; slowTgt=.35+.65*(best/.10);
+        /* AUTO-FIRE picture: the crosshair counts as ON the body when the
+           angle fits inside the body's angular half-width (≈0.62 m at the
+           chest, floored/capped) and cover doesn't block the line. */
+        const thr=clamp(Math.atan2(.62,bestD),.028,.10);
+        if(best<=thr){
+          const dx=bestE.x-ex, dz=bestE.z-ez, dl=Math.hypot(dx,dz)||1;
+          crossOn=!rayBlocked(bestD,ex,ez,dx/dl,dz/dl);
+        }
+      }
     }
     const sRate=slowTgt<slowF?5:2.5;
     slowF+=clamp(slowTgt-slowF,-sRate*dt,sRate*dt);
@@ -1490,8 +1543,9 @@ function updatePlayer(dt){
   if(player.pos.y<=gy){ player.pos.y=gy; G.vy=0; }
   const moving=Math.hypot(player.vel.x,player.vel.z)>.4;
   if(moving) G.bobT+=dt*8.4;
-  /* fire + bomb */
-  if((fireHeld||keys['fire'])&&G.screen==='play'){ if(G.time-G.lastShot>.17){ G.lastShot=G.time; heroFire(); } }
+  /* fire + bomb — manual FIRE / SPACE always fire; AUTO-FIRE adds shots
+     on the same cadence only while the crosshair is on a live enemy. */
+  if((fireHeld||keys['fire']||(autoFireOn&&crossOn))&&G.screen==='play'){ if(G.time-G.lastShot>.17){ G.lastShot=G.time; heroFire(); } }
   if(keys['b']){ keys['b']=false; bombQueued=true; }
   if(bombQueued){ bombQueued=false; throwBomb(); }
   if(G.reload>0){ G.reload-=dt; if(G.reload<=0){ G.ammo=226; updateHUD(); } }
@@ -1674,6 +1728,10 @@ function paintFollow(){ document.querySelectorAll('.folbtn').forEach(b=>b.classL
 document.querySelectorAll('.folbtn').forEach(b=>b.onclick=()=>{ followOn=b.dataset.f==='on';
   try{ localStorage.setItem('z2follow',followOn?'1':'0'); }catch(e){} paintFollow(); });
 paintFollow();
+function paintAutoFire(){ document.querySelectorAll('.afbtn').forEach(b=>b.classList.toggle('sel',(b.dataset.a==='on')===autoFireOn)); }
+document.querySelectorAll('.afbtn').forEach(b=>b.onclick=()=>{ autoFireOn=b.dataset.a==='on';
+  try{ localStorage.setItem('z2autofire',autoFireOn?'1':'0'); }catch(e){} paintAutoFire(); });
+paintAutoFire();
 $('addr').addEventListener('keydown',e=>{ if(e.key==='Enter') lookupNFT($('addr').value); e.stopPropagation(); });
 bindControls(); updateHUD();
 
@@ -1740,7 +1798,8 @@ addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight;
 window.__z3d={ G, player, enemies, start:startGame, reset:resetGame,
   sens:()=>sensMode, setSens:m=>{ if(SENS[m]){ sensMode=m; paintSens(); } },
   follow:()=>followOn, setFollow:v=>{ followOn=!!v; paintFollow(); },
-  aimState:()=>({slowF, fireHeld}),
+  autoFire:()=>autoFireOn, setAutoFire:v=>{ autoFireOn=!!v; paintAutoFire(); },
+  aimState:()=>({slowF, fireHeld, aimAng, crossOn, autoFire:autoFireOn}),
   queue:(dx,dy)=>queueLook(dx,dy,false),
   stickPush:(dx,dy)=>{ stick.active=true; stick.dx=dx; stick.dy=dy; },
   stickOff:()=>{ stick.active=false; stick.dx=stick.dy=0; },
