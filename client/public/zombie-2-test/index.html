@@ -1797,6 +1797,12 @@ try { kitBootFlow(); } catch (e) {}
 const keys={};
 const joy={active:false,id:-1,dx:0,dy:0,cx:64,cy:336};
 let fireHeld=false, bombQueued=false, jumpQueued=false;
+/* per-pointer control ownership (Nov 14 fix): every touch is tracked by its
+   own pointerId — lifting the movement thumb must not kill firing (it did:
+   endPointer cleared fireHeld for ANY pointer), and the jump button gets a
+   held state so jump height can vary with press length */
+let firePointerId=-1, jumpPointerId=-1, jumpHeldTouch=false, manualAimT=-9;
+function jumpHeld(){ return !!keys[' ']||jumpHeldTouch; }
 /* ---- AIM (Tom, Nov 10: "the gun needs to rotate to shoot up and down") ----
    The right thumb control is an AIM stick: drag it and the gun rotates
    through the FULL half-circle on the facing side (Tom, Nov 10: "straight
@@ -1879,8 +1885,8 @@ cv.addEventListener('pointerdown',e=>{
     if(p.x<W*.4&&p.y>H*.5){ joy.active=true; joy.id=e.pointerId; joy.dx=0; joy.dy=0; }
     else if(p.x>W*.55&&p.y>H*.5){
       const dF=Math.hypot(p.x-848,p.y-330), dB=Math.hypot(p.x-782,p.y-352), dJ=Math.hypot(p.x-848,p.y-252);
-      if(dB<40)bombQueued=true; else if(dJ<34)jumpQueued=true;
-      else if(dF<46){ fireHeld=true; aimStick.active=true; aimStick.id=e.pointerId; }
+      if(dB<36)bombQueued=true; else if(dJ<32){ jumpQueued=true; jumpHeldTouch=true; jumpPointerId=e.pointerId; }
+      else if(dF<44){ fireHeld=true; firePointerId=e.pointerId; aimStick.active=true; aimStick.id=e.pointerId; }
     }
   }
 });
@@ -1888,7 +1894,7 @@ cv.addEventListener('pointermove',e=>{
   const p=toGame(e);
   if(e.pointerType==='mouse'){ lastMouseType='mouse'; mouseAim={x:p.x,y:p.y,t:performance.now()/1000,seen:true}; if(screen==='play'&&G)aimFromPoint(p.x,p.y); }
   if(aimStick.active&&e.pointerId===aimStick.id&&screen==='play'&&G){
-    if(Math.hypot(p.x-aimStick.cx,p.y-aimStick.cy)>11)aimFromPoint(p.x,p.y);
+    if(Math.hypot(p.x-aimStick.cx,p.y-aimStick.cy)>26){ aimFromPoint(p.x,p.y); manualAimT=performance.now()/1000; }
   }
   if(!joy.active||e.pointerId!==joy.id)return;
   joy.dx=clamp((p.x-joy.cx)/30,-1,1); joy.dy=clamp((p.y-joy.cy)/30,-1,1);
@@ -1896,7 +1902,8 @@ cv.addEventListener('pointermove',e=>{
 function endPointer(e){
   if(e.pointerId===joy.id){joy.active=false; joy.dx=0; joy.dy=0;}
   if(e.pointerId===aimStick.id)aimStick.active=false;
-  fireHeld=false;
+  if(e.pointerId===firePointerId){fireHeld=false; firePointerId=-1;}
+  if(e.pointerId===jumpPointerId){jumpHeldTouch=false; jumpPointerId=-1;}
 }
 cv.addEventListener('pointerup',endPointer);
 cv.addEventListener('pointercancel',endPointer);
@@ -2081,7 +2088,7 @@ function buildLevel(def, n){
     L.boss={x:L.orbX-170, y:GY, triggerX:L.orbX-760, hp:bossHp, scale:bossScale, name:th.boss};
     for(let px2=300;px2<world-260;px2+=430+rng()*220)L.props.push([Math.round(px2), th.props[(rng()*th.props.length)|0]]);
   }
-  L.plats=L.ruins.map(r=>({x:r[0],y:r[1],w:r[2]}));
+  L.plats=L.ruins.map(r=>({x:r[0],y:r[1],w:r[2],h:r[3]}));
   return L;
 }
 const LEVELS=LEVEL_DEFS.map((d,i)=>buildLevel(d,i+1));
@@ -2112,9 +2119,20 @@ function floorFor(x,feetY){
 /* ruins are solid blocks: if feet are well below a top, the block is a wall */
 function wallClamp(e){
   for(const p of PLATS){
-    if(e.y>p.y+14&&e.x>p.x-13&&e.x<p.x+p.w+13){
+    /* a block is a wall only if it reaches down to the feet. Climb ledges
+       are thin floating slabs (46px): the old test treated them as walls
+       of infinite height, so a hero standing on one ledge was shoved
+       sideways by the ledge ABOVE him — the tower "gets stuck" bug */
+    if(e.y>p.y+14&&e.y<=p.y+p.h+2&&e.x>p.x-13&&e.x<p.x+p.w+13){
       e.x=(e.x<p.x+p.w/2)?p.x-13:p.x+p.w+13;
     }
+  }
+}
+function depenetrate(h){
+  /* safety net: the hero's feet must never end a frame inside a block —
+     pop him onto its top (never sideways into another block) */
+  for(const p of PLATS){
+    if(h.x>p.x+1&&h.x<p.x+p.w-1&&h.y>p.y+10&&h.y<p.y+p.h){ h.y=p.y; h.vy=0; h.ground=true; }
   }
 }
 function heroMaxHp(){ return Math.round(665*(fighter?fighter.mult:1)); }
@@ -2124,7 +2142,7 @@ const SPAWNS=()=>LV.spawns;
 function newGame(){
   resetRng(); parts=[]; initEmbers();
   const maxHp=heroMaxHp();
-  G={t:0,time:0,lastBombT:-1,hero:{x:60,y:GY,vy:0,face:1,wp:0,moving:false,aim:0,aimA:0,muzzle:0,flash:0,ground:true,hp:maxHp,maxHp:maxHp},
+  G={t:0,time:0,lastBombT:-1,hero:{x:60,y:GY,vy:0,face:1,wp:0,moving:false,aim:0,aimA:0,muzzle:0,flash:0,ground:true,coyoteT:-9,jumpBufT:-9,jumpCut:false,hp:maxHp,maxHp:maxHp},
      cam:0,camY:0,shake:0,ammo:LV.startAmmo,bombs:LV.startBombs,frg:LV.startFrg,lunc:LV.startLunc,kills:0,total:LV.spawns.length+(LV.boss?1:0),
      enemies:[],bullets:[],flashes:[],pickups:[],floaters:[],grenades:[],bossSpawned:false,bossRef:null,spawned:LV.spawns.map(()=>false),
      lastShot:0,shotN:0,lastEShot:0,reload:0,onRaft:false,raftX:LV.raft.startX,orbTaken:false,endT:0,deadT:0,score:0};
@@ -2210,6 +2228,14 @@ function hurtHero(dmg){
   spawnPart({x:h.x,y:h.y-50,vx:rr(-40,40),vy:rr(-80,-10),life:.3,max:.3,r:2.6,col:'#c94436'});
   if(h.hp<=0){h.hp=0; screen='dead'; G.deadT=0; stopMusic();}
 }
+/* jump / aim tuning (Nov 14, Tom's phone report: "jumps too high, gets
+   stuck, can't shoot correctly"). JUMP_V + GRAV_UP give a 128px apex —
+   the tallest single step in any level is 88px (climb towers), so a held
+   jump clears it with 40px of margin; a tapped jump is cut to a ~26px hop.
+   The old build teleported the hero to the highest platform top in the
+   column (measured 1,517px in one press on L1) — that rule is gone. */
+const JUMP_V=620, GRAV_UP=1500, GRAV_DN=1950, MAX_FALL=950, JUMP_CUT=.45, COYOTE_T=.10, JUMP_BUF_T=.12;
+const AIM_CONE=.62, AIM_TRACK=7.5;
 function stepGame(dt){
   const h=G.hero; G.t+=dt; if(screen==='play')G.time+=dt;
   /* spawns by hero progress */
@@ -2239,20 +2265,23 @@ function stepGame(dt){
   h.x=clamp(h.x,30,WORLD()-40);
   if(!G.onRaft)wallClamp(h);
   /* vertical: raft deck or platforms */
-  /* jump: a held jump into a ruin wall climbs it (step-stone rule from the
-     preview/Garuda tower): feet below the top by <= 104px and rising ->
-     step up onto that top. Ordinary running into a wall still blocks. */
-  if(jumpQueued){jumpQueued=false;
-    if(h.ground&&!G.onRaft){
-      const climbTo=ruinTopAt(h.x+h.face*16,h.y);
-      if(climbTo!==null&&h.y-climbTo>0){ h.y=climbTo; h.ground=true; SFX.jump(); }
-      else { h.vy=-560; h.ground=false; SFX.jump(); }
-    }}
+  /* jump: a real arc — buffered press + coyote time forgive early/late
+     taps, and releasing the button early cuts the rise (short hop) */
+  if(jumpQueued){jumpQueued=false; h.jumpBufT=G.time;}
+  if(h.ground)h.coyoteT=G.time;
+  if(!G.onRaft&&(h.ground||G.time-h.coyoteT<=COYOTE_T)&&G.time-h.jumpBufT<=JUMP_BUF_T){
+    h.jumpBufT=-9; h.vy=-JUMP_V; h.ground=false; h.jumpCut=false; SFX.jump();
+  }
   const floorY=G.onRaft?LV.raft.deckY:floorFor(h.x,h.y);
   if(!h.ground||h.y<floorY){
-    h.vy+=1500*dt; h.y+=h.vy*dt;
+    if(!h.jumpCut&&h.vy<0&&!jumpHeld()){ h.vy*=JUMP_CUT; h.jumpCut=true; }
+    h.vy+=(h.vy<0?GRAV_UP:GRAV_DN)*dt;
+    if(h.vy>MAX_FALL)h.vy=MAX_FALL;
+    h.y+=h.vy*dt;
     if(h.y>=floorY){h.y=floorY; h.vy=0; h.ground=true;}
   } else { h.y=floorY; h.ground=true; }
+  if(h.ground)h.coyoteT=G.time;
+  if(!G.onRaft)depenetrate(h);
   if(G.onRaft)h.y=LV.raft.deckY+Math.sin(G.t*1.8)*2.5;
   if(h.moving&&h.ground)h.wp+=dt*11; else h.wp*=.85;
   /* fire */
@@ -2261,6 +2290,24 @@ function stepGame(dt){
   if(!aimStick.active&&!mouseSeen()){
     if(keys['w'])h.aimA=clamp((h.aimA||0)+1.9*dt,-AIM_MAX,AIM_MAX);
     if(keys['s'])h.aimA=clamp((h.aimA||0)-1.9*dt,-AIM_MAX,AIM_MAX);
+  }
+  /* aim assist (Nov 14): while FIRE is held and no fresh manual aim is
+     active, the gun tracks the nearest foe inside the facing cone
+     (sticky aim, like the 3D build); no target -> eases back to level.
+     A real drag on the aim stick, W/S, or the mouse always wins. */
+  if(wantFire&&!mouseSeen()&&!keys['w']&&!keys['s']&&!(aimStick.active&&performance.now()/1000-manualAimT<.35)){
+    let btA=null,bScore=1e9;
+    for(const e of G.enemies){
+      if(e.dead>0)continue;
+      const dx=(e.x-h.x)*h.face, dy=(h.y-52)-(e.y-(e.hh||96)/2);
+      if(dx<24||dx>560)continue;
+      const ang=Math.atan2(dy,dx);
+      if(Math.abs(ang)>AIM_CONE)continue;
+      const sc=dx+Math.abs(ang)*220;
+      if(sc<bScore){bScore=sc;btA=ang;}
+    }
+    const want=(btA===null)?0:btA, cur=h.aimA||0;
+    h.aimA=cur+clamp(want-cur,-AIM_TRACK*dt,AIM_TRACK*dt);
   }
   /* near-vertical fire must still reach the foe overhead / at his feet:
      the plain box test (|dx|<22, full body height) misses a shot passing
