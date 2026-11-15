@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Coin Catch — Tom's Dev</title>
+<meta name="description" content="Coin Catch — a quick catch game built by Tom's Dev.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='28' fill='%23f5b921'/%3E%3Ccircle cx='32' cy='32' r='21' fill='none' stroke='%23b97e06' stroke-width='3'/%3E%3Ctext x='32' y='42' font-size='28' text-anchor='middle' fill='%237a5200' font-family='Arial' font-weight='bold'%3E%E2%82%B5%3C/text%3E%3C/svg%3E">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; overflow:hidden; }
+  body {
+    font-family:'Segoe UI', system-ui, Verdana, sans-serif;
+    background:radial-gradient(120% 90% at 50% 0%, #1b2450 0%, #101736 55%, #0a0f28 100%);
+    color:#e8ecff; user-select:none; -webkit-user-select:none; touch-action:none;
+    display:flex; flex-direction:column;
+  }
+  /* ---------- header ---------- */
+  #hdr {
+    display:flex; align-items:center; gap:10px; padding:10px 14px;
+    background:linear-gradient(180deg, rgba(23,30,66,.97), rgba(14,19,44,.94));
+    border-bottom:1px solid rgba(34,211,238,.28);
+    box-shadow:0 2px 16px rgba(0,0,0,.35); z-index:5;
+  }
+  #hdr .mark {
+    width:42px; height:42px; border-radius:50%; flex:0 0 auto;
+    display:flex; align-items:center; justify-content:center; font-size:21px;
+    background:radial-gradient(circle at 32% 30%, #2e3d85, #131c46 70%);
+    border:2px solid rgba(34,211,238,.65);
+    box-shadow:0 0 12px rgba(34,211,238,.45);
+  }
+  #hdr .ttl { line-height:1.05; }
+  #hdr .ttl b {
+    font-size:19px; letter-spacing:1.5px; display:block;
+    background:linear-gradient(180deg,#ffffff,#a5f3fc 55%,#22d3ee);
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
+  }
+  #hdr .ttl span { font-size:11px; color:#93a0d8; letter-spacing:.4px; }
+  #hdr .tag {
+    margin-left:auto; font-size:10px; font-weight:700; letter-spacing:1px; color:#0a0f28;
+    background:linear-gradient(180deg,#fcd34d,#f59e0b); padding:5px 9px; border-radius:999px;
+    box-shadow:0 2px 8px rgba(245,158,11,.4); white-space:nowrap;
+  }
+  /* ---------- HUD ---------- */
+  #hud {
+    display:flex; gap:10px; padding:10px 14px 4px; z-index:4;
+  }
+  .stat {
+    flex:1; background:rgba(20,27,60,.85); border:1px solid rgba(120,140,255,.22);
+    border-radius:14px; padding:7px 6px 8px; text-align:center;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+  }
+  .stat .lab { font-size:10px; letter-spacing:1.6px; color:#8fa0e8; font-weight:700; }
+  .stat .val { font-size:23px; font-weight:800; line-height:1.15; color:#fff; font-variant-numeric:tabular-nums; }
+  .stat.hot .val { color:#fcd34d; }
+  .stat.time .val { color:#67e8f9; }
+  /* ---------- stage ---------- */
+  #stage { position:relative; flex:1; margin:8px 14px calc(12px + env(safe-area-inset-bottom)); border-radius:18px; overflow:hidden;
+    background:linear-gradient(180deg, rgba(16,22,52,.65), rgba(9,12,32,.85));
+    border:1px solid rgba(120,140,255,.18);
+    box-shadow:inset 0 0 60px rgba(0,0,0,.45);
+  }
+  canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  /* ---------- overlay cards ---------- */
+  .veil {
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    background:rgba(7,10,26,.55); backdrop-filter:blur(2px); z-index:6; padding:18px;
+  }
+  .veil.hidden { display:none; }
+  .card {
+    width:min(340px, 100%); text-align:center; padding:24px 22px 22px;
+    background:linear-gradient(180deg, #1c2558, #121a42);
+    border:1px solid rgba(34,211,238,.35); border-radius:20px;
+    box-shadow:0 18px 50px rgba(0,0,0,.55), 0 0 24px rgba(34,211,238,.12);
+  }
+  .card .coin { font-size:46px; line-height:1; filter:drop-shadow(0 4px 10px rgba(245,185,33,.45)); }
+  .card h1 { font-size:27px; letter-spacing:1.5px; margin:10px 0 4px;
+    background:linear-gradient(180deg,#fff,#a5f3fc 60%,#22d3ee);
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+  .card p { font-size:14px; color:#b9c4f2; line-height:1.45; }
+  .card .final { font-size:15px; color:#93a0d8; letter-spacing:1px; margin-top:6px; }
+  .card .big { font-size:46px; font-weight:800; color:#fcd34d; line-height:1.1; }
+  .card .bestline { font-size:13px; color:#8fa0e8; margin-top:2px; }
+  .card .newbest { display:none; margin:8px auto 0; width:fit-content; font-size:11px; font-weight:800; letter-spacing:1px;
+    color:#0a0f28; background:linear-gradient(180deg,#fcd34d,#f59e0b); padding:4px 10px; border-radius:999px; }
+  .btn {
+    margin-top:18px; border:0; cursor:pointer; width:100%; padding:14px 10px; border-radius:14px;
+    font-size:17px; font-weight:800; letter-spacing:1.2px; color:#231a02;
+    background:linear-gradient(180deg,#fde68a,#f59e0b); box-shadow:0 6px 18px rgba(245,158,11,.45), inset 0 1px 0 #fff8;
+  }
+  .btn:active { transform:translateY(1px); }
+  .hint { margin-top:12px; font-size:12px; color:#7686c4; }
+</style>
+</head>
+<body>
+  <div id="hdr">
+    <div class="mark">🔨</div>
+    <div class="ttl"><b>COIN CATCH</b><span>Powered by Tom's builder</span></div>
+    <div class="tag">TOM'S DEV</div>
+  </div>
+
+  <div id="hud">
+    <div class="stat hot"><div class="lab">SCORE</div><div class="val" id="uiScore">0</div></div>
+    <div class="stat time"><div class="lab">TIME</div><div class="val" id="uiTime">60</div></div>
+    <div class="stat"><div class="lab">BEST</div><div class="val" id="uiBest">0</div></div>
+  </div>
+
+  <div id="stage">
+    <canvas id="cv"></canvas>
+
+    <div class="veil" id="veilStart">
+      <div class="card">
+        <div class="coin">🪙</div>
+        <h1>COIN CATCH</h1>
+        <p>Coins rain down for 60 seconds.<br>Slide the tray and catch as many as you can.<br>Gold coins +10 · Shiny coins +25</p>
+        <button class="btn" id="btnStart">▶ &nbsp;PLAY</button>
+        <div class="hint">Drag anywhere to move the tray</div>
+      </div>
+    </div>
+
+    <div class="veil hidden" id="veilOver">
+      <div class="card">
+        <div class="coin">🏆</div>
+        <div class="final">TIME UP — YOUR SCORE</div>
+        <div class="big" id="uiFinal">0</div>
+        <div class="newbest" id="uiNewBest">★ NEW BEST ★</div>
+        <div class="bestline">Best: <span id="uiBest2">0</span></div>
+        <button class="btn" id="btnAgain">↻ &nbsp;PLAY AGAIN</button>
+        <div class="hint">Built for you by Tom's Dev</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  "use strict";
+  var cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+  var stage = document.getElementById('stage');
+  var uiScore = document.getElementById('uiScore'), uiTime = document.getElementById('uiTime'),
+      uiBest = document.getElementById('uiBest'), uiFinal = document.getElementById('uiFinal'),
+      uiBest2 = document.getElementById('uiBest2'), uiNewBest = document.getElementById('uiNewBest');
+  var veilStart = document.getElementById('veilStart'), veilOver = document.getElementById('veilOver');
+
+  var BEST_KEY = 'tdaCoinCatchBest';
+  var best = 0;
+  try { best = parseInt(localStorage.getItem(BEST_KEY) || '0', 10) || 0; } catch(e) {}
+  uiBest.textContent = best;
+
+  var W = 0, H = 0, DPR = 1;
+  function resize(){
+    var r = stage.getBoundingClientRect();
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = Math.max(280, r.width); H = Math.max(320, r.height);
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    catcher.y = H - 54; catcher.x = Math.min(Math.max(catcher.x, catcher.w/2), W - catcher.w/2);
+    if (!playing) draw(0);
+  }
+
+  var ROUND = 60;
+  var playing = false, score = 0, timeLeft = ROUND, elapsed = 0;
+  var coins = [], pops = [], spawnIn = 0, lastT = 0, raf = 0;
+  var catcher = { x: 200, y: 400, w: 104, h: 20, targetX: 200 };
+
+  function spawnCoin(){
+    var shiny = Math.random() < 0.14;
+    var r = shiny ? 15 : 17;
+    coins.push({
+      x: r + Math.random() * (W - 2*r), y: -r - 4, r: r,
+      vy: (150 + Math.random()*70) * (H/560) * (1 + elapsed/ROUND*0.85),
+      sway: Math.random() * Math.PI * 2, swaySpd: 1.2 + Math.random()*1.6,
+      rot: Math.random() * Math.PI, shiny: shiny, val: shiny ? 25 : 10
+    });
+  }
+
+  function start(){
+    score = 0; timeLeft = ROUND; elapsed = 0; coins = []; pops = []; spawnIn = 0.15;
+    catcher.x = catcher.targetX = W/2;
+    uiScore.textContent = '0'; uiTime.textContent = ROUND;
+    veilStart.classList.add('hidden'); veilOver.classList.add('hidden');
+    playing = true; lastT = performance.now();
+    cancelAnimationFrame(raf); raf = requestAnimationFrame(loop);
+  }
+
+  function endRound(){
+    playing = false;
+    var isNew = score > best;
+    if (isNew) { best = score; try { localStorage.setItem(BEST_KEY, String(best)); } catch(e) {} }
+    uiBest.textContent = best; uiFinal.textContent = score; uiBest2.textContent = best;
+    uiNewBest.style.display = isNew ? 'block' : 'none';
+    veilOver.classList.remove('hidden');
+    draw(0);
+  }
+
+  function loop(now){
+    if (!playing) return;
+    var dt = Math.min((now - lastT) / 1000, 0.05); lastT = now;
+    elapsed += dt; timeLeft = Math.max(0, ROUND - elapsed);
+    uiTime.textContent = Math.ceil(timeLeft);
+
+    // spawn
+    spawnIn -= dt;
+    var interval = 0.62 - 0.30 * (elapsed / ROUND);
+    if (spawnIn <= 0) { spawnCoin(); spawnIn = interval * (0.75 + Math.random()*0.5); }
+
+    // catcher eases toward target
+    catcher.x += (catcher.targetX - catcher.x) * Math.min(1, dt * 18);
+    catcher.x = Math.min(Math.max(catcher.x, catcher.w/2 + 4), W - catcher.w/2 - 4);
+
+    // coins
+    var catchTop = catcher.y - 6, catchBot = catcher.y + catcher.h + 14;
+    for (var i = coins.length - 1; i >= 0; i--){
+      var c = coins[i];
+      c.sway += c.swaySpd * dt; c.y += c.vy * dt; c.x += Math.sin(c.sway) * 14 * dt; c.rot += dt * 1.5;
+      if (c.y + c.r >= catchTop && c.y - c.r <= catchBot &&
+          Math.abs(c.x - catcher.x) <= catcher.w/2 + c.r * 0.45 && c.vy > 0){
+        score += c.val; uiScore.textContent = score;
+        pops.push({ x: c.x, y: catchTop - 8, txt: '+' + c.val, t: 0, shiny: c.shiny });
+        coins.splice(i, 1); continue;
+      }
+      if (c.y - c.r > H + 6) coins.splice(i, 1);
+    }
+    for (var j = pops.length - 1; j >= 0; j--){ pops[j].t += dt; pops[j].y -= 34 * dt; if (pops[j].t > 0.8) pops.splice(j, 1); }
+
+    draw(dt);
+    if (timeLeft <= 0) { endRound(); return; }
+    raf = requestAnimationFrame(loop);
+  }
+
+  function drawCoin(c){
+    ctx.save(); ctx.translate(c.x, c.y);
+    var sq = 0.72 + 0.28 * Math.abs(Math.sin(c.rot)); // spin squash
+    ctx.scale(sq, 1);
+    var g = ctx.createRadialGradient(-c.r*0.35, -c.r*0.35, c.r*0.2, 0, 0, c.r);
+    if (c.shiny) { g.addColorStop(0, '#fff7d6'); g.addColorStop(0.55, '#ffe066'); g.addColorStop(1, '#f0a500'); }
+    else { g.addColorStop(0, '#ffe9a8'); g.addColorStop(0.55, '#f5b921'); g.addColorStop(1, '#d18d06'); }
+    ctx.beginPath(); ctx.arc(0, 0, c.r, 0, Math.PI*2); ctx.fillStyle = g; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = c.shiny ? '#fff3bf' : '#b97e06'; ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, 0, c.r*0.68, 0, Math.PI*2);
+    ctx.lineWidth = 1.6; ctx.strokeStyle = 'rgba(146,96,0,.55)'; ctx.stroke();
+    ctx.fillStyle = '#7a5200'; ctx.font = 'bold ' + Math.round(c.r*1.05) + 'px Arial';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('₵', 0, 1);
+    ctx.restore();
+  }
+
+  function drawCatcher(){
+    var x = catcher.x - catcher.w/2, y = catcher.y, w = catcher.w, h = catcher.h;
+    ctx.save();
+    ctx.shadowColor = 'rgba(34,211,238,.55)'; ctx.shadowBlur = 14;
+    // tray body (trapezoid bowl)
+    ctx.beginPath();
+    ctx.moveTo(x, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w - 12, y + h + 12); ctx.lineTo(x + 12, y + h + 12);
+    ctx.closePath();
+    var g = ctx.createLinearGradient(0, y, 0, y + h + 12);
+    g.addColorStop(0, '#2b3a7d'); g.addColorStop(1, '#141d47');
+    ctx.fillStyle = g; ctx.fill();
+    ctx.shadowBlur = 0;
+    // glowing rim
+    ctx.beginPath(); ctx.moveTo(x - 2, y); ctx.lineTo(x + w + 2, y);
+    ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.strokeStyle = '#22d3ee'; ctx.stroke();
+    // gem in the middle
+    ctx.beginPath(); ctx.arc(catcher.x, y + h/2 + 5, 4.5, 0, Math.PI*2);
+    ctx.fillStyle = '#f59e0b'; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#fde68a'; ctx.stroke();
+    ctx.restore();
+  }
+
+  function draw(){
+    ctx.clearRect(0, 0, W, H);
+    // faint floor line
+    ctx.beginPath(); ctx.moveTo(10, H - 14); ctx.lineTo(W - 10, H - 14);
+    ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(120,140,255,.16)'; ctx.stroke();
+    for (var i = 0; i < coins.length; i++) drawCoin(coins[i]);
+    drawCatcher();
+    // score popups
+    for (var j = 0; j < pops.length; j++){
+      var p = pops[j];
+      ctx.save(); ctx.globalAlpha = Math.max(0, 1 - p.t / 0.8);
+      ctx.fillStyle = p.shiny ? '#ffe066' : '#fcd34d';
+      ctx.font = '800 16px "Segoe UI", Arial'; ctx.textAlign = 'center';
+      ctx.fillText(p.txt, p.x, p.y); ctx.restore();
+    }
+  }
+
+  // ---------- input ----------
+  function setFromEvent(e){
+    var r = cv.getBoundingClientRect();
+    var cx = (e.touches && e.touches[0]) ? e.touches[0].clientX : e.clientX;
+    if (cx == null && e.changedTouches && e.changedTouches[0]) cx = e.changedTouches[0].clientX;
+    if (cx != null) catcher.targetX = cx - r.left;
+  }
+  cv.addEventListener('pointerdown', function(e){ setFromEvent(e); });
+  cv.addEventListener('pointermove', function(e){ if (e.buttons || e.pointerType === 'touch') setFromEvent(e); });
+  cv.addEventListener('touchstart', function(e){ setFromEvent(e); e.preventDefault(); }, { passive:false });
+  cv.addEventListener('touchmove', function(e){ setFromEvent(e); e.preventDefault(); }, { passive:false });
+  cv.addEventListener('mousemove', function(e){ setFromEvent(e); });
+  window.addEventListener('keydown', function(e){
+    if (e.key === 'ArrowLeft') catcher.targetX -= 34;
+    if (e.key === 'ArrowRight') catcher.targetX += 34;
+  });
+
+  document.getElementById('btnStart').addEventListener('click', start);
+  document.getElementById('btnAgain').addEventListener('click', start);
+  window.addEventListener('resize', resize);
+  resize();
+
+  // QA / debug hook
+  window.__coinCatch = {
+    start: start,
+    state: function(){ return { playing: playing, score: score, timeLeft: Math.round(timeLeft*10)/10,
+      coins: coins.length, catcherX: Math.round(catcher.x), best: best }; },
+    setTarget: function(x){ catcher.targetX = x; },
+    setTime: function(s){ elapsed = ROUND - s; }
+  };
+})();
+</script>
+</body>
+</html>
