@@ -256,6 +256,12 @@ header{position:sticky; top:0; z-index:50; background:rgba(18,18,43,.92); backdr
 #moreSheet.show{display:block;}
 #moreSheet button{display:flex; width:100%; align-items:center; gap:10px; background:none; border:none; border-bottom:1px solid var(--line); color:var(--ink); font-family:inherit; font-size:16px; font-weight:800; padding:13px 10px; cursor:pointer; text-align:left;}
 #moreSheet button:last-child{border-bottom:none;}
+.tu-methods{display:flex; gap:8px; margin:10px 0 2px;}
+.tu-m{flex:1; padding:10px 6px; border-radius:12px; border:1.5px solid var(--line);
+  background:var(--bg); color:var(--mut); font-family:inherit; font-size:15px; font-weight:800; cursor:pointer; text-align:center;}
+.tu-m small{display:block; font-weight:600; font-size:11px; margin-top:2px;}
+.tu-m.on{border-color:var(--cyan); color:var(--ink); background:#12304a;}
+.tu-m:disabled{opacity:.45; cursor:default;}
 </style>
 </head>
 <body>
@@ -821,8 +827,10 @@ function renderProgress(focusId){
     const closedN = mine.filter(r => r.status === 'closed').length;
     const open = mine.filter(r => r.status === 'received' || r.status === 'building');
     const cur = open[0];
+    const lastProg = cur && Array.isArray(cur.progress) && cur.progress.length ? cur.progress[cur.progress.length - 1] : null;
     const curLine = cur
       ? 'Working on: ' + (cur.status === 'building' ? '🔨 Building' : '📥 Waiting') + ' — ' + esc(String(cur.text || '').slice(0, 100)) + (String(cur.text || '').length > 100 ? '…' : '')
+        + (lastProg ? '<br>Latest: ' + esc(String(lastProg.msg || '').slice(0, 80)) + (String(lastProg.msg || '').length > 80 ? '…' : '') : '')
       : 'Nothing in progress right now.';
     return '<div class="prog-seat">'
       + '<div class="pg-top"><span class="pg-name">' + esc(s.name) + '</span>'
@@ -1039,7 +1047,9 @@ function tuLenField(field, bytes){ return [...tuTag(field, 2), ...tuVarint(bytes
 function tuVarField(field, n){ return [...tuTag(field, 0), ...tuVarint(n)]; }
 function tuUtf8(s){ return [...new TextEncoder().encode(s)]; }
 function tuBuildTxBytes(o){
-  const coinB = [...tuLenField(1, tuUtf8('uluna')), ...tuLenField(2, tuUtf8(String(o.amountMicro)))];
+  /* the SEND coin follows o.denom (default uluna = LUNC);
+     the FEE coin below is always uluna — gas is paid in LUNC */
+  const coinB = [...tuLenField(1, tuUtf8(o.denom || 'uluna')), ...tuLenField(2, tuUtf8(String(o.amountMicro)))];
   const msgSend = [...tuLenField(1, tuUtf8(o.from)), ...tuLenField(2, tuUtf8(o.to)), ...tuLenField(3, coinB)];
   let bodyBytes = tuLenField(1, [...tuLenField(1, tuUtf8('/cosmos.bank.v1beta1.MsgSend')), ...tuLenField(2, msgSend)]);
   bodyBytes = bodyBytes.concat(tuLenField(2, tuUtf8(o.memo || '')));
@@ -1059,7 +1069,7 @@ function tuBuildSignDoc(o){
     chain_id: TU_CHAIN_ID,
     fee: { amount: [{ denom: 'uluna', amount: String(o.feeMicro) }], gas: String(o.gasLimit) },
     memo: '',
-    msgs: [{ type: 'cosmos-sdk/MsgSend', value: { from_address: o.from, to_address: o.to, amount: [{ denom: 'uluna', amount: String(o.amountMicro) }] } }],
+    msgs: [{ type: 'cosmos-sdk/MsgSend', value: { from_address: o.from, to_address: o.to, amount: [{ denom: o.denom || 'uluna', amount: String(o.amountMicro) }] } }],
     sequence: String(o.sequence),
   };
 }
@@ -1092,6 +1102,9 @@ const tuIsMobileUA = /Android|webOS|iPhone|iPad|iPod/i.test(navigator.userAgent 
 let tuWallet = null;      /* { mode:'keplr'|'keplr-wc'|'galaxy'|'luncdash', addr, cw?, wc? } */
 let tuBusy = false;
 let tuPairState = { uri: '', dash: false };
+/* refill payment method: 'LUNC' or 'USTC' — both Terra
+   Classic, same wallet stack, same recipient */
+let tuMethod = 'LUNC';
 let tuLastMsg = { text: '', cls: '' };
 let tuBooted = false;
 const TU_WALLET_LABEL = { keplr: 'Keplr', 'keplr-wc': 'Keplr', galaxy: 'Galaxy Station', luncdash: 'LUNCDash' };
@@ -1536,8 +1549,20 @@ function renderTopup(){
     return;
   }
   let h = head + status;
-  if (j.priceOk)
-    h += '<p>Send <b>~' + Number(j.luncAmount).toLocaleString() + ' LUNC</b> — that\'s $' + esc(String(j.priceUsd)) + ' at the live price right now (1 LUNC ≈ $' + esc(String(j.luncUsd)) + '). Anything worth <b>$' + Number(j.minUsd).toFixed(2) + '</b> or more counts.</p>';
+  if (j.priceOk){
+    /* payment-method picker: LUNC or USTC — same wallet,
+       same recipient, same $5, same checks. USTC only shows
+       as available when its own price route reads. */
+    if (tuMethod === 'USTC' && !j.ustcOk) tuMethod = 'LUNC';
+    h += '<div class="tu-methods" role="group" aria-label="Pay with">'
+      + '<button type="button" class="tu-m' + (tuMethod === 'LUNC' ? ' on' : '') + '" data-tum="LUNC">LUNC<small>Terra Classic</small></button>'
+      + '<button type="button" class="tu-m' + (tuMethod === 'USTC' ? ' on' : '') + '" data-tum="USTC"' + (j.ustcOk ? '' : ' disabled') + '>USTC<small>' + (j.ustcOk ? 'Terra Classic' : 'not available right now') + '</small></button>'
+      + '</div>';
+    if (tuMethod === 'USTC')
+      h += '<p>Send <b>~' + Number(j.ustcAmount).toLocaleString() + ' USTC</b> — that\'s $' + esc(String(j.priceUsd)) + ' at the live price right now (1 USTC ≈ $' + esc(String(j.ustcUsd)) + '). Anything worth <b>$' + Number(j.minUsd).toFixed(2) + '</b> or more counts.</p>';
+    else
+      h += '<p>Send <b>~' + Number(j.luncAmount).toLocaleString() + ' LUNC</b> — that\'s $' + esc(String(j.priceUsd)) + ' at the live price right now (1 LUNC ≈ $' + esc(String(j.luncUsd)) + '). Anything worth <b>$' + Number(j.minUsd).toFixed(2) + '</b> or more counts.</p>';
+  }
   h += '<div id="tuWalletBox">' + tuWalletBoxHtml(j) + '</div>'
     + tuPairHtml()
     + '<div class="amsg" id="tuMsg"></div>'
@@ -1548,6 +1573,7 @@ function renderTopup(){
   if (tuPairState.uri) tuShowPair(tuPairState.uri, tuPairState.dash, true);
 }
 function tuWireCard(){
+  document.querySelectorAll('[data-tum]').forEach(b => { b.onclick = () => { tuMethod = b.getAttribute('data-tum') || 'LUNC'; renderTopup(); }; });
   const k = $('tuConnKeplr'); if (k) k.onclick = () => { if (tuIsMobileUA && !window.keplr) tuConnectKeplrMobile(); else tuConnectKeplr(); };
   const g = $('tuConnGalaxy'); if (g) g.onclick = tuConnectGalaxy;
   const d = $('tuConnDash'); if (d) d.onclick = tuConnectDash;
@@ -1626,13 +1652,17 @@ async function payTopup(){
   if (!w){ tuMsg('Connect your wallet first.', 'bad'); return; }
   const bound = (j.seat && j.seat.wallet) || '';
   if (bound && bound !== w.addr){ tuMsg('This seat refills from ' + bound + ' — connect that wallet to pay.', 'bad'); return; }
+  const method = tuMethod === 'USTC' ? 'USTC' : 'LUNC';
+  if (method === 'USTC' && !j.ustcOk){ tuMsg('USTC pricing is not reading right now — pay with LUNC, or try again in a minute.', 'bad'); return; }
+  const denom = method === 'USTC' ? 'uusd' : 'uluna';
+  const payAmount = method === 'USTC' ? j.ustcAmount : j.luncAmount;
   tuBusy = true;
   try {
-    const amountMicro = (BigInt(Math.floor(Number(j.luncAmount))) * 1000000n).toString();
+    const amountMicro = (BigInt(Math.floor(Number(payAmount))) * 1000000n).toString();
     tuMsg('Reading your account from the chain…');
     const acct = await tuLcdAccount(w.addr);
     if (!acct){ tuMsg('That wallet has no account on-chain yet — it needs a little LUNC first. Nothing was sent.', 'bad'); return; }
-    const signDoc = tuBuildSignDoc({ from: w.addr, to: j.wallet, amountMicro, feeMicro: TU_FEE_MICRO, gasLimit: TU_GAS_LIMIT, accountNumber: acct.accountNumber, sequence: acct.sequence });
+    const signDoc = tuBuildSignDoc({ from: w.addr, to: j.wallet, amountMicro, denom, feeMicro: TU_FEE_MICRO, gasLimit: TU_GAS_LIMIT, accountNumber: acct.accountNumber, sequence: acct.sequence });
     tuMsg('Check the payment in your wallet and approve it…');
     let res = null;
     try { res = await tuSignAmino(w.addr, signDoc); }
@@ -1647,7 +1677,7 @@ async function payTopup(){
     const pubkey = tuB64ToBytes(signature.pub_key && signature.pub_key.key) || acct.pubkey;
     const sigBytes = tuB64ToBytes(signature.signature);
     if (!pubkey || pubkey.length !== 33 || !sigBytes || sigBytes.length !== 64){ tuMsg('Could not read the signing key from the wallet — nothing was sent.', 'bad'); return; }
-    const txBytes = tuBuildTxBytes({ from: w.addr, to: j.wallet, amountMicro, memo: '', pubkey, sequence: Number(signed.sequence), feeMicro: signed.fee.amount[0].amount, gasLimit: Number(signed.fee.gas), signature: sigBytes });
+    const txBytes = tuBuildTxBytes({ from: w.addr, to: j.wallet, amountMicro, denom, memo: '', pubkey, sequence: Number(signed.sequence), feeMicro: signed.fee.amount[0].amount, gasLimit: Number(signed.fee.gas), signature: sigBytes });
     tuMsg('Sending your payment…');
     const bc = await fetch(TU_LCD + '/cosmos/tx/v1beta1/txs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tx_bytes: tuB64(txBytes), mode: 'BROADCAST_MODE_SYNC' }) });
     const bj = await bc.json().catch(() => null);
@@ -1658,16 +1688,16 @@ async function payTopup(){
     }
     const hash = txResp.txhash;
     if (!hash){ tuMsg('The chain did not return a payment hash — check your wallet before trying again.', 'bad'); return; }
-    try { sessionStorage.setItem(TU_PENDING_KEY, JSON.stringify({ hash, addr: w.addr, at: Date.now() })); } catch (e) {}
-    await submitRenewal(w.addr, hash, 0);
+    try { sessionStorage.setItem(TU_PENDING_KEY, JSON.stringify({ hash, addr: w.addr, method, at: Date.now() })); } catch (e) {}
+    await submitRenewal(w.addr, hash, 0, method);
   } catch (e) {
     tuMsg('Something went wrong before anything was credited — ' + String((e && e.message) || 'error').slice(0, 90), 'bad');
   } finally { tuBusy = false; }
 }
-async function submitRenewal(addr, hash, attempt){
+async function submitRenewal(addr, hash, attempt, method){
   tuMsg('Payment sent — checking it on-chain…');
   let j = null;
-  try { j = await api({ action: 'tdaRenewSubmit', hash: myHash(), sender: addr, txHash: hash }); } catch (e) { j = null; }
+  try { j = await api({ action: 'tdaRenewSubmit', hash: myHash(), sender: addr, txHash: hash, method: method || 'LUNC' }); } catch (e) { j = null; }
   if (!j){ tuMsg("Can't reach the server right now — your payment is on-chain but hasn't been checked. Reopen this card in a minute and it will be checked again.", 'bad'); return; }
   if (j.ok){
     try { sessionStorage.removeItem(TU_PENDING_KEY); } catch (e) {}
@@ -1679,7 +1709,7 @@ async function submitRenewal(addr, hash, attempt){
   }
   if (j.notFound && attempt < 10){
     tuMsg('Payment sent — waiting for it to land on-chain…');
-    setTimeout(() => { submitRenewal(addr, hash, attempt + 1); }, 6000);
+    setTimeout(() => { submitRenewal(addr, hash, attempt + 1, method); }, 6000);
     return;
   }
   if (j.alreadyUsed){
@@ -1707,7 +1737,7 @@ function tuBootWallet(){
     if (raw){
       const p = JSON.parse(raw);
       if (p && p.hash && tuValidAddr(p.addr) && Date.now() - (p.at || 0) < 7 * 24 * 3600 * 1000)
-        submitRenewal(p.addr, p.hash, 0);
+        submitRenewal(p.addr, p.hash, 0, p.method === 'USTC' ? 'USTC' : 'LUNC');
       else sessionStorage.removeItem(TU_PENDING_KEY);
     }
   } catch (e) {}
@@ -1738,7 +1768,7 @@ async function loadRenews(){
     if (!j.renewals.length){ box.innerHTML = '<p class="mut">No refills yet.</p>'; return; }
     box.innerHTML = j.renewals.map(x =>
       '<div class="seatrow"><div class="sr-top"><span class="sr-name">' + esc(x.seatName || 'Seat') + '</span>'
-      + '<span class="sr-meta">' + Number(x.lunc).toLocaleString() + ' LUNC · worth $' + Number(x.usd).toFixed(2) + (x.tokens ? ' · balance now ' + Number(x.tokens).toLocaleString() + ' tokens' : '') + ' · ' + esc(fmtDate(x.created)) + '</span></div>'
+      + '<span class="sr-meta">' + Number(x.amount != null ? x.amount : x.lunc).toLocaleString() + ' ' + esc(x.method === 'USTC' ? 'USTC' : 'LUNC') + ' · worth $' + Number(x.usd).toFixed(2) + (x.tokens ? ' · balance now ' + Number(x.tokens).toLocaleString() + ' tokens' : '') + ' · ' + esc(fmtDate(x.created)) + '</span></div>'
       + '<div class="sr-meta" style="margin-top:4px;">from <span class="mono">' + esc(x.sender) + '</span> · <a href="https://finder.terraclassic.community/mainnet/tx/' + esc(x.txhash) + '" target="_blank" rel="noopener">View the payment ↗</a></div></div>'
     ).join('');
   }catch(e){ box.innerHTML = '<p class="fail">Couldn\'t load the refills — server unreachable.</p>'; }
@@ -1792,6 +1822,7 @@ function bubbleHTML(r){
   h += '<div class="row me"><div class="bubble">' + rich(r.text) + '</div>';
   h += '<div class="meta">' + CHIP[r.status]
     + (isOwner() ? '<span class="chip seat">' + esc(r.seatName || (r.seatId === 'owner' ? 'Owner' : '')) + '</span>' : '')
+    + (isOwner() && r.flagged ? '<span class="chip">⚠️ Flagged</span>' : '')
     + (isOwner() && r.status === 'closed' && r.closedBy === 'seat' ? '<span class="chip">✔️ Closed by user</span>' : '')
     + ((r.status === 'done' || r.status === 'closed') && r.tokensUsed > 0 ? '<span class="chip tok">🎟️ ' + r.tokensUsed + ' tokens</span>' : '')
     + '<span>' + esc(fmtTime(r.created)) + '</span></div>';
@@ -1807,6 +1838,21 @@ function bubbleHTML(r){
       + '<button class="obtn" data-act="cancelreply" data-id="' + esc(r.id) + '">Cancel</button></div></div>';
   }
   h += '</div>';
+  /* v3 builder trail: the builder's own words, in order,
+     between the request and the final result. Seat replies
+     made inside a guided walk sit on the seat's side. */
+  if (Array.isArray(r.progress)){
+    for (const e of r.progress){
+      if (!e || typeof e.msg !== 'string') continue;
+      if (e.kind === 'reply'){
+        h += '<div class="row me"><div class="bubble">' + rich(e.msg) + '</div>'
+          + '<div class="meta"><span>' + esc(fmtTime(e.t)) + '</span></div></div>';
+      } else {
+        h += '<div class="row td"><div class="who">Tom\'s Dev</div><div class="bubble">' + rich(e.msg) + '</div>'
+          + '<div class="meta"><span>' + esc(fmtTime(e.t)) + '</span></div></div>';
+      }
+    }
+  }
   if ((r.status === 'done' || r.status === 'closed') && r.result){
     h += '<div class="row td"><div class="who">Tom\'s Dev</div><div class="bubble">' + rich(r.result) + '</div>'
       + '<div class="meta"><span>— used ' + (r.tokensUsed || 0) + ' tokens</span><span>' + esc(fmtTime(r.updated)) + '</span></div></div>';
@@ -1972,6 +2018,16 @@ $('thread').addEventListener('click', async e=>{
 
 /* ============ SEND ============ */
 function barNote(msg){ $('barNote').textContent = msg || ''; }
+/* One draft key per message draft: if the send is retried
+   (or the page double-submits), the server hands back the
+   same request instead of making a second one. */
+let draftKey = '';
+function draftKeyFor(text){
+  if (!draftKey) draftKey = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  let h = 5381;
+  for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) >>> 0;
+  return draftKey + ':' + h.toString(36);
+}
 async function send(){
   const ta = $('msgInput');
   const text = ta.value.trim();
@@ -1979,8 +2035,11 @@ async function send(){
   const btn = $('sendBtn');
   btn.disabled = true; btn.textContent = 'Sending…';
   try{
-    const j = await api({action:'tdaNew', hash: myHash(), text});
+    /* liveBuilder: this page is the v3 preview — the builder
+       answers in-thread the moment a request lands. */
+    const j = await api({action:'tdaNew', hash: myHash(), text, liveBuilder: true, clientKey: draftKeyFor(text)});
     if (j && j.ok === true){
+      draftKey = '';
       ta.value=''; ta.style.height='auto';
       barNote('');
       await refresh(true);

@@ -2427,7 +2427,20 @@ export async function kavaCodeHandler(req, res) {
    completes a job via tdaDone with a `tokens` amount, that
    amount is decremented from the seat's balance (clamped at 0) —
    that is the only place usage is recorded, and it is recorded
-   by the owner side, by design.
+   by the owner side, by design. (v3: the builder runner
+   completes rows through the same tdaFinishRow path — see
+   LIVE BUILDER below — so charging stays one code path with
+   one idempotency story.)
+   REFILL METHODS (Nov 14): a refill is $5 paid in LUNC
+   (denom uluna) or in USTC (denom uusd — Terra Classic's
+   native stablecoin) to the SAME receiving wallet through
+   the SAME wallet stack and the SAME verification: the
+   submit names its method, the legs summed are that
+   method's denom from the tx's actual sender, and the value
+   is read at that token's live price (USTC: CoinPaprika
+   ust-terrausd + CoinGecko terrausd, the same cross-check
+   discipline as LUNC). The claim key is the tx hash for
+   both, so a payment can never credit twice in any mix.
    OWNER-ADDED PROJECTS: the owner can drop a project straight
    into a seat's board (tdaNew with seatId + addProject, owner
    tier only). The row is flagged ownerAdded and titled exactly
@@ -2537,6 +2550,32 @@ const TDA_PRICE_CACHE_MS = 30 * 1000;
 const TDA_TX_LOOKUP = 'https://terra-classic-lcd.publicnode.com/cosmos/tx/v1beta1/txs/';
 const TDA_PAPRIKA_LUNC = 'https://api.coinpaprika.com/v1/tickers/luna-terra';
 const TDA_GECKO_LUNC = 'https://api.coingecko.com/api/v3/simple/price?ids=terra-luna&vs_currencies=usd';
+const TDA_PAPRIKA_USTC = 'https://api.coinpaprika.com/v1/tickers/ust-terrausd';
+const TDA_GECKO_USTC = 'https://api.coingecko.com/api/v3/simple/price?ids=terrausd&vs_currencies=usd';
+/* LIVE BUILDER (v3, owner ruling Nov 14): a request posted from
+   the v3 page (liveBuilder flag) is builder-managed — it flips
+   to Building at once with an instant builder reply in the
+   thread, and the VM-side builder runner claims it, posts
+   progress lines (the row's `plog`, a JSON trail of
+   {t, k, m} entries: k = builder | step | reply | note),
+   builds web builds, walks guided steps for the rest, and
+   completes through the SAME finish path as a human reply
+   (tdaFinishRow — idempotent delta charging). Rows posted
+   without the flag (the live page) keep the v2 queue
+   behaviour exactly. The runner authenticates with its own
+   secret: only its SHA-256 lives server-side (tda:buildersecret),
+   set while unset (bootstrap) and afterwards only by the
+   owner or by presenting the current builder hash (rotation).
+   Claims are a lock key (tda:claim:<id>, 15 min, refreshed by
+   progress posts) plus a claim-token hash on the row, so a
+   crashed runner's work is recoverable, never stuck, and a
+   stale runner can never write over a live claim. */
+const TDA_CLAIM_TTL_SEC = 15 * 60;
+const TDA_CLAIM_STALE_MS = 15 * 60 * 1000;
+const TDA_PLOG_CAP = 40;
+const TDA_PLOG_MSG_MAX = 300;
+const TDA_STEP_MAX = 600;
+const TDA_GUIDE_STEPS_MAX = 12;
 
 function tdaIsHash(v) { return typeof v === 'string' && /^[0-9a-f]{64}$/.test(v); }
 
@@ -2764,14 +2803,42 @@ async function tdaLuncPrice() {
   return val;
 }
 
+/* The LIVE USTC/USD price — the same cross-checked route as
+   LUNC (CoinPaprika primary, CoinGecko fallback, 25%
+   agreement rule, lower-of-two valuation, 30 s cache), so a
+   USTC refill is worth what it claims to be worth before it
+   credits anyone. */
+let tdaUstcPriceCache = null;
+async function tdaUstcPrice() {
+  if (tdaUstcPriceCache && (Date.now() - tdaUstcPriceCache.at) < TDA_PRICE_CACHE_MS) return tdaUstcPriceCache.val;
+  const read = async (url, pick) => {
+    try { const v = pick(await tdaFetchJson(url, 8000)); return (Number.isFinite(v) && v > 0) ? v : null; }
+    catch (e) { return null; }
+  };
+  const [p, g] = await Promise.all([
+    read(TDA_PAPRIKA_USTC, j => j && j.quotes && j.quotes.USD && Number(j.quotes.USD.price)),
+    read(TDA_GECKO_USTC, j => j && j['terrausd'] && Number(j['terrausd'].usd)),
+  ]);
+  let val = null;
+  if (p && g) {
+    if (Math.abs(p - g) / Math.min(p, g) > 0.25) return null;
+    val = { usd: Math.min(p, g), source: 'cross-checked' };
+  }
+  else if (p) val = { usd: p, source: 'coinpaprika' };
+  else if (g) val = { usd: g, source: 'coingecko' };
+  if (val) tdaUstcPriceCache = { at: Date.now(), val };
+  return val;
+}
+
 /* Read one transaction by hash from the house LCD and reduce
    it to the facts a renewal needs: did it succeed, and its
-   bank-send legs (from, to, uluna as BigInt — amounts exceed
-   float precision at the top end). The FCD amino shape is
-   accepted too, in case the lookup host ever serves it.
-   Returns {found:false} for a hash the chain doesn't know
-   (or an unreachable reader — the seat is told to retry,
-   and nothing is claimed or credited either way). */
+   bank-send legs (from, to, uluna + uusd as BigInt — amounts
+   exceed float precision at the top end; both refill denoms
+   are collected so one read serves either method). The FCD
+   amino shape is accepted too, in case the lookup host ever
+   serves it. Returns {found:false} for a hash the chain
+   doesn't know (or an unreachable reader — the seat is told
+   to retry, and nothing is claimed or credited either way). */
 async function tdaLookupTx(txhash) {
   let j = null;
   try { j = await tdaFetchJson(TDA_TX_LOOKUP + txhash, 10000); }
@@ -2781,11 +2848,12 @@ async function tdaLookupTx(txhash) {
     for (const m of msgs || []) {
       if (!m || !String(typeOf(m)).endsWith('MsgSend')) continue;
       const v = valOf(m) || {};
-      let tot = 0n;
+      let tot = 0n, totU = 0n;
       for (const c of (v.amount || [])) {
         if (c && c.denom === 'uluna') { try { tot += BigInt(String(c.amount)); } catch (e) { /* skip bad leg */ } }
+        if (c && c.denom === 'uusd') { try { totU += BigInt(String(c.amount)); } catch (e) { /* skip bad leg */ } }
       }
-      sends.push({ from: String(v.from_address || ''), to: String(v.to_address || ''), uluna: tot });
+      sends.push({ from: String(v.from_address || ''), to: String(v.to_address || ''), uluna: tot, uusd: totU });
     }
   };
   if (j && j.tx_response) {
@@ -2924,7 +2992,7 @@ async function tdaAuthTier(req, res, tag, hash, need) {
 }
 
 function tdaPublicReq(o, seatName) {
-  return {
+  const out = {
     id: String(o.id || ''),
     seatId: String(o.seatId || 'owner'),
     seatName: seatName || '',
@@ -2938,6 +3006,177 @@ function tdaPublicReq(o, seatName) {
     created: Number(o.created) || 0,
     updated: Number(o.updated) || 0,
   };
+  /* v3 builder trail: only present on builder-managed rows,
+     so v2 payloads (and the live page) are untouched. */
+  const bs = String(o.buildState || '');
+  if (bs) {
+    out.buildState = bs;
+    out.progress = tdaParsePlog(o.plog).map(e => ({ t: e.t, kind: e.k, msg: e.m }));
+    if (String(o.flagged || '') === '1') out.flagged = true;
+  }
+  return out;
+}
+
+/* The progress trail on a builder-managed row: a JSON array
+   of {t, k, m} entries (k: builder | step | reply | note),
+   newest last, capped so a chatty build can't bloat the row.
+   Parsing is defensive — a corrupt trail reads as empty,
+   never as a crash. */
+function tdaParsePlog(raw) {
+  /* Storage shape {t, k, m} — kept identical on the way out
+     so a parse + rewrite round-trip never loses entries. */
+  try {
+    const a = JSON.parse(String(raw || ''));
+    if (!Array.isArray(a)) return [];
+    return a.filter(e => e && typeof e === 'object' && typeof e.m === 'string')
+      .map(e => ({ t: Number(e.t) || 0, k: ['builder', 'step', 'reply', 'note'].includes(e.k) ? e.k : 'builder', m: e.m }));
+  } catch (e) { return []; }
+}
+function tdaPlogJson(existingRaw, entries) {
+  const a = tdaParsePlog(existingRaw);
+  for (const e of entries) {
+    const cap = e.k === 'step' ? TDA_STEP_MAX : TDA_PLOG_MSG_MAX;
+    a.push({ t: Date.now(), k: e.k, m: String(e.m || '').slice(0, cap) });
+  }
+  while (a.length > TDA_PLOG_CAP) a.shift();
+  return JSON.stringify(a);
+}
+
+/* Complete a request row: write the reply + the charged
+   figure, then settle the seat's balance by the DELTA
+   between the new figure and what the row already charged —
+   so completing twice (double-tap, client retry, a runner
+   re-finishing after a crash) charges exactly once, and
+   editing a done row's figure settles the difference either
+   way. A positive delta deducts at most the actual balance
+   (the lifetime `used` counter rises by what was REALLY
+   deducted); a negative delta refunds at most what the seat
+   has ever used. Owner-added tracking rows never charge.
+   Shared by tdaDone (owner) and tdaBuildDone (the runner) so
+   there is exactly one charging code path. Returns the
+   seat's balance after, or null for the owner's own rows. */
+async function tdaFinishRow(existing, result, used) {
+  if (String(existing.ownerAdded || '') === '1') used = 0;
+  const id = String(existing.id);
+  const now = String(Date.now());
+  await upstashPipeline([['HSET', 'tda:req:' + id, 'status', 'done', 'result', result, 'tokensUsed', String(used), 'updated', now]]);
+  let tokensLeft = null;
+  const seatId = String(existing.seatId || 'owner');
+  const delta = used - (parseInt(existing.tokensUsed, 10) || 0);
+  if (delta !== 0 && seatId !== 'owner') {
+    const seat = await tdaGetSeat(seatId);
+    if (seat) {
+      const bal = Math.max(0, parseInt(seat.tokens, 10) || 0);
+      const usedBefore = Math.max(0, parseInt(seat.used, 10) || 0);
+      let newBal = bal, applied = 0;
+      if (delta > 0) { applied = Math.min(delta, bal); newBal = bal - applied; }
+      else { applied = -Math.min(-delta, usedBefore); newBal = bal - applied; }
+      await upstashPipeline([['HSET', 'tda:seat:' + seatId, 'tokens', String(newBal), 'used', String(usedBefore + applied)]]);
+      tokensLeft = newBal;
+    }
+  } else if (seatId !== 'owner') {
+    const seat = await tdaGetSeat(seatId);
+    if (seat) tokensLeft = Math.max(0, parseInt(seat.tokens, 10) || 0);
+  }
+  return tokensLeft;
+}
+
+/* Builder-runner gate: the presented hash must be the SHA-256
+   of the runner secret whose hash is stored server-side.
+   Failures ride the same per-IP brute-force rail as code
+   guesses. Returns true when the caller is the runner. */
+async function tdaBuilderGate(req, res, tag, body) {
+  const lock = await tdaLockState(tag);
+  if (lock.locked) {
+    res.status(200).json({ ok: false, locked: true, retryAfterSec: lock.retryAfterSec, error: 'too many tries — locked for a bit' });
+    return false;
+  }
+  const out = await upstashPipeline([['GET', 'tda:buildersecret']]);
+  const stored = out[0] && out[0].result;
+  const bhash = String(body.bhash || '').toLowerCase();
+  if (!tdaIsHash(stored || '') || !tdaIsHash(bhash) || !tdaHashEq(bhash, stored)) {
+    const tripped = await tdaRecordFail(tag);
+    res.status(200).json({ ok: false, locked: tripped, error: 'builder not authorized' });
+    return false;
+  }
+  return true;
+}
+
+/* Verify a runner's claim on a row: the claim lock must still
+   hold the presented token AND the row must carry that
+   token's hash (so a lock that expired and was re-taken by
+   another runner can never be written through by the stale
+   holder). Returns the row object, or null. */
+async function tdaClaimCheck(id, claimToken) {
+  if (!/^[0-9a-f]{48}$/.test(String(claimToken || ''))) return null;
+  const out = await upstashPipeline([['GET', 'tda:claim:' + id], ['HGETALL', 'tda:req:' + id]]);
+  const lockTok = out[0] && out[0].result;
+  const row = tdaHashToObj(out[1] && out[1].result);
+  if (!row.id || lockTok !== claimToken) return null;
+  const want = crypto.createHash('sha256').update(String(claimToken)).digest('hex');
+  if (!row.claimHash || !tdaHashEq(row.claimHash, want)) return null;
+  if (String(row.deletedAt || '')) return null;
+  return row;
+}
+
+/* Find a seat's open guided-steps row (the builder walked
+   the seat into a flow and is waiting for their reply), or
+   null. Guided rows are status 'building', buildState
+   'guided', and are NOT claim-held while they wait. */
+async function tdaFindGuided(seatId) {
+  const idsOut = await upstashPipeline([['LRANGE', 'tda:reqs', 0, 199]]);
+  const ids = (idsOut[0] && idsOut[0].result) || [];
+  if (!ids.length) return null;
+  const rows = await upstashPipeline(ids.map(x => ['HGETALL', 'tda:req:' + x]));
+  for (const rw of rows) {
+    const o = tdaHashToObj(rw && rw.result);
+    if (o.id && String(o.seatId || '') === seatId && o.status === 'building' && String(o.buildState || '') === 'guided' && !String(o.deletedAt || '')) return o;
+  }
+  return null;
+}
+
+/* Advance a guided-steps conversation by one seat reply.
+   The reply always lands in the trail. "done" (or ok / yes /
+   ready / finished) moves to the next step; the last step
+   completes the row through the shared finish path at the
+   guide's agreed charge. "stop" / "cancel" ends the guide
+   with no charge. Anything else gets ONE gentle nudge per
+   step — the seat may be mid-step or asking a question, and
+   the builder never spams. Returns {finished}. */
+async function tdaGuideAdvance(row, text) {
+  let steps = [];
+  try { const a = JSON.parse(String(row.guideSteps || '')); if (Array.isArray(a)) steps = a.map(s => String(s)); } catch (e) { /* no steps = finish below */ }
+  const idx = Math.max(0, parseInt(row.guideIdx, 10) || 0);
+  const entries = [{ k: 'reply', m: text }];
+  const low = text.trim().toLowerCase();
+  const now = String(Date.now());
+  if (/\b(stop|cancel|quit)\b/.test(low)) {
+    const result = 'No problem — we\'ve stopped there, and nothing was charged for the guide. If you want to pick it up again, just ask and we\'ll restart the steps.';
+    await upstashPipeline([['HSET', 'tda:req:' + row.id, 'plog', tdaPlogJson(row.plog, entries), 'buildState', 'done', 'updated', now]]);
+    await tdaFinishRow(row, result, 0);
+    return { finished: true };
+  }
+  const doneLike = /^(done|ok|okay|yes|ready|finished|did it|next)[.! ]*$/.test(low) || /\bdone\b/.test(low);
+  if (doneLike) {
+    const nidx = idx + 1;
+    if (nidx >= steps.length) {
+      const charge = Math.max(0, parseInt(row.guideCharge, 10) || 0);
+      const result = String(row.guideDone || '') || 'All steps done — nice work, you are set up.';
+      await upstashPipeline([['HSET', 'tda:req:' + row.id, 'plog', tdaPlogJson(row.plog, entries), 'buildState', 'done', 'updated', now]]);
+      await tdaFinishRow(row, result, charge);
+      return { finished: true };
+    }
+    entries.push({ k: 'step', m: 'Step ' + (nidx + 1) + ' of ' + steps.length + ': ' + steps[nidx] });
+    await upstashPipeline([['HSET', 'tda:req:' + row.id, 'plog', tdaPlogJson(row.plog, entries), 'guideIdx', String(nidx), 'guideNudged', '', 'updated', now]]);
+    return { finished: false };
+  }
+  if (String(row.guideNudged || '') !== String(idx)) {
+    entries.push({ k: 'builder', m: 'No rush — take your time with that step. When it\'s done, just say "done". If you want to stop, say "stop".' });
+    await upstashPipeline([['HSET', 'tda:req:' + row.id, 'plog', tdaPlogJson(row.plog, entries), 'guideNudged', String(idx), 'updated', now]]);
+  } else {
+    await upstashPipeline([['HSET', 'tda:req:' + row.id, 'plog', tdaPlogJson(row.plog, entries), 'updated', now]]);
+  }
+  return { finished: false };
 }
 
 /* Parse an optional token amount (create / adjust / usage).
@@ -3207,6 +3446,25 @@ export async function tdaHandler(req, res) {
       if (!auth) return undefined;
       const text = String(body.text || '').trim().slice(0, TDA_TEXT_MAX);
       if (!text) return res.status(400).json({ ok: false, error: 'empty message' });
+      /* v3 live builder: only posts carrying the flag (the
+         preview page) are builder-managed; everything else
+         keeps the exact v2 queue behaviour. */
+      const wantBuilder = body.liveBuilder === true;
+      /* Send idempotency: the page tags each composed message
+         with a client key and reuses it across retries, so a
+         flaky network can never post the same message twice
+         (no double rows, no double guide advances). */
+      const clientKey = (typeof body.clientKey === 'string' && /^[A-Za-z0-9:_-]{8,80}$/.test(body.clientKey)) ? body.clientKey : '';
+      const ckSeat = auth.tier === 'seat' ? String(auth.seat.id) : String(body.seatId || 'owner');
+      const ckKey = (wantBuilder && clientKey)
+        ? 'tda:ck:' + crypto.createHash('sha256').update(ckSeat + '|' + clientKey).digest('hex')
+        : '';
+      if (ckKey) {
+        const seen = await upstashPipeline([['GET', ckKey]]);
+        if (seen[0] && seen[0].result) {
+          return res.status(200).json({ ok: true, id: String(seen[0].result), deduped: true });
+        }
+      }
       let seatId = 'owner';
       let ownerAdded = false;
       if (auth.tier === 'seat') {
@@ -3225,6 +3483,18 @@ export async function tdaHandler(req, res) {
           return res.status(200).json({ ok: false, noTokens: true, error: 'out of tokens — refill to keep building' });
         }
         seatId = String(auth.seat.id);
+        /* Guided-steps continuation: if this seat has an open
+           guided row, this message is their reply to the
+           current step — it advances that conversation and
+           never becomes a new request. */
+        if (wantBuilder && body.addProject !== true) {
+          const grow = await tdaFindGuided(seatId);
+          if (grow) {
+            if (ckKey) { try { await upstashPipeline([['SET', ckKey, String(grow.id), 'NX', 'EX', 3600]]); } catch (e) { /* best-effort */ } }
+            const adv = await tdaGuideAdvance(grow, text);
+            return res.status(200).json({ ok: true, guided: String(grow.id), finished: adv.finished });
+          }
+        }
         /* Flood rail: the queue is one shared list, trimmed to
            the newest 200 — a seat that could post without limit
            could push everyone else's rows out of it. A seat may
@@ -3257,10 +3527,32 @@ export async function tdaHandler(req, res) {
           if (body.addProject === true) ownerAdded = true;
         }
       }
+      /* The owner's own thread can hold a guided conversation
+         too (the owner testing a flow); an owner posting into
+         a SEAT's thread is talking to that seat, never a guide
+         reply. */
+      if (wantBuilder && !ownerAdded && auth.tier === 'owner' && !body.seatId) {
+        const grow = await tdaFindGuided('owner');
+        if (grow) {
+          if (ckKey) { try { await upstashPipeline([['SET', ckKey, String(grow.id), 'NX', 'EX', 3600]]); } catch (e) { /* best-effort */ } }
+          const adv = await tdaGuideAdvance(grow, text);
+          return res.status(200).json({ ok: true, guided: String(grow.id), finished: adv.finished });
+        }
+      }
       const now = Date.now();
       const id = 'r' + now.toString(36) + crypto.randomBytes(4).toString('hex');
-      const rowCmd = ['HSET', 'tda:req:' + id, 'id', id, 'seatId', seatId, 'text', text, 'status', 'received', 'result', '', 'tokensUsed', '0', 'created', String(now), 'updated', String(now)];
+      /* Builder-managed rows are born Building with the
+         instant builder reply already in the trail — the seat
+         sees the builder answer in the same beat they post,
+         before any runner or human touches anything. Tracking
+         entries (ownerAdded) are never builder-managed. */
+      const builderRow = wantBuilder && !ownerAdded;
+      const rowCmd = ['HSET', 'tda:req:' + id, 'id', id, 'seatId', seatId, 'text', text, 'status', builderRow ? 'building' : 'received', 'result', '', 'tokensUsed', '0', 'created', String(now), 'updated', String(now)];
       if (ownerAdded) rowCmd.push('ownerAdded', '1');
+      if (builderRow) {
+        rowCmd.push('buildState', 'queued');
+        rowCmd.push('plog', tdaPlogJson('', [{ k: 'builder', m: 'Got it — building that now. I\'ll post updates here as it comes together.' }]));
+      }
       const cmds = [
         rowCmd,
         ['LPUSH', 'tda:reqs', id],
@@ -3268,6 +3560,7 @@ export async function tdaHandler(req, res) {
       ];
       if (auth.tier === 'seat') cmds.push(['HINCRBY', 'tda:seat:' + seatId, 'reqs', 1]);
       await upstashPipeline(cmds);
+      if (ckKey) { try { await upstashPipeline([['SET', ckKey, id, 'NX', 'EX', 3600]]); } catch (e) { /* best-effort */ } }
       return res.status(200).json({ ok: true, id });
     }
 
@@ -3329,39 +3622,176 @@ export async function tdaHandler(req, res) {
       if (used === null) return res.status(400).json({ ok: false, error: 'bad token amount' });
       /* Owner-added projects are TRACKING entries: completing
          one never charges the seat, whatever figure the caller
-         sent — the row records 0 used and the balance below
-         does not move. */
-      if (String(existing.ownerAdded || '') === '1') used = 0;
-      await upstashPipeline([['HSET', 'tda:req:' + id, 'status', 'done', 'result', result, 'tokensUsed', String(used), 'updated', now]]);
-      /* Charge the seat for this completion — IDEMPOTENTLY.
-         The amount that moves is the DELTA between the new
-         figure and what this row already charged, so pressing
-         Done twice (double-tap, client retry) charges once, and
-         editing a done row's figure settles the difference
-         either way. A positive delta deducts at most the actual
-         balance (the lifetime `used` counter rises by what was
-         REALLY deducted, never more); a negative delta refunds
-         at most what the seat has ever used, so `used` can
-         never go negative either. Values are computed from the
-         seat row and written back in one pipeline. */
-      let tokensLeft = null;
-      const seatId = String(existing.seatId || 'owner');
-      const delta = used - (parseInt(existing.tokensUsed, 10) || 0);
-      if (delta !== 0 && seatId !== 'owner') {
-        const seat = await tdaGetSeat(seatId);
-        if (seat) {
-          const bal = Math.max(0, parseInt(seat.tokens, 10) || 0);
-          const usedBefore = Math.max(0, parseInt(seat.used, 10) || 0);
-          let newBal = bal, applied = 0;
-          if (delta > 0) { applied = Math.min(delta, bal); newBal = bal - applied; }
-          else { applied = -Math.min(-delta, usedBefore); newBal = bal - applied; }
-          await upstashPipeline([['HSET', 'tda:seat:' + seatId, 'tokens', String(newBal), 'used', String(usedBefore + applied)]]);
-          tokensLeft = newBal;
-        }
-      } else if (seatId !== 'owner') {
-        const seat = await tdaGetSeat(seatId);
-        if (seat) tokensLeft = Math.max(0, parseInt(seat.tokens, 10) || 0);
+         sent — tdaFinishRow records 0 used for them and the
+         balance does not move. Charging itself is the shared
+         idempotent delta path (see tdaFinishRow). */
+      const tokensLeft = await tdaFinishRow(existing, result, used);
+      return res.status(200).json({ ok: true, id, status: 'done', tokensLeft });
+    }
+
+    /* ---- LIVE BUILDER (v3): the runner's own actions ----
+       Authenticated by the builder hash (tdaBuilderGate),
+       never by a seat or owner code. The runner claims work
+       atomically, narrates into the thread trail, and either
+       builds (web), guides (steps only the seat can do), or
+       refuses (safety) — completing through tdaFinishRow so
+       charging is the same idempotent path as a human reply. */
+
+    if (action === 'tdaBuilderSecretSet') {
+      const newHash = String(body.bhash || '').toLowerCase();
+      if (!tdaIsHash(newHash)) return res.status(400).json({ ok: false, error: 'bad hash' });
+      const cur = await upstashPipeline([['GET', 'tda:buildersecret']]);
+      const stored = cur[0] && cur[0].result;
+      if (!tdaIsHash(stored || '')) {
+        /* Bootstrap: while no builder secret exists, the
+           first hash presented claims the slot (the runner
+           does this in the same minute it first runs; the
+           window is the unlisted action name + the race-safe
+           NX write). After that, rotation rules below apply. */
+        const set = await upstashPipeline([['SET', 'tda:buildersecret', newHash, 'NX']]);
+        if (!set[0] || !set[0].result) return res.status(200).json({ ok: false, error: 'builder secret was just set by someone else' });
+        return res.status(200).json({ ok: true, set: true, bootstrapped: true });
       }
+      /* Rotation: the current builder hash OR the owner. */
+      const curB = String(body.currentBhash || '').toLowerCase();
+      if (tdaIsHash(curB) && tdaHashEq(curB, stored)) {
+        await upstashPipeline([['SET', 'tda:buildersecret', newHash]]);
+        return res.status(200).json({ ok: true, set: true });
+      }
+      const auth = await tdaAuthTier(req, res, tag, String(body.hash || '').toLowerCase(), 'owner');
+      if (!auth) return undefined;
+      await upstashPipeline([['SET', 'tda:buildersecret', newHash]]);
+      return res.status(200).json({ ok: true, set: true });
+    }
+
+    if (action === 'tdaBuildQueue') {
+      if (!(await tdaBuilderGate(req, res, tag, body))) return undefined;
+      const idsOut = await upstashPipeline([['LRANGE', 'tda:reqs', 0, 199]]);
+      const ids = (idsOut[0] && idsOut[0].result) || [];
+      if (!ids.length) return res.status(200).json({ ok: true, queue: [] });
+      const rows = await upstashPipeline(ids.map(x => ['HGETALL', 'tda:req:' + x]));
+      const nowMs = Date.now();
+      const objs = rows.map(r => tdaHashToObj(r && r.result)).filter(o => {
+        if (!o.id || String(o.deletedAt || '') || o.status !== 'building') return false;
+        const bs = String(o.buildState || '');
+        if (bs === 'queued') return true;
+        /* A claim whose holder has gone quiet past the stale
+           window is offered again — claiming it IS the
+           recovery path (the old lock has expired by then,
+           or the claim write simply refuses). */
+        if (bs === 'claimed' && (nowMs - (Number(o.claimAt) || 0)) > TDA_CLAIM_STALE_MS) return true;
+        return false;
+      }).slice(0, 20);
+      const seatIds = [...new Set(objs.map(o => String(o.seatId || 'owner')))];
+      const names = {};
+      for (const sid of seatIds) {
+        if (sid === 'owner') { names[sid] = 'Owner'; continue; }
+        const s = await tdaGetSeat(sid);
+        names[sid] = s ? String(s.name || '') : '';
+      }
+      return res.status(200).json({ ok: true, queue: objs.map(o => tdaPublicReq(o, names[String(o.seatId || 'owner')])) });
+    }
+
+    if (action === 'tdaBuildClaim') {
+      if (!(await tdaBuilderGate(req, res, tag, body))) return undefined;
+      const id = String(body.id || '');
+      if (!/^r[a-z0-9]{6,24}$/.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const cur = await upstashPipeline([['HGETALL', 'tda:req:' + id]]);
+      const row = tdaHashToObj(cur[0] && cur[0].result);
+      if (!row.id || String(row.deletedAt || '')) return res.status(404).json({ ok: false, error: 'no such request' });
+      const bs = String(row.buildState || '');
+      if (row.status !== 'building' || (bs !== 'queued' && bs !== 'claimed')) {
+        return res.status(200).json({ ok: false, error: 'not claimable' });
+      }
+      const claimToken = crypto.randomBytes(24).toString('hex');
+      const got = await upstashPipeline([['SET', 'tda:claim:' + id, claimToken, 'NX', 'EX', TDA_CLAIM_TTL_SEC]]);
+      if (!got[0] || !got[0].result) return res.status(200).json({ ok: false, error: 'already claimed' });
+      const claimHash = crypto.createHash('sha256').update(claimToken).digest('hex');
+      const runner = String(body.runner || 'runner').slice(0, 40);
+      await upstashPipeline([['HSET', 'tda:req:' + id,
+        'buildState', 'claimed', 'claimHash', claimHash, 'claimAt', String(Date.now()), 'claimBy', runner,
+        'buildKind', String(body.buildKind || row.buildKind || '').slice(0, 20), 'updated', String(Date.now())]]);
+      const fresh = await upstashPipeline([['HGETALL', 'tda:req:' + id]]);
+      const fo = tdaHashToObj(fresh[0] && fresh[0].result);
+      return res.status(200).json({ ok: true, id, claimToken, recovered: bs === 'claimed', row: tdaPublicReq(fo, '') });
+    }
+
+    if (action === 'tdaBuildProgress') {
+      if (!(await tdaBuilderGate(req, res, tag, body))) return undefined;
+      const id = String(body.id || '');
+      if (!/^r[a-z0-9]{6,24}$/.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const row = await tdaClaimCheck(id, String(body.claimToken || ''));
+      if (!row) return res.status(200).json({ ok: false, error: 'claim not held' });
+      const msg = String(body.msg || '').trim();
+      if (!msg) return res.status(400).json({ ok: false, error: 'empty progress' });
+      const kind = body.kind === 'note' ? 'note' : 'builder';
+      await upstashPipeline([
+        ['HSET', 'tda:req:' + id, 'plog', tdaPlogJson(row.plog, [{ k: kind, m: msg }]), 'updated', String(Date.now())],
+        ['EXPIRE', 'tda:claim:' + id, TDA_CLAIM_TTL_SEC],
+      ]);
+      return res.status(200).json({ ok: true, id });
+    }
+
+    if (action === 'tdaBuildGuide') {
+      if (!(await tdaBuilderGate(req, res, tag, body))) return undefined;
+      const id = String(body.id || '');
+      if (!/^r[a-z0-9]{6,24}$/.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const row = await tdaClaimCheck(id, String(body.claimToken || ''));
+      if (!row) return res.status(200).json({ ok: false, error: 'claim not held' });
+      const stepsIn = Array.isArray(body.steps) ? body.steps : [];
+      const steps = stepsIn.map(s => String(s || '').trim().slice(0, TDA_STEP_MAX)).filter(Boolean).slice(0, TDA_GUIDE_STEPS_MAX);
+      if (!steps.length) return res.status(400).json({ ok: false, error: 'no steps' });
+      let charge = tdaParseTokens(body.tokens, 0);
+      if (charge === null) return res.status(400).json({ ok: false, error: 'bad token amount' });
+      const intro = String(body.intro || '').trim().slice(0, TDA_PLOG_MSG_MAX)
+        || 'This one needs a few steps only you can do — I\'ll walk you through them, one at a time.';
+      const doneText = String(body.doneText || '').trim().slice(0, TDA_RESULT_MAX)
+        || 'All steps done — nice work, you are set up.';
+      const plog = tdaPlogJson(row.plog, [
+        { k: 'builder', m: intro },
+        { k: 'step', m: 'Step 1 of ' + steps.length + ': ' + steps[0] },
+      ]);
+      await upstashPipeline([
+        ['HSET', 'tda:req:' + id, 'buildState', 'guided', 'guideSteps', JSON.stringify(steps),
+          'guideIdx', '0', 'guideCharge', String(charge), 'guideDone', doneText, 'guideNudged', '',
+          'plog', plog, 'updated', String(Date.now())],
+        ['DEL', 'tda:claim:' + id],
+      ]);
+      return res.status(200).json({ ok: true, id, guided: true, steps: steps.length });
+    }
+
+    if (action === 'tdaBuildRefuse') {
+      if (!(await tdaBuilderGate(req, res, tag, body))) return undefined;
+      const id = String(body.id || '');
+      if (!/^r[a-z0-9]{6,24}$/.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const row = await tdaClaimCheck(id, String(body.claimToken || ''));
+      if (!row) return res.status(200).json({ ok: false, error: 'claim not held' });
+      const note = String(body.msg || '').trim().slice(0, TDA_PLOG_MSG_MAX)
+        || 'Flagged by the builder\'s safety check.';
+      const result = 'I can\'t build that one. Tom\'s Dev is for clean builds only — no scams, no copycat sites, nothing that impersonates anyone or takes people\'s keys or money under false pretenses. Nothing was charged. If I\'ve misunderstood your idea, reword it and ask again.';
+      await upstashPipeline([['HSET', 'tda:req:' + id,
+        'plog', tdaPlogJson(row.plog, [{ k: 'builder', m: note }]),
+        'buildState', 'refused', 'flagged', '1', 'updated', String(Date.now())]]);
+      const tokensLeft = await tdaFinishRow(row, result, 0);
+      await upstashPipeline([['DEL', 'tda:claim:' + id]]);
+      return res.status(200).json({ ok: true, id, refused: true, tokensLeft });
+    }
+
+    if (action === 'tdaBuildDone') {
+      if (!(await tdaBuilderGate(req, res, tag, body))) return undefined;
+      const id = String(body.id || '');
+      if (!/^r[a-z0-9]{6,24}$/.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const row = await tdaClaimCheck(id, String(body.claimToken || ''));
+      if (!row) return res.status(200).json({ ok: false, error: 'claim not held' });
+      const result = String(body.result || '').trim().slice(0, TDA_RESULT_MAX);
+      if (!result) return res.status(400).json({ ok: false, error: 'empty reply' });
+      let used = tdaParseTokens(body.tokens, 0);
+      if (used === null) return res.status(400).json({ ok: false, error: 'bad token amount' });
+      const tokensLeft = await tdaFinishRow(row, result, used);
+      await upstashPipeline([
+        ['HSET', 'tda:req:' + id, 'buildState', 'done', 'updated', String(Date.now())],
+        ['DEL', 'tda:claim:' + id],
+      ]);
       return res.status(200).json({ ok: true, id, status: 'done', tokensLeft });
     }
 
@@ -3492,12 +3922,26 @@ export async function tdaHandler(req, res) {
       if (!s.renewSet) return res.status(200).json({ ...base, enabled: false });
       const price = await tdaLuncPrice();
       if (!price) return res.status(200).json({ ...base, enabled: true, wallet: s.renewWallet, priceOk: false });
-      return res.status(200).json({
+      const out = {
         ...base, enabled: true, wallet: s.renewWallet, priceOk: true,
         luncUsd: price.usd, priceSource: price.source,
         luncAmount: Math.ceil(s.renewPriceUsd / price.usd),
         minUsd: Math.round(s.renewPriceUsd * TDA_RENEW_TOLERANCE * 100) / 100,
-      });
+      };
+      /* Second method: USTC (native uusd) to the same wallet.
+         Its price is read on its own cross-checked route; if
+         that read fails, USTC simply shows as unavailable on
+         the card — LUNC is unaffected. */
+      const up = await tdaUstcPrice();
+      if (up) {
+        out.ustcOk = true;
+        out.ustcUsd = up.usd;
+        out.ustcSource = up.source;
+        out.ustcAmount = Math.ceil(s.renewPriceUsd / up.usd);
+      } else {
+        out.ustcOk = false;
+      }
+      return res.status(200).json(out);
     }
 
     if (action === 'tdaRenewSubmit') {
@@ -3520,6 +3964,15 @@ export async function tdaHandler(req, res) {
       if (!s.renewSet) {
         return res.status(200).json({ ok: false, notSetup: true, error: 'Renewals open soon — Tom is setting this up.' });
       }
+      /* Refill method: LUNC (uluna) or USTC (uusd), both to
+         the same receiving wallet, both verified by the same
+         discipline below — only the denom summed and the
+         price route differ. Anything unnamed is LUNC, so the
+         shipped card's submits keep working untouched. */
+      const method = body.method === 'USTC' ? 'USTC' : 'LUNC';
+      const DENOM = method === 'USTC' ? 'uusd' : 'uluna';
+      const legAmt = l => (DENOM === 'uusd' ? l.uusd : l.uluna);
+      const priceFor = () => (method === 'USTC' ? tdaUstcPrice() : tdaLuncPrice());
       /* Throttle BEFORE the binding checks and any external
          fetch: a seat gets at most TDA_RENEW_TRY_MAX payment
          checks per window, so one seat can't burn the chain
@@ -3555,13 +4008,13 @@ export async function tdaHandler(req, res) {
          with someone else's money never inflates this
          seat's payment. With no claim, the tx must name
          exactly one sender. */
-      const legsTo = tx.sends.filter(l => l.to === s.renewWallet && l.uluna > 0n);
+      const legsTo = tx.sends.filter(l => l.to === s.renewWallet && legAmt(l) > 0n);
       if (!legsTo.length) {
         return res.status(200).json({ ok: false, error: 'That payment did not go to the renewal wallet.' });
       }
       let sender = '', toWallet = 0n;
       if (claimedSender) {
-        for (const leg of legsTo) if (leg.from === claimedSender) toWallet += leg.uluna;
+        for (const leg of legsTo) if (leg.from === claimedSender) toWallet += legAmt(leg);
         if (toWallet === 0n) {
           return res.status(200).json({ ok: false, error: 'That payment came from a different wallet than the one you connected.' });
         }
@@ -3572,7 +4025,7 @@ export async function tdaHandler(req, res) {
           return res.status(200).json({ ok: false, error: 'That payment came from more than one wallet, so it cannot be matched to this seat.' });
         }
         sender = froms[0];
-        for (const leg of legsTo) toWallet += leg.uluna;
+        for (const leg of legsTo) toWallet += legAmt(leg);
       }
       /* No memo is required any more (owner order — the
          memo card was too confusing). Two memo cases still
@@ -3618,13 +4071,13 @@ export async function tdaHandler(req, res) {
       if (txTime - Date.now() > 3600000) {
         return res.status(200).json({ ok: false, error: "That payment's time looks wrong — try again in a few minutes." });
       }
-      /* Value the payment at the LIVE price read now. Nothing
-         is claimed or credited before this point, so every
-         refusal above leaves the hash usable and the seat
-         untouched. */
-      const price = await tdaLuncPrice();
+      /* Value the payment at the LIVE price read now (the
+         method's own cross-checked route). Nothing is claimed
+         or credited before this point, so every refusal above
+         leaves the hash usable and the seat untouched. */
+      const price = await priceFor();
       if (!price) {
-        return res.status(200).json({ ok: false, priceDown: true, error: "Couldn't read the LUNC price just now — wait a moment and try again. Your payment is safe; nothing was used." });
+        return res.status(200).json({ ok: false, priceDown: true, error: "Couldn't read the " + method + " price just now — wait a moment and try again. Your payment is safe; nothing was used." });
       }
       const lunc = Number(toWallet) / 1e6;
       const usd = lunc * price.usd;
@@ -3693,7 +4146,7 @@ export async function tdaHandler(req, res) {
           try {
             await upstashPipeline([
               ['HSET', 'tda:seat:' + seatId, 'tokens', String(newBal), 'wallet', sender],
-              ['HSET', 'tda:renew:' + recId, 'id', recId, 'seatId', seatId, 'seatName', String(fresh.name || ''), 'sender', sender, 'txhash', txhash, 'uluna', toWallet.toString(), 'usd', usd.toFixed(2), 'luncPrice', String(price.usd), 'priceUsd', String(s2.renewPriceUsd), 'tokens', String(newBal), 'created', String(now)],
+              ['HSET', 'tda:renew:' + recId, 'id', recId, 'seatId', seatId, 'seatName', String(fresh.name || ''), 'sender', sender, 'txhash', txhash, 'method', method, 'uluna', DENOM === 'uluna' ? toWallet.toString() : '0', 'uusd', DENOM === 'uusd' ? toWallet.toString() : '0', 'usd', usd.toFixed(2), 'luncPrice', String(price.usd), 'priceUsd', String(s2.renewPriceUsd), 'tokens', String(newBal), 'created', String(now)],
               ['LPUSH', 'tda:renews', recId],
               ['LTRIM', 'tda:renews', 0, 199],
             ]);
@@ -3711,12 +4164,12 @@ export async function tdaHandler(req, res) {
               if (chk) { readable = true; applied = (parseInt(chk.tokens, 10) || 0) === newBal && String(chk.wallet || '') === sender; }
             } catch (e2) { /* unreadable */ }
             if (applied) {
-              return res.status(200).json({ ok: true, tokens: newBal, lunc, usd: Math.round(usd * 100) / 100 });
+              return res.status(200).json({ ok: true, tokens: newBal, lunc, amount: lunc, symbol: method, usd: Math.round(usd * 100) / 100 });
             }
             if (!readable) keepClaim = true;
             throw e;
           }
-          return res.status(200).json({ ok: true, tokens: newBal, lunc, usd: Math.round(usd * 100) / 100 });
+          return res.status(200).json({ ok: true, tokens: newBal, lunc, amount: lunc, symbol: method, usd: Math.round(usd * 100) / 100 });
         } catch (e) {
           if (!keepClaim) await releaseClaim();
           throw e;
@@ -3769,6 +4222,8 @@ export async function tdaHandler(req, res) {
           sender: String(o.sender || ''),
           txhash: String(o.txhash || ''),
           lunc: (Number(o.uluna) || 0) / 1e6,
+          method: String(o.method || 'LUNC'),
+          amount: ((Number(o.uusd) || 0) > 0 ? (Number(o.uusd) || 0) : (Number(o.uluna) || 0)) / 1e6,
           usd: Number(o.usd) || 0,
           tokens: Number(o.tokens) || 0,
           created: Number(o.created) || 0,
