@@ -461,6 +461,7 @@ function applySeatState(seat){
   if (!seat) return;
   if (seat.tokens !== undefined && seat.tokens !== null && seat.tokens !== '') sessionStorage.setItem('tda_seat_tokens', String(seat.tokens));
   if (seat.used !== undefined && seat.used !== null) sessionStorage.setItem('tda_seat_used', String(seat.used || 0));
+  if (seat.refills !== undefined && seat.refills !== null && seat.refills !== '') sessionStorage.setItem('tda_seat_refills', String(seat.refills));
   seatChipUpdate();
   const tk = sessionStorage.getItem('tda_seat_tokens');
   const out = tk !== null && tk !== '' && Number(tk) <= 0;
@@ -470,11 +471,15 @@ function applySeatState(seat){
 }
 /* Seat first-screen banner: the tokens line, big, then ONE
    state line. The $5-free line frames the STARTER tokens:
-   it shows while this device has never seen this seat
-   refill (a refill done on another device can't be told
-   apart from here — the seat-facing API carries no refill
-   history for the seat itself). */
+   it shows until the seat has a refill ON RECORD. The
+   record is the server's count — tdaRenewInfo carries the
+   seat's refill total, counted from the refill records
+   themselves — so the line is true on ANY device the seat
+   signs in from. The per-device flag is only a fallback
+   for before the first refill-info load lands. */
 function seatRenewedHere(){
+  const sr = sessionStorage.getItem('tda_seat_refills');
+  if (sr !== null && sr !== '') return Number(sr) > 0;
   try { return localStorage.getItem('tda_renewed_' + (sessionStorage.getItem('tda_seat_id') || '')) === '1'; } catch (e) { return false; }
 }
 function renderBalBar(out){
@@ -535,7 +540,7 @@ async function tryUnlock(){
       sessionStorage.setItem('tda_seat_used', String(j.seat.used || 0));
       sessionStorage.setItem('tda_seat_wallet', j.seat.wallet || '');
     } else {
-      sessionStorage.removeItem('tda_seat_id'); sessionStorage.removeItem('tda_seat_name'); sessionStorage.removeItem('tda_seat_tokens'); sessionStorage.removeItem('tda_seat_used'); sessionStorage.removeItem('tda_seat_pt'); sessionStorage.removeItem('tda_seat_wallet');
+      sessionStorage.removeItem('tda_seat_id'); sessionStorage.removeItem('tda_seat_name'); sessionStorage.removeItem('tda_seat_tokens'); sessionStorage.removeItem('tda_seat_used'); sessionStorage.removeItem('tda_seat_pt'); sessionStorage.removeItem('tda_seat_wallet'); sessionStorage.removeItem('tda_seat_refills');
     }
     err.textContent=''; gateNote(''); unlock(); return;
   }
@@ -554,7 +559,7 @@ $('gateBtn').addEventListener('click', tryUnlock);
 $('codeInput').addEventListener('keydown', e=>{ if(e.key==='Enter') tryUnlock(); });
 
 function lock(){
-  ['tda_unlocked','tda_hash','tda_offline','tda_tier','tda_seat_id','tda_seat_name','tda_seat_tokens','tda_seat_used','tda_seat_pt','tda_seat_wallet'].forEach(k=>sessionStorage.removeItem(k));
+  ['tda_unlocked','tda_hash','tda_offline','tda_tier','tda_seat_id','tda_seat_name','tda_seat_tokens','tda_seat_used','tda_seat_pt','tda_seat_wallet','tda_seat_refills'].forEach(k=>sessionStorage.removeItem(k));
   stopAutoRefresh();
   $('ownerBar').classList.remove('on');
   appEl.style.display='none'; gateEl.style.display='flex';

@@ -2520,7 +2520,13 @@ const TDA_SEAT_OPEN_CAP = 25;
 const TDA_TEXT_MAX = 2000;
 const TDA_RESULT_MAX = 4000;
 const TDA_NAME_MAX = 40;
-const TDA_TOKENS_MAX = 100000000;
+/* Token-amount ceiling for parse/validation. Must stay ABOVE
+   the tokens-per-seat size (120,000,000 default): at 100,000,000
+   the owner's Set exact refused the standard seat size itself
+   with 'bad token amount' (audit 2026-11-14). 1e12 leaves the
+   full seat range open while still refusing absurd input; it is
+   far inside both JS safe integers and Redis HINCRBY range. */
+const TDA_TOKENS_MAX = 1000000000000;
 const TDA_RENEW_PERIOD_MS = 7 * 24 * 3600 * 1000;
 const TDA_RENEW_DEFAULT_USD = 5;
 const TDA_RENEW_TOLERANCE = 0.95;
@@ -3466,7 +3472,21 @@ export async function tdaHandler(req, res) {
       const base = { ok: true, priceUsd: s.renewPriceUsd, tolerance: TDA_RENEW_TOLERANCE };
       if (auth.tier === 'seat') {
         const ps = tdaPublicSeat(auth.seat);
-        base.seat = { tokens: ps.tokens, wallet: ps.wallet };
+        /* The seat's own refill count, counted from the refill
+           records themselves. The page's 🎁 starter line trusts
+           THIS — not a per-device flag — so it is true on any
+           device the seat signs in from (audit 2026-11-14). */
+        let refills = 0;
+        const rOut = await upstashPipeline([['LRANGE', 'tda:renews', 0, 199]]);
+        const rIds = (rOut[0] && rOut[0].result) || [];
+        if (rIds.length) {
+          const rRows = await upstashPipeline(rIds.map(id => ['HGETALL', 'tda:renew:' + id]));
+          for (const r of rRows) {
+            const o = tdaHashToObj(r && r.result);
+            if (o.id && String(o.seatId || '') === String(auth.seat.id)) refills++;
+          }
+        }
+        base.seat = { tokens: ps.tokens, wallet: ps.wallet, refills };
         base.memo = tdaRenewMemo(String(auth.seat.id));
       }
       if (!s.renewSet) return res.status(200).json({ ...base, enabled: false });
