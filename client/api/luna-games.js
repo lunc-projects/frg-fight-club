@@ -3059,25 +3059,33 @@ async function tdaFinishRow(existing, result, used) {
   if (String(existing.ownerAdded || '') === '1') used = 0;
   const id = String(existing.id);
   const now = String(Date.now());
-  await upstashPipeline([['HSET', 'tda:req:' + id, 'status', 'done', 'result', result, 'tokensUsed', String(used), 'updated', now]]);
-  let tokensLeft = null;
   const seatId = String(existing.seatId || 'owner');
-  const delta = used - (parseInt(existing.tokensUsed, 10) || 0);
-  if (delta !== 0 && seatId !== 'owner') {
-    const seat = await tdaGetSeat(seatId);
+  const prevCharged = parseInt(existing.tokensUsed, 10) || 0;
+  const delta = used - prevCharged;
+  let tokensLeft = null;
+  let applied = 0;
+  let seat = null;
+  if (seatId !== 'owner') {
+    seat = await tdaGetSeat(seatId);
     if (seat) {
       const bal = Math.max(0, parseInt(seat.tokens, 10) || 0);
       const usedBefore = Math.max(0, parseInt(seat.used, 10) || 0);
-      let newBal = bal, applied = 0;
-      if (delta > 0) { applied = Math.min(delta, bal); newBal = bal - applied; }
-      else { applied = -Math.min(-delta, usedBefore); newBal = bal - applied; }
-      await upstashPipeline([['HSET', 'tda:seat:' + seatId, 'tokens', String(newBal), 'used', String(usedBefore + applied)]]);
-      tokensLeft = newBal;
+      if (delta > 0) applied = Math.min(delta, bal);
+      else if (delta < 0) applied = -Math.min(-delta, usedBefore);
+      tokensLeft = bal - applied;
     }
-  } else if (seatId !== 'owner') {
-    const seat = await tdaGetSeat(seatId);
-    if (seat) tokensLeft = Math.max(0, parseInt(seat.tokens, 10) || 0);
   }
+  /* The row records what the seat was ACTUALLY charged for
+     it in total (previous charge + the applied delta, after
+     the balance clamp) — so the thread's "used X tokens" is
+     always the truth, never a list price the seat didn't pay. */
+  const chargedTotal = prevCharged + applied;
+  const cmds = [['HSET', 'tda:req:' + id, 'status', 'done', 'result', result, 'tokensUsed', String(chargedTotal), 'updated', now]];
+  if (seat && applied !== 0) {
+    const usedBefore = Math.max(0, parseInt(seat.used, 10) || 0);
+    cmds.push(['HSET', 'tda:seat:' + seatId, 'tokens', String(tokensLeft), 'used', String(usedBefore + applied)]);
+  }
+  await upstashPipeline(cmds);
   return tokensLeft;
 }
 
