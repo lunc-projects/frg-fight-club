@@ -262,6 +262,11 @@ header{position:sticky; top:0; z-index:50; background:rgba(18,18,43,.92); backdr
 .tu-m.on{border-color:var(--cyan); color:var(--ink); background:#12304a;}
 .tu-m:disabled{opacity:.45; cursor:default;}
 </style>
+<style>
+.langSel{font-size:15px;font-weight:700;padding:9px 10px;border-radius:12px;border:1.5px solid var(--line,#2c2c55);background:#10102a;color:#fff;max-width:170px;cursor:pointer}
+.gate-card .langSel{margin-top:14px;width:100%;max-width:none;text-align:center}
+.hd-right .langSel{margin-right:2px}
+</style>
 </head>
 <body>
 
@@ -274,6 +279,7 @@ header{position:sticky; top:0; z-index:50; background:rgba(18,18,43,.92); backdr
     <button id="gateBtn">Unlock</button>
     <div id="gateErr"></div>
     <div id="gateNote"></div>
+    <select class="langSel" aria-label="Language"></select>
   </div>
 </div>
 
@@ -286,6 +292,7 @@ header{position:sticky; top:0; z-index:50; background:rgba(18,18,43,.92); backdr
       <div class="hd-sub">Powered by Tom's builder — requests run on Tom's tokens.<span id="offlineNote"></span></div>
     </div>
     <div class="hd-right">
+      <select class="langSel" aria-label="Language"></select>
       <span class="seatchip" id="seatChip"></span>
       <button class="hbtn" id="refreshBtn" title="Refresh">↻</button>
       <button class="hbtn" id="ownerBtn" title="Owner panel" style="display:none;">🔑</button>
@@ -802,7 +809,7 @@ $('trashList').addEventListener('click', async e=>{
   const id = b.getAttribute('data-id'), act = b.getAttribute('data-trash');
   if (act === 'forever' && !(trashArm.id === id && Date.now() - trashArm.at < 3000)){
     trashArm = { id, at: Date.now() };
-    b.textContent = 'Are you sure?';
+    b.textContent = 'Are you sure? This deletes the backup too.';
     setTimeout(()=>{ if (trashArm.id === id){ trashArm = { id: '', at: 0 }; if (b.isConnected) b.textContent = 'Delete forever'; } }, 3000);
     return;
   }
@@ -2407,6 +2414,175 @@ async function loadSnap(){
       showTab(go);
     });
   });
+})();
+</script>
+<script>
+(function(){
+'use strict';
+var LANGS = [
+  ['en','English'],['es','Español'],['pt','Português'],['fr','Français'],['de','Deutsch'],
+  ['it','Italiano'],['nl','Nederlands'],['ru','Русский'],['uk','Українська'],['tr','Türkçe'],
+  ['ar','العربية'],['hi','हिन्दी'],['id','Bahasa Indonesia'],['vi','Tiếng Việt'],['th','ไทย'],
+  ['ko','한국어'],['ja','日本語'],['zh','中文']
+];
+/* Core chrome — translated in-house, applied instantly.
+   Keys must match the page's English strings exactly. */
+var DICT = {
+  'Private workspace. Enter your code.': {es:'Espacio de trabajo privado. Ingresa tu código.',pt:'Espaço de trabalho privado. Insira seu código.',fr:'Espace de travail privé. Entrez votre code.',de:'Privater Arbeitsbereich. Geben Sie Ihren Code ein.',it:'Area di lavoro privata. Inserisci il tuo codice.',nl:'Privé werkruimte. Voer uw code in.',ru:'Приватное рабочее пространство. Введите свой код.',uk:'Приватний робочий простір. Введіть свій код.',tr:'Özel çalışma alanı. Kodunuzu girin.',ar:'مساحة عمل خاصة. أدخل الرمز الخاص بك.',hi:'निजी कार्यक्षेत्र. अपना कोड दर्ज करें।',id:'Ruang kerja pribadi. Masukkan kode Anda.',vi:'Không gian làm việc riêng tư. Nhập mã của bạn.',th:'พื้นที่ทำงานส่วนตัว ป้อนรหัสของคุณ',ko:'비공개 작업 공간입니다. 코드를 입력하세요.',ja:'プライベートワークスペース。コードを入力してください。',zh:'私人工作区。请输入您的代码。'},
+  'Unlock': {es:'Desbloquear',pt:'Desbloquear',fr:'Déverrouiller',de:'Entsperren',it:'Sblocca',nl:'Ontgrendelen',ru:'Открыть',uk:'Відкрити',tr:'Kilidi aç',ar:'فتح',hi:'खोलें',id:'Buka',vi:'Mở khóa',th:'ปลดล็อก',ko:'잠금 해제',ja:'ロック解除',zh:'解锁'},
+  '🏠 Home': {es:'🏠 Inicio',pt:'🏠 Início',fr:'🏠 Accueil',de:'🏠 Start',it:'🏠 Home',nl:'🏠 Home',ru:'🏠 Главная',uk:'🏠 Головна',tr:'🏠 Ana sayfa',ar:'🏠 الرئيسية',hi:'🏠 होम',id:'🏠 Beranda',vi:'🏠 Trang chủ',th:'🏠 หน้าแรก',ko:'🏠 홈',ja:'🏠 ホーム',zh:'🏠 首页'},
+  '💬 Chat': {es:'💬 Chat',pt:'💬 Chat',fr:'💬 Discussion',de:'💬 Chat',it:'💬 Chat',nl:'💬 Chat',ru:'💬 Чат',uk:'💬 Чат',tr:'💬 Sohbet',ar:'💬 المحادثة',hi:'💬 चैट',id:'💬 Obrolan',vi:'💬 Trò chuyện',th:'💬 แชท',ko:'💬 채팅',ja:'💬 チャット',zh:'💬 聊天'},
+  '📋 My Builds': {es:'📋 Mis creaciones',pt:'📋 Minhas criações',fr:'📋 Mes créations',de:'📋 Meine Builds',it:'📋 Le mie creazioni',nl:'📋 Mijn builds',ru:'📋 Мои сборки',uk:'📋 Мої збірки',tr:'📋 Yapılarım',ar:'📋 أعمالي',hi:'📋 मेरे बिल्ड',id:'📋 Bangunan Saya',vi:'📋 Bản dựng của tôi',th:'📋 งานสร้างของฉัน',ko:'📋 내 빌드',ja:'📋 マイビルド',zh:'📋 我的构建'},
+  '💰 Fees': {es:'💰 Tarifas',pt:'💰 Taxas',fr:'💰 Frais',de:'💰 Gebühren',it:'💰 Commissioni',nl:'💰 Kosten',ru:'💰 Комиссии',uk:'💰 Комісії',tr:'💰 Ücretler',ar:'💰 الرسوم',hi:'💰 शुल्क',id:'💰 Biaya',vi:'💰 Phí',th:'💰 ค่าธรรมเนียม',ko:'💰 수수료',ja:'💰 料金',zh:'💰 费用'},
+  '🗂️ Projects': {es:'🗂️ Proyectos',pt:'🗂️ Projetos',fr:'🗂️ Projets',de:'🗂️ Projekte',it:'🗂️ Progetti',nl:'🗂️ Projecten',ru:'🗂️ Проекты',uk:'🗂️ Проєкти',tr:'🗂️ Projeler',ar:'🗂️ المشاريع',hi:'🗂️ प्रोजेक्ट',id:'🗂️ Proyek',vi:'🗂️ Dự án',th:'🗂️ โปรเจกต์',ko:'🗂️ 프로젝트',ja:'🗂️ プロジェクト',zh:'🗂️ 项目'},
+  '📊 Snapshot': {es:'📊 Resumen',pt:'📊 Resumo',fr:'📊 Aperçu',de:'📊 Überblick',it:'📊 Panoramica',nl:'📊 Overzicht',ru:'📊 Обзор',uk:'📊 Огляд',tr:'📊 Genel bakış',ar:'📊 نظرة عامة',hi:'📊 सारांश',id:'📊 Ringkasan',vi:'📊 Tổng quan',th:'📊 ภาพรวม',ko:'📊 현황',ja:'📊 概要',zh:'📊 概览'},
+  'What do you want built?': {es:'¿Qué quieres construir?',pt:'O que você quer construir?',fr:'Que voulez-vous construire ?',de:'Was soll gebaut werden?',it:'Cosa vuoi costruire?',nl:'Wat wilt u laten bouwen?',ru:'Что вы хотите построить?',uk:'Що ви хочете побудувати?',tr:'Ne inşa edilmesini istersiniz?',ar:'ماذا تريد أن نبني؟',hi:'आप क्या बनवाना चाहते हैं?',id:'Apa yang ingin Anda bangun?',vi:'Bạn muốn xây dựng gì?',th:'คุณต้องการสร้างอะไร?',ko:'무엇을 만들어 드릴까요?',ja:'何を作りますか？',zh:'您想构建什么？'},
+  'Tokens out — refill': {es:'Tokens agotados — recargar',pt:'Tokens esgotados — recarregar',fr:'Tokens épuisés — recharger',de:'Tokens leer — auffüllen',it:'Token esauriti — ricarica',nl:'Tokens op — bijvullen',ru:'Токены закончились — пополнить',uk:'Токени закінчилися — поповнити',tr:'Token bitti — doldur',ar:'نفدت الرموز — إعادة تعبئة',hi:'टोकन खत्म — रीफ़िल करें',id:'Token habis — isi ulang',vi:'Hết token — nạp lại',th:'โทเค็นหมด — เติมเงิน',ko:'토큰 소진 — 충전',ja:'トークンがありません — チャージ',zh:'令牌已用完 — 充值'},
+  'Loading…': {es:'Cargando…',pt:'Carregando…',fr:'Chargement…',de:'Laden…',it:'Caricamento…',nl:'Laden…',ru:'Загрузка…',uk:'Завантаження…',tr:'Yükleniyor…',ar:'جارٍ التحميل…',hi:'लोड हो रहा है…',id:'Memuat…',vi:'Đang tải…',th:'กำลังโหลด…',ko:'로딩 중…',ja:'読み込み中…',zh:'加载中…'},
+  '💰 Fees': {es:'💰 Tarifas',pt:'💰 Taxas',fr:'💰 Frais',de:'💰 Gebühren',it:'💰 Commissioni',nl:'💰 Kosten',ru:'💰 Комиссии',uk:'💰 Комісії',tr:'💰 Ücretler',ar:'💰 الرسوم',hi:'💰 शुल्क',id:'💰 Biaya',vi:'💰 Phí',th:'💰 ค่าธรรมเนียม',ko:'💰 수수료',ja:'💰 料金',zh:'💰 费用'},
+  '📊 Launchpad Snapshot': {es:'📊 Resumen de la plataforma',pt:'📊 Resumo da plataforma',fr:'📊 Aperçu de la plateforme',de:'📊 Launchpad-Überblick',it:'📊 Panoramica piattaforma',nl:'📊 Launchpad-overzicht',ru:'📊 Обзор платформы',uk:'📊 Огляд платформи',tr:'📊 Platform özeti',ar:'📊 نظرة عامة على المنصة',hi:'📊 प्लेटफ़ॉर्म सारांश',id:'📊 Ringkasan platform',vi:'📊 Tổng quan nền tảng',th:'📊 ภาพรวมแพลตฟอร์ม',ko:'📊 플랫폼 현황',ja:'📊 プラットフォーム概要',zh:'📊 平台概览'},
+  '📋 My Builds': {es:'📋 Mis creaciones',pt:'📋 Minhas criações',fr:'📋 Mes créations',de:'📋 Meine Builds',it:'📋 Le mie creazioni',nl:'📋 Mijn builds',ru:'📋 Мои сборки',uk:'📋 Мої збірки',tr:'📋 Yapılarım',ar:'📋 أعمالي',hi:'📋 मेरे बिल्ड',id:'📋 Bangunan Saya',vi:'📋 Bản dựng của tôi',th:'📋 งานสร้างของฉัน',ko:'📋 내 빌드',ja:'📋 マイビルド',zh:'📋 我的构建'},
+  '🗂️ Projects': {es:'🗂️ Proyectos',pt:'🗂️ Projetos',fr:'🗂️ Projets',de:'🗂️ Projekte',it:'🗂️ Progetti',nl:'🗂️ Projecten',ru:'🗂️ Проекты',uk:'🗂️ Проєкти',tr:'🗂️ Projeler',ar:'🗂️ المشاريع',hi:'🗂️ प्रोजेक्ट',id:'🗂️ Proyek',vi:'🗂️ Dự án',th:'🗂️ โปรเจกต์',ko:'🗂️ 프로젝트',ja:'🗂️ プロジェクト',zh:'🗂️ 项目'},
+  'Your projects': {es:'Tus proyectos',pt:'Seus projetos',fr:'Vos projets',de:'Ihre Projekte',it:'I tuoi progetti',nl:'Uw projecten',ru:'Ваши проекты',uk:'Ваші проєкти',tr:'Projeleriniz',ar:'مشاريعك',hi:'आपके प्रोजेक्ट',id:'Proyek Anda',vi:'Dự án của bạn',th:'โปรเจกต์ของคุณ',ko:'내 프로젝트',ja:'あなたのプロジェクト',zh:'您的项目'},
+  '🔑 Your code': {es:'🔑 Tu código',pt:'🔑 Seu código',fr:'🔑 Votre code',de:'🔑 Ihr Code',it:'🔑 Il tuo codice',nl:'🔑 Uw code',ru:'🔑 Ваш код',uk:'🔑 Ваш код',tr:'🔑 Kodunuz',ar:'🔑 الرمز الخاص بك',hi:'🔑 आपका कोड',id:'🔑 Kode Anda',vi:'🔑 Mã của bạn',th:'🔑 รหัสของคุณ',ko:'🔑 내 코드',ja:'🔑 あなたのコード',zh:'🔑 您的代码'},
+  '🪑 Seats': {es:'🪑 Puestos',pt:'🪑 Assentos',fr:'🪑 Sièges',de:'🪑 Plätze',it:'🪑 Posti',nl:'🪑 Stoelen',ru:'🪑 Места',uk:'🪑 Місця',tr:'🪑 Koltuklar',ar:'🪑 المقاعد',hi:'🪑 सीटें',id:'🪑 Kursi',vi:'🪑 Ghế',th:'🪑 ที่นั่ง',ko:'🪑 좌석',ja:'🪑 席',zh:'🪑 席位'},
+  '🔁 Refills': {es:'🔁 Recargas',pt:'🔁 Recargas',fr:'🔁 Recharges',de:'🔁 Aufladungen',it:'🔁 Ricariche',nl:'🔁 Bijvullingen',ru:'🔁 Пополнения',uk:'🔁 Поповнення',tr:'🔁 Dolumlar',ar:'🔁 عمليات إعادة التعبئة',hi:'🔁 रीफ़िल',id:'🔁 Isi ulang',vi:'🔁 Nạp lại',th:'🔁 การเติมเงิน',ko:'🔁 충전 내역',ja:'🔁 チャージ履歴',zh:'🔁 充值记录'},
+  '🎟️ Tokens per seat': {es:'🎟️ Tokens por puesto',pt:'🎟️ Tokens por assento',fr:'🎟️ Tokens par siège',de:'🎟️ Tokens pro Platz',it:'🎟️ Token per posto',nl:'🎟️ Tokens per stoel',ru:'🎟️ Токенов на место',uk:'🎟️ Токенів на місце',tr:'🎟️ Koltuk başına token',ar:'🎟️ الرموز لكل مقعد',hi:'🎟️ प्रति सीट टोकन',id:'🎟️ Token per kursi',vi:'🎟️ Token mỗi ghế',th:'🎟️ โทเค็นต่อที่นั่ง',ko:'🎟️ 좌석당 토큰',ja:'🎟️ 席あたりのトークン',zh:'🎟️ 每席位令牌'},
+  '🔁 The DEX': {es:'🔁 El DEX',pt:'🔁 A DEX',fr:'🔁 Le DEX',de:'🔁 Die DEX',it:'🔁 Il DEX',nl:'🔁 De DEX',ru:'🔁 DEX',uk:'🔁 DEX',tr:'🔁 DEX',ar:'🔁 منصة التداول',hi:'🔁 DEX',id:'🔁 DEX',vi:'🔁 DEX',th:'🔁 DEX',ko:'🔁 DEX',ja:'🔁 DEX',zh:'🔁 DEX'},
+  '🥩 Staking pools': {es:'🥩 Pools de staking',pt:'🥩 Pools de staking',fr:'🥩 Pools de staking',de:'🥩 Staking-Pools',it:'🥩 Pool di staking',nl:'🥩 Stakingpools',ru:'🥩 Пулы стейкинга',uk:'🥩 Пули стейкінгу',tr:'🥩 Staking havuzları',ar:'🥩 مجمعات التخزين',hi:'🥩 स्टेकिंग पूल',id:'🥩 Pool staking',vi:'🥩 Pool staking',th:'🥩 พูลสเตกกิ้ง',ko:'🥩 스테이킹 풀',ja:'🥩 ステーキングプール',zh:'🥩 质押池'}
+};
+var cur = 'en';
+try { cur = localStorage.getItem('tda_lang') || 'en'; } catch (e) {}
+if (!LANGS.some(function(l){ return l[0] === cur; })) cur = 'en';
+var nodeState = new WeakMap();   /* text node -> {src, applied} */
+var attrState = new WeakMap();   /* element -> {attr: {src, applied}} */
+var cache = {};
+try { cache = JSON.parse(localStorage.getItem('tda_i18n_cache') || '{}'); } catch (e) { cache = {}; }
+var cacheDirty = false;
+function saveCache(){ if (!cacheDirty) return; cacheDirty = false; try { localStorage.setItem('tda_i18n_cache', JSON.stringify(cache)); } catch (e) {} }
+var SKIP_TAGS = { SCRIPT:1, STYLE:1, TEXTAREA:1, CODE:1, PRE:1, NOSCRIPT:1 };
+var PROTECT = /(terra1[a-z0-9]{20,}|TD-[A-Z0-9]{6,}|https?:\/\/|^[#\d\s.,:$%+\-/()]+$|^[A-Z0-9]{2,6}-[A-Z0-9-]{4,}$)/;
+function skipNode(n){
+  var el = n.parentElement;
+  while (el) {
+    if (SKIP_TAGS[el.tagName]) return true;
+    if (el.id === 'thread' || el.id === 'seatChip') return true;
+    if (el.classList && (el.classList.contains('notranslate'))) return true;
+    if (el.hasAttribute && el.hasAttribute('data-noi18n')) return true;
+    el = el.parentElement;
+  }
+  return false;
+}
+function collect(){
+  var out = [];
+  if (!document.body) return out;
+  var w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+    acceptNode: function(n){
+      var t = n.nodeValue;
+      if (!t || !t.trim()) return NodeFilter.FILTER_REJECT;
+      if (skipNode(n)) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    }
+  });
+  var n;
+  while ((n = w.nextNode())) out.push(n);
+  return out;
+}
+function srcOf(n){
+  var st = nodeState.get(n);
+  var now = n.nodeValue;
+  if (st && now === st.applied) return st.src;
+  return now;
+}
+var queue = [], active = 0;
+function gtx(text, lang, done){
+  var key = lang + '|' + text;
+  if (cache[key]) { done(cache[key]); return; }
+  queue.push({ text: text, lang: lang, key: key, done: done });
+  pump();
+}
+function pump(){
+  while (active < 4 && queue.length) {
+    (function(job){
+      active++;
+      var url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=' + encodeURIComponent(job.lang) + '&dt=t&q=' + encodeURIComponent(job.text);
+      fetch(url).then(function(r){ return r.json(); }).then(function(j){
+        var out = '';
+        try { out = (j[0] || []).map(function(seg){ return seg[0] || ''; }).join(''); } catch (e) {}
+        if (out) { cache[job.key] = out; cacheDirty = true; }
+        job.done(out || null);
+      }).catch(function(){ job.done(null); }).then(function(){ active--; saveCache(); pump(); });
+    })(queue.shift());
+  }
+}
+function translateString(s, lang, done){
+  var lead = (s.match(/^\s*/) || [''])[0], trail = (s.match(/\s*$/) || [''])[0];
+  var core = s.trim();
+  if (!core || core.length < 2 || PROTECT.test(core)) { done(null); return; }
+  var d = DICT[core];
+  if (d && d[lang]) { done(lead + d[lang] + trail); return; }
+  if (core === '🎁 $5 free to start — your starting tokens are covered.') { /* falls through to gtx */ }
+  gtx(core, lang, function(t){ done(t ? lead + t + trail : null); });
+}
+function applyLang(lang){
+  cur = lang;
+  try { localStorage.setItem('tda_lang', lang); } catch (e) {}
+  document.documentElement.lang = lang;
+  document.documentElement.dir = (lang === 'ar') ? 'rtl' : 'ltr';
+  document.querySelectorAll('.langSel').forEach(function(sel){ sel.value = lang; });
+  var nodes = collect();
+  nodes.forEach(function(n){
+    var src = srcOf(n);
+    if (lang === 'en') {
+      if (n.nodeValue !== src) n.nodeValue = src;
+      nodeState.set(n, { src: src, applied: src });
+      return;
+    }
+    translateString(src, lang, function(t){
+      if (t && cur === lang) { n.nodeValue = t; nodeState.set(n, { src: src, applied: t }); }
+    });
+  });
+  /* placeholders + titles */
+  document.querySelectorAll('input[placeholder], textarea[placeholder]').forEach(function(el){
+    var st = attrState.get(el) || {};
+    var rec = st.placeholder;
+    var now = el.getAttribute('placeholder') || '';
+    var src = (rec && now === rec.applied) ? rec.src : now;
+    if (!src) return;
+    if (lang === 'en') { if (now !== src) el.setAttribute('placeholder', src); st.placeholder = { src: src, applied: src }; attrState.set(el, st); return; }
+    translateString(src, lang, function(t){
+      if (t && cur === lang) { el.setAttribute('placeholder', t); st.placeholder = { src: src, applied: t }; attrState.set(el, st); }
+    });
+  });
+}
+function buildSelects(){
+  document.querySelectorAll('.langSel').forEach(function(sel){
+    if (sel.options.length) { sel.value = cur; return; }
+    LANGS.forEach(function(l){
+      var o = document.createElement('option');
+      o.value = l[0]; o.textContent = '🌐 ' + l[1];
+      sel.appendChild(o);
+    });
+    sel.value = cur;
+    sel.addEventListener('change', function(){ applyLang(sel.value); });
+  });
+}
+var moTimer = null;
+function observe(){
+  var mo = new MutationObserver(function(){
+    if (cur === 'en') return;
+    clearTimeout(moTimer);
+    moTimer = setTimeout(function(){ applyLang(cur); }, 450);
+  });
+  mo.observe(document.body, { childList: true, subtree: true, characterData: true });
+}
+function init(){
+  buildSelects();
+  if (cur !== 'en') applyLang(cur);
+  observe();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+else init();
 })();
 </script>
 </body>
