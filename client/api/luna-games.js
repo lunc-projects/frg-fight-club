@@ -3559,7 +3559,11 @@ export async function tdaHandler(req, res) {
       if (ownerAdded) rowCmd.push('ownerAdded', '1');
       if (builderRow) {
         rowCmd.push('buildState', 'queued');
-        rowCmd.push('plog', tdaPlogJson('', [{ k: 'builder', m: 'Got it — building that now. I\'ll post updates here as it comes together.' }]));
+        /* The instant ack must never claim "building": at post
+           time the server cannot know the kind — a plain question
+           or check-in lands here too, and the runner's real,
+           kind-specific answer follows. Neutral wording only. */
+        rowCmd.push('plog', tdaPlogJson('', [{ k: 'builder', m: 'Got it — one moment. I\'ll post the answer here as soon as it\'s ready.' }]));
       }
       const cmds = [
         rowCmd,
@@ -3907,7 +3911,7 @@ export async function tdaHandler(req, res) {
       const auth = await tdaAuthTier(req, res, tag, String(body.hash || '').toLowerCase(), 'any');
       if (!auth) return undefined;
       const s = await tdaGetSettings();
-      const base = { ok: true, priceUsd: s.renewPriceUsd, tolerance: TDA_RENEW_TOLERANCE };
+      const base = { ok: true, priceUsd: s.renewPriceUsd, tolerance: TDA_RENEW_TOLERANCE, refillTokens: s.seatTokens };
       if (auth.tier === 'seat') {
         const ps = tdaPublicSeat(auth.seat);
         /* The seat's own refill count, counted from the refill

@@ -293,7 +293,7 @@ html,body{overflow-x:clip;}
 @media (max-width:560px){
   .hd-in{flex-wrap:wrap; row-gap:6px;}
   .hd-in>div:not(.hd-right){flex:1 1 0; min-width:0;}
-  .hd-sub{white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .hd-sub{white-space:normal; overflow:visible; text-overflow:clip;}
   .hd-right{order:4; flex:1 1 100%; margin-left:0;}
   .hd-right .langSel{flex:0 0 auto; width:104px; max-width:104px;}
   .seatchip{flex:1 1 auto; min-width:0; text-align:center;}
@@ -419,8 +419,8 @@ html,body{overflow-x:clip;}
     </div>
   <div class="ownernote" id="homeOwnerNote" style="display:none;">👑 <b>Owner workspace.</b> Tap 🔑 up top for seats, codes, token controls and refills — or open a section below.</div>
   <div class="homegrid" id="homeGrid">
-    <button class="hg-card" data-go="chat"><span class="hg-ic">💬</span><span class="hg-tx">Build</span><span class="hg-sub">Ask in plain words</span></button>
-    <button class="hg-card" data-go="builds"><span class="hg-ic">📋</span><span class="hg-tx">My Builds</span><span class="hg-sub">Tokens &amp; pools</span></button>
+    <button class="hg-card" data-go="chat"><span class="hg-ic">💬</span><span class="hg-tx">Chat</span><span class="hg-sub">Ask in plain words</span></button>
+    <button class="hg-card" data-go="builds"><span class="hg-ic">📋</span><span class="hg-tx">My Builds</span><span class="hg-sub">Your pages, games and tools</span></button>
     <button class="hg-card" data-go="tools"><span class="hg-ic">🗂️</span><span class="hg-tx">Projects</span><span class="hg-sub">Track your projects</span></button>
     <button class="hg-card" data-go="refill"><span class="hg-ic">🔁</span><span class="hg-tx">Refill</span><span class="hg-sub">$5 in LUNC</span></button>
     <button class="hg-card" data-go="fees"><span class="hg-ic">💰</span><span class="hg-tx">Fees</span><span class="hg-sub">Creation fees</span></button>
@@ -438,7 +438,7 @@ html,body{overflow-x:clip;}
 
 <section class="section" id="sec-builds">
   <h2>📋 My Builds</h2>
-  <p class="lede">Tokens and pools from the partner wallets — live from the chain.</p>
+  <p class="lede">Your pages, games and tools — everything the builder has made for your seat.</p>
   <p class="stamp" id="buildsStamp"></p>
   <div id="buildsBody"><p class="mut">Loading…</p></div>
 </section>
@@ -469,7 +469,7 @@ html,body{overflow-x:clip;}
 </section>
 
 <section class="section" id="sec-snap">
-  <h2>📊 Launchpad Snapshot</h2>
+  <h2>📊 Snapshot</h2>
   <p class="lede">Live from the chain.</p>
   <p class="stamp" id="snapStamp"></p>
   <div class="card">
@@ -588,7 +588,7 @@ function renderBalBar(out){
 function scrollToRefill(){ const c = $('topupCard'); if (c) c.scrollIntoView({behavior:'smooth', block:'center'}); }
 $('balState').addEventListener('click', ()=>{ if ($('balState').getAttribute('data-act') === 'refill') scrollToRefill(); });
 $('noTokens').addEventListener('click', scrollToRefill);
-$('buildBtn').addEventListener('click', ()=>{ showTab('chat'); window.scrollTo({top:0, behavior:'smooth'}); const i = $('msgInput'); if (i) setTimeout(()=>i.focus(), 60); });
+$('buildBtn').addEventListener('click', ()=>{ showTab('chat'); const i = $('msgInput'); if (i) setTimeout(()=>i.focus(), 60); });
 function unlock(){
   gateEl.style.display='none'; appEl.style.display='block';
   if (sessionStorage.getItem('tda_offline')==='1'){
@@ -666,7 +666,9 @@ function showTab(name){
   $('inputBar').classList.toggle('show', name==='chat');
   fitChatPad();
   if (name === 'tools') refresh(false);
-  if (name !== 'chat' && !loaded[name]){ loaded[name] = true; loadSection(name); }
+  if (name === 'builds') loadBuilds();
+  if (name === 'chat'){ requestAnimationFrame(()=>scrollBottom()); setTimeout(scrollBottom, 90); }
+  if (name !== 'chat' && name !== 'builds' && !loaded[name]){ loaded[name] = true; loadSection(name); }
 }
 /* Keep the chat section's bottom padding matched to the fixed
    input bar's real height (+28px breathing room) so the thread
@@ -678,8 +680,14 @@ function fitChatPad(){
   if (!sec || !bar) return;
   const h = bar.classList.contains('show') ? bar.offsetHeight : 0;
   if (h) sec.style.paddingBottom = (h + 28 + ((document.getElementById('bottomNav') || {}).offsetHeight || 0)) + 'px';
+  /* The sticky tabs bar must sit exactly under the header —
+     keep its offset matched to the header's real height (the
+     subtitle wraps now, and translations change its length). */
+  const hd = document.querySelector('header'), tb = $('tabs');
+  if (hd && tb) tb.style.top = hd.offsetHeight + 'px';
 }
 if (window.ResizeObserver && $('inputBar')) new ResizeObserver(fitChatPad).observe($('inputBar'));
+if (window.ResizeObserver){ const hdEl = document.querySelector('header'); if (hdEl) new ResizeObserver(fitChatPad).observe(hdEl); }
 window.addEventListener('resize', fitChatPad);
 document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click', ()=>showTab(b.dataset.tab)));
 $('refreshBtn').addEventListener('click', ()=>{
@@ -687,8 +695,7 @@ $('refreshBtn').addEventListener('click', ()=>{
   else loadSection(activeTab);
 });
 function loadSection(name){
-  if (name === 'builds') loadBuilds();
-  else if (name === 'fees') loadFees();
+  if (name === 'fees') loadFees();
   else if (name === 'snap') loadSnap();
 }
 
@@ -1587,6 +1594,7 @@ function renderTopup(){
     return;
   }
   let h = head + status;
+  if (j.refillTokens) h += '<p>One refill tops your seat back up to <b>' + Number(j.refillTokens).toLocaleString() + ' tokens</b>.</p>';
   if (j.priceOk){
     /* payment-method picker: LUNC or USTC — same wallet,
        same recipient, same $5, same checks. USTC only shows
@@ -1855,10 +1863,18 @@ const CHIP = {
   done: '<span class="chip done">✅ Done</span>',
   closed: '<span class="chip done">✔️ Finished</span>',
 };
+/* Seat-facing status: a builder row is born in the 'building'
+   state before anyone knows its kind — a question must never
+   read "Building" to the seat. Neutral wording seat-side;
+   the owner's workflow keeps its exact labels. */
+function chipFor(r, map){
+  if (!isOwner() && r.buildState && r.status === 'building') return '<span class="chip building">⏳ In progress</span>';
+  return map[r.status] || map.received;
+}
 function bubbleHTML(r){
   let h = '';
   h += '<div class="row me"><div class="bubble">' + rich(r.text) + '</div>';
-  h += '<div class="meta">' + CHIP[r.status]
+  h += '<div class="meta">' + chipFor(r, CHIP)
     + (isOwner() ? '<span class="chip seat">' + esc(r.seatName || (r.seatId === 'owner' ? 'Owner' : '')) + '</span>' : '')
     + (isOwner() && r.flagged ? '<span class="chip">⚠️ Flagged</span>' : '')
     + (isOwner() && r.status === 'closed' && r.closedBy === 'seat' ? '<span class="chip">✔️ Closed by user</span>' : '')
@@ -1939,7 +1955,7 @@ function projTitle(r){
   return t.length > 90 ? t.slice(0, 90) + '…' : t;
 }
 function projRow(r, finished){
-  const chip = PCHIP[r.status] || PCHIP.received;
+  const chip = chipFor(r, PCHIP);
   return '<div class="proj"><div class="pj-top"><span class="pj-title">' + esc(projTitle(r)) + '</span>' + chip
     + (isOwner() && r.seatName ? '<span class="pj-who">' + esc(r.seatName) + '</span>' : '')
     + '</div><div class="pj-actions">'
@@ -2201,102 +2217,44 @@ async function tokenMeta(t){
   return { t, nm, sy, dec, ts };
 }
 
-/* ============ MY BUILDS ============ */
+/* ============ MY BUILDS ============
+   The signed-in seat's OWN builds, from the tda data itself:
+   the seat's requests (tdaList — server-filtered to this seat)
+   whose replies carry a build link. One row per build link;
+   an edit reuses the same link, so the title comes from the
+   original ask and the date from the latest touch. (This tab
+   used to render the Kava partner-wallet snapshot — that data
+   lives on the Snapshot/Fees views, never here.) */
 async function loadBuilds(){
   const box = $('buildsBody');
   box.innerHTML = '<p class="mut">Loading…</p>';
-  const parts = [];
-  /* the DEX itself — every pair on the DEX factory, live */
-  let dexRows = '';
-  try{
-    const nPairs = Number(await callUint(DEX_FACTORY, SEL.allPairsLength));
-    if (!nPairs) dexRows = '<p class="mut">No pairs on the DEX yet.</p>';
-    else {
-      const pairAddrs = [];
-      for (let i=0;i<nPairs;i++){
-        const pa = await callAddr(DEX_FACTORY, SEL.allPairs + padUint(i));
-        if (pa) pairAddrs.push(pa);
-      }
-      const details = await Promise.all(pairAddrs.map(async p => {
-        let s0 = '', s1 = '';
-        try{
-          const [t0, t1] = await Promise.all([callAddr(p, SEL.token0), callAddr(p, SEL.token1)]);
-          [s0, s1] = await Promise.all([
-            t0 ? callString(t0, SEL.symbol).catch(()=> '') : '',
-            t1 ? callString(t1, SEL.symbol).catch(()=> '') : '',
-          ]);
-          if (!s0 && t0) s0 = shortAddr(t0);
-          if (!s1 && t1) s1 = shortAddr(t1);
-        }catch(e){ /* symbols fall back to ? below */ }
-        return { p, s0: s0 || '?', s1: s1 || '?' };
-      }));
-      dexRows = details.map(d =>
-        '<div class="build-row"><div><span class="sym">' + esc(d.s0) + ' / ' + esc(d.s1) + '</span>'
-        + '<div class="nm">Trading pair on the DEX</div>'
-        + '<a class="mono" href="' + EXPLORER + '/address/' + d.p + '" target="_blank" rel="noopener">' + shortAddr(d.p) + ' ↗</a></div>'
-        + '<div class="meta"><div>DEX</div><div class="big">Pair</div></div></div>'
-      ).join('');
-    }
-  }catch(e){ dexRows = '<p class="fail">Couldn\'t load the DEX pairs.</p>'; }
-  dexRows += '<p style="margin-top:10px;"><a href="https://KavaLaunchPad.com" target="_blank" rel="noopener">Open the DEX →</a></p>';
-  parts.push('<div class="card"><h3>🔁 The DEX</h3>' + dexRows + '</div>');
-  for (const w of WALLETS){
-    let rows = '';
-    try{
-      const seen = new Set(); const toks = [];
-      for (const [fname, faddr] of [['v2', TF2], ['v1', TF1]]){
-        const list = await callAddrArray(faddr, SEL.tokensByCreator + padAddr(w.addr));
-        for (const t of list){
-          const key = t.toLowerCase(); if (seen.has(key)) continue; seen.add(key);
-          toks.push({ t, fname });
-        }
-      }
-      if (!toks.length) rows = '<p class="mut">No factory tokens yet from this wallet.</p>';
-      else {
-        const metas = await Promise.all(toks.map(x => tokenMeta(x.t).then(m => ({...m, fname: x.fname})).catch(()=>null)));
-        rows = metas.filter(Boolean).map(m =>
-          '<div class="build-row"><div><span class="sym">' + esc(m.sy || '?') + '</span> '
-          + '<span class="pill">Factory ' + m.fname + '</span><div class="nm">' + esc(m.nm || '') + '</div>'
-          + '<a class="mono" href="' + EXPLORER + '/address/' + m.t + '" target="_blank" rel="noopener">' + shortAddr(m.t) + ' ↗</a></div>'
-          + '<div class="meta"><div>Supply</div><div class="big">' + (m.ts === null ? '—' : fmtUnits(m.ts, m.dec)) + '</div></div></div>'
-        ).join('');
-      }
-    }catch(e){ rows = '<p class="fail">Couldn\'t load this wallet\'s tokens.</p>'; }
-    parts.push('<div class="card"><h3>' + esc(w.label) + ' — tokens</h3><p class="mono">' + esc(w.addr) + '</p>' + rows + '</div>');
+  try { await refresh(false); } catch(e){ /* keep whatever list we have */ }
+  let rows = Array.isArray(lastReqs) ? lastReqs : [];
+  if (isOwner() && seatFilterVal !== 'all') rows = rows.filter(r => r.seatId === seatFilterVal);
+  const byUrl = new Map();
+  for (const r of [...rows].reverse()){ /* oldest first: the original ask titles the build */
+    const m = String(r.result || '').match(/https?:\/\/[^\s"'<]+\/td-builds\/[^\s"'<]+/);
+    if (!m) continue;
+    const url = m[0].replace(/[.,;:!?]+$/, '');
+    const cur = byUrl.get(url) || { url, title: String(r.text || '').split('\n')[0], updated: 0 };
+    cur.updated = Math.max(cur.updated, Number(r.updated) || Number(r.created) || 0);
+    byUrl.set(url, cur);
   }
-  /* staking pools from both wallets */
-  let poolRows = '';
-  try{
-    const seen = new Set(); const pools = [];
-    for (const w of WALLETS){
-      const list = await callAddrArray(STAKING_FACTORY, SEL.stakingsByCreator + padAddr(w.addr));
-      for (const p of list){
-        const key = p.toLowerCase(); if (seen.has(key)) continue; seen.add(key);
-        pools.push({ p, by: w.label });
-      }
-    }
-    if (!pools.length) poolRows = '<p class="mut">No staking pools created yet.</p>';
-    else {
-      const details = await Promise.all(pools.map(async x => {
-        try{
-          const [st, rt] = await Promise.all([callAddr(x.p, SEL.stakeToken), callAddr(x.p, SEL.rewardToken)]);
-          const [ss, rs] = await Promise.all([
-            st ? callString(st, SEL.symbol).catch(()=> '') : '',
-            rt ? callString(rt, SEL.symbol).catch(()=> '') : '',
-          ]);
-          return {...x, ss: ss || (st ? shortAddr(st) : '?'), rs: rs || (rt ? shortAddr(rt) : '?')};
-        }catch(e){ return {...x, ss:'?', rs:'?'}; }
-      }));
-      poolRows = details.map(d =>
-        '<div class="build-row"><div><span class="sym">' + esc(d.ss) + ' → ' + esc(d.rs) + '</span>'
-        + '<div class="nm">Stake ' + esc(d.ss) + ', earn ' + esc(d.rs) + ' · by ' + esc(d.by) + '</div>'
-        + '<a class="mono" href="' + EXPLORER + '/address/' + d.p + '" target="_blank" rel="noopener">' + shortAddr(d.p) + ' ↗</a></div>'
-        + '<div class="meta"><div>Pool</div><div class="big">Staking</div></div></div>'
-      ).join('');
-    }
-  }catch(e){ poolRows = '<p class="fail">Couldn\'t load staking pools.</p>'; }
-  parts.push('<div class="card"><h3>🥩 Staking pools</h3>' + poolRows + '</div>');
-  box.innerHTML = parts.join('');
+  const builds = [...byUrl.values()].sort((a, b) => b.updated - a.updated);
+  if (!builds.length){
+    box.innerHTML = '<div class="card"><p class="mut">No builds yet — ask for a page, a game or a tool in the Chat tab and it will show up here.</p></div>';
+    stamp($('buildsStamp'));
+    return;
+  }
+  const kindOf = u => u.indexOf('-game') >= 0 ? ['🎮', 'Game'] : (u.indexOf('-tool') >= 0 ? ['🧮', 'Tool'] : ['📄', 'Page']);
+  box.innerHTML = '<div class="card">' + builds.map(b => {
+    const k = kindOf(b.url);
+    const t = b.title.length > 90 ? b.title.slice(0, 90) + '…' : b.title;
+    return '<div class="build-row"><div><span class="sym">' + k[0] + ' ' + k[1] + '</span>'
+      + '<div class="nm">' + esc(t) + '</div>'
+      + '<a class="mono" href="' + esc(b.url) + '" target="_blank" rel="noopener">' + esc(b.url.replace(/^https?:\/\/[^/]+/, '')) + ' ↗</a></div>'
+      + '<div class="meta"><div>' + esc(fmtDate(b.updated)) + '</div><div class="big">Open</div></div></div>';
+  }).join('') + '</div>';
   stamp($('buildsStamp'));
 }
 
@@ -2375,8 +2333,8 @@ async function loadSnap(){
 
 <nav id="bottomNav">
   <button data-nav="home">🏠<span>Home</span></button>
-  <button data-nav="chat">💬<span>Build</span></button>
-  <button data-nav="builds">📋<span>Builds</span></button>
+  <button data-nav="chat">💬<span>Chat</span></button>
+  <button data-nav="builds">📋<span>My Builds</span></button>
   <button data-nav="refill">🔁<span>Refill</span></button>
   <button data-nav="more">•••<span>More</span></button>
 </nav>
