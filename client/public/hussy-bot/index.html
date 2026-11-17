@@ -494,11 +494,49 @@ function walletErrText(e) {
    chain at once — the wallet must never be re-prompted after the
    user said no. Whichever shape signs proceeds; the venue read-back
    (extraAgents) remains the only success proof. */
+
+/* ROUND 4 — THE ROOT CAUSE, proven from MetaMask Mobile's own
+   source (app/core/RPCMethods/RPCMethodMiddleware.ts): the v4
+   handler takes chainId from the typed data's domain (42161) and,
+   BEFORE it ever looks at the typed data, checks params[0]
+   against the accounts this origin is permitted for THAT chain
+   scope (the CAIP-25 session caveat, scope eip155:42161). Hussy
+   granted his session on a different chain; switching the wallet
+   to Arbitrum does NOT extend the permission, so the scoped list
+   was EMPTY and the handler threw -32602 "must provide an
+   Ethereum address" — on every shape, in two wallets, while the
+   unscoped eth_accounts happily showed his address. The payload
+   itself is field-for-field identical to the official Hyperliquid
+   SDK construction (audited). The fix is in approveKey: with
+   Arbitrum active, re-request accounts (eth_requestAccounts) so
+   the session gains the Arbitrum account scope, and sign with
+   the address that fresh response returns; if the first pass
+   still hits the scope error, escalate ONCE through
+   wallet_requestPermissions and run a second pass. Round 4 also
+   logs, per attempt, the exact address sent (params[0]), plus a
+   context block (fresh accounts, provider.selectedAddress, the
+   wallet's chainId at sign time) — if anything still fails, the
+   next diagnosis comes from his device, not from folklore. One
+   new last shape: addr-json-v3 — for THIS flat payload the V3 and
+   V4 digests are provably identical (verified with
+   @metamask/eth-sig-util on the exact payload shape), so it is
+   safe extra coverage for wallets whose v4 handler is quirky. */
 function isUserRejection(e) {
   if (!e) return false;
   if (e.code === 4001) return true;
   return /user rejected|user denied|rejected the request|request rejected|user cancelled|user canceled/i.test(e.message || String(e));
 }
+
+/* The -32602 "Ethereum address" family = the wallet's
+   chain-scoped account-permission gate (see the round-4 note). */
+function isScopeError(e) {
+  if (!e) return false;
+  return Number(e.code) === -32602 && /Ethereum address/i.test(e.message || String(e));
+}
+
+/* Context for the attempt log, refreshed before every signing
+   pass: what the wallet itself reports at sign time. */
+let signContext = null;
 
 async function postApproveLog(attempts, outcome) {
   try {
@@ -507,9 +545,45 @@ async function postApproveLog(attempts, outcome) {
       account: connectedAccount || '',
       ua: typeof navigator !== 'undefined' ? String(navigator.userAgent || '').slice(0, 200) : '',
       outcome,
+      context: signContext,
       attempts,
     } });
   } catch (e) { /* the log is best-effort — it never blocks the approval */ }
+}
+
+/* Re-request accounts with the signature chain active. On
+   MetaMask Mobile this extends the origin's CAIP-25 session to
+   the active chain's account scope — the exact permission the
+   signing gate checks. Signs of life are recorded into
+   signContext; the returned accounts[0] becomes the address we
+   sign with (and verify at the venue). A user rejection is
+   rethrown so the caller stops at once; any other failure is
+   recorded and the flow continues with the existing address. */
+async function refreshAccountsOnSignChain() {
+  const ctx = { freshAccounts: [], selectedAddress: '', chainIdAtSign: '', refreshed: false, escalated: false, refreshError: '' };
+  try { ctx.selectedAddress = (window.ethereum && window.ethereum.selectedAddress) || ''; } catch (e) { /* some webviews hide it */ }
+  try {
+    const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+    if (Array.isArray(accounts) && accounts.length) {
+      ctx.freshAccounts = accounts.slice(0, 4).map((a) => String(a));
+      ctx.refreshed = true;
+      if (accounts[0] && String(accounts[0]).toLowerCase() !== String(connectedAccount || '').toLowerCase()) {
+        connectedAccount = accounts[0];
+        $('walletAddr').textContent = connectedAccount;
+        $('walletRows').classList.remove('hidden');
+        try {
+          await api({ action: 'hbSaveMaster', hash: codeHash, master: { address: connectedAccount } });
+          if (data) data.master = { address: connectedAccount };
+        } catch (e) { /* keep the bot's master in sync — best effort */ }
+      }
+    }
+  } catch (e) {
+    ctx.refreshError = String((e && e.message) || e || '').slice(0, 200);
+    if (isUserRejection(e)) throw e;
+  }
+  try { ctx.chainIdAtSign = String(await window.ethereum.request({ method: 'eth_chainId' }) || ''); } catch (e) { /* recorded empty */ }
+  signContext = ctx;
+  return ctx;
 }
 
 function signerPathAvailable() {
@@ -529,7 +603,7 @@ async function signViaSignerPath(address, typedData) {
   throw new Error('the signer path exposes no typed-data signing method');
 }
 
-async function signTypedDataV4(address, typedData) {
+async function signTypedDataV4(address, typedData, pass) {
   const json = JSON.stringify(typedData);
   const shapes = [
     { label: 'addr-json', run: () => window.ethereum.request({ method: 'eth_signTypedData_v4', params: [address, json] }) },
@@ -540,10 +614,14 @@ async function signTypedDataV4(address, typedData) {
   if (signerPathAvailable()) {
     shapes.push({ label: 'signer', run: () => signViaSignerPath(address, typedData) });
   }
+  /* Last resort: the v3 method with the standard shape. For this
+     flat payload the V3 digest equals the V4 digest (proven), so
+     the venue verifies it identically. */
+  shapes.push({ label: 'addr-json-v3', run: () => window.ethereum.request({ method: 'eth_signTypedData_v3', params: [address, json] }) });
   const attempts = [];
   let lastErr = null;
   for (const shape of shapes) {
-    const rec = { shape: shape.label, at: new Date().toISOString(), ok: false, code: null, errorName: '', errorMessage: '' };
+    const rec = { shape: shape.label, pass: pass || 1, sentAddress: address, at: new Date().toISOString(), ok: false, code: null, errorName: '', errorMessage: '', scopeErr: false };
     try {
       const sig = await shape.run();
       rec.ok = true;
@@ -555,6 +633,7 @@ async function signTypedDataV4(address, typedData) {
       rec.code = e && e.code !== undefined ? e.code : null;
       rec.errorName = (e && e.name) || '';
       rec.errorMessage = String((e && e.message) || e || '').slice(0, 300);
+      rec.scopeErr = isScopeError(e);
       attempts.push(rec);
       if (isUserRejection(e)) {
         await postApproveLog(attempts, 'rejected');
@@ -602,6 +681,20 @@ async function approveKey() {
       $('approveBtn').disabled = false;
       return false;
     }
+    /* ROUND 4: with Arbitrum now the active chain, re-request the
+       accounts so the wallet session gains the Arbitrum account
+       scope — the signing gate checks the permission for THIS
+       chain, and a session granted on another chain does not
+       include it. The address we sign with is the one this fresh
+       response returns. */
+    $('walletNote').textContent = 'Confirming your wallet account for Arbitrum…';
+    try {
+      await refreshAccountsOnSignChain();
+    } catch (e) {
+      $('walletNote').textContent = 'The signature did not go through: ' + walletErrText(e);
+      $('approveBtn').disabled = false;
+      return false;
+    }
     const nonce = Date.now();
     const validUntil = Date.now() + 179 * 24 * 3600 * 1000;
     const agentName = 'hussy-bot valid_until ' + validUntil;
@@ -625,9 +718,41 @@ async function approveKey() {
     };
     $('walletNote').textContent = 'Confirm the signature in your wallet…';
     let sigHex;
+    let signErr = null;
     try {
-      sigHex = await signTypedDataV4(connectedAccount, typedData);
-    } catch (e) {
+      sigHex = await signTypedDataV4(connectedAccount, typedData, 1);
+    } catch (e) { signErr = e; }
+    if (signErr && signErr.allShapesFailed && (signErr.attempts || []).some((a) => a.scopeErr)) {
+      /* The chain-scoped account permission is STILL missing after
+         the accounts refresh. Escalate ONCE: ask for the account
+         permission explicitly, re-read the accounts, and run the
+         shape chain a second time. A user rejection anywhere stops
+         the whole flow — the wallet is never re-prompted after a
+         no. */
+      $('walletNote').textContent = 'Your wallet still needs the Arbitrum account permission — asking for it directly…';
+      let stop = false;
+      try {
+        await window.ethereum.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {} }] });
+      } catch (pe) {
+        if (isUserRejection(pe)) { signErr = pe; stop = true; }
+        /* A wallet that does not know this method simply falls
+           through to the re-read + second pass below. */
+      }
+      if (!stop) {
+        try {
+          const ctx2 = await refreshAccountsOnSignChain();
+          ctx2.escalated = true;
+        } catch (e2) { signErr = e2; stop = true; }
+      }
+      if (!stop) {
+        try {
+          sigHex = await signTypedDataV4(connectedAccount, typedData, 2);
+          signErr = null;
+        } catch (e2) { signErr = e2; }
+      }
+    }
+    if (signErr) {
+      const e = signErr;
       if (e && e.allShapesFailed) {
         /* Every shape was refused. Do not show him one confusing
            error picked from the pile — the full attempt log already

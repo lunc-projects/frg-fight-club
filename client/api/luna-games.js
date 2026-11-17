@@ -4511,25 +4511,46 @@ function hbValidateSettings(input) {
 function hbSanitizeApproveLog(log) {
   if (!log || typeof log !== 'object') return null;
   const str = (v, n) => String(v === null || v === undefined ? '' : v).slice(0, n);
-  const attemptsIn = Array.isArray(log.attempts) ? log.attempts.slice(0, 12) : [];
+  const addr = (v) => (/^0x[0-9a-fA-F]{40}$/.test(String(v || '')) ? String(v) : '');
+  const attemptsIn = Array.isArray(log.attempts) ? log.attempts.slice(0, 16) : [];
   if (!attemptsIn.length) return null;
   const attempts = attemptsIn.map((a) => {
     const rec = a && typeof a === 'object' ? a : {};
     return {
       shape: str(rec.shape, 40),
+      pass: (rec.pass === 1 || rec.pass === 2) ? rec.pass : null,
+      sentAddress: addr(rec.sentAddress),
       at: str(rec.at, 40),
       ok: rec.ok === true,
       code: (typeof rec.code === 'number' || typeof rec.code === 'string') ? String(rec.code).slice(0, 20) : null,
       errorName: str(rec.errorName, 80),
       errorMessage: str(rec.errorMessage, 300),
+      scopeErr: rec.scopeErr === true,
     };
   });
+  /* Round 4: the sign-time context the page captured from the
+     wallet itself — fresh accounts from the pre-signing
+     eth_requestAccounts, provider.selectedAddress, the wallet's
+     chainId at sign time. Public addresses only; strictly shaped. */
+  let context = null;
+  if (log.context && typeof log.context === 'object') {
+    const c = log.context;
+    context = {
+      freshAccounts: Array.isArray(c.freshAccounts) ? c.freshAccounts.slice(0, 4).map(addr).filter(Boolean) : [],
+      selectedAddress: addr(c.selectedAddress),
+      chainIdAtSign: str(c.chainIdAtSign, 20),
+      refreshed: c.refreshed === true,
+      escalated: c.escalated === true,
+      refreshError: str(c.refreshError, 200),
+    };
+  }
   return {
     receivedAt: new Date().toISOString(),
     at: str(log.at, 40),
-    account: /^0x[0-9a-fA-F]{40}$/.test(String(log.account || '')) ? String(log.account) : '',
+    account: addr(log.account),
     ua: str(log.ua, 200),
     outcome: str(log.outcome, 40),
+    context,
     attempts,
   };
 }
