@@ -4391,7 +4391,7 @@ const HB_DEFAULT_SETTINGS = {
   stopLossPct: 2,
   takeProfitPct: 4,
   riskPerTradePct: 2,
-  pairs: { BTC: true, ETH: true },
+  pairs: { BTC: true, ETH: true, BNB: true, XRP: true, SOL: true, DOGE: true },
   mode: 'paper',
   paused: false,
   closeAllRequestAt: null,
@@ -4467,7 +4467,7 @@ function hbValidateSettings(input) {
   };
   const pot = num(input.potCapitalUsdt, 10, 1000000);
   const levRaw = Number(input.leverage);
-  const lev = Number.isInteger(levRaw) && levRaw >= 1 && levRaw <= 5 ? levRaw : null;
+  const lev = Number.isInteger(levRaw) && levRaw >= 1 && levRaw <= 10 ? levRaw : null;
   const sl = num(input.stopLossPct, 0.5, 10);
   const tp = num(input.takeProfitPct, 0.5, 20);
   const risk = num(input.riskPerTradePct, 0.25, 5);
@@ -4480,7 +4480,7 @@ function hbValidateSettings(input) {
     stopLossPct: sl,
     takeProfitPct: tp,
     riskPerTradePct: risk,
-    pairs: { BTC: pairsIn.BTC !== false, ETH: pairsIn.ETH !== false },
+    pairs: { BTC: pairsIn.BTC !== false, ETH: pairsIn.ETH !== false, BNB: pairsIn.BNB !== false, XRP: pairsIn.XRP !== false, SOL: pairsIn.SOL !== false, DOGE: pairsIn.DOGE !== false },
     mode,
     paused: input.paused === true,
     closeAllRequestAt: typeof input.closeAllRequestAt === 'string' && input.closeAllRequestAt.length <= 40
