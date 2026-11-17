@@ -45,6 +45,10 @@
   .btn.resume { background: #14532d; color: #bbf7d0; border: 1px solid #22c55e; font-size: 18px; }
   .btn.ghost { background: #0a1122; color: #a7b0c6; border: 1px solid #26355c; }
   .btn:disabled { opacity: .45; cursor: default; }
+  .btn.start { background: #14532d; color: #bbf7d0; border: 1px solid #22c55e; font-size: 19px; padding: 17px; margin-top: 10px; }
+  .startline { font-size: 17.5px; font-weight: 700; line-height: 1.4; margin-top: 10px; }
+  details.adv { margin-top: 14px; border-top: 1px solid #1a2440; padding-top: 10px; }
+  details.adv summary { cursor: pointer; font-size: 14.5px; font-weight: 700; color: #a7b0c6; padding: 6px 0; }
   .note { color: #a7b0c6; font-size: 13.5px; line-height: 1.5; margin-top: 10px; }
   .warn { color: #fca5a5; }
   .ok { color: #4ade80; }
@@ -85,6 +89,9 @@
         <h2 style="margin:0">Bot status</h2>
         <span class="pill paper" id="modePill">PAPER</span>
       </div>
+      <p class="startline" id="startLine">⚪ Your bot is OFF — tap Start</p>
+      <button class="btn start" id="startBtn">▶ Start my bot</button>
+      <p class="note hidden" id="startNote"></p>
       <div class="rows" id="statusRows">
         <div class="row"><span class="k">Reading the bot…</span><span class="v"></span></div>
       </div>
@@ -97,32 +104,35 @@
     <!-- settings -->
     <div class="card">
       <h2>⚙️ Your settings</h2>
-      <p class="note" style="margin-top:0">Change anything, press Save — the bot picks it up on its next check, about a minute later. This screen always opens in <b>Paper</b> mode.</p>
+      <p class="note" style="margin-top:0">Change anything, press Save — the bot picks it up on its next check, about a minute later.</p>
       <label class="f">Pot — capital the bot may use (USDT)
         <input type="number" id="fPot" min="10" max="1000000" step="1">
       </label>
       <label class="f">Leverage (max 10x)
         <input type="number" id="fLev" min="1" max="10" step="1">
       </label>
-      <label class="f">Stop-loss % (price move that closes a trade)
-        <input type="number" id="fSl" min="0.5" max="10" step="0.1">
-      </label>
-      <label class="f">Take-profit % (price move that banks a trade)
-        <input type="number" id="fTp" min="0.5" max="20" step="0.1">
-      </label>
-      <label class="f">Risk per trade % of the pot
-        <input type="number" id="fRisk" min="0.25" max="5" step="0.25">
-      </label>
-      <label class="f">Pairs the bot may trade live</label>
-      <div class="checks">
-        <label class="check"><input type="checkbox" id="fBtc"> BTC</label>
-        <label class="check"><input type="checkbox" id="fEth"> ETH</label>
-        <label class="check"><input type="checkbox" id="fBnb"> BNB</label>
-        <label class="check"><input type="checkbox" id="fXrp"> XRP</label>
-        <label class="check"><input type="checkbox" id="fSol"> SOL</label>
-        <label class="check"><input type="checkbox" id="fDoge"> DOGE</label>
-      </div>
-      <p class="note">LUNC is <b>paper-only</b> — the live venue (Hyperliquid) does not list it. LUNC keeps paper-trading so you can watch the signals.</p>
+      <details class="adv" id="advFold">
+        <summary>Advanced settings</summary>
+        <label class="f">Stop-loss % (price move that closes a trade)
+          <input type="number" id="fSl" min="0.5" max="10" step="0.1">
+        </label>
+        <label class="f">Take-profit % (price move that banks a trade)
+          <input type="number" id="fTp" min="0.5" max="20" step="0.1">
+        </label>
+        <label class="f">Risk per trade % of the pot
+          <input type="number" id="fRisk" min="0.25" max="5" step="0.25">
+        </label>
+        <label class="f">Pairs the bot may trade live</label>
+        <div class="checks">
+          <label class="check"><input type="checkbox" id="fBtc"> BTC</label>
+          <label class="check"><input type="checkbox" id="fEth"> ETH</label>
+          <label class="check"><input type="checkbox" id="fBnb"> BNB</label>
+          <label class="check"><input type="checkbox" id="fXrp"> XRP</label>
+          <label class="check"><input type="checkbox" id="fSol"> SOL</label>
+          <label class="check"><input type="checkbox" id="fDoge"> DOGE</label>
+        </div>
+        <p class="note">LUNC is <b>paper-only</b> — the live venue (Hyperliquid) does not list it. LUNC keeps paper-trading so you can watch the signals.</p>
+      </details>
       <label class="f">Trading mode</label>
       <div class="seg">
         <button type="button" id="segPaper" class="on-paper">📄 Paper</button>
@@ -139,7 +149,7 @@
       <ol class="steps">
         <li>Connect your wallet — the one holding your Hyperliquid account.</li>
         <li>Approve the bot's trading key (one signature). The key can <b>trade only — it can never withdraw</b>. Your money stays in your account.</li>
-        <li>Flip the switch above to Live and Save.</li>
+        <li>Tap <b>▶ Start my bot</b> at the top — it does the steps in order and switches the bot on. (Or flip the mode switch to Live and Save.)</li>
       </ol>
       <button class="btn primary" id="connectBtn">Connect wallet</button>
       <p class="note" id="walletNote"></p>
@@ -163,7 +173,8 @@ const API = '/api/luna-games?hussybot=1';
 const HL_API = 'https://api.hyperliquid.xyz';
 let codeHash = sessionStorage.getItem('hbHash') || '';
 let data = null;           // last hbGet payload
-let uiMode = 'paper';      // the toggle ALWAYS starts on paper
+let uiMode = 'paper';      // until the first settings load adopts his SAVED mode
+let segTouched = false;    // true once he taps the mode toggle himself
 let connectedAccount = '';
 
 const $ = (id) => document.getElementById(id);
@@ -235,6 +246,7 @@ function fillForm(s) {
   $('fXrp').checked = s.pairs.XRP !== false;
   $('fSol').checked = s.pairs.SOL !== false;
   $('fDoge').checked = s.pairs.DOGE !== false;
+  if (!segTouched) uiMode = s.mode === 'live' ? 'live' : 'paper';
   setSeg(uiMode);
   const paused = !!s.paused;
   $('pauseBtn').textContent = paused ? '▶ RESUME THE BOT' : '⏸ PAUSE THE BOT';
@@ -247,8 +259,38 @@ function setSeg(mode) {
   $('segLive').className = mode === 'live' ? 'on-live' : '';
   $('liveWarn').classList.toggle('hidden', mode !== 'live');
 }
-$('segPaper').addEventListener('click', () => setSeg('paper'));
-$('segLive').addEventListener('click', () => setSeg('live'));
+$('segPaper').addEventListener('click', () => { segTouched = true; setSeg('paper'); });
+$('segLive').addEventListener('click', () => { segTouched = true; setSeg('live'); });
+
+/* The one plain line at the top: ON, OFF — tap Start, or the one
+   plain reason it can't start. The Start button hides while ON —
+   PAUSE is the stop. */
+function renderStartLine(res) {
+  const s = res.settings || {};
+  const live = res.status && res.status.live;
+  const line = $('startLine');
+  const btn = $('startBtn');
+  const coins = Object.keys(s.pairs || {}).filter((k) => s.pairs[k] !== false);
+  let on = false;
+  if (s.paused) {
+    line.textContent = '⚪ Your bot is OFF — it is paused. Tap Start to run it again.';
+  } else if (s.mode !== 'live') {
+    line.textContent = '⚪ Your bot is OFF — tap Start';
+  } else if (live && live.gates && live.gates.allOpen) {
+    on = true;
+    line.textContent = live.entriesHalted
+      ? '🟢 Your bot is ON — resting today (daily loss limit hit). It trades again tomorrow.'
+      : '🟢 Your bot is ON — trading ' + (coins.join(', ') || 'your coins') + ' at ' + (s.leverage || 3) + 'x';
+  } else {
+    const reason = (live && live.gates && live.gates.reason) || '';
+    let plain = 'tap Start and it will sort out the last step.';
+    if (/approved/.test(reason)) plain = 'it still needs your one-time approval. Tap Start and your wallet will ask you to sign.';
+    else if (/wallet/.test(reason)) plain = 'your wallet is not connected yet. Tap Start.';
+    else if (!live || /settings/.test(reason)) plain = 'the bot has not checked in yet — give it a minute, then tap Start.';
+    line.textContent = '⚪ Your bot is OFF — ' + plain;
+  }
+  btn.classList.toggle('hidden', on);
+}
 
 function statusBlock(res) {
   const live = res.status && res.status.live;
@@ -263,6 +305,7 @@ function renderStatus(res) {
   const botPaused = !!(res.settings && res.settings.paused);
   if (kind === 'live') { pill.textContent = botPaused ? 'LIVE — PAUSED' : '🔴 LIVE MONEY'; pill.className = 'pill live'; }
   else { pill.textContent = botPaused ? 'PAPER — PAUSED' : 'PAPER'; pill.className = 'pill paper'; }
+  renderStartLine(res);
   const rows = [];
   if (!s) {
     rows.push('<div class="row"><span class="k">Bot</span><span class="v">no report yet — it checks in every minute</span></div>');
@@ -332,6 +375,7 @@ $('saveBtn').addEventListener('click', async () => {
   $('saveNote').classList.remove('hidden');
   if (res.ok) {
     data.settings = res.settings;
+    segTouched = false;
     $('saveNote').textContent = 'Saved — the bot picks this up within about a minute.';
     $('saveNote').className = 'note ok';
     renderStatus(data);
@@ -369,8 +413,8 @@ function renderWallet(res) {
   }
 }
 
-$('connectBtn').addEventListener('click', async () => {
-  if (!window.ethereum) { $('walletNote').textContent = 'No wallet found in this browser — open this page inside your wallet app (e.g. MetaMask) or install one.'; return; }
+async function connectWallet() {
+  if (!window.ethereum) { $('walletNote').textContent = 'No wallet found in this browser — open this page inside your wallet app (e.g. MetaMask) or install one.'; return false; }
   try {
     const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
     connectedAccount = accounts[0];
@@ -379,14 +423,19 @@ $('connectBtn').addEventListener('click', async () => {
     $('connectBtn').textContent = 'Wallet connected ✓';
     await api({ action: 'hbSaveMaster', hash: codeHash, master: { address: connectedAccount } });
     if (data) { data.master = { address: connectedAccount }; renderWallet(data); }
-    checkAgent();
+    await checkAgent();
+    return true;
   } catch (e) {
     $('walletNote').textContent = 'Wallet connection did not go through: ' + walletErrText(e);
+    return false;
   }
-});
+}
+$('connectBtn').addEventListener('click', connectWallet);
 
+/* Reads the approval back from the venue. Returns true only when
+   the bot's key is really approved on the connected account. */
 async function checkAgent() {
-  if (!connectedAccount) return;
+  if (!connectedAccount) return false;
   try {
     const r = await fetch(HL_API + '/info', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'extraAgents', user: connectedAccount }) });
     const agents = await r.json();
@@ -397,11 +446,12 @@ async function checkAgent() {
       const left = mine.validUntil ? Math.max(0, Math.round((mine.validUntil - Date.now()) / 86400000)) : null;
       $('agentState').innerHTML = '<span class="ok">approved ✓</span>' + (left !== null ? ` (expires in ~${left} days)` : '');
       $('approveBtn').classList.add('hidden');
-    } else {
-      $('agentState').textContent = 'not approved yet';
-      if (data && data.agent) $('approveBtn').classList.remove('hidden');
+      return true;
     }
-  } catch (e) { $('agentState').textContent = 'could not check — try again'; }
+    $('agentState').textContent = 'not approved yet';
+    if (data && data.agent) $('approveBtn').classList.remove('hidden');
+    return false;
+  } catch (e) { $('agentState').textContent = 'could not check — try again'; return false; }
 }
 
 /* The approval signature is bound to Arbitrum One (signatureChainId
@@ -438,8 +488,12 @@ async function ensureSignChain() {
   }
 }
 
-$('approveBtn').addEventListener('click', async () => {
-  if (!connectedAccount || !data || !data.agent) return;
+/* Runs the whole approval: chain switch, signature, venue post,
+   and the read-back confirmation. Returns true only when the
+   approval is confirmed on the venue. Every failure leaves the
+   real reason in the wallet note. */
+async function approveKey() {
+  if (!connectedAccount || !data || !data.agent) return false;
   const agentAddress = data.agent.address;
   $('approveBtn').disabled = true;
   try {
@@ -449,7 +503,7 @@ $('approveBtn').addEventListener('click', async () => {
     } catch (e) {
       $('walletNote').textContent = 'Your wallet would not switch to Arbitrum, which this approval signature needs: ' + walletErrText(e);
       $('approveBtn').disabled = false;
-      return;
+      return false;
     }
     const nonce = Date.now();
     const validUntil = Date.now() + 179 * 24 * 3600 * 1000;
@@ -479,7 +533,7 @@ $('approveBtn').addEventListener('click', async () => {
     } catch (e) {
       $('walletNote').textContent = 'The signature did not go through: ' + walletErrText(e);
       $('approveBtn').disabled = false;
-      return;
+      return false;
     }
     const signature = { r: sigHex.slice(0, 66), s: '0x' + sigHex.slice(66, 130), v: parseInt(sigHex.slice(130, 132), 16) };
     let out;
@@ -489,7 +543,7 @@ $('approveBtn').addEventListener('click', async () => {
     } catch (e) {
       $('walletNote').textContent = 'You signed, but the approval could not be sent to Hyperliquid (' + walletErrText(e) + '). Check your connection and tap Approve again.';
       $('approveBtn').disabled = false;
-      return;
+      return false;
     }
     if (out && out.status === 'ok') {
       /* Do not trust the click — confirm by reading the approval back
@@ -498,18 +552,59 @@ $('approveBtn').addEventListener('click', async () => {
       for (let i = 0; i < 6; i++) {
         await new Promise((res) => setTimeout(res, 2000));
         await checkAgent();
-        if ($('approveBtn').classList.contains('hidden')) { $('walletNote').textContent = ''; return; }
+        if ($('approveBtn').classList.contains('hidden')) { $('walletNote').textContent = ''; return true; }
       }
       $('walletNote').textContent = 'Hyperliquid accepted the approval, but it is not showing on your account yet. Give it a few seconds, then reconnect your wallet to check again.';
       $('approveBtn').disabled = false;
-    } else {
-      const why = out && typeof out.response === 'string' ? out.response : JSON.stringify(out).slice(0, 200);
-      $('walletNote').textContent = 'Hyperliquid did not accept the approval: ' + why;
-      $('approveBtn').disabled = false;
+      return false;
     }
+    const why = out && typeof out.response === 'string' ? out.response : JSON.stringify(out).slice(0, 200);
+    $('walletNote').textContent = 'Hyperliquid did not accept the approval: ' + why;
+    $('approveBtn').disabled = false;
+    return false;
   } catch (e) {
     $('walletNote').textContent = 'Approval failed: ' + walletErrText(e);
     $('approveBtn').disabled = false;
+    return false;
+  }
+}
+$('approveBtn').addEventListener('click', approveKey);
+
+/* ---------- one-button start ----------
+   Walks the remaining steps IN ORDER by itself: connect the
+   wallet, run the approval if it is missing, then switch Live
+   on and Save in the same action. Any step that fails stops the
+   walk and shows the real reason. */
+$('startBtn').addEventListener('click', async () => {
+  if (!data) return;
+  const note = (t) => { const n = $('startNote'); n.textContent = t; n.classList.remove('hidden'); };
+  $('startBtn').disabled = true;
+  try {
+    if (!connectedAccount) {
+      note('Step 1 of 3 — connecting your wallet…');
+      const ok = await connectWallet();
+      if (!ok) { note('Start stopped — ' + ($('walletNote').textContent || 'your wallet did not connect.')); return; }
+    }
+    note('Step 2 of 3 — checking your trading approval…');
+    let approved = await checkAgent();
+    if (!approved) {
+      if (!data.agent) { note('Start stopped — the bot is still being set up. Try again in a little while.'); return; }
+      approved = await approveKey();
+      if (!approved) { note('Start stopped — ' + ($('walletNote').textContent || 'the approval did not finish.')); return; }
+    }
+    note('Step 3 of 3 — switching your bot on…');
+    const settings = { ...readForm(), mode: 'live', paused: false };
+    const res = await api({ action: 'hbSaveSettings', hash: codeHash, settings });
+    if (!res.ok) { note('Start stopped — ' + (res.error || 'your settings could not be saved.')); return; }
+    data.settings = res.settings;
+    segTouched = false;
+    fillForm(res.settings);
+    renderStatus(data);
+    note('Done — your bot is ON. It checks for trades every minute.');
+  } catch (e) {
+    note('Start stopped — ' + walletErrText(e));
+  } finally {
+    $('startBtn').disabled = false;
   }
 });
 
