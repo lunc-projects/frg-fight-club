@@ -4340,6 +4340,278 @@ export async function hsPairHandler(req, res) {
 }
 /* hussy-signals:end */
 
+/* hussy-bot:start — HUSSY TRADING BOT control link (client/public/
+   hussy-bot/). One seat, one human: Hussy. The page is his control
+   link for the trading bot Tom's Dev built him — settings he can
+   change any time (pot, leverage, stop-loss, take-profit, risk,
+   pairs, Paper/Live, PAUSE), the bot's live status, and the wallet
+   connect + agent approval for live trading on Hyperliquid.
+   Reached via /api/luna-games?hussybot=1 directly.
+   Storage: Upstash keys hb:* —
+     hb:codehash   SHA-256 of his page access code (the page sends
+                   only the hash; the plain code never travels and
+                   is never stored). While unset, HB_BOOTSTRAP_HASH
+                   below — the hash of the first code Tom hands him —
+                   is the valid code (kava-code bootstrap pattern).
+     hb:botsecret  SHA-256 of the bot's file-only shared secret.
+                   While unset, HB_BOT_BOOTSTRAP_HASH is accepted
+                   once and the bot registers its hash (tda
+                   builder-secret pattern); after that the stored
+                   hash alone rules.
+     hb:settings   his settings JSON (validated server-side).
+     hb:status:paper / hb:status:live — status JSON the two bot
+                   processes post each tick; display only.
+     hb:agent      {address, network, registeredAt} — the bot's
+                   Hyperliquid agent (API) wallet address, posted by
+                   the bot. The agent KEY never leaves the bot host.
+     hb:master     {address, savedAt} — Hussy's own wallet address,
+                   saved by the page after he connects. Public data.
+   This endpoint holds no keys, signs nothing, moves no funds. The
+   page talks to Hyperliquid directly for the approveAgent
+   signature; the bot signs orders with the agent key on its own
+   host. Brute-force rail copied from kava-code: failed code
+   attempts counted per hashed IP; 8 in 15 min locks that IP out
+   of the code actions for 15 min; any success clears it. */
+const HB_CODE_KEY = 'hb:codehash';
+const HB_BOOTSTRAP_HASH = '0e00d51bdffdd8f63648479525057e5218272390ba6026ccdda6b7304031bef8';
+const HB_BOTSECRET_KEY = 'hb:botsecret';
+const HB_BOT_BOOTSTRAP_HASH = 'e97ad23a1490005242c5e1e441ac687ba01229f0696c800e4945551e215050e7';
+const HB_SETTINGS_KEY = 'hb:settings';
+const HB_STATUS_PAPER_KEY = 'hb:status:paper';
+const HB_STATUS_LIVE_KEY = 'hb:status:live';
+const HB_AGENT_KEY = 'hb:agent';
+const HB_MASTER_KEY = 'hb:master';
+const HB_MAX_FAILS = 8;
+const HB_FAIL_WINDOW_SEC = 15 * 60;
+const HB_LOCKOUT_SEC = 15 * 60;
+
+const HB_DEFAULT_SETTINGS = {
+  potCapitalUsdt: 400,
+  leverage: 3,
+  stopLossPct: 2,
+  takeProfitPct: 4,
+  riskPerTradePct: 2,
+  pairs: { BTC: true, ETH: true },
+  mode: 'paper',
+  paused: false,
+  closeAllRequestAt: null,
+  updatedAt: null,
+};
+
+function hbIsHash(v) { return typeof v === 'string' && /^[0-9a-f]{64}$/.test(v); }
+
+function hbHashEq(a, b) {
+  const ba = Buffer.from(String(a)), bb = Buffer.from(String(b));
+  return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
+}
+
+function hbIpTag(req) {
+  const xff = String((req.headers && req.headers['x-forwarded-for']) || '');
+  const ip = xff.split(',')[0].trim() || (req.socket && req.socket.remoteAddress) || 'unknown';
+  return crypto.createHash('sha256').update(ip).digest('hex').slice(0, 16);
+}
+
+async function hbGetJson(key) {
+  const out = await upstashPipeline([['GET', key]]);
+  const v = out[0] && out[0].result;
+  if (!v) return null;
+  try { return JSON.parse(v); } catch (e) { return null; }
+}
+
+async function hbEffectiveCodeHash() {
+  const out = await upstashPipeline([['GET', HB_CODE_KEY]]);
+  const v = out[0] && out[0].result;
+  return hbIsHash(v) ? v : HB_BOOTSTRAP_HASH;
+}
+
+async function hbBotHashOk(bhash) {
+  if (!hbIsHash(bhash)) return false;
+  const out = await upstashPipeline([['GET', HB_BOTSECRET_KEY]]);
+  const v = out[0] && out[0].result;
+  const effective = hbIsHash(v) ? v : HB_BOT_BOOTSTRAP_HASH;
+  return hbHashEq(bhash, effective);
+}
+
+async function hbLockState(tag) {
+  const out = await upstashPipeline([['GET', 'hb:lock:' + tag], ['TTL', 'hb:lock:' + tag]]);
+  const locked = !!(out[0] && out[0].result);
+  const ttl = out[1] && typeof out[1].result === 'number' && out[1].result > 0 ? out[1].result : HB_LOCKOUT_SEC;
+  return { locked, retryAfterSec: locked ? ttl : 0 };
+}
+
+async function hbRecordFail(tag) {
+  const out = await upstashPipeline([['INCR', 'hb:fail:' + tag]]);
+  const n = (out[0] && out[0].result) || 0;
+  if (n === 1) {
+    try { await upstashPipeline([['EXPIRE', 'hb:fail:' + tag, HB_FAIL_WINDOW_SEC]]); } catch (e) { /* best-effort */ }
+  }
+  if (n >= HB_MAX_FAILS) {
+    await upstashPipeline([['SET', 'hb:lock:' + tag, '1', 'EX', HB_LOCKOUT_SEC], ['DEL', 'hb:fail:' + tag]]);
+    return true;
+  }
+  return false;
+}
+
+async function hbClearFails(tag) {
+  try { await upstashPipeline([['DEL', 'hb:fail:' + tag]]); } catch (e) { /* best-effort */ }
+}
+
+/* Validate + normalise a settings object from the page. Returns a
+   clean settings object, or null when anything is out of range —
+   the bot clamps again on its side, this is the first gate. */
+function hbValidateSettings(input) {
+  if (!input || typeof input !== 'object') return null;
+  const num = (v, lo, hi) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n >= lo && n <= hi ? n : null;
+  };
+  const pot = num(input.potCapitalUsdt, 10, 1000000);
+  const levRaw = Number(input.leverage);
+  const lev = Number.isInteger(levRaw) && levRaw >= 1 && levRaw <= 5 ? levRaw : null;
+  const sl = num(input.stopLossPct, 0.5, 10);
+  const tp = num(input.takeProfitPct, 0.5, 20);
+  const risk = num(input.riskPerTradePct, 0.25, 5);
+  if (pot === null || lev === null || sl === null || tp === null || risk === null) return null;
+  const pairsIn = input.pairs && typeof input.pairs === 'object' ? input.pairs : {};
+  const mode = input.mode === 'live' ? 'live' : 'paper';
+  return {
+    potCapitalUsdt: pot,
+    leverage: lev,
+    stopLossPct: sl,
+    takeProfitPct: tp,
+    riskPerTradePct: risk,
+    pairs: { BTC: pairsIn.BTC !== false, ETH: pairsIn.ETH !== false },
+    mode,
+    paused: input.paused === true,
+    closeAllRequestAt: typeof input.closeAllRequestAt === 'string' && input.closeAllRequestAt.length <= 40
+      ? input.closeAllRequestAt : null,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export async function hussyBotHandler(req, res) {
+  if (req.method !== 'GET' && req.method !== 'POST') {
+    return res.status(405).json({ ok: false, error: 'method not allowed' });
+  }
+  if (!process.env.NEONRUSH_UPSTASH_URL || !process.env.NEONRUSH_UPSTASH_TOKEN) {
+    return res.status(500).json({ ok: false, unavailable: true, error: 'storage not configured' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+
+  if (req.method === 'GET') {
+    try {
+      const out = await upstashPipeline([['GET', HB_CODE_KEY]]);
+      return res.status(200).json({ ok: true, set: hbIsHash(out[0] && out[0].result) });
+    } catch (e) {
+      return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+    }
+  }
+
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }
+  if (!body || typeof body !== 'object') return res.status(400).json({ ok: false, error: 'bad request' });
+  const action = String(body.action || '');
+  const tag = hbIpTag(req);
+
+  /* ---- bot-authenticated actions (hash of the file-only secret) ---- */
+  if (action === 'hbBotRegister' || action === 'hbBotGet' || action === 'hbBotStatus' || action === 'hbBotAgent') {
+    const bhash = String(body.bhash || '').toLowerCase();
+    if (!hbIsHash(bhash)) return res.status(400).json({ ok: false, error: 'bad hash' });
+    try {
+      if (action === 'hbBotRegister') {
+        const out = await upstashPipeline([['GET', HB_BOTSECRET_KEY]]);
+        const stored = out[0] && out[0].result;
+        if (hbIsHash(stored)) return res.status(200).json({ ok: hbHashEq(bhash, stored), registered: true });
+        if (!hbHashEq(bhash, HB_BOT_BOOTSTRAP_HASH)) return res.status(200).json({ ok: false, error: 'bootstrap mismatch' });
+        await upstashPipeline([['SET', HB_BOTSECRET_KEY, bhash]]);
+        return res.status(200).json({ ok: true, registered: true });
+      }
+      if (!(await hbBotHashOk(bhash))) return res.status(200).json({ ok: false, error: 'bot auth failed' });
+      if (action === 'hbBotGet') {
+        const [settings, master, agent] = await Promise.all([
+          hbGetJson(HB_SETTINGS_KEY), hbGetJson(HB_MASTER_KEY), hbGetJson(HB_AGENT_KEY),
+        ]);
+        return res.status(200).json({ ok: true, settings: settings || HB_DEFAULT_SETTINGS, master, agent });
+      }
+      if (action === 'hbBotStatus') {
+        const kind = body.kind === 'live' ? 'live' : 'paper';
+        const status = body.status && typeof body.status === 'object' ? body.status : null;
+        if (!status) return res.status(400).json({ ok: false, error: 'bad status' });
+        const raw = JSON.stringify(status);
+        if (raw.length > 20000) return res.status(400).json({ ok: false, error: 'status too large' });
+        await upstashPipeline([['SET', kind === 'live' ? HB_STATUS_LIVE_KEY : HB_STATUS_PAPER_KEY, raw]]);
+        return res.status(200).json({ ok: true });
+      }
+      // hbBotAgent
+      const addr = String((body.agent && body.agent.address) || '');
+      if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) return res.status(400).json({ ok: false, error: 'bad agent address' });
+      const rec = { address: addr, network: 'mainnet', registeredAt: new Date().toISOString() };
+      await upstashPipeline([['SET', HB_AGENT_KEY, JSON.stringify(rec)]]);
+      return res.status(200).json({ ok: true, agent: rec });
+    } catch (e) {
+      console.error('hussy bot action failed', action, e && e.message);
+      return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+    }
+  }
+
+  /* ---- code-authenticated actions (Hussy's page) ---- */
+  const hash = String(body.hash || '').toLowerCase();
+  if (!hbIsHash(hash)) return res.status(400).json({ ok: false, error: 'bad hash' });
+  try {
+    const lock = await hbLockState(tag);
+    if (lock.locked) return res.status(200).json({ ok: false, locked: true, retryAfterSec: lock.retryAfterSec, error: 'too many tries — locked for a bit' });
+    const effective = await hbEffectiveCodeHash();
+    if (!hbHashEq(hash, effective)) {
+      const tripped = await hbRecordFail(tag);
+      return res.status(200).json({ ok: false, locked: tripped, error: 'code not right' });
+    }
+    await hbClearFails(tag);
+
+    if (action === 'hbCheck') return res.status(200).json({ ok: true });
+
+    if (action === 'hbGet') {
+      const [settings, statusPaper, statusLive, agent, master] = await Promise.all([
+        hbGetJson(HB_SETTINGS_KEY), hbGetJson(HB_STATUS_PAPER_KEY), hbGetJson(HB_STATUS_LIVE_KEY),
+        hbGetJson(HB_AGENT_KEY), hbGetJson(HB_MASTER_KEY),
+      ]);
+      return res.status(200).json({
+        ok: true,
+        settings: settings || HB_DEFAULT_SETTINGS,
+        status: { paper: statusPaper, live: statusLive },
+        agent, master,
+      });
+    }
+
+    if (action === 'hbSaveSettings') {
+      const clean = hbValidateSettings(body.settings);
+      if (!clean) return res.status(200).json({ ok: false, error: 'a setting is out of range' });
+      await upstashPipeline([['SET', HB_SETTINGS_KEY, JSON.stringify(clean)]]);
+      return res.status(200).json({ ok: true, settings: clean });
+    }
+
+    if (action === 'hbSaveMaster') {
+      const addr = String((body.master && body.master.address) || '');
+      if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) return res.status(200).json({ ok: false, error: 'bad wallet address' });
+      const rec = { address: addr, savedAt: new Date().toISOString() };
+      await upstashPipeline([['SET', HB_MASTER_KEY, JSON.stringify(rec)]]);
+      return res.status(200).json({ ok: true, master: rec });
+    }
+
+    if (action === 'hbCodeSet') {
+      const newHash = String(body.newHash || '').toLowerCase();
+      if (!hbIsHash(newHash)) return res.status(400).json({ ok: false, error: 'bad hash' });
+      await upstashPipeline([['SET', HB_CODE_KEY, newHash]]);
+      return res.status(200).json({ ok: true, set: true });
+    }
+
+    return res.status(400).json({ ok: false, error: 'unknown action' });
+  } catch (e) {
+    console.error('hussy page action failed', action, e && e.message);
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+}
+/* hussy-bot:end */
+
 export default async function handler(req, res) {
   /* Wallet Scope counter: /api/scope-count is rewritten to
      /api/luna-games?scope=1 (see the wallet-scope block above). Runs
@@ -4365,6 +4637,11 @@ export default async function handler(req, res) {
      Dedicated code hash in tda:codehash — NOT the panel's kbk key;
      every queue action re-verifies the hash server-side. */
   if (req.query && req.query.tda !== undefined) return tdaHandler(req, res);
+  /* Hussy Trading Bot control link: the page calls
+     /api/luna-games?hussybot=1 directly (see the hussy-bot block
+     above). Code hash + bot-secret hash live server-side; the
+     endpoint holds no keys and signs nothing. */
+  if (req.query && req.query.hussybot !== undefined) return hussyBotHandler(req, res);
   /* Garuda Dash payout admin: /api/garuda-admin is rewritten to
      /api/luna-games?garudaadmin=1 (see the garuda-admin block above). */
   if (req.query && req.query.garudaadmin !== undefined) return garudaAdminHandler(req, res);
