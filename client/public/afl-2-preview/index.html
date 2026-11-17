@@ -103,6 +103,7 @@ input,select{font-family:inherit}
 /* ---------- game screen ---------- */
 #screen-game{display:none}
 .gameShell{position:relative;border-radius:16px;overflow:hidden;border:1px solid var(--line);background:#06122e;box-shadow:0 10px 26px rgba(0,0,0,.5)}
+.gameShell::after{content:'';position:absolute;inset:0;z-index:2;pointer-events:none;background:radial-gradient(115% 92% at 50% 42%, transparent 56%, rgba(2,4,10,.40) 100%),linear-gradient(180deg, rgba(2,4,10,.24), transparent 18%, transparent 84%, rgba(2,4,10,.32))}
 #gameCanvas{display:block;width:100%;touch-action:none}
 #glCanvas{display:none;width:100%;touch-action:none}
 .hud{position:absolute;top:0;left:0;right:0;display:flex;gap:6px;align-items:flex-start;padding:8px;pointer-events:none;z-index:3}
@@ -481,6 +482,7 @@ function buildSprites(){
   SPR.herobg=loadImg('herobg','hero-bg.jpg');
   for(let i=0;i<12;i++) loadImg('exp'+i,'exp-'+String(i).padStart(2,'0')+'.png');
   for(let i=0;i<3;i++) loadImg('biome'+i,'biome-'+i+'.jpg');
+  for(let i=0;i<3;i++) loadImg('cloud'+i,'cloud-'+i+'.png');
   PLANES.forEach(p=>planeImg(p.id));
   const rest=[]; PLANES.forEach(p=>PLANE_SKINS[p.id].forEach(s=>{ if(s!==curSkin(p.id)) rest.push([p.id,s]); }));
   let ri=0; const step=()=>{ for(let n=0;n<3&&ri<rest.length;n++,ri++){ const pid=rest[ri][0], s=rest[ri][1]; loadImg('pl_'+pid+'_'+s, planeFile(pid,s), ()=>buildBank(pid,s)); }
@@ -1040,13 +1042,21 @@ function drawBG2(x,off){
     let flip=(Math.floor(off/h)%2!==0);
     for(;y<VH;y+=h,flip=!flip){ if(!flip) x.drawImage(img,0,y,w,h);
       else { x.save(); x.translate(0,y+h); x.scale(1,-1); x.drawImage(img,0,0,w,h); x.restore(); } }
-    x.fillStyle='rgba(10,16,40,.10)'; x.fillRect(0,0,VW,VH);
+    x.fillStyle='rgba(6,10,24,.16)'; x.fillRect(0,0,VW,VH);
   } else { const g=x.createLinearGradient(0,0,0,VH);
-    g.addColorStop(0,'#5ea9e6'); g.addColorStop(.45,'#9fd0f5'); g.addColorStop(1,'#a8bf7e');
+    g.addColorStop(0,'#16233c'); g.addColorStop(.45,'#1d3049'); g.addColorStop(1,'#101a26');
     x.fillStyle=g; x.fillRect(0,0,VW,VH); }
-  x.save(); x.globalAlpha=.5;
+  // atmosphere: two parallax storm-cloud layers (generated plates; procedural fallback)
+  const cl=[IMG.cloud0,IMG.cloud1,IMG.cloud2];
+  const useImg=cl[0]&&cl[0].width&&cl[1]&&cl[1].width&&cl[2]&&cl[2].width;
+  const spr=i=> useImg? cl[i%3] : cloudSpr[i%3];
+  x.save(); x.globalAlpha=.30; // far smoke layer — big, slow
+  for(let i=0;i<3;i++){ const y=((i*340+off*.42)%(VH+300))-260, cx=((i*197+30)%(VW+160))-80;
+    const s=spr(i+1); if(s&&s.width) x.drawImage(s, cx-170, y, 340, 116); }
+  x.restore();
+  x.save(); x.globalAlpha=.5; // near cloud layer
   for(let i=0;i<5;i++){ const y=((i*230+off*.8)%(VH+160))-140, cx=((i*151+40)%(VW+80))-40;
-    x.drawImage(cloudSpr[(i+1)%3], cx-90, y, 180, 74); }
+    const s=spr(i+1); if(s&&s.width) x.drawImage(s, cx-100, y, 200, 68); }
   x.restore();
 }
 function draw2D(){
@@ -1262,17 +1272,21 @@ function buildAlienMesh(){
 }
 function groundTexture(){
   const c=mkCanvas(512,512), x=c.getContext('2d');
-  const cols=['#7d9b52','#93ad60','#6d8a46','#a9bd76','#86995a','#7a9153'];
+  const cols=['#16242f','#1a2a36','#14202a','#1e3038','#182832','#152530'];
   const cell=64;
   for(let r=0;r<8;r++)for(let i=0;i<8;i++){ x.fillStyle=cols[(i+r*3)%cols.length]; x.fillRect(i*cell,r*cell,cell-2,cell-2); }
-  x.strokeStyle='rgba(60,70,40,.6)'; x.lineWidth=3;
+  x.strokeStyle='rgba(90,120,140,.35)'; x.lineWidth=3;
   x.beginPath(); x.moveTo(0,300); x.bezierCurveTo(150,260,330,350,512,300); x.stroke();
   const tx=new THREE.CanvasTexture(c); tx.wrapS=tx.wrapT=THREE.RepeatWrapping; tx.repeat.set(3,6); return tx;
 }
 function cloudTexture(){
+  const ci=IMG.cloud1;
+  if(ci&&ci.width){ const tx=new THREE.Texture(ci); tx.needsUpdate=true; return tx; }
   const c=mkCanvas(256,128), x=c.getContext('2d');
-  x.fillStyle='rgba(255,255,255,.95)';
+  x.fillStyle='rgba(52,64,84,.92)';
   for(let i=0;i<9;i++){ x.beginPath(); x.ellipse(36+((i*26)%180), 66+((i*11)%20)-10, rnd(24,44), rnd(11,18),0,0,7); x.fill(); }
+  x.fillStyle='rgba(130,146,170,.45)';
+  for(let i=0;i<9;i++){ x.beginPath(); x.ellipse(36+((i*26)%180), 58+((i*11)%20)-10, rnd(20,36), rnd(8,13),0,0,7); x.fill(); }
   return new THREE.CanvasTexture(c);
 }
 function init3D(){
@@ -1284,12 +1298,12 @@ function init3D(){
     renderer3=new THREE.WebGLRenderer({canvas:gl, antialias:true});
     renderer3.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
     scene3=new THREE.Scene();
-    scene3.background=new THREE.Color(0x87bfe8);
-    scene3.fog=new THREE.Fog(0x9fcdf2, 26, 60);
+    scene3.background=new THREE.Color(0x131c2b);
+    scene3.fog=new THREE.Fog(0x16202f, 26, 60);
     cam3=new THREE.PerspectiveCamera(58, VW/VH, .1, 120);
     cam3.position.set(0,16.5,19.5); cam3.lookAt(0,0,-3);
-    scene3.add(new THREE.AmbientLight(0xffffff,.75));
-    const sun=new THREE.DirectionalLight(0xfff2cf,.95); sun.position.set(8,18,6); scene3.add(sun);
+    scene3.add(new THREE.AmbientLight(0xcfd8ea,.55));
+    const sun=new THREE.DirectionalLight(0xffd9a8,.85); sun.position.set(8,18,6); scene3.add(sun);
     world3=new THREE.Group(); scene3.add(world3);
     groundTex=groundTexture();
     groundMesh=new THREE.Mesh(new THREE.PlaneGeometry(90,110), new THREE.MeshLambertMaterial({map:groundTex})); const ground=groundMesh;
