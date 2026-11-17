@@ -473,6 +473,36 @@ function walletErrText(e) {
   return msg.slice(0, 220) || 'unknown error';
 }
 
+/* Wallets disagree on the eth_signTypedData_v4 parameter order:
+   MetaMask wants [address, typedDataJSON]; Brave's provider wants
+   the typed data first and rejects the standard order with
+   "Invalid parameters: must provide an Ethereum address". Try the
+   standard order first; only on that invalid-params class of error
+   retry with the swapped order, then the object form. A user
+   rejection is never retried — it surfaces at once. Whichever
+   order succeeds proceeds; the venue read-back (extraAgents)
+   remains the only success proof. */
+function isInvalidParamsErr(e) {
+  if (!e) return false;
+  if (e.code === -32602) return true;
+  return /invalid parameters|must provide an Ethereum address|invalid params/i.test(e.message || String(e));
+}
+
+async function signTypedDataV4(address, typedData) {
+  const json = JSON.stringify(typedData);
+  const attempts = [[address, json], [json, address], [address, typedData]];
+  let lastErr = null;
+  for (const params of attempts) {
+    try {
+      return await window.ethereum.request({ method: 'eth_signTypedData_v4', params });
+    } catch (e) {
+      lastErr = e;
+      if (!isInvalidParamsErr(e)) throw e;
+    }
+  }
+  throw lastErr;
+}
+
 async function ensureSignChain() {
   let current = null;
   try { current = await window.ethereum.request({ method: 'eth_chainId' }); } catch (e) { return; }
@@ -529,7 +559,7 @@ async function approveKey() {
     $('walletNote').textContent = 'Confirm the signature in your wallet…';
     let sigHex;
     try {
-      sigHex = await window.ethereum.request({ method: 'eth_signTypedData_v4', params: [connectedAccount, JSON.stringify(typedData)] });
+      sigHex = await signTypedDataV4(connectedAccount, typedData);
     } catch (e) {
       $('walletNote').textContent = 'The signature did not go through: ' + walletErrText(e);
       $('approveBtn').disabled = false;
