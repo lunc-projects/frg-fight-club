@@ -897,11 +897,11 @@ function updateSim(dt){
   g.px=clamp(g.px,26,VW-26); g.py=clamp(g.py,VH*.34,VH-36);
   if(g.hurtCd>0)g.hurtCd-=dt;
   /* fire */
-  g.fireCd-=dt;
+  g.fireCd-=dt; g.muzzle=Math.max(0,(g.muzzle||0)-dt);
   const laserOn=g.boosts.laser>0;
   const rate=g.fireRate*(g.boosts.alien>0?1.4:1);
   if(g.fireCd<=0&&!laserOn){
-    g.fireCd=1/rate; SFX.shot();
+    g.fireCd=1/rate; SFX.shot(); g.muzzle=.05;
     const mk=(x,ang)=>g.bullets.push({x,y:g.py-30,vx:Math.sin(ang)*430,vy:-Math.cos(ang)*430,r:4,dmg:g.bulletDmg});
     mk(g.px,0);
     if(selPlane.fire>=8) { mk(g.px-11,0); mk(g.px+11,0); }
@@ -1061,12 +1061,25 @@ function drawBG2(x,off){
     const s=spr(i+1); if(s&&s.width) x.drawImage(s, cx-100, y, 200, 68); }
   x.restore();
 }
+/* tinted silhouettes for drop shadow + rim halo (cached per image) */
+const SILH=new WeakMap();
+function silhOf(img){
+  let e=SILH.get(img); if(e) return e;
+  const mk=(col)=>{ const c=mkCanvas(img.width,img.height), cx=c.getContext('2d');
+    cx.drawImage(img,0,0); cx.globalCompositeOperation='source-in'; cx.fillStyle=col; cx.fillRect(0,0,c.width,c.height); return c; };
+  e={blk:mk('#000000'), rim:mk('#cfe6ff')}; SILH.set(img,e); return e;
+}
 function draw2D(){
   const g=G; if(!g)return;
   const x=ctx2; x.save(); x.scale(2,2);
   if(g.shake>0) x.translate(rnd(-g.shake,g.shake)*.5, rnd(-g.shake,g.shake)*.5);
   drawBG2(x, g.bgOff);
   const drawFit=(img,cx,cy,w)=>{ if(!img||!img.width)return; const h=w*img.height/img.width; x.drawImage(img,cx-w/2,cy-h/2,w,h); };
+  // sprite with soft drop shadow + light rim halo so dark aircraft pop off the dark sea
+  const drawFitS=(img,cx,cy,w)=>{ if(!img||!img.width)return; const h=w*img.height/img.width, s=silhOf(img);
+    x.save(); x.globalAlpha=.34; x.drawImage(s.blk,cx-w/2+5,cy-h/2+11,w,h); x.restore();
+    x.save(); x.globalAlpha=.30; const hw=w*1.09, hh=h*1.09; x.drawImage(s.rim,cx-hw/2,cy-hh/2,hw,hh); x.restore();
+    x.drawImage(img,cx-w/2,cy-h/2,w,h); };
   // drops
   for(const d of g.drops){
     if(d.kind==='boost'){ const B=BOOSTERS[d.boost];
@@ -1081,11 +1094,11 @@ function draw2D(){
   for(const e of g.enemies){
     x.save(); x.translate(e.x,e.y);
     if(e.flash>0){ x.globalAlpha=.8; }
-    if(e.type==='saucer') drawFit(SPR.saucer,0,0,68);
-    else if(e.type==='boss') drawFit(g.level%2? SPR.boss2:SPR.boss1,0,0,208);
-    else if(e.type==='carrier') drawFit(SPR.drone,0,0,122);
-    else if(e.type==='weaver') drawFit(SPR.alien,0,0,64);
-    else drawFit(SPR.fighter,0,0,56);
+    if(e.type==='saucer') drawFitS(SPR.saucer,0,0,68);
+    else if(e.type==='boss') drawFitS(g.level%2? SPR.boss2:SPR.boss1,0,0,208);
+    else if(e.type==='carrier') drawFitS(SPR.drone,0,0,122);
+    else if(e.type==='weaver') drawFitS(SPR.alien,0,0,64);
+    else drawFitS(SPR.fighter,0,0,56);
     if(e.flash>0){ x.globalCompositeOperation='lighter'; x.globalAlpha=e.flash*5;
       x.fillStyle='#fff'; x.beginPath(); x.arc(0,0,e.r,0,7); x.fill(); x.globalCompositeOperation='source-over'; }
     x.restore();
@@ -1094,7 +1107,20 @@ function draw2D(){
   }
   // wingmen  // wingmen
   const drawPlaneAt=(px,py,scale,alpha,rot)=>{ x.save(); x.translate(px,py); x.globalAlpha=alpha; if(rot) x.rotate(rot);
-    if(g.boosts.alien>0) drawFit(SPR.saucer,0,0,66*scale); else drawFit(bankImg(selPlane.id),0,0,88*scale); x.restore(); };
+    if(g.boosts.alien>0) drawFitS(SPR.saucer,0,0,66*scale);
+    else { const img=bankImg(selPlane.id);
+      if(img&&img.width){ const w=88*scale, h=w*img.height/img.width;
+        // engine glow at the tail
+        x.save(); x.globalCompositeOperation='lighter';
+        const fl=.75+.25*Math.sin(g.t*31), gr=x.createRadialGradient(0,h/2-4,1,0,h/2-4,20*scale);
+        gr.addColorStop(0,'rgba(255,170,60,'+(.5*fl)+')'); gr.addColorStop(1,'rgba(255,120,30,0)');
+        x.fillStyle=gr; x.beginPath(); x.arc(0,h/2-4,20*scale,0,7); x.fill(); x.restore();
+        drawFitS(img,0,0,w);
+        // prop blur disc at the nose
+        x.save(); x.globalAlpha=alpha*(.13+.05*Math.sin(g.t*47));
+        x.fillStyle='#e8f2ff'; x.beginPath(); x.ellipse(0,-h/2+4,17*scale,4.2*scale,0,0,7); x.fill(); x.restore();
+      } else drawFitS(img,0,0,88*scale);
+    } x.restore(); };
   if(g.boosts.wingman>0){ drawPlaneAt(g.px-48,g.py+10,.72,.92); drawPlaneAt(g.px+48,g.py+10,.72,.92); }
   // laser beam
   if(g.boosts.laser>0){ x.fillStyle='rgba(110,231,255,.22)'; x.fillRect(g.px-8,0,16,g.py-22);
@@ -1105,6 +1131,13 @@ function draw2D(){
   x.save(); if(g.boosts.stealth>0)x.globalAlpha=.45;
   if(!blink) drawPlaneAt(g.px,g.py,1,1,(g.bank||0)*.16);
   x.restore();
+  // muzzle flash at the nose while the guns fire
+  if(!blink && g.muzzle>0 && !(g.boosts.laser>0)){ const a=Math.max(0,g.muzzle/.05);
+    x.save(); x.translate(g.px,g.py-46); x.globalCompositeOperation='lighter'; x.globalAlpha=a;
+    x.strokeStyle='#ffe9a8'; x.lineWidth=2.4;
+    x.beginPath(); x.moveTo(-9,0); x.lineTo(9,0); x.moveTo(0,-9); x.lineTo(0,9); x.stroke();
+    const mg=x.createRadialGradient(0,0,0,0,0,13); mg.addColorStop(0,'rgba(255,220,140,.85)'); mg.addColorStop(1,'rgba(255,180,60,0)');
+    x.fillStyle=mg; x.beginPath(); x.arc(0,0,13,0,7); x.fill(); x.restore(); }
   // engine trail
   for(let i=0;i<2;i++) g.parts.push({x:g.px+rnd(-3,3),y:g.py+34,vx:rnd(-6,6),vy:rnd(60,110),life:.28,maxLife:.28,r:rnd(2,3.4),col:Math.random()<.5?'#ffd97a':'#ff9a3d',type:'spark'});
   // shield bubble
