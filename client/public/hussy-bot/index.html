@@ -473,34 +473,101 @@ function walletErrText(e) {
   return msg.slice(0, 220) || 'unknown error';
 }
 
-/* Wallets disagree on the eth_signTypedData_v4 parameter order:
-   MetaMask wants [address, typedDataJSON]; Brave's provider wants
-   the typed data first and rejects the standard order with
-   "Invalid parameters: must provide an Ethereum address". Try the
-   standard order first; only on that invalid-params class of error
-   retry with the swapped order, then the object form. A user
-   rejection is never retried — it surfaces at once. Whichever
-   order succeeds proceeds; the venue read-back (extraAgents)
-   remains the only success proof. */
-function isInvalidParamsErr(e) {
+/* ROUND 3 — INSTRUMENT, DON'T GUESS. Two page fixes failed against
+   Hussy's real wallet (Brave iOS / WebKit): the standard order drew
+   "Invalid parameters: must provide an Ethereum address", and one of
+   the round-2 fallback shapes fed his 0x… address into a JSON.parse
+   slot — "JSON Parse error: Unexpected character: x". We never knew
+   WHICH attempt produced WHICH error on his device. So now the page
+   tries the full shape matrix, records EVERY attempt (shape,
+   timestamp, error name + message), and POSTs the log to the
+   hussybot API (hbApproveLog) where it can be read back afterwards.
+   Attempt order (each tried at most once):
+     1. addr-json  [address, typedDataJSON]   — the MetaMask standard
+     2. addr-obj   [address, typedDataObject] — native object form
+     3. json-addr  [typedDataJSON, address]   — swapped string form
+     4. obj-addr   [typedDataObject, address] — swapped object form
+     5. signer     — an ethers-style signer path, ONLY when the
+                     provider actually exposes one (getSigner).
+   Any provider error moves to the next shape EXCEPT an explicit
+   user rejection (code 4001 / rejection wording), which halts the
+   chain at once — the wallet must never be re-prompted after the
+   user said no. Whichever shape signs proceeds; the venue read-back
+   (extraAgents) remains the only success proof. */
+function isUserRejection(e) {
   if (!e) return false;
-  if (e.code === -32602) return true;
-  return /invalid parameters|must provide an Ethereum address|invalid params/i.test(e.message || String(e));
+  if (e.code === 4001) return true;
+  return /user rejected|user denied|rejected the request|request rejected|user cancelled|user canceled/i.test(e.message || String(e));
+}
+
+async function postApproveLog(attempts, outcome) {
+  try {
+    await api({ action: 'hbApproveLog', hash: codeHash, log: {
+      at: new Date().toISOString(),
+      account: connectedAccount || '',
+      ua: typeof navigator !== 'undefined' ? String(navigator.userAgent || '').slice(0, 200) : '',
+      outcome,
+      attempts,
+    } });
+  } catch (e) { /* the log is best-effort — it never blocks the approval */ }
+}
+
+function signerPathAvailable() {
+  return !!(window.ethereum && typeof window.ethereum.getSigner === 'function');
+}
+
+async function signViaSignerPath(address, typedData) {
+  const signer = await window.ethereum.getSigner(address);
+  const types = { ...typedData.types };
+  delete types.EIP712Domain;
+  if (signer && typeof signer._signTypedData === 'function') {
+    return signer._signTypedData(typedData.domain, types, typedData.message);
+  }
+  if (signer && typeof signer.signTypedData === 'function') {
+    return signer.signTypedData(typedData.domain, types, typedData.message);
+  }
+  throw new Error('the signer path exposes no typed-data signing method');
 }
 
 async function signTypedDataV4(address, typedData) {
   const json = JSON.stringify(typedData);
-  const attempts = [[address, json], [json, address], [address, typedData]];
+  const shapes = [
+    { label: 'addr-json', run: () => window.ethereum.request({ method: 'eth_signTypedData_v4', params: [address, json] }) },
+    { label: 'addr-obj', run: () => window.ethereum.request({ method: 'eth_signTypedData_v4', params: [address, typedData] }) },
+    { label: 'json-addr', run: () => window.ethereum.request({ method: 'eth_signTypedData_v4', params: [json, address] }) },
+    { label: 'obj-addr', run: () => window.ethereum.request({ method: 'eth_signTypedData_v4', params: [typedData, address] }) },
+  ];
+  if (signerPathAvailable()) {
+    shapes.push({ label: 'signer', run: () => signViaSignerPath(address, typedData) });
+  }
+  const attempts = [];
   let lastErr = null;
-  for (const params of attempts) {
+  for (const shape of shapes) {
+    const rec = { shape: shape.label, at: new Date().toISOString(), ok: false, code: null, errorName: '', errorMessage: '' };
     try {
-      return await window.ethereum.request({ method: 'eth_signTypedData_v4', params });
+      const sig = await shape.run();
+      rec.ok = true;
+      attempts.push(rec);
+      await postApproveLog(attempts, 'signed:' + shape.label);
+      return sig;
     } catch (e) {
       lastErr = e;
-      if (!isInvalidParamsErr(e)) throw e;
+      rec.code = e && e.code !== undefined ? e.code : null;
+      rec.errorName = (e && e.name) || '';
+      rec.errorMessage = String((e && e.message) || e || '').slice(0, 300);
+      attempts.push(rec);
+      if (isUserRejection(e)) {
+        await postApproveLog(attempts, 'rejected');
+        throw e;
+      }
     }
   }
-  throw lastErr;
+  await postApproveLog(attempts, 'failed');
+  const err = new Error('every signature shape was refused');
+  err.allShapesFailed = true;
+  err.attempts = attempts;
+  err.lastError = lastErr;
+  throw err;
 }
 
 async function ensureSignChain() {
@@ -561,7 +628,15 @@ async function approveKey() {
     try {
       sigHex = await signTypedDataV4(connectedAccount, typedData);
     } catch (e) {
-      $('walletNote').textContent = 'The signature did not go through: ' + walletErrText(e);
+      if (e && e.allShapesFailed) {
+        /* Every shape was refused. Do not show him one confusing
+           error picked from the pile — the full attempt log already
+           went to the server automatically, where the real reasons
+           can be read. */
+        $('walletNote').textContent = 'Your wallet refused every signature shape we tried — nothing was signed. The details were sent to us automatically, so we can see exactly what your wallet said and fix it from our side.';
+      } else {
+        $('walletNote').textContent = 'The signature did not go through: ' + walletErrText(e);
+      }
       $('approveBtn').disabled = false;
       return false;
     }

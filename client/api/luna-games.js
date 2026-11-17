@@ -4371,6 +4371,14 @@ export async function hsPairHandler(req, res) {
                    the bot. The agent KEY never leaves the bot host.
      hb:master     {address, savedAt} — Hussy's own wallet address,
                    saved by the page after he connects. Public data.
+     hb:approvelog — a capped LIST (newest first, max 20 entries) of
+                   approve-signing attempt logs the page posts after
+                   every approveAgent signature chain (action
+                   hbApproveLog): which eth_signTypedData_v4 parameter
+                   shapes were tried, in order, and the exact error
+                   each one drew from his wallet. Diagnostic only —
+                   no signatures, no keys. Read back by the bot side
+                   (action hbBotApproveLogs).
    This endpoint holds no keys, signs nothing, moves no funds. The
    page talks to Hyperliquid directly for the approveAgent
    signature; the bot signs orders with the agent key on its own
@@ -4386,6 +4394,8 @@ const HB_STATUS_PAPER_KEY = 'hb:status:paper';
 const HB_STATUS_LIVE_KEY = 'hb:status:live';
 const HB_AGENT_KEY = 'hb:agent';
 const HB_MASTER_KEY = 'hb:master';
+const HB_APPROVELOG_KEY = 'hb:approvelog';
+const HB_APPROVELOG_CAP = 20;
 const HB_MAX_FAILS = 8;
 const HB_FAIL_WINDOW_SEC = 15 * 60;
 const HB_LOCKOUT_SEC = 15 * 60;
@@ -4494,6 +4504,36 @@ function hbValidateSettings(input) {
   };
 }
 
+/* Sanitise one approve-attempt log from the page. Every field is
+   length-capped and the attempts list is bounded; anything malformed
+   drops the whole log (returns null). The stored record gains a
+   server receive timestamp. */
+function hbSanitizeApproveLog(log) {
+  if (!log || typeof log !== 'object') return null;
+  const str = (v, n) => String(v === null || v === undefined ? '' : v).slice(0, n);
+  const attemptsIn = Array.isArray(log.attempts) ? log.attempts.slice(0, 12) : [];
+  if (!attemptsIn.length) return null;
+  const attempts = attemptsIn.map((a) => {
+    const rec = a && typeof a === 'object' ? a : {};
+    return {
+      shape: str(rec.shape, 40),
+      at: str(rec.at, 40),
+      ok: rec.ok === true,
+      code: (typeof rec.code === 'number' || typeof rec.code === 'string') ? String(rec.code).slice(0, 20) : null,
+      errorName: str(rec.errorName, 80),
+      errorMessage: str(rec.errorMessage, 300),
+    };
+  });
+  return {
+    receivedAt: new Date().toISOString(),
+    at: str(log.at, 40),
+    account: /^0x[0-9a-fA-F]{40}$/.test(String(log.account || '')) ? String(log.account) : '',
+    ua: str(log.ua, 200),
+    outcome: str(log.outcome, 40),
+    attempts,
+  };
+}
+
 export async function hussyBotHandler(req, res) {
   if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ ok: false, error: 'method not allowed' });
@@ -4519,7 +4559,7 @@ export async function hussyBotHandler(req, res) {
   const tag = hbIpTag(req);
 
   /* ---- bot-authenticated actions (hash of the file-only secret) ---- */
-  if (action === 'hbBotRegister' || action === 'hbBotGet' || action === 'hbBotStatus' || action === 'hbBotAgent') {
+  if (action === 'hbBotRegister' || action === 'hbBotGet' || action === 'hbBotStatus' || action === 'hbBotAgent' || action === 'hbBotApproveLogs') {
     const bhash = String(body.bhash || '').toLowerCase();
     if (!hbIsHash(bhash)) return res.status(400).json({ ok: false, error: 'bad hash' });
     try {
@@ -4537,6 +4577,12 @@ export async function hussyBotHandler(req, res) {
           hbGetJson(HB_SETTINGS_KEY), hbGetJson(HB_MASTER_KEY), hbGetJson(HB_AGENT_KEY),
         ]);
         return res.status(200).json({ ok: true, settings: settings || HB_DEFAULT_SETTINGS, master, agent });
+      }
+      if (action === 'hbBotApproveLogs') {
+        const out = await upstashPipeline([['LRANGE', HB_APPROVELOG_KEY, 0, HB_APPROVELOG_CAP - 1]]);
+        const raw = (out[0] && out[0].result) || [];
+        const logs = raw.map((v) => { try { return JSON.parse(v); } catch (e) { return null; } }).filter(Boolean);
+        return res.status(200).json({ ok: true, logs });
       }
       if (action === 'hbBotStatus') {
         const kind = body.kind === 'live' ? 'live' : 'paper';
@@ -4573,6 +4619,16 @@ export async function hussyBotHandler(req, res) {
     await hbClearFails(tag);
 
     if (action === 'hbCheck') return res.status(200).json({ ok: true });
+
+    if (action === 'hbApproveLog') {
+      const rec = hbSanitizeApproveLog(body.log);
+      if (!rec) return res.status(200).json({ ok: false, error: 'bad log' });
+      await upstashPipeline([
+        ['LPUSH', HB_APPROVELOG_KEY, JSON.stringify(rec)],
+        ['LTRIM', HB_APPROVELOG_KEY, 0, HB_APPROVELOG_CAP - 1],
+      ]);
+      return res.status(200).json({ ok: true, stored: true });
+    }
 
     if (action === 'hbGet') {
       const [settings, statusPaper, statusLive, agent, master] = await Promise.all([
