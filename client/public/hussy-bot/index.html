@@ -146,6 +146,7 @@
       </div>
       <button class="btn primary hidden" id="approveBtn">Approve the bot to trade</button>
       <p class="note">Deposit USDC inside the Hyperliquid app first — the bot trades what's in your account, up to your pot setting. No deposit is made from this page.</p>
+      <p class="note">If signing fails in Brave, open this page inside MetaMask's own browser instead.</p>
     </div>
 
     <div class="updated" id="updated"></div>
@@ -371,7 +372,7 @@ $('connectBtn').addEventListener('click', async () => {
     if (data) { data.master = { address: connectedAccount }; renderWallet(data); }
     checkAgent();
   } catch (e) {
-    $('walletNote').textContent = 'Wallet connection was cancelled or failed.';
+    $('walletNote').textContent = 'Wallet connection did not go through: ' + walletErrText(e);
   }
 });
 
@@ -394,46 +395,111 @@ async function checkAgent() {
   } catch (e) { $('agentState').textContent = 'could not check — try again'; }
 }
 
+/* The approval signature is bound to Arbitrum One (signatureChainId
+   0xa4b1). Strict wallets (Brave) refuse eth_signTypedData_v4 when the
+   typed-data chain does not match the wallet's active chain, so the
+   wallet is switched to Arbitrum before signing. The EIP-712 domain
+   must match the official SDK byte-for-byte: verifyingContract is the
+   ZERO address (an earlier build used 0x5555…5555, whose signatures
+   recover to a different account at the venue and can never approve
+   the signer). Every failure below shows the real reason. */
+const HL_SIGN_CHAIN_ID = '0xa4b1';
+
+function walletErrText(e) {
+  if (!e) return 'unknown error';
+  const msg = (e.message || String(e) || '').trim();
+  if (e.code === 4001 || /reject|cancel|denied/i.test(msg)) {
+    return 'you cancelled it in your wallet — nothing was signed. Tap Approve again and confirm the signature in your wallet.';
+  }
+  return msg.slice(0, 220) || 'unknown error';
+}
+
+async function ensureSignChain() {
+  let current = null;
+  try { current = await window.ethereum.request({ method: 'eth_chainId' }); } catch (e) { return; }
+  if (current && String(current).toLowerCase() === HL_SIGN_CHAIN_ID) return;
+  try {
+    await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: HL_SIGN_CHAIN_ID }] });
+  } catch (e) {
+    if (e && e.code === 4902) {
+      await window.ethereum.request({ method: 'wallet_addEthereumChain', params: [{ chainId: HL_SIGN_CHAIN_ID, chainName: 'Arbitrum One', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: ['https://arb1.arbitrum.io/rpc'], blockExplorerUrls: ['https://arbiscan.io'] }] });
+      return;
+    }
+    throw e;
+  }
+}
+
 $('approveBtn').addEventListener('click', async () => {
   if (!connectedAccount || !data || !data.agent) return;
   const agentAddress = data.agent.address;
-  const nonce = Date.now();
-  const validUntil = Date.now() + 179 * 24 * 3600 * 1000;
-  const agentName = 'hussy-bot valid_until ' + validUntil;
-  const action = { type: 'approveAgent', hyperliquidChain: 'Mainnet', signatureChainId: '0xa4b1', agentAddress, agentName, nonce };
-  const typedData = {
-    domain: { name: 'HyperliquidSignTransaction', version: '1', chainId: 42161, verifyingContract: '0x5555555555555555555555555555555555555555' },
-    primaryType: 'HyperliquidTransaction:ApproveAgent',
-    types: {
-      EIP712Domain: [
-        { name: 'name', type: 'string' }, { name: 'version', type: 'string' },
-        { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' },
-      ],
-      'HyperliquidTransaction:ApproveAgent': [
-        { name: 'hyperliquidChain', type: 'string' },
-        { name: 'agentAddress', type: 'address' },
-        { name: 'agentName', type: 'string' },
-        { name: 'nonce', type: 'uint64' },
-      ],
-    },
-    message: { hyperliquidChain: 'Mainnet', agentAddress, agentName, nonce },
-  };
+  $('approveBtn').disabled = true;
   try {
-    $('approveBtn').disabled = true;
-    const sigHex = await window.ethereum.request({ method: 'eth_signTypedData_v4', params: [connectedAccount, JSON.stringify(typedData)] });
+    $('walletNote').textContent = 'Getting your wallet ready…';
+    try {
+      await ensureSignChain();
+    } catch (e) {
+      $('walletNote').textContent = 'Your wallet would not switch to Arbitrum, which this approval signature needs: ' + walletErrText(e);
+      $('approveBtn').disabled = false;
+      return;
+    }
+    const nonce = Date.now();
+    const validUntil = Date.now() + 179 * 24 * 3600 * 1000;
+    const agentName = 'hussy-bot valid_until ' + validUntil;
+    const action = { type: 'approveAgent', hyperliquidChain: 'Mainnet', signatureChainId: '0xa4b1', agentAddress, agentName, nonce };
+    const typedData = {
+      domain: { name: 'HyperliquidSignTransaction', version: '1', chainId: 42161, verifyingContract: '0x0000000000000000000000000000000000000000' },
+      primaryType: 'HyperliquidTransaction:ApproveAgent',
+      types: {
+        EIP712Domain: [
+          { name: 'name', type: 'string' }, { name: 'version', type: 'string' },
+          { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' },
+        ],
+        'HyperliquidTransaction:ApproveAgent': [
+          { name: 'hyperliquidChain', type: 'string' },
+          { name: 'agentAddress', type: 'address' },
+          { name: 'agentName', type: 'string' },
+          { name: 'nonce', type: 'uint64' },
+        ],
+      },
+      message: { hyperliquidChain: 'Mainnet', agentAddress, agentName, nonce },
+    };
+    $('walletNote').textContent = 'Confirm the signature in your wallet…';
+    let sigHex;
+    try {
+      sigHex = await window.ethereum.request({ method: 'eth_signTypedData_v4', params: [connectedAccount, JSON.stringify(typedData)] });
+    } catch (e) {
+      $('walletNote').textContent = 'The signature did not go through: ' + walletErrText(e);
+      $('approveBtn').disabled = false;
+      return;
+    }
     const signature = { r: sigHex.slice(0, 66), s: '0x' + sigHex.slice(66, 130), v: parseInt(sigHex.slice(130, 132), 16) };
-    const r = await fetch(HL_API + '/exchange', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, nonce, signature }) });
-    const out = await r.json();
+    let out;
+    try {
+      const r = await fetch(HL_API + '/exchange', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, nonce, signature }) });
+      out = await r.json();
+    } catch (e) {
+      $('walletNote').textContent = 'You signed, but the approval could not be sent to Hyperliquid (' + walletErrText(e) + '). Check your connection and tap Approve again.';
+      $('approveBtn').disabled = false;
+      return;
+    }
     if (out && out.status === 'ok') {
-      $('agentState').innerHTML = '<span class="ok">approved ✓</span>';
-      $('approveBtn').classList.add('hidden');
-      setTimeout(checkAgent, 2500);
+      /* Do not trust the click — confirm by reading the approval back
+         from the venue (extraAgents) before showing "approved". */
+      $('walletNote').textContent = 'Hyperliquid accepted it — confirming your approval…';
+      for (let i = 0; i < 6; i++) {
+        await new Promise((res) => setTimeout(res, 2000));
+        await checkAgent();
+        if ($('approveBtn').classList.contains('hidden')) { $('walletNote').textContent = ''; return; }
+      }
+      $('walletNote').textContent = 'Hyperliquid accepted the approval, but it is not showing on your account yet. Give it a few seconds, then reconnect your wallet to check again.';
+      $('approveBtn').disabled = false;
     } else {
-      $('walletNote').textContent = 'Hyperliquid did not accept the approval: ' + JSON.stringify(out).slice(0, 200);
+      const why = out && typeof out.response === 'string' ? out.response : JSON.stringify(out).slice(0, 200);
+      $('walletNote').textContent = 'Hyperliquid did not accept the approval: ' + why;
       $('approveBtn').disabled = false;
     }
   } catch (e) {
-    $('walletNote').textContent = 'Approval was cancelled or failed — nothing was signed.';
+    $('walletNote').textContent = 'Approval failed: ' + walletErrText(e);
     $('approveBtn').disabled = false;
   }
 });
