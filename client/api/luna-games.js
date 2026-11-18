@@ -176,6 +176,12 @@ const GAMES = {
      win 1000 + stage x500 + remaining-HP bonus (<=300) + 5000 champion;
      a full ladder clear lands ~35-65k — rails generous per house rule. */
   frogarena: { prefix: 'frogarena', maxScore: 500000, minSec: 10, maxSec: 3600, rateMul: 300, rateBase: 2000 },
+  /* Frog Clash (client/public/frog-clash/): Arena Clash 3D engine with
+     NFT frog billboards — score = damage dealt x10 (accumulates across
+     the whole ladder run) + match win 1000 + stage x500 + remaining-HP
+     bonus (<=300) + 5000 champion; a full ladder clear lands ~35-65k —
+     rails generous per the house rule. */
+  frogclash: { prefix: 'frogclash', maxScore: 500000, minSec: 10, maxSec: 3600, rateMul: 300, rateBase: 2000 },
   /* Frog Cards (Frogztrik NFT card battles, client/public/frog-cards/):
      score = ladder run total — 400 x rival level per win + surviving
      hero life x5; a five-rival run lands ~4-8k, endless rematches at the
