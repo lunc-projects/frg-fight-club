@@ -1,0 +1,1480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Frogztrik Frog Hop — The Amphibians</title>
+<meta name="description" content="LUNC Frog Hop: hop the frog across the roads and river to the lily pads. A Luna Classic arcade game.">
+<meta property="og:title" content="LUNC Frog Hop">
+<meta property="og:description" content="Dodge the traffic, ride the logs, fill the lily pads. A Luna Classic arcade game.">
+<meta property="og:type" content="website">
+<link rel="icon" type="image/png" href="favicon-32.png">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; overflow:hidden; background:#0d1f16; }
+  body { font-family:'Trebuchet MS','Segoe UI',Verdana,sans-serif; color:#eaffea;
+         height:100dvh; position:relative; user-select:none; -webkit-user-select:none; touch-action:none; }
+  #game { position:fixed; inset:0; }
+  #game canvas { display:block; }
+  .hidden { display:none !important; }
+
+  /* ---------- HUD ---------- */
+  #hud { position:fixed; top:0; left:0; right:0; padding:calc(6px + env(safe-area-inset-top)) 10px 6px;
+         display:flex; flex-direction:column; gap:5px; pointer-events:none; z-index:5; }
+  #hudTop { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
+  .hudBox { background:rgba(6,26,14,.72); border:1.5px solid rgba(140,255,170,.35); border-radius:11px;
+            padding:5px 10px; font-size:13px; font-weight:700; line-height:1.25; backdrop-filter:blur(3px); }
+  .hudBox small { display:block; font-size:9.5px; letter-spacing:.12em; opacity:.75; font-weight:700; }
+  .hudBox .val { font-size:16px; color:#ffe066; }
+  #livesBox { font-size:15px; letter-spacing:2px; }
+  #timerWrap { height:9px; border-radius:6px; background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.25); overflow:hidden; }
+  #timerBar { height:100%; width:100%; background:linear-gradient(90deg,#57e389,#ffe066); transition:width .2s linear; }
+  #timerBar.low { background:linear-gradient(90deg,#ff5d5d,#ff9f43); }
+  #padsRow { display:flex; gap:5px; justify-content:center; }
+  .padDot { width:17px; height:17px; border-radius:50%; background:rgba(255,255,255,.15); border:1.5px solid rgba(160,255,190,.5); font-size:11px; text-align:center; line-height:15px; }
+  .padDot.full { background:#3ab44a; border-color:#b6ffc4; }
+  #hudBtns { position:fixed; top:calc(64px + env(safe-area-inset-top)); right:10px; display:flex; flex-direction:column; gap:7px; z-index:6; }
+  .roundBtn { width:42px; height:42px; border-radius:50%; border:1.5px solid rgba(140,255,170,.4);
+              background:rgba(6,26,14,.75); color:#eaffea; font-size:18px; cursor:pointer; }
+  #toast { position:fixed; top:24%; left:50%; transform:translateX(-50%); z-index:7; pointer-events:none;
+           font-size:25px; font-weight:900; color:#ffe066; text-shadow:0 2px 0 #7a4d00,0 0 18px rgba(255,200,40,.55);
+           opacity:0; transition:opacity .18s, transform .18s; text-align:center; white-space:nowrap; }
+  #toast.show { opacity:1; transform:translateX(-50%) scale(1.08); }
+
+  /* ---------- hop pad ---------- */
+  #pad { position:fixed; left:50%; transform:translateX(-50%); bottom:calc(10px + env(safe-area-inset-bottom));
+         z-index:6; display:grid; grid-template-columns:repeat(3,58px); grid-template-rows:repeat(2,58px); gap:6px; }
+  .hopBtn { border-radius:16px; border:2px solid rgba(160,255,190,.45); background:rgba(8,34,18,.78); color:#c9ffd6;
+            font-size:24px; cursor:pointer; backdrop-filter:blur(3px); }
+  .hopBtn:active { background:rgba(46,140,74,.85); transform:scale(.94); }
+  #hopUp { grid-column:2; grid-row:1; } #hopLeft { grid-column:1; grid-row:2; }
+  #hopDown { grid-column:2; grid-row:2; } #hopRight { grid-column:3; grid-row:2; }
+
+  /* ---------- screens ---------- */
+  .screen { position:fixed; inset:0; z-index:10; display:flex; align-items:center; justify-content:center;
+            background:rgba(4,18,10,.55); padding:14px; overflow-y:auto; }
+  .panel { width:100%; max-width:400px; background:linear-gradient(165deg,rgba(10,40,22,.97),rgba(6,24,14,.97));
+           border:2px solid rgba(120,255,165,.35); border-radius:20px; padding:20px 18px 18px; text-align:center;
+           box-shadow:0 18px 50px rgba(0,0,0,.6); max-height:calc(100dvh - 28px); overflow-y:auto; }
+  .logoEmoji { font-size:52px; line-height:1; filter:drop-shadow(0 4px 10px rgba(0,0,0,.5)); }
+  h1.title { font-size:31px; letter-spacing:.02em; color:#8dff9e; text-shadow:0 2px 0 #14521f,0 0 22px rgba(80,255,130,.35); margin:2px 0 0; }
+  .subtitle { color:#ffe066; font-weight:800; letter-spacing:.28em; font-size:11.5px; margin:3px 0 6px; }
+  .tagline { font-size:13.5px; opacity:.92; margin-bottom:12px; line-height:1.45; }
+  .btn { display:block; width:100%; padding:13px 12px; margin:8px 0; border-radius:13px; border:2px solid #2e8c4a;
+         background:linear-gradient(180deg,#37b24d,#237a36); color:#fff; font-size:16.5px; font-weight:800;
+         letter-spacing:.03em; cursor:pointer; font-family:inherit; }
+  .btn:active { transform:scale(.98); }
+  .btn.alt { background:linear-gradient(180deg,#2b4a38,#1b3325); border-color:rgba(140,255,170,.35); font-size:14.5px; padding:11px 12px; }
+  .btn.gold { background:linear-gradient(180deg,#e8a91c,#b97e0a); border-color:#ffd968; color:#2b1c00; }
+  .btnRow { display:flex; gap:8px; } .btnRow .btn { margin:8px 0; }
+  #langSel { width:100%; margin:4px 0 10px; padding:12px; font-size:16px; font-weight:700; border-radius:12px;
+             border:2px solid rgba(140,255,170,.5); background:#0d2f1a; color:#eaffea; font-family:inherit; }
+  .howBox { text-align:left; font-size:13.5px; line-height:1.55; background:rgba(255,255,255,.05);
+            border:1px solid rgba(255,255,255,.12); border-radius:12px; padding:11px 13px; margin:10px 0; }
+  .statGrid { display:flex; gap:8px; margin:10px 0; }
+  .statCell { flex:1; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); border-radius:12px; padding:9px 4px; }
+  .statCell .v { font-size:20px; font-weight:900; color:#ffe066; }
+  .statCell .k { font-size:10px; letter-spacing:.12em; opacity:.75; font-weight:700; }
+  input.nameIn { width:100%; padding:12px; font-size:16px; border-radius:12px; border:2px solid rgba(140,255,170,.5);
+                 background:#0d2f1a; color:#fff; text-align:center; font-family:inherit; margin:6px 0; }
+  #submitStatus { font-size:13px; min-height:18px; color:#ffe066; }
+  .row { display:flex; align-items:center; gap:8px; padding:6.5px 8px; border-bottom:1px solid rgba(255,255,255,.08); font-size:14.5px; }
+  .row .rk { width:28px; opacity:.7; font-weight:800; } .row .nm { flex:1; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .row .sc { font-weight:900; color:#ffe066; }
+  /* skins */
+  .skinGrid { display:grid; grid-template-columns:1fr 1fr; gap:9px; margin:10px 0; }
+  .skinCard { border:2px solid rgba(255,255,255,.16); background:rgba(255,255,255,.05); border-radius:14px; padding:10px 8px; cursor:pointer; }
+  .skinCard.sel { border-color:#57e389; background:rgba(58,180,74,.16); }
+  .skinCard.locked { opacity:.55; }
+  .perkBox { border:2px solid rgba(255,217,104,.4); background:rgba(242,193,52,.08); border-radius:14px; padding:10px 12px; margin-top:10px; font-size:13px; line-height:1.55; text-align:left; }
+  .perkBox:empty { display:none; }
+  .nftItem { display:flex; gap:10px; align-items:center; width:100%; text-align:left; border:2px solid rgba(255,255,255,.16); background:rgba(255,255,255,.05); border-radius:14px; padding:7px 9px; margin-top:7px; cursor:pointer; color:#fff; font-family:inherit; }
+  .nftItem.sel { border-color:#57e389; background:rgba(58,180,74,.16); }
+  .nftItem img { width:52px; height:52px; border-radius:10px; object-fit:cover; background:#123; }
+  .nftItem .t1 { font-weight:800; font-size:14px; }
+  .nftItem .t2 { font-size:12px; opacity:.8; }
+  .skinDot { width:44px; height:44px; border-radius:50%; margin:0 auto 6px; border:3px solid rgba(255,255,255,.35); position:relative; }
+  .skinDot::after { content:'👀'; position:absolute; top:-9px; left:50%; transform:translateX(-50%); font-size:13px; }
+  .skinName { font-size:13px; font-weight:800; }
+  .skinState { font-size:11px; color:#8dff9e; font-weight:700; letter-spacing:.06em; }
+  .nftBox { border:2px dashed rgba(160,200,255,.45); border-radius:14px; padding:14px 12px; margin-top:10px;
+            background:rgba(70,110,200,.08); font-size:13px; line-height:1.5; }
+  .nftBox .big { font-size:22px; }
+  .footNote { font-size:11px; opacity:.65; margin-top:10px; line-height:1.5; }
+  #levelSplash { position:fixed; inset:0; z-index:8; display:flex; align-items:center; justify-content:center; pointer-events:none; }
+  #levelSplash .in { font-size:34px; font-weight:900; color:#fff; text-shadow:0 3px 0 #14521f,0 0 30px rgba(80,255,130,.6); text-align:center; }
+  #levelSplash .in small { display:block; font-size:15px; color:#ffe066; letter-spacing:.2em; margin-top:4px; }
+</style>
+</head>
+<body>
+<div id="game"></div>
+
+<!-- HUD -->
+<div id="hud" class="hidden">
+  <div id="hudTop">
+    <div class="hudBox"><small data-i="score">SCORE</small><span class="val" id="hudScore">0</span></div>
+    <div class="hudBox"><small data-i="level">LEVEL</small><span class="val" id="hudLevel">1</span></div>
+    <div class="hudBox"><small data-i="lives">LIVES</small><span id="livesBox">🐸🐸🐸</span></div>
+    <div class="hudBox"><small data-i="best">BEST</small><span class="val" id="hudBest">0</span></div>
+  </div>
+  <div id="timerWrap"><div id="timerBar"></div></div>
+  <div id="padsRow"></div>
+</div>
+<div id="hudBtns" class="hidden">
+  <button class="roundBtn" id="pauseBtn" aria-label="Pause">⏸️</button>
+  <button class="roundBtn" id="soundBtn" aria-label="Sound">🔊</button>
+</div>
+<div id="toast"></div>
+<div id="levelSplash" class="hidden"><div class="in" id="levelSplashTxt"></div></div>
+
+<!-- hop pad -->
+<div id="pad" class="hidden">
+  <button class="hopBtn" id="hopUp">⬆️</button>
+  <button class="hopBtn" id="hopLeft">⬅️</button>
+  <button class="hopBtn" id="hopDown">⬇️</button>
+  <button class="hopBtn" id="hopRight">➡️</button>
+</div>
+
+<!-- MENU -->
+<div class="screen" id="menuScreen">
+  <div class="panel">
+    <div class="logoEmoji">🐸</div>
+    <h1 class="title">FROGZTRIK</h1>
+    <div class="subtitle">THE AMPHIBIANS · FROG HOP</div>
+    <p class="tagline" data-i="tagline">Dodge the traffic. Ride the logs. Fill every lily pad!</p>
+    <select id="langSel" aria-label="Language"></select>
+    <button class="btn" id="playBtn">▶️ <span data-i="play">PLAY</span></button>
+    <div class="btnRow">
+      <button class="btn alt" id="frogsBtn">🐸 <span data-i="myFrogs">MY FROGS</span></button>
+      <button class="btn alt" id="boardBtn">🏆 <span data-i="board">TOP HOPPERS</span></button>
+    </div>
+    <button class="btn alt" id="howBtn">❓ <span data-i="howto">HOW TO PLAY</span></button>
+    <div class="howBox hidden" id="howBox"></div>
+    <div class="statGrid">
+      <div class="statCell"><div class="v" id="menuBest">0</div><div class="k" data-i="best">BEST</div></div>
+      <div class="statCell"><div class="v" id="menuSkin">🐸</div><div class="k" data-i="skin">SKIN</div></div>
+    </div>
+    <p class="footNote">THE AMPHIBIANS BY FROGZTRIK<br>Built by LUNC DEV STUDIO · Luna Classic</p>
+  </div>
+</div>
+
+<!-- MY FROGS -->
+<div class="screen hidden" id="frogsScreen">
+  <div class="panel">
+    <div class="logoEmoji">🐸</div>
+    <h1 class="title" style="font-size:24px" data-i="myFrogs">MY FROGS</h1>
+    <p class="tagline" style="margin-bottom:8px">The Amphibians by Frogztrik — the frog army from Mars. Connect your wallet: every Amphibian you own unlocks its class skin, and the frog you play IS your NFT's class.</p>
+    <div class="btnRow">
+      <button class="btn alt" id="btnKeplr">🔗 KEPLR</button>
+      <button class="btn alt" id="btnGalaxy">🌌 GALAXY</button>
+    </div>
+    <button class="btn alt" id="btnDash" style="width:100%">🚀 LUNCDASH</button>
+    <div id="pairBox" class="hidden" style="margin-top:8px">
+      <p class="tagline" style="margin-bottom:6px">WalletConnect pairing link — paste it into your wallet's WC scanner, or open the wallet app:</p>
+      <input class="nameIn" id="pairUri" readonly>
+      <canvas id="pairQr" width="180" height="180" style="display:none;margin:8px auto;border-radius:10px"></canvas>
+      <div class="btnRow">
+        <a class="btn alt" id="pairOpen" href="#" style="text-decoration:none">🚀 OPEN WALLET</a>
+        <button class="btn alt" id="pairCopy">📋 COPY LINK</button>
+      </div>
+    </div>
+    <input class="nameIn" id="addrInput" placeholder="…or paste your Terra Classic wallet address">
+    <button class="btn alt" id="btnLookup" style="width:100%">🔍 LOOK UP MY FROGS</button>
+    <div id="wStatus" class="tagline" style="margin-top:8px"></div>
+    <div id="perkBox" class="perkBox"></div>
+    <div id="nftList"></div>
+    <div class="skinGrid" id="skinGrid"></div>
+    <div class="nftBox">
+      <div class="big">🖼️</div>
+      <div>The Amphibians (AMPH) — 333 frogs on Terra Classic. Skins and perks only — no rewards or payouts are promised, ever.</div>
+    </div>
+    <button class="btn alt" id="frogsBack">⬅️ <span data-i="back">BACK</span></button>
+  </div>
+</div>
+
+<!-- BOARD -->
+<div class="screen hidden" id="boardScreen">
+  <div class="panel">
+    <div class="logoEmoji">🏆</div>
+    <h1 class="title" style="font-size:24px" data-i="board">TOP HOPPERS</h1>
+    <div class="btnRow">
+      <button class="btn" id="tabAll" style="font-size:13px;padding:9px"><span data-i="allTime">ALL TIME</span></button>
+      <button class="btn alt" id="tabWeek" style="font-size:13px;padding:9px"><span data-i="thisWeek">THIS WEEK</span></button>
+    </div>
+    <div id="boardList"></div>
+    <button class="btn alt" id="boardBack">⬅️ <span data-i="back">BACK</span></button>
+  </div>
+</div>
+
+<!-- PAUSE -->
+<div class="screen hidden" id="pauseScreen">
+  <div class="panel">
+    <div class="logoEmoji">⏸️</div>
+    <h1 class="title" style="font-size:24px" data-i="paused">PAUSED</h1>
+    <button class="btn" id="resumeBtn">▶️ <span data-i="resume">RESUME</span></button>
+    <button class="btn alt" id="restartBtn">🔄 <span data-i="restart">RESTART</span></button>
+    <button class="btn alt" id="quitBtn">🏠 <span data-i="menu">MENU</span></button>
+  </div>
+</div>
+
+<!-- GAME OVER -->
+<div class="screen hidden" id="overScreen">
+  <div class="panel">
+    <div class="logoEmoji">🐸💦</div>
+    <h1 class="title" style="font-size:26px" data-i="gameOver">GAME OVER</h1>
+    <div class="statGrid">
+      <div class="statCell"><div class="v" id="finalScore">0</div><div class="k" data-i="score">SCORE</div></div>
+      <div class="statCell"><div class="v" id="finalLevel">1</div><div class="k" data-i="level">LEVEL</div></div>
+      <div class="statCell"><div class="v" id="finalBest">0</div><div class="k" data-i="best">BEST</div></div>
+    </div>
+    <input class="nameIn" id="nameInput" maxlength="16" autocomplete="off">
+    <button class="btn gold" id="submitBtn">🏆 <span data-i="submit">SAVE SCORE</span></button>
+    <div id="submitStatus"></div>
+    <button class="btn" id="againBtn">▶️ <span data-i="playAgain">PLAY AGAIN</span></button>
+    <div class="btnRow">
+      <button class="btn alt" id="overBoardBtn">🏆 <span data-i="board">TOP HOPPERS</span></button>
+      <button class="btn alt" id="overMenuBtn">🏠 <span data-i="menu">MENU</span></button>
+    </div>
+  </div>
+</div>
+
+<script src="three.min.js"></script>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+/* ================= i18n (house 18-language set) ================= */
+const LANGS=[["en","English"],["es","Español"],["pt","Português"],["fr","Français"],["de","Deutsch"],["it","Italiano"],["nl","Nederlands"],["ru","Русский"],["uk","Українська"],["tr","Türkçe"],["ar","العربية"],["hi","हिन्दी"],["id","Bahasa Indonesia"],["vi","Tiếng Việt"],["th","ไทย"],["ko","한국어"],["ja","日本語"],["zh","简体中文"]];
+const I18N = {
+en:{tagline:"The frog army from Mars has landed! Dodge the traffic, ride the logs, fill every lily pad!",play:"PLAY",myFrogs:"MY FROGS",board:"TOP HOPPERS",howto:"HOW TO PLAY",score:"SCORE",best:"BEST",lives:"LIVES",level:"LEVEL",skin:"SKIN",back:"BACK",allTime:"ALL TIME",thisWeek:"THIS WEEK",paused:"PAUSED",resume:"RESUME",restart:"RESTART",menu:"MENU",gameOver:"GAME OVER",submit:"SAVE SCORE",playAgain:"PLAY AGAIN",loading:"Loading…",boardOff:"Leaderboard unavailable right now.",noScores:"No scores yet — be the first!",saving:"Saving…",saved:"Saved!",couldNot:"Could not save — try again.",levelTxt:"LEVEL",getReady:"GET READY!",closeCall:"CLOSE! +15",padBonus:"PAD! +",levelClear:"LEVEL CLEAR! +200",extraLife:"EXTRA LIFE! 🐸",namePh:"Your name",select:"SELECT",selected:"SELECTED ✓",nftSoon:"NFT frogs — collection coming soon. When the frog NFT collection is announced, frogs you own in your wallet will appear here as playable skins.",how:"⬆️ Hop with the pad, a swipe, or arrow keys.<br>🚗 Cross 5 lanes of traffic — don't get squashed!<br>🪵 Ride logs and turtles across the river — don't fall in!<br>🌸 Land on all 5 lily pads to clear the level.<br>⏱️ Beat the timer. Near misses earn +15!"},
+es:{tagline:"Esquiva el tráfico. Sube a los troncos. ¡Llena cada nenúfar!",play:"JUGAR",myFrogs:"MIS RANAS",board:"MEJORES SALTOS",howto:"CÓMO JUGAR",score:"PUNTOS",best:"RÉCORD",lives:"VIDAS",level:"NIVEL",skin:"PIEL",back:"VOLVER",allTime:"HISTÓRICO",thisWeek:"ESTA SEMANA",paused:"PAUSA",resume:"SEGUIR",restart:"REINICIAR",menu:"MENÚ",gameOver:"FIN DEL JUEGO",submit:"GUARDAR PUNTOS",playAgain:"OTRA VEZ",loading:"Cargando…",boardOff:"Marcador no disponible ahora.",noScores:"Sin puntos aún — ¡sé el primero!",saving:"Guardando…",saved:"¡Guardado!",couldNot:"No se pudo guardar.",levelTxt:"NIVEL",getReady:"¡PREPARADO!",closeCall:"¡POR POCO! +15",padBonus:"¡NENÚFAR! +",levelClear:"¡NIVEL SUPERADO! +200",extraLife:"¡VIDA EXTRA! 🐸",namePh:"Tu nombre",select:"ELEGIR",selected:"ELEGIDA ✓",nftSoon:"Ranas NFT — colección muy pronto. Cuando se anuncie la colección NFT de ranas, las ranas de tu billetera aparecerán aquí como pieles jugables.",how:"⬆️ Salta con el panel, un deslizamiento o las flechas.<br>🚗 Cruza 5 carriles de tráfico — ¡que no te aplasten!<br>🪵 Cruza el río en troncos y tortugas — ¡no te caigas!<br>🌸 Aterriza en los 5 nenúfares para superar el nivel.<br>⏱️ Gana al temporizador. ¡Casi chocar da +15!"},
+pt:{tagline:"Desvie do trânsito. Pegue os troncos. Preencha cada vitória-régia!",play:"JOGAR",myFrogs:"MEUS SAPOS",board:"MELHORES PULOS",howto:"COMO JOGAR",score:"PONTOS",best:"RECORDE",lives:"VIDAS",level:"NÍVEL",skin:"PELE",back:"VOLTAR",allTime:"GERAL",thisWeek:"ESTA SEMANA",paused:"PAUSA",resume:"CONTINUAR",restart:"REINICIAR",menu:"MENU",gameOver:"FIM DE JOGO",submit:"SALVAR PONTOS",playAgain:"JOGAR DE NOVO",loading:"Carregando…",boardOff:"Placar indisponível agora.",noScores:"Sem pontos ainda — seja o primeiro!",saving:"Salvando…",saved:"Salvo!",couldNot:"Não foi possível salvar.",levelTxt:"NÍVEL",getReady:"PREPARE-SE!",closeCall:"POR POUCO! +15",padBonus:"VITÓRIA-RÉGIA! +",levelClear:"NÍVEL COMPLETO! +200",extraLife:"VIDA EXTRA! 🐸",namePh:"Seu nome",select:"ESCOLHER",selected:"ESCOLHIDA ✓",nftSoon:"Sapos NFT — coleção em breve. Quando a coleção NFT de sapos for anunciada, os sapos da sua carteira aparecerão aqui como peles jogáveis.",how:"⬆️ Pule com o painel, deslizando ou com as setas.<br>🚗 Atravesse 5 faixas de trânsito — não seja esmagado!<br>🪵 Atravesse o rio em troncos e tartarugas — não caia!<br>🌸 Pouse nas 5 vitórias-régias para passar de nível.<br>⏱️ Vença o cronômetro. Quase bater vale +15!"},
+fr:{tagline:"Évite la circulation. Monte sur les troncs. Remplis chaque nénuphar !",play:"JOUER",myFrogs:"MES GRENOUILLES",board:"MEILLEURS SAUTS",howto:"COMMENT JOUER",score:"SCORE",best:"RECORD",lives:"VIES",level:"NIVEAU",skin:"PEAU",back:"RETOUR",allTime:"TOUS TEMPS",thisWeek:"CETTE SEMAINE",paused:"PAUSE",resume:"REPRENDRE",restart:"RECOMMENCER",menu:"MENU",gameOver:"PARTIE TERMINÉE",submit:"SAUVER LE SCORE",playAgain:"REJOUER",loading:"Chargement…",boardOff:"Classement indisponible.",noScores:"Aucun score — à toi le premier !",saving:"Sauvegarde…",saved:"Sauvé !",couldNot:"Échec de la sauvegarde.",levelTxt:"NIVEAU",getReady:"À TES MARQUES !",closeCall:"DE JUSTESSE ! +15",padBonus:"NÉNUPHAR ! +",levelClear:"NIVEAU TERMINÉ ! +200",extraLife:"VIE BONUS ! 🐸",namePh:"Ton nom",select:"CHOISIR",selected:"CHOISIE ✓",nftSoon:"Grenouilles NFT — collection bientôt disponible. Quand la collection NFT de grenouilles sera annoncée, les grenouilles de ton portefeuille apparaîtront ici comme peaux jouables.",how:"⬆️ Saute avec le pavé, un glissement ou les flèches.<br>🚗 Traverse 5 voies de circulation — ne te fais pas écraser !<br>🪵 Traverse la rivière sur troncs et tortues — ne tombe pas !<br>🌸 Atterris sur les 5 nénuphars pour finir le niveau.<br>⏱️ Bats le chrono. Les frôlements rapportent +15 !"},
+de:{tagline:"Weiche dem Verkehr aus. Reite die Stämme. Fülle jedes Seerosenblatt!",play:"SPIELEN",myFrogs:"MEINE FRÖSCHE",board:"BESTE HÜPFER",howto:"SO GEHT'S",score:"PUNKTE",best:"REKORD",lives:"LEBEN",level:"LEVEL",skin:"HAUT",back:"ZURÜCK",allTime:"GESAMT",thisWeek:"DIESE WOCHE",paused:"PAUSE",resume:"WEITER",restart:"NEUSTART",menu:"MENÜ",gameOver:"SPIEL VORBEI",submit:"PUNKTE SPEICHERN",playAgain:"NOCHMAL",loading:"Lädt…",boardOff:"Bestenliste gerade nicht verfügbar.",noScores:"Noch keine Punkte — sei der Erste!",saving:"Speichert…",saved:"Gespeichert!",couldNot:"Speichern fehlgeschlagen.",levelTxt:"LEVEL",getReady:"BEREIT MACHEN!",closeCall:"KNAPP! +15",padBonus:"SEEROSE! +",levelClear:"LEVEL GESCHAFFT! +200",extraLife:"EXTRA LEBEN! 🐸",namePh:"Dein Name",select:"WÄHLEN",selected:"GEWÄHLT ✓",nftSoon:"NFT-Frösche — Kollektion kommt bald. Sobald die Frosch-NFT-Kollektion angekündigt ist, erscheinen Frösche aus deiner Wallet hier als spielbare Häute.",how:"⬆️ Hüpfe mit dem Pad, Wischen oder Pfeiltasten.<br>🚗 Überquere 5 Fahrspuren — lass dich nicht plattfahren!<br>🪵 Überquere den Fluss auf Stämmen und Schildkröten — fall nicht rein!<br>🌸 Lande auf allen 5 Seerosenblättern.<br>⏱️ Schlage die Zeit. Knapp vorbei gibt +15!"},
+it:{tagline:"Schiva il traffico. Cavalca i tronchi. Riempi ogni ninfea!",play:"GIOCA",myFrogs:"LE MIE RANE",board:"MIGLIORI SALTI",howto:"COME GIOCARE",score:"PUNTI",best:"RECORD",lives:"VITE",level:"LIVELLO",skin:"PELLE",back:"INDIETRO",allTime:"SEMPRE",thisWeek:"QUESTA SETTIMANA",paused:"PAUSA",resume:"RIPRENDI",restart:"RICOMINCIA",menu:"MENU",gameOver:"FINE PARTITA",submit:"SALVA PUNTI",playAgain:"GIOCA ANCORA",loading:"Caricamento…",boardOff:"Classifica non disponibile.",noScores:"Nessun punteggio — sii il primo!",saving:"Salvataggio…",saved:"Salvato!",couldNot:"Salvataggio fallito.",levelTxt:"LIVELLO",getReady:"PRONTI!",closeCall:"SFIORATO! +15",padBonus:"NINFEA! +",levelClear:"LIVELLO COMPLETATO! +200",extraLife:"VITA EXTRA! 🐸",namePh:"Il tuo nome",select:"SCEGLI",selected:"SCELTA ✓",nftSoon:"Rane NFT — collezione in arrivo. Quando la collezione NFT di rane sarà annunciata, le rane del tuo portafoglio appariranno qui come pelli giocabili.",how:"⬆️ Salta con il pad, uno swipe o le frecce.<br>🚗 Attraversa 5 corsie di traffico — non farti schiacciare!<br>🪵 Attraversa il fiume su tronchi e tartarughe — non cadere!<br>🌸 Atterra su tutte e 5 le ninfee per completare il livello.<br>⏱️ Batti il timer. Sfiorare un'auto vale +15!"},
+nl:{tagline:"Ontwijk het verkeer. Vaar op de stammen. Vul elk lelieblad!",play:"SPELEN",myFrogs:"MIJN KIKKERS",board:"BESTE SPRINGERS",howto:"HOE TE SPELEN",score:"SCORE",best:"RECORD",lives:"LEVENS",level:"LEVEL",skin:"HUID",back:"TERUG",allTime:"ALLTIJD",thisWeek:"DEZE WEEK",paused:"PAUZE",resume:"HERVAT",restart:"HERSTART",menu:"MENU",gameOver:"SPEL VOORBIJ",submit:"SCORE OPSLAAN",playAgain:"OPNIEUW",loading:"Laden…",boardOff:"Scorebord nu niet beschikbaar.",noScores:"Nog geen scores — wees de eerste!",saving:"Opslaan…",saved:"Opgeslagen!",couldNot:"Opslaan mislukt.",levelTxt:"LEVEL",getReady:"MAAK JE KLAAR!",closeCall:"NET AAN! +15",padBonus:"LELIE! +",levelClear:"LEVEL GEHAALD! +200",extraLife:"EXTRA LEVEN! 🐸",namePh:"Je naam",select:"KIES",selected:"GEKOZEN ✓",nftSoon:"NFT-kikkers — collectie komt eraan. Zodra de kikker-NFT-collectie is aangekondigd, verschijnen kikkers uit je wallet hier als speelbare huiden.",how:"⬆️ Spring met het pad, een veeg of pijltjestoetsen.<br>🚗 Steek 5 rijstroken over — word niet geplet!<br>🪵 Steek de rivier over op stammen en schildpadden — val er niet in!<br>🌸 Land op alle 5 leliebladen om het level te halen.<br>⏱️ Versla de timer. Net missen levert +15 op!"},
+ru:{tagline:"Уворачивайся от машин. Плыви на брёвнах. Заполни все кувшинки!",play:"ИГРАТЬ",myFrogs:"МОИ ЛЯГУШКИ",board:"ЛУЧШИЕ ПРЫГУНЫ",howto:"КАК ИГРАТЬ",score:"ОЧКИ",best:"РЕКОРД",lives:"ЖИЗНИ",level:"УРОВЕНЬ",skin:"ОКРАС",back:"НАЗАД",allTime:"ВСЁ ВРЕМЯ",thisWeek:"ЭТА НЕДЕЛЯ",paused:"ПАУЗА",resume:"ДАЛЬШЕ",restart:"ЗАНОВО",menu:"МЕНЮ",gameOver:"ИГРА ОКОНЧЕНА",submit:"СОХРАНИТЬ ОЧКИ",playAgain:"ЕЩЁ РАЗ",loading:"Загрузка…",boardOff:"Таблица сейчас недоступна.",noScores:"Очков пока нет — стань первым!",saving:"Сохранение…",saved:"Сохранено!",couldNot:"Не удалось сохранить.",levelTxt:"УРОВЕНЬ",getReady:"ПРИГОТОВЬСЯ!",closeCall:"ВПРИТЫК! +15",padBonus:"КУВШИНКА! +",levelClear:"УРОВЕНЬ ПРОЙДЕН! +200",extraLife:"ДОП. ЖИЗНЬ! 🐸",namePh:"Твоё имя",select:"ВЫБРАТЬ",selected:"ВЫБРАНО ✓",nftSoon:"NFT-лягушки — коллекция скоро появится. Когда коллекция лягушачьих NFT будет объявлена, лягушки из твоего кошелька появятся здесь как игровые окрасы.",how:"⬆️ Прыгай панелью, свайпом или стрелками.<br>🚗 Пересеки 5 полос движения — не дай себя раздавить!<br>🪵 Переплыви реку на брёвнах и черепахах — не упади!<br>🌸 Приземлись на все 5 кувшинок, чтобы пройти уровень.<br>⏱️ Обгони таймер. Проход впритык даёт +15!"},
+uk:{tagline:"Ухиляйся від машин. Пливи на колодах. Заповни всі латаття!",play:"ГРАТИ",myFrogs:"МОЇ ЖАБИ",board:"НАЙКРАЩІ СТРИБУНИ",howto:"ЯК ГРАТИ",score:"ОЧКИ",best:"РЕКОРД",lives:"ЖИТТЯ",level:"РІВЕНЬ",skin:"ОКРАС",back:"НАЗАД",allTime:"ЗА ВЕСЬ ЧАС",thisWeek:"ЦЬОГО ТИЖНЯ",paused:"ПАУЗА",resume:"ДАЛІ",restart:"СПОЧАТКУ",menu:"МЕНЮ",gameOver:"ГРУ ЗАВЕРШЕНО",submit:"ЗБЕРЕГТИ ОЧКИ",playAgain:"ЩЕ РАЗ",loading:"Завантаження…",boardOff:"Таблиця зараз недоступна.",noScores:"Очок ще немає — стань першим!",saving:"Збереження…",saved:"Збережено!",couldNot:"Не вдалося зберегти.",levelTxt:"РІВЕНЬ",getReady:"ПРИГОТУЙСЯ!",closeCall:"ВВПРИТУЛ! +15",padBonus:"ЛАТАТТЯ! +",levelClear:"РІВЕНЬ ПРОЙДЕНО! +200",extraLife:"ДОД. ЖИТТЯ! 🐸",namePh:"Твоє ім'я",select:"ОБРАТИ",selected:"ОБРАНО ✓",nftSoon:"NFT-жаби — колекція незабаром. Коли колекцію жаб'ячих NFT буде оголошено, жаби з твого гаманця з'являться тут як ігрові окраси.",how:"⬆️ Стрибай панеллю, свайпом або стрілками.<br>🚗 Перетни 5 смуг руху — не дай себе розчавити!<br>🪵 Перепливи річку на колодах і черепахах — не впади!<br>🌸 Приземлись на всі 5 лататтів, щоб пройти рівень.<br>⏱️ Випереди таймер. Прохід впритул дає +15!"},
+tr:{tagline:"Trafikten kaç. Kütüklere bin. Her nilüferi doldur!",play:"OYNA",myFrogs:"KURBAĞALARIM",board:"EN İYİ ZIPLAYANLAR",howto:"NASIL OYNANIR",score:"SKOR",best:"REKOR",lives:"CAN",level:"SEVİYE",skin:"DERİ",back:"GERİ",allTime:"TÜM ZAMANLAR",thisWeek:"BU HAFTA",paused:"DURAKLATILDI",resume:"DEVAM ET",restart:"YENİDEN",menu:"MENÜ",gameOver:"OYUN BİTTİ",submit:"SKORU KAYDET",playAgain:"TEKRAR OYNA",loading:"Yükleniyor…",boardOff:"Skor tablosu şu an kullanılamıyor.",noScores:"Henüz skor yok — ilk sen ol!",saving:"Kaydediliyor…",saved:"Kaydedildi!",couldNot:"Kaydedilemedi.",levelTxt:"SEVİYE",getReady:"HAZIR OL!",closeCall:"SIYIRDI! +15",padBonus:"NİLÜFER! +",levelClear:"SEVİYE TAMAM! +200",extraLife:"EKSTRA CAN! 🐸",namePh:"Adın",select:"SEÇ",selected:"SEÇİLDİ ✓",nftSoon:"NFT kurbağalar — koleksiyon yakında. Kurbağa NFT koleksiyonu duyurulduğunda, cüzdanındaki kurbağalar burada oynanabilir deriler olarak görünecek.",how:"⬆️ Panel, kaydırma veya ok tuşlarıyla zıpla.<br>🚗 5 şeritli trafiği geç — ezilme!<br>🪵 Nehri kütükler ve kaplumbağalarla geç — düşme!<br>🌸 Seviyeyi bitirmek için 5 nilüferin hepsine kon.<br>⏱️ Süreyi yen. Sıyırmalar +15 kazandırır!"},
+ar:{tagline:"تفادَ حركة المرور. اركب الجذوع. املأ كل زنابق الماء!",play:"العب",myFrogs:"ضفادعي",board:"أفضل القافزين",howto:"طريقة اللعب",score:"النقاط",best:"الأفضل",lives:"الأرواح",level:"المستوى",skin:"اللون",back:"رجوع",allTime:"كل الأوقات",thisWeek:"هذا الأسبوع",paused:"إيقاف مؤقت",resume:"استئناف",restart:"إعادة",menu:"القائمة",gameOver:"انتهت اللعبة",submit:"حفظ النقاط",playAgain:"العب مجددًا",loading:"جارٍ التحميل…",boardOff:"لوحة النتائج غير متاحة الآن.",noScores:"لا نقاط بعد — كن الأول!",saving:"جارٍ الحفظ…",saved:"تم الحفظ!",couldNot:"تعذّر الحفظ.",levelTxt:"المستوى",getReady:"استعد!",closeCall:"كاد يصدمك! +15",padBonus:"زنبقة! +",levelClear:"أكملت المستوى! +200",extraLife:"روح إضافية! 🐸",namePh:"اسمك",select:"اختر",selected:"تم الاختيار ✓",nftSoon:"ضفادع NFT — المجموعة قادمة قريبًا. عند الإعلان عن مجموعة ضفادع NFT، ستظهر الضفادع الموجودة في محفظتك هنا كألوان قابلة للعب.",how:"⬆️ اقفز باللوحة أو السحب أو الأسهم.<br>🚗 اعبر 5 مسارات مرور — لا تُدهس!<br>🪵 اعبر النهر على الجذوع والسلاحف — لا تسقط!<br>🌸 اهبط على زنابق الماء الخمس لإكمال المستوى.<br>⏱️ اسبق المؤقّت. المرور القريب يمنح +15!"},
+hi:{tagline:"ट्रैफ़िक से बचो। लट्ठों पर चढ़ो। हर कमल पत्ता भरो!",play:"खेलो",myFrogs:"मेरे मेंढक",board:"सर्वश्रेष्ठ कूदने वाले",howto:"कैसे खेलें",score:"स्कोर",best:"सर्वश्रेष्ठ",lives:"जान",level:"स्तर",skin:"रंग",back:"वापस",allTime:"सभी समय",thisWeek:"इस सप्ताह",paused:"रुका हुआ",resume:"जारी रखो",restart:"फिर से शुरू",menu:"मेनू",gameOver:"खेल समाप्त",submit:"स्कोर सहेजो",playAgain:"फिर खेलो",loading:"लोड हो रहा है…",boardOff:"लीडरबोर्ड अभी उपलब्ध नहीं है।",noScores:"अभी कोई स्कोर नहीं — पहले बनो!",saving:"सहेज रहे हैं…",saved:"सहेजा गया!",couldNot:"सहेज नहीं सके।",levelTxt:"स्तर",getReady:"तैयार हो जाओ!",closeCall:"बाल-बाल बचे! +15",padBonus:"कमल! +",levelClear:"स्तर पूरा! +200",extraLife:"अतिरिक्त जान! 🐸",namePh:"तुम्हारा नाम",select:"चुनो",selected:"चुना गया ✓",nftSoon:"NFT मेंढक — संग्रह जल्द आ रहा है। जब मेंढक NFT संग्रह की घोषणा होगी, तुम्हारे वॉलेट के मेंढक यहाँ खेलने योग्य रंगों के रूप में दिखेंगे।",how:"⬆️ पैड, स्वाइप या तीर कुंजियों से कूदो।<br>🚗 ट्रैफ़िक की 5 लेन पार करो — कुचले मत जाना!<br>🪵 लट्ठों और कछुओं पर नदी पार करो — गिरना मत!<br>🌸 स्तर पूरा करने के लिए सभी 5 कमल पत्तों पर उतरो।<br>⏱️ टाइमर को हराओ। बाल-बाल बचने पर +15!"},
+id:{tagline:"Hindari lalu lintas. Naiki batang kayu. Isi setiap daun teratai!",play:"MAIN",myFrogs:"KATAKKU",board:"PELOMPAT TERBAIK",howto:"CARA BERMAIN",score:"SKOR",best:"TERBAIK",lives:"NYAWA",level:"LEVEL",skin:"KULIT",back:"KEMBALI",allTime:"SEPANJANG MASA",thisWeek:"MINGGU INI",paused:"JEDA",resume:"LANJUT",restart:"ULANGI",menu:"MENU",gameOver:"PERMAINAN SELESAI",submit:"SIMPAN SKOR",playAgain:"MAIN LAGI",loading:"Memuat…",boardOff:"Papan peringkat tidak tersedia saat ini.",noScores:"Belum ada skor — jadilah yang pertama!",saving:"Menyimpan…",saved:"Tersimpan!",couldNot:"Tidak bisa menyimpan.",levelTxt:"LEVEL",getReady:"BERSIAP!",closeCall:"HAMPIR! +15",padBonus:"TERATAI! +",levelClear:"LEVEL SELESAI! +200",extraLife:"NYAWA EKSTRA! 🐸",namePh:"Namamu",select:"PILIH",selected:"TERPILIH ✓",nftSoon:"Katak NFT — koleksi segera hadir. Saat koleksi NFT katak diumumkan, katak di dompetmu akan muncul di sini sebagai kulit yang bisa dimainkan.",how:"⬆️ Lompat dengan pad, geser, atau tombol panah.<br>🚗 Seberangi 5 jalur lalu lintas — jangan terlindas!<br>🪵 Seberangi sungai dengan batang kayu dan kura-kura — jangan jatuh!<br>🌸 Mendaratlah di semua 5 daun teratai untuk menyelesaikan level.<br>⏱️ Kalahkan timer. Nyaris tertabrak memberi +15!"},
+vi:{tagline:"Tránh xe cộ. Cưỡi khúc gỗ. Lấp đầy mọi lá sen!",play:"CHƠI",myFrogs:"ẾCH CỦA TÔI",board:"NGƯỜI NHẢY GIỎI NHẤT",howto:"CÁCH CHƠI",score:"ĐIỂM",best:"CAO NHẤT",lives:"MẠNG",level:"CẤP",skin:"DA",back:"QUAY LẠI",allTime:"MỌI THỜI ĐẠI",thisWeek:"TUẦN NÀY",paused:"TẠM DỪNG",resume:"TIẾP TỤC",restart:"CHƠI LẠI",menu:"MENU",gameOver:"HẾT LƯỢT",submit:"LƯU ĐIỂM",playAgain:"CHƠI LẠI",loading:"Đang tải…",boardOff:"Bảng xếp hạng hiện không khả dụng.",noScores:"Chưa có điểm — hãy là người đầu tiên!",saving:"Đang lưu…",saved:"Đã lưu!",couldNot:"Không lưu được.",levelTxt:"CẤP",getReady:"SẴN SÀNG!",closeCall:"SÁT NÚT! +15",padBonus:"LÁ SEN! +",levelClear:"QUA CẤP! +200",extraLife:"THÊM MẠNG! 🐸",namePh:"Tên của bạn",select:"CHỌN",selected:"ĐÃ CHỌN ✓",nftSoon:"Ếch NFT — bộ sưu tập sắp ra mắt. Khi bộ sưu tập NFT ếch được công bố, ếch trong ví của bạn sẽ xuất hiện ở đây dưới dạng da chơi được.",how:"⬆️ Nhảy bằng bàn phím, vuốt hoặc phím mũi tên.<br>🚗 Băng qua 5 làn xe — đừng bị cán!<br>🪵 Qua sông trên khúc gỗ và rùa — đừng rơi!<br>🌸 Đáp lên cả 5 lá sen để hoàn thành cấp.<br>⏱️ Đánh bại đồng hồ. Suýt va chạm được +15!"},
+th:{tagline:"หลบรถ ขี่ท่อนซุง เติมใบบัวทุกใบ!",play:"เล่น",myFrogs:"กบของฉัน",board:"นักกระโดดยอดเยี่ยม",howto:"วิธีเล่น",score:"คะแนน",best:"ดีที่สุด",lives:"ชีวิต",level:"ด่าน",skin:"สีผิว",back:"กลับ",allTime:"ตลอดกาล",thisWeek:"สัปดาห์นี้",paused:"หยุดชั่วคราว",resume:"เล่นต่อ",restart:"เริ่มใหม่",menu:"เมนู",gameOver:"จบเกม",submit:"บันทึกคะแนน",playAgain:"เล่นอีกครั้ง",loading:"กำลังโหลด…",boardOff:"ตารางคะแนนไม่พร้อมใช้งานตอนนี้",noScores:"ยังไม่มีคะแนน — เป็นคนแรกเลย!",saving:"กำลังบันทึก…",saved:"บันทึกแล้ว!",couldNot:"บันทึกไม่สำเร็จ",levelTxt:"ด่าน",getReady:"เตรียมตัว!",closeCall:"เฉียดฉิว! +15",padBonus:"ใบบัว! +",levelClear:"ผ่านด่าน! +200",extraLife:"ชีวิตพิเศษ! 🐸",namePh:"ชื่อของคุณ",select:"เลือก",selected:"เลือกแล้ว ✓",nftSoon:"กบ NFT — คอลเลกชันเร็ว ๆ นี้ เมื่อคอลเลกชันกบ NFT ประกาศเปิดตัว กบในกระเป๋าของคุณจะปรากฏที่นี่เป็นสกินที่เล่นได้",how:"⬆️ กระโดดด้วยแผงปุ่ม ปัด หรือปุ่มลูกศร<br>🚗 ข้ามถนน 5 เลน — อย่าโดนทับ!<br>🪵 ข้ามแม่น้ำบนท่อนซุงและเต่า — อย่าตกลงไป!<br>🌸 ลงจอดบนใบบัวทั้ง 5 ใบเพื่อผ่านด่าน<br>⏱️ เอาชนะเวลา เฉียดฉิวได้ +15!"},
+ko:{tagline:"차를 피하고, 통나무를 타고, 연잎을 모두 채우세요!",play:"플레이",myFrogs:"내 개구리",board:"최고의 점퍼",howto:"게임 방법",score:"점수",best:"최고 기록",lives:"목숨",level:"레벨",skin:"스킨",back:"뒤로",allTime:"전체 기간",thisWeek:"이번 주",paused:"일시 정지",resume:"계속",restart:"다시 시작",menu:"메뉴",gameOver:"게임 오버",submit:"점수 저장",playAgain:"다시 플레이",loading:"로딩 중…",boardOff:"리더보드를 지금 사용할 수 없습니다.",noScores:"아직 점수가 없습니다 — 첫 번째가 되세요!",saving:"저장 중…",saved:"저장됨!",couldNot:"저장할 수 없습니다.",levelTxt:"레벨",getReady:"준비!",closeCall:"아슬아슬! +15",padBonus:"연잎! +",levelClear:"레벨 클리어! +200",extraLife:"추가 목숨! 🐸",namePh:"이름",select:"선택",selected:"선택됨 ✓",nftSoon:"NFT 개구리 — 컬렉션이 곧 출시됩니다. 개구리 NFT 컬렉션이 발표되면 지갑 속 개구리가 여기서 플레이 가능한 스킨으로 나타납니다.",how:"⬆️ 패드, 스와이프 또는 방향키로 점프하세요.<br>🚗 5차선 도로를 건너세요 — 깔리지 마세요!<br>🪵 통나무와 거북이를 타고 강을 건너세요 — 빠지지 마세요!<br>🌸 연잎 5개 모두에 착지하면 레벨 클리어.<br>⏱️ 타이머를 이기세요. 아슬아슬하게 피하면 +15!"},
+ja:{tagline:"車をよけて、丸太に乗って、蓮の葉を全部うめよう！",play:"プレイ",myFrogs:"マイフロッグ",board:"トップホッパー",howto:"遊び方",score:"スコア",best:"ベスト",lives:"ライフ",level:"レベル",skin:"スキン",back:"もどる",allTime:"全期間",thisWeek:"今週",paused:"一時停止",resume:"再開",restart:"リスタート",menu:"メニュー",gameOver:"ゲームオーバー",submit:"スコアを保存",playAgain:"もう一度",loading:"読み込み中…",boardOff:"ランキングは現在利用できません。",noScores:"まだスコアがありません — 最初の一人になろう！",saving:"保存中…",saved:"保存しました！",couldNot:"保存できませんでした。",levelTxt:"レベル",getReady:"用意！",closeCall:"ギリギリ！ +15",padBonus:"蓮の葉！ +",levelClear:"レベルクリア！ +200",extraLife:"ライフ追加！ 🐸",namePh:"名前",select:"選ぶ",selected:"選択中 ✓",nftSoon:"NFTフロッグ — コレクション近日公開。カエルNFTコレクションが発表されると、ウォレットのカエルがここにプレイスキンとして表示されます。",how:"⬆️ パッド、スワイプ、矢印キーでホップ。<br>🚗 5車線の道路を渡ろう — つぶされないで！<br>🪵 丸太と亀に乗って川を渡ろう — 落ちないで！<br>🌸 蓮の葉5枚全部に着地でレベルクリア。<br>⏱️ タイマーに勝とう。ギリギリ回避で+15！"},
+zh:{tagline:"躲开车流，踩着木头和乌龟过河，填满所有荷叶！",play:"开始游戏",myFrogs:"我的青蛙",board:"跳跃高手榜",howto:"玩法说明",score:"分数",best:"最高",lives:"生命",level:"关卡",skin:"皮肤",back:"返回",allTime:"总榜",thisWeek:"本周",paused:"已暂停",resume:"继续",restart:"重新开始",menu:"菜单",gameOver:"游戏结束",submit:"保存分数",playAgain:"再来一局",loading:"加载中…",boardOff:"排行榜暂时不可用。",noScores:"暂无分数 — 来做第一名！",saving:"保存中…",saved:"已保存！",couldNot:"保存失败。",levelTxt:"关卡",getReady:"准备！",closeCall:"好险！ +15",padBonus:"荷叶！ +",levelClear:"过关！ +200",extraLife:"额外生命！ 🐸",namePh:"你的名字",select:"选择",selected:"已选择 ✓",nftSoon:"NFT 青蛙 — 系列即将推出。青蛙 NFT 系列公布后，你钱包里的青蛙将作为可玩皮肤出现在这里。",how:"⬆️ 用方向盘、滑动或方向键跳跃。<br>🚗 穿过 5 条车道 — 别被压扁！<br>🪵 踩着木头和乌龟过河 — 别掉下去！<br>🌸 落在全部 5 片荷叶上即可过关。<br>⏱️ 抢在计时结束前完成。擦身而过 +15！"}
+};
+let lang = localStorage.getItem('luncFrogLang') || 'en';
+if (!I18N[lang]) lang = 'en';
+const T = k => (I18N[lang] && I18N[lang][k]) || I18N.en[k] || k;
+const langSel = $('langSel');
+LANGS.forEach(([code, label]) => { const o = document.createElement('option'); o.value = code; o.textContent = '🌐 ' + label; langSel.appendChild(o); });
+langSel.value = lang;
+function applyLang(){
+  document.querySelectorAll('[data-i]').forEach(el => { el.textContent = T(el.getAttribute('data-i')); });
+  $('howBox').innerHTML = T('how');
+  $('nameInput').placeholder = T('namePh');
+  renderSkins();
+}
+langSel.onchange = () => { lang = langSel.value; localStorage.setItem('luncFrogLang', lang); applyLang(); };
+
+/* ================= audio (original WebAudio synth) ================= */
+let AC = null, soundOn = true;
+function initAudio(){ if (!AC){ try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){} } if (AC && AC.state === 'suspended') AC.resume(); }
+function beep(freq, dur, type, vol, slideTo){
+  if (!AC || !soundOn) return;
+  const o = AC.createOscillator(), g = AC.createGain(), t = AC.currentTime;
+  o.type = type || 'square'; o.frequency.setValueAtTime(freq, t);
+  if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+  g.gain.setValueAtTime(vol || 0.08, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t + dur);
+}
+function noiseBurst(dur, freq, vol){
+  if (!AC || !soundOn) return;
+  const n = Math.floor(AC.sampleRate * dur), buf = AC.createBuffer(1, n, AC.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  const src = AC.createBufferSource(); src.buffer = buf;
+  const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = freq;
+  const g = AC.createGain(); g.gain.value = vol || 0.15;
+  src.connect(f); f.connect(g); g.connect(AC.destination); src.start();
+}
+const sfx = {
+  hop(){ beep(300, 0.12, 'square', 0.05, 620); },
+  splash(){ noiseBurst(0.35, 900, 0.18); beep(400, 0.3, 'sine', 0.06, 90); },
+  splat(){ noiseBurst(0.2, 500, 0.2); beep(160, 0.25, 'sawtooth', 0.07, 40); },
+  near(){ noiseBurst(0.12, 3000, 0.05); },
+  pad(){ [523,659,784].forEach((f,i)=>setTimeout(()=>beep(f,0.14,'triangle',0.09), i*70)); },
+  clear(){ [523,659,784,1047,784,1047].forEach((f,i)=>setTimeout(()=>beep(f,0.16,'triangle',0.09), i*85)); },
+  extra(){ [784,988,1175,1568].forEach((f,i)=>setTimeout(()=>beep(f,0.13,'square',0.06), i*70)); }
+};
+</script>
+<script>
+/* ================= world constants ================= */
+const CELL = 2, COLS = 13;
+const rowZ = r => (6 - r) * CELL;          // row 0 (start) z=+12 … row 12 (far bank) z=-12
+const colX = c => (c - 6) * CELL;          // col 0 x=-12 … col 12 x=+12
+const PAD_XS = [-10.4, -5.2, 0, 5.2, 10.4];
+let seed = 11;
+function rnd(){ seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }
+
+/* ================= renderer / scene ================= */
+const renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+$('game').appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.1, 220);
+camera.position.set(0, 16.5, 23.5);
+camera.lookAt(0, 0, -0.5);
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+const ambLight = new THREE.AmbientLight(0xffffff, 0.5); scene.add(ambLight);
+const sunLight = new THREE.DirectionalLight(0xffb36b, 0.85);
+sunLight.position.set(-14, 26, 10); scene.add(sunLight);
+const hemi = new THREE.HemisphereLight(0xbfe3ff, 0x1d3a22, 0.35); scene.add(hemi);
+
+/* ================= canvas textures ================= */
+function makeTex(w, h, draw, rx, ry){
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  if (rx){ t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rx, ry || 1); }
+  return t;
+}
+function textTex(text, bg, fg, sub){
+  return makeTex(512, 128, (g, w, h) => {
+    g.fillStyle = bg; g.fillRect(0, 0, w, h);
+    g.strokeStyle = fg; g.lineWidth = 6; g.strokeRect(8, 8, w - 16, h - 16);
+    g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.font = '900 ' + (text.length > 12 ? 44 : 58) + 'px Trebuchet MS, sans-serif';
+    g.fillText(text, w / 2, sub ? h / 2 - 14 : h / 2);
+    if (sub){ g.font = '700 26px Trebuchet MS, sans-serif'; g.fillText(sub, w / 2, h - 32); }
+  });
+}
+const grassTex = makeTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#46a355'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 2600; i++){ g.fillStyle = rnd() > .5 ? 'rgba(0,60,0,.16)' : 'rgba(190,255,170,.13)'; g.fillRect(rnd() * w, rnd() * h, 2, 3); }
+}, 6, 1);
+const roadTex = makeTex(1024, 400, (g, w, h) => {
+  g.fillStyle = '#33333a'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 5200; i++){ g.fillStyle = rnd() > .5 ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.22)'; g.fillRect(rnd() * w, rnd() * h, 2, 2); }
+  g.fillStyle = '#f7d154';
+  for (let lane = 1; lane < 5; lane++){ const y = lane * (h / 5);
+    for (let x = 0; x < w; x += 64) g.fillRect(x, y - 3, 38, 6); }
+  g.fillStyle = 'rgba(255,255,255,.75)'; g.fillRect(0, 2, w, 4); g.fillRect(0, h - 6, w, 4);
+}, 2, 1);
+const waterTex = makeTex(512, 256, (g, w, h) => {
+  g.fillStyle = '#2a5d8a'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 130; i++){ g.fillStyle = 'rgba(160,220,255,' + (0.05 + rnd() * 0.13) + ')';
+    const y = rnd() * h; g.fillRect(rnd() * w, y, 22 + rnd() * 60, 2.5); }
+}, 3, 1);
+const bannerTex = textTex('🐸 FROGZTRIK', '#0d3b26', '#8dff9e', 'THE AMPHIBIANS');
+const BILLBOARDS = [
+  textTex('LUNC', '#123a6e', '#7fd4ff'),
+  textTex('LUNA CLASSIC', '#3a2a6e', '#ffd968'),
+  textTex('LUNC DEV STUDIO', '#0d3b26', '#8dff9e'),
+  textTex('HOP TO IT!', '#6e2a12', '#ffb36b')
+];
+
+/* ================= environment ================= */
+const grassMat = new THREE.MeshLambertMaterial({ map: grassTex, color: 0xffffff });
+const waterMat = new THREE.MeshPhongMaterial({ map: waterTex, color: 0xffffff, shininess: 90, specular: 0x99ccee });
+function groundSlab(w, d, x, z, y, mat){
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.5, d), mat);
+  m.position.set(x, y - 0.25, z); scene.add(m); return m;
+}
+groundSlab(30, 2.6, 0, rowZ(0), 0, grassMat);            // start bank
+groundSlab(30, 10, 0, rowZ(3), 0, new THREE.MeshLambertMaterial({ map: roadTex })); // road band rows1-5
+groundSlab(30, 2.6, 0, rowZ(6), 0, grassMat);            // median
+const water = new THREE.Mesh(new THREE.PlaneGeometry(30, 10.6), waterMat);
+water.rotation.x = -Math.PI / 2; water.position.set(0, -0.14, rowZ(9)); scene.add(water);
+groundSlab(30, 2.6, 0, rowZ(12), 0, grassMat);           // far bank
+const basePlane = new THREE.Mesh(new THREE.PlaneGeometry(240, 240), new THREE.MeshLambertMaterial({ color: 0x14301d }));
+basePlane.rotation.x = -Math.PI / 2; basePlane.position.y = -0.55; scene.add(basePlane);
+
+/* far-bank hedge + lily pads */
+const hedgeMat = new THREE.MeshLambertMaterial({ color: 0x2a7d3c });
+const hedgeSegs = [[-13.4,-11.6],[-9.2,-6.4],[-4.0,-1.2],[1.2,4.0],[6.4,9.2],[11.6,13.4]];
+hedgeSegs.forEach(([a,b]) => {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(b - a, 1.5, 1.1), hedgeMat);
+  m.position.set((a + b) / 2, 0.75, rowZ(12) - 0.4); scene.add(m);
+});
+const padMat = new THREE.MeshPhongMaterial({ color: 0x2f9e4f, shininess: 40 });
+const flowerMat = new THREE.MeshLambertMaterial({ color: 0xff9fd0 });
+const pads = PAD_XS.map((x, i) => {
+  const g = new THREE.Group();
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(1.02, 1.02, 0.14, 20), padMat);
+  g.add(disc);
+  const fl = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 8), flowerMat);
+  fl.position.set(0.4, 0.16, 0.3); fl.scale.y = 0.6; g.add(fl);
+  g.position.set(x, -0.04, rowZ(12));
+  scene.add(g);
+  return { x, mesh: g, filled: false, marker: null };
+});
+
+/* reeds, trees, rocks */
+const reedMat = new THREE.MeshLambertMaterial({ color: 0x3f8f3a });
+const catMat = new THREE.MeshLambertMaterial({ color: 0x7a4a21 });
+function reed(x, z){
+  const g = new THREE.Group();
+  for (let i = 0; i < 4; i++){
+    const h = 1.1 + rnd() * 0.9;
+    const s = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, h, 5), reedMat);
+    s.position.set((rnd() - .5) * 0.5, h / 2, (rnd() - .5) * 0.4); s.rotation.z = (rnd() - .5) * 0.22; g.add(s);
+    if (rnd() > 0.55){ const c = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.42, 6), catMat);
+      c.position.copy(s.position); c.position.y = h - 0.1; g.add(c); }
+  }
+  g.position.set(x, 0, z); scene.add(g);
+}
+for (let i = 0; i < 26; i++) reed(-14.5 + rnd() * 29, rowZ(0) + 0.9 + rnd() * 0.3);
+for (let i = 0; i < 16; i++) reed(-14.5 + rnd() * 29, rowZ(6) + (rnd() > .5 ? 1 : -1) * 1.05);
+for (let i = 0; i < 12; i++) reed(-14.5 + rnd() * 29, rowZ(12) + 1.05);
+const trunkMat = new THREE.MeshLambertMaterial({ color: 0x6b4423 });
+const leafMat = new THREE.MeshLambertMaterial({ color: 0x2e7d3c });
+function tree(x, z, s){
+  const g = new THREE.Group();
+  const tr = new THREE.Mesh(new THREE.CylinderGeometry(0.22 * s, 0.3 * s, 1.8 * s, 6), trunkMat); tr.position.y = 0.9 * s; g.add(tr);
+  [[0, 2.6, 0, 1.25], [0.7, 2.1, 0.3, 0.9], [-0.7, 2.2, -0.2, 0.85]].forEach(([a, b, c, r]) => {
+    const f = new THREE.Mesh(new THREE.SphereGeometry(r * s, 8, 7), leafMat); f.position.set(a * s, b * s, c * s); g.add(f);
+  });
+  g.position.set(x, 0, z); scene.add(g);
+}
+tree(-11, -17.5, 1.3); tree(-4, -18.5, 1.6); tree(3.5, -17.8, 1.2); tree(10.5, -18.2, 1.5); tree(-14.5, 15.5, 1.2); tree(14.5, 15.8, 1.35);
+const rockMat = new THREE.MeshLambertMaterial({ color: 0x8a8f96 });
+[[-14.8, rowZ(8)], [14.8, rowZ(10)], [-14.8, rowZ(11)], [14.6, rowZ(7)]].forEach(([x, z]) => {
+  const r = new THREE.Mesh(new THREE.DodecahedronGeometry(0.7 + rnd() * 0.5), rockMat);
+  r.position.set(x, -0.1, z); r.rotation.set(rnd() * 3, rnd() * 3, 0); scene.add(r);
+});
+
+/* start banner + road signs */
+function signPost(tex, w, h, x, y, z){
+  const g = new THREE.Group();
+  const poleMat = new THREE.MeshLambertMaterial({ color: 0x5a4632 });
+  [-w / 2 + 0.2, w / 2 - 0.2].forEach(px => {
+    const p = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, y + h, 6), poleMat);
+    p.position.set(px, (y + h) / 2, 0); g.add(p);
+  });
+  const board = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }));
+  board.position.y = y + h / 2; g.add(board);
+  g.position.set(x, 0, z); scene.add(g); return g;
+}
+signPost(bannerTex, 9.5, 2.2, 0, 2.6, rowZ(0) + 2.2);
+signPost(textTex('LUNC DEV STUDIO', '#0d3b26', '#8dff9e'), 3.4, 0.85, -11.6, 1.5, rowZ(6));
+signPost(textTex('LUNA CLASSIC', '#3a2a6e', '#ffd968'), 3.4, 0.85, 11.6, 1.5, rowZ(6));
+
+/* fireflies */
+const FLIES = 70;
+const flyGeo = new THREE.BufferGeometry();
+const flyPos = new Float32Array(FLIES * 3), flyBase = [];
+for (let i = 0; i < FLIES; i++){
+  const x = (rnd() - .5) * 30, y = 0.5 + rnd() * 2.6, z = -14 + rnd() * 28;
+  flyPos.set([x, y, z], i * 3); flyBase.push({ x, y, z, p: rnd() * 6.28, s: 0.4 + rnd() * 0.8 });
+}
+flyGeo.setAttribute('position', new THREE.BufferAttribute(flyPos, 3));
+const flyMat = new THREE.PointsMaterial({ color: 0xffe98a, size: 0.22, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
+const fireflies = new THREE.Points(flyGeo, flyMat); scene.add(fireflies);
+
+/* ================= palettes (rotate per level) ================= */
+const PALETTES = [
+  { sky:0x35255e, fog:0x35255e, water:0x2a5d8a, sun:0xffb36b, sunI:0.85, amb:0.5, fly:0.95 },
+  { sky:0x8ec9e8, fog:0x8ec9e8, water:0x2f8fc4, sun:0xfff2cc, sunI:1.05, amb:0.75, fly:0.2 },
+  { sky:0x0a1030, fog:0x0a1030, water:0x173f63, sun:0x8fb4ff, sunI:0.42, amb:0.34, fly:1.0 }
+];
+function applyPalette(i){
+  const p = PALETTES[i % PALETTES.length];
+  scene.background = new THREE.Color(p.sky);
+  scene.fog = new THREE.Fog(p.fog, 34, 88);
+  waterMat.color.setHex(p.water);
+  sunLight.color.setHex(p.sun); sunLight.intensity = p.sunI;
+  ambLight.intensity = p.amb;
+  flyMat.opacity = p.fly;
+  headlightMat.opacity = (i % PALETTES.length === 2) ? 0.4 : 0.0;
+}
+
+/* ================= vehicles ================= */
+const headlightMat = new THREE.MeshBasicMaterial({ color: 0xfff6b8, transparent: true, opacity: 0 });
+const VEH_PAINTS = [0xe84a5f, 0x2a9d8f, 0xf4a261, 0x4361ee, 0xfee440, 0x9b5de5, 0x00bbf9, 0xf15bb5];
+const wheelMat = new THREE.MeshLambertMaterial({ color: 0x17181c });
+const glassMat = new THREE.MeshPhongMaterial({ color: 0x9fd8ef, shininess: 120 });
+function buildVehicle(type, paint, billboardIdx){
+  const g = new THREE.Group();
+  const mat = new THREE.MeshPhongMaterial({ color: paint, shininess: 70 });
+  let len, bodyH, bodyY;
+  if (type === 'car'){
+    len = 3.3; bodyH = 0.62; bodyY = 0.55;
+    const body = new THREE.Mesh(new THREE.BoxGeometry(len, bodyH, 1.55), mat); body.position.y = bodyY; g.add(body);
+    const cab = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.55, 1.4), glassMat); cab.position.set(-0.15, bodyY + 0.55, 0); g.add(cab);
+  } else if (type === 'truck'){
+    len = 6.6; bodyH = 1.7; bodyY = 1.25;
+    const cab = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.25, 1.8), mat); cab.position.set(-len / 2 + 0.85, 0.95, 0); g.add(cab);
+    const win = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.6, 1.6), glassMat); win.position.set(-len / 2 + 0.35, 1.25, 0); g.add(win);
+    const box = new THREE.Mesh(new THREE.BoxGeometry(len - 1.7, bodyH, 1.95), new THREE.MeshLambertMaterial({ color: 0xf2f2ee }));
+    box.position.set(0.8, bodyY, 0); g.add(box);
+    [-1, 1].forEach(s => {
+      const ad = new THREE.Mesh(new THREE.PlaneGeometry(len - 2.1, 1.25),
+        new THREE.MeshBasicMaterial({ map: BILLBOARDS[billboardIdx % BILLBOARDS.length] }));
+      ad.position.set(0.8, bodyY, s * 0.99); if (s < 0) ad.rotation.y = Math.PI; g.add(ad);
+    });
+  } else { /* bus */
+    len = 7.4; bodyH = 1.85; bodyY = 1.3;
+    const body = new THREE.Mesh(new THREE.BoxGeometry(len, bodyH, 2.0), mat); body.position.y = bodyY; g.add(body);
+    const win = new THREE.Mesh(new THREE.BoxGeometry(len - 0.7, 0.62, 2.04), glassMat); win.position.y = bodyY + 0.42; g.add(win);
+    [-1, 1].forEach(s => {
+      const ad = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 0.95),
+        new THREE.MeshBasicMaterial({ map: BILLBOARDS[billboardIdx % BILLBOARDS.length] }));
+      ad.position.set(0.4, bodyY - 0.42, s * 1.02); if (s < 0) ad.rotation.y = Math.PI; g.add(ad);
+    });
+  }
+  const wheelGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.24, 10);
+  const wx = type === 'car' ? [len / 2 - 0.7, -len / 2 + 0.7] : [len / 2 - 1.0, -len / 2 + 1.1];
+  wx.forEach(x => [-0.85, 0.85].forEach(z => {
+    const w = new THREE.Mesh(wheelGeo, wheelMat);
+    w.rotation.x = Math.PI / 2; w.position.set(x, 0.36, z); g.add(w);
+  }));
+  [-0.55, 0.55].forEach(z => {
+    const hl = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.18, 0.34), new THREE.MeshBasicMaterial({ color: 0xfff6b8 }));
+    hl.position.set(len / 2 + 0.03, 0.62, z); g.add(hl);
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.85, 3.4, 10, 1, true), headlightMat);
+    cone.rotation.z = Math.PI / 2; cone.position.set(len / 2 + 1.75, 0.62, z); g.add(cone);
+  });
+  return { group: g, len };
+}
+const ROAD_DEFS = [
+  { row:1, dir: 1, speed:2.0, type:'car'   },
+  { row:2, dir:-1, speed:2.6, type:'truck' },
+  { row:3, dir: 1, speed:2.3, type:'car'   },
+  { row:4, dir:-1, speed:3.05, type:'bus'  },
+  { row:5, dir: 1, speed:2.75, type:'car'  }
+];
+let vehicles = [];
+function buildTraffic(level){
+  vehicles.forEach(v => scene.remove(v.mesh)); vehicles = [];
+  const ramp = (typeof SETTINGS !== 'undefined' ? SETTINGS.paceRampPct : 100) / 100;
+  const speedMul = Math.min(1 + (level - 1) * 0.13 * ramp, 2.6) *
+                   (typeof SETTINGS !== 'undefined' ? SETTINGS.trafficSpeedPct : 100) / 100;
+  const gapMul = 100 / (typeof SETTINGS !== 'undefined' ? SETTINGS.trafficDensityPct : 100);
+  ROAD_DEFS.forEach((def, li) => {
+    let x = -21 + rnd() * 4;
+    let n = 0;
+    while (x < 21){
+      const v = buildVehicle(def.type, VEH_PAINTS[(li * 3 + n) % VEH_PAINTS.length], li + n);
+      v.group.position.set(x, 0, rowZ(def.row));
+      if (def.dir < 0) v.group.rotation.y = Math.PI;
+      scene.add(v.group);
+      vehicles.push({ mesh: v.group, row: def.row, dir: def.dir, speed: def.speed * speedMul, len: v.len, x, nearFlag: false });
+      x += v.len + Math.max(1.2, (4.6 + rnd() * 4.6 - Math.min((level - 1) * 0.22, 1.6)) * gapMul);
+      n++;
+    }
+  });
+}
+
+/* ================= river platforms ================= */
+const RIVER_DEFS = [
+  { row:7,  dir:-1, speed:1.5, kind:'log',    len:7.2, gap:6.4 },
+  { row:8,  dir: 1, speed:1.9, kind:'turtle', len:4.6, gap:5.2 },
+  { row:9,  dir:-1, speed:2.2, kind:'log',    len:9.2, gap:7.4 },
+  { row:10, dir: 1, speed:1.7, kind:'log',    len:6.2, gap:5.8 },
+  { row:11, dir:-1, speed:2.5, kind:'turtle', len:4.6, gap:4.9 }
+];
+const logMat = new THREE.MeshLambertMaterial({ color: 0x8a5a2b });
+const logEndMat = new THREE.MeshLambertMaterial({ color: 0xd9b078 });
+const shellMat = new THREE.MeshLambertMaterial({ color: 0x3e7d46 });
+const turtleSkinMat = new THREE.MeshLambertMaterial({ color: 0x7fae56 });
+function buildLog(len){
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.58, 0.58, len, 10), logMat);
+  body.rotation.z = Math.PI / 2; body.position.y = -0.18; g.add(body);
+  [-len / 2, len / 2].forEach(x => {
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.58, 0.58, 0.06, 10), logEndMat);
+    cap.rotation.z = Math.PI / 2; cap.position.set(x, -0.18, 0); g.add(cap);
+  });
+  const knot = new THREE.Mesh(new THREE.SphereGeometry(0.16, 6, 6), logEndMat);
+  knot.position.set(len * 0.22, 0.28, 0.3); g.add(knot);
+  return g;
+}
+function buildTurtles(len){
+  const g = new THREE.Group();
+  const n = 3, step = len / n;
+  for (let i = 0; i < n; i++){
+    const t = new THREE.Group();
+    const shell = new THREE.Mesh(new THREE.SphereGeometry(0.72, 9, 7), shellMat);
+    shell.scale.set(1, 0.45, 0.9); shell.position.y = -0.05; t.add(shell);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 7, 7), turtleSkinMat);
+    head.position.set(0, 0.02, 0.78); t.add(head);
+    t.position.x = -len / 2 + step * (i + 0.5);
+    g.add(t);
+  }
+  return g;
+}
+let platforms = [];
+function buildRiver(level){
+  platforms.forEach(p => scene.remove(p.mesh)); platforms = [];
+  const ramp = (typeof SETTINGS !== 'undefined' ? SETTINGS.paceRampPct : 100) / 100;
+  const speedMul = Math.min(1 + (level - 1) * 0.11 * ramp, 2.2) *
+                   (typeof SETTINGS !== 'undefined' ? SETTINGS.riverSpeedPct : 100) / 100;
+  RIVER_DEFS.forEach((def, li) => {
+    let x = -21 + rnd() * 5;
+    let n = 0;
+    while (x < 22){
+      const mesh = def.kind === 'log' ? buildLog(def.len) : buildTurtles(def.len);
+      mesh.position.set(x, 0, rowZ(def.row));
+      scene.add(mesh);
+      platforms.push({ mesh, row: def.row, dir: def.dir, speed: def.speed * speedMul, len: def.len, x,
+                       kind: def.kind, diveOff: (li * 1.7 + n * 2.3) % 6.4 });
+      x += def.len + def.gap + rnd() * 1.6;
+      n++;
+    }
+  });
+}
+
+/* ================= frog + skins (data-driven, Amphibians classes) =================
+   Skins are pure data. Free pond skins (src 'default') are always open.
+   Amphibians class skins (src 'nft') unlock when the connected/looked-up
+   wallet owns an Amphibian of that class (needClass) or that exact token
+   (needToken — the named Uniques). applySkin() is the single path every
+   skin goes through, so ownership is the only gate. */
+const NAMED_SKINS = { '6': 'king', '11': 'queen', '13': 'princess', '16': 'burn' };
+const SKINS = [
+  { id:'classic',   name:'Green',        cls:'Green',     src:'default', body:0x3ab44a, belly:0xd8f7b0, spot:0x2a7d34, pupil:0x141414, gear:[] },
+  { id:'golden',    name:'Golden Pond',  src:'default', body:0xf2b134, belly:0xfff0b3, spot:0xc47f17, pupil:0x141414, gear:[] },
+  { id:'midnight',  name:'Midnight Pond', src:'default', body:0x2b3a67, belly:0x9fb4dd, spot:0x182540, pupil:0x141414, gear:[] },
+  { id:'berry',     name:'Berry Pond',   src:'default', body:0x9b4d96, belly:0xf3c6ef, spot:0x6d2f68, pupil:0x141414, gear:[] },
+  { id:'frost',     name:'Frost Pond',   src:'default', body:0x9fd8e8, belly:0xffffff, spot:0x5fa8c0, pupil:0x141414, gear:[] },
+  { id:'soldier',   name:'Soldier',      cls:'Soldier',   src:'nft', needClass:'Soldier',   body:0x3ab44a, belly:0xd8f7b0, spot:0x2a7d34, pupil:0x141414, gear:['vest','pauldrons','visor'], metal:0x3a4149, accent:0xd23b3b },
+  { id:'cosmonaut', name:'Cosmonaut',    cls:'Cosmonaut', src:'nft', needClass:'Cosmonaut', body:0x3ab44a, belly:0xd8f7b0, spot:0x2a7d34, pupil:0x141414, gear:['helmet','suit','pack'] },
+  { id:'blue',      name:'Blue Hero',    cls:'Blue',      src:'nft', needClass:'Blue',      body:0x2f6fd0, belly:0xd6e6ff, spot:0x1d4e9e, pupil:0x141414, gear:['cape','emblem'], cape:0xc0272d },
+  { id:'warrior',   name:'Warrior',      cls:'Warrior',   src:'nft', needClass:'Warrior',   body:0x3ab44a, belly:0xd8f7b0, spot:0x2a7d34, pupil:0x141414, gear:['harness','headband','sword'], metal:0xa8742c, accent:0x7a4a21 },
+  { id:'gold',      name:'Gold Royal',   cls:'Gold',      src:'nft', needClass:'Gold',      body:0xf2b134, belly:0xfff0b3, spot:0xc47f17, pupil:0x141414, gear:['crown','cape'], cape:0x8e1f2f },
+  { id:'special',   name:'Special Ops',  cls:'Special',   src:'nft', needClass:'Special',   body:0x37474f, belly:0x90a4ae, spot:0x263238, pupil:0xbfe8ff, gear:['visor','vest'], metal:0x232a30, accent:0x35e0d0 },
+  { id:'king',      name:'Frog King',    src:'nft', needToken:'6',  body:0xe8ecef, belly:0xffffff, spot:0xb9c2c9, pupil:0x141414, gear:['crown','cape'], cape:0xa41623 },
+  { id:'queen',     name:'The Queen',    src:'nft', needToken:'11', body:0x7e57c2, belly:0xe4d7f5, spot:0x4a2b7a, pupil:0x141414, gear:['crown','cape'], cape:0x4a2b7a },
+  { id:'princess',  name:'The Princess', src:'nft', needToken:'13', body:0xf2a7c3, belly:0xfff0f5, spot:0xc97a9b, pupil:0x141414, gear:['tiara','cape'], cape:0xf7d774 },
+  { id:'burn',      name:'Burn Frog',    src:'nft', needToken:'16', body:0xd23b2e, belly:0xffd9b3, spot:0x8e1f16, pupil:0x141414, gear:['shades','cap'], accent:0x1c2733 }
+];
+let curSkin = localStorage.getItem('luncFrogSkin') || 'classic';
+if (!SKINS.some(s => s.id === curSkin)) curSkin = 'classic';
+/* ownership state — filled by the wallet lookup (see the Amphibians block) */
+let ownedTokens = [];            /* {id, name, cls, rarity, ability} */
+let ownedIds = new Set();
+let unlockedClasses = new Set();
+let perks = { life: false, timer: false };
+function skinUnlocked(s){
+  if (!s || s.src === 'default') return true;
+  if (s.needToken) return ownedIds.has(s.needToken);
+  if (s.needClass) return unlockedClasses.has(s.needClass);
+  return false;
+}
+const frogMats = {
+  body: new THREE.MeshPhongMaterial({ color: 0x3ab44a, shininess: 55 }),
+  belly: new THREE.MeshPhongMaterial({ color: 0xd8f7b0, shininess: 40 }),
+  spot: new THREE.MeshLambertMaterial({ color: 0x2a7d34 }),
+  eyeW: new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 90 }),
+  pupil: new THREE.MeshBasicMaterial({ color: 0x141414 })
+};
+const gearMats = {
+  cape: new THREE.MeshLambertMaterial({ color: 0xc0272d, side: THREE.DoubleSide }),
+  metal: new THREE.MeshPhongMaterial({ color: 0x3a4149, shininess: 80 }),
+  accent: new THREE.MeshLambertMaterial({ color: 0xd23b3b }),
+  gold: new THREE.MeshPhongMaterial({ color: 0xf2c134, shininess: 110 }),
+  suit: new THREE.MeshPhongMaterial({ color: 0xf4f6f8, shininess: 35 }),
+  glass: new THREE.MeshPhongMaterial({ color: 0xbfe8ff, transparent: true, opacity: 0.3, shininess: 140 }),
+  dark: new THREE.MeshLambertMaterial({ color: 0x14181d }),
+  blade: new THREE.MeshPhongMaterial({ color: 0xc9d4dc, shininess: 120 })
+};
+function buildFrog(){
+  const g = new THREE.Group();
+  const gear = {};
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.62, 14, 12), frogMats.body);
+  body.scale.set(1.05, 0.78, 1.15); body.position.y = 0.5; g.add(body);
+  const belly = new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 10), frogMats.belly);
+  belly.scale.set(0.82, 0.6, 0.9); belly.position.set(0, 0.4, -0.22); g.add(belly);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.46, 12, 10), frogMats.body);
+  head.scale.set(1.15, 0.72, 0.95); head.position.set(0, 0.82, -0.3); g.add(head);
+  [-0.26, 0.26].forEach(x => {
+    const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.22, 7), frogMats.body);
+    stalk.position.set(x, 1.06, -0.34); g.add(stalk);
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.155, 9, 8), frogMats.eyeW);
+    eye.position.set(x, 1.2, -0.34); g.add(eye);
+    const pup = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 8), frogMats.pupil);
+    pup.position.set(x, 1.22, -0.47); g.add(pup);
+  });
+  [[-0.52, 0.28, 0.5], [0.52, 0.28, 0.5], [-0.2, 0.35, -0.42], [0.24, 0.3, -0.4]].forEach(([x, y, z]) => {
+    const s = new THREE.Mesh(new THREE.SphereGeometry(0.13, 7, 6), frogMats.spot);
+    s.position.set(x, y + 0.32, z); s.scale.y = 0.5; g.add(s);
+  });
+  [-1, 1].forEach(s => {
+    const leg = new THREE.Mesh(new THREE.SphereGeometry(0.3, 9, 8), frogMats.body);
+    leg.scale.set(0.55, 0.5, 1.25); leg.position.set(s * 0.58, 0.26, 0.34); g.add(leg);
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.1, 0.5), frogMats.body);
+    foot.position.set(s * 0.62, 0.06, 0.62); g.add(foot);
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.08, 0.5, 6), frogMats.body);
+    arm.position.set(s * 0.5, 0.28, -0.42); arm.rotation.x = 0.5; g.add(arm);
+  });
+  /* ---- class gear (all built once; skins toggle visibility) ---- */
+  const mk = (name, obj) => { obj.visible = false; g.add(obj); gear[name] = obj; return obj; };
+  const cape = new THREE.Mesh(new THREE.BoxGeometry(0.95, 1.05, 0.07), gearMats.cape);
+  cape.position.set(0, 0.6, 0.55); cape.rotation.x = 0.38; mk('cape', cape);
+  const crown = new THREE.Group();
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.33, 0.36, 0.2, 10), gearMats.gold); crown.add(band);
+  for (let i = 0; i < 4; i++){
+    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.26, 5), gearMats.gold);
+    const a = i / 4 * Math.PI * 2 + 0.4;
+    spike.position.set(Math.cos(a) * 0.25, 0.21, Math.sin(a) * 0.25); crown.add(spike);
+  }
+  const jewel = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), gearMats.accent);
+  jewel.position.set(0, 0.04, -0.35); crown.add(jewel);
+  crown.position.set(0, 1.2, -0.28); mk('crown', crown);
+  const tiara = new THREE.Group();
+  const tband = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.045, 8, 18), gearMats.gold);
+  tband.rotation.x = Math.PI / 2 - 0.3; tiara.add(tband);
+  const tgem = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), gearMats.accent);
+  tgem.position.set(0, 0.13, -0.27); tiara.add(tgem);
+  tiara.position.set(0, 1.15, -0.28); mk('tiara', tiara);
+  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.68, 14, 12), gearMats.glass);
+  helmet.position.set(0, 0.88, -0.3); mk('helmet', helmet);
+  const suit = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.66, 0.52), gearMats.suit);
+  suit.position.set(0, 0.52, -0.26); mk('suit', suit);
+  const pack = new THREE.Group();
+  const packBox = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.78, 0.3), gearMats.suit); pack.add(packBox);
+  [-0.18, 0.18].forEach(x => {
+    const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.6, 8), gearMats.blade);
+    tank.position.set(x, 0.05, -0.22); pack.add(tank);
+  });
+  pack.position.set(0, 0.62, 0.58); mk('pack', pack);
+  const vest = new THREE.Group();
+  const vestBox = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.72, 0.44), gearMats.metal); vest.add(vestBox);
+  const light = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), gearMats.accent);
+  light.position.set(0, 0.08, -0.26); vest.add(light);
+  const strap = new THREE.Mesh(new THREE.BoxGeometry(1.04, 0.14, 0.46), gearMats.accent);
+  strap.position.y = -0.2; vest.add(strap);
+  vest.position.set(0, 0.55, -0.28); mk('vest', vest);
+  const pauldrons = new THREE.Group();
+  [-1, 1].forEach(s => {
+    const p = new THREE.Mesh(new THREE.SphereGeometry(0.3, 9, 8), gearMats.metal);
+    p.scale.set(1, 0.72, 1); p.position.set(s * 0.62, 0.78, -0.1); pauldrons.add(p);
+    const trim = new THREE.Mesh(new THREE.SphereGeometry(0.31, 9, 6), gearMats.accent);
+    trim.scale.set(1, 0.3, 1); trim.position.set(s * 0.62, 0.7, -0.1); pauldrons.add(trim);
+  });
+  mk('pauldrons', pauldrons);
+  const visor = new THREE.Group();
+  const vband = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.17, 0.1), gearMats.dark); visor.add(vband);
+  const lens = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.08, 0.11), gearMats.accent);
+  lens.position.z = -0.01; visor.add(lens);
+  visor.position.set(0, 1.18, -0.62); mk('visor', visor);
+  const harness = new THREE.Group();
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.6, 0.16), gearMats.metal);
+  plate.position.set(0, 0, -0.2); plate.rotation.x = 0.15; harness.add(plate);
+  const belt = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.16, 0.9), gearMats.accent);
+  belt.position.y = -0.32; harness.add(belt);
+  harness.position.set(0, 0.58, -0.12); mk('harness', harness);
+  const headband = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.06, 8, 16), gearMats.metal);
+  headband.rotation.x = Math.PI / 2 - 0.15; headband.position.set(0, 1.02, -0.3); mk('headband', headband);
+  const sword = new THREE.Group();
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.09, 1.05, 0.03), gearMats.blade); sword.add(blade);
+  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.06, 0.06), gearMats.gold);
+  guard.position.y = -0.55; sword.add(guard);
+  const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.24, 6), gearMats.accent);
+  grip.position.y = -0.7; sword.add(grip);
+  sword.position.set(0.25, 0.75, 0.55); sword.rotation.z = 0.5; sword.rotation.x = 0.25; mk('sword', sword);
+  const emblem = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.06, 14), gearMats.gold);
+  emblem.rotation.x = Math.PI / 2; emblem.position.set(0, 0.62, -0.62); mk('emblem', emblem);
+  const shades = new THREE.Group();
+  const sbar = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.16, 0.08), gearMats.dark); shades.add(sbar);
+  shades.position.set(0, 1.2, -0.6); mk('shades', shades);
+  const cap = new THREE.Group();
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), gearMats.accent);
+  dome.scale.set(1.1, 0.75, 1.1); cap.add(dome);
+  const brim = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.06, 0.4), gearMats.accent);
+  brim.position.set(0, 0.02, -0.55); cap.add(brim);
+  cap.position.set(0, 1.08, -0.28); mk('cap', cap);
+  return { group: g, gear };
+}
+function applyGearVisibility(gearMap, skin){
+  for (const name of Object.keys(gearMap)) gearMap[name].visible = skin.gear.includes(name);
+}
+const frogBuilt = buildFrog();
+const frog = frogBuilt.group; scene.add(frog);
+const frogGear = frogBuilt.gear;
+function miniFrogOnPad(pad){
+  const built = buildFrog();
+  const m = built.group; m.scale.setScalar(0.8);
+  applyGearVisibility(built.gear, SKINS.find(s => s.id === curSkin) || SKINS[0]);
+  m.position.set(pad.x, 0.12, rowZ(12)); scene.add(m); pad.marker = m;
+}
+function applySkin(id){
+  const s = SKINS.find(k => k.id === id) || SKINS[0];
+  if (!skinUnlocked(s)) return;
+  curSkin = s.id; localStorage.setItem('luncFrogSkin', s.id);
+  frogMats.body.color.setHex(s.body);
+  frogMats.belly.color.setHex(s.belly);
+  frogMats.spot.color.setHex(s.spot);
+  frogMats.pupil.color.setHex(s.pupil);
+  if (s.cape) gearMats.cape.color.setHex(s.cape);
+  if (s.metal) gearMats.metal.color.setHex(s.metal);
+  if (s.accent) gearMats.accent.color.setHex(s.accent);
+  applyGearVisibility(frogGear, s);
+  $('menuSkin').textContent = '🐸';
+  renderSkins();
+}
+function renderSkins(){
+  const grid = $('skinGrid'); if (!grid) return;
+  grid.innerHTML = '';
+  SKINS.forEach(s => {
+    const unlocked = skinUnlocked(s);
+    const card = document.createElement('div');
+    card.className = 'skinCard' + (s.id === curSkin ? ' sel' : '') + (unlocked ? '' : ' locked');
+    card.dataset.skin = s.id;
+    const hex = '#' + s.body.toString(16).padStart(6, '0');
+    let stateTxt;
+    if (!unlocked) stateTxt = '🔒 ' + (s.needToken ? ('Own #' + s.needToken) : ('Own a ' + s.needClass));
+    else stateTxt = s.id === curSkin ? T('selected') : T('select');
+    card.innerHTML = '<div class="skinDot" style="background:' + hex + '"></div>' +
+      '<div class="skinName"></div><div class="skinState">' + stateTxt + '</div>' +
+      (s.cls ? '<div class="skinState" style="color:#ffd968">' + s.cls + (s.src === 'nft' ? ' · NFT' : '') + '</div>' : '');
+    card.querySelector('.skinName').textContent = s.name;
+    card.onclick = () => {
+      initAudio();
+      if (!skinUnlocked(s)){
+        wStat('🔒 ' + s.name + ' is locked — ' + (s.needToken ? ('own Amphibian #' + s.needToken) : ('own a ' + s.needClass + ' Amphibian')) + ' to unlock it.');
+        return;
+      }
+      applySkin(s.id); sfx.pad();
+    };
+    grid.appendChild(card);
+  });
+}
+</script>
+<script>
+/* ================= game settings (admin-tunable, Garuda pattern) =================
+   Defaults are the shipped tuning. At load the game fetches the merged
+   effective map from the shared router (?frogsettings=1 — values the
+   owner/team set in the private admin panel); a failed fetch leaves the
+   defaults standing, so the game can never break on settings. Settings
+   apply from the next run/level build after they land. */
+const SET_DEFS = {
+  trafficSpeedPct: 100, trafficDensityPct: 100, riverSpeedPct: 100,
+  livesStart: 3, timerSec: 60, padScore: 50, nearMissScore: 15,
+  progressScore: 10, paceRampPct: 100
+};
+const SETTINGS = { ...SET_DEFS };
+async function loadSettings(){
+  try {
+    const r = await fetch('https://frg-fight-club.vercel.app/api/luna-games?frogsettings=1');
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d && d.settings){
+      for (const k of Object.keys(SET_DEFS)){
+        const v = Number(d.settings[k]);
+        if (Number.isFinite(v)) SETTINGS[k] = v;
+      }
+      if (state === 'menu'){ setupLevel(); }
+    }
+  } catch (e) { /* defaults stand */ }
+}
+
+/* ================= game state ================= */
+let state = 'menu';
+let score = 0, lives = 3, level = 1, padsFilled = 0;
+let timeLeft = 60, timeMax = 60, elapsed = 0, extraLifeAt = 10000;
+let maxRowThisLife = 0, worldTime = 0;
+let best = parseInt(localStorage.getItem('luncFrogBest') || '0', 10) || 0;
+const frogState = { row: 0, x: 0, hop: null, queued: null, dead: false, deadT: 0, deathKind: null, rotY: 0, squash: 0 };
+const RIVER_ROWS = [7, 8, 9, 10, 11];
+const isRiver = r => RIVER_ROWS.includes(r);
+
+function addScore(n){
+  score += n;
+  if (score >= extraLifeAt){ lives++; extraLifeAt += 10000; showToast(T('extraLife')); sfx.extra(); }
+  if (score > best){ best = score; localStorage.setItem('luncFrogBest', String(best)); }
+  updateHUD();
+}
+let toastTimer = null;
+function showToast(txt, ms){
+  const el = $('toast'); el.textContent = txt; el.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), ms || 1100);
+}
+function showSplash(main, sub){
+  const s = $('levelSplash');
+  $('levelSplashTxt').innerHTML = main + (sub ? '<small>' + sub + '</small>' : '');
+  s.classList.remove('hidden');
+  setTimeout(() => s.classList.add('hidden'), 1350);
+}
+function updateHUD(){
+  $('hudScore').textContent = score;
+  $('hudBest').textContent = best;
+  $('hudLevel').textContent = level;
+  $('livesBox').textContent = lives > 6 ? '🐸×' + lives : '🐸'.repeat(Math.max(0, lives));
+  const pct = Math.max(0, timeLeft / timeMax * 100);
+  $('timerBar').style.width = pct + '%';
+  $('timerBar').className = pct < 25 ? 'low' : '';
+  const pr = $('padsRow'); pr.innerHTML = '';
+  pads.forEach(p => { const d = document.createElement('div'); d.className = 'padDot' + (p.filled ? ' full' : ''); d.textContent = p.filled ? '🐸' : '🌸'; pr.appendChild(d); });
+}
+function showScreen(id){
+  ['menuScreen','frogsScreen','boardScreen','pauseScreen','overScreen'].forEach(s => $(s).classList.toggle('hidden', s !== id));
+  const inGame = state === 'play' || state === 'pause';
+  $('hud').classList.toggle('hidden', !inGame);
+  $('hudBtns').classList.toggle('hidden', !inGame);
+  $('pad').classList.toggle('hidden', state !== 'play');
+}
+
+/* ================= frog control ================= */
+function frogGroundZ(){ return rowZ(frogState.row); }
+function startHop(dx, dzRow){
+  const nr = frogState.row + dzRow;
+  if (nr < 0 || nr > 12) return;
+  let tx = frogState.x + dx * CELL;
+  tx = Math.max(-12.8, Math.min(12.8, tx));
+  if (dx === 0 && !isRiver(nr) && !isRiver(frogState.row)) tx = colX(Math.round((tx + 12) / CELL));
+  frogState.hop = { fx: frogState.x, fz: frogGroundZ(), tx, tz: rowZ(nr), toRow: nr, t: 0, dur: 0.16,
+                    dx, dzRow };
+  frogState.targetRotY = Math.atan2(-dx, dzRow);
+  sfx.hop();
+}
+function tryHop(dx, dzRow){
+  if (state !== 'play' || frogState.dead) return;
+  initAudio();
+  if (frogState.hop){ frogState.queued = { dx, dzRow }; return; }
+  startHop(dx, dzRow);
+}
+function landHop(){
+  const h = frogState.hop; frogState.hop = null;
+  frogState.row = h.toRow; frogState.x = h.tx;
+  if (!isRiver(h.toRow)) frogState.x = colX(Math.max(0, Math.min(12, Math.round((frogState.x + 12) / CELL))));
+  frogState.squash = 1;
+  if (h.toRow === 12){ checkPadLanding(); return; }
+  if (frogState.row > maxRowThisLife){ addScore((frogState.row - maxRowThisLife) * SETTINGS.progressScore); maxRowThisLife = frogState.row; }
+  if (frogState.queued){ const q = frogState.queued; frogState.queued = null; startHop(q.dx, q.dzRow); }
+}
+function checkPadLanding(){
+  const pad = pads.find(p => Math.abs(frogState.x - p.x) <= 1.05);
+  if (pad && !pad.filled){
+    pad.filled = true; padsFilled++;
+    const bonus = SETTINGS.padScore + Math.ceil(timeLeft) * 2;
+    addScore(bonus); showToast(T('padBonus') + bonus);
+    sfx.pad(); miniFrogOnPad(pad); updateHUD();
+    if (padsFilled >= 5){
+      addScore(200); showToast(T('levelClear')); sfx.clear();
+      setTimeout(() => { if (state === 'play' || state === 'pause'){ level++; setupLevel(); respawnFrog(); showSplash(T('levelTxt') + ' ' + level, T('getReady')); } }, 900);
+      frogState.dead = true; frogState.deadT = -999; /* freeze frog during celebration */
+    } else {
+      respawnFrog();
+    }
+  } else {
+    die('splat');
+  }
+}
+function respawnFrog(){
+  frogState.row = 0; frogState.x = 0; frogState.hop = null; frogState.queued = null;
+  frogState.dead = false; frogState.deadT = 0;
+  frog.scale.set(1, 1, 1); frog.visible = true;
+  maxRowThisLife = 0; timeLeft = timeMax;
+  updateHUD();
+}
+function die(kind){
+  if (frogState.dead) return;
+  frogState.dead = true; frogState.deadT = 0; frogState.deathKind = kind; frogState.hop = null;
+  if (kind === 'splash'){ sfx.splash(); burst(frog.position.x, 0.2, frog.position.z, 0x9fd8ff); ripple(frog.position.x, frog.position.z); }
+  else { sfx.splat(); burst(frog.position.x, 0.5, frog.position.z, 0xffe066); }
+}
+function afterDeath(){
+  lives--; updateHUD();
+  if (lives <= 0) gameOver(); else respawnFrog();
+}
+
+/* ================= particles ================= */
+const PMAX = 42;
+const pGeo = new THREE.BufferGeometry();
+const pPos = new Float32Array(PMAX * 3);
+pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+const pMat = new THREE.PointsMaterial({ color: 0xffe066, size: 0.3, transparent: true, opacity: 1 });
+const points = new THREE.Points(pGeo, pMat); points.visible = false; scene.add(points);
+let pVel = [], pLife = 0;
+function burst(x, y, z, color){
+  pMat.color.setHex(color); pVel = [];
+  for (let i = 0; i < PMAX; i++){
+    pPos.set([x, y, z], i * 3);
+    const a = Math.random() * 6.28, r = 1 + Math.random() * 2.4;
+    pVel.push([Math.cos(a) * r, 2 + Math.random() * 2.6, Math.sin(a) * r]);
+  }
+  pGeo.attributes.position.needsUpdate = true;
+  pLife = 0.55; points.visible = true;
+}
+const rippleMesh = new THREE.Mesh(new THREE.RingGeometry(0.4, 0.62, 22),
+  new THREE.MeshBasicMaterial({ color: 0xbfe8ff, transparent: true, opacity: 0, side: THREE.DoubleSide }));
+rippleMesh.rotation.x = -Math.PI / 2; rippleMesh.position.y = 0.02; scene.add(rippleMesh);
+let rippleT = 99;
+function ripple(x, z){ rippleMesh.position.x = x; rippleMesh.position.z = z; rippleT = 0; }
+
+/* ================= level / flow ================= */
+function setupLevel(){
+  const timerBase = effTimerBase();
+  timeMax = Math.max(20, Math.min(timerBase,
+    Math.round(timerBase - (level - 1) * 3 * SETTINGS.paceRampPct / 100)));
+  buildTraffic(level); buildRiver(level); applyPalette(level - 1);
+  pads.forEach(p => { p.filled = false; if (p.marker){ scene.remove(p.marker); p.marker = null; } });
+  padsFilled = 0;
+}
+function startGame(){
+  score = 0; lives = effLives(); level = 1; extraLifeAt = 10000; elapsed = 0;
+  setupLevel();
+  state = 'play';
+  respawnFrog();
+  showScreen(null);
+  showSplash(T('levelTxt') + ' 1', T('getReady'));
+  updateHUD();
+}
+function gameOver(){
+  state = 'over';
+  if (score > best){ best = score; localStorage.setItem('luncFrogBest', String(best)); }
+  $('finalScore').textContent = score;
+  $('finalLevel').textContent = level;
+  $('finalBest').textContent = best;
+  $('menuBest').textContent = best;
+  prefillName();
+  $('submitBtn').disabled = false; $('submitStatus').textContent = '';
+  showScreen('overScreen');
+}
+function toMenu(){
+  state = 'menu';
+  frogState.dead = false; frog.scale.set(1, 1, 1); frog.visible = true;
+  frogState.row = 0; frogState.x = 0; frogState.hop = null;
+  $('menuBest').textContent = best;
+  showScreen('menuScreen');
+}
+
+/* ================= per-frame updates ================= */
+function stepVehicles(dt){
+  for (const v of vehicles){
+    v.x += v.dir * v.speed * dt;
+    if (v.dir > 0 && v.x - v.len / 2 > 21) v.x = -21 - v.len / 2 + (v.x - v.len / 2 - 21);
+    if (v.dir < 0 && v.x + v.len / 2 < -21) v.x = 21 + v.len / 2 - (-21 - (v.x + v.len / 2));
+    v.mesh.position.x = v.x;
+    /* collisions + near-miss */
+    if (state === 'play' && !frogState.dead && frogState.row === v.row){
+      const dx = frogState.x - v.x, adx = Math.abs(dx), half = v.len / 2;
+      const hopH = frogState.hop ? Math.sin(Math.PI * Math.min(1, frogState.hop.t)) * 0.9 : 0;
+      if (adx < half + 0.5 && hopH < 0.45){ die('splat'); }
+      else if (!frogState.hop){
+        if (adx > half + 0.42 && adx < half + 1.55) v.nearFlag = true;
+        if (v.nearFlag && (v.x - frogState.x) * v.dir > half + 1.25){
+          v.nearFlag = false; addScore(SETTINGS.nearMissScore);
+          showToast(T('closeCall').replace(/\+15\s*$/, '').trim() + ' +' + SETTINGS.nearMissScore, 800); sfx.near();
+        }
+        if (adx > half + 3) v.nearFlag = false;
+      }
+    }
+  }
+}
+function stepPlatforms(dt){
+  for (const p of platforms){
+    p.x += p.dir * p.speed * dt;
+    if (p.dir > 0 && p.x - p.len / 2 > 22) p.x = -22 - p.len / 2 + (p.x - p.len / 2 - 22);
+    if (p.dir < 0 && p.x + p.len / 2 < -22) p.x = 22 + p.len / 2 - (-22 - (p.x + p.len / 2));
+    p.mesh.position.x = p.x;
+    if (p.kind === 'turtle'){
+      const ph = (worldTime + p.diveOff) % 6.4;
+      let y = 0, sub = false;
+      if (ph < 3.4) y = 0;
+      else if (ph < 4.0){ y = -0.55 * (ph - 3.4) / 0.6; }
+      else if (ph < 5.4){ y = -0.55; sub = true; }
+      else if (ph < 6.0){ y = -0.55 * (1 - (ph - 5.4) / 0.6); }
+      p.mesh.position.y = y; p.submerged = sub;
+      p.mesh.rotation.z = (ph >= 3.4 && ph < 4.0) ? 0.1 : 0;
+    }
+  }
+}
+function stepFrog(dt){
+  const F = frogState;
+  if (F.dead){
+    if (F.deadT > -100){
+      F.deadT += dt;
+      if (F.deathKind === 'splat') frog.scale.y = Math.max(0.14, 1 - F.deadT * 3.2);
+      else frog.position.y = -F.deadT * 1.1;
+      if (F.deadT > 1.05){ frog.position.y = 0; afterDeath(); }
+    }
+    return;
+  }
+  if (F.hop){
+    const h = F.hop; h.t += dt / h.dur;
+    const t = Math.min(1, h.t);
+    F.x = h.fx + (h.tx - h.fx) * t;
+    frog.position.set(F.x, Math.sin(Math.PI * t) * 0.9, h.fz + (h.tz - h.fz) * t);
+    frog.scale.set(1 + Math.sin(Math.PI * t) * 0.12, 1 - Math.sin(Math.PI * t) * 0.1, 1);
+    if (h.t >= 1){ frog.position.y = 0; landHop(); }
+  } else {
+    frog.position.set(F.x, 0, frogGroundZ());
+    if (F.squash > 0){ F.squash = Math.max(0, F.squash - dt * 7); frog.scale.set(1 + F.squash * 0.18, 1 - F.squash * 0.28, 1 + F.squash * 0.18); }
+    else frog.scale.set(1, 1, 1);
+    /* river ride / drown */
+    if (state === 'play' && isRiver(F.row)){
+      const p = platforms.find(p => p.row === F.row && Math.abs(F.x - p.x) <= p.len / 2 + 0.35 && !p.submerged);
+      if (p) F.x += p.dir * p.speed * dt;
+      else die('splash');
+      if (Math.abs(F.x) > 13.8) die('splash');
+      frog.position.x = F.x;
+    }
+  }
+  /* facing */
+  const want = F.targetRotY || 0;
+  let diff = ((want - F.rotY + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+  F.rotY += diff * Math.min(1, dt * 14);
+  frog.rotation.y = F.rotY;
+}
+function stepFx(dt, t){
+  waterTex.offset.x = t * 0.014;
+  const pos = flyGeo.attributes.position.array;
+  for (let i = 0; i < FLIES; i++){
+    const b = flyBase[i];
+    pos[i * 3] = b.x + Math.sin(t * b.s + b.p) * 0.9;
+    pos[i * 3 + 1] = b.y + Math.sin(t * b.s * 1.4 + b.p * 2) * 0.35;
+    pos[i * 3 + 2] = b.z + Math.cos(t * b.s * 0.8 + b.p) * 0.9;
+  }
+  flyGeo.attributes.position.needsUpdate = true;
+  if (pLife > 0){
+    pLife -= dt;
+    for (let i = 0; i < PMAX; i++){
+      pPos[i * 3] += pVel[i][0] * dt;
+      pPos[i * 3 + 1] += pVel[i][1] * dt; pVel[i][1] -= 7 * dt;
+      pPos[i * 3 + 2] += pVel[i][2] * dt;
+    }
+    pGeo.attributes.position.needsUpdate = true;
+    pMat.opacity = Math.max(0, pLife / 0.55);
+    if (pLife <= 0) points.visible = false;
+  }
+  if (rippleT < 1){
+    rippleT += dt * 1.6;
+    const s = 1 + rippleT * 3.4; rippleMesh.scale.set(s, s, 1);
+    rippleMesh.material.opacity = 0.75 * (1 - rippleT);
+  } else rippleMesh.material.opacity = 0;
+}
+const clock = new THREE.Clock();
+function animate(){
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const t = clock.elapsedTime;
+  if (state !== 'pause'){
+    worldTime += dt;
+    stepVehicles(dt); stepPlatforms(dt); stepFx(dt, t);
+    if (state === 'play'){
+      elapsed += dt;
+      stepFrog(dt);
+      if (!frogState.dead){
+        timeLeft -= dt;
+        if (timeLeft <= 0){ timeLeft = 0; die(isRiver(frogState.row) ? 'splash' : 'splat'); }
+        const pct = Math.max(0, timeLeft / timeMax * 100);
+        $('timerBar').style.width = pct + '%';
+        $('timerBar').className = pct < 25 ? 'low' : '';
+      }
+    } else if (state === 'menu'){
+      frog.position.set(Math.sin(t * 0.6) * 1.5, Math.abs(Math.sin(t * 2.4)) * 0.35, rowZ(0));
+      frog.rotation.y = Math.sin(t * 0.6) * 0.5;
+    }
+  }
+  /* camera */
+  if (state === 'menu'){
+    camera.position.x += ((Math.sin(t * 0.22) * 4.5) - camera.position.x) * Math.min(1, dt * 2);
+    camera.position.y = 17.5;
+    camera.lookAt(0, 0, -1);
+  } else {
+    const wantX = Math.max(-3.4, Math.min(3.4, frogState.x * 0.35));
+    camera.position.x += (wantX - camera.position.x) * Math.min(1, dt * 3.5);
+    camera.position.y = 16.5;
+    camera.lookAt(camera.position.x * 0.72, 0, -0.5);
+  }
+  renderer.render(scene, camera);
+}
+
+/* ================= input ================= */
+function bindHop(id, dx, dz){
+  const el = $(id);
+  const go = e => { e.preventDefault(); tryHop(dx, dz); };
+  el.addEventListener('pointerdown', go);
+  el.addEventListener('click', e => e.preventDefault());
+}
+bindHop('hopUp', 0, 1); bindHop('hopDown', 0, -1); bindHop('hopLeft', -1, 0); bindHop('hopRight', 1, 0);
+let swipeStart = null;
+renderer.domElement.addEventListener('pointerdown', e => { swipeStart = { x: e.clientX, y: e.clientY }; });
+renderer.domElement.addEventListener('pointerup', e => {
+  if (!swipeStart) return;
+  const dx = e.clientX - swipeStart.x, dy = e.clientY - swipeStart.y;
+  swipeStart = null;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
+  if (Math.abs(dx) > Math.abs(dy)) tryHop(dx > 0 ? 1 : -1, 0);
+  else tryHop(0, dy < 0 ? 1 : -1);
+});
+window.addEventListener('keydown', e => {
+  if (state === 'play'){
+    if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') tryHop(0, 1);
+    else if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') tryHop(0, -1);
+    else if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') tryHop(-1, 0);
+    else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') tryHop(1, 0);
+    else if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') pauseGame();
+  } else if (state === 'pause' && (e.key === 'p' || e.key === 'Escape')) resumeGame();
+});
+function pauseGame(){ if (state !== 'play') return; state = 'pause'; showScreen('pauseScreen'); }
+function resumeGame(){ if (state !== 'pause') return; state = 'play'; showScreen(null); }
+$('pauseBtn').onclick = () => { initAudio(); pauseGame(); };
+$('soundBtn').onclick = () => { soundOn = !soundOn; $('soundBtn').textContent = soundOn ? '🔊' : '🔇'; if (soundOn) initAudio(); };
+$('resumeBtn').onclick = resumeGame;
+$('restartBtn').onclick = () => { state = 'play'; startGame(); };
+$('quitBtn').onclick = () => toMenu();
+
+/* ================= leaderboard (house pattern) ================= */
+const API_URL = 'https://frg-fight-club.vercel.app/api/luna-games?game=luncfrog';
+function prefillName(){
+  const inp = $('nameInput');
+  const tg = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe;
+  const tname = tg && tg.user && tg.user.first_name;
+  inp.value = (localStorage.getItem('luncFrogName') || tname || 'Guest').slice(0, 16);
+}
+/* ================= The Amphibians (AMPH) — wallet connect + ownership =================
+   Read-only: the game never holds keys and never signs anything. Keplr
+   gives the address; Galaxy Station / LUNCDash pair over WalletConnect
+   v1 (session only — address read, nothing signed); or paste an address
+   to look it up. Ownership is read straight from the CW721 on the public
+   LCD: tokens{owner} (paged) then nft_info per token. Owning a class
+   unlocks that class skin; the named Uniques unlock by token id. */
+const AMPH_CONTRACT = 'terra1gah2e0ly97uz5hg7c48an6n9r5vxexq90wwwlv4jpg3ve8yhphjqtx4dmu';
+const CHAIN_ID = 'columbus-5';
+const LCDS = ['https://terra-classic-lcd.publicnode.com'];
+const AMPH_IMG = id => 'https://ipfs.miata-ipfs.com/ipfs/QmSxgstdiUyBBsfC5YYiJPn3Ar2VeTMAS9hYGGxh6c7UVY/' + id + '.png';
+let walletAddr = '', walletVia = '';
+function effLives(){ return SETTINGS.livesStart + (perks.life ? 1 : 0); }
+function effTimerBase(){ return SETTINGS.timerSec + (perks.timer ? 5 : 0); }
+function wStat(html){ $('wStatus').innerHTML = html; }
+function shortAddr(a){ return a ? a.slice(0, 10) + '…' + a.slice(-6) : ''; }
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+async function lcdQuery(contract, msg){
+  const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(msg))));
+  for (const base of LCDS){
+    try {
+      const r = await fetch(base + '/cosmwasm/wasm/v1/contract/' + contract + '/smart/' + b64);
+      if (!r.ok) continue;
+      const j = await r.json();
+      if (j && j.data) return j.data;
+    } catch(e){}
+  }
+  throw new Error('lcd unreachable');
+}
+function traitOf(attrs, key){ if (!Array.isArray(attrs)) return ''; const a = attrs.find(a => a.trait_type === key); return a ? String(a.value) : ''; }
+function normClass(raw){
+  const v = String(raw || '').trim().toLowerCase();
+  if (v === 'warior') return 'Warrior';
+  const map = { green: 'Green', soldier: 'Soldier', cosmonaut: 'Cosmonaut', blue: 'Blue', warrior: 'Warrior', special: 'Special', gold: 'Gold' };
+  return map[v] || '';
+}
+function normRarity(raw){
+  const v = String(raw || '').toLowerCase().replace(/[^a-z]/g, '');
+  if (v.startsWith('legen') || v.startsWith('legeng')) return 'Legendary';
+  const map = { common: 'Common', rare: 'Rare', epic: 'Epic', unique: 'Unique' };
+  return map[v] || String(raw || '');
+}
+async function fetchOwned(addr){
+  walletAddr = addr;
+  ownedTokens = []; ownedIds = new Set(); unlockedClasses = new Set(); perks = { life: false, timer: false };
+  if (!/^terra1[0-9a-z]{38}$/.test(addr)){ wStat('⚠ That does not look like a Terra Classic address.'); renderOwned(); renderPerks(); renderSkins(); return; }
+  wStat('⏳ Checking the chain for your Amphibians…');
+  try {
+    let ids = [], start = null;
+    for (let page = 0; page < 4; page++){
+      const q = { tokens: { owner: addr, limit: 100 } };
+      if (start) q.tokens.start_after = start;
+      const res = await lcdQuery(AMPH_CONTRACT, q);
+      const batch = (res && res.tokens) || [];
+      ids = ids.concat(batch);
+      if (batch.length < 100) break;
+      start = batch[batch.length - 1];
+    }
+    for (let i = 0; i < ids.length; i += 8){
+      const chunk = ids.slice(i, i + 8);
+      const infos = await Promise.all(chunk.map(id => lcdQuery(AMPH_CONTRACT, { nft_info: { token_id: id } }).catch(() => null)));
+      infos.forEach((info, j) => { if (info) addOwnedToken(chunk[j], info); });
+      renderOwned();
+    }
+    finishOwned();
+  } catch(e){ wStat('⚠ Lookup failed — the chain did not answer. Try again in a moment.'); }
+}
+function addOwnedToken(id, info){
+  const ext = info.extension || {};
+  const attrs = ext.attributes || [];
+  const cls = normClass(traitOf(attrs, 'Skin'));
+  const rarity = normRarity(traitOf(attrs, 'Rarity'));
+  ownedTokens.push({ id: String(id), name: ext.name || ('The amphibians #' + id), cls, rarity, ability: traitOf(attrs, 'Ability') });
+  ownedIds.add(String(id));
+  if (cls) unlockedClasses.add(cls);
+}
+function finishOwned(){
+  perks.life = ownedTokens.some(t => t.rarity === 'Legendary' || t.rarity === 'Unique');
+  perks.timer = ownedTokens.some(t => t.rarity === 'Epic' || t.rarity === 'Legendary' || t.rarity === 'Unique');
+  const cur = SKINS.find(s => s.id === curSkin);
+  if (cur && !skinUnlocked(cur)) applySkin('classic');
+  renderOwned(); renderPerks(); renderSkins();
+  wStat(ownedTokens.length
+    ? '✅ <b>' + esc(shortAddr(walletAddr)) + '</b> — ' + ownedTokens.length + ' Amphibians found. Your classes are unlocked below!'
+    : 'No Amphibians found in this wallet yet.');
+}
+function skinForToken(t){
+  if (NAMED_SKINS[t.id]) return NAMED_SKINS[t.id];
+  const s = SKINS.find(k => k.needClass && k.needClass === t.cls);
+  return s ? s.id : 'classic';
+}
+function renderOwned(){
+  const list = $('nftList'); if (!list) return;
+  list.innerHTML = '';
+  ownedTokens.forEach(t => {
+    const skinId = skinForToken(t);
+    const b = document.createElement('button');
+    b.className = 'nftItem' + (skinId === curSkin ? ' sel' : '');
+    b.dataset.token = t.id;
+    const img = document.createElement('img'); img.alt = ''; img.loading = 'lazy'; img.src = AMPH_IMG(t.id);
+    img.onerror = () => { img.style.visibility = 'hidden'; };
+    b.appendChild(img);
+    const d = document.createElement('div');
+    d.innerHTML = '<div class="t1"></div><div class="t2">' + esc(t.cls || 'Frog') + ' · ' + esc(t.rarity) + (t.ability ? ' · ' + esc(t.ability) : '') + ' · #' + esc(t.id) + '</div>';
+    d.querySelector('.t1').textContent = NAMED_SKINS[t.id] ? (SKINS.find(s => s.id === NAMED_SKINS[t.id]).name + ' · #' + t.id) : t.name;
+    b.appendChild(d);
+    b.onclick = () => { initAudio(); applySkin(skinId); renderOwned(); };
+    list.appendChild(b);
+  });
+}
+function renderPerks(){
+  const box = $('perkBox'); if (!box) return;
+  const line = (on, txt) => (on ? '✅ ' : '○ ') + txt;
+  box.innerHTML = '<b>⭐ Holder perks</b><br>' +
+    line(perks.life, '<b>+1 life</b> — own any Legendary or Unique Amphibian') + '<br>' +
+    line(perks.timer, '<b>+5 seconds</b> on the level timer — own any Epic, Legendary or Unique Amphibian') + '<br>' +
+    '<span style="opacity:.75">Perks apply from your next run. Skins and perks only — no rewards or payouts.</span>';
+}
+/* Keplr */
+async function connectKeplr(){
+  wStat('⏳ Connecting…');
+  try {
+    if (!window.keplr){ wStat('⚠ Keplr not found. On a phone, open this page inside the Keplr app browser. On a computer, install the Keplr extension.'); return; }
+    await window.keplr.enable(CHAIN_ID);
+    const key = await window.keplr.getKey(CHAIN_ID);
+    walletVia = 'keplr';
+    $('btnKeplr').innerHTML = '✅ ' + esc(shortAddr(key.bech32Address));
+    fetchOwned(key.bech32Address);
+  } catch(e){ wStat('⚠ Connection failed — try again.'); }
+}
+/* WalletConnect v1 pairing (Galaxy Station / LUNCDash) — address only, nothing is ever signed */
+let wcConnector = null, qrLib = null;
+async function wcConnect(kind){
+  wStat('⏳ Connecting…');
+  try {
+    const mod = await import('https://esm.sh/@walletconnect/client@1.8.0?bundle');
+    const WC = mod.default || mod.WalletConnect || mod;
+    const bridge = kind === 'dash' ? 'https://walletconnect.luncdash.com' : 'https://bridge.walletconnect.org';
+    if (wcConnector && wcConnector.connected){ try { await wcConnector.killSession(); } catch(e){} }
+    wcConnector = new WC({ bridge, qrcode: false });
+    if (!wcConnector.connected) await wcConnector.createSession();
+    const uri = wcConnector.uri;
+    $('pairBox').classList.remove('hidden');
+    $('pairUri').value = uri;
+    $('pairOpen').href = (kind === 'dash' ? 'luncdash://wc?uri=' : 'galaxystation://wc?uri=') + encodeURIComponent(uri);
+    if (!qrLib){ try { qrLib = await import('https://esm.sh/qrcode@1.5.4?bundle'); } catch(e){} }
+    if (qrLib){
+      const QR = qrLib.default || qrLib; const cv = $('pairQr'); cv.style.display = 'block';
+      try { await QR.toCanvas(cv, uri, { width: 180, margin: 1 }); } catch(e){ cv.style.display = 'none'; }
+    }
+    wStat('📲 Approve the pairing in your wallet…');
+    wcConnector.on('connect', (err, payload) => {
+      if (err){ wStat('⚠ Connection failed — try again.'); return; }
+      const acc = (payload && payload.params && payload.params[0] && payload.params[0].accounts) || [];
+      const terra = acc.find(a => /^terra1/.test(a)) || acc[0];
+      if (terra){
+        walletVia = kind;
+        $(kind === 'dash' ? 'btnDash' : 'btnGalaxy').innerHTML = '✅ ' + esc(shortAddr(terra));
+        fetchOwned(terra);
+      } else wStat('⚠ Connection failed — try again.');
+    });
+    wcConnector.on('disconnect', () => { wStat('⚠ Wallet disconnected.'); });
+  } catch(e){ wStat('⚠ Connection failed — try again.'); }
+}
+let boardData = null, boardTab = 'all', boardErr = false, boardReturn = 'menuScreen';
+async function loadBoard(){
+  $('boardList').innerHTML = '<p style="text-align:center; opacity:.85">' + T('loading') + '</p>';
+  boardErr = false;
+  try { const r = await fetch(API_URL); if (!r.ok) throw new Error('board ' + r.status); boardData = await r.json(); }
+  catch (e) { boardData = null; boardErr = true; }
+  renderBoard();
+}
+function renderBoard(){
+  $('tabAll').className = 'btn' + (boardTab === 'all' ? '' : ' alt');
+  $('tabWeek').className = 'btn' + (boardTab === 'week' ? '' : ' alt');
+  if (boardErr || !boardData){ $('boardList').innerHTML = '<p style="text-align:center; opacity:.85">' + T('boardOff') + '</p>'; return; }
+  const rows = boardData[boardTab] || [];
+  if (!rows.length){ $('boardList').innerHTML = '<p style="text-align:center; opacity:.85">' + T('noScores') + '</p>'; return; }
+  $('boardList').innerHTML = rows.map((r, i) => '<div class="row"><span class="rk">' + (i + 1) + '.</span><span class="nm"></span><span class="sc">' + r.score + '</span></div>').join('');
+  [...$('boardList').querySelectorAll('.row .nm')].forEach((el, i) => { el.textContent = rows[i].name; });
+}
+function openBoard(from){ boardReturn = from || 'menuScreen'; showScreen('boardScreen'); boardTab = 'all'; loadBoard(); }
+$('tabAll').onclick = () => { boardTab = 'all'; renderBoard(); };
+$('tabWeek').onclick = () => { boardTab = 'week'; renderBoard(); };
+$('boardBack').onclick = () => showScreen(boardReturn);
+$('boardBtn').onclick = () => openBoard('menuScreen');
+$('overBoardBtn').onclick = () => openBoard('overScreen');
+$('submitBtn').onclick = async () => {
+  const btn = $('submitBtn'); btn.disabled = true;
+  const name = ($('nameInput').value.trim() || 'Guest').slice(0, 16);
+  localStorage.setItem('luncFrogName', name);
+  $('submitStatus').textContent = T('saving');
+  const initData = (window.Telegram && window.Telegram.WebApp && window.Telegram.initData) || '';
+  try {
+    const r = await fetch(API_URL, { method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ initData, name, score: Math.floor(score), seconds: Math.max(1, Math.round(elapsed)) }) });
+    const d = await r.json();
+    if (d && d.ok){ $('submitStatus').textContent = d.rank ? ('🏆 #' + d.rank + ' — ' + T('saved')) : T('saved'); boardData = null; }
+    else { $('submitStatus').textContent = T('couldNot'); btn.disabled = false; }
+  } catch (e) { $('submitStatus').textContent = T('couldNot'); btn.disabled = false; }
+};
+
+/* ================= menu wiring ================= */
+$('playBtn').onclick = () => { initAudio(); startGame(); };
+$('againBtn').onclick = () => { initAudio(); startGame(); };
+$('frogsBtn').onclick = () => { initAudio(); renderSkins(); renderOwned(); renderPerks(); showScreen('frogsScreen'); };
+$('btnKeplr').onclick = () => { initAudio(); connectKeplr(); };
+$('btnGalaxy').onclick = () => { initAudio(); wcConnect('galaxy'); };
+$('btnDash').onclick = () => { initAudio(); wcConnect('dash'); };
+$('btnLookup').onclick = () => { initAudio(); walletVia = 'paste'; fetchOwned($('addrInput').value.trim()); };
+$('pairCopy').onclick = () => { const i = $('pairUri'); i.select(); try { navigator.clipboard.writeText(i.value); } catch(e){ document.execCommand('copy'); } $('pairCopy').textContent = '✅ COPIED'; setTimeout(() => { $('pairCopy').textContent = '📋 COPY LINK'; }, 1500); };
+$('frogsBack').onclick = () => showScreen('menuScreen');
+$('howBtn').onclick = () => $('howBox').classList.toggle('hidden');
+$('overMenuBtn').onclick = () => toMenu();
+document.addEventListener('pointerdown', initAudio, { once: true });
+
+/* ================= boot ================= */
+seed = 11;
+loadSettings();
+setupLevel();
+if (!skinUnlocked(SKINS.find(s => s.id === curSkin))) curSkin = 'classic';
+applySkin(curSkin);
+renderPerks();
+applyLang();
+$('menuBest').textContent = best;
+toMenu();
+animate();
+
+/* QA / debug surface */
+window.GAME = {
+  get state(){ return state; }, get score(){ return score; }, get lives(){ return lives; },
+  get level(){ return level; }, get padsFilled(){ return padsFilled; }, get timeLeft(){ return timeLeft; },
+  frog: frogState, pads, SKINS,
+  get settings(){ return SETTINGS; },
+  get vehicles(){ return vehicles; }, get platforms(){ return platforms; },
+  hop: tryHop, start: startGame, applySkin,
+  get skin(){ return curSkin; },
+  get ownedTokens(){ return ownedTokens; },
+  get perks(){ return perks; },
+  get unlockedClasses(){ return [...unlockedClasses]; },
+  gear: frogGear, fetchOwned, AMPH_CONTRACT,
+  setFrog(row, x){ frogState.row = row; frogState.x = (x === undefined ? 0 : x); frogState.hop = null; frogState.dead = false; frog.scale.set(1,1,1); frog.position.set(frogState.x, 0, rowZ(row)); },
+  fillAllButOne(){ pads.forEach((p, i) => { if (i < 4 && !p.filled){ p.filled = true; padsFilled++; miniFrogOnPad(p); } }); updateHUD(); }
+};
+</script>
+</body>
+</html>

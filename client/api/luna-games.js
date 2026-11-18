@@ -162,6 +162,10 @@ const GAMES = {
      existing speed-platformer above. Same rails as kava-rush — the
      fastest honest sustained rate is ~160 pts/s, never reject a run. */
   'luncrush': { prefix: 'luncrush', maxScore: 500000, minSec: 5, maxSec: 3600, rateMul: 400, rateBase: 2000 },
+  /* LUNC Frog Hop (client/public/lunc-frog-hop/): score = forward progress
+     + pad fills (base + time bonus) + near-miss bonuses + level bonuses;
+     a strong multi-level run lands in the low thousands — rails generous. */
+  luncfrog: { prefix: 'luncfrog', maxScore: 100000, minSec: 10, maxSec: 3600, rateMul: 300, rateBase: 2000 },
   /* LUNC Vice (original 80s neon-city driving game, client/public/
      lunc-vice/): score comes from mission modes only — Neon Run
      checkpoints (1000 + time bonus each, 1500 finish bonus ≈ 15k max),
@@ -1405,6 +1409,414 @@ async function gdSettingsAction(req, res, body, by) {
   return res.status(200).json({ ok: true, gameSettings: gdSettingsPayload(next) });
 }
 /* garuda-settings:end */
+
+/* frog-admin:start — LUNC Frog Hop ADMIN + GAME SETTINGS (Nov 17,
+   Tom's order: set the frog game up like Garuda Dash, with an admin
+   panel for adjustments). A direct mirror of the garuda-admin /
+   garuda-settings pattern above, with frog-owned keys and env:
+   - Reached via ?frogadmin=1 (panel data + writes) and
+     ?frogsettings=1 (public read of the merged effective settings —
+     the game fetches it at load; defaults stand if it fails).
+   - Wallet-signature sign-in ONLY (ADR-36 / Keplr signArbitrary):
+     POST {action:"challenge", address} issues a one-time login
+     message (single-use nonce, 5-minute TTL, frog:adminchal:<addr>)
+     and only to an authorised wallet; POST {action:"verify", ...}
+     burns the challenge on ANY attempt, verifies the signature with
+     the SAME gd* ADR-36 helpers the Garuda sign-in uses (the address
+     derived from the pubkey must equal the claimed address), and on
+     success issues a random session token (stored hashed,
+     frog:adminsess:<sha256>, 4-hour TTL). Nothing here holds a key
+     or signs a transaction — it is a login signature only.
+   - TWO TIERS, exactly like Garuda v5: the OWNER wallet comes from
+     the FROG_OWNER_WALLET env var ONLY (falling back to
+     GARUDA_OWNER_WALLET so one Vercel setting can cover Tom's games;
+     nothing stored can create, change or remove the owner, and the
+     owner is checked FIRST). The team ADMIN list lives server-side
+     (frog:admin:list, JSON array, max 5) and is managed from the
+     owner's panel; roles are re-resolved LIVE on every gated call,
+     so removing an admin kills their live sessions immediately.
+     Admin-list changes are audited (frog:admin:audit, newest first,
+     capped at 50) and shown only to the owner.
+   - GAME SETTINGS: overrides only at frog:gamesettings; writes are
+     owner OR team-admin (admin-LIST management stays owner-only).
+     The panel payload also carries a board summary read from the
+     luncfrog sorted sets (players on the board + top 10) — real
+     router data only, nothing invented. */
+const FROG_SET_KEY = 'frog:gamesettings';
+const FROG_ADMIN_LIST_KEY = 'frog:admin:list';
+const FROG_ADMIN_AUDIT_KEY = 'frog:admin:audit';
+const FROG_ADMIN_MAX_ADMINS = 5;
+const FROG_ADMIN_AUDIT_MAX = 50;
+const FROG_ADMIN_CHAL_TTL_SEC = 300;
+const FROG_ADMIN_SESS_TTL_SEC = 4 * 3600;
+const FROG_SET_DEFS = [
+  { key: 'trafficSpeedPct',   def: 100, min: 50, max: 200, step: 5 },
+  { key: 'trafficDensityPct', def: 100, min: 60, max: 160, step: 5 },
+  { key: 'riverSpeedPct',     def: 100, min: 50, max: 200, step: 5 },
+  { key: 'livesStart',        def: 3,   min: 1,  max: 9,   step: 1 },
+  { key: 'timerSec',          def: 60,  min: 30, max: 90,  step: 5 },
+  { key: 'padScore',          def: 50,  min: 0,  max: 500, step: 10 },
+  { key: 'nearMissScore',     def: 15,  min: 0,  max: 100, step: 5 },
+  { key: 'progressScore',     def: 10,  min: 0,  max: 50,  step: 5 },
+  { key: 'paceRampPct',       def: 100, min: 50, max: 200, step: 5 },
+];
+function frogSetDefaults() {
+  const o = {};
+  for (const d of FROG_SET_DEFS) o[d.key] = d.def;
+  return o;
+}
+function frogSetRound(d, v) {
+  const r = Math.round(v / d.step) * d.step;
+  return Math.round(r * 1000) / 1000;
+}
+function frogSetValidate(input, strict) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  const clean = {};
+  for (const k of Object.keys(input)) {
+    const d = FROG_SET_DEFS.find((x) => x.key === k);
+    if (!d) { if (strict) return null; continue; }
+    const v = Number(input[k]);
+    if (!Number.isFinite(v)) { if (strict) return null; continue; }
+    const r = frogSetRound(d, v);
+    if (r < d.min || r > d.max) { if (strict) return null; continue; }
+    clean[k] = r;
+  }
+  return clean;
+}
+async function frogSettingsStored() {
+  try {
+    const out = await upstashPipeline([['GET', FROG_SET_KEY]]);
+    const raw = (out && out[0] && out[0].result) || null;
+    if (!raw) return {};
+    let parsed = null;
+    try { parsed = JSON.parse(raw); } catch (e) { return {}; }
+    return frogSetValidate(parsed, false) || {};
+  } catch (e) { return {}; }
+}
+async function frogSettingsEffective() {
+  const stored = await frogSettingsStored();
+  return { stored, effective: { ...frogSetDefaults(), ...stored } };
+}
+function frogSettingsPayload(effective) {
+  return {
+    settings: effective,
+    defaults: frogSetDefaults(),
+    defs: FROG_SET_DEFS.map((d) => ({ key: d.key, min: d.min, max: d.max, step: d.step })),
+  };
+}
+async function frogSettingsHandler(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'method not allowed' });
+  let effective = frogSetDefaults();
+  if (process.env.NEONRUSH_UPSTASH_URL && process.env.NEONRUSH_UPSTASH_TOKEN) {
+    try { effective = (await frogSettingsEffective()).effective; } catch (e) { /* defaults stand */ }
+  }
+  res.setHeader('Cache-Control', 's-maxage=30, stale-while-revalidate=60');
+  return res.status(200).json({ ok: true, settings: effective });
+}
+/* ---- two-tier access ---- */
+function frogAdminOwner() {
+  const o = process.env.FROG_OWNER_WALLET || '';
+  if (GD_ADDR_RE.test(o)) return o;
+  const g = process.env.GARUDA_OWNER_WALLET || '';
+  return GD_ADDR_RE.test(g) ? g : '';
+}
+async function frogAdminStoredList() {
+  try {
+    const out = await upstashPipeline([['GET', FROG_ADMIN_LIST_KEY]]);
+    const raw = (out && out[0] && out[0].result) || null;
+    if (!raw) return null;
+    let arr = null;
+    try { arr = JSON.parse(raw); } catch (e) { return null; }
+    if (!Array.isArray(arr)) return null;
+    return [...new Set(arr.map((a) => String(a || '')).filter((a) => GD_ADDR_RE.test(a)))];
+  } catch (e) { return null; }
+}
+async function frogAdminEffectiveAdmins() {
+  const owner = frogAdminOwner();
+  const stored = await frogAdminStoredList();
+  const set = new Set(stored || []);
+  if (owner) set.delete(owner);
+  return set;
+}
+async function frogAdminAuthorized(address) {
+  if (!GD_ADDR_RE.test(address)) return null;
+  if (address === frogAdminOwner()) return 'owner';
+  const admins = await frogAdminEffectiveAdmins();
+  return admins.has(address) ? 'admin' : null;
+}
+async function frogAdminAudit(entry) {
+  try {
+    const out = await upstashPipeline([['GET', FROG_ADMIN_AUDIT_KEY]]);
+    let arr = [];
+    try { arr = JSON.parse((out && out[0] && out[0].result) || '[]'); } catch (e) { arr = []; }
+    if (!Array.isArray(arr)) arr = [];
+    arr.unshift(entry);
+    await upstashPipeline([['SET', FROG_ADMIN_AUDIT_KEY, JSON.stringify(arr.slice(0, FROG_ADMIN_AUDIT_MAX))]]);
+  } catch (e) { console.error('frog admin audit write failed', e && e.message); }
+}
+async function frogAdminAuditRead() {
+  try {
+    const out = await upstashPipeline([['GET', FROG_ADMIN_AUDIT_KEY]]);
+    const arr = JSON.parse((out && out[0] && out[0].result) || '[]');
+    return Array.isArray(arr) ? arr.slice(0, FROG_ADMIN_AUDIT_MAX) : [];
+  } catch (e) { return []; }
+}
+/* ---- wallet-signature sign-in (ADR-36 via the gd* helpers) ---- */
+async function frogAdminChallenge(req, res, body) {
+  const address = String(body.address || '');
+  if (!(await frogAdminAuthorized(address))) {
+    return res.status(403).json({ ok: false, error: 'not authorized' });
+  }
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const issued = new Date().toISOString();
+  const message = [
+    'LUNC Frog Hop — admin sign-in',
+    '',
+    'Sign this message to open the LUNC Frog Hop admin panel.',
+    'This is a login signature only — not a transaction. It cannot',
+    'move funds, costs no fee, and this login request expires in',
+    '5 minutes.',
+    '',
+    'Wallet: ' + address,
+    'Nonce: ' + nonce,
+    'Issued: ' + issued,
+  ].join('\n');
+  const rec = JSON.stringify({ nonce, message, exp: Date.now() + FROG_ADMIN_CHAL_TTL_SEC * 1000 });
+  try {
+    await upstashPipeline([['SET', 'frog:adminchal:' + address, rec, 'EX', String(FROG_ADMIN_CHAL_TTL_SEC)]]);
+  } catch (e) {
+    console.error('frog admin challenge save failed', e && e.message);
+    return res.status(502).json({ error: 'store unavailable' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(200).json({ ok: true, message, nonce, expiresIn: FROG_ADMIN_CHAL_TTL_SEC });
+}
+async function frogAdminVerify(req, res, body) {
+  const fail = () => res.status(401).json({ ok: false, error: 'sign-in failed' });
+  const address = String(body.address || '');
+  const role = await frogAdminAuthorized(address);
+  if (!role) return fail();
+  let stored = null;
+  try {
+    const out = await upstashPipeline([['GETDEL', 'frog:adminchal:' + address]]);
+    stored = (out && out[0] && out[0].result) || null;
+  } catch (e) {
+    console.error('frog admin challenge read failed', e && e.message);
+    return res.status(502).json({ error: 'store unavailable' });
+  }
+  if (!stored) return fail();
+  let chal = null;
+  try { chal = JSON.parse(stored); } catch (e) { /* corrupt record */ }
+  if (!chal || !chal.nonce || !chal.message || !(chal.exp > Date.now())) return fail();
+  if (String(body.nonce || '') !== chal.nonce) return fail();
+  let pubB64 = String(body.pubKey || '');
+  let sigB64 = String(body.signature || '');
+  if (body.signature && typeof body.signature === 'object') {
+    sigB64 = String(body.signature.signature || '');
+    if (body.signature.pub_key) pubB64 = String(body.signature.pub_key.value || '');
+  }
+  let pub, sig;
+  try {
+    pub = Buffer.from(pubB64, 'base64');
+    sig = Buffer.from(sigB64, 'base64');
+  } catch (e) { return fail(); }
+  if (gdAddressFromPubKey(pub) !== address) return fail();
+  if (!gdVerifyAdr36(chal.message, address, pub, sig)) return fail();
+  const token = crypto.randomBytes(32).toString('base64url');
+  const tokenKey = 'frog:adminsess:' + crypto.createHash('sha256').update(token).digest('hex');
+  try {
+    await upstashPipeline([['SET', tokenKey, JSON.stringify({ addr: address, role }), 'EX', String(FROG_ADMIN_SESS_TTL_SEC)]]);
+  } catch (e) {
+    console.error('frog admin session save failed', e && e.message);
+    return res.status(502).json({ error: 'store unavailable' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(200).json({ ok: true, token, role, expiresIn: FROG_ADMIN_SESS_TTL_SEC });
+}
+async function frogAdminResolveSession(token) {
+  try {
+    if (!token) return null;
+    const key = 'frog:adminsess:' + crypto.createHash('sha256').update(token).digest('hex');
+    const out = await upstashPipeline([['GET', key]]);
+    const raw = (out && out[0] && out[0].result) || null;
+    if (!raw) return null;
+    let addr = raw;
+    try {
+      const rec = JSON.parse(raw);
+      if (rec && typeof rec === 'object' && typeof rec.addr === 'string') addr = rec.addr;
+    } catch (e) { /* bare-address record */ }
+    if (!GD_ADDR_RE.test(addr)) return null;
+    if (addr === frogAdminOwner()) return { addr, role: 'owner' };
+    const admins = await frogAdminEffectiveAdmins();
+    return admins.has(addr) ? { addr, role: 'admin' } : null;
+  } catch (e) { return null; }
+}
+/* ---- settings writes (owner + team admin) ---- */
+async function frogSettingsAction(req, res, body, by) {
+  const now = new Date().toISOString();
+  const defaults = frogSetDefaults();
+  if (body.action === 'resetGameSettings') {
+    const prev = (await frogSettingsEffective()).effective;
+    await upstashPipeline([['DEL', FROG_SET_KEY]]);
+    await frogAdminAudit({ at: now, by, action: 'game-settings-reset', addr: by, old: prev, new: defaults });
+    return res.status(200).json({ ok: true, gameSettings: frogSettingsPayload(defaults) });
+  }
+  const clean = frogSetValidate(body.settings, true);
+  if (!clean || !Object.keys(clean).length) {
+    return res.status(400).json({ ok: false, error: 'bad settings' });
+  }
+  const { stored, effective: prev } = await frogSettingsEffective();
+  const merged = { ...stored, ...clean };
+  const overrides = {};
+  for (const k of Object.keys(merged)) if (merged[k] !== defaults[k]) overrides[k] = merged[k];
+  if (Object.keys(overrides).length) {
+    await upstashPipeline([['SET', FROG_SET_KEY, JSON.stringify(overrides)]]);
+  } else {
+    await upstashPipeline([['DEL', FROG_SET_KEY]]);
+  }
+  const next = { ...defaults, ...overrides };
+  await frogAdminAudit({ at: now, by, action: 'game-settings', addr: by, old: prev, new: next });
+  return res.status(200).json({ ok: true, gameSettings: frogSettingsPayload(next) });
+}
+/* ---- admin-list management (owner only) ---- */
+async function frogAdminAccessAction(req, res, body) {
+  const by = frogAdminOwner();
+  const state = async () => ({
+    ok: true,
+    ownerWallet: by,
+    storedList: await frogAdminStoredList(),
+    admins: [...(await frogAdminEffectiveAdmins())],
+    audit: await frogAdminAuditRead(),
+  });
+  const op = String(body.op || 'get');
+  if (op === 'get') return res.status(200).json(await state());
+  const addr = String(body.address || '');
+  if (op !== 'add' && op !== 'remove') {
+    return res.status(400).json({ ok: false, error: 'unknown op' });
+  }
+  if (!GD_ADDR_RE.test(addr)) {
+    return res.status(400).json({ ok: false, error: 'bad wallet address' });
+  }
+  if (addr === by) {
+    return res.status(400).json({ ok: false, error: 'the owner wallet cannot be added to or removed from the admin list' });
+  }
+  const stored = (await frogAdminStoredList()) || [];
+  const now = new Date().toISOString();
+  if (op === 'add') {
+    const replace = body.replace === true;
+    if (!replace && stored.includes(addr)) {
+      return res.status(409).json({ ok: false, error: 'that wallet is already a team admin' });
+    }
+    const next = replace ? [addr] : [...stored, addr];
+    if (next.length > FROG_ADMIN_MAX_ADMINS) {
+      return res.status(400).json({ ok: false, error: 'too many team admins (max ' + FROG_ADMIN_MAX_ADMINS + ')' });
+    }
+    await upstashPipeline([['SET', FROG_ADMIN_LIST_KEY, JSON.stringify(next)]]);
+    await frogAdminAudit({ at: now, by, action: replace ? 'replace-admin' : 'add-admin', addr, old: stored, new: next });
+    return res.status(200).json(await state());
+  }
+  if (!stored.includes(addr)) {
+    return res.status(404).json({ ok: false, error: 'that wallet is not in the stored admin list' });
+  }
+  const next = stored.filter((a) => a !== addr);
+  await upstashPipeline([['SET', FROG_ADMIN_LIST_KEY, JSON.stringify(next)]]);
+  await frogAdminAudit({ at: now, by, action: 'remove-admin', addr, old: stored, new: next });
+  return res.status(200).json(await state());
+}
+/* ---- board summary (real router data only) ---- */
+async function frogBoardSummary() {
+  try {
+    const out = await upstashPipeline([
+      ['ZCARD', 'luncfrog:all'],
+      ['ZREVRANGE', 'luncfrog:all', '0', '9', 'WITHSCORES'],
+    ]);
+    const players = (out[0] && out[0].result) || 0;
+    const rows = pairs((out[1] && out[1].result) || []);
+    let names = {};
+    if (rows.length) {
+      const ids = rows.map((p) => p.id);
+      const nOut = await upstashPipeline([['HMGET', 'luncfrog:names', ...ids]]);
+      const vals = (nOut[0] && nOut[0].result) || [];
+      ids.forEach((id, i) => { names[id] = vals[i] || null; });
+    }
+    return {
+      players,
+      top: rows.map((p) => ({ name: names[p.id] || 'Player', score: p.score })),
+    };
+  } catch (e) { return { players: 0, top: [] }; }
+}
+/* ---- the panel handler ---- */
+async function frogAdminHandler(req, res) {
+  if (req.method !== 'GET' && req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
+  const storeOk = !!(process.env.NEONRUSH_UPSTASH_URL && process.env.NEONRUSH_UPSTASH_TOKEN);
+  let body = null;
+  if (req.method === 'POST') {
+    body = req.body;
+    if (typeof body === 'string') {
+      try { body = JSON.parse(body); } catch { body = {}; }
+    }
+    body = body || {};
+  }
+  if (body && (body.action === 'challenge' || body.action === 'verify')) {
+    if (!storeOk) return res.status(503).json({ error: 'store not configured' });
+    return body.action === 'challenge'
+      ? frogAdminChallenge(req, res, body)
+      : frogAdminVerify(req, res, body);
+  }
+  if (!storeOk) return res.status(503).json({ error: 'store not configured' });
+  const auth = (req.headers && req.headers.authorization) || '';
+  const got = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  const sess = got ? await frogAdminResolveSession(got) : null;
+  if (!sess) return res.status(401).json({ ok: false, error: 'unauthorized' });
+  if (req.method === 'POST') {
+    if (body.action === 'adminAccess') {
+      if (sess.role !== 'owner') {
+        return res.status(403).json({ ok: false, error: 'owner only' });
+      }
+      try {
+        return await frogAdminAccessAction(req, res, body);
+      } catch (e) {
+        console.error('frog admin access failed', e && e.message);
+        return res.status(502).json({ error: 'store unavailable' });
+      }
+    }
+    if (body.action === 'setGameSettings' || body.action === 'resetGameSettings') {
+      try {
+        return await frogSettingsAction(req, res, body, sess.addr);
+      } catch (e) {
+        console.error('frog settings action failed', e && e.message);
+        return res.status(502).json({ error: 'store unavailable' });
+      }
+    }
+    return res.status(400).json({ ok: false, error: 'unknown action' });
+  }
+  /* GET: panel data */
+  try {
+    const gsState = await frogSettingsEffective();
+    let adminAccess = null;
+    if (sess.role === 'owner') {
+      adminAccess = {
+        storedList: await frogAdminStoredList(),
+        audit: await frogAdminAuditRead(),
+      };
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(200).json({
+      ok: true,
+      role: sess.role,
+      wallet: sess.addr,
+      ownerWallet: frogAdminOwner() || null,
+      gameSettings: frogSettingsPayload(gsState.effective),
+      board: await frogBoardSummary(),
+      adminAccess,
+    });
+  } catch (e) {
+    console.error('frog admin failed', e && e.message);
+    return res.status(502).json({ error: 'admin unavailable' });
+  }
+}
+/* frog-admin:end */
+
 
 /* garuda-timer:start — v4: Timer Payouts + leaderboard restart.
    The ADMIN sets a timer once (gd:paytimer); a Vercel cron calls
@@ -4760,6 +5172,8 @@ export default async function handler(req, res) {
      Public read of the merged effective settings; writes ride the
      garuda-admin gate, never this route. */
   if (req.query && req.query.garudasettings !== undefined) return garudaSettingsHandler(req, res);
+  if (req.query && req.query.frogadmin !== undefined) return frogAdminHandler(req, res);
+  if (req.query && req.query.frogsettings !== undefined) return frogSettingsHandler(req, res);
   /* Garuda Dash LEVEL EDITOR data: ?garudaedit=1 (see the garuda-edit
      block above). Published reads are public; writes are admin-gated. */
   if (req.query && req.query.garudaedit !== undefined) return garudaEditHandler(req, res);
