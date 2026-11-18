@@ -5021,6 +5021,94 @@ export async function tdcHandler(req, res) {
   }
 }
 /* studio-community:end */
+/* safe-chat:start — SAFE CHAT (client/public/safe-chat/). Tom's order
+   (2026-11-18): a SEPARATE, standalone encrypted messaging app —
+   "something like Telegram", basic platform first, kept apart from
+   Tom's Dev and every other page (nothing links to it; it links
+   nowhere). Reached via /api/luna-games?chatx=1 (folded into this
+   router for the same 12-function-cap reason as every block above).
+   REAL END-TO-END ENCRYPTION, honestly built: the room key is a
+   256-bit AES-GCM key generated IN THE BROWSER when a room is
+   created and travels ONLY in the invite link's URL fragment
+   (#r=…&k=…&n=…) — fragments are never sent to a server. Every
+   message payload {name, text, ts} is encrypted on the sender's
+   device; this handler stores ONLY {ct, iv, ts} rows (ciphertext +
+   IV + server timestamp) in chatx:msgs:<roomId>, capped at
+   CHATX_CAP newest. The server never sees keys, names, room names
+   or plaintext, and cannot read anything it stores. Anyone holding
+   a room link can join and read that room — the page says so in
+   plain words ("share the link like a key"). No accounts, no
+   passwords, no wallets, no seeds: join = open the link, type a
+   display name (kept on the device only). Validation here is shape
+   only: room id charset/length, IV must be base64 of 12 bytes,
+   ciphertext base64 within a size cap that matches the client's
+   1000-char plaintext cap. Reads are page-sized and unmetered;
+   there is deliberately NO identity server-side to rate-limit by —
+   the client's own 1.5s pace + the ciphertext size cap are the
+   flood brakes, and a room's worst case is 100 stored rows. This
+   block holds no keys, signs nothing and moves no funds. */
+const CHATX_CAP = 100;
+const CHATX_CT_MAX = 8192;
+const CHATX_ROOM_RE = /^[A-Za-z0-9_-]{10,64}$/;
+const CHATX_B64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+
+export async function chatxHandler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ ok: false, error: 'method not allowed' });
+  }
+  if (!process.env.NEONRUSH_UPSTASH_URL || !process.env.NEONRUSH_UPSTASH_TOKEN) {
+    return res.status(500).json({ ok: false, unavailable: true, error: 'storage not configured' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }
+  if (!body || typeof body !== 'object') return res.status(400).json({ ok: false, error: 'bad request' });
+  const action = String(body.action || '');
+  const room = String(body.room || '');
+  if (!CHATX_ROOM_RE.test(room)) return res.status(400).json({ ok: false, error: 'unknown room' });
+
+  try {
+    if (action === 'chatxList') {
+      const out = await upstashPipeline([['LRANGE', 'chatx:msgs:' + room, 0, CHATX_CAP - 1]]);
+      const raw = (out[0] && out[0].result) || [];
+      const msgs = [];
+      for (const s of raw) {
+        try {
+          const o = JSON.parse(s);
+          if (o && typeof o.ct === 'string' && typeof o.iv === 'string') msgs.push({ ct: o.ct, iv: o.iv, ts: Number(o.ts) || 0 });
+        } catch (e) { /* skip corrupt row */ }
+      }
+      msgs.reverse();
+      return res.status(200).json({ ok: true, msgs });
+    }
+
+    if (action === 'chatxPost') {
+      const ct = String(body.ct || '');
+      const iv = String(body.iv || '');
+      if (!ct || ct.length > CHATX_CT_MAX || !CHATX_B64_RE.test(ct)) {
+        return res.status(200).json({ ok: false, error: 'bad message' });
+      }
+      if (!CHATX_B64_RE.test(iv)) return res.status(200).json({ ok: false, error: 'bad message' });
+      let ivLen = -1;
+      try { ivLen = Buffer.from(iv, 'base64').length; } catch (e) { /* stays -1 */ }
+      if (ivLen !== 12) return res.status(200).json({ ok: false, error: 'bad message' });
+      const row = { ct, iv, ts: Date.now() };
+      await upstashPipeline([
+        ['LPUSH', 'chatx:msgs:' + room, JSON.stringify(row)],
+        ['LTRIM', 'chatx:msgs:' + room, 0, CHATX_CAP - 1],
+      ]);
+      return res.status(200).json({ ok: true, ts: row.ts });
+    }
+
+    return res.status(400).json({ ok: false, error: 'unknown action' });
+  } catch (e) {
+    console.error('chatx action failed', action, e && e.message);
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+}
+/* safe-chat:end */
+
 
 
 
@@ -5597,6 +5685,7 @@ export default async function handler(req, res) {
      tda seat-code gate; owner moderation re-verifies the owner
      code hash server-side on every call. */
   if (req.query && req.query.tdc !== undefined) return tdcHandler(req, res);
+  if (req.query && req.query.chatx !== undefined) return chatxHandler(req, res);
   /* Hussy Trading Bot control link: the page calls
      /api/luna-games?hussybot=1 directly (see the hussy-bot block
      above). Code hash + bot-secret hash live server-side; the

@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Safe Chat — private encrypted rooms</title>
+<meta name="description" content="Safe Chat: private chat rooms with real end-to-end encryption. No accounts — the invite link is the key.">
+<meta property="og:title" content="Safe Chat">
+<meta property="og:description" content="Private chat rooms, encrypted end to end. No accounts — the invite link is the key.">
+<style>
+  :root{
+    --bg:#0a0f1e; --panel:rgba(255,255,255,.055); --panel2:rgba(255,255,255,.09);
+    --line:rgba(255,255,255,.13); --txt:#eef2ff; --mut:#9aa7c7; --acc:#22c55e;
+    --acc2:#2dd4bf; --gold:#f5c451; --danger:#f87171;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{background:radial-gradient(1200px 600px at 80% -10%, #14351f 0%, transparent 55%),radial-gradient(1000px 700px at -10% 110%, #1b1040 0%, transparent 55%),var(--bg);
+    color:var(--txt); font-family:"Segoe UI",system-ui,Roboto,Arial,sans-serif; min-height:100dvh}
+  .wrap{max-width:560px;margin:0 auto;padding:14px 14px 28px}
+  header{display:flex;align-items:center;gap:10px;padding:6px 2px 12px}
+  .logo{width:44px;height:44px;border-radius:50%;background:linear-gradient(145deg,#14532d,#052e16);
+    border:2px solid rgba(45,212,191,.6);display:flex;align-items:center;justify-content:center;font-size:22px}
+  h1{font-size:24px;margin:0;letter-spacing:.02em}
+  h1 span{color:var(--acc2)}
+  .tag{color:var(--mut);font-size:12.5px;margin:2px 0 0}
+  .langsel{margin-left:auto}
+  .langsel select{font-size:16px;padding:10px 12px;border-radius:12px;background:var(--panel2);color:var(--txt);
+    border:1px solid var(--line);min-height:46px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;margin:12px 0;backdrop-filter:blur(6px)}
+  .honest{border-color:rgba(45,212,191,.45);background:rgba(20,83,45,.22);font-size:13.5px;line-height:1.5}
+  .honest b{color:var(--acc2)}
+  .warn{border-color:rgba(245,196,81,.5);background:rgba(120,84,10,.18);font-size:13px;line-height:1.5}
+  label{display:block;font-size:12.5px;color:var(--mut);margin:10px 0 5px;letter-spacing:.04em}
+  input[type=text]{width:100%;font-size:16px;padding:12px;border-radius:12px;border:1px solid var(--line);
+    background:rgba(0,0,0,.35);color:var(--txt);min-height:48px}
+  button{font-size:16px;font-weight:700;border-radius:12px;border:1px solid var(--line);cursor:pointer;min-height:48px}
+  .btn-main{width:100%;background:linear-gradient(180deg,#22c55e,#15803d);color:#04150a;border:none;padding:13px}
+  .btn-ghost{background:var(--panel2);color:var(--txt);padding:10px 14px}
+  .btn-small{min-height:40px;font-size:14px;padding:8px 12px}
+  .roomrow{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:var(--panel);
+    border:1px solid var(--line);border-radius:14px;padding:13px 14px;margin:8px 0;color:var(--txt)}
+  .roomrow .rn{font-weight:800;font-size:16.5px}
+  .roomrow .rm{color:var(--mut);font-size:12px;margin-left:auto;text-align:right}
+  .empty{color:var(--mut);font-size:14px;padding:8px 2px}
+  .notice{display:none;border-radius:12px;padding:11px 13px;font-size:14px;margin:10px 0;line-height:1.45}
+  .notice.show{display:block}
+  .notice.err{background:rgba(127,29,29,.35);border:1px solid rgba(248,113,113,.55)}
+  .notice.ok{background:rgba(20,83,45,.35);border:1px solid rgba(34,197,94,.55)}
+  /* room view */
+  #roomView{display:none}
+  .roomhead{display:flex;align-items:center;gap:8px}
+  .roomhead .rt{font-size:19px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .members{color:var(--mut);font-size:12.5px;margin:6px 2px 0;line-height:1.5;word-break:break-word}
+  #msgs{display:flex;flex-direction:column;gap:8px;margin:14px 0;min-height:220px}
+  .msg{max-width:86%;padding:9px 12px;border-radius:14px;background:var(--panel2);border:1px solid var(--line);align-self:flex-start}
+  .msg.me{align-self:flex-end;background:rgba(21,128,61,.35);border-color:rgba(34,197,94,.5)}
+  .msg .mn{font-size:12px;font-weight:800;color:var(--acc2);margin-bottom:2px}
+  .msg.me .mn{color:var(--gold)}
+  .msg .mt{font-size:15.5px;line-height:1.45;white-space:pre-wrap;word-break:break-word}
+  .msg .mh{font-size:11px;color:var(--mut);margin-top:3px;text-align:right}
+  .msg.bad{opacity:.65;font-style:italic}
+  .composer{display:flex;gap:8px;position:sticky;bottom:10px;background:rgba(10,15,30,.85);padding:8px;border-radius:16px;border:1px solid var(--line);backdrop-filter:blur(8px)}
+  .composer input{flex:1}
+  .composer button{background:linear-gradient(180deg,#22c55e,#15803d);color:#04150a;border:none;padding:0 20px}
+  .rowbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .tiny{font-size:12px;color:var(--mut);margin-top:8px;line-height:1.5}
+  .dangerlink{background:none;border:none;color:var(--danger);font-size:13px;min-height:36px;padding:4px 0;text-align:left}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">🔒</div>
+    <div>
+      <h1>Safe <span>Chat</span></h1>
+      <p class="tag" data-i18n="Private rooms, encrypted end to end. No accounts — a link is the key.">Private rooms, encrypted end to end. No accounts — a link is the key.</p>
+    </div>
+    <div class="langsel"><select id="langSel" aria-label="Language"></select></div>
+  </header>
+
+  <!-- HOME -->
+  <section id="homeView">
+    <div class="card honest">🔒 <b data-i18n="End-to-end encrypted">End-to-end encrypted</b> — <span data-i18n="the server stores only scrambled text it cannot read. Anyone with the room link can join and read the room — share the link like a key.">the server stores only scrambled text it cannot read. Anyone with the room link can join and read the room — share the link like a key.</span></div>
+
+    <div class="card warn" id="inviteCard" style="display:none">
+      <div style="font-weight:800;font-size:16px">📩 <span data-i18n="You have been invited to a room">You have been invited to a room</span>: <span id="inviteName"></span></div>
+      <label for="joinName" data-i18n="Your name">Your name</label>
+      <input type="text" id="joinName" maxlength="24" autocomplete="off">
+      <div style="height:10px"></div>
+      <button class="btn-main" id="joinBtn" data-i18n="Join room">Join room</button>
+    </div>
+
+    <div class="card">
+      <div style="font-weight:800;font-size:17px">➕ <span data-i18n="Create a room">Create a room</span></div>
+      <label for="newRoomName" data-i18n="Room name">Room name</label>
+      <input type="text" id="newRoomName" maxlength="40" autocomplete="off" placeholder="Family">
+      <label for="myName" data-i18n="Your name">Your name</label>
+      <input type="text" id="myName" maxlength="24" autocomplete="off">
+      <p class="tiny" data-i18n="Your name is saved on this device only.">Your name is saved on this device only.</p>
+      <div style="height:6px"></div>
+      <button class="btn-main" id="createBtn" data-i18n="Create a room">Create a room</button>
+      <div class="notice" id="homeNotice"></div>
+    </div>
+
+    <div class="card">
+      <div style="font-weight:800;font-size:17px">💬 <span data-i18n="Your rooms">Your rooms</span></div>
+      <div id="roomList"></div>
+      <p class="empty" id="noRooms" data-i18n="No rooms yet — create one and share its invite link.">No rooms yet — create one and share its invite link.</p>
+    </div>
+
+    <div class="card warn">⚠️ <span data-i18n="Never share seed words or private keys. Nobody here will ever ask for them.">Never share seed words or private keys. Nobody here will ever ask for them.</span></div>
+  </section>
+
+  <!-- ROOM -->
+  <section id="roomView">
+    <div class="roomhead">
+      <button class="btn-ghost btn-small" id="backBtn" data-i18n="‹ Back">‹ Back</button>
+      <div class="rt" id="roomTitle"></div>
+    </div>
+    <p class="members" id="memberLine"></p>
+    <div class="rowbtns">
+      <button class="btn-ghost btn-small" id="inviteBtn">🔗 <span data-i18n="Copy invite link">Copy invite link</span></button>
+      <span class="tiny" style="margin:0;align-self:center">🔒 <span data-i18n="Encrypted on this device">Encrypted on this device</span></span>
+    </div>
+    <div class="notice" id="roomNotice"></div>
+    <div id="msgs"></div>
+    <div class="composer">
+      <input type="text" id="msgInput" maxlength="1400" autocomplete="off" data-i18n-ph="Type a message…">
+      <button id="sendBtn" data-i18n="Send">Send</button>
+    </div>
+    <button class="dangerlink" id="forgetBtn" data-i18n="Forget this room on this device">Forget this room on this device</button>
+  </section>
+</div>
+
+<script>
+(function(){
+'use strict';
+var LANGS = [
+  ['en','English'],['es','Español'],['pt','Português'],['fr','Français'],['de','Deutsch'],
+  ['it','Italiano'],['nl','Nederlands'],['ru','Русский'],['uk','Українська'],['tr','Türkçe'],
+  ['ar','العربية'],['hi','हिन्दी'],['id','Bahasa Indonesia'],['vi','Tiếng Việt'],['th','ไทย'],
+  ['ko','한국어'],['ja','日本語'],['zh','中文']
+];
+var DICT = {
+'Private rooms, encrypted end to end. No accounts — a link is the key.':{es:'Salas privadas, cifradas de extremo a extremo. Sin cuentas: un enlace es la clave.',pt:'Salas privadas, criptografadas de ponta a ponta. Sem contas — um link é a chave.',fr:'Salons privés, chiffrés de bout en bout. Aucun compte — un lien est la clé.',de:'Private Räume, Ende-zu-Ende verschlüsselt. Keine Konten — ein Link ist der Schlüssel.',it:'Stanze private, crittografate end-to-end. Nessun account: un link è la chiave.',nl:'Privékamers, end-to-end versleuteld. Geen accounts — een link is de sleutel.',ru:'Приватные комнаты, сквозное шифрование. Без аккаунтов — ссылка это ключ.',uk:'Приватні кімнати, наскрізне шифрування. Без акаунтів — посилання є ключем.',tr:'Özel odalar, uçtan uca şifreli. Hesap yok — bir bağlantı anahtardır.',ar:'غرف خاصة، مشفرة من الطرف إلى الطرف. بدون حسابات — الرابط هو المفتاح.',hi:'निजी कमरे, एंड-टू-एंड एन्क्रिप्टेड। कोई खाता नहीं — लिंक ही कुंजी है।',id:'Ruang pribadi, terenkripsi ujung ke ujung. Tanpa akun — tautan adalah kuncinya.',vi:'Phòng riêng, mã hóa đầu cuối. Không cần tài khoản — liên kết là chìa khóa.',th:'ห้องส่วนตัว เข้ารหัสแบบต้นทางถึงปลายทาง ไม่มีบัญชี — ลิงก์คือกุญแจ',ko:'비공개 방, 종단간 암호화. 계정 없음 — 링크가 열쇠입니다.',ja:'プライベートルーム、エンドツーエンド暗号化。アカウント不要 — リンクが鍵です。',zh:'私密房间，端到端加密。无需账户——链接就是钥匙。'},
+'End-to-end encrypted':{es:'Cifrado de extremo a extremo',pt:'Criptografia de ponta a ponta',fr:'Chiffré de bout en bout',de:'Ende-zu-Ende verschlüsselt',it:'Crittografia end-to-end',nl:'End-to-end versleuteld',ru:'Сквозное шифрование',uk:'Наскрізне шифрування',tr:'Uçtan uca şifreli',ar:'مشفر من الطرف إلى الطرف',hi:'एंड-टू-एंड एन्क्रिप्टेड',id:'Terenkripsi ujung ke ujung',vi:'Mã hóa đầu cuối',th:'เข้ารหัสแบบต้นทางถึงปลายทาง',ko:'종단간 암호화',ja:'エンドツーエンド暗号化',zh:'端到端加密'},
+'the server stores only scrambled text it cannot read. Anyone with the room link can join and read the room — share the link like a key.':{es:'el servidor solo guarda texto cifrado que no puede leer. Cualquiera con el enlace de la sala puede entrar y leerla: comparte el enlace como una llave.',pt:'o servidor guarda apenas texto embaralhado que não consegue ler. Qualquer pessoa com o link da sala pode entrar e ler — compartilhe o link como uma chave.',fr:'le serveur ne stocke que du texte brouillé qu\u2019il ne peut pas lire. Toute personne ayant le lien du salon peut y entrer et le lire — partagez le lien comme une clé.',de:'der Server speichert nur verschlüsselten Text, den er nicht lesen kann. Jeder mit dem Raum-Link kann beitreten und mitlesen — teilen Sie den Link wie einen Schlüssel.',it:'il server conserva solo testo cifrato che non può leggere. Chiunque abbia il link della stanza può entrare e leggerla: condividi il link come una chiave.',nl:'de server bewaart alleen versleutelde tekst die hij niet kan lezen. Iedereen met de kamerlink kan meedoen en meelezen — deel de link als een sleutel.',ru:'сервер хранит только зашифрованный текст, который не может прочитать. Любой, у кого есть ссылка на комнату, может войти и читать её — делитесь ссылкой как ключом.',uk:'сервер зберігає лише зашифрований текст, який не може прочитати. Будь-хто з посиланням на кімнату може увійти й читати її — діліться посиланням як ключем.',tr:'sunucu yalnızca okuyamadığı şifreli metni saklar. Oda bağlantısına sahip herkes katılabilir ve odayı okuyabilir — bağlantıyı bir anahtar gibi paylaşın.',ar:'الخادم يخزن فقط نصًا مشفرًا لا يستطيع قراءته. أي شخص لديه رابط الغرفة يمكنه الانضمام وقراءتها — شارك الرابط كأنه مفتاح.',hi:'सर्वर केवल एन्क्रिप्टेड टेक्स्ट रखता है जिसे वह पढ़ नहीं सकता। जिसके पास कमरे का लिंक है वह जुड़कर पढ़ सकता है — लिंक को कुंजी की तरह साझा करें।',id:'server hanya menyimpan teks terenkripsi yang tidak bisa dibacanya. Siapa pun yang memiliki tautan ruang dapat bergabung dan membaca — bagikan tautan seperti kunci.',vi:'máy chủ chỉ lưu văn bản đã mã hóa mà nó không thể đọc. Bất kỳ ai có liên kết phòng đều có thể tham gia và đọc — hãy chia sẻ liên kết như một chìa khóa.',th:'เซิร์ฟเวอร์เก็บเฉพาะข้อความที่เข้ารหัสแล้วซึ่งอ่านไม่ได้ ใครก็ตามที่มีลิงก์ห้องสามารถเข้าร่วมและอ่านได้ — แชร์ลิงก์เหมือนกุญแจ',ko:'서버는 읽을 수 없는 암호화된 텍스트만 저장합니다. 방 링크가 있는 누구나 참여하고 읽을 수 있습니다 — 링크를 열쇠처럼 공유하세요.',ja:'サーバーは読めない暗号化テキストだけを保存します。ルームリンクを持つ人は誰でも参加して読めます — リンクは鍵のように共有してください。',zh:'服务器只存储它无法读取的加密文本。任何拥有房间链接的人都可以加入并阅读——请像钥匙一样分享链接。'},
+'You have been invited to a room':{es:'Te han invitado a una sala',pt:'Você foi convidado para uma sala',fr:'Vous avez été invité dans un salon',de:'Sie wurden in einen Raum eingeladen',it:'Sei stato invitato in una stanza',nl:'U bent uitgenodigd voor een kamer',ru:'Вас пригласили в комнату',uk:'Вас запросили до кімнати',tr:'Bir odaya davet edildiniz',ar:'تمت دعوتك إلى غرفة',hi:'आपको एक कमरे में आमंत्रित किया गया है',id:'Anda diundang ke sebuah ruang',vi:'Bạn đã được mời vào một phòng',th:'คุณได้รับเชิญเข้าห้อง',ko:'방에 초대되었습니다',ja:'ルームに招待されました',zh:'您被邀请加入一个房间'},
+'Your name':{es:'Tu nombre',pt:'Seu nome',fr:'Votre nom',de:'Ihr Name',it:'Il tuo nome',nl:'Uw naam',ru:'Ваше имя',uk:'Ваше ім\u2019я',tr:'Adınız',ar:'اسمك',hi:'आपका नाम',id:'Nama Anda',vi:'Tên của bạn',th:'ชื่อของคุณ',ko:'이름',ja:'あなたの名前',zh:'您的名字'},
+'Join room':{es:'Entrar a la sala',pt:'Entrar na sala',fr:'Rejoindre le salon',de:'Raum betreten',it:'Entra nella stanza',nl:'Kamer betreden',ru:'Войти в комнату',uk:'Увійти до кімнати',tr:'Odaya katıl',ar:'انضم إلى الغرفة',hi:'कमरे से जुड़ें',id:'Gabung ruang',vi:'Vào phòng',th:'เข้าร่วมห้อง',ko:'방 입장',ja:'ルームに参加',zh:'加入房间'},
+'Create a room':{es:'Crear una sala',pt:'Criar uma sala',fr:'Créer un salon',de:'Raum erstellen',it:'Crea una stanza',nl:'Kamer maken',ru:'Создать комнату',uk:'Створити кімнату',tr:'Oda oluştur',ar:'إنشاء غرفة',hi:'कमरा बनाएं',id:'Buat ruang',vi:'Tạo phòng',th:'สร้างห้อง',ko:'방 만들기',ja:'ルームを作成',zh:'创建房间'},
+'Room name':{es:'Nombre de la sala',pt:'Nome da sala',fr:'Nom du salon',de:'Raumname',it:'Nome della stanza',nl:'Kamernaam',ru:'Название комнаты',uk:'Назва кімнати',tr:'Oda adı',ar:'اسم الغرفة',hi:'कमरे का नाम',id:'Nama ruang',vi:'Tên phòng',th:'ชื่อห้อง',ko:'방 이름',ja:'ルーム名',zh:'房间名称'},
+'Your name is saved on this device only.':{es:'Tu nombre se guarda solo en este dispositivo.',pt:'Seu nome fica salvo apenas neste dispositivo.',fr:'Votre nom est enregistré uniquement sur cet appareil.',de:'Ihr Name wird nur auf diesem Gerät gespeichert.',it:'Il tuo nome è salvato solo su questo dispositivo.',nl:'Uw naam wordt alleen op dit apparaat bewaard.',ru:'Ваше имя хранится только на этом устройстве.',uk:'Ваше ім\u2019я зберігається лише на цьому пристрої.',tr:'Adınız yalnızca bu cihazda saklanır.',ar:'يتم حفظ اسمك على هذا الجهاز فقط.',hi:'आपका नाम केवल इस डिवाइस पर सहेजा जाता है।',id:'Nama Anda hanya disimpan di perangkat ini.',vi:'Tên của bạn chỉ được lưu trên thiết bị này.',th:'ชื่อของคุณถูกบันทึกไว้ในอุปกรณ์นี้เท่านั้น',ko:'이름은 이 기기에만 저장됩니다.',ja:'あなたの名前はこのデバイスにのみ保存されます。',zh:'您的名字仅保存在此设备上。'},
+'Your rooms':{es:'Tus salas',pt:'Suas salas',fr:'Vos salons',de:'Ihre Räume',it:'Le tue stanze',nl:'Uw kamers',ru:'Ваши комнаты',uk:'Ваші кімнати',tr:'Odalarınız',ar:'غرفك',hi:'आपके कमरे',id:'Ruang Anda',vi:'Phòng của bạn',th:'ห้องของคุณ',ko:'내 방',ja:'あなたのルーム',zh:'您的房间'},
+'No rooms yet — create one and share its invite link.':{es:'Aún no hay salas: crea una y comparte su enlace de invitación.',pt:'Nenhuma sala ainda — crie uma e compartilhe o link de convite.',fr:'Aucun salon pour le moment — créez-en un et partagez son lien d\u2019invitation.',de:'Noch keine Räume — erstellen Sie einen und teilen Sie den Einladungslink.',it:'Ancora nessuna stanza: creane una e condividi il suo link di invito.',nl:'Nog geen kamers — maak er een en deel de uitnodigingslink.',ru:'Пока нет комнат — создайте одну и поделитесь ссылкой-приглашением.',uk:'Поки немає кімнат — створіть одну й поділіться посиланням-запрошенням.',tr:'Henüz oda yok — bir tane oluşturun ve davet bağlantısını paylaşın.',ar:'لا توجد غرف بعد — أنشئ واحدة وشارك رابط الدعوة.',hi:'अभी कोई कमरा नहीं — एक बनाएं और उसका आमंत्रण लिंक साझा करें।',id:'Belum ada ruang — buat satu dan bagikan tautan undangannya.',vi:'Chưa có phòng nào — hãy tạo một phòng và chia sẻ liên kết mời.',th:'ยังไม่มีห้อง — สร้างห้องและแชร์ลิงก์เชิญ',ko:'아직 방이 없습니다 — 방을 만들고 초대 링크를 공유하세요.',ja:'まだルームがありません — 作成して招待リンクを共有してください。',zh:'暂无房间——创建一个并分享邀请链接。'},
+'Never share seed words or private keys. Nobody here will ever ask for them.':{es:'Nunca compartas tus palabras semilla ni claves privadas. Nadie aquí te las pedirá jamás.',pt:'Nunca compartilhe suas palavras-semente ou chaves privadas. Ninguém aqui jamais pedirá isso.',fr:'Ne partagez jamais vos mots de récupération ni vos clés privées. Personne ici ne vous les demandera.',de:'Teilen Sie niemals Seed-Wörter oder private Schlüssel. Niemand hier wird Sie je danach fragen.',it:'Non condividere mai parole seme o chiavi private. Nessuno qui te le chiederà mai.',nl:'Deel nooit seed-woorden of privésleutels. Niemand hier zal er ooit om vragen.',ru:'Никогда не делитесь сид-словами и приватными ключами. Никто здесь никогда их не попросит.',uk:'Ніколи не діліться сід-словами та приватними ключами. Ніхто тут ніколи їх не попросить.',tr:'Seed kelimelerinizi veya özel anahtarlarınızı asla paylaşmayın. Buradaki hiç kimse sizden bunu istemez.',ar:'لا تشارك أبدًا كلمات الاسترداد أو المفاتيح الخاصة. لن يطلبها منك أحد هنا أبدًا.',hi:'अपने सीड शब्द या निजी कुंजियाँ कभी साझा न करें। यहाँ कोई भी आपसे ये कभी नहीं माँगेगा।',id:'Jangan pernah membagikan kata seed atau kunci pribadi. Tidak ada siapa pun di sini yang akan memintanya.',vi:'Đừng bao giờ chia sẻ từ khôi phục hoặc khóa riêng. Không ai ở đây sẽ yêu cầu chúng.',th:'อย่าแชร์คำกู้คืนหรือคีย์ส่วนตัวเด็ดขาด ไม่มีใครที่นี่จะขอสิ่งเหล่านี้',ko:'시드 단어나 개인 키를 절대 공유하지 마세요. 여기서는 아무도 요구하지 않습니다.',ja:'シードワードや秘密鍵は絶対に共有しないでください。ここでは誰も要求しません。',zh:'切勿分享助记词或私钥。这里没有人会向您索要这些信息。'},
+'‹ Back':{es:'‹ Volver',pt:'‹ Voltar',fr:'‹ Retour',de:'‹ Zurück',it:'‹ Indietro',nl:'‹ Terug',ru:'‹ Назад',uk:'‹ Назад',tr:'‹ Geri',ar:'‹ رجوع',hi:'‹ वापस',id:'‹ Kembali',vi:'‹ Quay lại',th:'‹ กลับ',ko:'‹ 뒤로',ja:'‹ 戻る',zh:'‹ 返回'},
+'Copy invite link':{es:'Copiar enlace de invitación',pt:'Copiar link de convite',fr:'Copier le lien d\u2019invitation',de:'Einladungslink kopieren',it:'Copia link di invito',nl:'Uitnodigingslink kopiëren',ru:'Копировать ссылку-приглашение',uk:'Копіювати посилання-запрошення',tr:'Davet bağlantısını kopyala',ar:'نسخ رابط الدعوة',hi:'आमंत्रण लिंक कॉपी करें',id:'Salin tautan undangan',vi:'Sao chép liên kết mời',th:'คัดลอกลิงก์เชิญ',ko:'초대 링크 복사',ja:'招待リンクをコピー',zh:'复制邀请链接'},
+'Encrypted on this device':{es:'Cifrado en este dispositivo',pt:'Criptografado neste dispositivo',fr:'Chiffré sur cet appareil',de:'Auf diesem Gerät verschlüsselt',it:'Crittografato su questo dispositivo',nl:'Versleuteld op dit apparaat',ru:'Зашифровано на этом устройстве',uk:'Зашифровано на цьому пристрої',tr:'Bu cihazda şifreli',ar:'مشفر على هذا الجهاز',hi:'इस डिवाइस पर एन्क्रिप्टेड',id:'Terenkripsi di perangkat ini',vi:'Đã mã hóa trên thiết bị này',th:'เข้ารหัสบนอุปกรณ์นี้',ko:'이 기기에서 암호화됨',ja:'このデバイスで暗号化',zh:'在此设备上加密'},
+'Type a message…':{es:'Escribe un mensaje…',pt:'Digite uma mensagem…',fr:'Écrivez un message…',de:'Nachricht schreiben…',it:'Scrivi un messaggio…',nl:'Typ een bericht…',ru:'Напишите сообщение…',uk:'Напишіть повідомлення…',tr:'Bir mesaj yazın…',ar:'اكتب رسالة…',hi:'संदेश लिखें…',id:'Ketik pesan…',vi:'Nhập tin nhắn…',th:'พิมพ์ข้อความ…',ko:'메시지를 입력하세요…',ja:'メッセージを入力…',zh:'输入消息…'},
+'Send':{es:'Enviar',pt:'Enviar',fr:'Envoyer',de:'Senden',it:'Invia',nl:'Verzenden',ru:'Отправить',uk:'Надіслати',tr:'Gönder',ar:'إرسال',hi:'भेजें',id:'Kirim',vi:'Gửi',th:'ส่ง',ko:'보내기',ja:'送信',zh:'发送'},
+'Forget this room on this device':{es:'Olvidar esta sala en este dispositivo',pt:'Esquecer esta sala neste dispositivo',fr:'Oublier ce salon sur cet appareil',de:'Diesen Raum auf diesem Gerät vergessen',it:'Dimentica questa stanza su questo dispositivo',nl:'Deze kamer op dit apparaat vergeten',ru:'Забыть эту комнату на этом устройстве',uk:'Забути цю кімнату на цьому пристрої',tr:'Bu odayı bu cihazda unut',ar:'نسيان هذه الغرفة على هذا الجهاز',hi:'इस डिवाइस पर यह कमरा भूल जाएं',id:'Lupakan ruang ini di perangkat ini',vi:'Quên phòng này trên thiết bị này',th:'ลืมห้องนี้ในอุปกรณ์นี้',ko:'이 기기에서 이 방 지우기',ja:'このデバイスでこのルームを削除',zh:'在此设备上忘记此房间'},
+'Invite link copied ✓':{es:'Enlace de invitación copiado ✓',pt:'Link de convite copiado ✓',fr:'Lien d\u2019invitation copié ✓',de:'Einladungslink kopiert ✓',it:'Link di invito copiato ✓',nl:'Uitnodigingslink gekopieerd ✓',ru:'Ссылка-приглашение скопирована ✓',uk:'Посилання-запрошення скопійовано ✓',tr:'Davet bağlantısı kopyalandı ✓',ar:'تم نسخ رابط الدعوة ✓',hi:'आमंत्रण लिंक कॉपी हो गया ✓',id:'Tautan undangan disalin ✓',vi:'Đã sao chép liên kết mời ✓',th:'คัดลอกลิงก์เชิญแล้ว ✓',ko:'초대 링크가 복사되었습니다 ✓',ja:'招待リンクをコピーしました ✓',zh:'邀请链接已复制 ✓'},
+'Enter your name first.':{es:'Primero escribe tu nombre.',pt:'Digite seu nome primeiro.',fr:'Entrez d\u2019abord votre nom.',de:'Geben Sie zuerst Ihren Namen ein.',it:'Inserisci prima il tuo nome.',nl:'Voer eerst uw naam in.',ru:'Сначала введите ваше имя.',uk:'Спочатку введіть ваше ім\u2019я.',tr:'Önce adınızı girin.',ar:'أدخل اسمك أولاً.',hi:'पहले अपना नाम दर्ज करें।',id:'Masukkan nama Anda terlebih dahulu.',vi:'Hãy nhập tên của bạn trước.',th:'กรุณาใส่ชื่อของคุณก่อน',ko:'먼저 이름을 입력하세요.',ja:'まず名前を入力してください。',zh:'请先输入您的名字。'},
+'Enter a room name first.':{es:'Primero escribe un nombre para la sala.',pt:'Digite um nome para a sala primeiro.',fr:'Entrez d\u2019abord un nom de salon.',de:'Geben Sie zuerst einen Raumnamen ein.',it:'Inserisci prima un nome per la stanza.',nl:'Voer eerst een kamernaam in.',ru:'Сначала введите название комнаты.',uk:'Спочатку введіть назву кімнати.',tr:'Önce bir oda adı girin.',ar:'أدخل اسم الغرفة أولاً.',hi:'पहले कमरे का नाम दर्ज करें।',id:'Masukkan nama ruang terlebih dahulu.',vi:'Hãy nhập tên phòng trước.',th:'กรุณาใส่ชื่อห้องก่อน',ko:'먼저 방 이름을 입력하세요.',ja:'まずルーム名を入力してください。',zh:'请先输入房间名称。'},
+'Blocked — that looked like a seed-phrase scam. Nobody here will ever ask for seed words or keys.':{es:'Bloqueado: eso parecía una estafa de frase semilla. Nadie aquí pedirá jamás palabras semilla ni claves.',pt:'Bloqueado — isso parecia um golpe de frase-semente. Ninguém aqui pedirá palavras-semente ou chaves.',fr:'Bloqué — cela ressemblait à une arnaque à la phrase de récupération. Personne ici ne demandera de mots de récupération ni de clés.',de:'Blockiert — das sah nach Seed-Betrug aus. Niemand hier wird je nach Seed-Wörtern oder Schlüsseln fragen.',it:'Bloccato: sembrava una truffa della frase seme. Nessuno qui chiederà mai parole seme o chiavi.',nl:'Geblokkeerd — dat leek op seed-fraude. Niemand hier zal ooit om seed-woorden of sleutels vragen.',ru:'Заблокировано — похоже на мошенничество с сид-фразой. Никто здесь не попросит сид-слова или ключи.',uk:'Заблоковано — схоже на шахрайство з сід-фразою. Ніхто тут не попросить сід-слова чи ключі.',tr:'Engellendi — bu bir seed ifadesi dolandırıcılığına benziyordu. Buradaki hiç kimse seed kelimesi veya anahtar istemez.',ar:'تم الحظر — بدا ذلك كاحتيال لعبارة الاسترداد. لن يطلب أحد هنا كلمات الاسترداد أو المفاتيح.',hi:'अवरुद्ध — यह सीड-फ़्रेज़ घोटाला लग रहा था। यहाँ कोई भी सीड शब्द या कुंजियाँ नहीं माँगेगा।',id:'Diblokir — itu tampak seperti penipuan frasa seed. Tidak ada di sini yang akan meminta kata seed atau kunci.',vi:'Đã chặn — tin nhắn trông giống lừa đảo cụm từ khôi phục. Không ai ở đây sẽ yêu cầu từ khôi phục hoặc khóa.',th:'ถูกบล็อก — ข้อความดูเหมือนการหลอกลวงคำกู้คืน ไม่มีใครที่นี่จะขอคำกู้คืนหรือคีย์',ko:'차단되었습니다 — 시드 문구 사기처럼 보였습니다. 여기서는 아무도 시드 단어나 키를 요구하지 않습니다.',ja:'ブロックしました — シードフレーズ詐欺のように見えました。ここでは誰もシードワードやキーを要求しません。',zh:'已拦截——这看起来像助记词诈骗。这里没有人会索要助记词或密钥。'},
+'One message at a time — give it a second.':{es:'Un mensaje a la vez: espera un segundo.',pt:'Uma mensagem de cada vez — aguarde um segundo.',fr:'Un message à la fois — patientez une seconde.',de:'Eine Nachricht nach der anderen — kurz warten.',it:'Un messaggio alla volta: aspetta un secondo.',nl:'Eén bericht tegelijk — wacht even.',ru:'По одному сообщению — подождите секунду.',uk:'По одному повідомленню — зачекайте секунду.',tr:'Tek seferde bir mesaj — bir saniye bekleyin.',ar:'رسالة واحدة في كل مرة — انتظر ثانية.',hi:'एक बार में एक संदेश — एक सेकंड रुकें।',id:'Satu pesan setiap kali — tunggu sebentar.',vi:'Mỗi lần một tin nhắn — hãy đợi một giây.',th:'ส่งทีละข้อความ — รอสักครู่',ko:'한 번에 하나의 메시지 — 잠시 기다리세요.',ja:'一度に1メッセージ — 少し待ってください。',zh:'一次一条消息——请稍等一秒。'},
+'Messages are capped at 1000 characters.':{es:'Los mensajes tienen un máximo de 1000 caracteres.',pt:'As mensagens são limitadas a 1000 caracteres.',fr:'Les messages sont limités à 1000 caractères.',de:'Nachrichten sind auf 1000 Zeichen begrenzt.',it:'I messaggi sono limitati a 1000 caratteri.',nl:'Berichten zijn beperkt tot 1000 tekens.',ru:'Сообщения ограничены 1000 символами.',uk:'Повідомлення обмежені 1000 символами.',tr:'Mesajlar 1000 karakterle sınırlıdır.',ar:'الرسائل محدودة بـ 1000 حرف.',hi:'संदेश 1000 अक्षरों तक सीमित हैं।',id:'Pesan dibatasi 1000 karakter.',vi:'Tin nhắn giới hạn 1000 ký tự.',th:'ข้อความจำกัดที่ 1000 ตัวอักษร',ko:'메시지는 1000자로 제한됩니다.',ja:'メッセージは1000文字までです。',zh:'消息上限为1000个字符。'},
+'Could not decrypt — wrong key for this room.':{es:'No se pudo descifrar: clave incorrecta para esta sala.',pt:'Não foi possível descriptografar — chave errada para esta sala.',fr:'Impossible de déchiffrer — mauvaise clé pour ce salon.',de:'Entschlüsselung fehlgeschlagen — falscher Schlüssel für diesen Raum.',it:'Impossibile decifrare: chiave sbagliata per questa stanza.',nl:'Kan niet ontsleutelen — verkeerde sleutel voor deze kamer.',ru:'Не удалось расшифровать — неверный ключ для этой комнаты.',uk:'Не вдалося розшифрувати — невірний ключ для цієї кімнати.',tr:'Şifre çözülemedi — bu oda için yanlış anahtar.',ar:'تعذر فك التشفير — مفتاح خاطئ لهذه الغرفة.',hi:'डिक्रिप्ट नहीं हो सका — इस कमरे के लिए गलत कुंजी।',id:'Tidak dapat mendekripsi — kunci salah untuk ruang ini.',vi:'Không thể giải mã — sai khóa cho phòng này.',th:'ถอดรหัสไม่ได้ — คีย์ไม่ถูกต้องสำหรับห้องนี้',ko:'복호화할 수 없습니다 — 이 방의 키가 잘못되었습니다.',ja:'復号できませんでした — このルームの鍵が違います。',zh:'无法解密——此房间的密钥不正确。'}
+};
+var lang = 'en';
+try { lang = localStorage.getItem('sc_lang') || 'en'; } catch(e){}
+if (!LANGS.some(function(l){return l[0]===lang;})) lang = 'en';
+function T(s){ if (lang==='en') return s; var d = DICT[s]; return (d && d[lang]) || s; }
+function applyI18n(){
+  document.querySelectorAll('[data-i18n]').forEach(function(el){ el.textContent = T(el.getAttribute('data-i18n')); });
+  document.querySelectorAll('[data-i18n-ph]').forEach(function(el){ el.setAttribute('placeholder', T(el.getAttribute('data-i18n-ph'))); });
+  document.documentElement.lang = lang;
+  document.documentElement.dir = (lang==='ar') ? 'rtl' : 'ltr';
+}
+var sel = document.getElementById('langSel');
+LANGS.forEach(function(l){ var o=document.createElement('option'); o.value=l[0]; o.textContent=l[1]; sel.appendChild(o); });
+sel.value = lang;
+sel.addEventListener('change', function(){ lang = sel.value; try{ localStorage.setItem('sc_lang', lang); }catch(e){} applyI18n(); });
+
+/* ---------- storage helpers ---------- */
+function loadRooms(){ try { return JSON.parse(localStorage.getItem('sc_rooms_v1')||'[]'); } catch(e){ return []; } }
+function saveRooms(r){ try { localStorage.setItem('sc_rooms_v1', JSON.stringify(r)); } catch(e){} }
+function myName(){ try { return (localStorage.getItem('sc_name_v1')||'').trim(); } catch(e){ return ''; } }
+function setMyName(n){ try { localStorage.setItem('sc_name_v1', n); } catch(e){} }
+
+/* ---------- crypto (WebCrypto AES-GCM; key never leaves the device except inside invite-link fragments) ---------- */
+function b64urlEncode(bytes){ var s=''; bytes.forEach(function(b){ s+=String.fromCharCode(b); }); return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+function b64urlDecode(str){ var s = String(str).replace(/-/g,'+').replace(/_/g,'/'); while (s.length%4) s+='='; var bin = atob(s); var out = new Uint8Array(bin.length); for (var i=0;i<bin.length;i++) out[i]=bin.charCodeAt(i); return out; }
+function b64Encode(bytes){ var s=''; bytes.forEach(function(b){ s+=String.fromCharCode(b); }); return btoa(s); }
+function b64Decode(str){ var bin = atob(str); var out = new Uint8Array(bin.length); for (var i=0;i<bin.length;i++) out[i]=bin.charCodeAt(i); return out; }
+function importKey(rawB64url){ return crypto.subtle.importKey('raw', b64urlDecode(rawB64url), {name:'AES-GCM'}, false, ['encrypt','decrypt']); }
+async function encryptMsg(keyRaw, payloadObj){
+  var key = await importKey(keyRaw);
+  var iv = crypto.getRandomValues(new Uint8Array(12));
+  var pt = new TextEncoder().encode(JSON.stringify(payloadObj));
+  var ct = await crypto.subtle.encrypt({name:'AES-GCM', iv:iv}, key, pt);
+  return { ct: b64Encode(new Uint8Array(ct)), iv: b64Encode(iv) };
+}
+async function decryptMsg(keyRaw, row){
+  var key = await importKey(keyRaw);
+  var pt = await crypto.subtle.decrypt({name:'AES-GCM', iv:b64Decode(row.iv)}, key, b64Decode(row.ct));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+
+/* ---------- client-side scam guard (runs BEFORE encrypting; mirrors the house chat filter) ---------- */
+function scamHit(text){
+  var t = ' ' + String(text||'').toLowerCase().replace(/\s+/g,' ') + ' ';
+  var direct = ['send me your','give me your','dm me your','message me your','tell me your',
+    'share your seed','send your seed','enter your seed','type your seed','verify your seed',
+    'validate your wallet','sync your wallet','rectify your wallet','double your'];
+  for (var i=0;i<direct.length;i++) if (t.indexOf(direct[i])>=0) return true;
+  var sens = ['seed phrase','seed words','private key','recovery phrase','secret phrase','mnemonic'];
+  var asks = [' send ',' give ',' share ',' enter ',' type ',' tell ',' verify ',' confirm ',' paste ',' drop '];
+  for (var j=0;j<sens.length;j++) if (t.indexOf(sens[j])>=0) { for (var k=0;k<asks.length;k++) if (t.indexOf(asks[k])>=0) return true; }
+  return false;
+}
+
+/* ---------- api ---------- */
+var API = '/api/luna-games?chatx=1';
+function api(body){
+  return fetch(API, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)})
+    .then(function(r){ return r.json(); });
+}
+
+/* ---------- ui state ---------- */
+var $ = function(id){ return document.getElementById(id); };
+var current = null; /* {id,k,n} */
+var pollTimer = null;
+var lastSig = '';
+var lastSendAt = 0;
+
+function notice(el, msg, ok){
+  el.textContent = msg || '';
+  el.className = 'notice' + (msg ? ' show ' + (ok ? 'ok' : 'err') : '');
+}
+function inviteLink(room){
+  return location.origin + location.pathname + '#r=' + encodeURIComponent(room.id) + '&k=' + encodeURIComponent(room.k) + '&n=' + encodeURIComponent(room.n);
+}
+function renderRooms(){
+  var rooms = loadRooms();
+  var list = $('roomList'); list.textContent = '';
+  $('noRooms').style.display = rooms.length ? 'none' : 'block';
+  rooms.forEach(function(room){
+    var b = document.createElement('button');
+    b.className = 'roomrow';
+    var rn = document.createElement('span'); rn.className='rn'; rn.textContent = '🔒 ' + room.n;
+    var rm = document.createElement('span'); rm.className='rm'; rm.textContent = 'AES-256';
+    b.appendChild(rn); b.appendChild(rm);
+    b.addEventListener('click', function(){ openRoom(room); });
+    list.appendChild(b);
+  });
+}
+function parseFragment(){
+  var h = (location.hash||'').replace(/^#/, '');
+  var p = new URLSearchParams(h);
+  var r = p.get('r'), k = p.get('k'), n = p.get('n');
+  if (r && k) return { id: r, k: k, n: (n || 'Room').slice(0,40) };
+  return null;
+}
+function checkInvite(){
+  var inv = parseFragment();
+  var card = $('inviteCard');
+  if (!inv) { card.style.display='none'; return; }
+  var rooms = loadRooms();
+  if (rooms.some(function(x){ return x.id===inv.id && x.k===inv.k; })) { card.style.display='none'; return; }
+  $('inviteName').textContent = inv.n;
+  card.style.display='block';
+  if (myName() && !$('joinName').value) $('joinName').value = myName();
+  $('joinBtn').onclick = function(){
+    var nm = $('joinName').value.trim().slice(0,24);
+    if (!nm) { notice($('homeNotice'), T('Enter your name first.')); return; }
+    setMyName(nm);
+    var rs = loadRooms(); rs.push(inv); saveRooms(rs);
+    history.replaceState(null,'',location.pathname);
+    card.style.display='none';
+    renderRooms();
+    openRoom(inv);
+  };
+}
+
+/* ---------- create ---------- */
+$('createBtn').addEventListener('click', function(){
+  var rn = $('newRoomName').value.trim().slice(0,40);
+  var nm = $('myName').value.trim().slice(0,24);
+  if (!rn) { notice($('homeNotice'), T('Enter a room name first.')); return; }
+  if (!nm) { notice($('homeNotice'), T('Enter your name first.')); return; }
+  setMyName(nm);
+  var keyBytes = crypto.getRandomValues(new Uint8Array(32));
+  var idBytes = crypto.getRandomValues(new Uint8Array(12));
+  var room = { id: b64urlEncode(idBytes), k: b64urlEncode(keyBytes), n: rn };
+  var rs = loadRooms(); rs.push(room); saveRooms(rs);
+  $('newRoomName').value='';
+  renderRooms();
+  openRoom(room);
+});
+
+/* ---------- room view ---------- */
+function openRoom(room){
+  current = room;
+  lastSig = '';
+  $('homeView').style.display='none';
+  $('roomView').style.display='block';
+  $('roomTitle').textContent = room.n;
+  $('msgs').textContent='';
+  $('memberLine').textContent='';
+  notice($('roomNotice'), '');
+  try { history.replaceState(null,'',location.pathname + '#r=' + encodeURIComponent(room.id) + '&k=' + encodeURIComponent(room.k) + '&n=' + encodeURIComponent(room.n)); } catch(e){}
+  poll();
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(poll, 3000);
+  $('msgInput').focus();
+}
+function closeRoom(){
+  current = null;
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  $('roomView').style.display='none';
+  $('homeView').style.display='block';
+  try { history.replaceState(null,'',location.pathname); } catch(e){}
+  renderRooms(); checkInvite();
+}
+$('backBtn').addEventListener('click', closeRoom);
+$('forgetBtn').addEventListener('click', function(){
+  if (!current) return;
+  var rs = loadRooms().filter(function(x){ return !(x.id===current.id && x.k===current.k); });
+  saveRooms(rs);
+  closeRoom();
+});
+$('inviteBtn').addEventListener('click', function(){
+  if (!current) return;
+  var link = inviteLink(current);
+  function done(){ notice($('roomNotice'), T('Invite link copied ✓'), true); }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(link).then(done, function(){ window.prompt('Copy this invite link:', link); });
+  } else { window.prompt('Copy this invite link:', link); }
+});
+
+async function poll(){
+  if (!current) return;
+  var room = current;
+  var out;
+  try { out = await api({action:'chatxList', room: room.id}); } catch(e){ return; }
+  if (!out || !out.ok || !current || current.id !== room.id) return;
+  var rows = out.msgs || [];
+  var sig = rows.length + ':' + (rows.length ? rows[rows.length-1].ts : 0) + ':' + (rows.length ? rows[rows.length-1].ct.slice(0,24) : '');
+  if (sig === lastSig) return;
+  lastSig = sig;
+  var box = $('msgs'); box.textContent = '';
+  var members = {};
+  var fail = 0, okCount = 0;
+  for (var i=0;i<rows.length;i++){
+    var payload = null;
+    try { payload = await decryptMsg(room.k, rows[i]); } catch(e){ payload = null; }
+    var div = document.createElement('div');
+    if (payload && typeof payload.text === 'string') {
+      okCount++;
+      var nm = String(payload.name || '?').slice(0,24);
+      members[nm] = 1;
+      div.className = 'msg' + (nm === myName() ? ' me' : '');
+      var mn = document.createElement('div'); mn.className='mn'; mn.textContent = nm;
+      var mt = document.createElement('div'); mt.className='mt'; mt.textContent = payload.text;
+      var mh = document.createElement('div'); mh.className='mh';
+      var d = new Date(Number(payload.ts) || rows[i].ts || Date.now());
+      mh.textContent = d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      div.appendChild(mn); div.appendChild(mt); div.appendChild(mh);
+    } else {
+      fail++;
+      div.className = 'msg bad';
+      div.textContent = '🔒 ' + T('Could not decrypt — wrong key for this room.');
+    }
+    box.appendChild(div);
+  }
+  if (myName()) members[myName()] = 1;
+  var names = Object.keys(members);
+  $('memberLine').textContent = names.length ? ('👥 ' + names.join(' · ')) : '';
+  box.scrollIntoView(false);
+  window.scrollTo(0, document.body.scrollHeight);
+}
+
+async function send(){
+  if (!current) return;
+  var input = $('msgInput');
+  var text = input.value.trim();
+  if (!text) return;
+  var nm = myName();
+  if (!nm) { notice($('roomNotice'), T('Enter your name first.')); return; }
+  if (text.length > 1000) { notice($('roomNotice'), T('Messages are capped at 1000 characters.')); return; }
+  if (scamHit(text)) { notice($('roomNotice'), T('Blocked — that looked like a seed-phrase scam. Nobody here will ever ask for seed words or keys.')); return; }
+  var now = Date.now();
+  if (now - lastSendAt < 1500) { notice($('roomNotice'), T('One message at a time — give it a second.')); return; }
+  lastSendAt = now;
+  notice($('roomNotice'), '');
+  try {
+    var enc = await encryptMsg(current.k, { name: nm, text: text, ts: now });
+    var out = await api({action:'chatxPost', room: current.id, ct: enc.ct, iv: enc.iv});
+    if (out && out.ok) { input.value=''; lastSig=''; poll(); }
+    else { notice($('roomNotice'), (out && out.error) || 'Error'); }
+  } catch(e) {
+    notice($('roomNotice'), 'Error');
+  }
+}
+$('sendBtn').addEventListener('click', send);
+$('msgInput').addEventListener('keydown', function(e){ if (e.key === 'Enter') send(); });
+
+/* ---------- boot ---------- */
+if (myName()) { $('myName').value = myName(); }
+applyI18n();
+renderRooms();
+checkInvite();
+})();
+</script>
+</body>
+</html>
