@@ -306,6 +306,11 @@ let renderer, scene, camera, clock;
 let batter, pitcher, catcher, ballMesh, ballGlow, trailGhosts=[], ballHist=[], screenTex, screenCtx, crowdMesh, crowdBase=[];
 let fwBursts=[], lampMats=[];
 let retMoved=false;
+let forcedPitch=null; // QA: next pitch is forced to {type,tx,ty}
+/* swing timing: the bat reaches the contact pose SWING_CONTACT_T after the tap,
+   follows through by SWING_FOLLOW_T and recovers to idle by SWING_T */
+const SWING_CONTACT_T=.11, SWING_FOLLOW_T=.27, SWING_T=.46;
+const _qG=new THREE.Quaternion(), _qW=new THREE.Quaternion(), _qIdle=new THREE.Quaternion(), _eIdle=new THREE.Euler();
 const V3=(x,y,z)=>new THREE.Vector3(x,y,z);
 function cnv(w,h,fn){ const c=document.createElement('canvas'); c.width=w; c.height=h; fn(c.getContext('2d'),w,h); const tx=new THREE.CanvasTexture(c); return tx; }
 function mat(c,r){ return new THREE.MeshStandardMaterial({color:c, roughness:r==null?.85:r, metalness:.05}); }
@@ -428,14 +433,14 @@ function buildScene(){
   setScreen('LUNC SLUGGER','LUNC DEV STUDIO','#ffd76a');
   /* characters */
   batter=makeChibi({jersey:0xe23b3b,cap:0xe23b3b,pants:0xf2f2f2,skin:0xf2c79b,shoe:0xd42427});
-  batter.group.position.set(-1.12,0,1.55); batter.group.rotation.y=1.85; batter.group.scale.setScalar(1.12); scene.add(batter.group);
+  batter.group.position.set(-1.0,0,0.55); batter.group.rotation.y=1.85; batter.group.scale.setScalar(1.12); scene.add(batter.group);
   attachBat(batter);
   pitcher=makeChibi({jersey:0x2e3d5c,cap:0x14161c,pants:0xe8ecf4,skin:0xd9a066,shoe:0x22262e});
   pitcher.group.position.set(0,.3,-15); pitcher.group.scale.setScalar(1.12); scene.add(pitcher.group);
   const glove=new THREE.Mesh(new THREE.SphereGeometry(.14,10,8), mat(0x6b4423,.9));
   glove.scale.set(1,.92,.55); glove.position.set(0,-.34,.04); pitcher.armL.add(glove);
   catcher=makeChibi({jersey:0x44507a,cap:0x1c2333,pants:0x55628c,skin:0xe8b088,shoe:0x22262e});
-  catcher.group.scale.set(1,.55,1); catcher.group.position.set(0.32,0,2.45); catcher.group.rotation.y=Math.PI; scene.add(catcher.group);
+  catcher.group.scale.set(1,.55,1); catcher.group.position.set(0.32,0,1.45); catcher.group.rotation.y=Math.PI; scene.add(catcher.group);
   const mitt=new THREE.Mesh(new THREE.BoxGeometry(.3,.34,.12), mat(0x6b4423,.9));
   mitt.position.set(.3,.42,-.28); catcher.group.add(mitt);
   /* strike-zone frame at the plate — the red target lives here */
@@ -512,9 +517,9 @@ function makeChibi(o){ const g=new THREE.Group(); const parts={group:g};
   return parts; }
 function attachBat(b){ const pivot=new THREE.Group(); pivot.position.set(.05,.92,.28);
   const batMat=mat(0xd9a45b,.5);
-  const bat=new THREE.Mesh(new THREE.CylinderGeometry(.058,.033,1.12,12), batMat); bat.position.y=.46; bat.castShadow=true; pivot.add(bat);
-  const capEnd=new THREE.Mesh(new THREE.SphereGeometry(.058,10,8), batMat); capEnd.position.y=1.02; pivot.add(capEnd);
-  const knob=new THREE.Mesh(new THREE.SphereGeometry(.052,10,8), mat(0x8a5a33,.6)); knob.position.y=-.1; pivot.add(knob);
+  const bat=new THREE.Mesh(new THREE.CylinderGeometry(.058,.033,1.30,12), batMat); bat.position.y=.53; bat.castShadow=true; pivot.add(bat);
+  const capEnd=new THREE.Mesh(new THREE.SphereGeometry(.058,10,8), batMat); capEnd.position.y=1.24; pivot.add(capEnd);
+  const knob=new THREE.Mesh(new THREE.SphereGeometry(.052,10,8), mat(0x8a5a33,.6)); knob.position.y=-.12; pivot.add(knob);
   pivot.rotation.set(-.85,.15,-.5); b.group.add(pivot); b.batPivot=pivot;
   b.armR.rotation.set(-2.1,0,-.5); b.armL.rotation.set(-1.8,0,.55); }
 function applyUniform(){ const c=new THREE.Color(COLOURS[profile.colour][0]);
@@ -570,6 +575,8 @@ function refreshHUD(){ if(!G) return;
   $('cntB').innerHTML=bh; $('cntS').innerHTML=sh; }
 function startRun(){ G={ state:'playing', paused:false, level:1, score:0, runHits:0, runHrs:0,
     runT0:performance.now()/1000, phase:'wait', phaseT:0, swingT:-1, armMode:'idle', armT:0, crowdJump:0, camMode:'play',
+    swingAim:new THREE.Vector3(0,1.05,CONTACT_Z), swQ0:new THREE.Quaternion(), swQC:new THREE.Quaternion(), swQF:new THREE.Quaternion(),
+    swContactT:SWING_CONTACT_T, pendingLaunch:null, lastContact:null,
     def:null, pitchesLeft:0, prog:{hits:0,runs:0,hrs:0}, count:{b:0,s:0}, kOut:false, pending:null };
   setupLevel(1); }
 function setupLevel(n){ G.level=n; G.def=levelDef(n); G.pitchesLeft=G.def.pitches;
@@ -583,12 +590,13 @@ function beginPlay(){ showNone(); G.state='playing'; G.camMode='play';
   refreshHUD(); schedulePitch(1.1); }
 function schedulePitch(delay){ G.phase='wait'; G.phaseT=delay; B.active=false; setBallVisible(false); hideReticle(); }
 function pickPitch(){ const d=G.def; let type='fastball'; const r=Math.random();
-  if(r<d.curveP) type='curve'; else if(r<d.curveP+d.changeP) type='change';
   let inZone=Math.random()<.74, tx, ty;
-  if(inZone){ tx=Math.random()*.84-.42; ty=.72+Math.random()*.7; }
-  else if(Math.random()<.5){ tx=(Math.random()<.5?-1:1)*(.58+Math.random()*.3); ty=.8+Math.random()*.6; }
-  else { tx=Math.random()*.6-.3; ty=Math.random()<.5?1.62:.48; }
-  if(QA){ type='fastball'; inZone=true; tx=0; ty=1.05; }
+  if(forcedPitch){ const f=forcedPitch; forcedPitch=null; type=f.type||'fastball'; inZone=true; tx=f.tx; ty=f.ty; }
+  else { if(r<d.curveP) type='curve'; else if(r<d.curveP+d.changeP) type='change';
+    if(inZone){ tx=Math.random()*.84-.42; ty=.72+Math.random()*.7; }
+    else if(Math.random()<.5){ tx=(Math.random()<.5?-1:1)*(.58+Math.random()*.3); ty=.8+Math.random()*.6; }
+    else { tx=Math.random()*.6-.3; ty=Math.random()<.5?1.62:.48; }
+    if(QA){ type='fastball'; inZone=true; tx=0; ty=1.05; } }
   const baseT=type==='fastball'?1.15:type==='curve'?1.28:1.42;
   const T=baseT*d.speedMul;
   const grav=type==='change'?-16:-12;
@@ -612,23 +620,72 @@ function releaseBall(){ const p=G.pitch; B.active=true; B.kind='pitch'; B.vel.co
 function ballScreen(){ const v=ballMesh.position.clone().project(camera);
   return { x:(v.x*.5+.5)*innerWidth, y:(-v.y*.5+.5)*innerHeight, behind:v.z>1 }; }
 /* ---- swing & outcomes ---- */
+/* The swing is AIMED in world space: at the tap we solve the bat orientation whose
+   barrel axis passes through the aim point — the ball's position at the moment the
+   bat arrives on a hit, or the zone the player aimed at (reticle) on a whiff. The
+   animation slerps idle -> contact -> follow-through -> idle, so the bat visibly
+   travels TO the ball instead of tracing one fixed arc. */
+function swingRotY(age){ return 1.85-.5*Math.sin(Math.PI*Math.min(1,age/(SWING_T-.02))); }
+function ballPosAtFlightT(t){ return new THREE.Vector3(
+  RELEASE.x+B.vx0*t+.5*B.ax*t*t, RELEASE.y+B.vy0*t+.5*B.grav*t*t, RELEASE.z+B.vz0*t); }
+function reticleWorldPoint(){ const rc=retCenter();
+  const v=new THREE.Vector3((rc.x/innerWidth)*2-1, -(rc.y/innerHeight)*2+1, .5).unproject(camera);
+  const dir=v.sub(camera.position), s=(CONTACT_Z-camera.position.z)/dir.z;
+  const p=camera.position.clone().addScaledVector(dir,s);
+  p.x=Math.max(-1.3,Math.min(1.3,p.x)); p.y=Math.max(.25,Math.min(1.95,p.y)); p.z=CONTACT_Z; return p; }
+function aimSwingAt(A, contactT){ G.swingAim.copy(A); G.swContactT=contactT||SWING_CONTACT_T;
+  /* hands position at the contact-frame pose (shoulders dipped) */
+  const saveY=batter.group.rotation.y; batter.group.rotation.y=swingRotY(G.swContactT);
+  batter.group.updateMatrixWorld(true);
+  const H=batter.batPivot.getWorldPosition(new THREE.Vector3());
+  batter.group.rotation.y=saveY;
+  const dir=A.clone().sub(H).normalize();
+  G.swQC.setFromUnitVectors(new THREE.Vector3(0,1,0), dir);
+  G.swQF.setFromAxisAngle(new THREE.Vector3(0,1,0), -2.0).multiply(G.swQC); }
+function firePendingLaunch(){ const kind=G.pendingLaunch; G.pendingLaunch=null;
+  ballMesh.position.copy(G.swingAim); // the ball is exactly where the bat arrives
+  scene.updateMatrixWorld(true);
+  const bp=ballMesh.position, H=batter.batPivot.getWorldPosition(new THREE.Vector3());
+  const sweet=batter.batPivot.localToWorld(new THREE.Vector3(0,.92,0));
+  const tip=batter.batPivot.localToWorld(new THREE.Vector3(0,1.24,0));
+  const axis=sweet.clone().sub(H).normalize(), rel=bp.clone().sub(H);
+  const along=rel.dot(axis), perp=rel.addScaledVector(axis,-along).length();
+  const bs=ballScreen(), ss=projScreen(sweet.x,sweet.y,sweet.z),
+    hs=projScreen(H.x,H.y,H.z), ts=projScreen(tip.x,tip.y,tip.z);
+  const dx=ts.x-hs.x, dy=ts.y-hs.y, L2=dx*dx+dy*dy;
+  const tt=L2?Math.max(0,Math.min(1,((bs.x-hs.x)*dx+(bs.y-hs.y)*dy)/L2)):0;
+  const segPx=Math.hypot(bs.x-(hs.x+tt*dx), bs.y-(hs.y+tt*dy));
+  G.lastContact={ kind, along:+along.toFixed(3), perp:+perp.toFixed(3),
+    gapPx:+Math.hypot(bs.x-ss.x, bs.y-ss.y).toFixed(1), segPx:+segPx.toFixed(1),
+    ball:{x:+bp.x.toFixed(2), y:+bp.y.toFixed(2), z:+bp.z.toFixed(2)} };
+  SFX.crack(); launchBall(kind); }
 function doSwing(){ au(); if(!G||G.state!=='playing'||G.paused) return;
+  if(G.swingT>=0) return; // one swing at a time — its outcome is already decided
   G.swingT=0; SFX.swing();
-  if(G.phase!=='flight'||!B.active||B.kind!=='pitch') return;
+  batter.batPivot.getWorldQuaternion(G.swQ0);
+  if(G.phase!=='flight'||!B.active||B.kind!=='pitch'){
+    aimSwingAt(G.phase==='windup'&&G.pitch?new THREE.Vector3(G.pitch.tx,G.pitch.ty,CONTACT_Z)
+      :new THREE.Vector3(0,1.05,CONTACT_Z)); return; }
   const bz=ballMesh.position.z;
-  if(bz<-3.6||bz>0.9){ // whiff — too early / too late
+  if(bz<-3.6||bz>0.9){ // whiff — too early / too late: bat still swings through the aimed zone
+    aimSwingAt(reticleWorldPoint());
     B.kind='dead'; callout(t('strike'),'#ff8080'); registerStrike(); endPitch(0.85); return; }
   const timing=1-Math.min(1, Math.abs(bz-CONTACT_Z)/3.0);
   const bs=ballScreen(), rc=retCenter();
   const dist=Math.hypot(bs.x-rc.x, bs.y-rc.y);
   const aim=Math.max(0, 1-dist/150);
   const contact=timing*.5+aim*.5;
-  SFX.crack();
-  if(contact>=.78){ launchBall('hr'); }
-  else if(contact>=.55){ launchBall('hit'); }
-  else if(contact>=.35){ launchBall('foul'); }
-  else if(Math.random()<.5){ launchBall('foul'); }
-  else { B.kind='dead'; callout(t('strike'),'#ff8080'); registerStrike(); endPitch(0.85); } }
+  let kind=null;
+  if(contact>=.78) kind='hr'; else if(contact>=.55) kind='hit';
+  else if(contact>=.35) kind='foul'; else if(Math.random()<.5) kind='foul';
+  if(kind){ // contact — schedule the bat to arrive exactly when the ball reaches the
+    // aim point at the plate (delay derived from the pitch's own flight clock)
+    const ft=B.flightT||0, tCross=(CONTACT_Z-RELEASE.z)/B.vz0;
+    const D=Math.max(.06, Math.min(.22, tCross-ft));
+    aimSwingAt(ballPosAtFlightT(Math.min(ft+D, tCross+.04)), D);
+    G.pendingLaunch=kind; }
+  else { aimSwingAt(reticleWorldPoint());
+    B.kind='dead'; callout(t('strike'),'#ff8080'); registerStrike(); endPitch(0.85); } }
 function launchBall(kind){ const p=ballMesh.position;
   B.kind=kind; G.pending=kind; G.phase='hitball';
   const ang=(Math.random()*.9-.45);
@@ -703,13 +760,24 @@ function esc(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;'
 const camPos=new THREE.Vector3(-0.2,2.5,9.2), camTgt=new THREE.Vector3(0.1,1.15,-9);
 function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getDelta(),.05); const time=clock.elapsedTime;
   if(G&&G.paused){ renderer.render(scene,camera); return; }
-  /* batter pose */
-  if(G&&G.swingT>=0){ G.swingT+=dt; const p=Math.min(1,G.swingT/.24), e=1-Math.pow(1-p,3);
-    batter.batPivot.rotation.set(-.85+e*.75, .15-e*2.6, -.5+e*.35);
-    batter.group.rotation.y=1.85-Math.sin(p*Math.PI)*.5;
-    if(p>=1){ G.swingT=-1; } }
+  /* batter pose — during a swing the bat is driven in WORLD space through the solved
+     poses (idle -> contact at the aim point -> follow-through -> idle), converted back
+     to a pivot-local quaternion under the rotating shoulders each frame */
+  if(G&&G.swingT>=0){ G.swingT+=dt; const age=G.swingT, D=G.swContactT||SWING_CONTACT_T;
+    const poseAge=(G.pendingLaunch&&age>=D)?D:age; // freeze on the contact pose for the launch frame
+    batter.group.rotation.y=swingRotY(poseAge);
+    batter.group.getWorldQuaternion(_qG);
+    if(poseAge<=D){ const s=D>0?poseAge/D:1; _qW.copy(G.swQ0).slerp(G.swQC, s*s); }
+    else if(poseAge<=D+.16){ const s=(poseAge-D)/.16, e=1-Math.pow(1-s,3);
+      _qW.copy(G.swQC).slerp(G.swQF, e); }
+    else { const s=Math.min(1,(poseAge-D-.16)/.19), e=s*s*(3-2*s);
+      _qIdle.setFromEuler(_eIdle.set(-.85,.15,-.5)); _qW.copy(G.swQF).slerp(_qG.clone().multiply(_qIdle), e); }
+    batter.batPivot.quaternion.copy(_qG.invert()).multiply(_qW);
+    if(age>=D+.35){ G.swingT=-1; } }
   else { batter.batPivot.rotation.set(-.85+Math.sin(time*2.1)*.045, .15, -.5+Math.sin(time*1.6)*.05);
     batter.group.rotation.y=1.85+Math.sin(time*.9)*.02; }
+  /* the bat has arrived at the ball — fire the deferred launch from the contact point */
+  if(G&&G.pendingLaunch&&G.swingT>=(G.swContactT||SWING_CONTACT_T)) firePendingLaunch();
   batter.group.position.y=Math.sin(time*1.8)*.012;
   /* pitcher pose */
   if(pitcher){ let ax=.2+Math.sin(time*1.7)*.06, leg=0;
@@ -731,8 +799,8 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
     if(G.phase==='wait'){ G.phaseT-=dt; if(G.phaseT<=0) startPitch(); }
     else if(G.phase==='windup'){ G.phaseT-=dt; if(G.phaseT<=0) releaseBall(); }
     else if(G.phase==='flight'&&B.active){ stepBall(dt);
-      if(B.kind==='pitch'&&ballMesh.position.z>=1.05) resolveTaken();
-      else if(B.kind==='pitch'&&ballMesh.position.y<.02&&ballMesh.position.z>-.6) resolveTaken(); }
+      if(B.kind==='pitch'&&!G.pendingLaunch&&ballMesh.position.z>=1.05) resolveTaken();
+      else if(B.kind==='pitch'&&!G.pendingLaunch&&ballMesh.position.y<.02&&ballMesh.position.z>-.6) resolveTaken(); }
     else if(G.phase==='hitball'){ stepBall(dt); G.phaseT-=dt; if(G.phaseT<=0){ applyHitResult(); } }
     else if(G.phase==='resolve'){ if(B.active) stepBall(dt); G.phaseT-=dt; if(G.phaseT<=0) afterPitch(); }
     else if(G.phase==='celebrate'){ if(B.active) stepBall(dt); G.phaseT-=dt;
@@ -748,7 +816,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   camera.position.copy(camPos); camera.lookAt(camTgt);
   renderer.render(scene,camera); }
 function stepBall(dt){ const p=ballMesh.position;
-  if(B.kind==='dead'&&p.z>=1.0){ p.set(0,.55,1.02); B.vel.set(0,0,0); }
+  if(B.kind==='dead'&&p.z>=1.5){ p.set(0.02,.5,1.58); B.vel.set(0,0,0); }
   if(B.kind==='pitch'){ /* analytic path: the pitch crosses exactly at (tx,ty) at any frame rate.
       (Euler integration dropped it up to ~0.35 world units low at low fps — the target/ball mismatch.) */
     B.flightT=(B.flightT||0)+dt; const t=B.flightT;
@@ -820,6 +888,12 @@ window.__slugger={ get G(){return G;}, stats:()=>stats, profile:()=>profile,
   state:()=>G?{state:G.state,phase:G.phase,level:G.level,score:G.score,pitchesLeft:G.pitchesLeft,prog:{...G.prog},count:{...G.count},def:G.def}:null,
   ball:()=>{ if(!B.active) return null; const s=ballScreen(); return {wx:ballMesh.position.x,wy:ballMesh.position.y,wz:ballMesh.position.z,kind:B.kind,sx:s.x,sy:s.y}; },
   aimAtBall:()=>{ const s=ballScreen(); setRet(s.x,s.y); }, setRet:(x,y)=>setRet(x,y),
+  forcePitch:o=>{ forcedPitch=o; },
+  contactInfo:()=>G?G.lastContact:null,
+  swingInfo:()=>G?{aim:{x:+G.swingAim.x.toFixed(2),y:+G.swingAim.y.toFixed(2),z:+G.swingAim.z.toFixed(2)},pending:G.pendingLaunch,swingT:G.swingT,contactT:G.swContactT}:null,
+  batHands:()=>{ scene.updateMatrixWorld(true); const p=batter.batPivot.getWorldPosition(new THREE.Vector3()); const s=projScreen(p.x,p.y,p.z); return {x:+p.x.toFixed(2),y:+p.y.toFixed(2),z:+p.z.toFixed(2),sx:+s.x.toFixed(1),sy:+s.y.toFixed(1)}; },
+  batSweet:()=>{ scene.updateMatrixWorld(true); const p=batter.batPivot.localToWorld(new THREE.Vector3(0,.92,0)); const s=projScreen(p.x,p.y,p.z); return {x:+p.x.toFixed(2),y:+p.y.toFixed(2),z:+p.z.toFixed(2),sx:+s.x.toFixed(1),sy:+s.y.toFixed(1)}; },
+  batTip:()=>{ scene.updateMatrixWorld(true); const p=batter.batPivot.localToWorld(new THREE.Vector3(0,1.24,0)); const s=projScreen(p.x,p.y,p.z); return {x:+p.x.toFixed(2),y:+p.y.toFixed(2),z:+p.z.toFixed(2),sx:+s.x.toFixed(1),sy:+s.y.toFixed(1)}; },
   swing:()=>doSwing(), play:()=>$('btnPlay').click(), stepUp:()=>$('btnStepUp').click(),
   showProfile:()=>$('btnProfile').click(), setName:v=>{ $('inName').value=v; $('inName').dispatchEvent(new Event('change')); },
   setTeam:v=>{ $('inTeam').value=v; $('inTeam').dispatchEvent(new Event('change')); },
