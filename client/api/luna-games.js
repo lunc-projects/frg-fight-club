@@ -3801,10 +3801,28 @@ export async function tdaHandler(req, res) {
       const settings = await tdaGetSettings();
       const out = await upstashPipeline([['LRANGE', 'tda:seats', 0, -1]]);
       const ids = (out[0] && out[0].result) || [];
-      if (!ids.length) return res.status(200).json({ ok: true, seats: [], settings });
+      if (!ids.length) return res.status(200).json({ ok: true, seats: [], settings, ownerSeen: 0 });
       const rows = await upstashPipeline(ids.map(id => ['HGETALL', 'tda:seat:' + id]));
       const seats = rows.map(r => tdaPublicSeat(tdaHashToObj(r && r.result))).filter(s => s.id);
-      return res.status(200).json({ ok: true, seats, settings });
+      /* Owner people-list (Nov 18): per-seat last-seen stamps so
+         the owner's Chat opens as a by-person inbox with a NEW
+         marker per person. Stamps live at tda:ownerseen:<seatId>
+         ('owner' covers the owner's own rows); written only by
+         tdaSeenMark, owner tier only. */
+      const seenRows = await upstashPipeline(seats.map(s => ['GET', 'tda:ownerseen:' + s.id]).concat([['GET', 'tda:ownerseen:owner']]));
+      seats.forEach((s, i) => { s.seen = Number((seenRows[i] && seenRows[i].result) || 0) || 0; });
+      const ownerSeen = Number((seenRows[seats.length] && seenRows[seats.length].result) || 0) || 0;
+      return res.status(200).json({ ok: true, seats, settings, ownerSeen });
+    }
+
+    if (action === 'tdaSeenMark') {
+      const auth = await tdaAuthTier(req, res, tag, String(body.hash || '').toLowerCase(), 'owner');
+      if (!auth) return undefined;
+      const seatId = String(body.seatId || '');
+      if (seatId !== 'owner' && !/^s[a-z0-9]{6,24}$/.test(seatId)) return res.status(400).json({ ok: false, error: 'bad seat' });
+      const seen = Date.now();
+      await upstashPipeline([['SET', 'tda:ownerseen:' + seatId, String(seen)]]);
+      return res.status(200).json({ ok: true, seen });
     }
 
     if (action === 'tdaSeatCode' || action === 'tdaSeatTokens' || action === 'tdaSeatRemove' || action === 'tdaSeatName' || action === 'tdaSeatWallet') {
