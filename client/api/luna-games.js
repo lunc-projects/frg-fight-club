@@ -150,6 +150,13 @@ const GAMES = {
      is ~160 pts/s, so the rails below stay generous per the house
      rule — never reject a real run. */
   'kava-rush': { prefix: 'kavarush', maxScore: 500000, minSec: 5, maxSec: 3600, rateMul: 400, rateBase: 2000 },
+  /* LUNC Moon Rush (the LUNC sibling of Kava Crystal Rush — same
+     endless-climber engine and scoring: climbed px / 10 + coins x 50,
+     speed ramps 260 -> 1000 px/s across 11 levels; client/public/
+     lunc-moon-rush/). The key is 'luncrush' because 'lunc-rush' is the
+     existing speed-platformer above. Same rails as kava-rush — the
+     fastest honest sustained rate is ~160 pts/s, never reject a run. */
+  'luncrush': { prefix: 'luncrush', maxScore: 500000, minSec: 5, maxSec: 3600, rateMul: 400, rateBase: 2000 },
   /* Cookie Sniper (the DO community game): score comes from crumbles,
      combos, boss and clear bonuses across up to 10 levels — a perfect
      full run lands around ~90k, so the cap stays generous per the

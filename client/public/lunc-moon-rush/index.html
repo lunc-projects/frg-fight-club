@@ -1,0 +1,1074 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>LUNC Moon Rush — LUNC Dev Studio</title>
+<meta name="description" content="Pilot a rocket above the Moon and thread the asteroid gates! A LUNC Dev Studio game.">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; overflow:hidden; background:#02040c; }
+  body {
+    font-family:ui-monospace,'Cascadia Mono','Courier New',monospace; color:#d7e6f5;
+    user-select:none; -webkit-user-select:none; touch-action:none;
+    display:flex; flex-direction:column;
+  }
+  /* ---------- top strip: mission strip, slim ---------- */
+  #hdr {
+    display:flex; align-items:center; gap:8px; padding:5px 10px;
+    background:linear-gradient(180deg, rgba(6,14,30,.98), rgba(3,7,17,.95));
+    border-bottom:1px solid rgba(77,227,255,.45); z-index:5;
+    box-shadow:0 1px 10px rgba(77,227,255,.18);
+  }
+  #hdr .logo { width:34px; height:34px; flex:none; filter:drop-shadow(0 0 6px rgba(255,196,64,.55)); }
+  #hdr .ttl { line-height:1.05; white-space:nowrap; min-width:0; overflow:hidden; }
+  #hdr .ttl b {
+    font-size:16px; letter-spacing:2.5px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    color:#eef6ff; font-weight:700;
+    text-shadow:0 0 10px rgba(77,227,255,.55);
+  }
+  #hdr .ttl span { font-size:8.5px; letter-spacing:2.2px; color:#4de3ff; white-space:nowrap; }
+  #hdr .sp { flex:1; }
+  .hbtn {
+    background:#0a1626; color:#bfe9ff; border:1px solid rgba(77,227,255,.55);
+    border-radius:6px; padding:6px 9px; font-size:15px; cursor:pointer; font-family:inherit;
+  }
+  #langSel {
+    max-width:118px; background:#0a1626; color:#bfe9ff;
+    border:1px solid rgba(77,227,255,.55); border-radius:6px; padding:6px 4px; font-size:12.5px;
+    font-family:inherit; cursor:pointer;
+  }
+  /* ---------- stage ---------- */
+  #wrap { position:relative; flex:1; overflow:hidden; }
+  canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  /* ---------- HUD: mission-control console anchored at the BOTTOM ---------- */
+  #hud {
+    display:flex; gap:6px; align-items:stretch; padding:6px 8px calc(6px + env(safe-area-inset-bottom));
+    z-index:5; background:linear-gradient(0deg, rgba(4,9,20,.98), rgba(4,9,20,.92));
+    border-top:1px solid rgba(77,227,255,.45);
+    box-shadow:0 -1px 12px rgba(77,227,255,.15);
+  }
+  .chip {
+    flex:1; background:#081426; border:1px solid rgba(110,190,230,.4); border-radius:4px;
+    padding:3px 4px 4px; text-align:center; min-width:0;
+    box-shadow:inset 0 0 10px rgba(20,80,120,.35);
+  }
+  .chip small { color:#4de3ff; font-size:8.5px; letter-spacing:1.6px; display:block; line-height:1.2; white-space:nowrap; overflow:hidden; }
+  .chip .v { font-size:16px; font-weight:700; color:#eef6ff; white-space:nowrap; }
+  #coinChip { border-color:rgba(255,196,64,.65); }
+  #coinChip .v { color:#ffd76a; }
+  #lvlChip { border-color:rgba(255,150,80,.55); }
+  #lvlChip .v { color:#ffb266; }
+  /* ---------- overlays: mission panels ---------- */
+  .veil {
+    position:absolute; inset:0; z-index:8; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:11px; text-align:center; padding:18px;
+    background:radial-gradient(ellipse at 50% 32%, rgba(8,20,40,.42), rgba(2,4,12,.86) 78%);
+  }
+  .veil[hidden] { display:none; }
+  .panel {
+    display:flex; flex-direction:column; align-items:center; gap:11px; text-align:center;
+    background:rgba(5,11,24,.88); border:1px solid rgba(77,227,255,.5); border-radius:8px;
+    padding:20px 18px 16px; max-width:min(430px,94vw);
+    box-shadow:0 0 0 3px rgba(4,10,22,.6), 0 0 26px rgba(77,227,255,.16), inset 0 0 22px rgba(20,70,110,.22);
+  }
+  .mline { font-size:9.5px; letter-spacing:2.6px; color:#4de3ff; }
+  .mline b { color:#ffd76a; font-weight:700; }
+  .bigtitle {
+    font-size:40px; letter-spacing:3px; font-weight:700; line-height:1.02; color:#f2f8ff;
+    text-shadow:0 0 14px rgba(77,227,255,.65), 0 2px 0 rgba(20,60,90,.9);
+  }
+  .bigtitle .gold { color:#ffd76a; text-shadow:0 0 14px rgba(255,180,60,.6); }
+  .tag { font-size:15px; color:#cfe8ff; max-width:400px; letter-spacing:.4px; }
+  .how { font-size:12.5px; color:#93b8d8; max-width:390px; line-height:1.5; }
+  .play {
+    font-family:inherit; font-weight:700; font-size:18px; letter-spacing:2px; cursor:pointer;
+    color:#241100; background:linear-gradient(180deg,#ffd9a0,#ff9a3c 55%,#f26d1d);
+    border:1px solid #ffe2b8; border-radius:6px; padding:12px 38px;
+    box-shadow:0 0 18px rgba(255,140,50,.45), 0 4px 0 #8a3c08;
+  }
+  .play:active { transform:translateY(3px); box-shadow:0 0 18px rgba(255,140,50,.45), 0 1px 0 #8a3c08; }
+  .play.alt {
+    color:#bfe9ff; background:#0a1626;
+    border:1px solid rgba(77,227,255,.55); box-shadow:0 3px 0 #04101f; font-size:13.5px; padding:9px 20px; letter-spacing:1.4px;
+  }
+  .play[disabled] { opacity:.55; }
+  .scorebig { font-size:24px; font-weight:700; color:#ffd76a; letter-spacing:1px; }
+  .bestline { font-size:13px; color:#cfe2ff; }
+  .newbest { color:#ffe98a; font-weight:700; letter-spacing:1px; animation:pulse 0.8s infinite alternate; }
+  @keyframes pulse { from{ transform:scale(1);} to{ transform:scale(1.09);} }
+  #nameInput {
+    font-family:inherit; font-size:15px; text-align:center; padding:9px 12px; width:min(260px,80vw);
+    border-radius:6px; border:1px solid rgba(77,227,255,.6); background:#050d1c; color:#eaf6ff; letter-spacing:1px;
+  }
+  .status { min-height:19px; font-size:13px; color:#ffd76a; }
+  #boardList { width:min(360px,88vw); max-height:44vh; overflow-y:auto; }
+  #boardList .row {
+    display:flex; align-items:center; gap:8px; padding:6px 12px; margin:4px 0;
+    background:rgba(6,13,26,.85); border:1px solid rgba(77,180,230,.3); border-radius:4px; font-size:14px;
+  }
+  #boardList .rk { color:#4de3ff; font-weight:700; min-width:30px; }
+  #boardList .nm { flex:1; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #boardList .sc { font-weight:700; color:#ffd76a; }
+  .tabs { display:flex; gap:8px; }
+  .brandfoot { font-size:9px; letter-spacing:2.4px; color:#5f87a8; }
+  .brandfoot b { color:#9fd8ef; font-weight:700; }
+  #toast {
+    position:absolute; left:50%; bottom:14px; transform:translateX(-50%); z-index:9;
+    background:rgba(5,11,24,.94); border:1px solid rgba(77,227,255,.6); color:#eaf6ff;
+    padding:7px 16px; border-radius:4px; font-size:13px; letter-spacing:1px; opacity:0; transition:opacity .25s; pointer-events:none;
+  }
+  @media (max-width:520px) {
+    #hdr { gap:6px; padding:5px 8px; }
+    #hdr .ttl b { font-size:13.5px; letter-spacing:1.8px; }
+    #hdr .ttl span { font-size:7.5px; }
+    #langSel { max-width:92px; font-size:11.5px; }
+    .hbtn { padding:6px 7px; }
+    .chip .v { font-size:14px; }
+    .bigtitle { font-size:33px; }
+  }
+</style>
+<script defer src="/_vercel/insights/script.js"></script>
+</head>
+<body>
+<div id="hdr">
+  <svg class="logo" viewBox="0 0 48 48" aria-hidden="true">
+    <circle cx="20" cy="27" r="13" fill="#ffc440"/>
+    <circle cx="25" cy="23" r="11.5" fill="#04091a"/>
+    <path d="M37 6l1.7 4.3L43 12l-4.3 1.7L37 18l-1.7-4.3L31 12l4.3-1.7z" fill="#4de3ff"/>
+    <path d="M12 40c6-2 20-2 26 0l-3 3H15z" fill="#8fa9c4"/>
+  </svg>
+  <div class="ttl"><b>LUNC MOON RUSH</b><span>LUNA CLASSIC &middot; LUNC DEV STUDIO</span></div>
+  <div class="sp"></div>
+  <button class="hbtn" id="boardBtn" title="Leaderboard">🏆</button>
+  <button class="hbtn" id="muteBtn">🔊</button>
+  <select id="langSel" aria-label="Language"></select>
+</div>
+<div id="wrap">
+  <canvas id="cv"></canvas>
+
+  <div class="veil" id="startScreen">
+    <div class="panel">
+      <div class="mline">MISSION CONTROL // <b>LUNC DEV STUDIO</b></div>
+      <svg viewBox="0 0 48 48" style="width:64px;height:64px;filter:drop-shadow(0 0 10px rgba(255,196,64,.6))" aria-hidden="true">
+        <circle cx="20" cy="27" r="13" fill="#ffc440"/>
+        <circle cx="25" cy="23" r="11.5" fill="#050d1c"/>
+        <path d="M37 6l1.7 4.3L43 12l-4.3 1.7L37 18l-1.7-4.3L31 12l4.3-1.7z" fill="#4de3ff"/>
+        <path d="M12 40c6-2 20-2 26 0l-3 3H15z" fill="#8fa9c4"/>
+      </svg>
+      <div class="bigtitle">LUNC<br><span class="gold">MOON</span> RUSH</div>
+      <div class="tag" id="tagline">Ride the rocket. Thread the asteroids!</div>
+      <div class="how" id="howto">Drag to steer your rocket as it climbs above the Moon. Slip through the gaps in the asteroid gates and grab gold LUNC coins for +50. One hit ends the flight!</div>
+      <button class="play" id="startBtn">▶ LAUNCH</button>
+      <button class="play alt" id="startBoardBtn">🏆 Leaderboard</button>
+      <div class="brandfoot"><b>LUNC</b> &middot; <b>LUNA CLASSIC</b> &middot; <b>LUNC DEV STUDIO</b></div>
+    </div>
+  </div>
+
+  <div class="veil" id="overScreen" hidden>
+    <div class="panel">
+      <div class="mline">MISSION CONTROL // FLIGHT LOG</div>
+      <div class="bigtitle" id="overTitle" style="font-size:30px">FLIGHT OVER</div>
+      <div class="scorebig"><span id="yourScoreLbl">Your score</span>: <span id="finalScore">0</span></div>
+      <div class="bestline"><span id="bestLbl2">Best</span>: <span id="finalBest">0</span> <span class="newbest" id="newBest" hidden>★ NEW BEST!</span></div>
+      <input id="nameInput" maxlength="16" autocomplete="off">
+      <button class="play" id="submitBtn" style="font-size:15px; padding:10px 28px">Submit score</button>
+      <div class="status" id="submitStatus"></div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:center">
+        <button class="play alt" id="againBtn">↻ Fly again</button>
+        <button class="play alt" id="overBoardBtn">🏆 Leaderboard</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="veil" id="boardScreen" hidden>
+    <div class="panel">
+      <div class="bigtitle" style="font-size:26px">🏆 <span id="boardTitle">Leaderboard</span></div>
+      <div class="tabs">
+        <button class="play" id="tabAll" style="font-size:13px; padding:8px 18px">All-time</button>
+        <button class="play alt" id="tabWeek" style="font-size:13px; padding:8px 18px">This week</button>
+      </div>
+      <div id="boardList"></div>
+      <button class="play alt" id="boardClose">✕ Close</button>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+</div>
+<div id="hud">
+  <div class="chip"><small id="scoreLbl">SCORE</small><span class="v" id="scoreV">0</span></div>
+  <div class="chip" id="coinChip"><small id="coinLbl">LUNC</small><span class="v">◉ <span id="gemV">0</span></span></div>
+  <div class="chip"><small id="heightLbl">ALTITUDE</small><span class="v" id="heightV">0m</span></div>
+  <div class="chip" id="lvlChip"><small id="levelLbl">LEVEL</small><span class="v" id="levelV">1</span></div>
+  <div class="chip"><small id="bestLbl">BEST</small><span class="v" id="bestV">0</span></div>
+</div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+
+/* ================= I18N (shared 18-language pattern) ================= */
+const LANGS=[["en","English"],["es","Español"],["pt","Português"],["fr","Français"],["de","Deutsch"],["it","Italiano"],["nl","Nederlands"],["ru","Русский"],["uk","Українська"],["tr","Türkçe"],["ar","العربية"],["hi","हिन्दी"],["id","Bahasa Indonesia"],["vi","Tiếng Việt"],["th","ไทย"],["ko","한국어"],["ja","日本語"],["zh","简体中文"]];
+const I18N={
+en:{tagline:"Ride the rocket. Thread the asteroids!",howto:"Drag to steer your rocket as it climbs above the Moon. Slip through the gaps in the asteroid gates and grab gold LUNC coins for +50. One hit ends the flight!",play:"▶ LAUNCH",score:"SCORE",best:"BEST",height:"ALTITUDE",board:"Leaderboard",all:"All-time",week:"This week",loading:"Loading…",boardOff:"Board unavailable right now.",noScores:"No scores yet — be the first! 🏆",over:"FLIGHT OVER",yourScore:"Your score",namePh:"Your name",submit:"Submit score",saving:"Saving…",saved:"Saved!",couldNot:"Could not save — try again.",again:"↻ Fly again",close:"✕ Close",newBest:"★ NEW BEST!",level:"LEVEL"},
+es:{tagline:"¡Pilota el cohete, esquiva los asteroides!",howto:"Arrastra para pilotar tu cohete mientras asciende sobre la Luna. Pasa por los huecos de las puertas de asteroides y recoge monedas LUNC doradas por +50. ¡Un golpe y el vuelo termina!",play:"▶ DESPEGAR",score:"PUNTOS",best:"RÉCORD",height:"ALTITUD",board:"Clasificación",all:"Histórico",week:"Esta semana",loading:"Cargando…",boardOff:"Clasificación no disponible ahora.",noScores:"Aún no hay puntos. ¡Sé el primero! 🏆",over:"VUELO TERMINADO",yourScore:"Tus puntos",namePh:"Tu nombre",submit:"Enviar puntos",saving:"Guardando…",saved:"¡Guardado!",couldNot:"No se pudo guardar. Inténtalo de nuevo.",again:"↻ Volar otra vez",close:"✕ Cerrar",newBest:"★ ¡NUEVO RÉCORD!",level:"NIVEL"},
+pt:{tagline:"Pilote o foguete, desvie dos asteroides!",howto:"Arraste para pilotar seu foguete enquanto ele sobe acima da Lua. Passe pelas brechas dos portões de asteroides e pegue moedas LUNC douradas por +50. Uma batida e o voo acaba!",play:"▶ DECOLAR",score:"PONTOS",best:"RECORDE",height:"ALTITUDE",board:"Classificação",all:"Geral",week:"Esta semana",loading:"Carregando…",boardOff:"Classificação indisponível agora.",noScores:"Sem pontos ainda — seja o primeiro! 🏆",over:"VOO ENCERRADO",yourScore:"Seus pontos",namePh:"Seu nome",submit:"Enviar pontos",saving:"Salvando…",saved:"Salvo!",couldNot:"Não foi possível salvar — tente de novo.",again:"↻ Voar de novo",close:"✕ Fechar",newBest:"★ NOVO RECORDE!",level:"NÍVEL"},
+fr:{tagline:"Pilote la fusée, slalome entre les astéroïdes !",howto:"Fais glisser pour piloter ta fusée qui s'élève au-dessus de la Lune. Passe dans les brèches des portes d'astéroïdes et attrape les pièces LUNC dorées pour +50. Un choc et le vol s'arrête !",play:"▶ DÉCOLLAGE",score:"SCORE",best:"RECORD",height:"ALTITUDE",board:"Classement",all:"Tout temps",week:"Cette semaine",loading:"Chargement…",boardOff:"Classement indisponible pour le moment.",noScores:"Pas encore de scores — à toi la première place ! 🏆",over:"VOL TERMINÉ",yourScore:"Ton score",namePh:"Ton nom",submit:"Envoyer le score",saving:"Enregistrement…",saved:"Enregistré !",couldNot:"Échec de l'enregistrement — réessaie.",again:"↻ Revoler",close:"✕ Fermer",newBest:"★ NOUVEAU RECORD !",level:"NIVEAU"},
+de:{tagline:"Steuere die Rakete. Weiche den Asteroiden aus!",howto:"Ziehe, um deine Rakete zu steuern, während sie über den Mond steigt. Schlüpfe durch die Lücken der Asteroiden-Tore und schnapp dir goldene LUNC-Münzen für +50. Ein Treffer beendet den Flug!",play:"▶ STARTEN",score:"PUNKTE",best:"BESTLEISTUNG",height:"HÖHE",board:"Rangliste",all:"Gesamt",week:"Diese Woche",loading:"Lädt…",boardOff:"Rangliste gerade nicht verfügbar.",noScores:"Noch keine Punkte — sei der Erste! 🏆",over:"FLUG VORBEI",yourScore:"Deine Punkte",namePh:"Dein Name",submit:"Punkte senden",saving:"Speichert…",saved:"Gespeichert!",couldNot:"Speichern fehlgeschlagen — versuch es erneut.",again:"↻ Nochmal fliegen",close:"✕ Schließen",newBest:"★ NEUER REKORD!",level:"LEVEL"},
+it:{tagline:"Pilota il razzo, schiva gli asteroidi!",howto:"Trascina per pilotare il tuo razzo mentre sale sopra la Luna. Passa tra le fessure dei cancelli di asteroidi e raccogli monete LUNC d'oro per +50. Un colpo e il volo finisce!",play:"▶ LANCIO",score:"PUNTI",best:"RECORD",height:"ALTITUDINE",board:"Classifica",all:"Di sempre",week:"Questa settimana",loading:"Caricamento…",boardOff:"Classifica non disponibile ora.",noScores:"Nessun punteggio ancora — sii il primo! 🏆",over:"VOLO FINITO",yourScore:"I tuoi punti",namePh:"Il tuo nome",submit:"Invia punti",saving:"Salvataggio…",saved:"Salvato!",couldNot:"Salvataggio non riuscito — riprova.",again:"↻ Vola ancora",close:"✕ Chiudi",newBest:"★ NUOVO RECORD!",level:"LIVELLO"},
+nl:{tagline:"Bestuur de raket. Ontwijk de asteroïden!",howto:"Sleep om je raket te sturen terwijl hij boven de maan klimt. Glip door de openingen van de asteroïdepoorten en pak gouden LUNC-munten voor +50. Eén klap en de vlucht is voorbij!",play:"▶ LANCEREN",score:"SCORE",best:"BESTE",height:"HOOGTE",board:"Ranglijst",all:"Allertijden",week:"Deze week",loading:"Laden…",boardOff:"Ranglijst nu niet beschikbaar.",noScores:"Nog geen scores — wees de eerste! 🏆",over:"VLUCHT VOORBIJ",yourScore:"Jouw score",namePh:"Jouw naam",submit:"Score verzenden",saving:"Opslaan…",saved:"Opgeslagen!",couldNot:"Opslaan mislukt — probeer opnieuw.",again:"↻ Opnieuw vliegen",close:"✕ Sluiten",newBest:"★ NIEUW RECORD!",level:"NIVEAU"},
+ru:{tagline:"Управляй ракетой — уворачивайся от астероидов!",howto:"Веди ракету, пока она поднимается над Луной. Проскальзывай в проёмы астероидных врат и собирай золотые монеты LUNC за +50. Одно столкновение — и полёт окончен!",play:"▶ СТАРТ",score:"ОЧКИ",best:"РЕКОРД",height:"ВЫСОТА",board:"Таблица лидеров",all:"За всё время",week:"Эта неделя",loading:"Загрузка…",boardOff:"Таблица сейчас недоступна.",noScores:"Очков пока нет — стань первым! 🏆",over:"ПОЛЁТ ОКОНЧЕН",yourScore:"Твои очки",namePh:"Твоё имя",submit:"Отправить результат",saving:"Сохраняем…",saved:"Сохранено!",couldNot:"Не удалось сохранить — попробуй ещё раз.",again:"↻ Лететь снова",close:"✕ Закрыть",newBest:"★ НОВЫЙ РЕКОРД!",level:"УРОВЕНЬ"},
+uk:{tagline:"Керуй ракетою — ухиляйся від астероїдів!",howto:"Веди ракету, доки вона підіймається над Місяцем. Прослизай у прорізи астероїдних брам і збирай золоті монети LUNC за +50. Одне зіткнення — і політ завершено!",play:"▶ СТАРТ",score:"ОЧКИ",best:"РЕКОРД",height:"ВИСОТА",board:"Таблиця лідерів",all:"За весь час",week:"Цей тиждень",loading:"Завантаження…",boardOff:"Таблиця зараз недоступна.",noScores:"Очок ще немає — стань першим! 🏆",over:"ПОЛІТ ЗАВЕРШЕНО",yourScore:"Твої очки",namePh:"Твоє ім'я",submit:"Надіслати результат",saving:"Зберігаємо…",saved:"Збережено!",couldNot:"Не вдалося зберегти — спробуй ще раз.",again:"↻ Летіти знову",close:"✕ Закрити",newBest:"★ НОВИЙ РЕКОРД!",level:"РІВЕНЬ"},
+tr:{tagline:"Roketi uçur, asteroitlerden kaç!",howto:"Roketini Ay'ın üzerinde yükselirken yönlendirmek için sürükle. Asteroit kapılarının boşluklarından geç ve +50 için altın LUNC paralarını topla. Tek çarpma uçuşu bitirir!",play:"▶ FIRLAT",score:"SKOR",best:"REKOR",height:"İRTİFA",board:"Liderlik Tablosu",all:"Tüm zamanlar",week:"Bu hafta",loading:"Yükleniyor…",boardOff:"Tablo şu anda kullanılamıyor.",noScores:"Henüz skor yok — ilk sen ol! 🏆",over:"UÇUŞ BİTTİ",yourScore:"Skorun",namePh:"Adın",submit:"Skoru gönder",saving:"Kaydediliyor…",saved:"Kaydedildi!",couldNot:"Kaydedilemedi — tekrar dene.",again:"↻ Tekrar uç",close:"✕ Kapat",newBest:"★ YENİ REKOR!",level:"SEVİYE"},
+ar:{tagline:"قُد الصاروخ وتفادَ الكويكبات!",howto:"اسحب لتوجيه صاروخك وهو يصعد فوق القمر. اعبر فجوات بوابات الكويكبات واجمع عملات LUNC الذهبية مقابل +50. ضربة واحدة تنهي الرحلة!",play:"▶ انطلاق",score:"النقاط",best:"الأفضل",height:"الارتفاع",board:"لوحة المتصدرين",all:"كل الأوقات",week:"هذا الأسبوع",loading:"جارٍ التحميل…",boardOff:"اللوحة غير متاحة الآن.",noScores:"لا نقاط بعد — كن الأول! 🏆",over:"انتهت الرحلة",yourScore:"نقاطك",namePh:"اسمك",submit:"إرسال النقاط",saving:"جارٍ الحفظ…",saved:"تم الحفظ!",couldNot:"تعذّر الحفظ — حاول مجددًا.",again:"↻ طِر مجددًا",close:"✕ إغلاق",newBest:"★ رقم قياسي جديد!",level:"المستوى"},
+hi:{tagline:"रॉकेट उड़ाओ, क्षुद्रग्रहों से बचो!",howto:"अपने रॉकेट को चंद्रमा के ऊपर चढ़ते हुए चलाने के लिए खींचो। क्षुद्रग्रह फाटकों के बीच से निकलो और +50 के लिए सुनहरी LUNC सिक्के पकड़ो। एक टक्कर और उड़ान खत्म!",play:"▶ उड़ान भरो",score:"स्कोर",best:"सर्वश्रेष्ठ",height:"ऊंचाई",board:"लीडरबोर्ड",all:"सर्वकालिक",week:"इस सप्ताह",loading:"लोड हो रहा है…",boardOff:"बोर्ड अभी उपलब्ध नहीं है।",noScores:"अभी कोई स्कोर नहीं — पहले बनो! 🏆",over:"उड़ान खत्म",yourScore:"तुम्हारा स्कोर",namePh:"तुम्हारा नाम",submit:"स्कोर भेजो",saving:"सहेज रहे हैं…",saved:"सहेजा गया!",couldNot:"सहेज नहीं पाए — फिर कोशिश करो।",again:"↻ फिर उड़ो",close:"✕ बंद करो",newBest:"★ नया रिकॉर्ड!",level:"स्तर"},
+id:{tagline:"Terbangkan roket, hindari asteroid!",howto:"Seret untuk mengarahkan roketmu saat naik di atas Bulan. Lewati celah gerbang asteroid dan ambil koin LUNC emas untuk +50. Satu tabrakan mengakhiri penerbangan!",play:"▶ LUNCURKAN",score:"SKOR",best:"TERBAIK",height:"KETINGGIAN",board:"Papan Peringkat",all:"Sepanjang masa",week:"Minggu ini",loading:"Memuat…",boardOff:"Papan tidak tersedia sekarang.",noScores:"Belum ada skor — jadilah yang pertama! 🏆",over:"PENERBANGAN SELESAI",yourScore:"Skormu",namePh:"Namamu",submit:"Kirim skor",saving:"Menyimpan…",saved:"Tersimpan!",couldNot:"Gagal menyimpan — coba lagi.",again:"↻ Terbang lagi",close:"✕ Tutup",newBest:"★ REKOR BARU!",level:"LEVEL"},
+vi:{tagline:"Lái tên lửa, né các tiểu hành tinh!",howto:"Kéo để lái tên lửa của bạn khi nó bay lên phía trên Mặt Trăng. Chui qua khe cổng tiểu hành tinh và nhặt xu LUNC vàng để +50. Một cú va chạm là kết thúc chuyến bay!",play:"▶ PHÓNG",score:"ĐIỂM",best:"CAO NHẤT",height:"ĐỘ CAO",board:"Bảng xếp hạng",all:"Mọi thời đại",week:"Tuần này",loading:"Đang tải…",boardOff:"Bảng hiện không khả dụng.",noScores:"Chưa có điểm — hãy là người đầu tiên! 🏆",over:"KẾT THÚC CHUYẾN BAY",yourScore:"Điểm của bạn",namePh:"Tên của bạn",submit:"Gửi điểm",saving:"Đang lưu…",saved:"Đã lưu!",couldNot:"Không lưu được — thử lại.",again:"↻ Bay lại",close:"✕ Đóng",newBest:"★ KỶ LỤC MỚI!",level:"CẤP"},
+th:{tagline:"ขับจรวด หลบดาวเคราะห์น้อย!",howto:"ลากเพื่อบังคับจรวดขณะพุ่งขึ้นเหนือดวงจันทร์ ผ่านช่องประตูดาวเคราะห์น้อยและเก็บเหรียญ LUNC สีทองเพื่อ +50 ชนครั้งเดียวจบเที่ยวบิน!",play:"▶ ปล่อยจรวด",score:"คะแนน",best:"ดีที่สุด",height:"ความสูง",board:"ตารางคะแนน",all:"ตลอดกาล",week:"สัปดาห์นี้",loading:"กำลังโหลด…",boardOff:"ตารางไม่พร้อมใช้งานตอนนี้",noScores:"ยังไม่มีคะแนน — เป็นคนแรกเลย! 🏆",over:"จบเที่ยวบิน",yourScore:"คะแนนของคุณ",namePh:"ชื่อของคุณ",submit:"ส่งคะแนน",saving:"กำลังบันทึก…",saved:"บันทึกแล้ว!",couldNot:"บันทึกไม่สำเร็จ — ลองอีกครั้ง",again:"↻ บินอีกครั้ง",close:"✕ ปิด",newBest:"★ สถิติใหม่!",level:"ด่าน"},
+ko:{tagline:"로켓을 조종해 소행성을 피하라!",howto:"달 위로 상승하는 로켓을 드래그로 조종하세요. 소행성 게이트의 틈을 빠져나가고 황금 LUNC 코인을 모아 +50. 한 번 부딪히면 비행 종료!",play:"▶ 발사",score:"점수",best:"최고 기록",height:"고도",board:"리더보드",all:"전체 기간",week:"이번 주",loading:"로딩 중…",boardOff:"지금은 보드를 볼 수 없어요.",noScores:"아직 점수가 없어요 — 첫 번째가 되세요! 🏆",over:"비행 종료",yourScore:"내 점수",namePh:"이름",submit:"점수 제출",saving:"저장 중…",saved:"저장됨!",couldNot:"저장 실패 — 다시 시도하세요.",again:"↻ 다시 비행",close:"✕ 닫기",newBest:"★ 신기록!",level:"레벨"},
+ja:{tagline:"ロケットを操り小惑星をかわせ！",howto:"ドラッグでロケットを操り、月の上空を上昇しよう。小惑星ゲートの隙間を抜け、金のLUNCコインで+50。一度当たれば飛行終了！",play:"▶ 発射",score:"スコア",best:"ベスト",height:"高度",board:"リーダーボード",all:"総合",week:"今週",loading:"読み込み中…",boardOff:"現在ボードは利用できません。",noScores:"まだスコアがありません — 一番乗りしよう！ 🏆",over:"飛行終了",yourScore:"あなたのスコア",namePh:"あなたの名前",submit:"スコアを送信",saving:"保存中…",saved:"保存しました！",couldNot:"保存できませんでした — もう一度お試しください。",again:"↻ もう一度飛行",close:"✕ 閉じる",newBest:"★ 新記録！",level:"レベル"},
+zh:{tagline:"驾驶火箭，穿越小行星！",howto:"拖动操控你的火箭在月球上空攀升。穿过小行星门的缝隙，收集金色LUNC金币+50。撞到一次飞行就结束！",play:"▶ 发射",score:"分数",best:"最高分",height:"高度",board:"排行榜",all:"总榜",week:"本周",loading:"加载中…",boardOff:"排行榜暂时不可用。",noScores:"暂无分数——来当第一名！🏆",over:"飞行结束",yourScore:"你的分数",namePh:"你的名字",submit:"提交分数",saving:"保存中…",saved:"已保存！",couldNot:"保存失败——请重试。",again:"↻ 再次飞行",close:"✕ 关闭",newBest:"★ 新纪录！",level:"关卡"}
+};
+let LANG = localStorage.getItem('luncMoonRushLang') || 'en'; if (!I18N[LANG]) LANG = 'en';
+function T(k){ const d = I18N[LANG]; return (d && d[k]) || I18N.en[k] || k; }
+const langSel = $('langSel');
+LANGS.forEach(([code, label]) => { const o = document.createElement('option'); o.value = code; o.textContent = '🌐 ' + label; langSel.appendChild(o); });
+langSel.value = LANG;
+function applyLang(){
+  document.documentElement.lang = LANG;
+  $('tagline').textContent = T('tagline');
+  $('howto').textContent = T('howto');
+  $('startBtn').textContent = T('play');
+  $('startBoardBtn').textContent = '🏆 ' + T('board');
+  $('scoreLbl').textContent = T('score');
+  $('bestLbl').textContent = T('best');
+  $('bestLbl2').textContent = T('best');
+  $('heightLbl').textContent = T('height');
+  $('levelLbl').textContent = T('level');
+  $('overTitle').textContent = T('over');
+  $('yourScoreLbl').textContent = T('yourScore');
+  $('nameInput').placeholder = T('namePh');
+  $('submitBtn').textContent = T('submit');
+  $('againBtn').textContent = T('again');
+  $('overBoardBtn').textContent = '🏆 ' + T('board');
+  $('boardTitle').textContent = T('board');
+  $('tabAll').textContent = T('all');
+  $('tabWeek').textContent = T('week');
+  $('boardClose').textContent = T('close');
+  $('newBest').textContent = T('newBest');
+  if (boardData || boardErr) renderBoard();
+}
+langSel.onchange = () => { LANG = langSel.value; localStorage.setItem('luncMoonRushLang', LANG); applyLang(); };
+
+/* ================= telegram ================= */
+try { if (window.Telegram && window.Telegram.WebApp) { window.Telegram.WebApp.ready(); window.Telegram.WebApp.expand(); } } catch (e) {}
+
+/* ================= audio (tiny synth) ================= */
+let AC = null, muted = localStorage.getItem('luncMoonRushMute') === '1';
+function ensureAudio(){ if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } if (AC && AC.state === 'suspended') AC.resume(); }
+function blip(f0, f1, dur, type, vol){
+  if (!AC || muted) return;
+  const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(f0, t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(30, f1), t + dur);
+  g.gain.setValueAtTime(vol || 0.12, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g); g.connect(AC.destination);
+  o.start(t); o.stop(t + dur);
+}
+const sndGem = () => { blip(880, 1320, 0.1, 'triangle', 0.13); setTimeout(() => blip(1320, 1760, 0.12, 'triangle', 0.1), 45); };
+const sndGate = () => blip(300, 460, 0.09, 'sine', 0.07);
+const sndMile = () => { blip(660, 660, 0.09, 'triangle', 0.1); setTimeout(() => blip(990, 990, 0.13, 'triangle', 0.1), 80); };
+const sndCrash = () => { blip(300, 40, 0.45, 'sawtooth', 0.16); blip(160, 30, 0.5, 'square', 0.1); };
+$('muteBtn').textContent = muted ? '🔇' : '🔊';
+$('muteBtn').onclick = () => { muted = !muted; localStorage.setItem('luncMoonRushMute', muted ? '1' : '0'); $('muteBtn').textContent = muted ? '🔇' : '🔊'; if (!muted) ensureAudio(); };
+
+/* ================= game state ================= */
+const cv = $('cv'), ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1, orbY = 0;
+function wallL(){ return Math.max(22, W * 0.07); } // playfield edge (collision line)
+function resize(){
+  const r = $('wrap').getBoundingClientRect();
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = Math.max(280, r.width); H = Math.max(320, r.height);
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  orbY = H * 0.60;
+  orb.x = clamp(orb.x || W / 2, wallL() + orb.r, W - wallL() - orb.r);
+  orb.tx = clamp(orb.tx || W / 2, wallL() + orb.r, W - wallL() - orb.r);
+}
+addEventListener('resize', resize);
+
+/* world: the rocket's altitude is scrollY (px climbed); everything else
+   lives in world-Y and maps to screen with w2s(). */
+const orb = { x: 0, tx: 0, r: 20 };
+let state = 'menu'; // menu | play | dying | over
+let score = 0, best = +(localStorage.getItem('luncMoonRushBest') || 0);
+let gems = 0, elapsed = 0, scrollY = 0, speed = 0;
+let gates = [], gemList = [], parts = [], pops = [], trail = [];
+let nextGateY = 0, nextGemY = 0, lastMile = 0, dieT = 0, shakeT = 0, flash = 0, bgScroll = 0;
+let curZone = 0, gateSeq = 0;
+let ambientOn = true;
+const GATE_H = 46;
+const GEM_PTS = 50;
+const BANNERS = ['LUNC', 'LUNA CLASSIC', 'LUNC DEV STUDIO'];
+function w2s(wy){ return orbY - (wy - scrollY); }
+function difficulty(){ return clamp(elapsed / 90, 0, 1); } // 0..1 over the first 90s
+/* ---- LEVELS: altitude is stacked in 400m sectors. Sector 0 = Level 1.
+   Sectors 1..10 climb deeper into space — same ramp philosophy as the
+   sister game (faster climb, denser gates, tighter gaps), each sector
+   with its own nebula tint in the navy/silver/teal space family. ---- */
+const ZONE_M = 400;
+function zoneIdx(){ return Math.floor(heightM() / ZONE_M); }
+function levelNum(){ return zoneIdx() + 1; }
+function heat(){ return clamp(zoneIdx(), 0, 10); } // extra ramp for the higher levels
+const SPACE_THEMES = [
+  { bg0:'#0a1132', bg1:'#060a20', bg2:'#03040e', neb:'125,178,255', acc:'#7db2ff' }, // L2  indigo drift
+  { bg0:'#042430', bg1:'#03141d', bg2:'#020a10', neb:'77,227,255',  acc:'#4de3ff' }, // L3  teal nebula
+  { bg0:'#180c36', bg1:'#0e0620', bg2:'#05030f', neb:'178,152,255', acc:'#b298ff' }, // L4  violet veil
+  { bg0:'#26130a', bg1:'#170b05', bg2:'#0a0402', neb:'255,178,102', acc:'#ffb266' }, // L5  ember field
+  { bg0:'#04241b', bg1:'#03150f', bg2:'#020a07', neb:'82,255,200',  acc:'#52ffc8' }, // L6  emerald haze
+  { bg0:'#270b1e', bg1:'#180510', bg2:'#0a0208', neb:'255,140,190', acc:'#ff8cbe' }, // L7  rose nebula
+  { bg0:'#041236', bg1:'#020a20', bg2:'#01040d', neb:'96,150,255',  acc:'#6096ff' }, // L8  cobalt deep
+  { bg0:'#251b05', bg1:'#171103', bg2:'#0a0601', neb:'255,210,110', acc:'#ffd26e' }, // L9  solar gold
+  { bg0:'#230710', bg1:'#140309', bg2:'#070106', neb:'255,120,140', acc:'#ff788c' }, // L10 crimson dark
+  { bg0:'#15171d', bg1:'#0a0b10', bg2:'#040406', neb:'230,238,255', acc:'#e6eeff' }, // L11 silver void
+];
+let TH = null; // active space theme for this frame (null on Level 1)
+function theme(){ const z = zoneIdx(); return z <= 0 ? null : SPACE_THEMES[Math.min(z, 10) - 1]; }
+function accentRgb(){ return TH ? TH.neb : '77,227,255'; }
+function accentCss(){ return TH ? TH.acc : '#4de3ff'; }
+function curSpeed(){ return 260 + Math.min(340, elapsed * 6) + heat() * 40; } // 260 -> 600 on L1, +40 per level -> 1000 at L11
+function gateGap(){ return Math.max(118, lerp(330, 215, difficulty()) - heat() * 10); } // denser gates per level
+function heightM(){ return Math.floor(scrollY / 25); }
+function scoreNow(){ return Math.floor(scrollY / 10) + gems * GEM_PTS; }
+
+/* deterministic rock-tooth shape: teeth repeat per 46px world segment */
+function toothRand(seg){ const s = Math.sin(seg * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); }
+function toothTip(seg, side){ return toothRand(seg * 2 + (side === 'L' ? 0 : 1)); }
+
+/* distant drifting asteroids (parallax silhouettes) */
+const farRocks = [];
+for (let i = 0; i < 10; i++) farRocks.push({ y: i * 170 + (i % 3) * 40, side: i % 2 === 0 ? 'L' : 'R', h: 90 + (i % 4) * 44, w: 30 + (i % 3) * 16, hue: i % 2 });
+/* starfield: two parallax layers, deterministic positions */
+const starLayers = [
+  { n: 70, par: 0.10, rMax: 1.1, seed: 17 },
+  { n: 44, par: 0.30, rMax: 1.9, seed: 91 },
+];
+const stars = [];
+starLayers.forEach((L, li) => {
+  for (let i = 0; i < L.n; i++) stars.push({ li, x: toothRand(i * 3 + L.seed), y: toothRand(i * 7 + L.seed * 2), r: 0.5 + toothRand(i * 11 + L.seed) * L.rMax, tw: toothRand(i * 13 + L.seed) * 6.28 });
+});
+
+function spawnGate(wy){
+  const d = difficulty();
+  const gapHalf = Math.max(40, lerp(86, 64, d) - heat() * 2.4); // tighter gaps per level, floor 40px half-gap
+  const L = wallL();
+  const gapCx = L + gapHalf + 10 + Math.random() * Math.max(10, W - 2 * L - 2 * gapHalf - 20);
+  gates.push({ wy, gapCx, gapHalf, passed: false, tag: BANNERS[gateSeq % BANNERS.length], seq: gateSeq });
+  gateSeq++;
+}
+function spawnGem(wy, x){
+  // keep coins clear of the nearest gate band so they are always reachable
+  for (const g of gates){ if (Math.abs(g.wy - wy) < 78){ wy += 96; break; } }
+  const L = wallL();
+  gemList.push({ wy, x: (typeof x === 'number') ? x : L + 30 + Math.random() * Math.max(10, W - 2 * L - 60), r: 13, ph: Math.random() * 6.28, got: false });
+}
+function burst(x, y, color, n){
+  for (let i = 0; i < (n || 14); i++){
+    const a = Math.random() * Math.PI * 2, s = 40 + Math.random() * 170;
+    parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 60, life: 0.5 + Math.random() * 0.35, t: 0, color, r: 1.5 + Math.random() * 2.8, grav: 260 });
+  }
+}
+function popText(x, y, text, color){
+  pops.push({ x, y, text, color: color || '#ffd76a', t: 0, life: 0.9 });
+}
+
+function reset(){
+  score = 0; gems = 0; elapsed = 0; scrollY = 0; speed = curSpeed();
+  gates = []; gemList = []; parts = []; pops = []; trail = [];
+  nextGateY = H * 1.15; nextGemY = H * 0.9; lastMile = 0; dieT = 0; shakeT = 0; flash = 0; curZone = 0; gateSeq = 0;
+  orb.x = W / 2; orb.tx = W / 2; orb.r = clamp(Math.min(W, H) * 0.055, 16, 24);
+  syncHud();
+}
+function syncHud(){
+  $('scoreV').textContent = score;
+  $('gemV').textContent = gems;
+  $('heightV').textContent = heightM() + 'm';
+  $('levelV').textContent = levelNum();
+  $('bestV').textContent = best;
+}
+function startGame(){
+  ensureAudio();
+  reset();
+  state = 'play';
+  $('startScreen').hidden = true;
+  $('overScreen').hidden = true;
+  $('boardScreen').hidden = true;
+}
+function crash(){
+  if (state !== 'play') return;
+  state = 'dying'; dieT = 0; shakeT = 0.55; flash = 1;
+  sndCrash();
+  burst(orb.x, orbY, '#ff8c5a', 30);
+  burst(orb.x, orbY, '#ffe9a8', 16);
+}
+function gameOver(){
+  state = 'over';
+  const isNew = score > best;
+  if (isNew){ best = score; localStorage.setItem('luncMoonRushBest', best); }
+  $('finalScore').textContent = score;
+  $('finalBest').textContent = best;
+  $('newBest').hidden = !isNew;
+  prefillName();
+  $('submitBtn').disabled = false;
+  $('submitStatus').textContent = '';
+  $('overScreen').hidden = false;
+  syncHud();
+}
+
+function step(dt){
+  if (state === 'menu' || state === 'over') return;
+  if (state === 'dying'){
+    dieT += dt; shakeT = Math.max(0, shakeT - dt); flash = Math.max(0, flash - dt * 2.2);
+    speed = Math.max(0, speed - 900 * dt);
+    scrollY += speed * dt;
+    for (let i = parts.length - 1; i >= 0; i--){ const q = parts[i]; q.t += dt; q.x += q.vx * dt; q.y += q.vy * dt; q.vy += (q.grav || 0) * dt; if (q.t > q.life) parts.splice(i, 1); }
+    for (let i = pops.length - 1; i >= 0; i--){ const q = pops[i]; q.t += dt; q.y -= 42 * dt; if (q.t > q.life) pops.splice(i, 1); }
+    if (dieT >= 0.55) gameOver();
+    return;
+  }
+  elapsed += dt;
+  speed = curSpeed();
+  scrollY += speed * dt;
+  bgScroll += speed * dt * 0.45;
+  /* rocket eases toward the drag target */
+  orb.x += (orb.tx - orb.x) * Math.min(1, dt * 15);
+  orb.x = clamp(orb.x, wallL() + orb.r * 0.8, W - wallL() - orb.r * 0.8);
+  trail.unshift({ x: orb.x, wy: scrollY });
+  if (trail.length > 15) trail.pop();
+  /* engine flame + star sparkles streaming from the tail */
+  if (parts.length < 240){
+    const fl = 0.8 + speed / 1000 * 0.5;
+    parts.push({ x: orb.x + (Math.random() - 0.5) * 7, y: orbY + orb.r * 1.15, vx: (Math.random() - 0.5) * 26 - (orb.tx - orb.x) * 0.35, vy: 130 + Math.random() * 110 * fl, life: 0.30 + Math.random() * 0.25, t: 0, color: ['#ffb266', '#ff7a3c', '#ffe9a8'][Math.floor(Math.random() * 3)], r: 1.4 + Math.random() * 2.2, grav: 0 });
+    if (Math.random() < 0.4) parts.push({ x: orb.x + (Math.random() - 0.5) * 16, y: orbY + orb.r * (0.9 + Math.random() * 0.7), vx: (Math.random() - 0.5) * 40, vy: 60 + Math.random() * 80, life: 0.4 + Math.random() * 0.3, t: 0, color: '#dff2ff', r: 1 + Math.random() * 1.4, grav: 0, star: true });
+  }
+  /* spawners */
+  if (ambientOn){
+    while (nextGateY < scrollY + H * 1.55){ spawnGate(nextGateY); nextGateY += gateGap(); }
+    while (nextGemY < scrollY + H * 1.55){ spawnGem(nextGemY); nextGemY += 150 + Math.random() * 190; }
+  }
+  const L = wallL();
+  /* gates: collision + pass */
+  for (let i = gates.length - 1; i >= 0; i--){
+    const g = gates[i];
+    const sy = w2s(g.wy);
+    if (!g.passed && sy > orbY + GATE_H / 2 + orb.r){
+      g.passed = true; sndGate();
+    }
+    if (Math.abs(sy - orbY) < orb.r * 0.72 + GATE_H / 2){
+      if (orb.x < g.gapCx - g.gapHalf + orb.r * 0.45 || orb.x > g.gapCx + g.gapHalf - orb.r * 0.45){ crash(); return; }
+    }
+    if (g.wy < scrollY - 260) gates.splice(i, 1);
+  }
+  /* wall collision */
+  if (orb.x - orb.r * 0.8 < L || orb.x + orb.r * 0.8 > W - L){ crash(); return; }
+  /* coins */
+  for (let i = gemList.length - 1; i >= 0; i--){
+    const gm = gemList[i];
+    const sy = w2s(gm.wy);
+    const dx = gm.x - orb.x, dy = sy - orbY;
+    if (dx * dx + dy * dy < (orb.r + gm.r + 6) * (orb.r + gm.r + 6)){
+      gems++;
+      score = scoreNow();
+      burst(gm.x, sy, '#ffd76a', 16);
+      popText(gm.x, sy - 18, '+50', '#ffe98a');
+      sndGem();
+      gemList.splice(i, 1);
+      syncHud();
+      continue;
+    }
+    if (gm.wy < scrollY - 260) gemList.splice(i, 1);
+  }
+  /* altitude milestones every 250m */
+  const m = heightM();
+  if (m >= lastMile + 250){
+    lastMile = m - (m % 250);
+    popText(W / 2, H * 0.32, lastMile + 'm!', '#9fd8ef');
+    sndMile();
+  }
+  /* level-up: crossing into the next sector */
+  const zNow = zoneIdx();
+  if (zNow > curZone){
+    curZone = zNow;
+    popText(W / 2, H * 0.30, T('level') + ' ' + (zNow + 1) + '!', accentCss());
+    burst(W / 2, H * 0.42, accentCss(), 22);
+    sndMile();
+  }
+  score = scoreNow();
+  /* particles + pops */
+  for (let i = parts.length - 1; i >= 0; i--){ const q = parts[i]; q.t += dt; q.x += q.vx * dt; q.y += q.vy * dt; q.vy += (q.grav || 0) * dt; if (q.t > q.life) parts.splice(i, 1); }
+  for (let i = pops.length - 1; i >= 0; i--){ const q = pops[i]; q.t += dt; q.y -= 42 * dt; if (q.t > q.life) pops.splice(i, 1); }
+  syncHud();
+}
+
+/* ================= drawing: deep space over the Moon ================= */
+function drawWall(side){
+  const L = wallL();
+  const step = 46;
+  ctx.beginPath();
+  if (side === 'L'){ ctx.moveTo(-20, -20); } else { ctx.moveTo(W + 20, -20); }
+  for (let sy = -20; sy <= H + 20; sy += step){
+    const wy = scrollY + (orbY - sy);
+    const seg = Math.floor(wy / step);
+    const r = toothTip(seg, side);
+    const tip = side === 'L' ? L - 14 + r * 20 : W - L + 14 - r * 20;
+    ctx.lineTo(tip, sy);
+  }
+  if (side === 'L'){ ctx.lineTo(-20, H + 20); } else { ctx.lineTo(W + 20, H + 20); }
+  ctx.closePath();
+  const g = ctx.createLinearGradient(side === 'L' ? 0 : W, 0, side === 'L' ? L + 16 : W - L - 16, 0);
+  g.addColorStop(0, '#11141b'); g.addColorStop(0.6, '#232833'); g.addColorStop(1, '#3a4152');
+  ctx.fillStyle = g; ctx.fill();
+  /* crater speckles + rock strata on the pillar face */
+  for (let sy = 8; sy <= H; sy += 46){
+    const wy = scrollY + (orbY - sy);
+    const seg = Math.floor(wy / 46);
+    const r1 = toothRand(seg * 5 + (side === 'L' ? 3 : 9));
+    const r2 = toothRand(seg * 9 + (side === 'L' ? 21 : 33));
+    const xBase = side === 'L' ? 4 + r1 * Math.max(4, L - 18) : W - 4 - r1 * Math.max(4, L - 18);
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath(); ctx.ellipse(xBase, sy + r2 * 20 - 10, 3 + r2 * 5, 2 + r1 * 3, 0, 0, 6.283); ctx.fill();
+    ctx.strokeStyle = 'rgba(190,215,245,0.16)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.ellipse(xBase, sy + r2 * 20 - 11, 3 + r2 * 5, 2 + r1 * 3, 0, Math.PI, Math.PI * 1.7); ctx.stroke();
+    ctx.strokeStyle = 'rgba(140,170,210,0.10)';
+    ctx.beginPath(); ctx.moveTo(side === 'L' ? 0 : W, sy + 14); ctx.lineTo(side === 'L' ? L - 6 : W - L + 6, sy + 18); ctx.stroke();
+  }
+  /* silver-teal rim light on the flight edge */
+  ctx.shadowColor = 'rgba(77,227,255,0.8)'; ctx.shadowBlur = 8;
+  ctx.strokeStyle = 'rgba(178,232,255,0.55)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(side === 'L' ? L : W - L, -10); ctx.lineTo(side === 'L' ? L : W - L, H + 10); ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+
+function drawEarth(now){
+  const shrink = clamp(1 - heightM() / 7000, 0.45, 1);
+  const R = Math.min(W, H) * 0.105 * shrink + 12;
+  const ex = W * 0.79, ey = H * 0.15 + Math.min(scrollY * 0.012, H * 0.06);
+  const glow = ctx.createRadialGradient(ex, ey, R * 0.4, ex, ey, R * 2.1);
+  glow.addColorStop(0, 'rgba(90,160,255,0.30)'); glow.addColorStop(1, 'rgba(90,160,255,0)');
+  ctx.fillStyle = glow; ctx.fillRect(ex - R * 2.1, ey - R * 2.1, R * 4.2, R * 4.2);
+  const g = ctx.createRadialGradient(ex - R * 0.35, ey - R * 0.35, R * 0.1, ex, ey, R);
+  g.addColorStop(0, '#9fd0ff'); g.addColorStop(0.45, '#3f7fe0'); g.addColorStop(1, '#122f6e');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(ex, ey, R, 0, 6.283); ctx.fill();
+  /* continents */
+  ctx.fillStyle = 'rgba(74,190,120,0.85)';
+  const blob = (dx, dy, r) => { ctx.beginPath(); ctx.arc(ex + dx * R, ey + dy * R, r * R, 0, 6.283); ctx.fill(); };
+  blob(-0.28, -0.18, 0.30); blob(-0.05, -0.34, 0.20); blob(0.18, 0.05, 0.26); blob(-0.12, 0.30, 0.22); blob(0.38, -0.28, 0.15);
+  /* polar cap + cloud wisps */
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.beginPath(); ctx.ellipse(ex, ey - R * 0.88, R * 0.34, R * 0.13, 0, 0, 6.283); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.beginPath(); ctx.ellipse(ex - R * 0.2, ey + R * 0.1, R * 0.5, R * 0.10, -0.3, 0, 6.283); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(ex + R * 0.25, ey - R * 0.45, R * 0.42, R * 0.09, 0.25, 0, 6.283); ctx.fill();
+  /* night-side shade */
+  const sh = ctx.createLinearGradient(ex - R, ey, ex + R, ey);
+  sh.addColorStop(0.55, 'rgba(2,6,20,0)'); sh.addColorStop(1, 'rgba(2,6,20,0.45)');
+  ctx.fillStyle = sh; ctx.beginPath(); ctx.arc(ex, ey, R, 0, 6.283); ctx.fill();
+}
+
+function drawMoonSurface(){
+  /* the launch plain: visible only while it is still on screen */
+  const topY = orbY + scrollY + H * 0.30;
+  if (topY > H + 80) return;
+  ctx.fillStyle = '#565d68';
+  ctx.beginPath();
+  ctx.moveTo(-30, H + 30);
+  ctx.lineTo(-30, topY + 26);
+  for (let x = -30; x <= W + 30; x += 38){
+    const r = toothRand(Math.floor(x / 38) + 77);
+    ctx.lineTo(x + 19, topY + r * 14);
+    ctx.lineTo(x + 38, topY + 26);
+  }
+  ctx.lineTo(W + 30, H + 30);
+  ctx.closePath(); ctx.fill();
+  const g = ctx.createLinearGradient(0, topY, 0, H);
+  g.addColorStop(0, 'rgba(230,240,255,0.20)'); g.addColorStop(0.25, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.4)');
+  ctx.fillStyle = g; ctx.fillRect(-30, topY, W + 60, H - topY + 30);
+  /* craters */
+  for (let i = 0; i < 6; i++){
+    const cx = toothRand(i * 31 + 5) * W, cy = topY + 34 + toothRand(i * 47 + 9) * Math.max(10, H - topY - 50);
+    if (cy > H) continue;
+    ctx.fillStyle = 'rgba(0,0,0,0.30)';
+    ctx.beginPath(); ctx.ellipse(cx, cy, 12 + i * 3, 4 + i, 0, 0, 6.283); ctx.fill();
+    ctx.strokeStyle = 'rgba(230,240,255,0.25)'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.ellipse(cx, cy - 1, 12 + i * 3, 4 + i, 0, Math.PI, Math.PI * 1.8); ctx.stroke();
+  }
+  /* the planted LUNC flag near the launch point */
+  const fx = W * 0.20, fy = topY + 20;
+  ctx.strokeStyle = '#dfe9f5'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(fx, fy - 34); ctx.stroke();
+  ctx.fillStyle = '#0a2a4a';
+  ctx.fillRect(fx, fy - 34, 30, 17);
+  ctx.strokeStyle = '#4de3ff'; ctx.lineWidth = 1; ctx.strokeRect(fx, fy - 34, 30, 17);
+  ctx.fillStyle = '#ffc440';
+  ctx.beginPath(); ctx.arc(fx + 11, fy - 25.5, 5.2, 0, 6.283); ctx.fill();
+  ctx.fillStyle = '#0a2a4a';
+  ctx.beginPath(); ctx.arc(fx + 13.2, fy - 27.3, 4.4, 0, 6.283); ctx.fill();
+  ctx.fillStyle = '#dff2ff'; ctx.font = '700 6.5px ui-monospace, monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText('LUNC', fx + 18.5, fy - 25);
+}
+
+function draw(){
+  ctx.clearRect(0, 0, W, H);
+  TH = theme();
+  ctx.save();
+  if (shakeT > 0){ ctx.translate((Math.random() - 0.5) * shakeT * 26, (Math.random() - 0.5) * shakeT * 26); }
+  /* deep-space gradient — navy on Level 1, the sector's nebula tint above */
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  if (TH){ bg.addColorStop(0, TH.bg0); bg.addColorStop(0.55, TH.bg1); bg.addColorStop(1, TH.bg2); }
+  else { bg.addColorStop(0, '#081231'); bg.addColorStop(0.55, '#040a20'); bg.addColorStop(1, '#02040c'); }
+  ctx.fillStyle = bg; ctx.fillRect(-30, -30, W + 60, H + 60);
+  /* nebula wash */
+  const nw = ctx.createRadialGradient(W * 0.24, H * 0.22, 10, W * 0.24, H * 0.22, W * 0.75);
+  nw.addColorStop(0, 'rgba(' + accentRgb() + ',0.13)'); nw.addColorStop(1, 'rgba(' + accentRgb() + ',0)');
+  ctx.fillStyle = nw; ctx.fillRect(-30, -30, W + 60, H + 60);
+  const now = performance.now() / 1000;
+  /* starfield (two parallax layers, twinkling) */
+  for (const s of stars){
+    const par = starLayers[s.li].par;
+    const y = (((s.y - (scrollY * par) / Math.max(1, H)) % 1) + 1) % 1 * H;
+    const x = s.x * W;
+    ctx.globalAlpha = 0.35 + 0.55 * (0.5 + 0.5 * Math.sin(now * 1.7 + s.tw));
+    ctx.fillStyle = s.li ? '#eaf6ff' : '#9fc4e8';
+    ctx.beginPath(); ctx.arc(x, y, s.r, 0, 6.283); ctx.fill();
+    if (s.li && s.r > 1.6){ /* sparkle cross on the brightest stars */
+      ctx.strokeStyle = 'rgba(220,242,255,0.7)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x - s.r * 2.4, y); ctx.lineTo(x + s.r * 2.4, y); ctx.moveTo(x, y - s.r * 2.4); ctx.lineTo(x, y + s.r * 2.4); ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+  drawEarth(now);
+  /* distant drifting asteroids (parallax) */
+  for (const s of farRocks){
+    const period = H + 420;
+    let sy = ((s.y - bgScroll) % period + period) % period - 220;
+    const cx = s.side === 'L' ? wallL() * 0.35 : W - wallL() * 0.35;
+    ctx.fillStyle = 'rgba(120,135,160,' + (s.hue ? '0.20' : '0.13') + ')';
+    ctx.beginPath();
+    const n = 7;
+    for (let k = 0; k < n; k++){
+      const a = (k / n) * 6.283, rr = (k % 2 ? 0.78 : 1) * s.w * 0.62;
+      const px = cx + Math.cos(a) * rr, py = sy + s.h / 2 + Math.sin(a) * rr * 1.25;
+      if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(190,215,245,0.20)'; ctx.lineWidth = 1; ctx.stroke();
+  }
+  /* mid-ground lone asteroids (slower parallax) */
+  {
+    const span = H + 320;
+    for (let i = 0; i < 5; i++){
+      const travel = scrollY * 0.7 + i * 271;
+      const sy = (travel % span) - 160;
+      const cyc = Math.floor(travel / span);
+      const r = toothRand(cyc * 13 + i * 7);
+      const cx = wallL() + 44 + r * Math.max(30, W - 2 * wallL() - 88);
+      const rad = 13 + r * 20;
+      ctx.fillStyle = 'rgba(96,106,128,0.5)';
+      ctx.beginPath();
+      for (let k = 0; k < 8; k++){
+        const a = (k / 8) * 6.283, rr = rad * (0.75 + toothRand(cyc * 41 + i * 17 + k * 3) * 0.4);
+        const px = cx + Math.cos(a) * rr, py = sy + Math.sin(a) * rr;
+        if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(190,215,245,0.22)'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath(); ctx.arc(cx - rad * 0.25, sy - rad * 0.15, rad * 0.22, 0, 6.283); ctx.fill();
+    }
+  }
+  drawMoonSurface();
+  /* rock pillar walls */
+  drawWall('L'); drawWall('R');
+  /* speed lines at high speed */
+  if (speed > 430 && state === 'play'){
+    ctx.strokeStyle = 'rgba(200,230,255,0.20)'; ctx.lineWidth = 2;
+    for (let i = 0; i < 6; i++){
+      const x = wallL() + 16 + ((i * 97 + Math.floor(now * 900) % 97) % Math.max(40, W - 2 * wallL() - 32));
+      const y = ((i * 173 + now * 900) % (H + 120)) - 60;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + 46); ctx.stroke();
+    }
+  }
+  /* asteroid gates */
+  for (const g of gates){
+    const sy = w2s(g.wy);
+    if (sy < -80 || sy > H + 80) continue;
+    const L = wallL();
+    /* faint hazard band behind the rocks */
+    ctx.fillStyle = 'rgba(' + accentRgb() + ',0.07)';
+    ctx.fillRect(L, sy - GATE_H / 2, g.gapCx - g.gapHalf - L, GATE_H);
+    ctx.fillRect(g.gapCx + g.gapHalf, sy - GATE_H / 2, W - L - (g.gapCx + g.gapHalf), GATE_H);
+    /* guide glow marking the safe gap */
+    const pulseA = 0.30 + Math.sin(now * 6) * 0.13;
+    const gg = ctx.createLinearGradient(g.gapCx - g.gapHalf, 0, g.gapCx + g.gapHalf, 0);
+    gg.addColorStop(0, 'rgba(' + accentRgb() + ',0)');
+    gg.addColorStop(0.5, 'rgba(' + accentRgb() + ',' + pulseA.toFixed(3) + ')');
+    gg.addColorStop(1, 'rgba(' + accentRgb() + ',0)');
+    ctx.fillStyle = gg;
+    ctx.fillRect(g.gapCx - g.gapHalf, sy - GATE_H / 2 - 6, g.gapHalf * 2, GATE_H + 12);
+    ctx.strokeStyle = 'rgba(' + accentRgb() + ',0.7)'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(g.gapCx - g.gapHalf, sy - GATE_H / 2 - 6); ctx.lineTo(g.gapCx - g.gapHalf, sy + GATE_H / 2 + 6);
+    ctx.moveTo(g.gapCx + g.gapHalf, sy - GATE_H / 2 - 6); ctx.lineTo(g.gapCx + g.gapHalf, sy + GATE_H / 2 + 6);
+    ctx.stroke();
+    drawRockRow(L, g.gapCx - g.gapHalf, sy, g.wy);
+    drawRockRow(g.gapCx + g.gapHalf, W - L, sy, g.wy);
+    /* hologram banner over the gap — house branding riding the gates */
+    if (g.seq % 2 === 0){
+      const label = g.tag;
+      ctx.font = '700 9px ui-monospace, monospace';
+      const tw = ctx.measureText(label).width + 14;
+      const bx = clamp(g.gapCx - tw / 2, L + 2, W - L - tw - 2), by = sy - GATE_H / 2 - 24;
+      ctx.fillStyle = 'rgba(4,14,30,0.78)';
+      ctx.fillRect(bx, by, tw, 14);
+      ctx.strokeStyle = 'rgba(' + accentRgb() + ',0.65)'; ctx.lineWidth = 1;
+      ctx.strokeRect(bx, by, tw, 14);
+      ctx.fillStyle = accentCss();
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(label, bx + tw / 2, by + 7.5);
+    }
+  }
+  /* gold crescent coins */
+  for (const gm of gemList){
+    const sy = w2s(gm.wy);
+    if (sy < -30 || sy > H + 30) continue;
+    const r = gm.r * (1 + Math.sin(now * 5 + gm.ph) * 0.10);
+    ctx.save();
+    ctx.translate(gm.x, sy);
+    ctx.shadowColor = 'rgba(255,190,60,0.95)'; ctx.shadowBlur = 15;
+    const cg = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.15, 0, 0, r);
+    cg.addColorStop(0, '#ffe9a8'); cg.addColorStop(0.6, '#ffc440'); cg.addColorStop(1, '#d98a12');
+    ctx.fillStyle = cg;
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.283); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(146,90,8,0.8)'; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.arc(0, 0, r - 1, 0, 6.283); ctx.stroke();
+    /* crescent cut */
+    ctx.fillStyle = '#8a5a10';
+    ctx.beginPath(); ctx.arc(r * 0.16, -r * 0.10, r * 0.52, 0, 6.283); ctx.fill();
+    ctx.fillStyle = '#ffd76a';
+    ctx.beginPath(); ctx.arc(r * 0.36, -r * 0.24, r * 0.44, 0, 6.283); ctx.fill();
+    /* sparkle */
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    const sx = Math.cos(now * 2.4 + gm.ph) * r * 0.45, sy2 = Math.sin(now * 2.4 + gm.ph) * r * 0.45;
+    ctx.beginPath(); ctx.arc(sx, sy2, 1.6, 0, 6.283); ctx.fill();
+    ctx.restore();
+  }
+  /* flame trail */
+  if (state === 'play' || state === 'dying'){
+    for (let i = trail.length - 1; i >= 1; i--){
+      const a = trail[i], b = trail[i - 1];
+      const f = 1 - i / trail.length;
+      ctx.strokeStyle = 'rgba(255,140,60,' + (f * 0.45).toFixed(3) + ')';
+      ctx.lineWidth = 1 + f * 6;
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(a.x, w2s(a.wy)); ctx.lineTo(b.x, w2s(b.wy)); ctx.stroke();
+    }
+  }
+  /* the rocket */
+  if (state !== 'dying' && state !== 'over') drawRocket(now);
+  /* particles */
+  for (const q of parts){
+    ctx.globalAlpha = Math.max(0, 1 - q.t / q.life);
+    ctx.fillStyle = q.color;
+    if (q.star){ /* 4-point star sparkle */
+      const r = q.r * 2.1;
+      ctx.beginPath();
+      ctx.moveTo(q.x, q.y - r); ctx.lineTo(q.x + q.r * 0.5, q.y - q.r * 0.5); ctx.lineTo(q.x + r, q.y); ctx.lineTo(q.x + q.r * 0.5, q.y + q.r * 0.5);
+      ctx.lineTo(q.x, q.y + r); ctx.lineTo(q.x - q.r * 0.5, q.y + q.r * 0.5); ctx.lineTo(q.x - r, q.y); ctx.lineTo(q.x - q.r * 0.5, q.y - q.r * 0.5);
+      ctx.closePath(); ctx.fill();
+    } else {
+      ctx.beginPath(); ctx.arc(q.x, q.y, q.r, 0, 6.283); ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+  /* floating pops */
+  ctx.textAlign = 'center';
+  for (const q of pops){
+    ctx.globalAlpha = Math.max(0, 1 - q.t / q.life);
+    ctx.font = '700 19px ui-monospace, monospace';
+    ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(2,6,16,0.9)';
+    ctx.strokeText(q.text, q.x, q.y);
+    ctx.fillStyle = q.color;
+    ctx.fillText(q.text, q.x, q.y);
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+  /* crash flash */
+  if (flash > 0){
+    ctx.fillStyle = 'rgba(255,90,40,' + (flash * 0.26).toFixed(3) + ')';
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+function drawRocket(now){
+  const r = orb.r * (1 + Math.sin(now * 4.5) * 0.02);
+  const tilt = clamp((orb.tx - orb.x) * 0.0035, -0.32, 0.32);
+  ctx.save();
+  ctx.translate(orb.x, orbY);
+  /* warm engine halo */
+  const halo = ctx.createRadialGradient(0, r * 0.6, 2, 0, r * 0.6, r * 3.1);
+  halo.addColorStop(0, 'rgba(255,150,60,0.34)');
+  halo.addColorStop(0.5, 'rgba(255,110,40,0.10)');
+  halo.addColorStop(1, 'rgba(255,110,40,0)');
+  ctx.fillStyle = halo;
+  ctx.fillRect(-r * 3.1, -r * 3.1, r * 6.2, r * 6.2);
+  ctx.rotate(tilt);
+  /* flame (flickers with speed) */
+  const fl = (0.75 + Math.sin(now * 31) * 0.16 + Math.random() * 0.10) * (0.8 + speed / 1000 * 0.55);
+  ctx.save();
+  ctx.shadowColor = 'rgba(255,130,40,0.95)'; ctx.shadowBlur = 18;
+  const fg = ctx.createLinearGradient(0, r * 0.95, 0, r * (0.95 + 1.5 * fl));
+  fg.addColorStop(0, 'rgba(255,240,190,0.98)');
+  fg.addColorStop(0.35, 'rgba(255,170,60,0.95)');
+  fg.addColorStop(1, 'rgba(255,80,20,0)');
+  ctx.fillStyle = fg;
+  ctx.beginPath();
+  ctx.moveTo(-r * 0.30, r * 0.92);
+  ctx.quadraticCurveTo(0, r * (0.95 + 1.6 * fl), r * 0.30, r * 0.92);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+  /* fins */
+  ctx.fillStyle = '#e85d1f';
+  ctx.beginPath();
+  ctx.moveTo(-r * 0.34, r * 0.35); ctx.lineTo(-r * 0.78, r * 1.02); ctx.lineTo(-r * 0.30, r * 1.02); ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(r * 0.34, r * 0.35); ctx.lineTo(r * 0.78, r * 1.02); ctx.lineTo(r * 0.30, r * 1.02); ctx.closePath(); ctx.fill();
+  /* hull */
+  const hg = ctx.createLinearGradient(-r * 0.4, 0, r * 0.4, 0);
+  hg.addColorStop(0, '#8fa5bd'); hg.addColorStop(0.35, '#f4f8fc'); hg.addColorStop(0.65, '#c7d5e4'); hg.addColorStop(1, '#64788f');
+  ctx.fillStyle = hg;
+  ctx.beginPath();
+  ctx.moveTo(0, -r * 1.30);
+  ctx.quadraticCurveTo(r * 0.42, -r * 0.55, r * 0.40, r * 0.30);
+  ctx.lineTo(r * 0.40, r * 0.98);
+  ctx.lineTo(-r * 0.40, r * 0.98);
+  ctx.lineTo(-r * 0.40, r * 0.30);
+  ctx.quadraticCurveTo(-r * 0.42, -r * 0.55, 0, -r * 1.30);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(30,50,80,0.55)'; ctx.lineWidth = 1.2; ctx.stroke();
+  /* nose + tail bands */
+  ctx.fillStyle = '#ff7a3c';
+  ctx.beginPath();
+  ctx.moveTo(0, -r * 1.30);
+  ctx.quadraticCurveTo(r * 0.20, -r * 0.92, r * 0.30, -r * 0.66);
+  ctx.lineTo(-r * 0.30, -r * 0.66);
+  ctx.quadraticCurveTo(-r * 0.20, -r * 0.92, 0, -r * 1.30);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#31435c';
+  ctx.fillRect(-r * 0.40, r * 0.82, r * 0.80, r * 0.16);
+  /* teal band + LUNC crescent decal */
+  ctx.fillStyle = 'rgba(77,227,255,0.85)';
+  ctx.fillRect(-r * 0.40, r * 0.30, r * 0.80, r * 0.10);
+  ctx.fillStyle = '#ffc440';
+  ctx.beginPath(); ctx.arc(0, r * 0.58, r * 0.155, 0, 6.283); ctx.fill();
+  ctx.fillStyle = '#31435c';
+  ctx.beginPath(); ctx.arc(r * 0.06, r * 0.52, r * 0.125, 0, 6.283); ctx.fill();
+  /* cockpit window */
+  const wg = ctx.createRadialGradient(-r * 0.06, -r * 0.38, r * 0.03, 0, -r * 0.30, r * 0.21);
+  wg.addColorStop(0, '#dff8ff'); wg.addColorStop(0.5, '#4de3ff'); wg.addColorStop(1, '#0d5d80');
+  ctx.fillStyle = wg;
+  ctx.beginPath(); ctx.arc(0, -r * 0.30, r * 0.20, 0, 6.283); ctx.fill();
+  ctx.strokeStyle = '#31435c'; ctx.lineWidth = 1.6; ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.beginPath(); ctx.arc(-r * 0.07, -r * 0.38, r * 0.05, 0, 6.283); ctx.fill();
+  ctx.restore();
+}
+
+/* a row of asteroid rocks filling [x0, x1] across the gate band at sy.
+   The wy seed keeps the jagged pattern stable while scrolling. */
+function drawRockRow(x0, x1, sy, wySeed){
+  if (x1 - x0 < 8) return;
+  const seed = Math.floor(wySeed / 40);
+  const n = Math.max(1, Math.ceil((x1 - x0) / 52));
+  for (let i = 0; i < n; i++){
+    const cx = x0 + (x1 - x0) * (i + 0.5) / n;
+    const r1 = toothRand(seed * 7 + i * 3 + Math.floor(x0));
+    const r2 = toothRand(seed * 13 + i * 5 + Math.floor(x0) * 2);
+    const rad = 17 + r1 * 13;
+    const cy = sy + (r2 - 0.5) * 12;
+    ctx.save();
+    ctx.translate(cx, cy);
+    const rg = ctx.createRadialGradient(-rad * 0.3, -rad * 0.35, rad * 0.2, 0, 0, rad * 1.15);
+    rg.addColorStop(0, '#8b93a3'); rg.addColorStop(0.55, '#59616f'); rg.addColorStop(1, '#2c313c');
+    ctx.fillStyle = rg;
+    ctx.beginPath();
+    const pts = 8;
+    for (let k = 0; k < pts; k++){
+      const a = (k / pts) * 6.283;
+      const rr = rad * (0.74 + toothRand(seed * 29 + i * 37 + k * 7) * 0.42);
+      const px = Math.cos(a) * rr, py = Math.sin(a) * rr * 0.88;
+      if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(200,220,250,0.28)'; ctx.lineWidth = 1.1; ctx.stroke();
+    /* craters */
+    ctx.fillStyle = 'rgba(10,12,18,0.42)';
+    ctx.beginPath(); ctx.arc(-rad * 0.25 + r1 * rad * 0.3, -rad * 0.1, rad * 0.20, 0, 6.283); ctx.fill();
+    ctx.beginPath(); ctx.arc(rad * 0.28, rad * 0.22, rad * 0.14, 0, 6.283); ctx.fill();
+    ctx.strokeStyle = 'rgba(220,235,255,0.30)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(-rad * 0.25 + r1 * rad * 0.3, -rad * 0.13, rad * 0.20, Math.PI, Math.PI * 1.7); ctx.stroke();
+    ctx.restore();
+  }
+  /* drifting pebbles just off the band */
+  for (let i = 0; i < 2; i++){
+    const r = toothRand(seed * 43 + i * 19 + Math.floor(x0));
+    const px = x0 + r * (x1 - x0), py = sy + (i === 0 ? -1 : 1) * (GATE_H / 2 + 8 + r * 10);
+    ctx.fillStyle = 'rgba(110,120,140,0.8)';
+    ctx.beginPath(); ctx.arc(px, py, 2 + r * 2.5, 0, 6.283); ctx.fill();
+  }
+}
+
+/* ================= input: drag + keys ================= */
+let dragging = false;
+function ptrX(e){ const r = cv.getBoundingClientRect(); return (e.clientX - r.left); }
+function steerTo(x){ orb.tx = clamp(x, wallL() + orb.r * 0.8, W - wallL() - orb.r * 0.8); }
+cv.addEventListener('pointerdown', e => { ensureAudio(); dragging = true; steerTo(ptrX(e)); cv.setPointerCapture(e.pointerId); });
+cv.addEventListener('pointermove', e => { if (dragging) steerTo(ptrX(e)); });
+addEventListener('pointerup', () => { dragging = false; });
+addEventListener('keydown', e => {
+  if (e.code === 'ArrowLeft') steerTo(orb.tx - 56);
+  if (e.code === 'ArrowRight') steerTo(orb.tx + 56);
+  if (e.code === 'Space' && state !== 'play'){ e.preventDefault(); startGame(); }
+  if (e.code === 'KeyM') $('muteBtn').onclick();
+});
+
+/* ================= leaderboard (house pattern) ================= */
+const API_URL = 'https://frg-fight-club.vercel.app/api/luna-games?game=luncrush';
+function prefillName(){
+  const inp = $('nameInput');
+  const tg = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe;
+  const tname = tg && tg.user && tg.user.first_name;
+  inp.value = (localStorage.getItem('luncMoonRushName') || tname || 'Guest').slice(0, 16);
+}
+let boardData = null, boardTab = 'all', boardErr = false;
+async function loadBoard(){
+  $('boardList').innerHTML = '<p style="text-align:center; opacity:.85">' + T('loading') + '</p>';
+  boardErr = false;
+  try {
+    const r = await fetch(API_URL);
+    if (!r.ok) throw new Error('board ' + r.status);
+    boardData = await r.json();
+  } catch (e) { boardData = null; boardErr = true; }
+  renderBoard();
+}
+function renderBoard(){
+  $('tabAll').className = 'play' + (boardTab === 'all' ? '' : ' alt');
+  $('tabAll').style.cssText = 'font-size:13px; padding:8px 18px';
+  $('tabWeek').className = 'play' + (boardTab === 'week' ? '' : ' alt');
+  $('tabWeek').style.cssText = 'font-size:13px; padding:8px 18px';
+  if (boardErr || !boardData){ $('boardList').innerHTML = '<p style="text-align:center; opacity:.85">' + T('boardOff') + '</p>'; return; }
+  const rows = boardData[boardTab] || [];
+  if (!rows.length){ $('boardList').innerHTML = '<p style="text-align:center; opacity:.85">' + T('noScores') + '</p>'; return; }
+  $('boardList').innerHTML = rows.map((r, i) =>
+    '<div class="row"><span class="rk">' + (i + 1) + '.</span><span class="nm"></span><span class="sc">' + r.score + '</span></div>'
+  ).join('');
+  [...$('boardList').querySelectorAll('.row .nm')].forEach((el, i) => { el.textContent = rows[i].name; });
+}
+function openBoard(){
+  $('boardScreen').hidden = false;
+  boardTab = 'all';
+  loadBoard();
+}
+$('tabAll').onclick = () => { boardTab = 'all'; renderBoard(); };
+$('tabWeek').onclick = () => { boardTab = 'week'; renderBoard(); };
+$('boardClose').onclick = () => { $('boardScreen').hidden = true; };
+$('boardBtn').onclick = openBoard;
+$('startBoardBtn').onclick = openBoard;
+$('overBoardBtn').onclick = openBoard;
+$('submitBtn').onclick = async () => {
+  const btn = $('submitBtn');
+  btn.disabled = true;
+  const name = ($('nameInput').value.trim() || 'Guest').slice(0, 16);
+  localStorage.setItem('luncMoonRushName', name);
+  $('submitStatus').textContent = T('saving');
+  const initData = (window.Telegram && window.Telegram.WebApp && window.Telegram.initData) || '';
+  try {
+    const r = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, name, score, seconds: Math.max(1, Math.round(elapsed)) }),
+    });
+    const d = await r.json();
+    if (d && d.ok){
+      $('submitStatus').textContent = d.rank ? ('🏆 #' + d.rank + ' — ' + T('saved')) : T('saved');
+      boardData = null;
+    } else {
+      $('submitStatus').textContent = T('couldNot');
+      btn.disabled = false;
+    }
+  } catch (e) {
+    $('submitStatus').textContent = T('couldNot');
+    btn.disabled = false;
+  }
+};
+$('startBtn').onclick = startGame;
+$('againBtn').onclick = () => { $('overScreen').hidden = true; startGame(); };
+
+/* ================= main loop ================= */
+let lastT = 0;
+function loop(ts){
+  requestAnimationFrame(loop);
+  const now = ts / 1000;
+  const dt = Math.min(0.033, lastT ? now - lastT : 0.016);
+  lastT = now;
+  step(dt);
+  draw();
+}
+
+/* ================= test API (house QA hooks) ================= */
+window.LMR = {
+  start: startGame,
+  step, draw,
+  state: () => state,
+  score: () => score,
+  heightM,
+  gems: () => gems,
+  elapsed: () => elapsed,
+  scrollY: () => scrollY,
+  orbX: () => orb.x,
+  setOrbX(x){ orb.x = x; orb.tx = x; },
+  steerTo,
+  gates: () => gates.map(g => ({ wy: g.wy, screenY: w2s(g.wy), gapCx: g.gapCx, gapHalf: g.gapHalf, passed: g.passed })),
+  gemList: () => gemList.map(g => ({ wy: g.wy, screenY: w2s(g.wy), x: g.x })),
+  setAmbient(on){ ambientOn = !!on; },
+  clearField(){ gates = []; gemList = []; },
+  spawnGateAt(offsetPx){ spawnGate(scrollY + offsetPx); return gates[gates.length - 1]; },
+  spawnGemAt(x, offsetPx){ spawnGem(scrollY + offsetPx, x); return gemList[gemList.length - 1]; },
+  orbY: () => orbY,
+  wallL,
+  level: levelNum,
+  zone: zoneIdx,
+  heat,
+  curSpeed,
+  gateGap,
+  themeName: () => { const t = theme(); return t ? t.acc : null; },
+  setScroll(px){ scrollY = Math.max(0, px); },
+  setElapsed(s){ elapsed = Math.max(0, s); },
+};
+
+resize();
+applyLang();
+syncHud();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
