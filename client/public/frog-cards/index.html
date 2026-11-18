@@ -566,14 +566,17 @@ async function fetchOwned(addr){
   if (anyOk) finishOwned(); else wStat(T('lookupFail'));
 }
 async function fetchCollection(contract, add){
-  let ids = [], start = null;
-  for (let page = 0; page < 4; page++){
-    const q = { tokens: { owner: walletAddr, limit: 100 } };
+  let ids = [], seen = new Set(), start = null;
+  /* the LCD caps a page at 50 even when a bigger limit is asked — page
+     with start_after until a short page comes back so whale wallets
+     list every token */
+  for (let page = 0; page < 20; page++){
+    const q = { tokens: { owner: walletAddr, limit: 50 } };
     if (start) q.tokens.start_after = start;
     const res = await lcdQuery(contract, q);
     const batch = (res && res.tokens) || [];
-    ids = ids.concat(batch);
-    if (batch.length < 100) break;
+    for (const id of batch){ if (!seen.has(id)){ seen.add(id); ids.push(id); } }
+    if (batch.length < 50) break;
     start = batch[batch.length - 1];
   }
   for (let i = 0; i < ids.length; i += 8){
