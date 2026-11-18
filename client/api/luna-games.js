@@ -84,6 +84,11 @@ const GAMES = {
      A strong multi-level run lands ~30–120k; rails sized generously so a
      real run is never rejected. */
   afl2: { prefix: 'afl2', maxScore: 500000, minSec: 10, maxSec: 3600, rateMul: 300, rateBase: 2000 },
+  /* LUNC Slugger (client/public/lunc-slugger/): 3D home-run challenge —
+     score = hits 150 + HR 400 + walk 25 + level bonus 200+50xlevel.
+     A long multi-level run lands ~5–40k; rails sized generously so a
+     real run is never rejected. */
+  slugger: { prefix: 'slug', maxScore: 200000, minSec: 10, maxSec: 3600, rateMul: 150, rateBase: 1500 },
   tower: { prefix: 'twr', maxScore: 100000, minSec: 10, maxSec: 3600, rateMul: 90, rateBase: 2000 },
   snake: { prefix: 'snake', maxScore: 20000, minSec: 5, maxSec: 3600, rateMul: 25, rateBase: 300 },
   flap: { prefix: 'flap', maxScore: 30000, minSec: 3, maxSec: 3600, rateMul: 16, rateBase: 150 },

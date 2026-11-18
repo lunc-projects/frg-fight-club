@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>LUNC Slugger — 3D Home Run Challenge</title>
+<meta name="description" content="LUNC Slugger: a 3D night-stadium home run challenge. Time your swing, beat the pitcher's tasks, climb the levels. By LUNC Dev Studio.">
+<meta property="og:title" content="LUNC Slugger">
+<meta property="og:description" content="3D home run challenge under the lights. Time the pitch, crush it over the LUNC wall.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://frg-fight-club.vercel.app/lunc-slugger/cover.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://frg-fight-club.vercel.app/lunc-slugger/cover.jpg">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#070b1d">
+<style>
+:root{
+  --ink:#eef3ff; --dim:#9fb0d8; --teal:#35c4b5; --gold:#ffc63f; --red:#ff4757;
+  --card:rgba(10,16,38,.88); --card2:rgba(16,24,54,.92); --line:rgba(120,150,255,.25);
+  --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px);
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overflow:hidden;background:#05070f}
+body{font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;color:var(--ink);
+  height:100dvh;width:100vw;position:fixed;inset:0;touch-action:none;user-select:none;-webkit-user-select:none}
+#gl{position:fixed;inset:0}
+#gl canvas{display:block}
+/* ---------- HUD ---------- */
+#hud{position:fixed;inset:0;pointer-events:none;display:none;z-index:5}
+#hudTop{position:absolute;top:calc(6px + var(--sat));left:8px;right:8px;display:flex;gap:6px;align-items:stretch}
+.chip{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:6px 10px;min-width:0}
+.chip .k{font-size:9px;letter-spacing:.14em;color:var(--dim);font-weight:700}
+.chip .v{font-size:16px;font-weight:800;line-height:1.1;white-space:nowrap}
+#hudTask{flex:1;text-align:center}
+#hudTask .v{font-size:13px;white-space:normal}
+#taskBar{height:5px;background:rgba(255,255,255,.14);border-radius:3px;margin-top:4px;overflow:hidden}
+#taskFill{height:100%;width:0%;background:linear-gradient(90deg,var(--teal),var(--gold));border-radius:3px;transition:width .3s}
+.iconBtn{pointer-events:auto;background:var(--card);border:1px solid var(--line);color:var(--ink);
+  border-radius:12px;width:44px;font-size:19px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+#hudMid{position:absolute;top:calc(74px + var(--sat));left:0;right:0;display:flex;justify-content:center;gap:6px}
+.pill{background:rgba(8,12,28,.78);border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:12px;font-weight:700}
+.pill b{color:var(--gold)}
+.dotB,.dotS{display:inline-block;width:9px;height:9px;border-radius:50%;background:#2a3352;margin-left:3px;vertical-align:1px}
+.dotB.on{background:#39d353}.dotS.on{background:#ffcf4d}
+#callout{position:absolute;top:34%;left:0;right:0;text-align:center;font-weight:900;font-size:52px;letter-spacing:.02em;
+  color:#fff;text-shadow:0 0 22px rgba(255,198,63,.65),0 4px 0 rgba(0,0,0,.35);opacity:0;transform:scale(.7);pointer-events:none}
+#callout.pop{animation:pop 1.15s ease-out forwards}
+#callout.small{font-size:34px}
+@keyframes pop{0%{opacity:0;transform:scale(.6)}14%{opacity:1;transform:scale(1.12)}26%{transform:scale(1)}78%{opacity:1}100%{opacity:0;transform:scale(1.04)}}
+#pitchTag{position:absolute;top:calc(112px + var(--sat));left:0;right:0;text-align:center;font-size:12px;font-weight:800;letter-spacing:.22em;color:#ffd76a;opacity:0;transition:opacity .2s}
+#swingBtn{position:fixed;right:16px;bottom:calc(20px + var(--sab));width:98px;height:98px;border-radius:50%;z-index:6;
+  border:3px solid #ffe9a8;background:radial-gradient(circle at 32% 28%,#ffe082,#ffb300 55%,#e07b00);
+  color:#3a2400;font-weight:900;font-size:19px;letter-spacing:.03em;display:none;cursor:pointer;
+  box-shadow:0 8px 26px rgba(0,0,0,.55),0 0 0 6px rgba(255,179,0,.18);pointer-events:auto}
+#swingBtn:active{transform:scale(.93)}
+#swingBtn small{display:block;font-size:10px;font-weight:800;opacity:.75;letter-spacing:.12em}
+#aimHint{position:fixed;left:14px;bottom:calc(24px + var(--sab));z-index:5;max-width:46vw;font-size:12px;color:var(--dim);
+  background:rgba(8,12,28,.66);padding:7px 10px;border-radius:10px;display:none;line-height:1.45}
+/* ---------- reticle ---------- */
+#reticle{position:fixed;width:88px;height:88px;margin:-44px 0 0 -44px;z-index:4;display:none;pointer-events:none;filter:drop-shadow(0 0 6px rgba(255,40,60,.8))}
+#reticle i{position:absolute;width:24px;height:24px;border:5px solid var(--red)}
+#reticle i:nth-child(1){top:0;left:0;border-right:none;border-bottom:none;border-radius:8px 0 0 0}
+#reticle i:nth-child(2){top:0;right:0;border-left:none;border-bottom:none;border-radius:0 8px 0 0}
+#reticle i:nth-child(3){bottom:0;left:0;border-right:none;border-top:none;border-radius:0 0 0 8px}
+#reticle i:nth-child(4){bottom:0;right:0;border-left:none;border-top:none;border-radius:0 0 8px 0}
+#reticle .dotc{position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px;background:var(--red);border-radius:50%}
+/* ---------- screens ---------- */
+.screen{position:fixed;inset:0;z-index:10;display:none;flex-direction:column;align-items:center;justify-content:center;
+  padding:calc(14px + var(--sat)) 16px calc(16px + var(--sab));overflow-y:auto;
+  background:linear-gradient(180deg,rgba(4,6,16,.42),rgba(4,6,16,.78) 62%,rgba(4,6,16,.92))}
+.screen.on{display:flex}
+.logoBall{font-size:52px;filter:drop-shadow(0 6px 14px rgba(0,0,0,.6))}
+h1.title{font-size:44px;font-weight:900;letter-spacing:.01em;line-height:.98;text-align:center;
+  background:linear-gradient(180deg,#fff,#ffd76a 58%,#ff9d2e);-webkit-background-clip:text;background-clip:text;color:transparent;
+  text-shadow:0 4px 22px rgba(0,0,0,.25);margin-top:2px}
+.sub{color:var(--dim);font-size:13px;font-weight:600;letter-spacing:.24em;margin-top:6px;text-align:center}
+.byline{margin-top:8px;font-size:11px;color:#7fd8cd;letter-spacing:.18em;font-weight:700}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;width:min(430px,94vw);margin-top:16px;backdrop-filter:blur(6px)}
+.card h3{font-size:12px;letter-spacing:.18em;color:var(--dim);margin-bottom:10px}
+.btn{display:block;width:100%;border:none;border-radius:14px;padding:15px 18px;font-size:17px;font-weight:800;cursor:pointer;
+  margin-top:10px;letter-spacing:.02em;color:#06121f;background:linear-gradient(180deg,#5eead4,#14b8a6)}
+.btn:active{transform:scale(.98)}
+.btn.gold{background:linear-gradient(180deg,#ffe082,#ffb300);color:#3a2400}
+.btn.ghost{background:rgba(255,255,255,.07);color:var(--ink);border:1px solid var(--line)}
+.btnRow{display:flex;gap:10px}.btnRow .btn{margin-top:10px}
+#langPick{width:100%;font-size:17px;font-weight:700;padding:13px 14px;border-radius:14px;border:1px solid var(--line);
+  background:var(--card2);color:var(--ink);margin-top:16px;width:min(430px,94vw)}
+label.f{display:block;font-size:11px;letter-spacing:.16em;color:var(--dim);font-weight:700;margin:12px 0 6px}
+input.txt{width:100%;font-size:17px;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.06);color:var(--ink);outline:none}
+input.txt:focus{border-color:var(--teal)}
+.swatches{display:flex;gap:9px;flex-wrap:wrap;margin-top:2px}
+.sw{width:42px;height:42px;border-radius:50%;border:3px solid rgba(255,255,255,.22);cursor:pointer;position:relative}
+.sw.on{border-color:#fff;box-shadow:0 0 0 3px var(--teal)}
+.statGrid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:4px}
+.stat{background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.stat .k{font-size:10px;letter-spacing:.14em;color:var(--dim);font-weight:700}
+.stat .v{font-size:22px;font-weight:900}
+.whoLine{display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,.05);
+  border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-top:12px;width:min(430px,94vw)}
+.whoLine .nm{font-weight:800;font-size:16px}.whoLine .tm{color:var(--dim);font-size:12px;font-weight:700;letter-spacing:.08em}
+.tabs{display:flex;gap:8px;margin-bottom:10px}
+.tab{flex:1;padding:10px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.05);color:var(--dim);font-weight:800;cursor:pointer;font-size:13px;letter-spacing:.06em}
+.tab.on{background:var(--teal);color:#06121f;border-color:transparent}
+.lbRow{display:flex;justify-content:space-between;padding:9px 4px;border-bottom:1px solid rgba(255,255,255,.07);font-size:15px}
+.lbRow .who{font-weight:700}.lbRow .sc{font-weight:900;color:var(--gold)}
+.bigScore{font-size:56px;font-weight:900;text-align:center;color:var(--gold);line-height:1}
+.center{text-align:center}
+.note{font-size:12px;color:var(--dim);text-align:center;margin-top:10px;line-height:1.5}
+.taskBig{font-size:21px;font-weight:800;text-align:center;line-height:1.35}
+#toast{position:fixed;left:50%;bottom:calc(128px + var(--sab));transform:translateX(-50%) translateY(20px);z-index:30;
+  background:var(--card2);border:1px solid var(--teal);color:var(--ink);padding:11px 18px;border-radius:12px;font-weight:700;
+  font-size:14px;opacity:0;pointer-events:none;transition:.3s;max-width:88vw;text-align:center}
+#toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+.kbdHint{font-size:11px;color:var(--dim);text-align:center;margin-top:10px}
+</style>
+</head>
+<body>
+<div id="gl"></div>
+
+<!-- in-game HUD -->
+<div id="hud">
+  <div id="hudTop">
+    <div class="chip"><div class="k" data-i="level">LEVEL</div><div class="v" id="hLevel">1</div></div>
+    <div class="chip" id="hudTask"><div class="k" data-i="task">TASK</div><div class="v" id="hTask">—</div><div id="taskBar"><div id="taskFill"></div></div></div>
+    <div class="chip"><div class="k" data-i="score">SCORE</div><div class="v" id="hScore">0</div></div>
+    <button class="iconBtn" id="pauseBtn" aria-label="pause">⏸</button>
+  </div>
+  <div id="hudMid">
+    <span class="pill"><span data-i="pitches">PITCHES</span> <b id="hPitches">10</b></span>
+    <span class="pill">B <span id="cntB"></span></span>
+    <span class="pill">S <span id="cntS"></span></span>
+  </div>
+  <div id="pitchTag"></div>
+  <div id="callout"></div>
+</div>
+<div id="reticle"><i></i><i></i><i></i><i></i><span class="dotc"></span></div>
+<div id="aimHint" data-i="howShort">Drag to aim the target. Tap SWING (or tap the field) as the ball reaches the plate!</div>
+<button id="swingBtn"><span data-i="swing">SWING</span><small>⚾</small></button>
+
+<!-- MENU -->
+<div class="screen on" id="scr-menu">
+  <div class="logoBall">⚾</div>
+  <h1 class="title">LUNC<br>SLUGGER</h1>
+  <div class="sub" data-i="tagline">3D HOME RUN CHALLENGE</div>
+  <div class="byline">LUNC · LUNA CLASSIC · LUNC DEV STUDIO</div>
+  <select id="langPick" aria-label="language"></select>
+  <div class="whoLine"><div><div class="nm" id="menuName">PLAYER</div><div class="tm" id="menuTeam">LUNC CLUB</div></div><div style="font-size:24px">🧢</div></div>
+  <div class="card" style="margin-top:12px">
+    <button class="btn gold" id="btnPlay">▶ <span data-i="play">PLAY</span></button>
+    <div class="btnRow">
+      <button class="btn ghost" id="btnProfile">👤 <span data-i="profile">PROFILE</span></button>
+      <button class="btn ghost" id="btnBoard">🏆 <span data-i="leaderboard">BOARD</span></button>
+    </div>
+    <button class="btn ghost" id="btnSound">🔊 <span data-i="sound">SOUND</span></button>
+    <p class="note" data-i="howBody">The pitcher throws — drag the red target onto the ball and swing as it crosses the plate. Finish each level's task before your pitches run out. Hits score runs!</p>
+  </div>
+</div>
+
+<!-- PROFILE -->
+<div class="screen" id="scr-profile">
+  <h1 class="title" style="font-size:30px" data-i="yourProfile">YOUR PLAYER PROFILE</h1>
+  <div class="card">
+    <label class="f" data-i="playerName">PLAYER NAME</label>
+    <input class="txt" id="inName" maxlength="14" autocomplete="off">
+    <label class="f" data-i="teamName">TEAM NAME</label>
+    <input class="txt" id="inTeam" maxlength="18" autocomplete="off">
+    <label class="f" data-i="colours">UNIFORM COLOUR</label>
+    <div class="swatches" id="swatches"></div>
+    <h3 style="margin-top:18px" data-i="stats">CAREER STATS</h3>
+    <div class="statGrid">
+      <div class="stat"><div class="k" data-i="ballsFaced">BALLS FACED</div><div class="v" id="stBalls">0</div></div>
+      <div class="stat"><div class="k" data-i="hits">HITS</div><div class="v" id="stHits">0</div></div>
+      <div class="stat"><div class="k" data-i="homeRuns">HOME RUNS</div><div class="v" id="stHrs">0</div></div>
+      <div class="stat"><div class="k" data-i="strikes">STRIKES</div><div class="v" id="stStrikes">0</div></div>
+      <div class="stat" style="grid-column:1/3"><div class="k" data-i="bestLevel">BEST LEVEL</div><div class="v" id="stBest">—</div></div>
+    </div>
+    <button class="btn" id="btnProfBack">✓ <span data-i="done">DONE</span></button>
+  </div>
+</div>
+
+<!-- LEADERBOARD -->
+<div class="screen" id="scr-board">
+  <h1 class="title" style="font-size:30px" data-i="leaderboard">LEADERBOARD</h1>
+  <div class="card">
+    <div class="tabs">
+      <button class="tab on" id="lbAllBtn" data-i="allTime">ALL TIME</button>
+      <button class="tab" id="lbWeekBtn" data-i="thisWeek">THIS WEEK</button>
+    </div>
+    <div id="lbBody"><p class="note" data-i="lbLoading">Loading the board…</p></div>
+    <button class="btn ghost" id="btnBoardBack">← <span data-i="back">BACK</span></button>
+  </div>
+</div>
+
+<!-- LEVEL INTRO -->
+<div class="screen" id="scr-level">
+  <div class="sub" data-i="level">LEVEL</div>
+  <h1 class="title" id="lvNum" style="font-size:64px">1</h1>
+  <div class="card">
+    <div class="k center" style="font-size:11px;letter-spacing:.18em;color:var(--dim);font-weight:700" data-i="task">TASK</div>
+    <div class="taskBig" id="lvTask">Hit 3 balls</div>
+    <p class="note"><span data-i="pitches">PITCHES</span>: <b id="lvPitches" style="color:var(--gold)">10</b></p>
+    <button class="btn gold" id="btnStepUp">⚾ <span data-i="stepUp">STEP UP TO THE PLATE</span></button>
+    <button class="btn ghost" id="btnLvMenu">← <span data-i="menu">MENU</span></button>
+  </div>
+</div>
+
+<!-- GAME OVER -->
+<div class="screen" id="scr-over">
+  <h1 class="title" style="font-size:34px" data-i="gameOver">GAME OVER</h1>
+  <div class="card">
+    <div class="k center" style="font-size:11px;letter-spacing:.18em;color:var(--dim);font-weight:700" data-i="finalScore">FINAL SCORE</div>
+    <div class="bigScore" id="ovScore">0</div>
+    <div class="statGrid" style="margin-top:12px">
+      <div class="stat"><div class="k" data-i="levelReached">LEVEL REACHED</div><div class="v" id="ovLevel">1</div></div>
+      <div class="stat"><div class="k" data-i="homeRuns">HOME RUNS</div><div class="v" id="ovHrs">0</div></div>
+      <div class="stat"><div class="k" data-i="hits">HITS</div><div class="v" id="ovHits">0</div></div>
+      <div class="stat"><div class="k" data-i="bestLevel">BEST LEVEL</div><div class="v" id="ovBest">1</div></div>
+    </div>
+    <p class="note" id="ovSaved"></p>
+    <button class="btn gold" id="btnAgain">↻ <span data-i="playAgain">PLAY AGAIN</span></button>
+    <button class="btn ghost" id="btnOverMenu">← <span data-i="menu">MENU</span></button>
+  </div>
+</div>
+
+<!-- PAUSE -->
+<div class="screen" id="scr-pause">
+  <h1 class="title" style="font-size:34px" data-i="paused">PAUSED</h1>
+  <div class="card">
+    <button class="btn gold" id="btnResume">▶ <span data-i="resume">RESUME</span></button>
+    <button class="btn ghost" id="btnQuit">✕ <span data-i="quitRun">QUIT RUN</span></button>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="three.min.js"></script>
+<script>
+"use strict";
+/* ================= i18n ================= */
+const LANGS=[["en","English"],["es","Español"],["pt","Português"],["fr","Français"],["de","Deutsch"],["it","Italiano"],["nl","Nederlands"],["ru","Русский"],["uk","Українська"],["tr","Türkçe"],["ar","العربية"],["hi","हिन्दी"],["id","Bahasa Indonesia"],["vi","Tiếng Việt"],["th","ไทย"],["ko","한국어"],["ja","日本語"],["zh","简体中文"]];
+const I18N={
+en:{tagline:"3D HOME RUN CHALLENGE",play:"PLAY",profile:"PROFILE",leaderboard:"LEADERBOARD",sound:"SOUND",yourProfile:"YOUR PLAYER PROFILE",playerName:"PLAYER NAME",teamName:"TEAM NAME",colours:"UNIFORM COLOUR",stats:"CAREER STATS",ballsFaced:"BALLS FACED",hits:"HITS",homeRuns:"HOME RUNS",strikes:"STRIKES",bestLevel:"BEST LEVEL",done:"DONE",back:"BACK",allTime:"ALL TIME",thisWeek:"THIS WEEK",lbLoading:"Loading the board…",noScores:"No scores yet — be the first slugger.",boardFail:"Leaderboard unreachable — your score is kept on this device.",level:"LEVEL",task:"TASK",score:"SCORE",pitches:"PITCHES",swing:"SWING",taskHits:"Hit {n} balls",taskRuns:"Score {n} runs",taskHrs:"Hit {n} home runs",taskNoK:"No strikeouts allowed!",stepUp:"STEP UP TO THE PLATE",menu:"MENU",howBody:"The pitcher throws — drag the red target onto the ball and swing as it crosses the plate. Finish each level's task before your pitches run out. Hits score runs!",howShort:"Drag to aim the target. Tap SWING (or tap the field) as the ball reaches the plate!",hit:"HIT!",homeRun:"HOME RUN!",foul:"FOUL",strike:"STRIKE",ball:"BALL",walk:"WALK",strikeout:"STRIKEOUT!",levelComplete:"LEVEL COMPLETE!",gameOver:"GAME OVER",finalScore:"FINAL SCORE",levelReached:"LEVEL REACHED",playAgain:"PLAY AGAIN",paused:"PAUSED",resume:"RESUME",quitRun:"QUIT RUN",scoreSaved:"Score saved to the leaderboard ✓",fastball:"FASTBALL",curveball:"CURVEBALL",changeup:"CHANGEUP",great:"GREAT CONTACT!"},
+es:{tagline:"DESAFÍO 3D DE JONRONES",play:"JUGAR",profile:"PERFIL",leaderboard:"CLASIFICACIÓN",sound:"SONIDO",yourProfile:"TU PERFIL DE JUGADOR",playerName:"NOMBRE DEL JUGADOR",teamName:"NOMBRE DEL EQUIPO",colours:"COLOR DEL UNIFORME",stats:"ESTADÍSTICAS",ballsFaced:"BOLAS ENFRENTADAS",hits:"HITS",homeRuns:"JONRONES",strikes:"STRIKES",bestLevel:"MEJOR NIVEL",done:"LISTO",back:"ATRÁS",allTime:"HISTÓRICO",thisWeek:"ESTA SEMANA",lbLoading:"Cargando la tabla…",noScores:"Aún no hay puntuaciones — sé el primer bateador.",boardFail:"Clasificación no disponible — tu puntuación se guarda en este dispositivo.",level:"NIVEL",task:"TAREA",score:"PUNTOS",pitches:"LANZAMIENTOS",swing:"¡BATEA!",taskHits:"Conecta {n} bolas",taskRuns:"Anota {n} carreras",taskHrs:"Conecta {n} jonrones",taskNoK:"¡Sin ponches permitidos!",stepUp:"A BATEAR",menu:"MENÚ",howBody:"El lanzador tira — arrastra el objetivo rojo sobre la bola y batea cuando cruce el plato. Completa la tarea de cada nivel antes de quedarte sin lanzamientos. ¡Los hits anotan carreras!",howShort:"Arrastra para apuntar. Toca ¡BATEA! (o toca el campo) cuando la bola llegue al plato.",hit:"¡HIT!",homeRun:"¡JONRÓN!",foul:"FOUL",strike:"STRIKE",ball:"BOLA",walk:"BASE POR BOLAS",strikeout:"¡PONCHE!",levelComplete:"¡NIVEL COMPLETO!",gameOver:"FIN DEL JUEGO",finalScore:"PUNTUACIÓN FINAL",levelReached:"NIVEL ALCANZADO",playAgain:"JUGAR OTRA VEZ",paused:"PAUSA",resume:"CONTINUAR",quitRun:"ABANDONAR",scoreSaved:"Puntuación guardada en la clasificación ✓",fastball:"RECTA",curveball:"CURVA",changeup:"CAMBIO",great:"¡GRAN CONTACTO!"},
+pt:{tagline:"DESAFIO 3D DE HOME RUNS",play:"JOGAR",profile:"PERFIL",leaderboard:"RANKING",sound:"SOM",yourProfile:"SEU PERFIL DE JOGADOR",playerName:"NOME DO JOGADOR",teamName:"NOME DO TIME",colours:"COR DO UNIFORME",stats:"ESTATÍSTICAS",ballsFaced:"BOLAS ENFRENTADAS",hits:"REBATIDAS",homeRuns:"HOME RUNS",strikes:"STRIKES",bestLevel:"MELHOR NÍVEL",done:"PRONTO",back:"VOLTAR",allTime:"GERAL",thisWeek:"ESTA SEMANA",lbLoading:"Carregando o ranking…",noScores:"Sem pontuações ainda — seja o primeiro rebatedor.",boardFail:"Ranking indisponível — sua pontuação fica neste dispositivo.",level:"NÍVEL",task:"TAREFA",score:"PONTOS",pitches:"ARREMESSOS",swing:"REBATA!",taskHits:"Rebata {n} bolas",taskRuns:"Marque {n} corridas",taskHrs:"Rebata {n} home runs",taskNoK:"Sem strikeouts permitidos!",stepUp:"IR REBATER",menu:"MENU",howBody:"O arremessador lança — arraste o alvo vermelho até a bola e rebata quando ela cruzar o home plate. Complete a tarefa de cada nível antes que os arremessos acabem. Rebatidas valem corridas!",howShort:"Arraste para mirar. Toque em REBATA! (ou no campo) quando a bola chegar ao plate.",hit:"REBATIDA!",homeRun:"HOME RUN!",foul:"FOUL",strike:"STRIKE",ball:"BOLA",walk:"WALK",strikeout:"STRIKEOUT!",levelComplete:"NÍVEL COMPLETO!",gameOver:"FIM DE JOGO",finalScore:"PONTUAÇÃO FINAL",levelReached:"NÍVEL ALCANÇADO",playAgain:"JOGAR DE NOVO",paused:"PAUSADO",resume:"CONTINUAR",quitRun:"SAIR",scoreSaved:"Pontuação salva no ranking ✓",fastball:"RETA",curveball:"CURVA",changeup:"LENTA",great:"ÓTIMO CONTATO!"},
+fr:{tagline:"DÉFI HOME RUN 3D",play:"JOUER",profile:"PROFIL",leaderboard:"CLASSEMENT",sound:"SON",yourProfile:"VOTRE PROFIL DE JOUEUR",playerName:"NOM DU JOUEUR",teamName:"NOM DE L'ÉQUIPE",colours:"COULEUR D'UNIFORME",stats:"STATISTIQUES",ballsFaced:"BALLES AFFRONTÉES",hits:"COUPS SÛRS",homeRuns:"HOME RUNS",strikes:"STRIKES",bestLevel:"MEILLEUR NIVEAU",done:"TERMINÉ",back:"RETOUR",allTime:"TOUS TEMPS",thisWeek:"CETTE SEMAINE",lbLoading:"Chargement du classement…",noScores:"Aucun score pour l'instant — soyez le premier frappeur.",boardFail:"Classement inaccessible — votre score reste sur cet appareil.",level:"NIVEAU",task:"MISSION",score:"SCORE",pitches:"LANCERS",swing:"FRAPPE !",taskHits:"Frappez {n} balles",taskRuns:"Marquez {n} points",taskHrs:"Frappez {n} home runs",taskNoK:"Aucun strikeout autorisé !",stepUp:"AU BÂTON",menu:"MENU",howBody:"Le lanceur lance — glissez la cible rouge sur la balle et frappez quand elle traverse le marbre. Terminez la mission de chaque niveau avant d'épuiser vos lancers. Les coups sûrs marquent des points !",howShort:"Glissez pour viser. Touchez FRAPPE ! (ou le terrain) quand la balle arrive au marbre.",hit:"COUP SÛR !",homeRun:"HOME RUN !",foul:"FAUTE",strike:"STRIKE",ball:"BALLE",walk:"BUT SUR BALLES",strikeout:"STRIKEOUT !",levelComplete:"NIVEAU TERMINÉ !",gameOver:"PARTIE TERMINÉE",finalScore:"SCORE FINAL",levelReached:"NIVEAU ATTEINT",playAgain:"REJOUER",paused:"PAUSE",resume:"REPRENDRE",quitRun:"QUITTER",scoreSaved:"Score enregistré au classement ✓",fastball:"RAPIDE",curveball:"COURBE",changeup:"LENTE",great:"SUPER CONTACT !"},
+de:{tagline:"3D HOME-RUN-CHALLENGE",play:"SPIELEN",profile:"PROFIL",leaderboard:"BESTENLISTE",sound:"TON",yourProfile:"DEIN SPIELERPROFIL",playerName:"SPIELERNAME",teamName:"TEAMNAME",colours:"TRIKOTFARBE",stats:"KARRIEREWERTE",ballsFaced:"BÄLLE GESEHEN",hits:"HITS",homeRuns:"HOME RUNS",strikes:"STRIKES",bestLevel:"BESTES LEVEL",done:"FERTIG",back:"ZURÜCK",allTime:"ALLE ZEITEN",thisWeek:"DIESE WOCHE",lbLoading:"Lade Bestenliste…",noScores:"Noch keine Punkte — werde der erste Slugger.",boardFail:"Bestenliste nicht erreichbar — deine Punkte bleiben auf diesem Gerät.",level:"LEVEL",task:"AUFGABE",score:"PUNKTE",pitches:"WÜRFE",swing:"SCHLAG!",taskHits:"Triff {n} Bälle",taskRuns:"Erziele {n} Runs",taskHrs:"Schlage {n} Home Runs",taskNoK:"Keine Strikeouts erlaubt!",stepUp:"AN DIE PLATTE",menu:"MENÜ",howBody:"Der Werfer wirft — ziehe das rote Ziel auf den Ball und schlage, wenn er die Platte kreuzt. Erfülle die Aufgabe jedes Levels, bevor dir die Würfe ausgehen. Hits bringen Runs!",howShort:"Ziehen zum Zielen. Tippe SCHLAG! (oder aufs Feld), wenn der Ball die Platte erreicht.",hit:"HIT!",homeRun:"HOME RUN!",foul:"FOUL",strike:"STRIKE",ball:"BALL",walk:"WALK",strikeout:"STRIKEOUT!",levelComplete:"LEVEL GESCHAFFT!",gameOver:"SPIEL VORBEI",finalScore:"ENDSTAND",levelReached:"LEVEL ERREICHT",playAgain:"NOCHMAL",paused:"PAUSE",resume:"WEITER",quitRun:"AUFGEBEN",scoreSaved:"Punkte in der Bestenliste gespeichert ✓",fastball:"FASTBALL",curveball:"CURVEBALL",changeup:"CHANGEUP",great:"STARKER KONTAKT!"},
+it:{tagline:"SFIDA FUORICAMPO 3D",play:"GIOCA",profile:"PROFILO",leaderboard:"CLASSIFICA",sound:"AUDIO",yourProfile:"IL TUO PROFILO",playerName:"NOME GIOCATORE",teamName:"NOME SQUADRA",colours:"COLORE DIVISA",stats:"STATISTICHE",ballsFaced:"PALLE AFFRONTATE",hits:"VALIDE",homeRuns:"FUORICAMPO",strikes:"STRIKE",bestLevel:"MIGLIOR LIVELLO",done:"FATTO",back:"INDIETRO",allTime:"DI SEMPRE",thisWeek:"QUESTA SETTIMANA",lbLoading:"Carico la classifica…",noScores:"Nessun punteggio ancora — sii il primo battitore.",boardFail:"Classifica non raggiungibile — il punteggio resta su questo dispositivo.",level:"LIVELLO",task:"OBIETTIVO",score:"PUNTI",pitches:"LANCI",swing:"BATTI!",taskHits:"Colpisci {n} palle",taskRuns:"Segna {n} punti",taskHrs:"Colpisci {n} fuoricampo",taskNoK:"Nessuno strikeout permesso!",stepUp:"VAI A BATTERE",menu:"MENU",howBody:"Il lanciatore lancia — trascina il mirino rosso sulla palla e batti quando attraversa il piatto. Completa l'obiettivo di ogni livello prima che finiscano i lanci. Le valide segnano punti!",howShort:"Trascina per mirare. Tocca BATTI! (o il campo) quando la palla arriva al piatto.",hit:"VALIDA!",homeRun:"FUORICAMPO!",foul:"FOUL",strike:"STRIKE",ball:"BALL",walk:"BASE SU BALL",strikeout:"STRIKEOUT!",levelComplete:"LIVELLO COMPLETO!",gameOver:"FINE PARTITA",finalScore:"PUNTEGGIO FINALE",levelReached:"LIVELLO RAGGIUNTO",playAgain:"GIOCA ANCORA",paused:"PAUSA",resume:"RIPRENDI",quitRun:"ESCI",scoreSaved:"Punteggio salvato in classifica ✓",fastball:"VELOCE",curveball:"CURVA",changeup:"LENTA",great:"GRAN CONTATTO!"},
+nl:{tagline:"3D HOME RUN UITDAGING",play:"SPELEN",profile:"PROFIEL",leaderboard:"RANGLIJST",sound:"GELUID",yourProfile:"JOUW SPELERSPROFIEL",playerName:"SPELERSNAAM",teamName:"TEAMNAAM",colours:"UNIFORMKLEUR",stats:"STATISTIEKEN",ballsFaced:"BALLEN GEZIEN",hits:"HITS",homeRuns:"HOME RUNS",strikes:"STRIKES",bestLevel:"BESTE LEVEL",done:"KLAAR",back:"TERUG",allTime:"ALLER TIJDEN",thisWeek:"DEZE WEEK",lbLoading:"Ranglijst laden…",noScores:"Nog geen scores — word de eerste slagman.",boardFail:"Ranglijst niet bereikbaar — je score blijft op dit apparaat.",level:"LEVEL",task:"TAAK",score:"SCORE",pitches:"WORPEN",swing:"SLA!",taskHits:"Raak {n} ballen",taskRuns:"Scoor {n} runs",taskHrs:"Sla {n} home runs",taskNoK:"Geen strikeouts toegestaan!",stepUp:"NAAR DE PLAAT",menu:"MENU",howBody:"De werper gooit — sleep het rode vizier op de bal en sla als hij de plaat kruist. Voltooi de taak van elk level voordat je worpen op zijn. Hits scoren runs!",howShort:"Sleep om te richten. Tik SLA! (of op het veld) als de bal de plaat bereikt.",hit:"HIT!",homeRun:"HOME RUN!",foul:"FOUL",strike:"STRIKE",ball:"BAL",walk:"VRIJE LOOP",strikeout:"STRIKEOUT!",levelComplete:"LEVEL VOLTOOID!",gameOver:"SPEL VOORBIJ",finalScore:"EINDSCORE",levelReached:"LEVEL BEREIKT",playAgain:"OPNIEUW",paused:"PAUZE",resume:"DOORGAAN",quitRun:"STOPPEN",scoreSaved:"Score opgeslagen in de ranglijst ✓",fastball:"FASTBALL",curveball:"CURVEBALL",changeup:"CHANGEUP",great:"TOPCONTACT!"},
+ru:{tagline:"3D ЧЕЛЛЕНДЖ ХОУМ-РАНОВ",play:"ИГРАТЬ",profile:"ПРОФИЛЬ",leaderboard:"ТАБЛИЦА ЛИДЕРОВ",sound:"ЗВУК",yourProfile:"ПРОФИЛЬ ИГРОКА",playerName:"ИМЯ ИГРОКА",teamName:"НАЗВАНИЕ КОМАНДЫ",colours:"ЦВЕТ ФОРМЫ",stats:"СТАТИСТИКА",ballsFaced:"МЯЧЕЙ ВСТРЕЧЕНО",hits:"ХИТЫ",homeRuns:"ХОУМ-РАНЫ",strikes:"СТРАЙКИ",bestLevel:"ЛУЧШИЙ УРОВЕНЬ",done:"ГОТОВО",back:"НАЗАД",allTime:"ЗА ВСЁ ВРЕМЯ",thisWeek:"ЭТА НЕДЕЛЯ",lbLoading:"Загрузка таблицы…",noScores:"Пока нет результатов — стань первым отбивающим.",boardFail:"Таблица недоступна — результат сохранён на устройстве.",level:"УРОВЕНЬ",task:"ЗАДАНИЕ",score:"ОЧКИ",pitches:"ПОДАЧИ",swing:"БЕЙ!",taskHits:"Отбей {n} мячей",taskRuns:"Набери {n} ранов",taskHrs:"Выбей {n} хоум-ранов",taskNoK:"Страйкауты запрещены!",stepUp:"К БИТЕ",menu:"МЕНЮ",howBody:"Питчер бросает — веди красный прицел на мяч и бей, когда он пересекает дом. Выполняй задание уровня, пока не кончились подачи. Хиты приносят раны!",howShort:"Веди прицел на мяч. Жми БЕЙ! (или по полю), когда мяч у дома.",hit:"ХИТ!",homeRun:"ХОУМ-РАН!",foul:"ФАУЛ",strike:"СТРАЙК",ball:"БОЛ",walk:"УОК",strikeout:"СТРАЙКАУТ!",levelComplete:"УРОВЕНЬ ПРОЙДЕН!",gameOver:"ИГРА ОКОНЧЕНА",finalScore:"ИТОГОВЫЕ ОЧКИ",levelReached:"ДОСТИГНУТ УРОВЕНЬ",playAgain:"ЕЩЁ РАЗ",paused:"ПАУЗА",resume:"ДАЛЬШЕ",quitRun:"ВЫЙТИ",scoreSaved:"Результат сохранён в таблице ✓",fastball:"ФАСТБОЛ",curveball:"КЁРВБОЛ",changeup:"ЧЕЙНДЖАП",great:"ОТЛИЧНЫЙ КОНТАКТ!"},
+uk:{tagline:"3D ЧЕЛЕНДЖ ХОУМ-РАНІВ",play:"ГРАТИ",profile:"ПРОФІЛЬ",leaderboard:"ТАБЛИЦЯ ЛІДЕРІВ",sound:"ЗВУК",yourProfile:"ПРОФІЛЬ ГРАВЦЯ",playerName:"ІМ'Я ГРАВЦЯ",teamName:"НАЗВА КОМАНДИ",colours:"КОЛІР ФОРМИ",stats:"СТАТИСТИКА",ballsFaced:"М'ЯЧІВ ЗУСТРІТО",hits:"ХІТИ",homeRuns:"ХОУМ-РАНИ",strikes:"СТРАЙКИ",bestLevel:"НАЙКРАЩИЙ РІВЕНЬ",done:"ГОТОВО",back:"НАЗАД",allTime:"ЗА ВЕСЬ ЧАС",thisWeek:"ЦЬОГО ТИЖНЯ",lbLoading:"Завантаження таблиці…",noScores:"Поки немає результатів — стань першим відбиваючим.",boardFail:"Таблиця недоступна — результат збережено на пристрої.",level:"РІВЕНЬ",task:"ЗАВДАННЯ",score:"ОЧКИ",pitches:"ПОДАЧІ",swing:"БИЙ!",taskHits:"Відбий {n} м'ячів",taskRuns:"Набери {n} ранів",taskHrs:"Вибий {n} хоум-ранів",taskNoK:"Страйкаути заборонені!",stepUp:"ДО БИТИ",menu:"МЕНЮ",howBody:"Пітчер кидає — веди червоний приціл на м'яч і бий, коли він перетинає дім. Виконуй завдання рівня, доки не скінчилися подачі. Хіти приносять рани!",howShort:"Веди приціл на м'яч. Тисни БИЙ! (або по полю), коли м'яч біля дому.",hit:"ХІТ!",homeRun:"ХОУМ-РАН!",foul:"ФАУЛ",strike:"СТРАЙК",ball:"БОЛ",walk:"УОК",strikeout:"СТРАЙКАУТ!",levelComplete:"РІВЕНЬ ПРОЙДЕНО!",gameOver:"ГРУ ЗАВЕРШЕНО",finalScore:"ПІДСУМКОВІ ОЧКИ",levelReached:"ДОСЯГНУТО РІВЕНЬ",playAgain:"ЩЕ РАЗ",paused:"ПАУЗА",resume:"ДАЛІ",quitRun:"ВИЙТИ",scoreSaved:"Результат збережено в таблиці ✓",fastball:"ФАСТБОЛ",curveball:"КЕРВБОЛ",changeup:"ЧЕЙНДЖАП",great:"ЧУДОВИЙ КОНТАКТ!"},
+tr:{tagline:"3D HOME RUN MEYDAN OKUMASI",play:"OYNA",profile:"PROFİL",leaderboard:"LİDERLİK TABLOSU",sound:"SES",yourProfile:"OYUNCU PROFİLİN",playerName:"OYUNCU ADI",teamName:"TAKIM ADI",colours:"FORMA RENGİ",stats:"KARİYER İSTATİSTİKLERİ",ballsFaced:"KARŞILANAN TOP",hits:"HİTLER",homeRuns:"HOME RUNLAR",strikes:"STRIKE'LAR",bestLevel:"EN İYİ SEVİYE",done:"TAMAM",back:"GERİ",allTime:"TÜM ZAMANLAR",thisWeek:"BU HAFTA",lbLoading:"Tablo yükleniyor…",noScores:"Henüz skor yok — ilk vurucu sen ol.",boardFail:"Tabloya ulaşılamıyor — skorun bu cihazda saklandı.",level:"SEVİYE",task:"GÖREV",score:"SKOR",pitches:"ATIŞLAR",swing:"VUR!",taskHits:"{n} topa vur",taskRuns:"{n} sayı yap",taskHrs:"{n} home run vur",taskNoK:"Strikeout yasak!",stepUp:"VURUŞA ÇIK",menu:"MENÜ",howBody:"Atıcı atıyor — kırmızı hedefi topun üzerine sürükle ve top plakayı geçerken vur. Atışların bitmeden her seviyenin görevini tamamla. Hitler sayı getirir!",howShort:"Hedefi sürükleyerek nişan al. Top plakaya ulaşınca VUR! (veya sahaya dokun).",hit:"HİT!",homeRun:"HOME RUN!",foul:"FAUL",strike:"STRIKE",ball:"BALL",walk:"WALK",strikeout:"STRIKEOUT!",levelComplete:"SEVİYE TAMAM!",gameOver:"OYUN BİTTİ",finalScore:"FİNAL SKORU",levelReached:"ULAŞILAN SEVİYE",playAgain:"TEKRAR OYNA",paused:"DURAKLATILDI",resume:"DEVAM ET",quitRun:"BIRAK",scoreSaved:"Skor tabloya kaydedildi ✓",fastball:"HIZLI TOP",curveball:"KAVİSLİ",changeup:"YAVAŞ TOP",great:"HARİKA TEMAS!"},
+ar:{tagline:"تحدي الهوم رن ثلاثي الأبعاد",play:"العب",profile:"الملف",leaderboard:"لوحة الصدارة",sound:"الصوت",yourProfile:"ملف اللاعب",playerName:"اسم اللاعب",teamName:"اسم الفريق",colours:"لون الزي",stats:"إحصائيات المسيرة",ballsFaced:"الكرات المواجهة",hits:"الضربات",homeRuns:"الهوم رن",strikes:"السترايك",bestLevel:"أفضل مستوى",done:"تم",back:"رجوع",allTime:"كل الأوقات",thisWeek:"هذا الأسبوع",lbLoading:"جارٍ تحميل اللوحة…",noScores:"لا نتائج بعد — كن أول ضارب.",boardFail:"تعذّر الوصول إلى اللوحة — نتيجتك محفوظة على هذا الجهاز.",level:"المستوى",task:"المهمة",score:"النقاط",pitches:"الرميات",swing:"اضرب!",taskHits:"اضرب {n} كرات",taskRuns:"سجّل {n} نقاط",taskHrs:"اضرب {n} هوم رن",taskNoK:"ممنوع السترايك أوت!",stepUp:"تقدّم للضرب",menu:"القائمة",howBody:"يرمي الرامي — اسحب الهدف الأحمر فوق الكرة واضرب عندما تعبر اللوحة. أكمل مهمة كل مستوى قبل نفاد رمياتك. الضربات تُسجّل نقاطًا!",howShort:"اسحب للتصويب. اضغط اضرب! (أو المس الملعب) عندما تصل الكرة إلى اللوحة.",hit:"ضربة!",homeRun:"هوم رن!",foul:"فاول",strike:"سترايك",ball:"بول",walk:"ووك",strikeout:"سترايك أوت!",levelComplete:"اكتمل المستوى!",gameOver:"انتهت اللعبة",finalScore:"النتيجة النهائية",levelReached:"المستوى المُحرز",playAgain:"العب مجددًا",paused:"إيقاف مؤقت",resume:"استئناف",quitRun:"إنهاء",scoreSaved:"تم حفظ النتيجة في اللوحة ✓",fastball:"كرة سريعة",curveball:"كرة منحنية",changeup:"كرة بطيئة",great:"تلامس رائع!"},
+hi:{tagline:"3D होम रन चैलेंज",play:"खेलें",profile:"प्रोफ़ाइल",leaderboard:"लीडरबोर्ड",sound:"ध्वनि",yourProfile:"आपकी खिलाड़ी प्रोफ़ाइल",playerName:"खिलाड़ी का नाम",teamName:"टीम का नाम",colours:"यूनिफ़ॉर्म रंग",stats:"करियर आँकड़े",ballsFaced:"सामना की गेंदें",hits:"हिट्स",homeRuns:"होम रन",strikes:"स्ट्राइक",bestLevel:"सर्वश्रेष्ठ स्तर",done:"हो गया",back:"वापस",allTime:"सर्वकालिक",thisWeek:"इस सप्ताह",lbLoading:"बोर्ड लोड हो रहा है…",noScores:"अभी कोई स्कोर नहीं — पहले बल्लेबाज़ बनें।",boardFail:"लीडरबोर्ड नहीं खुला — आपका स्कोर इस डिवाइस पर रखा है।",level:"स्तर",task:"कार्य",score:"स्कोर",pitches:"गेंदें",swing:"मारो!",taskHits:"{n} गेंदें हिट करें",taskRuns:"{n} रन बनाएँ",taskHrs:"{n} होम रन मारें",taskNoK:"स्ट्राइकआउट की अनुमति नहीं!",stepUp:"बल्लेबाज़ी के लिए आएँ",menu:"मेनू",howBody:"पिचर गेंद फेंकता है — लाल निशाने को गेंद पर खींचें और प्लेट पार करते ही मारें। गेंदें खत्म होने से पहले हर स्तर का कार्य पूरा करें। हिट से रन बनते हैं!",howShort:"निशाना खींचकर लगाएँ। गेंद प्लेट पर पहुँचे तो मारो! दबाएँ (या मैदान पर टैप करें)।",hit:"हिट!",homeRun:"होम रन!",foul:"फ़ाउल",strike:"स्ट्राइक",ball:"बॉल",walk:"वॉक",strikeout:"स्ट्राइकआउट!",levelComplete:"स्तर पूरा!",gameOver:"खेल समाप्त",finalScore:"अंतिम स्कोर",levelReached:"पहुँचा स्तर",playAgain:"फिर खेलें",paused:"रुका हुआ",resume:"जारी रखें",quitRun:"छोड़ें",scoreSaved:"स्कोर लीडरबोर्ड में सहेजा गया ✓",fastball:"फ़ास्टबॉल",curveball:"कर्वबॉल",changeup:"चेंजअप",great:"शानदार संपर्क!"},
+id:{tagline:"TANTANGAN HOME RUN 3D",play:"MAIN",profile:"PROFIL",leaderboard:"PAPAN PERINGKAT",sound:"SUARA",yourProfile:"PROFIL PEMAINMU",playerName:"NAMA PEMAIN",teamName:"NAMA TIM",colours:"WARNA SERAGAM",stats:"STATISTIK KARIER",ballsFaced:"BOLA DIHADAPI",hits:"HIT",homeRuns:"HOME RUN",strikes:"STRIKE",bestLevel:"LEVEL TERBAIK",done:"SELESAI",back:"KEMBALI",allTime:"SEPANJANG MASA",thisWeek:"MINGGU INI",lbLoading:"Memuat papan…",noScores:"Belum ada skor — jadilah pemukul pertama.",boardFail:"Papan tidak terjangkau — skormu tersimpan di perangkat ini.",level:"LEVEL",task:"TUGAS",score:"SKOR",pitches:"LEMPARAN",swing:"PUKUL!",taskHits:"Pukul {n} bola",taskRuns:"Cetak {n} run",taskHrs:"Pukul {n} home run",taskNoK:"Dilarang strikeout!",stepUp:"MAJU MEMUKUL",menu:"MENU",howBody:"Pelempar melempar — seret target merah ke bola dan pukul saat bola melewati plate. Selesaikan tugas tiap level sebelum lemparanmu habis. Hit menghasilkan run!",howShort:"Seret untuk membidik. Ketuk PUKUL! (atau lapangan) saat bola sampai di plate.",hit:"HIT!",homeRun:"HOME RUN!",foul:"FOUL",strike:"STRIKE",ball:"BALL",walk:"WALK",strikeout:"STRIKEOUT!",levelComplete:"LEVEL SELESAI!",gameOver:"PERMAINAN SELESAI",finalScore:"SKOR AKHIR",levelReached:"LEVEL DICAPAI",playAgain:"MAIN LAGI",paused:"JEDA",resume:"LANJUT",quitRun:"BERHENTI",scoreSaved:"Skor tersimpan di papan ✓",fastball:"FASTBALL",curveball:"CURVEBALL",changeup:"CHANGEUP",great:"KONTAK HEBAT!"},
+vi:{tagline:"THỬ THÁCH HOME RUN 3D",play:"CHƠI",profile:"HỒ SƠ",leaderboard:"BẢNG XẾP HẠNG",sound:"ÂM THANH",yourProfile:"HỒ SƠ CẦU THỦ",playerName:"TÊN CẦU THỦ",teamName:"TÊN ĐỘI",colours:"MÀU ĐỒNG PHỤC",stats:"THỐNG KÊ SỰ NGHIỆP",ballsFaced:"BÓNG ĐÃ ĐỐI MẶT",hits:"HIT",homeRuns:"HOME RUN",strikes:"STRIKE",bestLevel:"CẤP CAO NHẤT",done:"XONG",back:"QUAY LẠI",allTime:"MỌI THỜI ĐẠI",thisWeek:"TUẦN NÀY",lbLoading:"Đang tải bảng…",noScores:"Chưa có điểm — hãy là tay đánh đầu tiên.",boardFail:"Không tải được bảng — điểm của bạn lưu trên thiết bị này.",level:"CẤP",task:"NHIỆM VỤ",score:"ĐIỂM",pitches:"LƯỢT NÉM",swing:"ĐÁNH!",taskHits:"Đánh trúng {n} bóng",taskRuns:"Ghi {n} run",taskHrs:"Đánh {n} home run",taskNoK:"Không được strikeout!",stepUp:"LÊN ĐÁNH BÓNG",menu:"MENU",howBody:"Người ném ném bóng — kéo tâm ngắm đỏ vào bóng và đánh khi bóng qua đĩa nhà. Hoàn thành nhiệm vụ mỗi cấp trước khi hết lượt ném. Hit ghi run!",howShort:"Kéo để ngắm. Nhấn ĐÁNH! (hoặc chạm sân) khi bóng tới đĩa nhà.",hit:"HIT!",homeRun:"HOME RUN!",foul:"FOUL",strike:"STRIKE",ball:"BALL",walk:"WALK",strikeout:"STRIKEOUT!",levelComplete:"HOÀN THÀNH CẤP!",gameOver:"KẾT THÚC",finalScore:"ĐIỂM CUỐI",levelReached:"CẤP ĐÃ ĐẠT",playAgain:"CHƠI LẠI",paused:"TẠM DỪNG",resume:"TIẾP TỤC",quitRun:"THOÁT",scoreSaved:"Đã lưu điểm lên bảng ✓",fastball:"BÓNG NHANH",curveball:"BÓNG XOÁY",changeup:"BÓNG CHẬM",great:"TIẾP XÚC TUYỆT VỜI!"},
+th:{tagline:"ความท้าทายโฮมรัน 3D",play:"เล่น",profile:"โปรไฟล์",leaderboard:"ตารางผู้นำ",sound:"เสียง",yourProfile:"โปรไฟล์ผู้เล่นของคุณ",playerName:"ชื่อผู้เล่น",teamName:"ชื่อทีม",colours:"สีชุดยูนิฟอร์ม",stats:"สถิติอาชีพ",ballsFaced:"ลูกที่เผชิญ",hits:"ฮิต",homeRuns:"โฮมรัน",strikes:"สไตรก์",bestLevel:"เลเวลสูงสุด",done:"เสร็จ",back:"กลับ",allTime:"ตลอดกาล",thisWeek:"สัปดาห์นี้",lbLoading:"กำลังโหลดตาราง…",noScores:"ยังไม่มีคะแนน — เป็นผู้ตีคนแรกเลย",boardFail:"โหลดตารางไม่ได้ — คะแนนของคุณเก็บไว้ในอุปกรณ์นี้",level:"เลเวล",task:"ภารกิจ",score:"คะแนน",pitches:"ลูกขว้าง",swing:"ตี!",taskHits:"ตีให้โดน {n} ลูก",taskRuns:"ทำ {n} รัน",taskHrs:"ตี {n} โฮมรัน",taskNoK:"ห้ามสไตรก์เอาต์!",stepUp:"ขึ้นตี",menu:"เมนู",howBody:"พิชเชอร์ขว้าง — ลากเป้าแดงไปที่ลูกแล้วตีเมื่อลูกผ่านโฮมเพลต ทำภารกิจของแต่ละเลเวลให้เสร็จก่อนลูกขว้างหมด ฮิตทำรันได้!",howShort:"ลากเพื่อเล็ง แตะ ตี! (หรือแตะสนาม) เมื่อลูกถึงโฮมเพลต",hit:"ฮิต!",homeRun:"โฮมรัน!",foul:"ฟาวล์",strike:"สไตรก์",ball:"บอล",walk:"วอล์ก",strikeout:"สไตรก์เอาต์!",levelComplete:"ผ่านเลเวล!",gameOver:"จบเกม",finalScore:"คะแนนสุดท้าย",levelReached:"เลเวลที่ถึง",playAgain:"เล่นอีกครั้ง",paused:"หยุดชั่วคราว",resume:"เล่นต่อ",quitRun:"ออก",scoreSaved:"บันทึกคะแนนลงตารางแล้ว ✓",fastball:"ฟาสต์บอล",curveball:"เคิร์ฟบอล",changeup:"เชนจ์อัพ",great:"สัมผัสยอดเยี่ยม!"},
+ko:{tagline:"3D 홈런 챌린지",play:"플레이",profile:"프로필",leaderboard:"리더보드",sound:"소리",yourProfile:"선수 프로필",playerName:"선수 이름",teamName:"팀 이름",colours:"유니폼 색상",stats:"통산 기록",ballsFaced:"상대한 공",hits:"안타",homeRuns:"홈런",strikes:"스트라이크",bestLevel:"최고 레벨",done:"완료",back:"뒤로",allTime:"전체 기간",thisWeek:"이번 주",lbLoading:"보드 불러오는 중…",noScores:"아직 기록이 없습니다 — 첫 타자가 되어보세요.",boardFail:"리더보드에 연결할 수 없습니다 — 기록은 이 기기에 보관됩니다.",level:"레벨",task:"미션",score:"점수",pitches:"투구 수",swing:"스윙!",taskHits:"공 {n}개 맞히기",taskRuns:"{n}점 득점하기",taskHrs:"홈런 {n}개 치기",taskNoK:"삼진 아웃 금지!",stepUp:"타석에 서기",menu:"메뉴",howBody:"투수가 던집니다 — 빨간 조준점을 공에 맞추고 공이 홈플레이트를 지날 때 스윙하세요. 투구 수가 끝나기 전에 각 레벨 미션을 완료하세요. 안타는 득점이 됩니다!",howShort:"드래그로 조준하세요. 공이 플레이트에 닿을 때 스윙! (또는 필드 탭)",hit:"안타!",homeRun:"홈런!",foul:"파울",strike:"스트라이크",ball:"볼",walk:"볼넷",strikeout:"삼진 아웃!",levelComplete:"레벨 완료!",gameOver:"게임 오버",finalScore:"최종 점수",levelReached:"도달 레벨",playAgain:"다시 플레이",paused:"일시정지",resume:"계속",quitRun:"그만두기",scoreSaved:"리더보드에 기록 저장됨 ✓",fastball:"직구",curveball:"커브",changeup:"체인지업",great:"완벽한 컨택!"},
+ja:{tagline:"3Dホームランチャレンジ",play:"プレイ",profile:"プロフィール",leaderboard:"ランキング",sound:"サウンド",yourProfile:"選手プロフィール",playerName:"選手名",teamName:"チーム名",colours:"ユニフォームカラー",stats:"通算成績",ballsFaced:"対戦球数",hits:"ヒット",homeRuns:"ホームラン",strikes:"ストライク",bestLevel:"最高レベル",done:"完了",back:"戻る",allTime:"全期間",thisWeek:"今週",lbLoading:"ランキング読み込み中…",noScores:"まだスコアがありません — 最初のバッターになろう。",boardFail:"ランキングに接続できません — スコアはこの端末に保存されます。",level:"レベル",task:"ミッション",score:"スコア",pitches:"残り球数",swing:"スイング！",taskHits:"{n}球ヒットせよ",taskRuns:"{n}点取れ",taskHrs:"ホームラン{n}本打て",taskNoK:"三振禁止！",stepUp:"打席に入る",menu:"メニュー",howBody:"ピッチャーが投げます — 赤い照準をボールに合わせて、ホームを通過する瞬間にスイング。各レベルのミッションを球数が尽きる前に達成しよう。ヒットで得点！",howShort:"ドラッグで照準。ボールがホームに来たらスイング！（またはフィールドをタップ）",hit:"ヒット！",homeRun:"ホームラン！",foul:"ファウル",strike:"ストライク",ball:"ボール",walk:"フォアボール",strikeout:"三振！",levelComplete:"レベルクリア！",gameOver:"ゲームオーバー",finalScore:"最終スコア",levelReached:"到達レベル",playAgain:"もう一度",paused:"一時停止",resume:"再開",quitRun:"やめる",scoreSaved:"ランキングに保存しました ✓",fastball:"ストレート",curveball:"カーブ",changeup:"チェンジアップ",great:"ナイスコンタクト！"},
+zh:{tagline:"3D本垒打挑战",play:"开始游戏",profile:"档案",leaderboard:"排行榜",sound:"声音",yourProfile:"你的球员档案",playerName:"球员名字",teamName:"球队名字",colours:"队服颜色",stats:"生涯数据",ballsFaced:"面对球数",hits:"安打",homeRuns:"本垒打",strikes:"好球",bestLevel:"最佳等级",done:"完成",back:"返回",allTime:"历史总榜",thisWeek:"本周",lbLoading:"排行榜加载中…",noScores:"暂无成绩 — 来做第一个击球手。",boardFail:"无法连接排行榜 — 成绩保存在本设备。",level:"等级",task:"任务",score:"分数",pitches:"剩余球数",swing:"挥棒！",taskHits:"击中 {n} 个球",taskRuns:"得到 {n} 分",taskHrs:"打出 {n} 支本垒打",taskNoK:"不许三振出局！",stepUp:"上场击球",menu:"菜单",howBody:"投手投球 — 把红色准星拖到球上，在球经过本垒时挥棒。在球数用完前完成每一关的任务。安打可以得分！",howShort:"拖动瞄准。球到本垒时点挥棒！（或点球场）",hit:"安打！",homeRun:"本垒打！",foul:"界外球",strike:"好球",ball:"坏球",walk:"保送",strikeout:"三振出局！",levelComplete:"过关！",gameOver:"游戏结束",finalScore:"最终分数",levelReached:"到达等级",playAgain:"再来一局",paused:"已暂停",resume:"继续",quitRun:"退出",scoreSaved:"成绩已保存到排行榜 ✓",fastball:"直球",curveball:"曲线球",changeup:"变速球",great:"完美击球！"}
+};
+/* ================= profile / stats ================= */
+const $=id=>document.getElementById(id);
+const QA=new URLSearchParams(location.search).has('qa');
+const COLOURS=[["#e23b3b","Red"],["#2f6df6","Royal"],["#17b8a6","Teal"],["#f2b01e","Gold"],["#8b46c7","Purple"],["#ef5da8","Pink"],["#23262b","Black"],["#eef1f6","White"]];
+let lang=localStorage.getItem('slugger_lang')||'en'; if(!I18N[lang]) lang='en';
+let soundOn=localStorage.getItem('slugger_snd')!=='0';
+let profile={name:'PLAYER',team:'LUNC CLUB',colour:0};
+try{ Object.assign(profile, JSON.parse(localStorage.getItem('slugger_profile')||'{}')); }catch(e){}
+let stats={balls:0,hits:0,hrs:0,strikes:0,best:0};
+try{ Object.assign(stats, JSON.parse(localStorage.getItem('slugger_stats')||'{}')); }catch(e){}
+function saveProfile(){ localStorage.setItem('slugger_profile', JSON.stringify(profile)); }
+function saveStats(){ localStorage.setItem('slugger_stats', JSON.stringify(stats)); }
+function t(k){ return (I18N[lang]&&I18N[lang][k])||I18N.en[k]||k; }
+function applyI18n(){
+  document.querySelectorAll('[data-i]').forEach(el=>{ el.textContent=t(el.getAttribute('data-i')); });
+  $('btnSound').innerHTML=(soundOn?'🔊':'🔇')+' <span>'+t('sound')+'</span>';
+  refreshMenuWho(); updateProfileStats(); if(G&&G.state==='playing') refreshHUD();
+}
+function refreshMenuWho(){ $('menuName').textContent=profile.name||'PLAYER'; $('menuTeam').textContent=profile.team||'LUNC CLUB'; }
+function updateProfileStats(){
+  $('stBalls').textContent=stats.balls; $('stHits').textContent=stats.hits; $('stHrs').textContent=stats.hrs;
+  $('stStrikes').textContent=stats.strikes; $('stBest').textContent=stats.best?('Lv '+stats.best):'—';
+}
+function toast(msg,ms){ const el=$('toast'); el.textContent=msg; el.classList.add('on'); clearTimeout(el._h); el._h=setTimeout(()=>el.classList.remove('on'),ms||2200); }
+/* ================= audio (synth) ================= */
+let AC=null;
+function au(){ if(!AC){ try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } if(AC&&AC.state==='suspended') AC.resume(); return AC; }
+function beep(f0,f1,dur,type,vol){ if(!soundOn) return; const a=au(); if(!a) return; const o=a.createOscillator(),g=a.createGain();
+  o.type=type||'sine'; o.frequency.setValueAtTime(f0,a.currentTime); o.frequency.exponentialRampToValueAtTime(Math.max(30,f1),a.currentTime+dur);
+  g.gain.setValueAtTime(vol||.16,a.currentTime); g.gain.exponentialRampToValueAtTime(.001,a.currentTime+dur);
+  o.connect(g).connect(a.destination); o.start(); o.stop(a.currentTime+dur); }
+function noiseBurst(dur,freq,vol){ if(!soundOn) return; const a=au(); if(!a) return; const n=a.sampleRate*dur, buf=a.createBuffer(1,n,a.sampleRate), d=buf.getChannelData(0);
+  for(let i=0;i<n;i++) d[i]=(Math.random()*2-1)*(1-i/n); const s=a.createBufferSource(); s.buffer=buf;
+  const f=a.createBiquadFilter(); f.type='lowpass'; f.frequency.value=freq; const g=a.createGain(); g.gain.value=vol;
+  s.connect(f).connect(g).connect(a.destination); s.start(); }
+const SFX={ click(){beep(660,520,.07,'triangle',.12)}, swing(){noiseBurst(.16,2600,.10)}, crack(){noiseBurst(.09,900,.5); beep(160,60,.12,'square',.2)},
+  thud(){beep(120,70,.09,'sine',.25)}, foul(){beep(300,180,.15,'sawtooth',.08)}, cheer(dur){ if(!soundOn) return; const a=au(); if(!a) return; const n=a.sampleRate*(dur||1.2), buf=a.createBuffer(1,n,a.sampleRate), d=buf.getChannelData(0);
+    let v=0; for(let i=0;i<n;i++){ v=v*.98+(Math.random()*2-1)*.02; d[i]=v*Math.sin(Math.PI*i/n)*3.2; } const s=a.createBufferSource(); s.buffer=buf;
+    const f=a.createBiquadFilter(); f.type='bandpass'; f.frequency.value=900; const g=a.createGain(); g.gain.value=.5; s.connect(f).connect(g).connect(a.destination); s.start(); },
+  fanfare(){ [523,659,784,1046].forEach((f,i)=>setTimeout(()=>beep(f,f,.22,'triangle',.16),i*110)); } };
+/* ================= THREE scene ================= */
+const RELEASE=new THREE.Vector3(0.18,1.62,-14.4);
+let renderer, scene, camera, clock;
+let batter, pitcher, catcher, ballMesh, ballTrail, trailPts=[], screenTex, screenCtx, crowdMesh, crowdBase=[];
+let fwBursts=[], lampMats=[];
+const V3=(x,y,z)=>new THREE.Vector3(x,y,z);
+function cnv(w,h,fn){ const c=document.createElement('canvas'); c.width=w; c.height=h; fn(c.getContext('2d'),w,h); const tx=new THREE.CanvasTexture(c); return tx; }
+function mat(c,r){ return new THREE.MeshStandardMaterial({color:c, roughness:r==null?.85:r, metalness:.05}); }
+function buildScene(){
+  renderer=new THREE.WebGLRenderer({antialias:true, powerPreference:'high-performance'});
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  renderer.setSize(innerWidth,innerHeight);
+  renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+  renderer.outputEncoding=THREE.sRGBEncoding;
+  $('gl').appendChild(renderer.domElement);
+  scene=new THREE.Scene(); scene.background=new THREE.Color(0x05070f);
+  scene.fog=new THREE.Fog(0x070b1d, 46, 150);
+  camera=new THREE.PerspectiveCamera(58, innerWidth/innerHeight, .1, 300);
+  camera.position.set(-0.4,2.3,8.6);
+  clock=new THREE.Clock();
+  /* lights */
+  scene.add(new THREE.HemisphereLight(0x8fb7ff,0x14301c,.5));
+  const key=new THREE.SpotLight(0xfff1d6,1.15,90,.62,.45,1); key.position.set(-16,26,12);
+  key.castShadow=true; key.shadow.mapSize.set(1024,1024); key.shadow.camera.near=8; key.shadow.camera.far=70;
+  key.target.position.set(0,0,-4); scene.add(key,key.target);
+  const fill=new THREE.SpotLight(0xbfd9ff,.55,110,.7,.6,1); fill.position.set(20,24,-20); fill.target.position.set(0,0,-6); scene.add(fill,fill.target);
+  scene.add(new THREE.AmbientLight(0x334466,.5));
+  /* sky: stars + moon */
+  { const n=700, pos=new Float32Array(n*3);
+    for(let i=0;i<n;i++){ const a=Math.random()*Math.PI*2, e=Math.random()*.9+.12, r=135;
+      pos[i*3]=Math.cos(a)*Math.cos(e)*r; pos[i*3+1]=Math.sin(e)*r*.6+8; pos[i*3+2]=Math.sin(a)*Math.cos(e)*r-30; }
+    const g=new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos,3));
+    scene.add(new THREE.Points(g, new THREE.PointsMaterial({color:0xcfe0ff,size:.55,sizeAttenuation:false,transparent:true,opacity:.85,fog:false})));
+    const moon=new THREE.Mesh(new THREE.CircleGeometry(4.4,24), new THREE.MeshBasicMaterial({color:0xf4ecd8,fog:false}));
+    moon.position.set(-38,30,-95); moon.lookAt(0,4,0); scene.add(moon);
+    const glow=new THREE.Mesh(new THREE.CircleGeometry(7.5,24), new THREE.MeshBasicMaterial({color:0xf4ecd8,transparent:true,opacity:.14,fog:false}));
+    glow.position.copy(moon.position).z-=0.4; glow.lookAt(0,4,0); scene.add(glow); }
+  /* grass */
+  const grassTex=cnv(512,512,(x,w,h)=>{ for(let i=0;i<16;i++){ x.fillStyle=i%2?'#1e5c2d':'#256b36'; x.fillRect(0,i*h/16,w,h/16); }
+    x.fillStyle='rgba(255,255,255,.05)'; for(let i=0;i<2600;i++) x.fillRect(Math.random()*w,Math.random()*h,2,2);
+    x.fillStyle='rgba(0,0,0,.06)'; for(let i=0;i<1800;i++) x.fillRect(Math.random()*w,Math.random()*h,2,2); });
+  grassTex.wrapS=grassTex.wrapT=THREE.RepeatWrapping; grassTex.repeat.set(10,10);
+  const grass=new THREE.Mesh(new THREE.CircleGeometry(85,40), new THREE.MeshStandardMaterial({map:grassTex,roughness:1}));
+  grass.rotation.x=-Math.PI/2; grass.receiveShadow=true; scene.add(grass);
+  const dirtTex=cnv(256,256,(x,w,h)=>{ x.fillStyle='#8a5a33'; x.fillRect(0,0,w,h); x.fillStyle='rgba(0,0,0,.12)';
+    for(let i=0;i<2200;i++) x.fillRect(Math.random()*w,Math.random()*h,2,2); x.fillStyle='rgba(255,235,200,.07)';
+    for(let i=0;i<1200;i++) x.fillRect(Math.random()*w,Math.random()*h,2,2); });
+  const dirtMat=new THREE.MeshStandardMaterial({map:dirtTex,roughness:1});
+  const homeDirt=new THREE.Mesh(new THREE.CircleGeometry(3.4,26), dirtMat); homeDirt.rotation.x=-Math.PI/2; homeDirt.position.y=.01; homeDirt.receiveShadow=true; scene.add(homeDirt);
+  const mound=new THREE.Mesh(new THREE.CylinderGeometry(2.7,3.1,.3,26), dirtMat); mound.position.set(0,.15,-15); mound.receiveShadow=true; scene.add(mound);
+  function dirtStrip(x0,z0,x1,z1){ const len=Math.hypot(x1-x0,z1-z0);
+    const s=new THREE.Mesh(new THREE.BoxGeometry(1.7,.012,len), dirtMat);
+    s.position.set((x0+x1)/2,.012,(z0+z1)/2); s.lookAt(x1,.012,z1); s.receiveShadow=true; scene.add(s); }
+  dirtStrip(0,0,10.5,-10.5); dirtStrip(10.5,-10.5,0,-21); dirtStrip(0,-21,-10.5,-10.5); dirtStrip(-10.5,-10.5,0,0);
+  /* lines + bases + plate */
+  const lineMat=new THREE.MeshBasicMaterial({color:0xf5f5f0});
+  function foulLine(x0,z0,x1,z1){ const len=Math.hypot(x1-x0,z1-z0); const p=new THREE.Mesh(new THREE.BoxGeometry(.14,.02,len),lineMat);
+    p.position.set((x0+x1)/2,.02,(z0+z1)/2); p.lookAt(x1,.02,z1); scene.add(p); }
+  foulLine(.4,-.4,30,-30); foulLine(-.4,-.4,-30,-30);
+  [[10.5,-10.5],[0,-21],[-10.5,-10.5]].forEach(b=>{ const bs=new THREE.Mesh(new THREE.BoxGeometry(.5,.07,.5), new THREE.MeshStandardMaterial({color:0xffffff,roughness:.6}));
+    bs.position.set(b[0],.05,b[1]); scene.add(bs); });
+  const plate=new THREE.Mesh(new THREE.BoxGeometry(.46,.03,.46), new THREE.MeshStandardMaterial({color:0xffffff,roughness:.5}));
+  plate.position.set(0,.025,0); plate.rotation.y=Math.PI/4; scene.add(plate);
+  const rubber=new THREE.Mesh(new THREE.BoxGeometry(.62,.05,.16), new THREE.MeshStandardMaterial({color:0xffffff}));
+  rubber.position.set(0,.32,-15); scene.add(rubber);
+  /* outfield wall + billboards */
+  const wallMat=mat(0x0d3b2e,.9);
+  const wall=new THREE.Mesh(new THREE.CylinderGeometry(56,56,3.4,40,1,true,Math.PI-1.35,2.7), wallMat);
+  wall.position.y=1.7; wall.material.side=THREE.DoubleSide; scene.add(wall);
+  const boards=[["LUNC","#0b2a4a","#ffd76a"],["LUNA CLASSIC","#123f35","#ffffff"],["LUNC DEV STUDIO","#3a0d2e","#7fd8cd"],
+    ["LUNC SLUGGER","#4a2a08","#ffffff"],["LUNC","#0d3b2e","#ffd76a"],["LUNA CLASSIC","#26124a","#ffffff"],["LUNC DEV STUDIO","#0b2a4a","#7fd8cd"]];
+  boards.forEach((b,i)=>{ const a=(i-3)*.28;
+    const tx=cnv(512,128,(x,w,h)=>{ x.fillStyle=b[1]; x.fillRect(0,0,w,h); x.strokeStyle='rgba(255,255,255,.35)'; x.lineWidth=6; x.strokeRect(8,8,w-16,h-16);
+      x.fillStyle=b[2]; x.font='900 58px Arial'; x.textAlign='center'; x.textBaseline='middle'; x.fillText(b[0],w/2,h/2+2); });
+    const p=new THREE.Mesh(new THREE.PlaneGeometry(11.5,2.9), new THREE.MeshBasicMaterial({map:tx,fog:false}));
+    p.position.set(Math.sin(a)*55.2,2.05,-Math.cos(a)*55.2);
+    p.lookAt(0,2,10); scene.add(p); });
+  /* stands + crowd */
+  const standMat=mat(0x1a2340,.95);
+  for(let tier=0;tier<3;tier++){ const r=60+tier*4.6, y=3.4+tier*2.6;
+    const ring=new THREE.Mesh(new THREE.CylinderGeometry(r,r,2.6,40,1,true,Math.PI-1.5,3.0), standMat);
+    ring.position.y=y; ring.material=standMat; ring.material.side=THREE.DoubleSide; scene.add(ring); }
+  { const geo=new THREE.BoxGeometry(.34,.46,.12); const mtl=new THREE.MeshLambertMaterial({color:0xffffff});
+    crowdMesh=new THREE.InstancedMesh(geo,mtl,2400); const d=new THREE.Object3D(); const col=new THREE.Color();
+    const palette=[0xe74c3c,0x3498db,0xf1c40f,0xecf0f1,0x2ecc71,0xe67e22,0x9b59b6,0xfd79a8,0x7fd8cd,0xffd76a];
+    let idx=0;
+    for(let i=0;i<2400;i++){ const tier=i%3, a=-Math.PI/2+(Math.random()-.5)*2.35, r=60.6+tier*4.6+Math.random()*2.6;
+      const x=Math.sin(a)*r, z=-Math.cos(a)*r, y=4.6+tier*2.6+Math.random()*.5;
+      d.position.set(x,y,z); d.lookAt(0,y,10); d.updateMatrix(); crowdMesh.setMatrixAt(idx,d.matrix);
+      crowdMesh.setColorAt(idx, col.setHex(palette[(Math.random()*palette.length)|0]).multiplyScalar(.85+Math.random()*.55));
+      crowdBase.push({x,y,z,a}); idx++; }
+    crowdMesh.instanceMatrix.needsUpdate=true; scene.add(crowdMesh); }
+  /* floodlight towers */
+  function tower(x,z){ const g=new THREE.Group();
+    const pole=new THREE.Mesh(new THREE.CylinderGeometry(.22,.34,25,8), mat(0x39415e,.7)); pole.position.y=12.5; g.add(pole);
+    const head=new THREE.Mesh(new THREE.BoxGeometry(4.6,2.2,.4), mat(0x222a44,.7)); head.position.y=25.6; g.add(head);
+    for(let i=0;i<6;i++){ const lampMat=new THREE.MeshBasicMaterial({color:0xfff6da}); lampMats.push(lampMat);
+      const lamp=new THREE.Mesh(new THREE.SphereGeometry(.34,10,8), lampMat);
+      lamp.position.set(-1.7+(i%3)*1.7, 26.2-Math.floor(i/3)*1.1, .35); g.add(lamp); }
+    const cone=new THREE.Mesh(new THREE.ConeGeometry(9,24,20,1,true),
+      new THREE.MeshBasicMaterial({color:0xfff2c8,transparent:true,opacity:.045,blending:THREE.AdditiveBlending,side:THREE.DoubleSide,depthWrite:false}));
+    cone.position.y=13.5; g.add(cone); g.position.set(x,0,z); g.lookAt(0,0,-6); scene.add(g); }
+  tower(-27,-36); tower(27,-36); tower(-31,12); tower(31,12);
+  /* stadium screen */
+  const sc=document.createElement('canvas'); sc.width=512; sc.height=288; screenCtx=sc.getContext('2d');
+  screenTex=new THREE.CanvasTexture(sc);
+  const frame=new THREE.Mesh(new THREE.BoxGeometry(17.5,10,0.7), mat(0x141b31,.8)); frame.position.set(0,10.5,-59); scene.add(frame);
+  const scr=new THREE.Mesh(new THREE.PlaneGeometry(16.4,9.2), new THREE.MeshBasicMaterial({map:screenTex,fog:false}));
+  scr.position.set(0,10.5,-58.6); scene.add(scr);
+  setScreen('LUNC SLUGGER','LUNC DEV STUDIO','#ffd76a');
+  /* characters */
+  batter=makeChibi({jersey:0xe23b3b,cap:0xe23b3b,pants:0xf2f2f2,skin:0xf2c79b});
+  batter.group.position.set(-1.12,0,1.55); batter.group.rotation.y=1.85; scene.add(batter.group);
+  attachBat(batter);
+  pitcher=makeChibi({jersey:0x27324e,cap:0x1b2340,pants:0xd8dce6,skin:0xd9a066});
+  pitcher.group.position.set(0,.3,-15); pitcher.group.scale.setScalar(1.12); scene.add(pitcher.group);
+  catcher=makeChibi({jersey:0x30364d,cap:0x141824,pants:0x3a405a,skin:0xe8b088});
+  catcher.group.scale.set(1,.68,1); catcher.group.position.set(0.1,0,2.15); catcher.group.rotation.y=Math.PI; scene.add(catcher.group);
+  const mitt=new THREE.Mesh(new THREE.BoxGeometry(.3,.34,.12), mat(0x6b4423,.9));
+  mitt.position.set(.34,.5,-.3); catcher.group.add(mitt);
+  /* ball + trail */
+  const ballTex=cnv(128,64,(x,w,h)=>{ x.fillStyle='#ffffff'; x.fillRect(0,0,w,h); x.strokeStyle='#d42427'; x.lineWidth=3;
+    x.setLineDash([5,4]); x.beginPath(); x.arc(32,32,20,.4,2.6); x.stroke(); x.beginPath(); x.arc(96,32,20,Math.PI+.5,Math.PI+2.7); x.stroke(); });
+  ballMesh=new THREE.Mesh(new THREE.SphereGeometry(.078,18,14), new THREE.MeshStandardMaterial({map:ballTex,roughness:.45}));
+  ballMesh.castShadow=true; ballMesh.visible=false; scene.add(ballMesh);
+  const tg=new THREE.BufferGeometry(); tg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(26*3),3));
+  ballTrail=new THREE.Line(tg, new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:.5}));
+  ballTrail.frustumCulled=false; ballTrail.visible=false; scene.add(ballTrail);
+  addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
+}
+function setScreen(big,small,color){ const x=screenCtx; if(!x) return;
+  x.fillStyle='#0a1030'; x.fillRect(0,0,512,288);
+  const grd=x.createRadialGradient(256,130,30,256,144,300); grd.addColorStop(0,'rgba(80,120,255,.35)'); grd.addColorStop(1,'rgba(0,0,0,0)');
+  x.fillStyle=grd; x.fillRect(0,0,512,288);
+  x.strokeStyle='rgba(127,216,205,.6)'; x.lineWidth=5; x.strokeRect(10,10,492,268);
+  x.fillStyle=color||'#ffd76a'; x.font='900 64px Arial'; x.textAlign='center'; x.fillText(big,256,138);
+  x.fillStyle='#e8eeff'; x.font='700 30px Arial'; x.fillText(small||'',256,196);
+  x.fillStyle='#7fd8cd'; x.font='700 19px Arial'; x.fillText('★ LUNC · LUNA CLASSIC ★',256,248);
+  screenTex.needsUpdate=true; }
+function makeChibi(o){ const g=new THREE.Group(); const parts={group:g};
+  const skin=mat(o.skin,.65), jersey=mat(o.jersey,.8), pants=mat(o.pants,.9);
+  [-1,1].forEach(s=>{ const leg=new THREE.Mesh(new THREE.CylinderGeometry(.085,.1,.5,10), pants);
+    leg.position.set(.14*s,.27,0); g.add(leg); parts[s<0?'legL':'legR']=leg;
+    const shoe=new THREE.Mesh(new THREE.BoxGeometry(.17,.09,.32), mat(0xf5f5f5,.5)); shoe.position.set(.14*s,.045,.05); g.add(shoe); });
+  const torso=new THREE.Mesh(new THREE.SphereGeometry(.34,20,16), jersey); torso.scale.set(1,.92,.74); torso.position.y=.8; torso.castShadow=true; g.add(torso); parts.torso=torso;
+  const patchTex=cnv(128,128,(x,w,h)=>{ x.fillStyle='rgba(6,10,24,.92)'; x.fillRect(0,0,w,h);
+    x.strokeStyle='#ffd76a'; x.lineWidth=5; x.strokeRect(5,5,w-10,h-10);
+    x.fillStyle='#ffd76a'; x.beginPath(); x.arc(64,52,24,0,Math.PI*2); x.fill();
+    x.fillStyle='rgba(6,10,24,.92)'; x.beginPath(); x.arc(76,44,20,0,Math.PI*2); x.fill();
+    x.fillStyle='#7fd8cd'; x.font='900 30px Arial'; x.textAlign='center'; x.fillText('LUNC',64,106); });
+  const patch=new THREE.Mesh(new THREE.PlaneGeometry(.21,.21), new THREE.MeshBasicMaterial({map:patchTex,transparent:true}));
+  patch.position.set(0,.82,.255); g.add(patch);
+  [-1,1].forEach(s=>{ const sh=new THREE.Group(); sh.position.set(.31*s,.97,0);
+    const arm=new THREE.Mesh(new THREE.CylinderGeometry(.068,.06,.36,10), jersey); arm.position.y=-.17; sh.add(arm);
+    const hand=new THREE.Mesh(new THREE.SphereGeometry(.085,10,8), skin); hand.position.y=-.37; sh.add(hand);
+    g.add(sh); parts[s<0?'armL':'armR']=sh; });
+  const head=new THREE.Mesh(new THREE.SphereGeometry(.31,22,18), skin); head.position.y=1.24; head.castShadow=true; g.add(head); parts.head=head;
+  [-1,1].forEach(s=>{ const eye=new THREE.Mesh(new THREE.SphereGeometry(.032,8,8), new THREE.MeshBasicMaterial({color:0x14161c}));
+    eye.position.set(.11*s,1.27,.285); g.add(eye); });
+  const capMat=mat(o.cap,.75); parts.capMats=[capMat];
+  const cap=new THREE.Mesh(new THREE.SphereGeometry(.325,22,12,0,Math.PI*2,0,Math.PI*.52), capMat);
+  cap.position.y=1.29; g.add(cap);
+  const brim=new THREE.Mesh(new THREE.CylinderGeometry(.21,.23,.03,14), capMat);
+  brim.position.set(0,1.33,.26); brim.scale.set(1,1,.75); g.add(brim);
+  return parts; }
+function attachBat(b){ const pivot=new THREE.Group(); pivot.position.set(.02,1.04,.3);
+  const batMat=mat(0xd9a45b,.55);
+  const bat=new THREE.Mesh(new THREE.CylinderGeometry(.030,.052,1.06,12), batMat); bat.position.y=.44; bat.castShadow=true; pivot.add(bat);
+  const knob=new THREE.Mesh(new THREE.SphereGeometry(.05,10,8), mat(0x8a5a33,.6)); knob.position.y=-.08; pivot.add(knob);
+  pivot.rotation.set(-.85,.15,-.5); b.group.add(pivot); b.batPivot=pivot;
+  b.armR.rotation.set(-2.1,0,-.5); b.armL.rotation.set(-1.8,0,.55); }
+function applyUniform(){ const c=new THREE.Color(COLOURS[profile.colour][0]);
+  batter.torso.material.color.copy(c);
+  batter.armR.children[0].material.color.copy(c); batter.armL.children[0].material.color.copy(c);
+  if(batter.capMats) batter.capMats.forEach(m=>m.color.copy(c)); }
+/* fireworks */
+function spawnFireworks(){ const cols=[0xffd76a,0xff5a5a,0x7fd8cd,0xffffff];
+  for(let b=0;b<3;b++){ const n=110, pos=new Float32Array(n*3), vel=[], col=new Float32Array(n*3);
+    const cx=(Math.random()*30-15), cy=13+Math.random()*6, cz=-48-Math.random()*6, c=new THREE.Color(cols[b%cols.length]);
+    for(let i=0;i<n;i++){ pos[i*3]=cx; pos[i*3+1]=cy; pos[i*3+2]=cz;
+      const th=Math.random()*Math.PI*2, ph=Math.acos(Math.random()*2-1), sp=4.5+Math.random()*5.5;
+      vel.push([Math.sin(ph)*Math.cos(th)*sp, Math.cos(ph)*sp*.9+1.5, Math.sin(ph)*Math.sin(th)*sp]);
+      col[i*3]=c.r; col[i*3+1]=c.g; col[i*3+2]=c.b; }
+    const g=new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos,3));
+    g.setAttribute('color', new THREE.BufferAttribute(col,3));
+    const p=new THREE.Points(g, new THREE.PointsMaterial({size:.34,vertexColors:true,transparent:true,opacity:1,blending:THREE.AdditiveBlending,depthWrite:false}));
+    p.frustumCulled=false; scene.add(p); fwBursts.push({p,vel,life:0,delay:b*.28}); } }
+function updateFireworks(dt){ for(let i=fwBursts.length-1;i>=0;i--){ const f=fwBursts[i];
+    if(f.delay>0){ f.delay-=dt; f.p.visible=false; continue; } f.p.visible=true; f.life+=dt;
+    const pos=f.p.geometry.attributes.position.array;
+    for(let j=0;j<f.vel.length;j++){ f.vel[j][1]-=3.4*dt;
+      pos[j*3]+=f.vel[j][0]*dt; pos[j*3+1]+=f.vel[j][1]*dt; pos[j*3+2]+=f.vel[j][2]*dt; }
+    f.p.geometry.attributes.position.needsUpdate=true;
+    f.p.material.opacity=Math.max(0,1-f.life/1.5);
+    if(f.life>1.5){ scene.remove(f.p); f.p.geometry.dispose(); f.p.material.dispose(); fwBursts.splice(i,1); } } }
+/* ================= game engine ================= */
+let G=null;
+const B={active:false,kind:'pitch',vel:new THREE.Vector3(),grav:-12,ax:0};
+function levelDef(n){ const cyc=(n-1)%6, era=Math.floor((n-1)/6); let type,need;
+  if(cyc===0){type='hits';need=3+era;} else if(cyc===1){type='runs';need=3+era*2;}
+  else if(cyc===2){type='hrs';need=2+era;} else if(cyc===3){type='hits';need=4+era;}
+  else if(cyc===4){type='hrs';need=3+era;} else {type='runs';need=6+era*2;}
+  return { type, need, noK:(cyc===3||cyc===5), pitches:10+Math.min(4,Math.floor(n/2)),
+    speedMul:1-Math.min(.34,(n-1)*.045), curveP:Math.min(.42,.06+n*.045), changeP:Math.min(.30,n*.035),
+    windup:Math.max(.55,.95-(n-1)*.05) }; }
+function taskKey(d){ return d.type==='hits'?'taskHits':d.type==='runs'?'taskRuns':'taskHrs'; }
+function taskText(d){ return t(taskKey(d)).replace('{n}',d.need)+(d.noK?' · '+t('taskNoK'):''); }
+function taskProg(){ if(!G) return 0; return G.def.type==='hits'?G.prog.hits:G.def.type==='runs'?G.prog.runs:G.prog.hrs; }
+function taskMet(){ return taskProg()>=G.def.need; }
+function showScreen(id){ document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on', s.id===id)); }
+function showNone(){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('on')); }
+function callout(txt,color,small){ const c=$('callout'); c.textContent=txt; c.style.color=color||'#fff';
+  c.classList.toggle('small',!!small); c.classList.remove('pop'); void c.offsetWidth; c.classList.add('pop'); }
+function pitchTag(txt){ const el=$('pitchTag'); el.textContent=txt; el.style.opacity=1; clearTimeout(el._h); el._h=setTimeout(()=>el.style.opacity=0,850); }
+function refreshHUD(){ if(!G) return;
+  $('hLevel').textContent=G.level; $('hScore').textContent=G.score.toLocaleString();
+  $('hTask').textContent=taskText(G.def)+'  ('+Math.min(taskProg(),G.def.need)+'/'+G.def.need+')';
+  $('taskFill').style.width=Math.min(100, taskProg()/G.def.need*100)+'%';
+  $('hPitches').textContent=G.pitchesLeft;
+  let bh='',sh=''; for(let i=0;i<3;i++) bh+='<span class="dotB'+(i<G.count.b?' on':'')+'"></span>';
+  for(let i=0;i<2;i++) sh+='<span class="dotS'+(i<G.count.s?' on':'')+'"></span>';
+  $('cntB').innerHTML=bh; $('cntS').innerHTML=sh; }
+function startRun(){ G={ state:'playing', paused:false, level:1, score:0, runHits:0, runHrs:0,
+    runT0:performance.now()/1000, phase:'wait', phaseT:0, swingT:-1, armMode:'idle', armT:0, crowdJump:0, camMode:'play',
+    def:null, pitchesLeft:0, prog:{hits:0,runs:0,hrs:0}, count:{b:0,s:0}, kOut:false, pending:null };
+  setupLevel(1); }
+function setupLevel(n){ G.level=n; G.def=levelDef(n); G.pitchesLeft=G.def.pitches;
+  G.prog={hits:0,runs:0,hrs:0}; G.count={b:0,s:0}; G.kOut=false; G.phase='wait'; G.phaseT=0;
+  if(n>stats.best){ stats.best=n; saveStats(); }
+  $('lvNum').textContent=n; $('lvTask').textContent=taskText(G.def); $('lvPitches').textContent=G.def.pitches;
+  $('hud').style.display='none'; $('swingBtn').style.display='none'; $('aimHint').style.display='none'; hideReticle();
+  showScreen('scr-level'); setScreen('LEVEL '+n, taskText(G.def), '#ffd76a'); refreshHUD(); }
+function beginPlay(){ showNone(); G.state='playing'; G.camMode='play';
+  $('hud').style.display='block'; $('swingBtn').style.display='block'; $('aimHint').style.display='block';
+  refreshHUD(); schedulePitch(1.1); }
+function schedulePitch(delay){ G.phase='wait'; G.phaseT=delay; B.active=false; ballMesh.visible=false; ballTrail.visible=false; hideReticle(); }
+function pickPitch(){ const d=G.def; let type='fastball'; const r=Math.random();
+  if(r<d.curveP) type='curve'; else if(r<d.curveP+d.changeP) type='change';
+  let inZone=Math.random()<.74, tx, ty;
+  if(inZone){ tx=Math.random()*.84-.42; ty=.72+Math.random()*.7; }
+  else if(Math.random()<.5){ tx=(Math.random()<.5?-1:1)*(.58+Math.random()*.3); ty=.8+Math.random()*.6; }
+  else { tx=Math.random()*.6-.3; ty=Math.random()<.5?1.62:.48; }
+  if(QA){ type='fastball'; inZone=true; tx=0; ty=1.05; }
+  const baseT=type==='fastball'?.60:type==='curve'?.68:.80;
+  const T=baseT*d.speedMul*(QA?1.08:1);
+  const grav=type==='change'?-16:-12;
+  const vz=(0-RELEASE.z)/T;
+  let ax=0, vx;
+  if(type==='curve'){ ax=(Math.random()<.5?-1:1)*(9+Math.random()*5); vx=(tx-RELEASE.x-.5*ax*T*T)/T; }
+  else vx=(tx-RELEASE.x)/T;
+  const vy=(ty-RELEASE.y-.5*grav*T*T)/T;
+  return {type,inZone,tx,ty,T,grav,ax,vel:new THREE.Vector3(vx,vy,vz)}; }
+function startPitch(){ G.pitch=pickPitch(); G.phase='windup'; G.phaseT=G.def.windup; G.armMode='windup'; G.armT=0;
+  showReticle(); }
+function releaseBall(){ const p=G.pitch; B.active=true; B.kind='pitch'; B.vel.copy(p.vel); B.grav=p.grav; B.ax=p.ax;
+  ballMesh.position.copy(RELEASE); ballMesh.visible=true; ballTrail.visible=true; trailPts=[];
+  ballTrail.material.color.setHex(0xffffff);
+  G.phase='flight'; stats.balls++; saveStats(); pitchTag(t(p.type==='fastball'?'fastball':p.type==='curve'?'curveball':'changeup'));
+  G.armMode='throw'; G.armT=0; }
+function ballScreen(){ const v=ballMesh.position.clone().project(camera);
+  return { x:(v.x*.5+.5)*innerWidth, y:(-v.y*.5+.5)*innerHeight, behind:v.z>1 }; }
+/* ---- swing & outcomes ---- */
+function doSwing(){ au(); if(!G||G.state!=='playing'||G.paused) return;
+  G.swingT=0; SFX.swing();
+  if(G.phase!=='flight'||!B.active||B.kind!=='pitch') return;
+  const bz=ballMesh.position.z;
+  if(bz<-2.3||bz>0.55){ // whiff — too early / too late
+    B.kind='dead'; callout(t('strike'),'#ff8080'); registerStrike(); endPitch(0.85); return; }
+  const timing=1-Math.min(1, Math.abs(bz-(-0.25))/2.0);
+  const bs=ballScreen(), rc=retCenter();
+  const dist=Math.hypot(bs.x-rc.x, bs.y-rc.y);
+  const aim=Math.max(0, 1-dist/95);
+  const contact=timing*.55+aim*.45;
+  SFX.crack();
+  if(contact>=.85){ launchBall('hr'); }
+  else if(contact>=.66){ launchBall('hit'); }
+  else if(contact>=.48){ launchBall('foul'); }
+  else if(Math.random()<.5){ launchBall('foul'); }
+  else { B.kind='dead'; callout(t('strike'),'#ff8080'); registerStrike(); endPitch(0.85); } }
+function launchBall(kind){ const p=ballMesh.position;
+  B.kind=kind; G.pending=kind; G.phase='hitball';
+  const ang=(Math.random()*.9-.45);
+  if(kind==='hr'){ const vh=21.5+Math.random()*2.5;
+    B.vel.set(Math.sin(ang)*vh, 16.5+Math.random()*1.5, -Math.cos(ang)*vh); B.grav=-12; B.ax=0; G.phaseT=3.1; }
+  else if(kind==='hit'){ const vh=16+Math.random()*3;
+    B.vel.set(Math.sin(ang)*vh, 8+Math.random()*2, -Math.cos(ang)*vh); B.grav=-12; B.ax=0; G.phaseT=2.3; }
+  else { const s=Math.random()<.5?-1:1;
+    B.vel.set(s*(10+Math.random()*5), 8.5+Math.random()*3, 5+Math.random()*4); B.grav=-12; B.ax=0; G.phaseT=1.15; }
+  ballTrail.material.color.setHex(kind==='hr'?0xffcf4d:0xffffff);
+  hideReticle(); }
+function applyHitResult(){ const kind=G.pending; G.pending=null;
+  if(kind==='hr'){ G.prog.hrs++; G.prog.hits++; G.prog.runs+=2; G.runHrs++; G.runHits++; G.score+=400;
+    stats.hrs++; stats.hits++; callout(t('homeRun'),'#ffd76a'); SFX.fanfare(); SFX.cheer(1.6);
+    spawnFireworks(); G.crowdJump=1; setScreen('HOME RUN!', profile.name||'SLUGGER', '#ffd76a'); }
+  else if(kind==='hit'){ G.prog.hits++; G.prog.runs+=1; G.runHits++; G.score+=150;
+    stats.hits++; callout(t('hit'),'#7dffce'); SFX.cheer(.9); setScreen('HIT!', (profile.team||'LUNC CLUB'), '#7dffce'); }
+  else { callout(t('foul'),'#cfd8ff',true); SFX.foul();
+    if(G.count.s<2){ G.count.s++; stats.strikes++; } }
+  saveStats(); resetCountIfNeeded(kind); endPitch(0.55); }
+function resetCountIfNeeded(kind){ if(kind==='hr'||kind==='hit'){ G.count={b:0,s:0}; } }
+function registerStrike(){ stats.strikes++; saveStats(); G.count.s++;
+  if(G.count.s>=3){ G.kOut=true; } }
+function resolveTaken(){ const p=G.pitch; B.kind='dead';
+  if(p.inZone){ callout(t('strike'),'#ff8080',true); registerStrike(); }
+  else { G.count.b++; if(G.count.b>=4){ G.score+=25; callout(t('walk'),'#9fd0ff'); G.count={b:0,s:0}; refreshHUD(); endPitch(0.9); return; }
+    callout(t('ball'),'#9fd0ff',true); }
+  endPitch(0.8); }
+function endPitch(delay){ G.pitchesLeft--; G.phase='resolve'; G.phaseT=delay||0.7; hideReticle(); refreshHUD(); }
+function afterPitch(){ B.active=false; ballMesh.visible=false; ballTrail.visible=false;
+  if(G.kOut){ callout(t('strikeout'),'#ff6060'); SFX.thud();
+    if(G.def.noK){ setTimeout(()=>gameOver(),900); G.phase='celebrate'; G.phaseT=99; return; }
+    G.kOut=false; G.count={b:0,s:0}; }
+  if(taskMet()){ levelComplete(); return; }
+  if(G.pitchesLeft<=0){ gameOver(); return; }
+  refreshHUD(); schedulePitch(0.95); }
+function levelComplete(){ G.score+=200+50*G.level; refreshHUD();
+  callout(t('levelComplete'),'#7fd8cd'); SFX.fanfare(); SFX.cheer(1.4); spawnFireworks(); G.crowdJump=1;
+  setScreen('LEVEL '+G.level+' ✓','+'+(200+50*G.level), '#7fd8cd');
+  G.phase='celebrate'; G.phaseT=2.0; }
+function gameOver(){ if(!G||G.state==='over') return; G.state='over'; G.phase='idle';
+  B.active=false; ballMesh.visible=false; ballTrail.visible=false; hideReticle();
+  $('hud').style.display='none'; $('swingBtn').style.display='none'; $('aimHint').style.display='none';
+  $('ovScore').textContent=G.score.toLocaleString(); $('ovLevel').textContent=G.level;
+  $('ovHrs').textContent=G.runHrs; $('ovHits').textContent=G.runHits; $('ovBest').textContent='Lv '+stats.best;
+  $('ovSaved').textContent=''; showScreen('scr-over'); setScreen('GAME OVER', (profile.name||'PLAYER')+' · '+G.score, '#ff8080');
+  const secs=(performance.now()/1000)-G.runT0;
+  if(G.score>0&&secs>=10){ postScore(profile.name||'PLAYER', G.score, secs).then(ok=>{ $('ovSaved').textContent=ok?t('scoreSaved'):t('boardFail'); }); }
+  G.camMode='menu'; }
+/* ---- reticle ---- */
+const ret={x:innerWidth/2, y:innerHeight*.5};
+function setRet(x,y){ ret.x=Math.max(30,Math.min(innerWidth-30,x)); ret.y=Math.max(80,Math.min(innerHeight-40,y));
+  const el=$('reticle'); el.style.left=ret.x+'px'; el.style.top=ret.y+'px'; }
+function retCenter(){ return {x:ret.x, y:ret.y}; }
+function showReticle(){ $('reticle').style.display='block'; }
+function hideReticle(){ $('reticle').style.display='none'; }
+/* ---- leaderboard ---- */
+let boardData=null, boardWhich='all';
+async function loadBoard(){ try{ const r=await fetch('/api/luna-games?game=slugger'); boardData=await r.json(); renderBoard(); }
+  catch(e){ $('lbBody').innerHTML='<p class="note">'+t('boardFail')+'</p>'; } }
+function renderBoard(){ const body=$('lbBody'); if(!boardData) return;
+  $('lbAllBtn').classList.toggle('on',boardWhich==='all'); $('lbWeekBtn').classList.toggle('on',boardWhich==='week');
+  const rows=(boardWhich==='all'?boardData.all:boardData.week)||[];
+  if(!rows.length){ body.innerHTML='<p class="note">'+t('noScores')+'</p>'; return; }
+  body.innerHTML=rows.slice(0,10).map((r,i)=>'<div class="lbRow"><span class="who">'+(i+1)+'. '+esc(r.name||'PLAYER')+'</span><span class="sc">'+Number(r.score||0).toLocaleString()+'</span></div>').join(''); }
+async function postScore(name,score,seconds){ try{ const r=await fetch('/api/luna-games?game=slugger',{method:'POST',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({name,score,seconds:Math.max(10,Math.round(seconds)),wallet:''})});
+    const j=await r.json(); return !!(j&&j.ok!==false); }catch(e){ return false; } }
+function esc(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+/* ---- main loop ---- */
+const camPos=new THREE.Vector3(-0.2,2.5,9.2), camTgt=new THREE.Vector3(0.1,1.15,-9);
+function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getDelta(),.05); const time=clock.elapsedTime;
+  if(G&&G.paused){ renderer.render(scene,camera); return; }
+  /* batter pose */
+  if(G&&G.swingT>=0){ G.swingT+=dt; const p=Math.min(1,G.swingT/.24), e=1-Math.pow(1-p,3);
+    batter.batPivot.rotation.set(-.85+e*.75, .15-e*2.6, -.5+e*.35);
+    batter.group.rotation.y=1.85-Math.sin(p*Math.PI)*.5;
+    if(p>=1){ G.swingT=-1; } }
+  else { batter.batPivot.rotation.set(-.85+Math.sin(time*2.1)*.045, .15, -.5+Math.sin(time*1.6)*.05);
+    batter.group.rotation.y=1.85+Math.sin(time*.9)*.02; }
+  batter.group.position.y=Math.sin(time*1.8)*.012;
+  /* pitcher pose */
+  if(pitcher){ let ax=.2+Math.sin(time*1.7)*.06, leg=0;
+    if(G&&G.armMode==='windup'){ G.armT+=dt; const p=Math.min(1,G.armT/G.def.windup), e=p*p*(3-2*p);
+      ax=.2+(-2.85-.2)*e; leg=.85*e; }
+    else if(G&&G.armMode==='throw'){ G.armT+=dt; const p=Math.min(1,G.armT/.34);
+      ax=p<.35? -2.85+(1.25+2.85)*(p/.35) : 1.25+(.2-1.25)*((p-.35)/.65); if(p>=1) G.armMode='idle'; }
+    pitcher.armR.rotation.x=ax; pitcher.legL.rotation.x=leg;
+    pitcher.group.position.y=.3+Math.sin(time*1.4)*.012; }
+  catcher.group.position.y=Math.sin(time*1.3+2)*.008;
+  if(crowdMesh){ G&&(G.crowdJump=Math.max(0,(G.crowdJump||0)-dt*.5));
+    crowdMesh.position.y=Math.sin(time*1.25)*.045+((G&&G.crowdJump)||0)*Math.abs(Math.sin(time*13))*.3; }
+  updateFireworks(dt);
+  /* game phases */
+  if(G&&G.state==='playing'&&!G.paused){
+    if(G.phase==='wait'){ G.phaseT-=dt; if(G.phaseT<=0) startPitch(); }
+    else if(G.phase==='windup'){ G.phaseT-=dt; if(G.phaseT<=0) releaseBall(); }
+    else if(G.phase==='flight'&&B.active){ stepBall(dt);
+      if(B.kind==='pitch'&&ballMesh.position.z>=1.05) resolveTaken();
+      else if(B.kind==='pitch'&&ballMesh.position.y<.02&&ballMesh.position.z>-.6) resolveTaken(); }
+    else if(G.phase==='hitball'){ stepBall(dt); G.phaseT-=dt; if(G.phaseT<=0){ applyHitResult(); } }
+    else if(G.phase==='resolve'){ if(B.active) stepBall(dt); G.phaseT-=dt; if(G.phaseT<=0) afterPitch(); }
+    else if(G.phase==='celebrate'){ if(B.active) stepBall(dt); G.phaseT-=dt;
+      if(G.phaseT<=0&&G.phaseT>-90){ setupLevel(G.level+1); } }
+  }
+  /* camera director */
+  let dp, dtn, k=3.2;
+  if(G&&G.camMode==='hit'&&B.active){ const bp=ballMesh.position;
+    dp=new THREE.Vector3(bp.x*.45, 3.6, Math.min(9, bp.z+11)); dtn=bp; k=5; }
+  else if(G&&(G.state==='playing')){ dp=new THREE.Vector3(-0.4,2.3,8.6); dtn=new THREE.Vector3(0.1,1.05,-10); }
+  else { dp=new THREE.Vector3(-0.2+Math.sin(time*.12)*.8, 2.5+Math.sin(time*.07)*.3, 9.2); dtn=new THREE.Vector3(0.1,1.15,-9); }
+  const f=1-Math.exp(-dt*k); camPos.lerp(dp,f); camTgt.lerp(dtn,f);
+  camera.position.copy(camPos); camera.lookAt(camTgt);
+  renderer.render(scene,camera); }
+function stepBall(dt){ const p=ballMesh.position;
+  if(B.kind==='dead'&&p.z>=1.0){ p.set(0,.55,1.02); B.vel.set(0,0,0); }
+  B.vel.y+=B.grav*dt; B.vel.x+=B.ax*dt; p.addScaledVector(B.vel,dt);
+  if(p.y<.078){ p.y=.078; if(B.vel.y<0) B.vel.y*=-.42; B.vel.x*=.72; B.vel.z*=.72;
+    if(Math.abs(B.vel.y)<.8) B.vel.y=0; }
+  if(B.kind==='hr'&&p.z<-54&&!B._fw){ B._fw=true; }
+  if(B.kind!=='hr') B._fw=false;
+  trailPts.unshift(p.x,p.y,p.z); if(trailPts.length>78) trailPts.length=78;
+  const arr=ballTrail.geometry.attributes.position.array;
+  for(let i=0;i<26;i++){ const j=Math.min(i*3, trailPts.length-3);
+    arr[i*3]=trailPts[j]||p.x; arr[i*3+1]=trailPts[j+1]||p.y; arr[i*3+2]=trailPts[j+2]||p.z; }
+  ballTrail.geometry.attributes.position.needsUpdate=true;
+  if(B.kind==='pitch'&&G) G.camMode='play';
+  if((B.kind==='hit'||B.kind==='hr')&&G) G.camMode='hit'; }
+/* ---- input ---- */
+function initInput(){ const el=renderer.domElement; let pd=null;
+  el.addEventListener('pointerdown',e=>{ au(); pd={t:performance.now(),x:e.clientX,y:e.clientY,moved:false}; setRet(e.clientX,e.clientY); });
+  el.addEventListener('pointermove',e=>{ if(pd){ if(Math.hypot(e.clientX-pd.x,e.clientY-pd.y)>12) pd.moved=true; setRet(e.clientX,e.clientY); }
+    else if(e.pointerType==='mouse') setRet(e.clientX,e.clientY); });
+  el.addEventListener('pointerup',e=>{ if(pd&&!pd.moved&&performance.now()-pd.t<280) doSwing(); pd=null; });
+  el.addEventListener('pointercancel',()=>{ pd=null; });
+  $('swingBtn').addEventListener('pointerdown',e=>{ e.preventDefault(); e.stopPropagation(); doSwing(); });
+  addEventListener('keydown',e=>{ if(e.code==='Space'){ e.preventDefault(); doSwing(); }
+    const step=20; if(e.key==='ArrowLeft') setRet(ret.x-step,ret.y); if(e.key==='ArrowRight') setRet(ret.x+step,ret.y);
+    if(e.key==='ArrowUp') setRet(ret.x,ret.y-step); if(e.key==='ArrowDown') setRet(ret.x,ret.y+step); }); }
+/* ---- wiring / init ---- */
+function init(){ buildScene(); applyUniform();
+  const lp=$('langPick'); LANGS.forEach(([c,n])=>{ const o=document.createElement('option'); o.value=c; o.textContent=n; lp.appendChild(o); });
+  lp.value=lang; lp.onchange=()=>{ lang=lp.value; localStorage.setItem('slugger_lang',lang); applyI18n(); if(boardData) renderBoard(); };
+  const sw=$('swatches'); COLOURS.forEach((c,i)=>{ const d=document.createElement('button'); d.className='sw'+(i===profile.colour?' on':'');
+    d.style.background=c[0]; d.title=c[1]; d.onclick=()=>{ profile.colour=i; saveProfile(); applyUniform();
+      sw.querySelectorAll('.sw').forEach((el,j)=>el.classList.toggle('on',j===i)); SFX.click(); }; sw.appendChild(d); });
+  $('inName').value=profile.name; $('inTeam').value=profile.team;
+  $('inName').addEventListener('change',()=>{ profile.name=$('inName').value.trim().toUpperCase()||'PLAYER'; saveProfile(); refreshMenuWho(); });
+  $('inTeam').addEventListener('change',()=>{ profile.team=$('inTeam').value.trim().toUpperCase()||'LUNC CLUB'; saveProfile(); refreshMenuWho(); });
+  $('btnPlay').onclick=()=>{ au(); SFX.click(); startRun(); };
+  $('btnProfile').onclick=()=>{ SFX.click(); $('inName').value=profile.name; $('inTeam').value=profile.team; updateProfileStats(); showScreen('scr-profile'); };
+  $('btnProfBack').onclick=()=>{ SFX.click(); showScreen('scr-menu'); };
+  $('btnBoard').onclick=()=>{ SFX.click(); showScreen('scr-board'); loadBoard(); };
+  $('btnBoardBack').onclick=()=>{ SFX.click(); showScreen('scr-menu'); };
+  $('lbAllBtn').onclick=()=>{ boardWhich='all'; renderBoard(); };
+  $('lbWeekBtn').onclick=()=>{ boardWhich='week'; renderBoard(); };
+  $('btnSound').onclick=()=>{ soundOn=!soundOn; localStorage.setItem('slugger_snd',soundOn?'1':'0'); applyI18n(); if(soundOn) SFX.click(); };
+  $('btnStepUp').onclick=()=>{ SFX.click(); beginPlay(); };
+  $('btnLvMenu').onclick=()=>{ SFX.click(); G=null; showScreen('scr-menu'); setScreen('LUNC SLUGGER','LUNC DEV STUDIO','#ffd76a'); };
+  $('btnAgain').onclick=()=>{ SFX.click(); startRun(); };
+  $('btnOverMenu').onclick=()=>{ SFX.click(); G=null; showScreen('scr-menu'); setScreen('LUNC SLUGGER','LUNC DEV STUDIO','#ffd76a'); };
+  $('pauseBtn').onclick=()=>{ if(G&&G.state==='playing'){ G.paused=true; showScreen('scr-pause'); } };
+  $('btnResume').onclick=()=>{ if(G){ G.paused=false; showNone(); } };
+  $('btnQuit').onclick=()=>{ if(G){ G.paused=false; showNone(); gameOver(); } };
+  setRet(innerWidth/2, innerHeight*.5);
+  applyI18n(); initInput(); loadBoard(); animate(); }
+document.addEventListener('DOMContentLoaded', init);
+/* QA hooks */
+window.__slugger={ get G(){return G;}, stats:()=>stats, profile:()=>profile,
+  state:()=>G?{state:G.state,phase:G.phase,level:G.level,score:G.score,pitchesLeft:G.pitchesLeft,prog:{...G.prog},count:{...G.count},def:G.def}:null,
+  ball:()=>{ if(!B.active) return null; const s=ballScreen(); return {wx:ballMesh.position.x,wy:ballMesh.position.y,wz:ballMesh.position.z,kind:B.kind,sx:s.x,sy:s.y}; },
+  aimAtBall:()=>{ const s=ballScreen(); setRet(s.x,s.y); }, setRet:(x,y)=>setRet(x,y),
+  swing:()=>doSwing(), play:()=>$('btnPlay').click(), stepUp:()=>$('btnStepUp').click(),
+  showProfile:()=>$('btnProfile').click(), setName:v=>{ $('inName').value=v; $('inName').dispatchEvent(new Event('change')); },
+  setTeam:v=>{ $('inTeam').value=v; $('inTeam').dispatchEvent(new Event('change')); },
+  setColour:i=>{ document.querySelectorAll('.sw')[i].click(); } };
+</script>
+</body>
+</html>
