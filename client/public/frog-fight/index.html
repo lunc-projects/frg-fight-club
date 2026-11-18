@@ -391,6 +391,16 @@ function frogzSkin(tk){
   }
   return dynSkins[tk.uid];
 }
+/* KAIJU tokens carry no class/skin trait at all — one generic giant-frog
+   body for the 3D mode; the token's real art (and its cutout) is the
+   fighter in 2D mode and in the panel. */
+const KAIJU_BODY = { body:0x2e7d5b, belly:0xf5d9a8, spot:0x17402e };
+function kaijuSkin(tk){
+  if (!dynSkins[tk.uid]){
+    dynSkins[tk.uid] = { id: tk.uid, name: tk.name, rarity: tk.rarity, body: KAIJU_BODY.body, belly: KAIJU_BODY.belly, spot: KAIJU_BODY.spot, pupil: 0x141414, gear: [] };
+  }
+  return dynSkins[tk.uid];
+}
 function skinById(id){ return SKINS.find(s => s.id === id) || dynSkins[id] || SKINS[0]; }
 let curSkin = localStorage.getItem('ffight_skin') || 'green';
 if (!skinById(curSkin)) curSkin = 'green';
@@ -408,9 +418,9 @@ function skinUnlocked(id){
   if (s.needClass) return ownedTokens.some(o => o.coll === 'A' && o.cls === s.needClass);
   return false;
 }
-function skinForToken(tk){ if (tk.coll === 'Z') return tk.uid; return NAMED_SKINS[String(tk.id)] || tk.cls; }
+function skinForToken(tk){ if (tk.coll === 'Z' || tk.coll === 'K') return tk.uid; return NAMED_SKINS[String(tk.id)] || tk.cls; }
 function tokenLabel(tk){
-  if (tk.coll === 'Z') return tk.name;
+  if (tk.coll === 'Z' || tk.coll === 'K') return tk.name;
   const s = skinById(skinForToken(tk));
   return NAMED_SKINS[tk.id] ? s.name : s.name + ' #' + tk.id;
 }
@@ -430,7 +440,7 @@ function updateProfNft(){
     img.src = tk.img; img.style.display = 'inline-block'; art.style.display = 'none';
     const s = skinById(skinForToken(tk));
     $('profNftCap').textContent = tokenLabel(tk);
-    $('profChips').innerHTML = (tk.coll === 'Z' ? '<span class="chip">FROGZ</span>' : '<span class="chip">' + esc(s.name) + '</span>') +
+    $('profChips').innerHTML = (tk.coll === 'Z' ? '<span class="chip">FROGZ</span>' : (tk.coll === 'K' ? '<span class="chip">KAIJU</span>' : '<span class="chip">' + esc(s.name) + '</span>')) +
       '<span class="chip">' + esc(tk.rarity) + '</span>' + (tk.ability ? '<span class="chip">' + esc(tk.ability) + '</span>' : '') + '<span class="chip">#' + esc(tk.id) + '</span>';
     $('freeNote').style.display = 'none';
   } else {
@@ -468,9 +478,11 @@ function renderPerks(){
    Ownership is read straight from the CW721 on the public LCD. */
 const AMPH_CONTRACT = 'terra1gah2e0ly97uz5hg7c48an6n9r5vxexq90wwwlv4jpg3ve8yhphjqtx4dmu';
 const FROGZ_CONTRACT = 'terra1pwyv50whk9xllqnyna4p5g9n0qt4nslg70g799';
+const KAIJU_CONTRACT = 'terra1s4zze0rhjd73qpze0hr3av7g9nsp2te0snp5kd4qe6mugtsewk6q27ah9q';
 const LCD = 'https://terra-classic-lcd.publicnode.com';
 const AMPH_IMG = id => 'https://ipfs.miata-ipfs.com/ipfs/QmSxgstdiUyBBsfC5YYiJPn3Ar2VeTMAS9hYGGxh6c7UVY/' + id + '.png';
 const FROGZ_IMG = id => 'https://ipfs.miata-ipfs.com/ipfs/QmZ62FeH8oU8TpFYt66ni1n83NeQZ4mpApgKSGknzEVZoc/' + id + '.png';
+const KAIJU_IMG = id => 'https://ipfs.miata-ipfs.com/ipfs/Qmb4zeJ4KdHhVntKBoCNJ9xrR6AbUR1mZHgrYGgtPSTcp1/' + id + '.jpg';
 function b64q(o){ return btoa(unescape(encodeURIComponent(JSON.stringify(o)))); }
 function normClass(c){ c = String(c || '').toLowerCase();
   if (c.includes('soldier')) return 'soldier'; if (c.includes('cosmo') || c.includes('astro')) return 'cosmo';
@@ -485,10 +497,12 @@ async function fetchOwned(addr){
   if (!/^terra1[0-9a-z]{38}$/.test(addr)){ wStat('That does not look like a Terra Classic address.'); return; }
   wStat('Looking up frogs for ' + addr.slice(0, 12) + '…');
   ownedTokens = []; ownedAddr = addr;
-  /* One lookup, BOTH Frogztrik collections: The Amphibians + Frogztrik (FROGZ). */
+  /* One lookup, ALL THREE Frogztrik collections: The Amphibians +
+     Frogztrik (FROGZ) + Frogz Kaijū (KAIJU). */
   const jobs = [
     { contract: AMPH_CONTRACT, add: addOwnedToken },
     { contract: FROGZ_CONTRACT, add: addFrogzToken },
+    { contract: KAIJU_CONTRACT, add: addKaijuToken },
   ];
   let anyOk = false;
   for (const job of jobs){
@@ -524,8 +538,22 @@ function addFrogzToken(id, info){
   ownedTokens.push(tk);
   frogzSkin(tk); /* register its fighter body up front */
 }
+function addKaijuToken(id, info){
+  const ext = info.extension || {};
+  const attrs = ext.attributes || [];
+  const get = k => { const a = attrs.find(a => String(a.trait_type || '').toLowerCase() === k); return a ? a.value : ''; };
+  /* KAIJU's only trait is Rarity = "Evolution" on every token — there is
+     no rarity ladder and no class/skin trait, so nothing is mapped or
+     invented: the rarity is shown as-is and the 3D body is one generic
+     kaiju frame (the 2D mode fights with the token's own art anyway). */
+  const tk = { id: String(id), coll: 'K', uid: 'K:' + id, name: String(ext.name || ('FROGZ KAIJU #' + id)), cls: 'kaiju', rarity: String(get('rarity') || 'Evolution'),
+    ability: '', img: String(ext.image || '') || KAIJU_IMG(id) };
+  ownedTokens.push(tk);
+  kaijuSkin(tk); /* register its fighter body up front */
+}
 function finishOwned(addr){
-  ownedTokens.sort((a, b) => (a.coll === b.coll ? (+a.id) - (+b.id) : (a.coll === 'A' ? -1 : 1)));
+  const collRank = { A:0, Z:1, K:2 };
+  ownedTokens.sort((a, b) => (a.coll === b.coll ? (+a.id) - (+b.id) : collRank[a.coll] - collRank[b.coll]));
   /* Perks stay AMPHIBIANS-ONLY: they were defined on the Amphibians
      rarity+ability ladders. FROGZ has a Rarity trait but no Ability
      trait, so its rarity is not read as the same ladder here. */
@@ -537,9 +565,9 @@ function finishOwned(addr){
   if (selectedToken) localStorage.setItem('ffight_token', selectedToken); else localStorage.removeItem('ffight_token');
   if (!skinUnlocked(curSkin) && !selectedToken) applySkin('green');
   renderOwned(); renderPerks(); renderSkins(); updateProfNft();
-  const nA = ownedTokens.filter(o => o.coll === 'A').length, nZ = ownedTokens.length - nA;
-  wStat(ownedTokens.length ? ('✅ ' + addr.slice(0, 12) + '… holds ' + ownedTokens.length + ' frogs (' + nA + ' Amphibians + ' + nZ + ' Frogztrik). Tap one below — that frog becomes your fighter!')
-                            : ('No Amphibians or Frogztrik frogs found for ' + addr.slice(0, 12) + '… — you can still play free with the Green Frog.'));
+  const nA = ownedTokens.filter(o => o.coll === 'A').length, nZ = ownedTokens.filter(o => o.coll === 'Z').length, nK = ownedTokens.length - nA - nZ;
+  wStat(ownedTokens.length ? ('✅ ' + addr.slice(0, 12) + '… holds ' + ownedTokens.length + ' frogs (' + nA + ' Amphibians + ' + nZ + ' Frogztrik + ' + nK + ' Kaiju). Tap one below — that frog becomes your fighter!')
+                            : ('No Amphibians, Frogztrik or Kaiju frogs found for ' + addr.slice(0, 12) + '… — you can still play free with the Green Frog.'));
 }
 function renderOwned(){
   const box = $('nftList'); if (!box) return;
@@ -551,14 +579,14 @@ function renderOwned(){
       lastColl = tk.coll;
       const h = document.createElement('div');
       h.className = 'nftGroupHead';
-      h.textContent = tk.coll === 'Z' ? '🐸 FROGZTRIK · FROGZ' : '🐸 THE AMPHIBIANS';
+      h.textContent = tk.coll === 'Z' ? '🐸 FROGZTRIK · FROGZ' : (tk.coll === 'K' ? '🦖 FROGZ KAIJŪ' : '🐸 THE AMPHIBIANS');
       box.appendChild(h);
     }
     const skinId = skinForToken(tk), s = skinById(skinId);
     const b = document.createElement('button');
     b.className = 'nftItem' + (selectedToken && tk.uid === selectedToken ? ' sel' : '');
     const label = tokenLabel(tk);
-    b.innerHTML = '<img src="' + esc(tk.img || (tk.coll === 'Z' ? FROGZ_IMG(tk.id) : AMPH_IMG(tk.id))) + '" alt="" loading="lazy" style="background:#' + s.body.toString(16).padStart(6,'0') + '" onerror="this.style.display=\'none\'"><span><b>' + esc(label) + '</b><br><small>' + esc(tk.rarity) + (tk.ability ? ' · ' + esc(tk.ability) : '') + (tk.coll === 'Z' ? ' · FROGZ' : '') + '</small></span>';
+    b.innerHTML = '<img src="' + esc(tk.img || (tk.coll === 'Z' ? FROGZ_IMG(tk.id) : (tk.coll === 'K' ? KAIJU_IMG(tk.id) : AMPH_IMG(tk.id)))) + '" alt="" loading="lazy" style="background:#' + s.body.toString(16).padStart(6,'0') + '" onerror="this.style.display=\'none\'"><span><b>' + esc(label) + '</b><br><small>' + esc(tk.rarity) + (tk.ability ? ' · ' + esc(tk.ability) : '') + (tk.coll === 'Z' ? ' · FROGZ' : (tk.coll === 'K' ? ' · KAIJU' : '')) + '</small></span>';
     b.onclick = () => { selectedToken = tk.uid; localStorage.setItem('ffight_token', tk.uid); applySkin(skinId); renderOwned(); updateProfNft(); wStat('🐸 ' + label + ' is your fighter now — head back up and FIGHT!'); };
     box.appendChild(b);
   });
@@ -861,12 +889,31 @@ function artImg(url){
 }
 function playerArtUrl(){
   if (selectedToken){ const tk = ownedTokens.find(o => o.uid === selectedToken);
-    if (tk) return tk.img || (tk.coll === 'Z' ? FROGZ_IMG(tk.id) : AMPH_IMG(tk.id)); }
+    if (tk) return tk.img || (tk.coll === 'Z' ? FROGZ_IMG(tk.id) : (tk.coll === 'K' ? KAIJU_IMG(tk.id) : AMPH_IMG(tk.id))); }
   return AMPH_IMG(SKIN_ART[curSkin] || '23');
+}
+/* ---- NFT character cutouts (transparent background — just the frog, no
+   square picture). Manifest is built by the frog-art pass; a token with
+   cut:false, a missing manifest or a failed cutout load keeps the framed
+   art above. Cutouts live under /frog-art/ on this same site. ---- */
+const CUTMAN = { A:{}, Z:{}, K:{} };
+fetch('/frog-art/manifest.json').then(r => r.ok ? r.json() : null).then(m => {
+  if (!m) return;
+  CUTMAN.A = m.amph || {}; CUTMAN.Z = m.frogz || {}; CUTMAN.K = m.kaiju || {};
+}).catch(() => {});
+function cutUrl(coll, id){
+  const e = (CUTMAN[coll] || {})[String(id)];
+  return typeof e === 'string' ? e : null;
+}
+function playerCutUrl(){
+  if (selectedToken){ const tk = ownedTokens.find(o => o.uid === selectedToken);
+    if (tk) return cutUrl(tk.coll, tk.id); }
+  return cutUrl('A', SKIN_ART[curSkin] || '23');
 }
 /* ---- one living NFT-art cutout; same fighter state as drawFrog ---- */
 function drawArtFrog(f, time){
-  const rec = f.art;
+  const cut = (f.cut && f.cut.ok && !f.cut.failed) ? f.cut : null;
+  const rec = cut || f.art;
   if (!rec || rec.failed || !rec.ok){ drawFrog(f, time); return; }
   const S = 152, ph = f.phase || 0;
   ctx.save();
@@ -886,6 +933,16 @@ function drawArtFrog(f, time){
   ctx.translate(f.face * ox, oy - f.jump);
   ctx.scale(f.face, 1);
   ctx.rotate(rot); ctx.scale(sx, sy);
+  if (cut){
+    /* transparent character cutout — no frame, no square picture edges;
+       natural aspect, feet on the ground shadow drawn above */
+    const iw = rec.img.naturalWidth || S, ih = rec.img.naturalHeight || S;
+    const H = S * 1.1, W = H * iw / ih, cx0 = -W / 2, cy0 = -H + 10;
+    ctx.drawImage(rec.img, cx0, cy0, W, H);
+    if (f.state === 'block'){ ctx.save(); ctx.globalAlpha = .30; try { ctx.filter = 'brightness(1.5) hue-rotate(160deg)'; } catch(e){} ctx.drawImage(rec.img, cx0, cy0, W, H); ctx.restore(); }
+    if (f.flash > 0){ ctx.save(); ctx.globalAlpha = Math.min(0.7, f.flash * 2.4); try { ctx.filter = 'brightness(2.8) saturate(.3)'; } catch(e){} ctx.drawImage(rec.img, cx0, cy0, W, H); ctx.restore(); }
+    ctx.restore();
+  } else {
   const x0 = -S / 2, y0 = -S + 10;
   ctx.save();
   rr(x0, y0, S, S, 20); ctx.clip();
@@ -900,6 +957,7 @@ function drawArtFrog(f, time){
   rr(x0, y0, S, S, 20); ctx.lineWidth = 5;
   ctx.strokeStyle = (G && f === G.p) ? '#ffb52e' : '#37474f'; ctx.stroke();
   ctx.restore();
+  }
   /* block shield arc (mirrors the toon frog's) */
   if (f.state === 'block'){
     ctx.strokeStyle = 'rgba(120,220,255,.75)'; ctx.lineWidth = 4; ctx.lineCap = 'round';
@@ -981,6 +1039,8 @@ function startMatch(idx, fresh){
   G.mode = gameMode;
   G.p.art = artImg(playerArtUrl());
   G.r.art = artImg(AMPH_IMG(RIVAL_ART[idx]));
+  G.p.cut = artImg(playerCutUrl());
+  G.r.cut = artImg(cutUrl('A', RIVAL_ART[idx]));
   showVs(playerArtUrl(), AMPH_IMG(RIVAL_ART[idx]));
   startRound();
 }
