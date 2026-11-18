@@ -5125,6 +5125,111 @@ export async function hussyBotHandler(req, res) {
 }
 /* hussy-bot:end */
 
+/* hussy-ladder:start
+   HUSSY'S LADDER BOT — the game screen for the $1 -> $10,000
+   pump.fun ladder challenge (the RGK format, recreated for Hussy
+   by Tom's Dev, Nov 18, 2026). Reached via ?hussyladder=1.
+   The bot (its own host) posts its status here, authenticated by
+   the SHA-256 of a file-only secret (hlBotRegister / hlBotStatus —
+   the tda/hb bootstrap pattern: HL_BOT_BOOTSTRAP_HASH is accepted
+   until the bot registers, then the stored hash alone rules).
+   Storage: Upstash keys hl:* —
+     hl:botsecret  SHA-256 of the ladder bot's file-only secret.
+     hl:status     the status JSON the bot posts each cycle
+                   (level, pot, progress, trades, positions —
+                   display only).
+   The page reads with Hussy's SAME access code as his trading-bot
+   page: hlCheck / hlGet verify against the hb effective code hash
+   and share its per-IP brute-force lockout rails. This endpoint
+   holds no keys, signs nothing, moves no funds. */
+const HL_STATUS_KEY = 'hl:status';
+const HL_BOTSECRET_KEY = 'hl:botsecret';
+const HL_BOT_BOOTSTRAP_HASH = '41d7fa09cf49544606b428939a7c91d2f57e3740d821f2247dc9925ce8461a79';
+
+async function hlBotHashOk(bhash) {
+  if (!hbIsHash(bhash)) return false;
+  const out = await upstashPipeline([['GET', HL_BOTSECRET_KEY]]);
+  const v = out[0] && out[0].result;
+  const effective = hbIsHash(v) ? v : HL_BOT_BOOTSTRAP_HASH;
+  return hbHashEq(bhash, effective);
+}
+
+export async function hussyLadderHandler(req, res) {
+  if (req.method !== 'GET' && req.method !== 'POST') {
+    return res.status(405).json({ ok: false, error: 'method not allowed' });
+  }
+  if (!process.env.NEONRUSH_UPSTASH_URL || !process.env.NEONRUSH_UPSTASH_TOKEN) {
+    return res.status(500).json({ ok: false, unavailable: true, error: 'storage not configured' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+
+  if (req.method === 'GET') {
+    try {
+      const out = await upstashPipeline([['GET', HL_STATUS_KEY]]);
+      return res.status(200).json({ ok: true, set: !!(out[0] && out[0].result) });
+    } catch (e) {
+      return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+    }
+  }
+
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }
+  if (!body || typeof body !== 'object') return res.status(400).json({ ok: false, error: 'bad request' });
+  const action = String(body.action || '');
+  const tag = hbIpTag(req);
+
+  /* ---- bot-authenticated actions (hash of the file-only secret) ---- */
+  if (action === 'hlBotRegister' || action === 'hlBotStatus') {
+    const bhash = String(body.bhash || '').toLowerCase();
+    if (!hbIsHash(bhash)) return res.status(400).json({ ok: false, error: 'bad hash' });
+    try {
+      if (action === 'hlBotRegister') {
+        const out = await upstashPipeline([['GET', HL_BOTSECRET_KEY]]);
+        const stored = out[0] && out[0].result;
+        if (hbIsHash(stored)) return res.status(200).json({ ok: hbHashEq(bhash, stored), registered: true });
+        if (!hbHashEq(bhash, HL_BOT_BOOTSTRAP_HASH)) return res.status(200).json({ ok: false, error: 'bootstrap mismatch' });
+        await upstashPipeline([['SET', HL_BOTSECRET_KEY, bhash]]);
+        return res.status(200).json({ ok: true, registered: true });
+      }
+      if (!(await hlBotHashOk(bhash))) return res.status(200).json({ ok: false, error: 'bot auth failed' });
+      const statusIn = body.status && typeof body.status === 'object' ? body.status : null;
+      if (!statusIn) return res.status(400).json({ ok: false, error: 'bad status' });
+      const raw = JSON.stringify(statusIn);
+      if (raw.length > 20000) return res.status(400).json({ ok: false, error: 'status too large' });
+      await upstashPipeline([['SET', HL_STATUS_KEY, raw]]);
+      return res.status(200).json({ ok: true });
+    } catch (e) {
+      console.error('hussy ladder bot action failed', action, e && e.message);
+      return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+    }
+  }
+
+  /* ---- page actions (Hussy's access code — the same one as his
+     trading-bot page; the hash check and lockout rails are hb's) ---- */
+  const hash = String(body.hash || '').toLowerCase();
+  if (!hbIsHash(hash)) return res.status(400).json({ ok: false, error: 'bad hash' });
+  try {
+    const lock = await hbLockState(tag);
+    if (lock.locked) return res.status(200).json({ ok: false, locked: true, retryAfterSec: lock.retryAfterSec, error: 'too many tries — locked for a bit' });
+    const effective = await hbEffectiveCodeHash();
+    if (!hbHashEq(hash, effective)) {
+      const tripped = await hbRecordFail(tag);
+      return res.status(200).json({ ok: false, locked: tripped, error: 'code not right' });
+    }
+    await hbClearFails(tag);
+    if (action === 'hlCheck') return res.status(200).json({ ok: true });
+    if (action === 'hlGet') {
+      const ladderStatus = await hbGetJson(HL_STATUS_KEY);
+      return res.status(200).json({ ok: true, status: ladderStatus });
+    }
+    return res.status(400).json({ ok: false, error: 'unknown action' });
+  } catch (e) {
+    console.error('hussy ladder page action failed', action, e && e.message);
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+}
+/* hussy-ladder:end */
+
 export default async function handler(req, res) {
   /* Wallet Scope counter: /api/scope-count is rewritten to
      /api/luna-games?scope=1 (see the wallet-scope block above). Runs
@@ -5155,6 +5260,10 @@ export default async function handler(req, res) {
      above). Code hash + bot-secret hash live server-side; the
      endpoint holds no keys and signs nothing. */
   if (req.query && req.query.hussybot !== undefined) return hussyBotHandler(req, res);
+  /* Hussy's Ladder Bot game screen: /api/luna-games?hussyladder=1
+     (see the hussy-ladder block above). Bot posts status with its
+     secret hash; the page reads with Hussy's trading-bot code. */
+  if (req.query && req.query.hussyladder !== undefined) return hussyLadderHandler(req, res);
   /* Garuda Dash payout admin: /api/garuda-admin is rewritten to
      /api/luna-games?garudaadmin=1 (see the garuda-admin block above). */
   if (req.query && req.query.garudaadmin !== undefined) return garudaAdminHandler(req, res);
