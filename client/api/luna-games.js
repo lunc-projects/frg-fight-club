@@ -162,6 +162,13 @@ const GAMES = {
      existing speed-platformer above. Same rails as kava-rush — the
      fastest honest sustained rate is ~160 pts/s, never reject a run. */
   'luncrush': { prefix: 'luncrush', maxScore: 500000, minSec: 5, maxSec: 3600, rateMul: 400, rateBase: 2000 },
+  /* LUNC Vice (original 80s neon-city driving game, client/public/
+     lunc-vice/): score comes from mission modes only — Neon Run
+     checkpoints (1000 + time bonus each, 1500 finish bonus ≈ 15k max),
+     Pickup Run chains (750 + combo bonus, ~2 min ceiling ≈ 25k) and
+     Stunt Run air time/drift (≈ 30k on a huge run). Rails sized
+     generously per the house rule — never reject a real run. */
+  'luncvice': { prefix: 'luncvice', maxScore: 200000, minSec: 10, maxSec: 3600, rateMul: 300, rateBase: 2500 },
   /* Cookie Sniper (the DO community game): score comes from crumbles,
      combos, boss and clear bonuses across up to 10 levels — a perfect
      full run lands around ~90k, so the cap stays generous per the
