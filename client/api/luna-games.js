@@ -171,6 +171,11 @@ const GAMES = {
      stage x500 + remaining-HP bonus + 5000 champion bonus; a full ladder
      clear lands ~30-60k — rails generous per the house rule. */
   frogfight: { prefix: 'frogfight', maxScore: 500000, minSec: 10, maxSec: 3600, rateMul: 300, rateBase: 2000 },
+  /* Frog Arena (client/public/frog-arena/): MK-style 1v1 — score =
+     damage dealt x10 (accumulates across the whole ladder run) + match
+     win 1000 + stage x500 + remaining-HP bonus (<=300) + 5000 champion;
+     a full ladder clear lands ~35-65k — rails generous per house rule. */
+  frogarena: { prefix: 'frogarena', maxScore: 500000, minSec: 10, maxSec: 3600, rateMul: 300, rateBase: 2000 },
   /* Frog Cards (Frogztrik NFT card battles, client/public/frog-cards/):
      score = ladder run total — 400 x rival level per win + surviving
      hero life x5; a five-rival run lands ~4-8k, endless rematches at the
