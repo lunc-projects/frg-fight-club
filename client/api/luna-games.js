@@ -171,6 +171,11 @@ const GAMES = {
      stage x500 + remaining-HP bonus + 5000 champion bonus; a full ladder
      clear lands ~30-60k — rails generous per the house rule. */
   frogfight: { prefix: 'frogfight', maxScore: 500000, minSec: 10, maxSec: 3600, rateMul: 300, rateBase: 2000 },
+  /* Frog Cards (Frogztrik NFT card battles, client/public/frog-cards/):
+     score = ladder run total — 400 x rival level per win + surviving
+     hero life x5; a five-rival run lands ~4-8k, endless rematches at the
+     top can push higher. Rails generous so a real run is never rejected. */
+  frogcards: { prefix: 'frogcards', maxScore: 50000, minSec: 10, maxSec: 3600, rateMul: 300, rateBase: 2000 },
   /* LUNC Vice (original 80s neon-city driving game, client/public/
      lunc-vice/): score comes from mission modes only — Neon Run
      checkpoints (1000 + time bonus each, 1500 finish bonus ≈ 15k max),
