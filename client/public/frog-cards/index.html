@@ -351,19 +351,29 @@ function applyLang(){
 
 <script>
 /* ================= cards & stats =================
-   ATK from the Amphibians family ladder: rarity base (Common 3, Rare 4,
-   Epic 6, Legendary 8, Unique 11) x ability multiplier (Medium 1.0,
-   High 1.15, Very High 1.3, Combined 1.45, Special 1.6), plus a small
-   per-token variance. DEF leans on class (Cosmonaut/Gold tanky, Soldier/
-   Warrior strikers). Mana cost from total power. */
+   Every monster card's ATK and DEF live in the 1–19 band (the Frogztrik
+   lead's rule, Nov 18). Strength still comes from the Amphibians family
+   ladder: rarity base (Common 3, Rare 4, Epic 6, Legendary 8, Unique 11)
+   x ability multiplier (Medium 1.0, High 1.15, Very High 1.3, Combined
+   1.45, Special 1.6) gives a raw strength of 3.0 (weakest Common/Medium)
+   to 17.6 (Unique/Special), which is rescaled linearly onto 1–19 — so
+   the weakest card sits at the bottom of the band and Unique+Special
+   (e.g. Queen #11) lands exactly on 19. The mapping is monotonic in raw
+   strength: stronger traits never map below weaker ones. A small
+   per-token variance rides on top and the clamp keeps every printed
+   stat inside the band. DEF leans on class (Cosmonaut/Gold tanky,
+   Soldier/Warrior strikers), also clamped to 1–19. In-battle power-card
+   buffs are temporary spell effects and MAY push a monster past 19
+   while they last. Mana cost from total power. */
 const RARITY_BASE = { Common: 3, Rare: 4, Epic: 6, Legendary: 8, Unique: 11 };
 const ABILITY_MUL = { Medium: 1.0, High: 1.15, 'Very High': 1.3, Combined: 1.45, Special: 1.6 };
 const CLASS_DEF = { Green: 1.1, Soldier: 0.8, Cosmonaut: 1.3, Blue: 1.0, Warrior: 0.9, Special: 1.0, Gold: 1.2 };
 const CLASS_EMOJI = { Green: '🐸', Soldier: '🤖', Cosmonaut: '👨‍🚀', Blue: '🦸', Warrior: '⚔️', Special: '👑', Gold: '🏆' };
 const NAMED = { '6': 'Frog King', '11': 'Frog Queen', '13': 'Frog Princess', '16': 'Burn Frog' };
 function statsFor(cls, rarity, ability, idNum){
-  const atk = Math.round((RARITY_BASE[rarity] || 3) * (ABILITY_MUL[ability] || 1)) + ((idNum * 7) % 3);
-  const def = Math.max(2, Math.round(atk * (CLASS_DEF[cls] || 1)));
+  const raw = (RARITY_BASE[rarity] || 3) * (ABILITY_MUL[ability] || 1);
+  const atk = clamp(Math.round(1 + (raw - 3) * (18 / 14.6)) + ((idNum * 7) % 3), 1, 19);
+  const def = clamp(Math.round(atk * (CLASS_DEF[cls] || 1)), 1, 19);
   const cost = clamp(Math.ceil((atk + def) / 8), 1, 8);
   return { atk, def, cost };
 }
@@ -663,7 +673,7 @@ const AI_ABILITY = { Common: 'Medium', Rare: 'Combined', Epic: 'Very High', Lege
 function aiMonster(cls, rarity, bonus){
   const st = statsFor(cls, rarity, AI_ABILITY[rarity], 1 + Math.floor(Math.random() * 300));
   const names = AI_NAMES[cls] || AI_NAMES.Green;
-  return { kind: 'mon', id: 'AI', loaner: false, ai: true, name: names[Math.floor(Math.random() * names.length)], cls, rarity, ability: AI_ABILITY[rarity], atk: st.atk + (bonus || 0), def: st.def + (bonus || 0), cost: st.cost, img: null };
+  return { kind: 'mon', id: 'AI', loaner: false, ai: true, name: names[Math.floor(Math.random() * names.length)], cls, rarity, ability: AI_ABILITY[rarity], atk: Math.min(19, st.atk + (bonus || 0)), def: Math.min(19, st.def + (bonus || 0)), cost: st.cost, img: null };
 }
 function buildAiDeck(level){
   const mixes = {
