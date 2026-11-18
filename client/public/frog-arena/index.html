@@ -363,9 +363,11 @@ async function fetchOwned(addr){
 }
 async function fetchCollection(addr, contract, add){
   let ids = [], start = null, pages = 0;
-  while (pages < 4){ const q = { tokens: { owner: addr, limit: 100 } }; if (start) q.tokens.start_after = start;
+  /* the LCD caps a page at 50 even when limit=100 is asked — keep paging
+     while full pages come back so whale wallets list every token */
+  while (pages < 12){ const q = { tokens: { owner: addr, limit: 100 } }; if (start) q.tokens.start_after = start;
     const d = await smartQuery(q, contract); const batch = d.tokens || []; ids = ids.concat(batch);
-    if (batch.length < 100) break; start = batch[batch.length - 1]; pages++; }
+    if (batch.length < 50) break; start = batch[batch.length - 1]; pages++; }
   for (let i = 0; i < ids.length; i += 8){ const chunk = ids.slice(i, i + 8);
     const infos = await Promise.all(chunk.map(id => smartQuery({ nft_info: { token_id: id } }, contract).catch(() => null)));
     infos.forEach((info, k) => { if (info) add(chunk[k], info); });
