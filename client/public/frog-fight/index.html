@@ -901,10 +901,18 @@ function playerArtUrl(){
    cut:false, a missing manifest or a failed cutout load keeps the framed
    art above. Cutouts live under /frog-art/ on this same site. ---- */
 const CUTMAN = { A:{}, Z:{}, K:{} };
-fetch('/frog-art/manifest.json').then(r => r.ok ? r.json() : null).then(m => {
-  if (!m) return;
-  CUTMAN.A = m.amph || {}; CUTMAN.Z = m.frogz || {}; CUTMAN.K = m.kaiju || {};
-}).catch(() => {});
+let cutmanLoaded = false, cutmanLoading = false;
+function loadCutman(){
+  if (cutmanLoaded || cutmanLoading) return;
+  cutmanLoading = true;
+  fetch('/frog-art/manifest.json').then(r => r.ok ? r.json() : null).then(m => {
+    cutmanLoading = false;
+    if (!m) return; /* failed/404 does NOT latch — retried at the next match start */
+    CUTMAN.A = m.amph || {}; CUTMAN.Z = m.frogz || {}; CUTMAN.K = m.kaiju || {};
+    cutmanLoaded = true;
+  }).catch(() => { cutmanLoading = false; });
+}
+loadCutman();
 function cutUrl(coll, id){
   const e = (CUTMAN[coll] || {})[String(id)];
   return typeof e === 'string' ? e : null;
@@ -1033,6 +1041,7 @@ function showVs(pUrl, rUrl){
   window.__vsT = setTimeout(() => o.classList.remove('show'), 1480);
 }
 function startMatch(idx, fresh){
+  loadCutman(); /* retry a failed manifest fetch; the cut URLs below re-resolve every match */
   const rv = RIVALS[idx];
   G.rivalIdx = idx; G.round = 1; G.pWins = 0; G.rWins = 0;
   const pSkin = playerSkinId();
