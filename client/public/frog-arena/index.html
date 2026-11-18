@@ -509,10 +509,38 @@ $('addrInput').addEventListener('keydown', e => { if (e.key === 'Enter') fetchOw
    Produced by the frog-art pipeline: per-token transparent cutouts of the
    NFT art. Flexible reader — accepts {amph:{id:url|{cut,url}}}, keyed
    "A:<id>", or an entries[] list; cut:false / missing = framed art. */
-let cutManifest = null, cutTried = false;
-async function loadManifest(){
-  if (cutTried) return; cutTried = true;
-  try { const r = await fetch('/frog-art/manifest.json', { cache: 'no-cache' }); if (r.ok) cutManifest = await r.json(); } catch(e){}
+let cutManifest = null, cutLoading = null;
+function loadManifest(){
+  if (cutManifest || cutLoading) return cutLoading;
+  cutLoading = (async () => {
+    try {
+      const r = await fetch('/frog-art/manifest.json', { cache: 'no-cache' });
+      if (r.ok){ cutManifest = await r.json(); upgradeCutouts(); }
+    } catch(e){}
+    cutLoading = null; /* a failed/404 fetch does NOT latch — the next fight start retries */
+  })();
+  return cutLoading;
+}
+/* Records created before the manifest arrived were framed only because
+   cutManifest was still null (rec.pendingCut). When it lands, swap those
+   records to their cutout image in place — fighters hold the same object,
+   so even a live fighter upgrades. cut:false / unlisted tokens (cutoutFor
+   returns null with the manifest present) stay framed forever. */
+function upgradeCutouts(){
+  if (!cutManifest) return;
+  for (const key of Object.keys(imgCache)){
+    const rec = imgCache[key];
+    if (!rec.pendingCut) continue;
+    rec.pendingCut = false;
+    const cut = cutoutFor(rec.coll, rec.id);
+    if (!cut) continue;
+    rec.cut = true; rec.src = cut; rec.ok = false;
+    const im = new Image(); im.crossOrigin = 'anonymous';
+    im.onload = () => { rec.ok = true; };
+    im.onerror = () => { rec.cut = false; rec.src = rec.framed; const im2 = new Image(); im2.crossOrigin = 'anonymous';
+      im2.onload = () => { rec.ok = true; rec.img = im2; }; im2.src = rec.framed; rec.img = im2; };
+    im.src = cut; rec.img = im;
+  }
 }
 function cutVal(v){
   if (v == null || v === false || v === '') return undefined;
@@ -541,7 +569,7 @@ function artFor(coll, id, framed){
   const key = coll + ':' + id;
   if (imgCache[key]) return imgCache[key];
   const cut = cutoutFor(coll, id);
-  const rec = { src: cut || framed, cut: !!cut, img: null, ok: false };
+  const rec = { src: cut || framed, cut: !!cut, img: null, ok: false, coll, id: String(id), framed, pendingCut: !cutManifest };
   const im = new Image();
   im.crossOrigin = 'anonymous';
   im.onload = () => { rec.ok = true; };
@@ -588,6 +616,7 @@ function playerArt(){
   return { rec: null, house: true, label: t('houseFighter') };
 }
 function startRun(training){
+  loadManifest(); /* retry if the first fetch failed; pending art upgrades on arrival */
   const pa = playerArt();
   G = { mode: training ? 'training' : 'ladder', rivalIdx: 0, round: 1, phase: 'intro',
     timeLeft: 0, runScore: 0, dmgDealt: 0, elapsed: 0, paused: false, over: false,
@@ -604,6 +633,7 @@ function startRun(training){
   requestAnimationFrame(loop);
 }
 function setupRival(){
+  loadManifest(); /* same retry for the next-rival path (continueRun) */
   const rv = RIVALS[G.rivalIdx];
   const rec = G.mode === 'training' ? artFor('A', '23', AMPH_IMG('23')) : artFor('A', RIVAL_ART[G.rivalIdx], AMPH_IMG(RIVAL_ART[G.rivalIdx]));
   G.R = mkFighter('R', G.mode === 'training' ? t('trainingWord') : rv.name, G.mode === 'training' ? 9999 : rv.hp, rec, false);
