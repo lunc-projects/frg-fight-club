@@ -752,11 +752,14 @@ document.getElementById('muteBtn').addEventListener('click', () => {
    unchanged: jab bone = front fist, heavy bone = back fist, kick
    bone = front foot. Idle breathing/sway, walk steps, jab extends,
    hook swings, kick extends, block, flinch, KO fall — real motion.
-   Character variants come from cfg.skin: palette, armor tint, trim,
-   cape, headgear (crown / tiara / crest / band) and a feminine
-   build for the Queen and Princess. Each warrior's painted
-   portrait lives in the DOM (character-select cards) — the arena
-   itself is always the real 3D model. */
+   Character variants come from cfg.skin: palette (GREEN frog skin
+   for everyone — each portrait's colour lives in its armor), armor
+   tint, trim, cape, emblem (sun / moon / rose / skull / rune /
+   star), headgear (crown / rosecrown / flamecrest / hood / plume /
+   starcrown / circlet) and a feminine build for the Queen and
+   Princess. The models are built to match the painted portraits
+   (in the DOM character-select cards) — wide frog heads, throat
+   pouches, muscle-lathe limbs, full gothic armor. */
 const DUR = {
   idle: 1.6, walk: 0.8, crouch: 1.2, jump: 0.9, block: 1.2,
   jab: 0.55, heavy: 0.72, kick1: 0.5, kick2: 0.62,
@@ -795,6 +798,30 @@ function aim2(jx, jy, jz, seg1, seg2Grp, seg2Mesh, endGrp, tx, ty, tz, a, b, px,
   seg2Mesh.scale.y = l2;
   if (endGrp) endGrp.position.set(0, -l2, 0);
 }
+/* Lathe-profile limb geometry: radius baked in, spans y 0..-1
+   from the joint, so aim2's scale.y stretch works unchanged while
+   the silhouette gets real muscle bulk (biceps, calves, gauntlet
+   flare) instead of plain toy cylinders. */
+function latheGeo(ctrl) {
+  const pts = [];
+  const N = 18;
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    let r = ctrl[ctrl.length - 1][1];
+    for (let j = 0; j < ctrl.length - 1; j++) {
+      const t0 = ctrl[j][0], r0 = ctrl[j][1], t1 = ctrl[j + 1][0], r1 = ctrl[j + 1][1];
+      if (t >= t0 && t <= t1) {
+        const k = t1 > t0 ? (t - t0) / (t1 - t0) : 0;
+        r = r0 + (r1 - r0) * (k * k * (3 - 2 * k));
+        break;
+      }
+    }
+    pts.push(new THREE.Vector2(Math.max(0.012, r), -t));
+  }
+  pts.unshift(new THREE.Vector2(0.012, 0.006));
+  pts.push(new THREE.Vector2(0.012, -1.006));
+  return new THREE.LatheGeometry(pts, 14);
+}
 class Fighter {
   constructor(cfg) {
     this.cfg = cfg;
@@ -825,6 +852,10 @@ class Fighter {
       Fighter._shieldGeo = new THREE.SphereGeometry(0.62, 18, 14);
       Fighter._sphGeo = new THREE.SphereGeometry(1, 20, 16);
       Fighter._segGeo = new THREE.CylinderGeometry(0.86, 1, 1, 10); Fighter._segGeo.translate(0, -0.5, 0);
+      Fighter._armUpGeo = latheGeo([[0, 0.100], [0.18, 0.128], [0.38, 0.138], [0.62, 0.112], [0.85, 0.092], [1, 0.084]]);
+      Fighter._armFoGeo = latheGeo([[0, 0.082], [0.30, 0.098], [0.62, 0.104], [0.85, 0.118], [1, 0.100]]);
+      Fighter._thighGeo = latheGeo([[0, 0.138], [0.25, 0.162], [0.50, 0.148], [0.75, 0.118], [1, 0.100]]);
+      Fighter._shinGeo = latheGeo([[0, 0.100], [0.22, 0.128], [0.50, 0.108], [0.80, 0.090], [1, 0.082]]);
     }
     return Fighter._shTex;
   }
@@ -859,25 +890,42 @@ class Fighter {
     this.applyFacing();
     this._loaded = true;
   }
-  /* Build the gothic frog champion. Local space = pose space:
-     +z toward the foe, feet at y=0, crown top ~2.1. */
+  /* Build the gothic frog champion — rebuilt Nov 18 (Tom's
+     verdict: the first models were smooth toy figures that did not
+     match the portraits; the pink Princess "looked like Miss
+     Piggy"). Now modelled on the painted portraits: a WIDE flat
+     frog head (eyes on top, slit pupils, heavy brow, big throat
+     pouch, wide mouth), GREEN frog skin on every warrior (the
+     portraits' colour lives in the ARMOR, not the body), muscle-
+     bulked lathe-profile limbs, armored gauntlet forearms and
+     greave shins, layered spiked pauldrons, tassets, and each
+     portrait's own emblem + headgear (sun crown, violet-gem crown,
+     rose crown, flame crest, hood, plume, star crown, circlet).
+     Local space = pose space: +z toward the foe, feet at y=0.
+     Combat anchors, IK segment lengths and pose targets are
+     unchanged — only the meshes changed. */
   _buildFrog() {
     const sk = this.cfg.skin || {};
     const fem = !!sk.female;
     const std = (color, rough, metal) => new THREE.MeshStandardMaterial({ color, roughness: rough === undefined ? 0.6 : rough, metalness: metal || 0 });
     const M = {
-      body: std(sk.body !== undefined ? sk.body : 0x3f7031, 0.5),
-      belly: std(sk.belly !== undefined ? sk.belly : 0xa8bf92, 0.6),
-      spot: std(sk.spot !== undefined ? sk.spot : 0x2a4d20, 0.6),
+      body: std(sk.body !== undefined ? sk.body : 0x4a7a35, 0.52),
+      belly: std(sk.belly !== undefined ? sk.belly : 0xb9c9a0, 0.62),
+      spot: std(sk.spot !== undefined ? sk.spot : 0x2f5523, 0.62),
       pupil: std(sk.pupil !== undefined ? sk.pupil : 0x141414, 0.3),
       iris: std(sk.iris !== undefined ? sk.iris : 0xff9a1f, 0.3),
       white: std(0xf4f1e6, 0.3),
-      armor: std(sk.armor !== undefined ? sk.armor : 0x17181c, 0.38, 0.72),
-      trim: std(sk.trim !== undefined ? sk.trim : 0xd8a83c, 0.3, 0.8),
-      cape: std(sk.cape !== undefined && sk.cape !== null ? sk.cape : 0x2a1a3e, 0.75),
+      armor: std(sk.armor !== undefined ? sk.armor : 0x17181c, 0.42, 0.85),
+      trim: std(sk.trim !== undefined ? sk.trim : 0xd8a83c, 0.3, 0.85),
+      cape: std(sk.cape !== undefined && sk.cape !== null ? sk.cape : 0x2a1a3e, 0.78),
+      cloth: std(sk.cape !== undefined && sk.cape !== null ? sk.cape : 0x14100c, 0.85),
       bone: std(0xd8d2c0, 0.55),
       dark: std(0x0c0d10, 0.45),
+      leather: std(0x3a2c1e, 0.82),
+      gem: std(sk.gem !== undefined ? sk.gem : (sk.iris !== undefined ? sk.iris : 0xff9a1f), 0.25, 0.3),
+      glow: sk.glow ? new THREE.MeshStandardMaterial({ color: 0x0b0c10, emissive: sk.trim, emissiveIntensity: 1.15, roughness: 0.4, metalness: 0.2 }) : null,
     };
+    const ACC = M.glow || M.trim;
     const F = this.frog = new THREE.Group();
     const S = sk.scale || 1;
     const sph = (mat, sx, sy, sz, px, py, pz, parent) => {
@@ -894,9 +942,58 @@ class Fighter {
       m.position.set(px, py, pz); if (rx) m.rotation.x = rx; if (rz) m.rotation.z = rz;
       m.castShadow = true; (parent || F).add(m); return m;
     };
+    const sun = (mat, r) => {
+      const g = new THREE.Group();
+      const d = new THREE.Mesh(new THREE.CircleGeometry(r, 20), mat); d.castShadow = true; g.add(d);
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        const c = new THREE.Mesh(new THREE.ConeGeometry(r * 0.30, r * 0.9, 5), mat);
+        c.position.set(Math.cos(a) * r * 1.3, Math.sin(a) * r * 1.3, 0);
+        c.rotation.z = a - Math.PI / 2; c.castShadow = true; g.add(c);
+      }
+      return g;
+    };
+    const skull = (s) => {
+      const g = new THREE.Group();
+      sph(M.bone, 0.055 * s, 0.05 * s, 0.045 * s, 0, 0.012 * s, 0, g);
+      box(M.bone, 0.058 * s, 0.04 * s, 0.03 * s, 0, -0.042 * s, 0.006 * s, g);
+      sph(M.dark, 0.013 * s, 0.017 * s, 0.01 * s, 0.023 * s, 0.016 * s, 0.042 * s, g);
+      sph(M.dark, 0.013 * s, 0.017 * s, 0.01 * s, -0.023 * s, 0.016 * s, 0.042 * s, g);
+      return g;
+    };
+    const emblem = (kind, r) => {
+      const g = new THREE.Group();
+      if (kind === 'sun') g.add(sun(M.trim, r));
+      else if (kind === 'moon') {
+        const c = new THREE.Mesh(new THREE.CircleGeometry(r, 20), M.trim); g.add(c);
+        const b = new THREE.Mesh(new THREE.CircleGeometry(r * 0.82, 20), M.armor);
+        b.position.set(r * 0.38, r * 0.28, 0.004); g.add(b);
+      } else if (kind === 'skull') { const k = skull(r / 0.055); g.add(k); }
+      else if (kind === 'rune') {
+        const d = box(ACC, r * 1.25, r * 1.25, 0.018, 0, 0, 0, g); d.rotation.z = Math.PI / 4;
+        const d2 = box(M.dark, r * 0.62, r * 0.62, 0.02, 0, 0, 0.004, g); d2.rotation.z = Math.PI / 4;
+      } else if (kind === 'star') {
+        for (const rz of [0, Math.PI / 2]) {
+          const c = new THREE.Mesh(new THREE.ConeGeometry(r * 0.30, r * 2.1, 5), ACC);
+          c.rotation.z = rz; c.castShadow = true; g.add(c);
+          const c2 = new THREE.Mesh(new THREE.ConeGeometry(r * 0.30, r * 2.1, 5), ACC);
+          c2.rotation.z = rz + Math.PI; c2.castShadow = true; g.add(c2);
+        }
+        sph(ACC, r * 0.30, r * 0.30, r * 0.30, 0, 0, 0.01, g);
+      } else if (kind === 'rose') {
+        sph(M.trim, r * 0.52, r * 0.52, r * 0.4, 0, 0.01, 0, g);
+        sph(M.trim, r * 0.4, r * 0.4, r * 0.32, -r * 0.55, -r * 0.3, -0.004, g);
+        sph(M.trim, r * 0.4, r * 0.4, r * 0.32, r * 0.55, -r * 0.3, -0.004, g);
+        sph(M.dark, r * 0.2, r * 0.2, r * 0.2, 0, 0.01, r * 0.3, g);
+      } else {
+        const d = new THREE.Mesh(new THREE.CircleGeometry(r * 0.7, 16), M.trim); g.add(d);
+      }
+      return g;
+    };
     /* ---- cape (behind, -z) ---- */
     if (sk.cape !== null) {
-      const cg = new THREE.PlaneGeometry(0.92, 1.42, 1, 4); cg.translate(0, -0.71, 0);
+      const capeH = (fem && sk.headgear === 'crown') ? 1.60 : 1.42;
+      const cg = new THREE.PlaneGeometry(0.94, capeH, 1, 4); cg.translate(0, -capeH / 2, 0);
       const cape = new THREE.Mesh(cg, M.cape);
       cape.position.set(0, 1.66, -0.30); cape.rotation.x = 0.10; cape.castShadow = true;
       cape.material.side = THREE.DoubleSide;
@@ -904,71 +1001,143 @@ class Fighter {
       sph(M.trim, 0.05, 0.05, 0.05, 0.40, 1.64, -0.24);
       sph(M.trim, 0.05, 0.05, 0.05, -0.40, 1.64, -0.24);
     }
-    /* ---- pelvis + skirt of tassets ---- */
+    /* ---- pelvis, belt, skirt / tassets ---- */
     sph(M.body, 0.335, 0.225, 0.265, 0, 1.02, 0);
     {
-      const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.315, fem ? 0.47 : 0.43, fem ? 0.46 : 0.36, 12, 1, true),
-        new THREE.MeshStandardMaterial({ color: sk.cape !== undefined && sk.cape !== null ? sk.cape : 0x1a1426, roughness: 0.8, side: THREE.DoubleSide }));
-      skirt.position.set(0, fem ? 0.80 : 0.84, 0); skirt.castShadow = true; F.add(skirt);
-      const hem = new THREE.Mesh(new THREE.TorusGeometry(fem ? 0.47 : 0.43, 0.016, 6, 24), M.trim);
-      hem.rotation.x = Math.PI / 2; hem.position.y = fem ? 0.575 : 0.665; F.add(hem);
-      const belt = new THREE.Mesh(new THREE.CylinderGeometry(0.325, 0.325, 0.09, 14), M.dark);
-      belt.position.y = 1.05; F.add(belt);
-      sph(M.bone, 0.055, 0.05, 0.04, 0, 1.05, 0.315);
-      box(M.bone, 0.07, 0.045, 0.03, 0, 0.985, 0.31);
+      const belt = new THREE.Mesh(new THREE.CylinderGeometry(0.328, 0.328, 0.095, 14), M.dark);
+      belt.position.y = 1.05; belt.castShadow = true; F.add(belt);
+      if (sk.emblem === 'skull') { const k = skull(1.15); k.position.set(0, 1.05, 0.315); F.add(k); }
+      else {
+        sph(M.trim, 0.052, 0.05, 0.035, 0, 1.05, 0.318);
+        sph(M.gem, 0.028, 0.028, 0.02, 0, 1.05, 0.345);
+      }
+      if (sk.tassets) {
+        for (let i = -3; i <= 3; i++) {
+          if (i === 0) continue;
+          const a = i * 0.40;
+          const plate = box(M.armor, 0.15, 0.30, 0.028, Math.sin(a) * 0.295, 0.855, Math.cos(a) * 0.295);
+          plate.rotation.set(0.17, a, 0);
+          const edge = box(M.trim, 0.15, 0.018, 0.03, Math.sin(a) * 0.315, 0.715, Math.cos(a) * 0.315);
+          edge.rotation.set(0.17, a, 0);
+        }
+        const front = box(M.armor, 0.20, 0.38, 0.03, 0, 0.815, 0.30); front.rotation.x = 0.10;
+        const fe = emblem(sk.emblem || 'none', 0.052); fe.position.set(0, 0.86, 0.322); F.add(fe);
+      } else {
+        const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.315, fem ? 0.46 : 0.42, fem ? 0.44 : 0.36, 12, 1, true),
+          new THREE.MeshStandardMaterial({ color: sk.cape !== undefined && sk.cape !== null ? sk.cape : 0x1a1426, roughness: 0.85, side: THREE.DoubleSide }));
+        skirt.position.set(0, fem ? 0.81 : 0.84, 0); skirt.castShadow = true; F.add(skirt);
+        const hem = new THREE.Mesh(new THREE.TorusGeometry(fem ? 0.46 : 0.42, 0.015, 6, 24), M.trim);
+        hem.rotation.x = Math.PI / 2; hem.position.y = fem ? 0.595 : 0.665; F.add(hem);
+      }
     }
-    /* ---- torso: narrow waist, broad muscular chest ---- */
+    /* ---- torso: narrow waist, broad muscular chest, full cuirass ---- */
     sph(M.body, fem ? 0.27 : 0.30, 0.30, 0.235, 0, 1.24, 0);
-    sph(M.belly, fem ? 0.20 : 0.225, 0.26, 0.13, 0, 1.22, 0.115);
+    sph(M.belly, fem ? 0.185 : 0.21, 0.25, 0.115, 0, 1.21, 0.10);
     sph(M.body, fem ? 0.365 : 0.405, 0.335, 0.295, 0, 1.50, 0);
     sph(M.body, 0.30, 0.16, 0.24, 0, 1.70, -0.02);
-    sph(M.armor, fem ? 0.385 : 0.425, 0.35, 0.30, 0, 1.52, 0.015);
+    sph(M.armor, fem ? 0.375 : 0.415, 0.345, 0.275, 0, 1.52, 0.02);
+    sph(M.armor, fem ? 0.30 : 0.335, 0.27, 0.16, 0, 1.53, 0.14);
     {
-      const trim = new THREE.Mesh(new THREE.TorusGeometry(0.345, 0.018, 6, 28), M.trim);
-      trim.position.set(0, 1.335, 0.02); trim.rotation.x = Math.PI / 2 - 0.25; trim.scale.set(1, 0.82, 1); F.add(trim);
-      const cres = new THREE.Mesh(new THREE.CircleGeometry(0.085, 20), M.trim);
-      cres.position.set(0, 1.60, 0.308); F.add(cres);
-      const bite = new THREE.Mesh(new THREE.CircleGeometry(0.068, 20), M.armor);
-      bite.position.set(0.032, 1.625, 0.310); F.add(bite);
-      sph(M.bone, 0.048, 0.044, 0.035, 0, 1.44, 0.30);
-      for (const yy of [1.28, 1.17]) box(M.armor, 0.20, 0.018, 0.012, 0, yy, 0.238);
+      const gorget = new THREE.Mesh(new THREE.TorusGeometry(0.205, 0.038, 8, 20), M.armor);
+      gorget.position.set(0, 1.715, 0.01); gorget.rotation.x = Math.PI / 2 - 0.15; gorget.scale.set(1, 0.9, 1);
+      gorget.castShadow = true; F.add(gorget);
+      const trim = new THREE.Mesh(new THREE.TorusGeometry(0.345, 0.017, 6, 28), M.trim);
+      trim.position.set(0, 1.345, 0.02); trim.rotation.x = Math.PI / 2 - 0.25; trim.scale.set(1, 0.82, 1); F.add(trim);
+      const em = emblem(sk.emblem || 'none', 0.078); em.position.set(0, 1.565, 0.312); F.add(em);
+      for (const yy of [1.30, 1.19]) box(M.armor, 0.20, 0.018, 0.012, 0, yy, 0.238);
     }
     sph(M.spot, 0.10, 0.07, 0.05, 0.30, 1.30, -0.26);
     sph(M.spot, 0.12, 0.08, 0.05, -0.32, 1.12, -0.22);
-    /* ---- head ---- */
-    const head = new THREE.Group(); F.add(head); this.headG = head;
-    sph(M.body, 0.335, 0.235, 0.275, 0, 1.845, 0.02, head);
-    sph(M.body, 0.27, 0.125, 0.235, 0, 1.715, 0.05, head);
-    sph(M.belly, 0.20, 0.09, 0.16, 0, 1.685, 0.09, head);
+    /* ---- neck + head: unmistakably FROG ---- */
     {
-      const mouth = new THREE.Mesh(new THREE.TorusGeometry(0.155, 0.014, 8, 22, Math.PI), M.dark);
-      mouth.position.set(0, 1.755, 0.262); mouth.rotation.set(-0.12, 0, Math.PI); head.add(mouth);
+      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.135, 0.165, 0.18, 10), M.body);
+      neck.position.set(0, 1.71, 0.01); neck.castShadow = true; F.add(neck);
     }
+    const head = new THREE.Group(); F.add(head); this.headG = head;
+    sph(M.body, 0.365, 0.205, 0.275, 0, 1.865, 0.0, head);
+    sph(M.spot, 0.30, 0.07, 0.13, 0, 1.955, 0.10, head);
+    sph(M.body, 0.29, 0.125, 0.225, 0, 1.775, 0.085, head);
+    sph(M.body, 0.245, 0.10, 0.195, 0, 1.685, 0.065, head);
+    sph(M.belly, 0.235, 0.175, 0.18, 0, 1.585, 0.045, head);
+    {
+      const mouth = new THREE.Mesh(new THREE.TorusGeometry(0.185, 0.016, 8, 24, Math.PI), M.dark);
+      mouth.position.set(0, 1.775, 0.252); mouth.rotation.set(-0.10, 0, Math.PI); head.add(mouth);
+    }
+    sph(M.dark, 0.016, 0.012, 0.012, 0.068, 1.85, 0.262, head);
+    sph(M.dark, 0.016, 0.012, 0.012, -0.068, 1.85, 0.262, head);
+    sph(M.spot, 0.032, 0.026, 0.03, 0.305, 1.90, 0.10, head);
+    sph(M.spot, 0.032, 0.026, 0.03, -0.305, 1.90, 0.10, head);
+    sph(M.spot, 0.026, 0.022, 0.026, 0.325, 1.815, 0.0, head);
+    sph(M.spot, 0.026, 0.022, 0.026, -0.325, 1.815, 0.0, head);
     for (const s of [1, -1]) {
-      sph(M.body, 0.105, 0.095, 0.10, 0.155 * s, 1.985, 0.05, head);
-      sph(M.white, 0.082, 0.082, 0.082, 0.155 * s, 2.0, 0.075, head);
-      sph(M.iris, 0.048, 0.048, 0.048, 0.155 * s, 2.005, 0.128, head);
-      sph(M.pupil, 0.024, 0.024, 0.024, 0.155 * s, 2.008, 0.152, head);
+      sph(M.body, 0.118, 0.105, 0.108, 0.168 * s, 2.0, 0.04, head);
+      sph(M.white, 0.09, 0.09, 0.09, 0.168 * s, 2.015, 0.068, head);
+      sph(M.iris, 0.058, 0.058, 0.058, 0.168 * s, 2.02, 0.122, head);
+      sph(M.pupil, 0.05, 0.02, 0.02, 0.168 * s, 2.022, 0.15, head);
       if (fem) for (let li = 0; li < 3; li++)
-        cone(M.dark, 0.008, 0.055, (0.155 + (li - 1) * 0.045) * s, 2.075, 0.10, -0.7, (li - 1) * 0.3 * s, head);
+        cone(M.dark, 0.008, 0.055, (0.168 + (li - 1) * 0.048) * s, 2.085, 0.095, -0.7, (li - 1) * 0.3 * s, head);
     }
-    /* ---- headgear ---- */
+    /* ---- headgear (per portrait) ---- */
     const gear = sk.headgear || null;
-    if (gear === 'crown') {
-      const cr = new THREE.Group(); cr.position.set(0, 2.03, 0.01); head.add(cr);
-      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.205, 0.225, 0.085, 14), M.trim);
-      band.position.y = 0.04; band.castShadow = true; cr.add(band);
-      for (let i = 0; i < 7; i++) {
-        const a2 = (i / 7) * Math.PI * 2;
-        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.032, i % 2 ? 0.13 : 0.19, 6), M.trim);
-        spike.position.set(Math.cos(a2) * 0.185, 0.15, Math.sin(a2) * 0.185); spike.castShadow = true; cr.add(spike);
+    if (gear === 'crown' || gear === 'starcrown') {
+      const crownMat = gear === 'starcrown' ? M.armor : M.trim;
+      const cr = new THREE.Group(); cr.position.set(0, 2.02, 0.0); head.add(cr);
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.235, 0.09, 14), crownMat);
+      band.position.y = 0.045; band.castShadow = true; cr.add(band);
+      for (let i = 0; i < 9; i++) {
+        const a2 = (i / 9) * Math.PI * 2;
+        const h = (i % 2 ? 0.16 : 0.24) + (Math.sin(a2) > 0.94 ? 0.07 : 0);
+        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.03, h, 6), crownMat);
+        spike.position.set(Math.cos(a2) * 0.19, 0.09 + h / 2, Math.sin(a2) * 0.19);
+        spike.castShadow = true; cr.add(spike);
       }
-      sph(M.iris, 0.034, 0.034, 0.034, 0, 0.045, 0.215, cr);
+      sph(M.gem, 0.032, 0.032, 0.032, 0, 0.045, 0.228, cr);
+      sph(M.gem, 0.024, 0.024, 0.024, 0.155, 0.045, 0.165, cr);
+      sph(M.gem, 0.024, 0.024, 0.024, -0.155, 0.045, 0.165, cr);
+    } else if (gear === 'rosecrown') {
+      const ti = new THREE.Mesh(new THREE.TorusGeometry(0.235, 0.02, 8, 24), M.trim);
+      ti.position.set(0, 2.0, 0.01); ti.rotation.x = 0.35; ti.castShadow = true; head.add(ti);
+      for (let i = 0; i < 5; i++) {
+        const x = (i - 2) * 0.085;
+        sph(M.trim, 0.036, 0.036, 0.036, x, 2.075 - Math.abs(i - 2) * 0.012, 0.175 - Math.abs(i - 2) * 0.028, head);
+        if (i < 4) cone(M.body, 0.016, 0.06, x + 0.042, 2.045, 0.15 - Math.abs(i - 1.5) * 0.02, 0.5, 0.4, head);
+      }
+      sph(M.gem, 0.026, 0.026, 0.026, 0, 2.03, 0.215, head);
     } else if (gear === 'tiara') {
       const ti = new THREE.Mesh(new THREE.TorusGeometry(0.20, 0.02, 8, 24, Math.PI), M.trim);
       ti.position.set(0, 1.99, 0.02); ti.rotation.x = 0.30; ti.castShadow = true; head.add(ti);
       cone(M.trim, 0.026, 0.10, 0, 2.13, 0.10, 0.3, 0, head);
       sph(M.iris, 0.03, 0.03, 0.03, 0, 2.02, 0.225, head);
+    } else if (gear === 'flamecrest') {
+      for (let i = 0; i < 5; i++) {
+        const h = [0.16, 0.25, 0.32, 0.25, 0.16][i];
+        cone(ACC, 0.034, h, (i - 2) * 0.078, 2.06 + h / 2 - 0.04, -0.02 - Math.abs(i - 2) * 0.014, -0.38, 0, head);
+      }
+      const band = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.028, 8, 22), M.armor);
+      band.position.set(0, 2.0, 0.01); band.rotation.x = Math.PI / 2; band.scale.set(1.06, 0.94, 1);
+      band.castShadow = true; head.add(band);
+    } else if (gear === 'hood') {
+      const hood = new THREE.Mesh(new THREE.ConeGeometry(0.315, 0.48, 12, 1, true), M.cloth);
+      hood.position.set(0, 2.07, -0.05); hood.rotation.x = 0.22; hood.castShadow = true;
+      hood.material = M.cloth; hood.material.side = THREE.DoubleSide;
+      head.add(hood);
+      const mantle = new THREE.Mesh(new THREE.TorusGeometry(0.235, 0.05, 8, 20), M.cloth);
+      mantle.position.set(0, 1.79, 0); mantle.rotation.x = Math.PI / 2; mantle.scale.set(1.08, 0.95, 1);
+      mantle.castShadow = true; head.add(mantle);
+    } else if (gear === 'plume') {
+      sph(M.armor, 0.295, 0.15, 0.26, 0, 1.99, 0.0, head);
+      const plumeMat = std(sk.plume !== undefined ? sk.plume : 0x3fa9f5, 0.7);
+      for (let i = 0; i < 6; i++) {
+        const c = cone(plumeMat, 0.055, 0.34, 0, 2.20 - Math.abs(i - 1.5) * 0.018, 0.115 - i * 0.052, -0.75 + i * 0.27, 0, head);
+        c.scale.set(0.45, 1, 1);
+      }
+      sph(M.trim, 0.03, 0.03, 0.03, 0, 2.06, 0.20, head);
+    } else if (gear === 'circlet') {
+      const band = new THREE.Mesh(new THREE.TorusGeometry(0.265, 0.017, 8, 22), M.armor);
+      band.position.set(0, 2.0, 0.01); band.rotation.x = Math.PI / 2; band.scale.set(1.08, 0.95, 1);
+      band.castShadow = true; head.add(band);
+      for (let i = 0; i < 5; i++)
+        cone(M.trim, 0.012, 0.05, (i - 2) * 0.09, 2.06, 0.10 - Math.abs(i - 2) * 0.012, 0, 0, head);
     } else if (gear === 'crest') {
       for (let i = 0; i < 5; i++)
         cone(M.iris, 0.035, 0.16 - Math.abs(i - 2) * 0.025, (i - 2) * 0.085, 2.06, -0.02 - Math.abs(i - 2) * 0.012, -0.25, 0, head);
@@ -977,49 +1146,62 @@ class Fighter {
       band.position.set(0, 1.94, 0.02); band.rotation.x = Math.PI / 2; band.scale.set(1.05, 0.92, 1);
       band.castShadow = true; head.add(band);
     }
-    /* ---- pauldrons (spiked) ---- */
+    /* ---- pauldrons (layered, spiked) ---- */
     for (const s of [1, -1]) {
-      const pg = new THREE.Group(); pg.position.set(0.465 * s, 1.665, 0); F.add(pg);
+      const pg = new THREE.Group(); pg.position.set(0.475 * s, 1.675, 0); F.add(pg);
       const dome = new THREE.Mesh(Fighter._sphGeo, M.armor);
-      dome.scale.set(0.175, 0.15, 0.175); dome.castShadow = true; pg.add(dome);
-      const rim = new THREE.Mesh(new THREE.TorusGeometry(0.155, 0.016, 6, 20), M.trim);
-      rim.rotation.x = Math.PI / 2; rim.position.y = -0.055; pg.add(rim);
-      cone(M.armor, 0.038, 0.17, 0, 0.16, 0, 0, 0, pg);
-      cone(M.armor, 0.032, 0.13, 0.10 * s, 0.115, 0.02, 0, -0.5 * s, pg);
-      cone(M.armor, 0.032, 0.13, -0.10 * s, 0.115, 0.02, 0, 0.5 * s, pg);
-      cone(M.trim, 0.02, 0.08, 0, 0.10, 0.13, 0, 0, pg);
+      dome.scale.set(0.205, 0.17, 0.205); dome.castShadow = true; pg.add(dome);
+      const dome2 = new THREE.Mesh(Fighter._sphGeo, M.armor);
+      dome2.scale.set(0.175, 0.125, 0.175); dome2.position.set(0.02 * s, -0.095, 0); dome2.castShadow = true; pg.add(dome2);
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(0.165, 0.016, 6, 20), M.trim);
+      rim.rotation.x = Math.PI / 2; rim.position.y = -0.06; pg.add(rim);
+      cone(M.armor, 0.037, 0.17, 0, 0.175, 0, 0, 0, pg);
+      cone(M.armor, 0.031, 0.13, 0.095 * s, 0.125, 0.02, 0, -0.5 * s, pg);
+      cone(M.armor, 0.031, 0.13, -0.095 * s, 0.125, 0.02, 0, 0.5 * s, pg);
+      cone(M.armor, 0.028, 0.11, 0, 0.115, 0.115, 0.5, 0, pg);
+      cone(M.armor, 0.028, 0.11, 0, 0.115, -0.115, -0.5, 0, pg);
+      if (sk.emblem === 'sun') {
+        const sd = sun(M.trim, 0.072); sd.position.set(0.195 * s, 0.01, 0); sd.rotation.y = s * Math.PI / 2; pg.add(sd);
+      }
     }
-    /* ---- articulated limbs (two-segment IK) ---- */
-    const armR = fem ? 0.088 : 0.104, foreR = fem ? 0.078 : 0.09;
+    /* ---- articulated limbs (two-segment IK, lathe-profiled) ---- */
+    const limbS = fem ? 0.86 : 1;
+    const leatherFore = this.cfg.id === 'brawler' || this.cfg.id === 'nightblade';
     const mkArm = (side) => {
       const shoulder = new THREE.Group(); shoulder.position.set(0.485 * side, 1.615, 0.02); F.add(shoulder);
-      const upper = new THREE.Mesh(Fighter._segGeo, M.body);
-      upper.scale.set(armR, 1, armR); upper.castShadow = true; shoulder.add(upper);
+      sph(M.body, 0.105, 0.105, 0.105, 0, 0, 0, shoulder);
+      const upper = new THREE.Mesh(Fighter._armUpGeo, M.body);
+      upper.scale.set(limbS, 1, limbS); upper.castShadow = true; shoulder.add(upper);
       const foreG = new THREE.Group(); shoulder.add(foreG);
-      const fore = new THREE.Mesh(Fighter._segGeo, M.body);
-      fore.scale.set(foreR, 1, foreR); fore.castShadow = true; foreG.add(fore);
-      const bracer = new THREE.Mesh(new THREE.CylinderGeometry(foreR * 1.30, foreR * 1.16, 0.17, 10), M.armor);
-      bracer.position.y = -0.20; bracer.castShadow = true; foreG.add(bracer);
-      cone(M.trim, 0.018, 0.07, foreR * 1.1, -0.16, 0, 0, 1.1, foreG);
+      const fore = new THREE.Mesh(Fighter._armFoGeo, leatherFore ? M.leather : M.armor);
+      fore.scale.set(limbS, 1, limbS); fore.castShadow = true; foreG.add(fore);
+      const cuff = new THREE.Mesh(new THREE.TorusGeometry(0.10, 0.015, 6, 14), M.trim);
+      cuff.rotation.x = Math.PI / 2; cuff.position.y = -0.315; foreG.add(cuff);
+      cone(M.trim, 0.017, 0.07, 0.105, -0.17, 0, 0, 1.1, foreG);
       const fistG = new THREE.Group(); foreG.add(fistG);
-      sph(M.body, 0.115, 0.105, 0.125, 0, 0, 0, fistG);
-      box(M.armor, 0.15, 0.06, 0.10, 0, 0.01, 0.05, fistG);
+      sph(M.body, 0.11, 0.10, 0.12, 0, 0, 0, fistG);
+      box(M.armor, 0.145, 0.055, 0.10, 0, 0.015, 0.05, fistG);
+      for (const kx of [-0.042, 0, 0.042]) sph(M.trim, 0.014, 0.014, 0.014, kx, 0.045, 0.10, fistG);
       return { shoulder, upper, foreG, fore, fistG, jx: 0.485 * side, jy: 1.615, jz: 0.02, a: 0.36, b: 0.36 };
     };
     this.armJab = mkArm(1); this.armHeavy = mkArm(-1);
-    const thighR = fem ? 0.115 : 0.132, shinR = fem ? 0.088 : 0.10;
     const mkLeg = (side) => {
       const hip = new THREE.Group(); hip.position.set(0.20 * side, 1.00, 0); F.add(hip);
-      const thigh = new THREE.Mesh(Fighter._segGeo, M.body);
-      thigh.scale.set(thighR, 1, thighR); thigh.castShadow = true; hip.add(thigh);
+      sph(M.body, 0.135, 0.135, 0.135, 0, 0, 0, hip);
+      const thigh = new THREE.Mesh(Fighter._thighGeo, sk.legArmor ? M.armor : M.body);
+      thigh.scale.set(limbS, 1, limbS); thigh.castShadow = true; hip.add(thigh);
       const shinG = new THREE.Group(); hip.add(shinG);
-      const shin = new THREE.Mesh(Fighter._segGeo, M.body);
-      shin.scale.set(shinR, 1, shinR); shin.castShadow = true; shinG.add(shin);
-      const greave = new THREE.Mesh(new THREE.CylinderGeometry(shinR * 1.24, shinR * 1.06, 0.30, 10), M.armor);
-      greave.position.y = -0.22; greave.castShadow = true; shinG.add(greave);
-      cone(M.trim, 0.03, 0.11, 0, 0.0, shinR + 0.05, 1.35, 0, shinG);
+      const shin = new THREE.Mesh(Fighter._shinGeo, M.armor);
+      shin.scale.set(limbS, 1, limbS); shin.castShadow = true; shinG.add(shin);
+      if (sk.emblem === 'sun') { const sd = sun(M.trim, 0.05); sd.position.set(0, -0.045, 0.108); shinG.add(sd); }
+      else {
+        const kd = new THREE.Mesh(new THREE.CircleGeometry(0.058, 16), M.trim);
+        kd.position.set(0, -0.045, 0.108); shinG.add(kd);
+      }
+      cone(M.trim, 0.028, 0.09, 0, -0.10, 0.115, 1.35, 0, shinG);
       const footG = new THREE.Group(); shinG.add(footG);
       box(M.body, 0.125, 0.055, 0.30, 0, -0.01, 0.07, footG);
+      if (sk.legArmor || sk.tassets) box(M.armor, 0.13, 0.05, 0.15, 0, 0.008, 0.155, footG);
       for (const ts of [1, 0, -1]) cone(M.body, 0.026, 0.11, 0.048 * ts, -0.015, 0.245, 1.25, 0, footG);
       return { hip, thigh, shinG, shin, footG, jx: 0.20 * side, jy: 1.00, jz: 0, a: 0.49, b: 0.49 };
     };
@@ -1575,43 +1757,43 @@ const ROSTER = [
     stats: { power: 5, speed: 3, range: 4 }, sparkColor: 0xffc44d, ultKind: 'barrage', maxHp: 130, aiStyle: 'brawler', aiMul: 0.82,
     specNames: { rise: 'SOLAR RISE', sweep: 'ECLIPSE SWEEP', dash: 'COMET DASH', orb: 'NOVA ORB' },
     style: 'The crowned sovereign of the colosseum. Solar specials, gold trim, the full crown.',
-    skin: { body: 0x3f7031, belly: 0xa8bf92, spot: 0x2a4d20, armor: 0x17181c, trim: 0xd8a83c, cape: 0x2a1a3e, headgear: 'crown', iris: 0xff9a1f } },
+    skin: { body: 0x4a7a35, belly: 0xb9c9a0, spot: 0x2f5523, armor: 0x17181c, trim: 0xd8a83c, cape: 0x2a1a3e, headgear: 'crown', iris: 0xff9a1f, emblem: 'sun', tassets: true } },
   { id: 'queen', name: 'QUEEN VESPERA', title: 'THE VIOLET REGENT', cls: 'WARRIOR QUEEN', art: 'queen.webp',
     stats: { power: 4, speed: 4, range: 4 }, sparkColor: 0xb98cff, ultKind: 'barrage', maxHp: 115, aiStyle: 'zoner', aiMul: 0.9,
     specNames: SPEC2, style: 'The roster\'s warrior queen. Violet armor, gold crown, regal cape.',
-    skin: { body: 0x6d4a9e, belly: 0xd9c8f2, spot: 0x4a2b7a, armor: 0x1d1830, trim: 0xd8a83c, cape: 0x3b1d5e, headgear: 'crown', iris: 0xc9a0ff, female: true } },
+    skin: { body: 0x55803a, belly: 0xcfe0b8, spot: 0x3a5c2a, armor: 0x2a2140, trim: 0xd8a83c, cape: 0x4a2470, headgear: 'crown', gem: 0xb98cff, iris: 0xffb03a, female: true, emblem: 'moon', tassets: true } },
   { id: 'princess', name: 'PRINCESS ROSALIE', title: 'THE ROSE PRINCESS', cls: 'ROYAL PRINCESS', art: 'princess.webp',
     stats: { power: 3, speed: 5, range: 3 }, sparkColor: 0xff9ecb, ultKind: 'combo', maxHp: 100, aiStyle: 'speed', aiMul: 0.95,
     specNames: SPEC2, style: 'The young rose princess. Small, fast, rose-gold tiara.',
-    skin: { body: 0xd98bb4, belly: 0xffe3f1, spot: 0xb05c86, armor: 0x2a2030, trim: 0xe8a0b4, cape: 0x5e2a4e, headgear: 'tiara', iris: 0xff7ab0, female: true, scale: 0.93 } },
+    skin: { body: 0x69a844, belly: 0xe6f2cf, spot: 0x4a7d33, armor: 0x4a2c38, trim: 0xe88ca0, cape: 0x7a2a4e, headgear: 'rosecrown', iris: 0xff9a1f, female: true, scale: 0.93, emblem: 'rose', tassets: true } },
   { id: 'ember', name: 'EMBERLORD KAEL', title: 'THE EMBERLORD', cls: 'EMBER KNIGHT', art: 'ember.webp',
     stats: { power: 5, speed: 2, range: 3 }, sparkColor: 0xff7a2a, ultKind: 'combo', maxHp: 120, aiStyle: 'brawler', aiMul: 0.88,
     specNames: SPEC2, style: 'The ember knight. Heavy hits, flame crest, scorched black armor.',
-    skin: { body: 0xa83226, belly: 0xffc9a3, spot: 0x6e1d12, armor: 0x1c1214, trim: 0xff7a2a, cape: 0x33141a, headgear: 'crest', iris: 0xffb03a } },
+    skin: { body: 0x66713a, belly: 0xcac39a, spot: 0x47511f, armor: 0x191314, trim: 0xff6a1f, cape: 0x1c0f10, headgear: 'flamecrest', iris: 0xff5a1f, glow: true, emblem: 'skull', tassets: true, legArmor: true } },
   { id: 'shadow', name: 'NYX THE SHADOWBLADE', title: 'MASTER OF SHADOWS', cls: 'SHADOW ASSASSIN', art: 'shadow.webp',
     stats: { power: 4, speed: 5, range: 4 }, sparkColor: 0x35e0d0, ultKind: 'barrage', maxHp: 110, aiStyle: 'speed', aiMul: 0.9,
     specNames: SPEC2, style: 'Master of shadows. Cyan eyes, blackout armor, silent feet.',
-    skin: { body: 0x37474f, belly: 0x90a4ae, spot: 0x1c262b, armor: 0x10151a, trim: 0x35e0d0, cape: 0x0d1420, iris: 0x35e0d0, pupil: 0x062a28 } },
+    skin: { body: 0x2e4038, belly: 0x5a7268, spot: 0x16211c, armor: 0x0d1117, trim: 0x35e0d0, cape: 0x0a0e14, headgear: 'hood', iris: 0x35e0d0, pupil: 0x062a28, glow: true, emblem: 'rune' } },
   { id: 'captain', name: 'CAPTAIN DELMAR', title: 'THE TIDE CAPTAIN', cls: 'WAR CAPTAIN', art: 'captain.webp',
     stats: { power: 4, speed: 3, range: 5 }, sparkColor: 0x4da6ff, ultKind: 'barrage', maxHp: 110, aiStyle: 'zoner', aiMul: 0.95,
     specNames: SPEC2, style: 'The tide captain. Long-range orbs, red war cape.',
-    skin: { body: 0x2f6fd0, belly: 0xd6e6ff, spot: 0x1d4c96, armor: 0x1a2436, trim: 0xd8a83c, cape: 0x7a1f24, iris: 0xffd24d } },
+    skin: { body: 0x3d7ea6, belly: 0xd8e8ee, spot: 0x26536e, armor: 0x1c2c50, trim: 0xd8a83c, cape: 0x8e1f28, headgear: 'plume', plume: 0x3fa9f5, iris: 0xffb03a, emblem: 'skull', tassets: true } },
   { id: 'nightblade', name: 'NIGHTBLADE VOSS', title: 'BLADE OF THE NIGHT WATCH', cls: 'NIGHT WARRIOR', art: 'nightblade.webp',
     stats: { power: 4, speed: 4, range: 3 }, sparkColor: 0x8b5cf6, ultKind: 'combo', maxHp: 105, aiStyle: 'speed', aiMul: 1.0,
     specNames: SPEC2, style: 'Blade of the night watch. Bronze harness, fast hands.',
-    skin: { body: 0x2f6126, belly: 0xb9d69a, spot: 0x1e4218, armor: 0x4a3a1c, trim: 0xa8742c, cape: 0x241a10, headgear: 'band', iris: 0xd23b3b } },
+    skin: { body: 0x7d8f6a, belly: 0xd6dcc4, spot: 0x55663f, armor: 0x6e5626, trim: 0xa8742c, cape: 0x14100c, headgear: 'circlet', iris: 0xd23b3b, emblem: 'none' } },
   { id: 'soldier', name: 'GRUMM THE BULWARK', title: 'THE FRONT-LINE BULWARK', cls: 'HEAVY SOLDIER', art: 'soldier.webp',
     stats: { power: 3, speed: 4, range: 2 }, sparkColor: 0xa8e063, ultKind: 'combo', maxHp: 105, aiStyle: 'balanced', aiMul: 1.05,
     specNames: SPEC2, style: 'Front-line bulwark. Big pauldrons, red trim, no cape.',
-    skin: { body: 0x47793a, belly: 0xcfe0ae, spot: 0x2f5724, armor: 0x3a4149, trim: 0xd23b3b, cape: null, iris: 0xff9a1f } },
+    skin: { body: 0x77815f, belly: 0xc4c9ae, spot: 0x55603f, armor: 0x8a939c, trim: 0xc22e2e, cape: null, iris: 0xff9a1f, emblem: 'skull', tassets: true, legArmor: true } },
   { id: 'starknight', name: 'STELLARIS', title: 'THE STAR KNIGHT', cls: 'STAR KNIGHT', art: 'starknight.webp',
     stats: { power: 3, speed: 3, range: 3 }, sparkColor: 0x8b5cf6, ultKind: 'combo', maxHp: 102, aiStyle: 'balanced', aiMul: 1.1,
     specNames: SPEC2, style: 'The star knight. Pale suit armor, teal trim.',
-    skin: { body: 0x55803f, belly: 0xdde8c8, spot: 0x3a5c2a, armor: 0x9aa7ad, trim: 0xff8c42, cape: null, iris: 0x8b5cf6 } },
+    skin: { body: 0x55803f, belly: 0xdde8c8, spot: 0x3a5c2a, armor: 0xb9c4c9, trim: 0x2fe0c8, cape: 0x10182e, headgear: 'starcrown', iris: 0xffb03a, glow: true, emblem: 'star', tassets: true, legArmor: true } },
   { id: 'brawler', name: 'BRAMBLE', title: 'THE OLD POND BRAWLER', cls: 'VETERAN BRAWLER', art: 'brawler.webp',
     stats: { power: 2, speed: 2, range: 2 }, sparkColor: 0x7fe07a, ultKind: 'combo', maxHp: 100, aiStyle: 'balanced', aiMul: 1.2,
     specNames: SPEC2, style: 'The old pond brawler. Worn iron, ragged cape, honest fists.',
-    skin: { body: 0x4a7d33, belly: 0xcfe0ae, spot: 0x2f5724, armor: 0x23282c, trim: 0x8a93a0, cape: 0x3a2e1e, iris: 0xff9a1f } },
+    skin: { body: 0x77705f, belly: 0xcfc6ae, spot: 0x57503f, armor: 0x4c3a28, trim: 0x7a6a55, cape: 0x3a2c1e, iris: 0xd8b25a, emblem: 'skull' } },
 ];
 let pickFighter = ROSTER[0], cpuFighter = ROSTER[9];
 let P1 = new Fighter(slotCfg(ROSTER[0], -1.7));
