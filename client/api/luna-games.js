@@ -3026,7 +3026,18 @@ const TDA_GECKO_USTC = 'https://api.coingecko.com/api/v3/simple/price?ids=terrau
    Claims are a lock key (tda:claim:<id>, 15 min, refreshed by
    progress posts) plus a claim-token hash on the row, so a
    crashed runner's work is recoverable, never stuck, and a
-   stale runner can never write over a live claim. */
+   stale runner can never write over a live claim.
+   OWNER-ENGLISH (Nov 18 late, owner order): the owner's
+   Chat view reads every thread in English. Each row stores
+   English renderings beside the seat's own words — textEn
+   (the ask), resultEn (the reply), and an `e` on each plog
+   trail entry. Writers store the rendering when they write
+   the message (runner/server template strings come from the
+   same language tables, so they are exact); free seat text
+   and rows written before renderings existed are covered by
+   the runner's translation sweep (tdaEnSweep / tdaSetEn —
+   builder-gated, fill-empty-only, never touches text,
+   status or tokens). The seat's own view is unchanged. */
 const TDA_CLAIM_TTL_SEC = 15 * 60;
 const TDA_CLAIM_STALE_MS = 15 * 60 * 1000;
 const TDA_PLOG_CAP = 40;
@@ -3463,12 +3474,22 @@ function tdaPublicReq(o, seatName) {
     created: Number(o.created) || 0,
     updated: Number(o.updated) || 0,
   };
+  /* Owner-English renderings: stored next to the seat's own
+     words (textEn for the ask, resultEn for the reply, `en`
+     on each trail entry). The page's owner view prefers
+     them; the seat's own view ignores them completely. */
+  if (String(o.textEn || '')) out.textEn = String(o.textEn);
+  if (String(o.resultEn || '')) out.resultEn = String(o.resultEn);
   /* v3 builder trail: only present on builder-managed rows,
      so v2 payloads (and the live page) are untouched. */
   const bs = String(o.buildState || '');
   if (bs) {
     out.buildState = bs;
-    out.progress = tdaParsePlog(o.plog).map(e => ({ t: e.t, kind: e.k, msg: e.m }));
+    out.progress = tdaParsePlog(o.plog).map(e => {
+      const p = { t: e.t, kind: e.k, msg: e.m };
+      if (e.e) p.en = e.e;
+      return p;
+    });
     if (String(o.flagged || '') === '1') out.flagged = true;
   }
   return out;
@@ -3486,17 +3507,44 @@ function tdaParsePlog(raw) {
     const a = JSON.parse(String(raw || ''));
     if (!Array.isArray(a)) return [];
     return a.filter(e => e && typeof e === 'object' && typeof e.m === 'string')
-      .map(e => ({ t: Number(e.t) || 0, k: ['builder', 'step', 'reply', 'note'].includes(e.k) ? e.k : 'builder', m: e.m }));
+      .map(e => {
+        const o = { t: Number(e.t) || 0, k: ['builder', 'step', 'reply', 'note'].includes(e.k) ? e.k : 'builder', m: e.m };
+        /* Owner-English rendering of this entry, when one is
+           stored — the owner's view reads it, the seat's view
+           never does. */
+        if (typeof e.e === 'string' && e.e) o.e = e.e.slice(0, TDA_STEP_MAX);
+        return o;
+      });
   } catch (e) { return []; }
 }
 function tdaPlogJson(existingRaw, entries) {
   const a = tdaParsePlog(existingRaw);
   for (const e of entries) {
     const cap = e.k === 'step' ? TDA_STEP_MAX : TDA_PLOG_MSG_MAX;
-    a.push({ t: Date.now(), k: e.k, m: String(e.m || '').slice(0, cap) });
+    const ent = { t: Date.now(), k: e.k, m: String(e.m || '').slice(0, cap) };
+    if (typeof e.e === 'string' && e.e) ent.e = e.e.slice(0, cap);
+    a.push(ent);
   }
   while (a.length > TDA_PLOG_CAP) a.shift();
   return JSON.stringify(a);
+}
+/* Set English renderings on EXISTING trail entries (by
+   parsed index) without touching their text — the runner's
+   owner-English sweep/backfill path. Only empty slots are
+   filled: the first rendering stored wins, so a re-run can
+   never rewrite what the owner already read. */
+function tdaPlogSetEn(raw, plogEn) {
+  const a = tdaParsePlog(raw);
+  let n = 0;
+  for (const p of (Array.isArray(plogEn) ? plogEn : [])) {
+    const i = Number(p && p.i);
+    const e = String((p && p.e) || '').trim();
+    if (!Number.isInteger(i) || i < 0 || i >= a.length || !e) continue;
+    if (a[i].e) continue;
+    a[i].e = e.slice(0, a[i].k === 'step' ? TDA_STEP_MAX : TDA_PLOG_MSG_MAX);
+    n++;
+  }
+  return { json: JSON.stringify(a.slice(-TDA_PLOG_CAP)), set: n };
 }
 
 /* Complete a request row: write the reply + the charged
@@ -3512,7 +3560,7 @@ function tdaPlogJson(existingRaw, entries) {
    Shared by tdaDone (owner) and tdaBuildDone (the runner) so
    there is exactly one charging code path. Returns the
    seat's balance after, or null for the owner's own rows. */
-async function tdaFinishRow(existing, result, used) {
+async function tdaFinishRow(existing, result, used, resultEn) {
   if (String(existing.ownerAdded || '') === '1') used = 0;
   const id = String(existing.id);
   const now = String(Date.now());
@@ -3537,7 +3585,12 @@ async function tdaFinishRow(existing, result, used) {
      the balance clamp) — so the thread's "used X tokens" is
      always the truth, never a list price the seat didn't pay. */
   const chargedTotal = prevCharged + applied;
-  const cmds = [['HSET', 'tda:req:' + id, 'status', 'done', 'result', result, 'tokensUsed', String(chargedTotal), 'updated', now]];
+  const finishSet = ['HSET', 'tda:req:' + id, 'status', 'done', 'result', result, 'tokensUsed', String(chargedTotal), 'updated', now];
+  /* The English rendering of the reply rides along when the
+     caller composed one (template strings are exact from the
+     language tables; free text is swept in later). */
+  if (typeof resultEn === 'string' && resultEn) finishSet.push('resultEn', resultEn.slice(0, TDA_RESULT_MAX));
+  const cmds = [finishSet];
   if (seat && applied !== 0) {
     const usedBefore = Math.max(0, parseInt(seat.used, 10) || 0);
     cmds.push(['HSET', 'tda:seat:' + seatId, 'tokens', String(tokensLeft), 'used', String(usedBefore + applied)]);
@@ -4146,6 +4199,12 @@ function tdaWordsHit(low, words) {
 async function tdaGuideAdvance(row, text) {
   let steps = [];
   try { const a = JSON.parse(String(row.guideSteps || '')); if (Array.isArray(a)) steps = a.map(s => String(s)); } catch (e) { /* no steps = finish below */ }
+  /* The English twin of the steps, stored when the guide was
+     created — owner-view renderings for the step entries
+     this function appends. Absent on older guides; the
+     runner's sweep covers those by translation instead. */
+  let stepsEn = [];
+  try { const a = JSON.parse(String(row.guideStepsEn || '')); if (Array.isArray(a)) stepsEn = a.map(s => String(s)); } catch (e) { /* no English steps */ }
   const idx = Math.max(0, parseInt(row.guideIdx, 10) || 0);
   const entries = [{ k: 'reply', m: text }];
   const low = text.trim().toLowerCase();
@@ -4161,7 +4220,7 @@ async function tdaGuideAdvance(row, text) {
   if (/\b(stop|cancel|quit)\b/.test(low) || tdaWordsHit(low, gwords.stop)) {
     const result = gs.guideStop;
     await upstashPipeline([['HSET', 'tda:req:' + row.id, 'plog', tdaPlogJson(row.plog, entries), 'buildState', 'done', 'updated', now]]);
-    await tdaFinishRow(row, result, 0);
+    await tdaFinishRow(row, result, 0, glang !== 'en' ? TDA_S('en').guideStop : undefined);
     return { finished: true };
   }
   const doneLike = /^(done|ok|okay|yes|ready|finished|did it|next)[.! ]*$/.test(low) || /\bdone\b/.test(low) || tdaWordsHit(low, gwords.done);
@@ -4170,16 +4229,21 @@ async function tdaGuideAdvance(row, text) {
     if (nidx >= steps.length) {
       const charge = Math.max(0, parseInt(row.guideCharge, 10) || 0);
       const result = String(row.guideDone || '') || gs.guideAllDone;
+      const resultEn = String(row.guideDoneEn || '') || (glang !== 'en' ? TDA_S('en').guideAllDone : '');
       await upstashPipeline([['HSET', 'tda:req:' + row.id, 'plog', tdaPlogJson(row.plog, entries), 'buildState', 'done', 'updated', now]]);
-      await tdaFinishRow(row, result, charge);
+      await tdaFinishRow(row, result, charge, resultEn || undefined);
       return { finished: true };
     }
-    entries.push({ k: 'step', m: tdaFill(gs.stepOf, { n: nidx + 1, m: steps.length }) + ': ' + steps[nidx] });
+    const stepEnt = { k: 'step', m: tdaFill(gs.stepOf, { n: nidx + 1, m: steps.length }) + ': ' + steps[nidx] };
+    if (stepsEn[nidx]) stepEnt.e = tdaFill(TDA_S('en').stepOf, { n: nidx + 1, m: steps.length }) + ': ' + stepsEn[nidx];
+    entries.push(stepEnt);
     await upstashPipeline([['HSET', 'tda:req:' + row.id, 'plog', tdaPlogJson(row.plog, entries), 'guideIdx', String(nidx), 'guideNudged', '', 'updated', now]]);
     return { finished: false };
   }
   if (String(row.guideNudged || '') !== String(idx)) {
-    entries.push({ k: 'builder', m: gs.guideNudge });
+    const nudgeEnt = { k: 'builder', m: gs.guideNudge };
+    if (glang !== 'en') nudgeEnt.e = TDA_S('en').guideNudge;
+    entries.push(nudgeEnt);
     await upstashPipeline([['HSET', 'tda:req:' + row.id, 'plog', tdaPlogJson(row.plog, entries), 'guideNudged', String(idx), 'updated', now]]);
   } else {
     await upstashPipeline([['HSET', 'tda:req:' + row.id, 'plog', tdaPlogJson(row.plog, entries), 'updated', now]]);
@@ -4581,7 +4645,10 @@ export async function tdaHandler(req, res) {
            time the server cannot know the kind — a plain question
            or check-in lands here too, and the runner's real,
            kind-specific answer follows. Neutral wording only. */
-        rowCmd.push('plog', tdaPlogJson('', [{ k: 'builder', m: TDA_S(tdaDetectLang(text)).gotIt }]));
+        const ackLang = tdaDetectLang(text);
+        const ackEntry = { k: 'builder', m: TDA_S(ackLang).gotIt };
+        if (ackLang !== 'en') ackEntry.e = TDA_S('en').gotIt;
+        rowCmd.push('plog', tdaPlogJson('', [ackEntry]));
       }
       const cmds = [
         rowCmd,
@@ -4755,8 +4822,11 @@ export async function tdaHandler(req, res) {
       const msg = String(body.msg || '').trim();
       if (!msg) return res.status(400).json({ ok: false, error: 'empty progress' });
       const kind = body.kind === 'note' ? 'note' : 'builder';
+      const ent = { k: kind, m: msg };
+      const msgEn = String(body.msgEn || '').trim();
+      if (msgEn) ent.e = msgEn;
       await upstashPipeline([
-        ['HSET', 'tda:req:' + id, 'plog', tdaPlogJson(row.plog, [{ k: kind, m: msg }]), 'updated', String(Date.now())],
+        ['HSET', 'tda:req:' + id, 'plog', tdaPlogJson(row.plog, [ent]), 'updated', String(Date.now())],
         ['EXPIRE', 'tda:claim:' + id, TDA_CLAIM_TTL_SEC],
       ]);
       return res.status(200).json({ ok: true, id });
@@ -4779,12 +4849,21 @@ export async function tdaHandler(req, res) {
         || gs.guideIntro;
       const doneText = String(body.doneText || '').trim().slice(0, TDA_RESULT_MAX)
         || gs.guideAllDone;
-      const plog = tdaPlogJson(row.plog, [
-        { k: 'builder', m: intro },
-        { k: 'step', m: tdaFill(gs.stepOf, { n: 1, m: steps.length }) + ': ' + steps[0] },
-      ]);
+      /* English twins (owner view): the runner composes both
+         languages from the same tables, so these are exact. */
+      const stepsEn = (Array.isArray(body.stepsEn) ? body.stepsEn : [])
+        .map(s => String(s || '').trim().slice(0, TDA_STEP_MAX)).slice(0, TDA_GUIDE_STEPS_MAX);
+      const introEn = String(body.introEn || '').trim().slice(0, TDA_PLOG_MSG_MAX)
+        || (rowLang !== 'en' ? TDA_S('en').guideIntro : '');
+      const doneTextEn = String(body.doneTextEn || '').trim().slice(0, TDA_RESULT_MAX);
+      const introEnt = { k: 'builder', m: intro };
+      if (introEn) introEnt.e = introEn;
+      const stepEnt = { k: 'step', m: tdaFill(gs.stepOf, { n: 1, m: steps.length }) + ': ' + steps[0] };
+      if (stepsEn[0]) stepEnt.e = tdaFill(TDA_S('en').stepOf, { n: 1, m: steps.length }) + ': ' + stepsEn[0];
+      const plog = tdaPlogJson(row.plog, [introEnt, stepEnt]);
       await upstashPipeline([
         ['HSET', 'tda:req:' + id, 'buildState', 'guided', 'guideSteps', JSON.stringify(steps),
+          'guideStepsEn', JSON.stringify(stepsEn), 'guideDoneEn', doneTextEn,
           'guideIdx', '0', 'guideCharge', String(charge), 'guideDone', doneText, 'guideNudged', '', 'guideLang', rowLang,
           'plog', plog, 'updated', String(Date.now())],
         ['DEL', 'tda:claim:' + id],
@@ -4800,11 +4879,15 @@ export async function tdaHandler(req, res) {
       if (!row) return res.status(200).json({ ok: false, error: 'claim not held' });
       const note = String(body.msg || '').trim().slice(0, TDA_PLOG_MSG_MAX)
         || 'Flagged by the builder\'s safety check.';
-      const result = TDA_S(tdaDetectLang(row.text || '')).refuseResult;
+      const rowLang = tdaDetectLang(row.text || '');
+      const result = TDA_S(rowLang).refuseResult;
+      const noteEnt = { k: 'builder', m: note };
+      const noteEn = String(body.msgEn || '').trim();
+      if (noteEn) noteEnt.e = noteEn;
       await upstashPipeline([['HSET', 'tda:req:' + id,
-        'plog', tdaPlogJson(row.plog, [{ k: 'builder', m: note }]),
+        'plog', tdaPlogJson(row.plog, [noteEnt]),
         'buildState', 'refused', 'flagged', '1', 'updated', String(Date.now())]]);
-      const tokensLeft = await tdaFinishRow(row, result, 0);
+      const tokensLeft = await tdaFinishRow(row, result, 0, rowLang !== 'en' ? TDA_S('en').refuseResult : undefined);
       await upstashPipeline([['DEL', 'tda:claim:' + id]]);
       return res.status(200).json({ ok: true, id, refused: true, tokensLeft });
     }
@@ -4819,12 +4902,107 @@ export async function tdaHandler(req, res) {
       if (!result) return res.status(400).json({ ok: false, error: 'empty reply' });
       let used = tdaParseTokens(body.tokens, 0);
       if (used === null) return res.status(400).json({ ok: false, error: 'bad token amount' });
-      const tokensLeft = await tdaFinishRow(row, result, used);
+      const resultEn = String(body.resultEn || '').trim().slice(0, TDA_RESULT_MAX);
+      const tokensLeft = await tdaFinishRow(row, result, used, resultEn || undefined);
       await upstashPipeline([
         ['HSET', 'tda:req:' + id, 'buildState', 'done', 'updated', String(Date.now())],
         ['DEL', 'tda:claim:' + id],
       ]);
       return res.status(200).json({ ok: true, id, status: 'done', tokensLeft });
+    }
+
+    /* ---- OWNER-ENGLISH (Nov 18 late): the owner's Chat view
+       reads every thread in English. Renderings are STORED
+       next to the seat's own words — textEn on the row, `e`
+       on each trail entry, resultEn on the reply — written
+       when the message is written (template strings are
+       exact from the language tables) or by the runner's
+       translation sweep for free seat text and legacy rows.
+       The seat's own view is never touched. ---- */
+
+    if (action === 'tdaSetEn') {
+      if (!(await tdaBuilderGate(req, res, tag, body))) return undefined;
+      const id = String(body.id || '');
+      if (!/^r[a-z0-9]{6,24}$/.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const cur = await upstashPipeline([['HGETALL', 'tda:req:' + id]]);
+      const row = tdaHashToObj(cur[0] && cur[0].result);
+      if (!row.id || String(row.deletedAt || '')) return res.status(404).json({ ok: false, error: 'no such request' });
+      /* Renderings ONLY: this action can never touch the
+         row's text, status, result or tokens, and it only
+         fills EMPTY rendering slots — the first rendering
+         stored wins, so a re-run can never rewrite what the
+         owner already read. `updated` is deliberately left
+         alone: a backfill must not make old threads look
+         newly active. */
+      const set = {};
+      const hset = ['HSET', 'tda:req:' + id];
+      const textEn = String(body.textEn || '').trim().slice(0, TDA_TEXT_MAX);
+      if (textEn && !String(row.textEn || '')) { hset.push('textEn', textEn); set.textEn = true; }
+      const resultEn = String(body.resultEn || '').trim().slice(0, TDA_RESULT_MAX);
+      if (resultEn && !String(row.resultEn || '')) { hset.push('resultEn', resultEn); set.resultEn = true; }
+      if (Array.isArray(body.plogEn) && body.plogEn.length) {
+        const r = tdaPlogSetEn(row.plog, body.plogEn);
+        if (r.set) { hset.push('plog', r.json); set.plogEn = r.set; }
+      }
+      if (hset.length > 2) await upstashPipeline([hset]);
+      return res.status(200).json({ ok: true, id, set });
+    }
+
+    if (action === 'tdaEnSweep') {
+      if (!(await tdaBuilderGate(req, res, tag, body))) return undefined;
+      /* Rows whose stored English renderings are incomplete:
+         a non-English ask without textEn, a non-English reply
+         without resultEn, or trail entries with no rendering
+         whose own words are not English. Newest first; the
+         runner translates and stores via tdaSetEn. */
+      const limit = Math.max(1, Math.min(10, parseInt(body.limit, 10) || 3));
+      const idsOut = await upstashPipeline([['LRANGE', 'tda:reqs', 0, 199]]);
+      const ids = (idsOut[0] && idsOut[0].result) || [];
+      const out = [];
+      if (ids.length) {
+        const rows = await upstashPipeline(ids.map(x => ['HGETALL', 'tda:req:' + x]));
+        for (const rw of rows) {
+          if (out.length >= limit) break;
+          const o = tdaHashToObj(rw && rw.result);
+          if (!o.id || String(o.deletedAt || '')) continue;
+          const lang = tdaDetectLang(o.text || '');
+          if (lang === 'en') continue;
+          const need = { id: String(o.id), seatId: String(o.seatId || 'owner'), lang };
+          if (String(o.text || '') && !String(o.textEn || '')) need.text = String(o.text);
+          if (String(o.result || '') && !String(o.resultEn || '') && tdaDetectLang(o.result) !== 'en') need.result = String(o.result);
+          const missing = [];
+          tdaParsePlog(o.plog).forEach((e, i) => {
+            if (!e.e && tdaDetectLang(e.m) !== 'en') missing.push({ i, t: e.t, kind: e.k, msg: e.m });
+          });
+          if (missing.length) need.progress = missing;
+          if (!need.text && !need.result && !need.progress) continue;
+          out.push(need);
+        }
+      }
+      return res.status(200).json({ ok: true, rows: out });
+    }
+
+    if (action === 'tdaThreadDump') {
+      if (!(await tdaBuilderGate(req, res, tag, body))) return undefined;
+      /* One seat's thread in the exact public shape the page
+         renders (renderings included) — the runner's support
+         and verification read. Builder-gated like the queue:
+         the runner already sees every row's text there. */
+      const seatId = String(body.seatId || '');
+      if (!seatId) return res.status(400).json({ ok: false, error: 'seatId required' });
+      const idsOut = await upstashPipeline([['LRANGE', 'tda:reqs', 0, 199]]);
+      const ids = (idsOut[0] && idsOut[0].result) || [];
+      let objs = [];
+      if (ids.length) {
+        const rows = await upstashPipeline(ids.map(x => ['HGETALL', 'tda:req:' + x]));
+        objs = rows.map(r => tdaHashToObj(r && r.result))
+          .filter(o => o.id && !String(o.deletedAt || '') && String(o.seatId || '') === seatId);
+      }
+      const seat = seatId === 'owner' ? null : await tdaGetSeat(seatId);
+      const name = seatId === 'owner' ? 'Owner' : (seat ? String(seat.name || '') : '');
+      const out = { ok: true, reqs: objs.slice(0, TDA_LIST_CAP).map(o => tdaPublicReq(o, name)) };
+      if (seat) { const s = tdaPublicSeat(seat); out.seat = { id: s.id, name: s.name, tokens: s.tokens, used: s.used }; }
+      return res.status(200).json(out);
     }
 
     if (action === 'tdaClose' || action === 'tdaDelete') {

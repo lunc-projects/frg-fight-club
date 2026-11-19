@@ -1023,7 +1023,7 @@ function renderTrash(items){
     '<div class="prog-seat">'
     + '<div class="pg-top"><span class="pg-name">' + esc(r.seatName || 'Seat') + '</span>'
     + '<span class="pill arch">' + esc(r.status || '') + '</span></div>'
-    + '<p>' + esc(String(r.text || '').slice(0, 100)) + (String(r.text || '').length > 100 ? '…' : '') + '</p>'
+    + '<p>' + esc(String(dispText(r) || '').slice(0, 100)) + (String(dispText(r) || '').length > 100 ? '…' : '') + '</p>'
     + '<p class="mut">Deleted ' + esc(fmtDate(r.deletedAt)) + '</p>'
     + '<p style="margin-top:8px;"><button class="sbtn" data-trash="restore" data-id="' + esc(r.id) + '">Restore</button> '
     + '<button class="sbtn warn" data-trash="forever" data-id="' + esc(r.id) + '">Delete forever</button></p>'
@@ -1062,8 +1062,8 @@ function renderProgress(focusId){
     const cur = open[0];
     const lastProg = cur && Array.isArray(cur.progress) && cur.progress.length ? cur.progress[cur.progress.length - 1] : null;
     const curLine = cur
-      ? 'Working on: ' + (cur.status === 'building' ? '🔨 Building' : '📥 Waiting') + ' — ' + esc(String(cur.text || '').slice(0, 100)) + (String(cur.text || '').length > 100 ? '…' : '')
-        + (lastProg ? '<br>Latest: ' + esc(String(lastProg.msg || '').slice(0, 80)) + (String(lastProg.msg || '').length > 80 ? '…' : '') : '')
+      ? 'Working on: ' + (cur.status === 'building' ? '🔨 Building' : '📥 Waiting') + ' — ' + esc(String(dispText(cur) || '').slice(0, 100)) + (String(dispText(cur) || '').length > 100 ? '…' : '')
+        + (lastProg ? '<br>Latest: ' + esc(String(dispMsg(lastProg) || '').slice(0, 80)) + (String(dispMsg(lastProg) || '').length > 80 ? '…' : '') : '')
       : 'Nothing in progress right now.';
     return '<div class="prog-seat">'
       + '<div class="pg-top"><span class="pg-name">' + esc(s.name) + '</span>'
@@ -2030,6 +2030,14 @@ function linkify(escaped){
   });
 }
 const rich = s => linkify(esc(s)).replace(/\n/g, '<br>');
+/* Owner-English: rows carry stored English renderings next
+   to the seat's own words (textEn / resultEn / progress en).
+   The owner's view reads the renderings so every thread is
+   in English; a seat's view never changes. Missing rendering
+   = fall back to the original words. */
+function dispText(r){ return isOwner() ? (r.textEn || r.text) : r.text; }
+function dispResult(r){ return isOwner() ? (r.resultEn || r.result) : r.result; }
+function dispMsg(e){ return isOwner() ? (e.en || e.msg) : e.msg; }
 function fmtTime(ts){
   if (!ts) return '';
   const d = new Date(ts), now = new Date();
@@ -2052,7 +2060,7 @@ function chipFor(r, map){
 }
 function bubbleHTML(r){
   let h = '';
-  h += '<div class="row me"><div class="bubble">' + rich(r.text) + '</div>';
+  h += '<div class="row me"><div class="bubble">' + rich(dispText(r)) + '</div>';
   h += '<div class="meta">' + chipFor(r, CHIP)
     + (isOwner() ? '<span class="chip seat">' + esc(r.seatName || (r.seatId === 'owner' ? 'Owner' : '')) + '</span>' : '')
     + (isOwner() && r.flagged ? '<span class="chip">⚠️ Flagged</span>' : '')
@@ -2078,16 +2086,16 @@ function bubbleHTML(r){
     for (const e of r.progress){
       if (!e || typeof e.msg !== 'string') continue;
       if (e.kind === 'reply'){
-        h += '<div class="row me"><div class="bubble">' + rich(e.msg) + '</div>'
+        h += '<div class="row me"><div class="bubble">' + rich(dispMsg(e)) + '</div>'
           + '<div class="meta"><span>' + esc(fmtTime(e.t)) + '</span></div></div>';
       } else {
-        h += '<div class="row td"><div class="who">Tom\'s Dev</div><div class="bubble">' + rich(e.msg) + '</div>'
+        h += '<div class="row td"><div class="who">Tom\'s Dev</div><div class="bubble">' + rich(dispMsg(e)) + '</div>'
           + '<div class="meta"><span>' + esc(fmtTime(e.t)) + '</span></div></div>';
       }
     }
   }
   if ((r.status === 'done' || r.status === 'closed') && r.result){
-    h += '<div class="row td"><div class="who">Tom\'s Dev</div><div class="bubble">' + rich(r.result) + '</div>'
+    h += '<div class="row td"><div class="who">Tom\'s Dev</div><div class="bubble">' + rich(dispResult(r)) + '</div>'
       + '<div class="meta"><span>— used ' + (r.tokensUsed || 0) + ' tokens</span><span>' + esc(fmtTime(r.updated)) + '</span></div></div>';
   }
   return h;
