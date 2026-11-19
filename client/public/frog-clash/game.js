@@ -670,58 +670,63 @@ document.getElementById('muteBtn').addEventListener('click', () => {
   document.getElementById('muteBtn').textContent = AudioSys.muted ? '✕' : '♪';
 });
 
-/* ---------------- fighters: NFT billboards (no GLB models) ----------------
-   Frog Clash fighters are the real NFT cutouts on camera-facing planes;
-   the Fighter class below builds them from the FC art registry. */
-/* Fighter = a REAL 3D toon frog built from Three.js primitives, at
-   Battle Force proportions (~1.75 tall, body half-width <= 0.48).
-   The combat engine drives it through the same interface the GLB
-   fighters used: play(key) poses, limb anchors for the swept contact
-   test, pelvis/chest/head anchors for hit zones, sparks and orbs.
-   The frog's arms and front leg TRACK the limb anchors every frame:
-   the jab bone is the front fist, the heavy bone the back fist, the
-   kick bone the front foot — so the swept-limb contact system works
-   unchanged. The NFT's real art lives in the DOM only (fighter-select
-   cards, VS overlay, player panel); it never enters the arena.
-   Dressing comes from Frog Fight's class-gear system: skin records
-   (body/belly/spot/pupil + gear list) keyed by the token's class. */
-/* ---------------- frog skins (Frog Fight class-gear table) ---------------- */
-const FROG_SKINS = {
-  green:    { body: 0x3ab44a, belly: 0xd8f7b0, spot: 0x2a7d34, pupil: 0x141414, gear: [] },
-  soldier:  { body: 0x3ab44a, belly: 0xd8f7b0, spot: 0x2a7d34, pupil: 0x141414, gear: ['vest', 'pauldrons', 'visor'], metal: 0x3a4149, accent: 0xd23b3b },
-  cosmo:    { body: 0x3ab44a, belly: 0xd8f7b0, spot: 0x2a7d34, pupil: 0x141414, gear: ['helmet', 'suit', 'pack'] },
-  blue:     { body: 0x2f6fd0, belly: 0xd6e6ff, spot: 0x1d4e9e, pupil: 0x141414, gear: ['cape', 'emblem'], cape: 0xc0272d },
-  warrior:  { body: 0x3ab44a, belly: 0xd8f7b0, spot: 0x2a7d34, pupil: 0x141414, gear: ['harness', 'headband', 'sword'], metal: 0xa8742c, accent: 0x7a4a21 },
-  gold:     { body: 0xf2b134, belly: 0xfff0b3, spot: 0xc47f17, pupil: 0x141414, gear: ['crown', 'cape'], cape: 0x8e1f2f },
-  special:  { body: 0x37474f, belly: 0x90a4ae, spot: 0x263238, pupil: 0xbfe8ff, gear: ['visor', 'vest'], metal: 0x232a30, accent: 0x35e0d0 },
-  king:     { body: 0xe8ecef, belly: 0xffffff, spot: 0xb9c2c9, pupil: 0x141414, gear: ['crown', 'cape'], cape: 0xa41623 },
-  queen:    { body: 0x7e57c2, belly: 0xe4d7f5, spot: 0x4a2b7a, pupil: 0x141414, gear: ['crown', 'cape'], cape: 0x4a2b7a },
-  princess: { body: 0xf2a7c3, belly: 0xfff0f5, spot: 0xc97a9b, pupil: 0x141414, gear: ['tiara', 'cape'], cape: 0xf7d774 },
-  burn:     { body: 0xd23b2e, belly: 0xffd9b3, spot: 0x8e1f16, pupil: 0x141414, gear: ['shades', 'cap'], accent: 0x1c2733 },
+/* ---------------- fighters: REAL 3D gothic muscle frogs ----------------
+   Frog Clash fighters are real 3D models — upright MUSCULAR frogs in
+   black-and-gold gothic armor, built from Three.js primitives and
+   modelled on the design spec (Tom's generated gothic frog image,
+   the game's logo): crown, skull motifs, cape, spiked pauldrons.
+   Every limb is two segments driven by a small IK solver to the same
+   anchor points the combat engine reads (limbBones), so the swept-
+   limb contact system works unchanged: jab bone = front fist, heavy
+   bone = back fist, kick bone = front foot. Idle breathing/sway,
+   walk steps, jab extends, hook swings, kick extends, block, flinch,
+   KO fall — real motion, never frozen. Character identity comes from
+   cfg.skin (frogSkinFor): palette, armor tint, trim, cape, headgear
+   (crown / tiara / crest / band) and a feminine build for the Queen
+   and Princess. The NFT's real art lives in the DOM only (fighter-
+   select cards, VS overlay, player panel); it never enters the arena.
+   (Model + animation lifted from the Frog Arena 2 gothic build.) */
+/* ---------------- gothic skins (per-character identity) ---------------- */
+const GOTHIC_SKINS = {
+  king:     { body: 0x3f7031, belly: 0xa8bf92, spot: 0x2a4d20, armor: 0x17181c, trim: 0xd8a83c, cape: 0x2a1a3e, headgear: 'crown', iris: 0xff9a1f },
+  queen:    { body: 0x6d4a9e, belly: 0xd9c8f2, spot: 0x4a2b7a, armor: 0x1d1830, trim: 0xd8a83c, cape: 0x3b1d5e, headgear: 'crown', iris: 0xc9a0ff, female: true },
+  princess: { body: 0xd98bb4, belly: 0xffe3f1, spot: 0xb05c86, armor: 0x2a2030, trim: 0xe8a0b4, cape: 0x5e2a4e, headgear: 'tiara', iris: 0xff7ab0, female: true, scale: 0.93 },
+  burn:     { body: 0xa83226, belly: 0xffc9a3, spot: 0x6e1d12, armor: 0x1c1214, trim: 0xff7a2a, cape: 0x33141a, headgear: 'crest', iris: 0xffb03a },
+  shadow:   { body: 0x37474f, belly: 0x90a4ae, spot: 0x1c262b, armor: 0x10151a, trim: 0x35e0d0, cape: 0x0d1420, iris: 0x35e0d0, pupil: 0x062a28 },
+  splash:   { body: 0x2f6fd0, belly: 0xd6e6ff, spot: 0x1d4c96, armor: 0x1a2436, trim: 0xd8a83c, cape: 0x7a1f24, iris: 0xffd24d },
+  nightblade: { body: 0x2f6126, belly: 0xb9d69a, spot: 0x1e4218, armor: 0x4a3a1c, trim: 0xa8742c, cape: 0x241a10, headgear: 'band', iris: 0xd23b3b },
+  cadet:    { body: 0x47793a, belly: 0xcfe0ae, spot: 0x2f5724, armor: 0x3a4149, trim: 0xd23b3b, cape: null, iris: 0xff9a1f },
+  orbit:    { body: 0x55803f, belly: 0xdde8c8, spot: 0x3a5c2a, armor: 0x9aa7ad, trim: 0xff8c42, cape: null, iris: 0x2fd8c8 },
+  mossback: { body: 0x4a7d33, belly: 0xcfe0ae, spot: 0x2f5724, armor: 0x23282c, trim: 0x8a93a0, cape: 0x3a2e1e, iris: 0xff9a1f },
+  green:    { body: 0x4a7d33, belly: 0xcfe0ae, spot: 0x2f5724, armor: 0x23282c, trim: 0x8a93a0, cape: 0x2c2418, iris: 0xff9a1f },
+  soldier:  { body: 0x47793a, belly: 0xcfe0ae, spot: 0x2f5724, armor: 0x3a4149, trim: 0xd23b3b, cape: null, iris: 0xff9a1f },
+  cosmo:    { body: 0x55803f, belly: 0xdde8c8, spot: 0x3a5c2a, armor: 0x9aa7ad, trim: 0x2fd8c8, cape: null, iris: 0x2fd8c8 },
+  blue:     { body: 0x2f6fd0, belly: 0xd6e6ff, spot: 0x1d4c96, armor: 0x1a2436, trim: 0xd8a83c, cape: 0x7a1f24, iris: 0xffd24d },
+  warrior:  { body: 0x2f6126, belly: 0xb9d69a, spot: 0x1e4218, armor: 0x4a3a1c, trim: 0xa8742c, cape: 0x241a10, headgear: 'band', iris: 0xd23b3b },
+  gold:     { body: 0xd9a441, belly: 0xfff0b3, spot: 0xa8742c, armor: 0x1c1a14, trim: 0xffc44d, cape: 0x6e1423, headgear: 'crown', iris: 0xff9a1f },
+  special:  { body: 0x37474f, belly: 0x90a4ae, spot: 0x1c262b, armor: 0x10151a, trim: 0x35e0d0, cape: 0x0d1420, iris: 0x35e0d0, pupil: 0x062a28 },
+  kaiju:    { body: 0x2e7d5b, belly: 0xf5d9a8, spot: 0x17402e, armor: 0x14231c, trim: 0xf5d9a8, cape: null, headgear: 'crest', iris: 0xffb03a },
 };
-const NAMED_SKINS = { '6': 'king', '11': 'queen', '13': 'princess', '16': 'burn' };
+/* named Amphibians -> their gothic champion (same cast as Arena 2) */
+const NAMED_SKINS = { '6': 'king', '11': 'queen', '13': 'princess', '16': 'burn', '1': 'shadow', '17': 'splash', '20': 'nightblade', '19': 'cadet', '22': 'orbit', '3': 'mossback' };
 const CLS_SKIN = { Green: 'green', Soldier: 'soldier', Cosmonaut: 'cosmo', Blue: 'blue', Warrior: 'warrior', Gold: 'gold', Special: 'special' };
-/* rival ladder tokenIds -> Skin class (traits_all.csv, Amphibians) */
-const RIVAL_SKINS = { '3': 'green', '19': 'soldier', '22': 'cosmo', '20': 'warrior', '17': 'blue', '1': 'special', '6': 'king' };
 const FROGZ_BODIES = {
   green:   { body: 0x3ab44a, belly: 0xd8f7b0, spot: 0x2a7d34 },
   zombie:  { body: 0x8fa860, belly: 0xdde8c4, spot: 0x5f7038 },
   red:     { body: 0xd23b2e, belly: 0xffd9b3, spot: 0x8e1f16 },
   tattoed: { body: 0x35a047, belly: 0xd8f7b0, spot: 0x14401e },
 };
-const KAIJU_SKIN = { body: 0x2e7d5b, belly: 0xf5d9a8, spot: 0x17402e, pupil: 0x141414, gear: [], spikes: true };
 function frogSkinFor(tk) {
-  if (!tk) return FROG_SKINS.green;
-  if (tk.coll === 'K') return KAIJU_SKIN;
+  if (!tk) return GOTHIC_SKINS.green;
+  if (tk.coll === 'K') return GOTHIC_SKINS.kaiju;
   if (tk.coll === 'Z') {
     const b = FROGZ_BODIES[String(tk.skinTrait || '').trim().toLowerCase()] || FROGZ_BODIES.green;
-    return { body: b.body, belly: b.belly, spot: b.spot, pupil: 0x141414, gear: [] };
+    return { body: b.body, belly: b.belly, spot: b.spot, armor: 0x23282c, trim: 0x8a93a0, cape: null, iris: 0xff9a1f };
   }
   const named = NAMED_SKINS[String(tk.id)];
-  if (named) return FROG_SKINS[named];
-  if (tk.cls && CLS_SKIN[tk.cls]) return FROG_SKINS[CLS_SKIN[tk.cls]];
-  if (RIVAL_SKINS[String(tk.id)]) return FROG_SKINS[RIVAL_SKINS[String(tk.id)]];
-  return FROG_SKINS.green;
+  if (named) return GOTHIC_SKINS[named];
+  if (tk.cls && CLS_SKIN[tk.cls]) return GOTHIC_SKINS[CLS_SKIN[tk.cls]];
+  return GOTHIC_SKINS.green;
 }
 const DUR = {
   idle: 1.6, walk: 0.8, crouch: 1.2, jump: 0.9, block: 1.2,
@@ -729,8 +734,38 @@ const DUR = {
   hitL: 0.45, hitH: 0.5, knock: 0.95, death: 1.15, win: 1.6,
   dash: 0.62, special: 0.62, throw: 0.8,
 };
-const _aimV = new THREE.Vector3();
-const _aimDown = new THREE.Vector3(0, -1, 0);
+const _iv = new THREE.Vector3(), _iv2 = new THREE.Vector3(), _iv3 = new THREE.Vector3();
+const _iDown = new THREE.Vector3(0, -1, 0);
+/* Two-segment IK in joint-local space. seg1Mesh hangs off the joint
+   group; seg2Grp sits at the middle joint; seg2Mesh + endGrp ride
+   it. Targets are frog-space points; the joint group's frog-space
+   origin is passed in. Pole biases the elbow (back-down) or knee
+   (forward). */
+function aim2(jx, jy, jz, seg1, seg2Grp, seg2Mesh, endGrp, tx, ty, tz, a, b, px, py, pz) {
+  _iv.set(tx - jx, ty - jy, tz - jz);
+  let d = _iv.length();
+  const maxD = a + b - 0.012;
+  if (d > maxD) { _iv.multiplyScalar(maxD / d); d = maxD; }
+  if (d < 0.12) { _iv.setLength(0.12); d = 0.12; }
+  const dirx = _iv.x / d, diry = _iv.y / d, dirz = _iv.z / d;
+  const cosA = THREE.MathUtils.clamp((a * a + d * d - b * b) / (2 * a * d), -1, 1);
+  const m = a * cosA, h = a * Math.sqrt(Math.max(0, 1 - cosA * cosA));
+  let ox = px - dirx * (px * dirx + py * diry + pz * dirz);
+  let oy = py - diry * (px * dirx + py * diry + pz * dirz);
+  let oz = pz - dirz * (px * dirx + py * diry + pz * dirz);
+  const ol = Math.hypot(ox, oy, oz) || 1; ox /= ol; oy /= ol; oz /= ol;
+  const ex = dirx * m + ox * h, ey = diry * m + oy * h, ez = dirz * m + oz * h;
+  _iv2.set(ex, ey, ez);
+  const l1 = Math.max(0.05, _iv2.length()); _iv2.normalize();
+  seg1.quaternion.setFromUnitVectors(_iDown, _iv2);
+  seg1.scale.y = l1;
+  seg2Grp.position.set(ex, ey, ez);
+  _iv3.set(_iv.x - ex, _iv.y - ey, _iv.z - ez);
+  const l2 = Math.max(0.05, _iv3.length()); _iv3.normalize();
+  seg2Grp.quaternion.setFromUnitVectors(_iDown, _iv3);
+  seg2Mesh.scale.y = l2;
+  if (endGrp) endGrp.position.set(0, -l2, 0);
+}
 class Fighter {
   constructor(cfg) {
     this.cfg = cfg;
@@ -747,7 +782,7 @@ class Fighter {
     this.roundsWon = 0; this.aiTimer = 0; this.aiHoldT = 0; this.aiAction = null; this.aiBlockT = 0; this.aiRot = {};
     this.anim = { key: 'idle', t: 0, loop: true, clamp: false, timeScale: 1 };
     this.current = this.anim; this.currentKey = 'idle';
-    this.measuredH = 1.8; this.measuredMin = 0; this.posedH = 1.8; this.armInfo = {};
+    this.measuredH = 1.92; this.measuredMin = 0; this.posedH = 1.92; this.armInfo = {};
   }
   static shadowTex() {
     if (!Fighter._shTex) {
@@ -760,6 +795,7 @@ class Fighter {
       Fighter._flatGeo = new THREE.PlaneGeometry(1, 1);
       Fighter._shieldGeo = new THREE.SphereGeometry(0.62, 18, 14);
       Fighter._sphGeo = new THREE.SphereGeometry(1, 20, 16);
+      Fighter._segGeo = new THREE.CylinderGeometry(0.86, 1, 1, 10); Fighter._segGeo.translate(0, -0.5, 0);
     }
     return Fighter._shTex;
   }
@@ -769,206 +805,207 @@ class Fighter {
     this.group = new THREE.Group();
     this.pose = new THREE.Group(); this.group.add(this.pose);
     this.yawG = new THREE.Group(); this.pose.add(this.yawG);
-    // soft blob shadow (stays on the deck while the frog jumps)
     this.shadow = new THREE.Mesh(Fighter._flatGeo, new THREE.MeshBasicMaterial({
       map: Fighter._shTex, transparent: true, depthWrite: false, opacity: 0.45 }));
     this.shadow.rotation.x = -Math.PI / 2; this.shadow.position.y = 0.015;
-    this.shadow.scale.set(1.6, 1.05, 1); this.shadow.renderOrder = 1;
+    this.shadow.scale.set(1.7, 1.1, 1); this.shadow.renderOrder = 1;
     this.group.add(this.shadow);
-    // the frog itself: a real 3D toon frog, dressed from its NFT class
     this._buildFrog();
     this.yawG.add(this.frog);
-    // block shield bubble
     this.shield = new THREE.Mesh(Fighter._shieldGeo, new THREE.MeshBasicMaterial({
-      map: glowTex, color: 0x9fd8ff, transparent: true, opacity: 0.38,
+      map: glowTex, color: 0xcdb2ff, transparent: true, opacity: 0.38,
       depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
-    this.shield.position.set(0, 1.0, 0.45); this.shield.scale.set(1.7, 2.0, 1);
+    this.shield.position.set(0, 1.05, 0.45); this.shield.scale.set(1.8, 2.1, 1);
     this.shield.visible = false;
     this.pose.add(this.shield);
-    // anchors the engine reads (pose space: +z toward the foe, y up)
     const mk = (px, py, pz) => { const o = new THREE.Object3D(); o.position.set(px, py, pz); this.pose.add(o); return o; };
-    this.pelvisBone = mk(0, 0.92, 0);
-    this.chestBone = mk(0, 1.32, 0);
-    this.headBone = mk(0, 1.66, 0);
-    this.handBone = mk(0, 1.38, 0.4);
-    this.limbBones = { jab: mk(0.34, 1.12, 0.16), heavy: mk(-0.34, 1.12, 0.16), kick: mk(0.16, 0.42, 0.10) };
+    this.pelvisBone = mk(0, 1.02, 0);
+    this.chestBone = mk(0, 1.48, 0);
+    this.headBone = mk(0, 1.82, 0);
+    this.handBone = mk(0.36, 1.34, 0.24);
+    this.limbBones = { jab: mk(0.36, 1.30, 0.22), heavy: mk(-0.36, 1.30, 0.22), kick: mk(0.20, 0.50, 0.12) };
     this.group.position.set(this.x, 0, 0);
     scene.add(this.group);
     this.play('idle');
     this.applyFacing();
     this._loaded = true;
   }
-  /* Build the 3D frog + class gear from primitives. Local space =
-     pose space: +z toward the foe, feet at y=0, total height ~1.77. */
+  /* Build the gothic frog champion. Local space = pose space:
+     +z toward the foe, feet at y=0, crown top ~2.1. */
   _buildFrog() {
-    const skin = this.cfg.skin || FROG_SKINS.green;
+    const sk = this.cfg.skin || {};
+    const fem = !!sk.female;
     const std = (color, rough, metal) => new THREE.MeshStandardMaterial({ color, roughness: rough === undefined ? 0.6 : rough, metalness: metal || 0 });
     const M = {
-      body: std(skin.body, 0.55), belly: std(skin.belly, 0.6), spot: std(skin.spot, 0.6),
-      pupil: std(skin.pupil, 0.35), white: std(0xffffff, 0.3),
-      metal: std(skin.metal || 0x8a93a0, 0.38, 0.6), accent: std(skin.accent || 0xd23b3b, 0.5),
-      gold: std(0xf2b134, 0.32, 0.75), dark: std(0x14181d, 0.4),
-      cape: std(skin.cape || 0x8e1f2f, 0.7), suit: std(0xe8ecef, 0.5),
+      body: std(sk.body !== undefined ? sk.body : 0x3f7031, 0.5),
+      belly: std(sk.belly !== undefined ? sk.belly : 0xa8bf92, 0.6),
+      spot: std(sk.spot !== undefined ? sk.spot : 0x2a4d20, 0.6),
+      pupil: std(sk.pupil !== undefined ? sk.pupil : 0x141414, 0.3),
+      iris: std(sk.iris !== undefined ? sk.iris : 0xff9a1f, 0.3),
+      white: std(0xf4f1e6, 0.3),
+      armor: std(sk.armor !== undefined ? sk.armor : 0x17181c, 0.38, 0.72),
+      trim: std(sk.trim !== undefined ? sk.trim : 0xd8a83c, 0.3, 0.8),
+      cape: std(sk.cape !== undefined && sk.cape !== null ? sk.cape : 0x2a1a3e, 0.75),
+      bone: std(0xd8d2c0, 0.55),
+      dark: std(0x0c0d10, 0.45),
     };
     const F = this.frog = new THREE.Group();
-    const sph = (mat, sx, sy, sz, px, py, pz) => {
+    const S = sk.scale || 1;
+    const sph = (mat, sx, sy, sz, px, py, pz, parent) => {
       const m = new THREE.Mesh(Fighter._sphGeo, mat);
       m.scale.set(sx, sy, sz); m.position.set(px, py, pz); m.castShadow = true;
-      F.add(m); return m;
+      (parent || F).add(m); return m;
     };
-    const box = (mat, sx, sy, sz, px, py, pz) => {
+    const box = (mat, sx, sy, sz, px, py, pz, parent) => {
       const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
-      m.position.set(px, py, pz); m.castShadow = true; F.add(m); return m;
+      m.position.set(px, py, pz); m.castShadow = true; (parent || F).add(m); return m;
     };
-    // body: ellipsoid with a lighter belly, head merged into the top
-    sph(M.body, 0.48, 0.47, 0.39, 0, 0.95, 0);
-    sph(M.belly, 0.32, 0.36, 0.20, 0, 0.86, 0.175);
-    sph(M.body, 0.40, 0.27, 0.34, 0, 1.40, 0.03);
-    // spots on the back and sides
-    sph(M.spot, 0.10, 0.07, 0.05, 0.34, 1.16, -0.25);
-    sph(M.spot, 0.12, 0.08, 0.05, -0.36, 1.00, -0.21);
-    sph(M.spot, 0.08, 0.06, 0.04, 0.10, 1.30, -0.31);
-    sph(M.spot, 0.09, 0.07, 0.04, -0.12, 0.70, -0.32);
-    // eye stalks + eyeballs; pupils sit foe-side (+z) so the frog
-    // always stares down its opponent
+    const cone = (mat, r, h, px, py, pz, rx, rz, parent) => {
+      const m = new THREE.Mesh(new THREE.ConeGeometry(r, h, 8), mat);
+      m.position.set(px, py, pz); if (rx) m.rotation.x = rx; if (rz) m.rotation.z = rz;
+      m.castShadow = true; (parent || F).add(m); return m;
+    };
+    /* ---- cape (behind, -z) ---- */
+    if (sk.cape !== null) {
+      const cg = new THREE.PlaneGeometry(0.92, 1.42, 1, 4); cg.translate(0, -0.71, 0);
+      const cape = new THREE.Mesh(cg, M.cape);
+      cape.position.set(0, 1.66, -0.30); cape.rotation.x = 0.10; cape.castShadow = true;
+      cape.material.side = THREE.DoubleSide;
+      F.add(cape); this.capeMesh = cape;
+      sph(M.trim, 0.05, 0.05, 0.05, 0.40, 1.64, -0.24);
+      sph(M.trim, 0.05, 0.05, 0.05, -0.40, 1.64, -0.24);
+    }
+    /* ---- pelvis + skirt of tassets ---- */
+    sph(M.body, 0.335, 0.225, 0.265, 0, 1.02, 0);
+    {
+      const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.315, fem ? 0.47 : 0.43, fem ? 0.46 : 0.36, 12, 1, true),
+        new THREE.MeshStandardMaterial({ color: sk.cape !== undefined && sk.cape !== null ? sk.cape : 0x1a1426, roughness: 0.8, side: THREE.DoubleSide }));
+      skirt.position.set(0, fem ? 0.80 : 0.84, 0); skirt.castShadow = true; F.add(skirt);
+      const hem = new THREE.Mesh(new THREE.TorusGeometry(fem ? 0.47 : 0.43, 0.016, 6, 24), M.trim);
+      hem.rotation.x = Math.PI / 2; hem.position.y = fem ? 0.575 : 0.665; F.add(hem);
+      const belt = new THREE.Mesh(new THREE.CylinderGeometry(0.325, 0.325, 0.09, 14), M.dark);
+      belt.position.y = 1.05; F.add(belt);
+      sph(M.bone, 0.055, 0.05, 0.04, 0, 1.05, 0.315);
+      box(M.bone, 0.07, 0.045, 0.03, 0, 0.985, 0.31);
+    }
+    /* ---- torso: narrow waist, broad muscular chest ---- */
+    sph(M.body, fem ? 0.27 : 0.30, 0.30, 0.235, 0, 1.24, 0);
+    sph(M.belly, fem ? 0.20 : 0.225, 0.26, 0.13, 0, 1.22, 0.115);
+    sph(M.body, fem ? 0.365 : 0.405, 0.335, 0.295, 0, 1.50, 0);
+    sph(M.body, 0.30, 0.16, 0.24, 0, 1.70, -0.02);
+    sph(M.armor, fem ? 0.385 : 0.425, 0.35, 0.30, 0, 1.52, 0.015);
+    {
+      const trim = new THREE.Mesh(new THREE.TorusGeometry(0.345, 0.018, 6, 28), M.trim);
+      trim.position.set(0, 1.335, 0.02); trim.rotation.x = Math.PI / 2 - 0.25; trim.scale.set(1, 0.82, 1); F.add(trim);
+      const cres = new THREE.Mesh(new THREE.CircleGeometry(0.085, 20), M.trim);
+      cres.position.set(0, 1.60, 0.308); F.add(cres);
+      const bite = new THREE.Mesh(new THREE.CircleGeometry(0.068, 20), M.armor);
+      bite.position.set(0.032, 1.625, 0.310); F.add(bite);
+      sph(M.bone, 0.048, 0.044, 0.035, 0, 1.44, 0.30);
+      for (const yy of [1.28, 1.17]) box(M.armor, 0.20, 0.018, 0.012, 0, yy, 0.238);
+    }
+    sph(M.spot, 0.10, 0.07, 0.05, 0.30, 1.30, -0.26);
+    sph(M.spot, 0.12, 0.08, 0.05, -0.32, 1.12, -0.22);
+    /* ---- head ---- */
+    const head = new THREE.Group(); F.add(head); this.headG = head;
+    sph(M.body, 0.335, 0.235, 0.275, 0, 1.845, 0.02, head);
+    sph(M.body, 0.27, 0.125, 0.235, 0, 1.715, 0.05, head);
+    sph(M.belly, 0.20, 0.09, 0.16, 0, 1.685, 0.09, head);
+    {
+      const mouth = new THREE.Mesh(new THREE.TorusGeometry(0.155, 0.014, 8, 22, Math.PI), M.dark);
+      mouth.position.set(0, 1.755, 0.262); mouth.rotation.set(-0.12, 0, Math.PI); head.add(mouth);
+    }
     for (const s of [1, -1]) {
-      const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.05, 0.13, 8), M.body);
-      stalk.position.set(0.19 * s, 1.60, 0.05); stalk.castShadow = true; F.add(stalk);
-      sph(M.white, 0.105, 0.105, 0.105, 0.19 * s, 1.665, 0.06);
-      sph(M.pupil, 0.052, 0.052, 0.052, 0.19 * s, 1.675, 0.145);
+      sph(M.body, 0.105, 0.095, 0.10, 0.155 * s, 1.985, 0.05, head);
+      sph(M.white, 0.082, 0.082, 0.082, 0.155 * s, 2.0, 0.075, head);
+      sph(M.iris, 0.048, 0.048, 0.048, 0.155 * s, 2.005, 0.128, head);
+      sph(M.pupil, 0.024, 0.024, 0.024, 0.155 * s, 2.008, 0.152, head);
+      if (fem) for (let li = 0; li < 3; li++)
+        cone(M.dark, 0.008, 0.055, (0.155 + (li - 1) * 0.045) * s, 2.075, 0.10, -0.7, (li - 1) * 0.3 * s, head);
     }
-    // mouth line
-    const mouth = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.016, 8, 22, Math.PI), M.dark);
-    mouth.position.set(0, 1.335, 0.352); mouth.rotation.set(-0.15, 0, Math.PI);
-    F.add(mouth);
-    // a limb = shoulder/hip pivot group + unit cylinder (scaled to the
-    // reach) + end sphere (fist/foot), aimed every frame in updatePose
-    const mkLimb = (r, endR, endFlat) => {
-      const grp = new THREE.Group();
-      const geo = new THREE.CylinderGeometry(r * 0.82, r, 1, 10); geo.translate(0, -0.5, 0);
-      const seg = new THREE.Mesh(geo, M.body); seg.castShadow = true; grp.add(seg);
-      const end = new THREE.Mesh(Fighter._sphGeo, M.body);
-      end.scale.set(endR, endFlat ? endR * 0.45 : endR, endFlat ? endR * 1.45 : endR);
-      end.castShadow = true; grp.add(end);
-      F.add(grp);
-      return { grp, seg, end };
+    /* ---- headgear ---- */
+    const gear = sk.headgear || null;
+    if (gear === 'crown') {
+      const cr = new THREE.Group(); cr.position.set(0, 2.03, 0.01); head.add(cr);
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.205, 0.225, 0.085, 14), M.trim);
+      band.position.y = 0.04; band.castShadow = true; cr.add(band);
+      for (let i = 0; i < 7; i++) {
+        const a2 = (i / 7) * Math.PI * 2;
+        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.032, i % 2 ? 0.13 : 0.19, 6), M.trim);
+        spike.position.set(Math.cos(a2) * 0.185, 0.15, Math.sin(a2) * 0.185); spike.castShadow = true; cr.add(spike);
+      }
+      sph(M.iris, 0.034, 0.034, 0.034, 0, 0.045, 0.215, cr);
+    } else if (gear === 'tiara') {
+      const ti = new THREE.Mesh(new THREE.TorusGeometry(0.20, 0.02, 8, 24, Math.PI), M.trim);
+      ti.position.set(0, 1.99, 0.02); ti.rotation.x = 0.30; ti.castShadow = true; head.add(ti);
+      cone(M.trim, 0.026, 0.10, 0, 2.13, 0.10, 0.3, 0, head);
+      sph(M.iris, 0.03, 0.03, 0.03, 0, 2.02, 0.225, head);
+    } else if (gear === 'crest') {
+      for (let i = 0; i < 5; i++)
+        cone(M.iris, 0.035, 0.16 - Math.abs(i - 2) * 0.025, (i - 2) * 0.085, 2.06, -0.02 - Math.abs(i - 2) * 0.012, -0.25, 0, head);
+    } else if (gear === 'band') {
+      const band = new THREE.Mesh(new THREE.TorusGeometry(0.295, 0.04, 8, 22), M.iris);
+      band.position.set(0, 1.94, 0.02); band.rotation.x = Math.PI / 2; band.scale.set(1.05, 0.92, 1);
+      band.castShadow = true; head.add(band);
+    }
+    /* ---- pauldrons (spiked) ---- */
+    for (const s of [1, -1]) {
+      const pg = new THREE.Group(); pg.position.set(0.465 * s, 1.665, 0); F.add(pg);
+      const dome = new THREE.Mesh(Fighter._sphGeo, M.armor);
+      dome.scale.set(0.175, 0.15, 0.175); dome.castShadow = true; pg.add(dome);
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(0.155, 0.016, 6, 20), M.trim);
+      rim.rotation.x = Math.PI / 2; rim.position.y = -0.055; pg.add(rim);
+      cone(M.armor, 0.038, 0.17, 0, 0.16, 0, 0, 0, pg);
+      cone(M.armor, 0.032, 0.13, 0.10 * s, 0.115, 0.02, 0, -0.5 * s, pg);
+      cone(M.armor, 0.032, 0.13, -0.10 * s, 0.115, 0.02, 0, 0.5 * s, pg);
+      cone(M.trim, 0.02, 0.08, 0, 0.10, 0.13, 0, 0, pg);
+    }
+    /* ---- articulated limbs (two-segment IK) ---- */
+    const armR = fem ? 0.088 : 0.104, foreR = fem ? 0.078 : 0.09;
+    const mkArm = (side) => {
+      const shoulder = new THREE.Group(); shoulder.position.set(0.485 * side, 1.615, 0.02); F.add(shoulder);
+      const upper = new THREE.Mesh(Fighter._segGeo, M.body);
+      upper.scale.set(armR, 1, armR); upper.castShadow = true; shoulder.add(upper);
+      const foreG = new THREE.Group(); shoulder.add(foreG);
+      const fore = new THREE.Mesh(Fighter._segGeo, M.body);
+      fore.scale.set(foreR, 1, foreR); fore.castShadow = true; foreG.add(fore);
+      const bracer = new THREE.Mesh(new THREE.CylinderGeometry(foreR * 1.30, foreR * 1.16, 0.17, 10), M.armor);
+      bracer.position.y = -0.20; bracer.castShadow = true; foreG.add(bracer);
+      cone(M.trim, 0.018, 0.07, foreR * 1.1, -0.16, 0, 0, 1.1, foreG);
+      const fistG = new THREE.Group(); foreG.add(fistG);
+      sph(M.body, 0.115, 0.105, 0.125, 0, 0, 0, fistG);
+      box(M.armor, 0.15, 0.06, 0.10, 0, 0.01, 0.05, fistG);
+      return { shoulder, upper, foreG, fore, fistG, jx: 0.485 * side, jy: 1.615, jz: 0.02, a: 0.36, b: 0.36 };
     };
-    this.armJab = mkLimb(0.075, 0.12, false); this.armJab.grp.position.set(0.40, 1.18, 0.05);
-    this.armHeavy = mkLimb(0.075, 0.12, false); this.armHeavy.grp.position.set(-0.40, 1.18, 0.05);
-    this.legKick = mkLimb(0.105, 0.14, true); this.legKick.grp.position.set(0.18, 0.46, 0.02);
-    this.legBack = mkLimb(0.105, 0.14, true); this.legBack.grp.position.set(-0.18, 0.46, 0.02);
-    this._aim(this.legBack, -0.20, 0.05, 0.02);
-    /* ---------------- class gear (Frog Fight gear lists) ---------------- */
-    const gear = skin.gear || [];
-    const has = g => gear.includes(g);
-    if (has('vest')) sph(M.metal, 0.50, 0.40, 0.37, 0, 1.04, -0.02);
-    if (has('suit')) sph(M.suit, 0.50, 0.50, 0.37, 0, 0.95, -0.03);
-    if (has('pauldrons')) { sph(M.metal, 0.15, 0.15, 0.15, 0.42, 1.26, 0.05); sph(M.metal, 0.15, 0.15, 0.15, -0.42, 1.26, 0.05); }
-    if (has('visor')) {
-      box(M.dark, 0.46, 0.11, 0.05, 0, 1.665, 0.165);
-      box(M.accent, 0.46, 0.025, 0.052, 0, 1.715, 0.165);
-    }
-    if (has('helmet')) {
-      const helm = new THREE.Mesh(Fighter._sphGeo, new THREE.MeshStandardMaterial({
-        color: 0xdfeaf2, transparent: true, opacity: 0.25, roughness: 0.12, metalness: 0.1, depthWrite: false }));
-      helm.scale.set(0.45, 0.45, 0.45); helm.position.set(0, 1.44, 0.03); F.add(helm);
-      const rim = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.03, 8, 24), M.metal);
-      rim.position.set(0, 1.28, 0.03); rim.rotation.x = Math.PI / 2; F.add(rim);
-    }
-    if (has('pack')) {
-      box(M.suit, 0.36, 0.46, 0.15, 0, 1.05, -0.44);
-      for (const s of [1, -1]) {
-        const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.34, 10), M.metal);
-        tank.position.set(0.10 * s, 1.08, -0.55); tank.castShadow = true; F.add(tank);
-      }
-    }
-    if (has('cape')) {
-      const cg = new THREE.PlaneGeometry(0.66, 1.0); cg.translate(0, -0.5, 0);
-      const cape = new THREE.Mesh(cg, new THREE.MeshStandardMaterial({ color: skin.cape || 0x8e1f2f, roughness: 0.7, side: THREE.DoubleSide }));
-      cape.position.set(0, 1.44, -0.40); cape.rotation.x = -0.18; cape.castShadow = true; F.add(cape);
-    }
-    if (has('emblem')) {
-      const e1 = new THREE.Mesh(new THREE.CircleGeometry(0.10, 20), M.gold);
-      e1.position.set(0, 1.18, 0.352); F.add(e1);
-      const e2 = new THREE.Mesh(new THREE.CircleGeometry(0.06, 20), M.accent);
-      e2.position.set(0, 1.18, 0.356); F.add(e2);
-    }
-    if (has('headband')) {
-      const band = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.045, 8, 24), M.accent);
-      band.position.set(0, 1.52, 0.03); band.rotation.x = Math.PI / 2; band.scale.set(1.08, 0.95, 1);
-      band.castShadow = true; F.add(band);
-    }
-    if (has('harness')) {
-      for (const s of [1, -1]) {
-        const strap = box(M.metal, 0.09, 0.62, 0.02, 0, 1.05, 0.378);
-        strap.rotation.z = 0.55 * s;
-      }
-    }
-    if (has('sword')) {
-      const sw = new THREE.Group(); sw.position.set(0.18, 1.15, -0.42); sw.rotation.set(-0.15, 0, 0.5);
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.55, 0.015), M.metal);
-      blade.position.y = 0.22; blade.castShadow = true; sw.add(blade);
-      const guard = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 0.04), M.gold);
-      guard.position.y = -0.08; sw.add(guard);
-      const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.13, 8), M.dark);
-      grip.position.y = -0.17; sw.add(grip);
-      F.add(sw);
-    }
-    if (has('crown')) {
-      const cr = new THREE.Group(); cr.position.set(0, 1.70, 0.02); F.add(cr);
-      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.155, 0.175, 0.09, 14), M.gold);
-      base.position.y = 0.045; base.castShadow = true; cr.add(base);
-      for (let i = 0; i < 5; i++) {
-        const a = (i / 5) * Math.PI * 2;
-        const cone = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.11, 6), M.gold);
-        cone.position.set(Math.cos(a) * 0.125, 0.14, Math.sin(a) * 0.125); cr.add(cone);
-      }
-      const gem = new THREE.Mesh(Fighter._sphGeo, M.accent);
-      gem.scale.set(0.035, 0.035, 0.035); gem.position.set(0, 0.05, 0.16); cr.add(gem);
-    }
-    if (has('tiara')) {
-      const ti = new THREE.Mesh(new THREE.TorusGeometry(0.21, 0.022, 8, 24, Math.PI), M.gold);
-      ti.position.set(0, 1.585, 0.03); ti.rotation.x = 0.35; ti.castShadow = true; F.add(ti);
-      const gem = new THREE.Mesh(Fighter._sphGeo, M.accent);
-      gem.scale.set(0.032, 0.032, 0.032); gem.position.set(0, 1.66, 0.24); F.add(gem);
-    }
-    if (has('shades')) {
-      box(M.dark, 0.15, 0.09, 0.04, 0.19, 1.665, 0.16);
-      box(M.dark, 0.15, 0.09, 0.04, -0.19, 1.665, 0.16);
-      box(M.dark, 0.10, 0.03, 0.03, 0, 1.68, 0.16);
-    }
-    if (has('cap')) {
-      const capGeo = new THREE.SphereGeometry(1, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2);
-      const cap = new THREE.Mesh(capGeo, M.accent);
-      cap.scale.set(0.30, 0.17, 0.30); cap.position.set(0, 1.545, 0.03); cap.castShadow = true; F.add(cap);
-      box(M.accent, 0.30, 0.03, 0.16, 0, 1.545, 0.34);
-    }
-    if (skin.spikes) {
-      const spike = (r, h, py, pz) => {
-        const c = new THREE.Mesh(new THREE.ConeGeometry(r, h, 8), M.spot);
-        c.position.set(0, py, pz); c.rotation.x = -0.5; c.castShadow = true; F.add(c);
-      };
-      spike(0.075, 0.24, 1.30, -0.37); spike(0.07, 0.22, 1.02, -0.42); spike(0.06, 0.18, 0.76, -0.38);
-    }
-  }
-  /* aim a limb's pivot group from its joint position at a target point
-     (both in frog-local space): cylinder stretches, end sphere lands */
-  _aim(limb, tx, ty, tz) {
-    const p = limb.grp.position;
-    _aimV.set(tx - p.x, ty - p.y, tz - p.z);
-    const len = Math.max(0.14, _aimV.length());
-    _aimV.normalize();
-    limb.grp.quaternion.setFromUnitVectors(_aimDown, _aimV);
-    limb.seg.scale.y = len;
-    limb.end.position.set(0, -len, 0);
+    this.armJab = mkArm(1); this.armHeavy = mkArm(-1);
+    const thighR = fem ? 0.115 : 0.132, shinR = fem ? 0.088 : 0.10;
+    const mkLeg = (side) => {
+      const hip = new THREE.Group(); hip.position.set(0.20 * side, 1.00, 0); F.add(hip);
+      const thigh = new THREE.Mesh(Fighter._segGeo, M.body);
+      thigh.scale.set(thighR, 1, thighR); thigh.castShadow = true; hip.add(thigh);
+      const shinG = new THREE.Group(); hip.add(shinG);
+      const shin = new THREE.Mesh(Fighter._segGeo, M.body);
+      shin.scale.set(shinR, 1, shinR); shin.castShadow = true; shinG.add(shin);
+      const greave = new THREE.Mesh(new THREE.CylinderGeometry(shinR * 1.24, shinR * 1.06, 0.30, 10), M.armor);
+      greave.position.y = -0.22; greave.castShadow = true; shinG.add(greave);
+      cone(M.trim, 0.03, 0.11, 0, 0.0, shinR + 0.05, 1.35, 0, shinG);
+      const footG = new THREE.Group(); shinG.add(footG);
+      box(M.body, 0.125, 0.055, 0.30, 0, -0.01, 0.07, footG);
+      for (const ts of [1, 0, -1]) cone(M.body, 0.026, 0.11, 0.048 * ts, -0.015, 0.245, 1.25, 0, footG);
+      return { hip, thigh, shinG, shin, footG, jx: 0.20 * side, jy: 1.00, jz: 0, a: 0.49, b: 0.49 };
+    };
+    this.legFront = mkLeg(1); this.legBack = mkLeg(-1);
+    F.scale.setScalar(S);
   }
   play(key, opts = {}) {
-    this.anim = {
+    const a = {
       key, t: opts.at || 0,
       loop: opts.loop !== false, clamp: !!opts.clamp,
       timeScale: opts.timeScale !== undefined ? opts.timeScale : 1,
     };
-    this.current = this.anim; this.currentKey = key;
+    Object.defineProperty(a, 'time', { get: () => a.t, set: v => { a.t = v; } });
+    this.anim = a;
+    this.current = a; this.currentKey = key;
   }
   dur(key) { return DUR[key] || 0.6; }
   applyFacing() {
@@ -987,48 +1024,71 @@ class Fighter {
     if (a.loop) t = dur ? ((t % dur) + dur) % dur : t; else t = Math.min(Math.max(t, 0), dur);
     const ph = dur ? THREE.MathUtils.clamp(t / dur, 0, 1) : 0;
     let bobY = 0, tiltZ = 0, tiltX = 0, scX = 1, scY = 1, lunge = 0, dipY = 0, flop = 0;
-    const L = { jab: [0.34, 1.12, 0.16], heavy: [-0.34, 1.12, 0.16], kick: [0.16, 0.42, 0.10] };
+    const L = { jab: [0.36, 1.32, 0.24], heavy: [-0.36, 1.32, 0.24], kick: [0.20, 0.52, 0.14] };
+    let footF = [0.25, 0.03, 0.05], footB = [-0.25, 0.03, -0.04];
     switch (key) {
-      case 'idle': bobY = Math.sin(a.t * 2.6) * 0.035; scY = 1 + Math.sin(a.t * 2.6) * 0.012; tiltZ = Math.sin(a.t * 1.3) * 0.02; break;
-      case 'walk': bobY = Math.abs(Math.sin(a.t * 9)) * 0.07; tiltZ = 0.05; break;
-      case 'crouch': scY = 0.8; dipY = -0.06; L.jab = [0.3, 0.95, 0.2]; L.heavy = [-0.3, 0.95, 0.2]; break;
-      case 'block': scX = 1.06; scY = 0.94; L.jab = [0.18, 1.2, 0.34]; L.heavy = [-0.18, 1.2, 0.34]; break;
-      case 'jump': scY = 1.04; tiltZ = -0.06; break;
+      case 'idle': {
+        const br = Math.sin(a.t * 2.6);
+        bobY = br * 0.03; scY = 1 + br * 0.012;
+        L.jab = [0.36 + Math.sin(a.t * 1.7) * 0.015, 1.32 + br * 0.02, 0.24];
+        L.heavy = [-0.36 - Math.sin(a.t * 1.7) * 0.015, 1.32 + br * 0.02, 0.24];
+        break;
+      }
+      case 'walk': {
+        const s = Math.sin(a.t * 9), c = Math.cos(a.t * 9);
+        bobY = Math.abs(c) * 0.06; tiltZ = 0.045;
+        footF = [0.25, Math.max(0, s) * 0.11 + 0.03, 0.05 + s * 0.17];
+        footB = [-0.25, Math.max(0, -s) * 0.11 + 0.03, -0.04 - s * 0.17];
+        L.jab = [0.34, 1.30, 0.22 + c * 0.05]; L.heavy = [-0.34, 1.30, 0.22 - c * 0.05];
+        break;
+      }
+      case 'crouch': scY = 0.82; dipY = -0.07; L.jab = [0.32, 1.08, 0.26]; L.heavy = [-0.32, 1.08, 0.26];
+        footF = [0.28, 0.03, 0.12]; footB = [-0.28, 0.03, -0.10]; break;
+      case 'block': scX = 1.05; scY = 0.95; L.jab = [0.17, 1.48, 0.40]; L.heavy = [-0.17, 1.48, 0.40]; break;
+      case 'jump': scY = 1.04; tiltZ = -0.05;
+        footF = [0.24, 0.38, 0.16]; footB = [-0.24, 0.30, -0.14]; break;
       case 'jab': {
         const e = Math.sin(Math.min(1, ph / 0.45) * Math.PI * 0.5);
         const ext = ph > 0.6 ? e * (1 - ph) / 0.4 : e;
-        lunge = 0.16 * ext; L.jab = [0.06, 1.42, 0.25 + 0.68 * ext]; tiltZ = -0.08 * ext; break;
+        lunge = 0.15 * ext; L.jab = [0.07, 1.54, 0.30 + 0.82 * ext]; tiltZ = -0.09 * ext; break;
       }
       case 'heavy': {
         const w = ph < 0.3 ? -(ph / 0.3) : 0;
         const e = ph >= 0.3 ? Math.sin(Math.min(1, (ph - 0.3) / 0.3) * Math.PI * 0.5) : 0;
         const ext = ph > 0.75 ? e * Math.max(0, (1 - ph) / 0.25) : e;
-        lunge = 0.2 * ext + w * 0.3; L.heavy = [0.04, 1.44, 0.2 + 0.8 * ext]; L.jab = [0.3, 1.1, 0.1];
-        tiltZ = -0.12 * ext + w * 0.2; break;
+        lunge = 0.18 * ext + w * 0.26;
+        L.heavy = [-0.44 + 0.72 * ext * ext, 1.56 - 0.10 * ext, 0.16 + 0.62 * ext];
+        L.jab = [0.32, 1.26, 0.14];
+        tiltZ = -0.14 * ext + w * 0.18; break;
       }
       case 'kick1': case 'kick2': {
         const e = Math.sin(Math.min(1, Math.max(0, (ph - 0.1) / 0.45)) * Math.PI * 0.5);
         const ext = ph > 0.8 ? e * (1 - ph) / 0.2 : e;
-        L.kick = [0.05, 0.5, 0.15 + 0.95 * ext]; scY = 0.96; tiltZ = 0.1 * ext; break;
+        L.kick = [0.05, 0.55, 0.18 + 1.02 * ext]; scY = 0.96; tiltZ = 0.10 * ext;
+        footF = [0.05, 0.10 + 0.30 * ext, 0.22 + 1.02 * ext];
+        break;
       }
       case 'dash': case 'special': {
         const e = Math.sin(Math.min(1, ph * 1.15) * Math.PI);
-        lunge = 0.1; scX = 1 + 0.1 * e; tiltZ = -0.16;
-        L.jab = [0.1, 1.35, 0.55]; L.heavy = [-0.1, 1.35, 0.55]; break;
+        lunge = 0.1; scX = 1 + 0.09 * e; tiltZ = -0.15;
+        L.jab = [0.11, 1.46, 0.60]; L.heavy = [-0.11, 1.46, 0.60];
+        footF = [0.26, 0.10, -0.18]; footB = [-0.26, 0.06, -0.30]; break;
       }
       case 'throw': {
         const e = Math.sin(Math.min(1, ph / 0.5) * Math.PI * 0.5);
-        L.jab = [0.12, 1.5, 0.3 + 0.4 * e]; L.heavy = [-0.12, 1.5, 0.3 + 0.4 * e]; tiltZ = -0.07 * e; break;
+        L.jab = [0.13, 1.62, 0.34 + 0.42 * e]; L.heavy = [-0.13, 1.62, 0.34 + 0.42 * e]; tiltZ = -0.07 * e; break;
       }
       case 'hitL': case 'hitH': {
         const e = Math.sin(Math.min(1, ph) * Math.PI);
-        tiltZ = 0.22 * e; lunge = -0.1 * e; if (key === 'hitH') tiltX = -0.15 * e; break;
+        tiltZ = 0.20 * e; lunge = -0.10 * e; if (key === 'hitH') tiltX = -0.16 * e; break;
       }
-      case 'knock': { const e = Math.min(1, ph * 1.6); flop = -1.25 * e * e; tiltZ = 0.1 * e; break; }
-      case 'death': { const e = Math.min(1, ph * 1.8); flop = -1.35 * e; break; }
-      case 'win': { const b = Math.abs(Math.sin(a.t * 6.5)); bobY = b * 0.12; scY = 1 + b * 0.04; break; }
+      case 'knock': { const e = Math.min(1, ph * 1.6); flop = -1.25 * e * e; tiltZ = 0.1 * e;
+        L.jab = [0.40, 0.45, -0.1]; L.heavy = [-0.40, 0.45, -0.1]; break; }
+      case 'death': { const e = Math.min(1, ph * 1.8); flop = -1.35 * e;
+        L.jab = [0.42, 0.40, -0.12]; L.heavy = [-0.42, 0.40, -0.12]; break; }
+      case 'win': { const b = Math.abs(Math.sin(a.t * 6.5)); bobY = b * 0.11; scY = 1 + b * 0.04;
+        L.jab = [0.30, 1.78, 0.30]; L.heavy = [-0.30, 1.78, 0.30]; break; }
     }
-    // hit reaction folded in (same envelope the GLB reaction pass used)
     if (this.react) {
       const r = this.react;
       const k = Math.min(1, r.t / 0.03);
@@ -1041,61 +1101,30 @@ class Fighter {
         lunge -= 0.1 * s;
       }
     }
+    const S = (this.cfg.skin && this.cfg.skin.scale) || 1;
     this.pose.position.set(0, bobY + dipY, lunge);
     this.pose.rotation.set(tiltX, 0, tiltZ);
-    // knock/death: a 3D frog falls BACK (belly up), not sideways
     this.frog.rotation.x = flop * 0.92;
     this.frog.rotation.z = flop * 0.22;
-    this.frog.scale.set(scX, scY, scX);
+    this.frog.scale.set(S * scX, S * scY, S * scX);
     this.limbBones.jab.position.set(L.jab[0], L.jab[1], L.jab[2]);
     this.limbBones.heavy.position.set(L.heavy[0], L.heavy[1], L.heavy[2]);
     this.limbBones.kick.position.set(L.kick[0], L.kick[1], L.kick[2]);
-    // the 3D limbs track the same anchors the combat system reads:
-    // jab bone = front fist, heavy bone = back fist, kick bone = front
-    // foot (planted at rest, flying to the kick anchor when it extends)
-    // idle / walk: the guard hands breathe with the body — a held guard
-    // is never statue-still (visual only; +-0.02 on the anchor is far
-    // inside every contact tolerance)
-    if (key === 'idle' || key === 'walk') {
-      L.jab[1] += Math.sin(a.t * 2.6) * 0.02; L.jab[2] += Math.sin(a.t * 1.7) * 0.012;
-      L.heavy[1] += Math.sin(a.t * 2.6 + 1.2) * 0.02; L.heavy[2] += Math.cos(a.t * 1.7) * 0.012;
-    }
-    this._aim(this.armJab, L.jab[0], L.jab[1], L.jab[2]);
-    this._aim(this.armHeavy, L.heavy[0], L.heavy[1], L.heavy[2]);
-    const kExt = THREE.MathUtils.clamp((L.kick[2] - 0.10) / 0.55, 0, 1);
-    /* The feet are articulated every frame (they used to be aimed once
-       at build time, so the frog glided): the kick foot flies to the
-       kick anchor as a kick extends; mid-air both feet tuck; walking
-       alternates hop-steps phase-locked to the body bob; a dash strides;
-       knock/death splays; otherwise the feet plant under the body. */
-    let kf, kb;
-    if (kExt > 0.02) {
-      kf = [0.18 + (L.kick[0] - 0.18) * kExt, 0.05 + (L.kick[1] - 0.05) * kExt * kExt, 0.06 + (L.kick[2] - 0.06) * kExt];
-      kb = [-0.26, 0.05, -0.02];
-    } else if (this.y > 0.03 || key === 'jump') {
-      kf = [0.20, 0.30, 0.10]; kb = [-0.20, 0.26, -0.02];
-    } else if (key === 'dash' || key === 'special') {
-      kf = [0.24, 0.08, 0.22]; kb = [-0.26, 0.10, -0.16];
-    } else if (key === 'walk') {
-      const s1 = Math.sin(a.t * 9), s2 = Math.sin(a.t * 9 + Math.PI);
-      kf = [0.18, 0.05 + Math.max(0, s1) * 0.13, 0.06 + s1 * 0.15];
-      kb = [-0.20, 0.05 + Math.max(0, s2) * 0.13, 0.02 + s2 * 0.15];
-    } else if (key === 'knock' || key === 'death') {
-      kf = [0.30, 0.10, 0.16]; kb = [-0.32, 0.10, -0.10];
-    } else if (key === 'crouch') {
-      kf = [0.24, 0.05, 0.10]; kb = [-0.26, 0.05, -0.02];
-    } else {
-      kf = [0.18, 0.05, 0.06]; kb = [-0.20, 0.05, 0.02];
-    }
-    this._aim(this.legKick, kf[0], kf[1], kf[2]);
-    this._aim(this.legBack, kb[0], kb[1], kb[2]);
+    const poleArm = [0.3, -1, -0.6], poleLeg = [0, 0.25, 1];
+    aim2(this.armJab.jx, this.armJab.jy, this.armJab.jz, this.armJab.upper, this.armJab.foreG, this.armJab.fore, this.armJab.fistG,
+      L.jab[0], L.jab[1], L.jab[2], this.armJab.a, this.armJab.b, poleArm[0], poleArm[1], poleArm[2]);
+    aim2(this.armHeavy.jx, this.armHeavy.jy, this.armHeavy.jz, this.armHeavy.upper, this.armHeavy.foreG, this.armHeavy.fore, this.armHeavy.fistG,
+      L.heavy[0], L.heavy[1], L.heavy[2], this.armHeavy.a, this.armHeavy.b, poleArm[0], poleArm[1], poleArm[2]);
+    aim2(this.legFront.jx, this.legFront.jy, this.legFront.jz, this.legFront.thigh, this.legFront.shinG, this.legFront.shin, this.legFront.footG,
+      footF[0], footF[1], footF[2], this.legFront.a, this.legFront.b, poleLeg[0], poleLeg[1], poleLeg[2]);
+    aim2(this.legBack.jx, this.legBack.jy, this.legBack.jz, this.legBack.thigh, this.legBack.shinG, this.legBack.shin, this.legBack.footG,
+      footB[0], footB[1], footB[2], this.legBack.a, this.legBack.b, poleLeg[0], poleLeg[1], poleLeg[2]);
+    this.handBone.position.set(L.jab[0], L.jab[1], L.jab[2]);
+    if (this.capeMesh) this.capeMesh.rotation.x = 0.10 + Math.sin(a.t * 2.2) * 0.03 + Math.max(0, -lunge) * 0.4;
     this.shield.visible = (this.state === 'block' || this.state === 'blockstun');
-    // the frog is a real 3D body: it faces its foe (group yaw), never
-    // the camera — yawG stays unrotated
-    // shadow stays on the deck and shrinks as the frog rises
     this.shadow.position.y = 0.015 - this.y;
     const shS = Math.max(0.45, 1 - this.y * 0.16);
-    this.shadow.scale.set(1.6 * shS, 1.05 * shS, 1);
+    this.shadow.scale.set(1.7 * shS, 1.1 * shS, 1);
   }
 }
 /* ---------------- effects ---------------- */
