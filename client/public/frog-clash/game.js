@@ -609,8 +609,12 @@ let embers = null;
 function layoutArena() {
   if (!gateRing) return;
   if (isPortrait) {
-    gateRing.position.set(0, 3.7, -11.5); gateRing.scale.setScalar(0.78);
-    gateGlowSpr.position.copy(gateRing.position); gateGlowSpr.scale.set(8.5, 8.5, 1);
+    // Frog Clash portrait (Nov 18): Battle Force's gate placement fills a
+    // narrow portrait frame (worst during the ultimate camera push-in) —
+    // pulled smaller, higher and farther back so it reads as a distant
+    // gate, not a screen-filling ring. Landscape keeps the BF values.
+    gateRing.position.set(0, 4.6, -14.5); gateRing.scale.setScalar(0.62);
+    gateGlowSpr.position.copy(gateRing.position); gateGlowSpr.scale.set(6.5, 6.5, 1);
     moonMesh.position.set(-3.6, 9.8, -26); moonMesh.scale.setScalar(1.35);
     moonGlowSpr.position.set(0, 0.9, 0); moonGlowSpr.scale.set(4.2, 4.2, 1);
     scene.fog.density = 0.016;
@@ -669,21 +673,64 @@ document.getElementById('muteBtn').addEventListener('click', () => {
 /* ---------------- fighters: NFT billboards (no GLB models) ----------------
    Frog Clash fighters are the real NFT cutouts on camera-facing planes;
    the Fighter class below builds them from the FC art registry. */
-/* Fighter = the real NFT cutout on a camera-facing plane (billboard).
+/* Fighter = a REAL 3D toon frog built from Three.js primitives, at
+   Battle Force proportions (~1.75 tall, body half-width <= 0.48).
    The combat engine drives it through the same interface the GLB
    fighters used: play(key) poses, limb anchors for the swept contact
    test, pelvis/chest/head anchors for hit zones, sparks and orbs.
-   Poses are procedural: the plane lunges, tilts, squashes and flops,
-   and the limb anchors travel to where the art's strike lands.
-   Art comes from the FC registry (fc.js): a record starts as the
-   framed photo and UPGRADES to the transparent cutout the moment the
-   manifest/image lands — never locked into the framed version. */
+   The frog's arms and front leg TRACK the limb anchors every frame:
+   the jab bone is the front fist, the heavy bone the back fist, the
+   kick bone the front foot — so the swept-limb contact system works
+   unchanged. The NFT's real art lives in the DOM only (fighter-select
+   cards, VS overlay, player panel); it never enters the arena.
+   Dressing comes from Frog Fight's class-gear system: skin records
+   (body/belly/spot/pupil + gear list) keyed by the token's class. */
+/* ---------------- frog skins (Frog Fight class-gear table) ---------------- */
+const FROG_SKINS = {
+  green:    { body: 0x3ab44a, belly: 0xd8f7b0, spot: 0x2a7d34, pupil: 0x141414, gear: [] },
+  soldier:  { body: 0x3ab44a, belly: 0xd8f7b0, spot: 0x2a7d34, pupil: 0x141414, gear: ['vest', 'pauldrons', 'visor'], metal: 0x3a4149, accent: 0xd23b3b },
+  cosmo:    { body: 0x3ab44a, belly: 0xd8f7b0, spot: 0x2a7d34, pupil: 0x141414, gear: ['helmet', 'suit', 'pack'] },
+  blue:     { body: 0x2f6fd0, belly: 0xd6e6ff, spot: 0x1d4e9e, pupil: 0x141414, gear: ['cape', 'emblem'], cape: 0xc0272d },
+  warrior:  { body: 0x3ab44a, belly: 0xd8f7b0, spot: 0x2a7d34, pupil: 0x141414, gear: ['harness', 'headband', 'sword'], metal: 0xa8742c, accent: 0x7a4a21 },
+  gold:     { body: 0xf2b134, belly: 0xfff0b3, spot: 0xc47f17, pupil: 0x141414, gear: ['crown', 'cape'], cape: 0x8e1f2f },
+  special:  { body: 0x37474f, belly: 0x90a4ae, spot: 0x263238, pupil: 0xbfe8ff, gear: ['visor', 'vest'], metal: 0x232a30, accent: 0x35e0d0 },
+  king:     { body: 0xe8ecef, belly: 0xffffff, spot: 0xb9c2c9, pupil: 0x141414, gear: ['crown', 'cape'], cape: 0xa41623 },
+  queen:    { body: 0x7e57c2, belly: 0xe4d7f5, spot: 0x4a2b7a, pupil: 0x141414, gear: ['crown', 'cape'], cape: 0x4a2b7a },
+  princess: { body: 0xf2a7c3, belly: 0xfff0f5, spot: 0xc97a9b, pupil: 0x141414, gear: ['tiara', 'cape'], cape: 0xf7d774 },
+  burn:     { body: 0xd23b2e, belly: 0xffd9b3, spot: 0x8e1f16, pupil: 0x141414, gear: ['shades', 'cap'], accent: 0x1c2733 },
+};
+const NAMED_SKINS = { '6': 'king', '11': 'queen', '13': 'princess', '16': 'burn' };
+const CLS_SKIN = { Green: 'green', Soldier: 'soldier', Cosmonaut: 'cosmo', Blue: 'blue', Warrior: 'warrior', Gold: 'gold', Special: 'special' };
+/* rival ladder tokenIds -> Skin class (traits_all.csv, Amphibians) */
+const RIVAL_SKINS = { '3': 'green', '19': 'soldier', '22': 'cosmo', '20': 'warrior', '17': 'blue', '1': 'special', '6': 'king' };
+const FROGZ_BODIES = {
+  green:   { body: 0x3ab44a, belly: 0xd8f7b0, spot: 0x2a7d34 },
+  zombie:  { body: 0x8fa860, belly: 0xdde8c4, spot: 0x5f7038 },
+  red:     { body: 0xd23b2e, belly: 0xffd9b3, spot: 0x8e1f16 },
+  tattoed: { body: 0x35a047, belly: 0xd8f7b0, spot: 0x14401e },
+};
+const KAIJU_SKIN = { body: 0x2e7d5b, belly: 0xf5d9a8, spot: 0x17402e, pupil: 0x141414, gear: [], spikes: true };
+function frogSkinFor(tk) {
+  if (!tk) return FROG_SKINS.green;
+  if (tk.coll === 'K') return KAIJU_SKIN;
+  if (tk.coll === 'Z') {
+    const b = FROGZ_BODIES[String(tk.skinTrait || '').trim().toLowerCase()] || FROGZ_BODIES.green;
+    return { body: b.body, belly: b.belly, spot: b.spot, pupil: 0x141414, gear: [] };
+  }
+  const named = NAMED_SKINS[String(tk.id)];
+  if (named) return FROG_SKINS[named];
+  if (tk.cls && CLS_SKIN[tk.cls]) return FROG_SKINS[CLS_SKIN[tk.cls]];
+  if (RIVAL_SKINS[String(tk.id)]) return FROG_SKINS[RIVAL_SKINS[String(tk.id)]];
+  return FROG_SKINS.green;
+}
 const DUR = {
   idle: 1.6, walk: 0.8, crouch: 1.2, jump: 0.9, block: 1.2,
   jab: 0.55, heavy: 0.72, kick1: 0.5, kick2: 0.62,
   hitL: 0.45, hitH: 0.5, knock: 0.95, death: 1.15, win: 1.6,
   dash: 0.62, special: 0.62, throw: 0.8,
 };
+const _aimV = new THREE.Vector3();
+const _aimDown = new THREE.Vector3(0, -1, 0);
 class Fighter {
   constructor(cfg) {
     this.cfg = cfg;
@@ -701,7 +748,6 @@ class Fighter {
     this.anim = { key: 'idle', t: 0, loop: true, clamp: false, timeScale: 1 };
     this.current = this.anim; this.currentKey = 'idle';
     this.measuredH = 1.8; this.measuredMin = 0; this.posedH = 1.8; this.armInfo = {};
-    this._artVer = -1; this.planeW = 1.5; this.planeH = 1.78;
   }
   static shadowTex() {
     if (!Fighter._shTex) {
@@ -712,8 +758,8 @@ class Fighter {
       x.fillStyle = g; x.fillRect(0, 0, 128, 128);
       Fighter._shTex = new THREE.CanvasTexture(c);
       Fighter._flatGeo = new THREE.PlaneGeometry(1, 1);
-      Fighter._frogGeo = new THREE.PlaneGeometry(1, 1); Fighter._frogGeo.translate(0, 0.5, 0);
       Fighter._shieldGeo = new THREE.SphereGeometry(0.62, 18, 14);
+      Fighter._sphGeo = new THREE.SphereGeometry(1, 20, 16);
     }
     return Fighter._shTex;
   }
@@ -729,17 +775,9 @@ class Fighter {
     this.shadow.rotation.x = -Math.PI / 2; this.shadow.position.y = 0.015;
     this.shadow.scale.set(1.6, 1.05, 1); this.shadow.renderOrder = 1;
     this.group.add(this.shadow);
-    // gold backing shown ONLY while the art is still the framed photo
-    this.frameMesh = new THREE.Mesh(Fighter._flatGeo, new THREE.MeshBasicMaterial({ color: 0xc8912a }));
-    this.frameMesh.position.set(0, 0.89, -0.012); this.frameMesh.scale.set(1.6, 1.88, 1);
-    this.frameMesh.visible = false;
-    this.yawG.add(this.frameMesh);
-    // the frog itself
-    this.planeMat = new THREE.MeshBasicMaterial({ transparent: true, side: THREE.DoubleSide });
-    this.plane = new THREE.Mesh(Fighter._frogGeo, this.planeMat);
-    this.plane.renderOrder = 2;
-    this.plane.scale.set(this.planeW, this.planeH, 1);
-    this.yawG.add(this.plane);
+    // the frog itself: a real 3D toon frog, dressed from its NFT class
+    this._buildFrog();
+    this.yawG.add(this.frog);
     // block shield bubble
     this.shield = new THREE.Mesh(Fighter._shieldGeo, new THREE.MeshBasicMaterial({
       map: glowTex, color: 0x9fd8ff, transparent: true, opacity: 0.38,
@@ -756,33 +794,173 @@ class Fighter {
     this.limbBones = { jab: mk(0.34, 1.12, 0.16), heavy: mk(-0.34, 1.12, 0.16), kick: mk(0.16, 0.42, 0.10) };
     this.group.position.set(this.x, 0, 0);
     scene.add(this.group);
-    // art: framed photo now, cutout the moment it is ready (latch-proof)
-    this.artRec = window.FC.artRecord(this.cfg.coll, this.cfg.tokenId, this.cfg.framed);
-    await window.FC.ensureArt(this.artRec);
-    this._artVer = -1; this._applyArt();
     this.play('idle');
     this.applyFacing();
     this._loaded = true;
   }
-  _applyArt() {
-    const rec = this.artRec;
-    if (!rec || !rec.img) return;
-    this._artVer = rec.version;
-    const img = rec.img;
-    if (!this.tex) {
-      this.tex = new THREE.Texture(img);
-      this.tex.colorSpace = THREE.SRGBColorSpace;
-      this.tex.wrapS = THREE.RepeatWrapping;
-    } else this.tex.image = img;
-    this.tex.needsUpdate = true;
-    // a reloaded fighter gets a FRESH material — the map must be
-    // (re)assigned or the plane renders as a plain white box
-    this.planeMat.map = this.tex;
-    this.planeMat.needsUpdate = true;
-    const asp = THREE.MathUtils.clamp(img.naturalWidth / Math.max(1, img.naturalHeight), 0.55, 1.6);
-    this.planeH = 1.78; this.planeW = 1.78 * asp;
-    this.frameMesh.visible = !rec.cut;
-    this.tex.repeat.x = this.face; this.tex.offset.x = this.face < 0 ? 1 : 0;
+  /* Build the 3D frog + class gear from primitives. Local space =
+     pose space: +z toward the foe, feet at y=0, total height ~1.77. */
+  _buildFrog() {
+    const skin = this.cfg.skin || FROG_SKINS.green;
+    const std = (color, rough, metal) => new THREE.MeshStandardMaterial({ color, roughness: rough === undefined ? 0.6 : rough, metalness: metal || 0 });
+    const M = {
+      body: std(skin.body, 0.55), belly: std(skin.belly, 0.6), spot: std(skin.spot, 0.6),
+      pupil: std(skin.pupil, 0.35), white: std(0xffffff, 0.3),
+      metal: std(skin.metal || 0x8a93a0, 0.38, 0.6), accent: std(skin.accent || 0xd23b3b, 0.5),
+      gold: std(0xf2b134, 0.32, 0.75), dark: std(0x14181d, 0.4),
+      cape: std(skin.cape || 0x8e1f2f, 0.7), suit: std(0xe8ecef, 0.5),
+    };
+    const F = this.frog = new THREE.Group();
+    const sph = (mat, sx, sy, sz, px, py, pz) => {
+      const m = new THREE.Mesh(Fighter._sphGeo, mat);
+      m.scale.set(sx, sy, sz); m.position.set(px, py, pz); m.castShadow = true;
+      F.add(m); return m;
+    };
+    const box = (mat, sx, sy, sz, px, py, pz) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
+      m.position.set(px, py, pz); m.castShadow = true; F.add(m); return m;
+    };
+    // body: ellipsoid with a lighter belly, head merged into the top
+    sph(M.body, 0.48, 0.47, 0.39, 0, 0.95, 0);
+    sph(M.belly, 0.32, 0.36, 0.20, 0, 0.86, 0.175);
+    sph(M.body, 0.40, 0.27, 0.34, 0, 1.40, 0.03);
+    // spots on the back and sides
+    sph(M.spot, 0.10, 0.07, 0.05, 0.34, 1.16, -0.25);
+    sph(M.spot, 0.12, 0.08, 0.05, -0.36, 1.00, -0.21);
+    sph(M.spot, 0.08, 0.06, 0.04, 0.10, 1.30, -0.31);
+    sph(M.spot, 0.09, 0.07, 0.04, -0.12, 0.70, -0.32);
+    // eye stalks + eyeballs; pupils sit foe-side (+z) so the frog
+    // always stares down its opponent
+    for (const s of [1, -1]) {
+      const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.05, 0.13, 8), M.body);
+      stalk.position.set(0.19 * s, 1.60, 0.05); stalk.castShadow = true; F.add(stalk);
+      sph(M.white, 0.105, 0.105, 0.105, 0.19 * s, 1.665, 0.06);
+      sph(M.pupil, 0.052, 0.052, 0.052, 0.19 * s, 1.675, 0.145);
+    }
+    // mouth line
+    const mouth = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.016, 8, 22, Math.PI), M.dark);
+    mouth.position.set(0, 1.335, 0.352); mouth.rotation.set(-0.15, 0, Math.PI);
+    F.add(mouth);
+    // a limb = shoulder/hip pivot group + unit cylinder (scaled to the
+    // reach) + end sphere (fist/foot), aimed every frame in updatePose
+    const mkLimb = (r, endR, endFlat) => {
+      const grp = new THREE.Group();
+      const geo = new THREE.CylinderGeometry(r * 0.82, r, 1, 10); geo.translate(0, -0.5, 0);
+      const seg = new THREE.Mesh(geo, M.body); seg.castShadow = true; grp.add(seg);
+      const end = new THREE.Mesh(Fighter._sphGeo, M.body);
+      end.scale.set(endR, endFlat ? endR * 0.45 : endR, endFlat ? endR * 1.45 : endR);
+      end.castShadow = true; grp.add(end);
+      F.add(grp);
+      return { grp, seg, end };
+    };
+    this.armJab = mkLimb(0.075, 0.12, false); this.armJab.grp.position.set(0.40, 1.18, 0.05);
+    this.armHeavy = mkLimb(0.075, 0.12, false); this.armHeavy.grp.position.set(-0.40, 1.18, 0.05);
+    this.legKick = mkLimb(0.105, 0.14, true); this.legKick.grp.position.set(0.18, 0.46, 0.02);
+    this.legBack = mkLimb(0.105, 0.14, true); this.legBack.grp.position.set(-0.18, 0.46, 0.02);
+    this._aim(this.legBack, -0.20, 0.05, 0.02);
+    /* ---------------- class gear (Frog Fight gear lists) ---------------- */
+    const gear = skin.gear || [];
+    const has = g => gear.includes(g);
+    if (has('vest')) sph(M.metal, 0.50, 0.40, 0.37, 0, 1.04, -0.02);
+    if (has('suit')) sph(M.suit, 0.50, 0.50, 0.37, 0, 0.95, -0.03);
+    if (has('pauldrons')) { sph(M.metal, 0.15, 0.15, 0.15, 0.42, 1.26, 0.05); sph(M.metal, 0.15, 0.15, 0.15, -0.42, 1.26, 0.05); }
+    if (has('visor')) {
+      box(M.dark, 0.46, 0.11, 0.05, 0, 1.665, 0.165);
+      box(M.accent, 0.46, 0.025, 0.052, 0, 1.715, 0.165);
+    }
+    if (has('helmet')) {
+      const helm = new THREE.Mesh(Fighter._sphGeo, new THREE.MeshStandardMaterial({
+        color: 0xdfeaf2, transparent: true, opacity: 0.25, roughness: 0.12, metalness: 0.1, depthWrite: false }));
+      helm.scale.set(0.45, 0.45, 0.45); helm.position.set(0, 1.44, 0.03); F.add(helm);
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.03, 8, 24), M.metal);
+      rim.position.set(0, 1.28, 0.03); rim.rotation.x = Math.PI / 2; F.add(rim);
+    }
+    if (has('pack')) {
+      box(M.suit, 0.36, 0.46, 0.15, 0, 1.05, -0.44);
+      for (const s of [1, -1]) {
+        const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.34, 10), M.metal);
+        tank.position.set(0.10 * s, 1.08, -0.55); tank.castShadow = true; F.add(tank);
+      }
+    }
+    if (has('cape')) {
+      const cg = new THREE.PlaneGeometry(0.66, 1.0); cg.translate(0, -0.5, 0);
+      const cape = new THREE.Mesh(cg, new THREE.MeshStandardMaterial({ color: skin.cape || 0x8e1f2f, roughness: 0.7, side: THREE.DoubleSide }));
+      cape.position.set(0, 1.44, -0.40); cape.rotation.x = -0.18; cape.castShadow = true; F.add(cape);
+    }
+    if (has('emblem')) {
+      const e1 = new THREE.Mesh(new THREE.CircleGeometry(0.10, 20), M.gold);
+      e1.position.set(0, 1.18, 0.352); F.add(e1);
+      const e2 = new THREE.Mesh(new THREE.CircleGeometry(0.06, 20), M.accent);
+      e2.position.set(0, 1.18, 0.356); F.add(e2);
+    }
+    if (has('headband')) {
+      const band = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.045, 8, 24), M.accent);
+      band.position.set(0, 1.52, 0.03); band.rotation.x = Math.PI / 2; band.scale.set(1.08, 0.95, 1);
+      band.castShadow = true; F.add(band);
+    }
+    if (has('harness')) {
+      for (const s of [1, -1]) {
+        const strap = box(M.metal, 0.09, 0.62, 0.02, 0, 1.05, 0.378);
+        strap.rotation.z = 0.55 * s;
+      }
+    }
+    if (has('sword')) {
+      const sw = new THREE.Group(); sw.position.set(0.18, 1.15, -0.42); sw.rotation.set(-0.15, 0, 0.5);
+      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.55, 0.015), M.metal);
+      blade.position.y = 0.22; blade.castShadow = true; sw.add(blade);
+      const guard = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 0.04), M.gold);
+      guard.position.y = -0.08; sw.add(guard);
+      const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.13, 8), M.dark);
+      grip.position.y = -0.17; sw.add(grip);
+      F.add(sw);
+    }
+    if (has('crown')) {
+      const cr = new THREE.Group(); cr.position.set(0, 1.70, 0.02); F.add(cr);
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.155, 0.175, 0.09, 14), M.gold);
+      base.position.y = 0.045; base.castShadow = true; cr.add(base);
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2;
+        const cone = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.11, 6), M.gold);
+        cone.position.set(Math.cos(a) * 0.125, 0.14, Math.sin(a) * 0.125); cr.add(cone);
+      }
+      const gem = new THREE.Mesh(Fighter._sphGeo, M.accent);
+      gem.scale.set(0.035, 0.035, 0.035); gem.position.set(0, 0.05, 0.16); cr.add(gem);
+    }
+    if (has('tiara')) {
+      const ti = new THREE.Mesh(new THREE.TorusGeometry(0.21, 0.022, 8, 24, Math.PI), M.gold);
+      ti.position.set(0, 1.585, 0.03); ti.rotation.x = 0.35; ti.castShadow = true; F.add(ti);
+      const gem = new THREE.Mesh(Fighter._sphGeo, M.accent);
+      gem.scale.set(0.032, 0.032, 0.032); gem.position.set(0, 1.66, 0.24); F.add(gem);
+    }
+    if (has('shades')) {
+      box(M.dark, 0.15, 0.09, 0.04, 0.19, 1.665, 0.16);
+      box(M.dark, 0.15, 0.09, 0.04, -0.19, 1.665, 0.16);
+      box(M.dark, 0.10, 0.03, 0.03, 0, 1.68, 0.16);
+    }
+    if (has('cap')) {
+      const capGeo = new THREE.SphereGeometry(1, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2);
+      const cap = new THREE.Mesh(capGeo, M.accent);
+      cap.scale.set(0.30, 0.17, 0.30); cap.position.set(0, 1.545, 0.03); cap.castShadow = true; F.add(cap);
+      box(M.accent, 0.30, 0.03, 0.16, 0, 1.545, 0.34);
+    }
+    if (skin.spikes) {
+      const spike = (r, h, py, pz) => {
+        const c = new THREE.Mesh(new THREE.ConeGeometry(r, h, 8), M.spot);
+        c.position.set(0, py, pz); c.rotation.x = -0.5; c.castShadow = true; F.add(c);
+      };
+      spike(0.075, 0.24, 1.30, -0.37); spike(0.07, 0.22, 1.02, -0.42); spike(0.06, 0.18, 0.76, -0.38);
+    }
+  }
+  /* aim a limb's pivot group from its joint position at a target point
+     (both in frog-local space): cylinder stretches, end sphere lands */
+  _aim(limb, tx, ty, tz) {
+    const p = limb.grp.position;
+    _aimV.set(tx - p.x, ty - p.y, tz - p.z);
+    const len = Math.max(0.14, _aimV.length());
+    _aimV.normalize();
+    limb.grp.quaternion.setFromUnitVectors(_aimDown, _aimV);
+    limb.seg.scale.y = len;
+    limb.end.position.set(0, -len, 0);
   }
   play(key, opts = {}) {
     this.anim = {
@@ -795,16 +973,13 @@ class Fighter {
   dur(key) { return DUR[key] || 0.6; }
   applyFacing() {
     this.group.rotation.y = this.face > 0 ? Math.PI / 2 : -Math.PI / 2;
-    if (this.tex) { this.tex.repeat.x = this.face; this.tex.offset.x = this.face < 0 ? 1 : 0; }
   }
   bonePos(bone, out) {
     if (!bone) return out.set(this.x, 1.1 + this.y, 0);
     return bone.getWorldPosition(out);
   }
   updatePose(dt) {
-    if (!this.plane) return;
-    // late art upgrade (manifest arrived after the fight started)
-    if (this.artRec && this.artRec.version !== this._artVer) this._applyArt();
+    if (!this.frog) return;
     const a = this.anim;
     a.t += dt * (a.timeScale || 1);
     const key = a.key, dur = this.dur(key);
@@ -814,7 +989,7 @@ class Fighter {
     let bobY = 0, tiltZ = 0, tiltX = 0, scX = 1, scY = 1, lunge = 0, dipY = 0, flop = 0;
     const L = { jab: [0.34, 1.12, 0.16], heavy: [-0.34, 1.12, 0.16], kick: [0.16, 0.42, 0.10] };
     switch (key) {
-      case 'idle': bobY = Math.sin(a.t * 2.6) * 0.035; scY = 1 + Math.sin(a.t * 2.6) * 0.012; break;
+      case 'idle': bobY = Math.sin(a.t * 2.6) * 0.035; scY = 1 + Math.sin(a.t * 2.6) * 0.012; tiltZ = Math.sin(a.t * 1.3) * 0.02; break;
       case 'walk': bobY = Math.abs(Math.sin(a.t * 9)) * 0.07; tiltZ = 0.05; break;
       case 'crouch': scY = 0.8; dipY = -0.06; L.jab = [0.3, 0.95, 0.2]; L.heavy = [-0.3, 0.95, 0.2]; break;
       case 'block': scX = 1.06; scY = 0.94; L.jab = [0.18, 1.2, 0.34]; L.heavy = [-0.18, 1.2, 0.34]; break;
@@ -868,18 +1043,55 @@ class Fighter {
     }
     this.pose.position.set(0, bobY + dipY, lunge);
     this.pose.rotation.set(tiltX, 0, tiltZ);
-    this.plane.rotation.z = flop;
-    this.plane.scale.set(this.planeW * scX, this.planeH * scY, 1);
-    this.frameMesh.scale.set(this.planeW * scX + 0.1, this.planeH * scY + 0.1, 1);
-    this.frameMesh.position.y = (this.planeH * scY) / 2;
-    this.frameMesh.rotation.z = flop;
+    // knock/death: a 3D frog falls BACK (belly up), not sideways
+    this.frog.rotation.x = flop * 0.92;
+    this.frog.rotation.z = flop * 0.22;
+    this.frog.scale.set(scX, scY, scX);
     this.limbBones.jab.position.set(L.jab[0], L.jab[1], L.jab[2]);
     this.limbBones.heavy.position.set(L.heavy[0], L.heavy[1], L.heavy[2]);
     this.limbBones.kick.position.set(L.kick[0], L.kick[1], L.kick[2]);
+    // the 3D limbs track the same anchors the combat system reads:
+    // jab bone = front fist, heavy bone = back fist, kick bone = front
+    // foot (planted at rest, flying to the kick anchor when it extends)
+    // idle / walk: the guard hands breathe with the body — a held guard
+    // is never statue-still (visual only; +-0.02 on the anchor is far
+    // inside every contact tolerance)
+    if (key === 'idle' || key === 'walk') {
+      L.jab[1] += Math.sin(a.t * 2.6) * 0.02; L.jab[2] += Math.sin(a.t * 1.7) * 0.012;
+      L.heavy[1] += Math.sin(a.t * 2.6 + 1.2) * 0.02; L.heavy[2] += Math.cos(a.t * 1.7) * 0.012;
+    }
+    this._aim(this.armJab, L.jab[0], L.jab[1], L.jab[2]);
+    this._aim(this.armHeavy, L.heavy[0], L.heavy[1], L.heavy[2]);
+    const kExt = THREE.MathUtils.clamp((L.kick[2] - 0.10) / 0.55, 0, 1);
+    /* The feet are articulated every frame (they used to be aimed once
+       at build time, so the frog glided): the kick foot flies to the
+       kick anchor as a kick extends; mid-air both feet tuck; walking
+       alternates hop-steps phase-locked to the body bob; a dash strides;
+       knock/death splays; otherwise the feet plant under the body. */
+    let kf, kb;
+    if (kExt > 0.02) {
+      kf = [0.18 + (L.kick[0] - 0.18) * kExt, 0.05 + (L.kick[1] - 0.05) * kExt * kExt, 0.06 + (L.kick[2] - 0.06) * kExt];
+      kb = [-0.26, 0.05, -0.02];
+    } else if (this.y > 0.03 || key === 'jump') {
+      kf = [0.20, 0.30, 0.10]; kb = [-0.20, 0.26, -0.02];
+    } else if (key === 'dash' || key === 'special') {
+      kf = [0.24, 0.08, 0.22]; kb = [-0.26, 0.10, -0.16];
+    } else if (key === 'walk') {
+      const s1 = Math.sin(a.t * 9), s2 = Math.sin(a.t * 9 + Math.PI);
+      kf = [0.18, 0.05 + Math.max(0, s1) * 0.13, 0.06 + s1 * 0.15];
+      kb = [-0.20, 0.05 + Math.max(0, s2) * 0.13, 0.02 + s2 * 0.15];
+    } else if (key === 'knock' || key === 'death') {
+      kf = [0.30, 0.10, 0.16]; kb = [-0.32, 0.10, -0.10];
+    } else if (key === 'crouch') {
+      kf = [0.24, 0.05, 0.10]; kb = [-0.26, 0.05, -0.02];
+    } else {
+      kf = [0.18, 0.05, 0.06]; kb = [-0.20, 0.05, 0.02];
+    }
+    this._aim(this.legKick, kf[0], kf[1], kf[2]);
+    this._aim(this.legBack, kb[0], kb[1], kb[2]);
     this.shield.visible = (this.state === 'block' || this.state === 'blockstun');
-    // billboard: face the camera (cylindrical), undo the group's yaw
-    const worldYaw = Math.atan2(camera.position.x - this.x, camera.position.z);
-    this.yawG.rotation.y = worldYaw - this.group.rotation.y;
+    // the frog is a real 3D body: it faces its foe (group yaw), never
+    // the camera — yawG stays unrotated
     // shadow stays on the deck and shrinks as the frog rises
     this.shadow.position.y = 0.015 - this.y;
     const shS = Math.max(0.45, 1 - this.y * 0.16);
@@ -1197,7 +1409,7 @@ function updateUltimate(att, dt) {
       att.state = 'ultimate';
       if (!u.clipDone) { u.clipDone = true; att.play('special', { loop: false, clamp: true, fade: 0.05 }); AudioSys.dash(); }
       att.x += att.face * 9.5 * dt;
-      if (dist(att, def) <= 0.78 || u.stepT > 0.65) { u.step = 1; u.stepT = 0; startAttack(att, 'jab'); }
+      if (dist(att, def) <= 0.95 || u.stepT > 0.65) { u.step = 1; u.stepT = 0; startAttack(att, 'jab'); } // 0.95: just above the 0.85 separation floor, so the dash-in hands off on proximity as designed
       return;
     }
     if (u.step <= 3) {
@@ -1291,7 +1503,9 @@ function koSequence(winner, loser) {
 
 /* ---------------- fighters ---------------- */
 /* ---------------- fighters: the frog ladder + your frog ------------------
-   Rivals are real Amphibians (cutout art) with rising stats and HP.
+   Rivals are real Amphibians (3D frogs dressed by each token's Skin
+   class; the NFT art itself stays in the DOM cards/panels) with
+   rising stats and HP.
    Your fighter is the frog picked in the lobby (fc.js): its POWER /
    SPEED / RANGE come from its collection traits; a guest plays the
    free house frog. Stats shape the moveset kit exactly like the
@@ -1313,6 +1527,7 @@ function rivalCfg(ix) {
   return {
     key: 'rival' + ix, id: 'rival' + ix, name: r.name, title: 'THE AMPHIBIANS',
     coll: 'A', tokenId: r.tokenId, framed: FC.AMPH_IMG(r.tokenId),
+    skin: frogSkinFor({ coll: 'A', id: r.tokenId }),
     sparkColor: r.sparkColor, specNames: FC.SPEC_NAMES,
     ultKind: r.stats.range >= 4 ? 'barrage' : 'combo',
     kit: FC.kitFromStats(r.stats), maxHp: r.hp, aiMul: r.aiMul, aiStyle: r.aiStyle, startX: 1.7,
@@ -1326,6 +1541,7 @@ function playerCfg() {
     name: tk ? FC.tokenLabel(tk).toUpperCase() : FC.t('houseFighter').toUpperCase(),
     title: FC.collTitle(tk),
     coll: tk ? tk.coll : 'A', tokenId: tk ? tk.id : '23', framed: tk ? tk.img : FC.AMPH_IMG('23'),
+    skin: frogSkinFor(tk),
     sparkColor: FC.collColor(tk), specNames: FC.SPEC_NAMES,
     ultKind: st.range >= 4 ? 'barrage' : 'combo',
     kit: FC.kitFromStats(st), maxHp: FC.perks.hp ? 120 : 100, aiMul: 1, aiStyle: 'balanced', startX: -1.7,
@@ -1501,8 +1717,13 @@ const STAGE_MIN = -3.6, STAGE_MAX = 3.6;
    when one is pinned at a stage edge. group.position is re-synced here
    so the correction is what the same frame actually renders. Strike
    reach is unaffected: jab connects up to ~1.02 root gap, cross ~0.91,
-   kick ~1.50 — a 0.62 floor keeps every strike landing on the surface. */
-const MIN_SEP = 0.62;
+   kick ~1.50 — a 0.62 floor keeps every strike landing on the surface.
+   3D TOON-FROG RIG (Nov 18): the frog body is fat — half-depth 0.39 plus
+   belly — so two frogs at the old 0.62 floor visibly interpenetrated.
+   Floor is 0.85 here, and every limbContact callsite carries +0.23
+   extraR so the contact geometry (and every calibrated strike) is
+   exactly what it was at the 0.62 floor. */
+const MIN_SEP = 0.85;
 function separateFighters() {
   const a = P1, b = P2;
   const d = b.x - a.x;
@@ -1581,7 +1802,7 @@ function fighterUpdate(f, dt, input) {
     if (!f.atkHitDone) {
       if (f.stateT >= a.startup && f.stateT <= a.startup + a.active) {
         if (dist(f, o2) < 1.9) {
-          const c = limbContact(f, o2, a.limb);
+          const c = limbContact(f, o2, a.limb, 0.23); // +0.23 = MIN_SEP raise compensation (0.62 -> 0.85)
           if (c) {
             f.atkHitDone = true;
             resolveHit(f, o2, a.dmg, a.push, { gain: a.gain, hitstop: a.hitstop, shake: a.shake, heavy: a.dmg >= 10, kind: f.atkKey, contact: c });
@@ -1601,7 +1822,7 @@ function fighterUpdate(f, dt, input) {
       const total = f.dur(dashClipKey(f));
       if (f.stateT < 0.34) f.x += f.face * f.cfg.kit.dashPow * dt;
       if (!f.atkHitDone && f.stateT > 0.1 && dist(f, o) < 1.9) {
-        const c = limbContact(f, o, 'body', 0.30); // the whole body is the weapon on a dash; frog-rig calibration (Nov 18): a clean pass at the 0.62 separation floor measured +0.04 short at the human rig's 0.22 — the billboard torso mass reaches past the spine point, so the tolerance is 0.30 here
+        const c = limbContact(f, o, 'body', 0.53); // the whole body is the weapon on a dash; frog-rig calibration (Nov 18): a clean pass at the 0.62 separation floor measured +0.04 short at the human rig's 0.22 — the billboard torso mass reaches past the spine point, so the tolerance is 0.30 here, +0.23 for the 0.85 separation floor = 0.53
         if (c) {
           f.atkHitDone = true;
           const fin = f.ult && f.ult.finisher; // ultimate's finisher dash is a light 4-dmg cap (rawDmg: never kit-scaled)
@@ -1617,7 +1838,7 @@ function fighterUpdate(f, dt, input) {
       if (f.stateT < 0.30) f.x += f.face * 4.6 * dt;
       if (!f.atkHitDone) {
         if (f.stateT >= 0.10 && f.stateT <= 0.55 && dist(f, o) < 2.0) {
-          const c = limbContact(f, o, 'heavy', 0.34); // frog-rig calibration (Nov 18): the rising cross measured +0.14 short at the human rig's 0.10 against the flat billboard capsule, and +0.06 at 0.28 with the original 5.6 hop — 0.34 plus the trimmed 4.6 hop (fc.js kit) connects the visible fist pass
+          const c = limbContact(f, o, 'heavy', 0.57); // frog-rig calibration (Nov 18): the rising cross measured +0.14 short at the human rig's 0.10 against the flat billboard capsule, and +0.06 at 0.28 with the original 5.6 hop — 0.34 plus the trimmed 4.6 hop (fc.js kit) connects the visible fist pass, +0.23 for the 0.85 separation floor = 0.57
           if (c) {
             f.atkHitDone = true;
             resolveHit(f, o, f.cfg.kit.riseDmg, 1.5, { gain: 10, hitstop: 0.12, shake: 0.15, heavy: true, knock: true, kind: 'special', contact: c, rawDmg: true });
@@ -1641,7 +1862,7 @@ function fighterUpdate(f, dt, input) {
       }
       if (!f.atkHitDone) {
         if (f.stateT >= 0.12 && f.stateT <= 0.66 && dist(f, o) < 2.0) {
-          const c = limbContact(f, o, 'kick', 0.10);
+          const c = limbContact(f, o, 'kick', 0.33); // 0.10 + 0.23 MIN_SEP compensation
           if (c) {
             f.atkHitDone = true;
             resolveHit(f, o, f.cfg.kit.sweepDmg, 2.1, { gain: 10, hitstop: 0.11, shake: 0.13, heavy: true, knock: true, kind: 'special', contact: c, rawDmg: true });
