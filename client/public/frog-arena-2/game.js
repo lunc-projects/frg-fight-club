@@ -2,8 +2,8 @@ import * as THREE from 'three';
 
 /* ============================================================
    FROG ARENA 2 — Gothic Colosseum (design test)
-   Fighters: articulated 3D gothic frog champions for the 10 real
-   Amphibians NFTs, driven by the Arena Clash 3D engine (three.js
+   Fighters: articulated 3D gothic frog champions — the game's 10
+   original warriors — driven by the Arena Clash 3D engine (three.js
    r160, MIT). All game code/art direction original.
    ============================================================ */
 
@@ -754,8 +754,9 @@ document.getElementById('muteBtn').addEventListener('click', () => {
    hook swings, kick extends, block, flinch, KO fall — real motion.
    Character variants come from cfg.skin: palette, armor tint, trim,
    cape, headgear (crown / tiara / crest / band) and a feminine
-   build for the Queen and Princess. The NFT art itself lives in
-   the DOM (character-select cards) — never in the arena. */
+   build for the Queen and Princess. Each warrior's painted
+   portrait lives in the DOM (character-select cards) — the arena
+   itself is always the real 3D model. */
 const DUR = {
   idle: 1.6, walk: 0.8, crouch: 1.2, jump: 0.9, block: 1.2,
   jab: 0.55, heavy: 0.72, kick1: 0.5, kick2: 0.62,
@@ -1558,56 +1559,56 @@ function koSequence(winner, loser) {
 }
 
 /* ---------------- fighters ---------------- */
-/* ===== FROG ARENA 2 — the 10 Amphibians champions (test roster) =====
-   Real NFTs from The Amphibians (CW721 terra1gah2...dmu). Names,
-   classes and rarities are the on-chain metadata (Miata collection
-   98 / traits research). The character-select screen shows each
-   frog's REAL art; in the arena the picked character IS the 3D
-   gothic frog model, tinted/armored per character. */
-const AMPH_FRAMED = 'https://ipfs.miata-ipfs.com/ipfs/QmSxgstdiUyBBsfC5YYiJPn3Ar2VeTMAS9hYGGxh6c7UVY/';
+/* ===== FROG ARENA 2 — the game's 10 ORIGINAL gothic frog warriors =====
+   This game is its own thing: the fighters are original characters
+   created for Frog Arena 2 (the future 1,000-warrior mint game) —
+   they belong to no existing collection. Names, classes, titles ours;
+   each warrior's painted portrait (warriors/*.webp) is the select-
+   screen art and future mint art; in the arena the picked warrior IS
+   the 3D gothic frog model, tinted/armored per character. */
 const SPEC2 = {
   rise: 'TOAD RISE', sweep: 'NIGHT SWEEP', dash: 'SWAMP DASH', orb: 'BOG ORB',
   kingRise: 'SOLAR RISE', kingSweep: 'ECLIPSE SWEEP', kingDash: 'COMET DASH', kingOrb: 'NOVA ORB',
 };
 const ROSTER = [
-  { id: 'frog6', name: 'THE FROG KING', title: 'THE AMPHIBIANS · #6', cls: 'SPECIAL · UNIQUE', tokenId: '6',
+  { id: 'king', name: 'KING CROAKMORE', title: 'THE CROWNED SOVEREIGN', cls: 'CROWNED KING', art: 'king.webp',
     stats: { power: 5, speed: 3, range: 4 }, sparkColor: 0xffc44d, ultKind: 'barrage', maxHp: 130, aiStyle: 'brawler', aiMul: 0.82,
     specNames: { rise: 'SOLAR RISE', sweep: 'ECLIPSE SWEEP', dash: 'COMET DASH', orb: 'NOVA ORB' },
-    style: 'The crowned king of the Frogztrik Kingdom. Solar specials, gold trim, the full crown.',
+    style: 'The crowned sovereign of the colosseum. Solar specials, gold trim, the full crown.',
     skin: { body: 0x3f7031, belly: 0xa8bf92, spot: 0x2a4d20, armor: 0x17181c, trim: 0xd8a83c, cape: 0x2a1a3e, headgear: 'crown', iris: 0xff9a1f } },
-  { id: 'frog11', name: 'THE QUEEN', title: 'THE AMPHIBIANS · #11', cls: 'SPECIAL · UNIQUE', tokenId: '11',
+  { id: 'queen', name: 'QUEEN VESPERA', title: 'THE VIOLET REGENT', cls: 'WARRIOR QUEEN', art: 'queen.webp',
     stats: { power: 4, speed: 4, range: 4 }, sparkColor: 0xb98cff, ultKind: 'barrage', maxHp: 115, aiStyle: 'zoner', aiMul: 0.9,
-    specNames: SPEC2, style: 'Queen of the Frogztrik Kingdom — the roster\'s lady champion. Violet armor, gold crown, regal cape.',
+    specNames: SPEC2, style: 'The roster\'s warrior queen. Violet armor, gold crown, regal cape.',
     skin: { body: 0x6d4a9e, belly: 0xd9c8f2, spot: 0x4a2b7a, armor: 0x1d1830, trim: 0xd8a83c, cape: 0x3b1d5e, headgear: 'crown', iris: 0xc9a0ff, female: true } },
-  { id: 'frog13', name: 'THE PRINCESS', title: 'THE AMPHIBIANS · #13', cls: 'SPECIAL · UNIQUE', tokenId: '13',
+  { id: 'princess', name: 'PRINCESS ROSALIE', title: 'THE ROSE PRINCESS', cls: 'ROYAL PRINCESS', art: 'princess.webp',
     stats: { power: 3, speed: 5, range: 3 }, sparkColor: 0xff9ecb, ultKind: 'combo', maxHp: 100, aiStyle: 'speed', aiMul: 0.95,
-    specNames: SPEC2, style: 'Princess of the Frogztrik Kingdom. Small, fast, rose-gold tiara.',
+    specNames: SPEC2, style: 'The young rose princess. Small, fast, rose-gold tiara.',
     skin: { body: 0xd98bb4, belly: 0xffe3f1, spot: 0xb05c86, armor: 0x2a2030, trim: 0xe8a0b4, cape: 0x5e2a4e, headgear: 'tiara', iris: 0xff7ab0, female: true, scale: 0.93 } },
-  { id: 'frog16', name: 'BURN FROG', title: 'THE AMPHIBIANS · #16', cls: 'SPECIAL · UNIQUE', tokenId: '16',
+  { id: 'ember', name: 'EMBERLORD KAEL', title: 'THE EMBERLORD', cls: 'EMBER KNIGHT', art: 'ember.webp',
     stats: { power: 5, speed: 2, range: 3 }, sparkColor: 0xff7a2a, ultKind: 'combo', maxHp: 120, aiStyle: 'brawler', aiMul: 0.88,
-    specNames: SPEC2, style: 'The ember frog. Heavy hits, flame crest, scorched black armor.',
+    specNames: SPEC2, style: 'The ember knight. Heavy hits, flame crest, scorched black armor.',
     skin: { body: 0xa83226, belly: 0xffc9a3, spot: 0x6e1d12, armor: 0x1c1214, trim: 0xff7a2a, cape: 0x33141a, headgear: 'crest', iris: 0xffb03a } },
-  { id: 'frog1', name: 'SHADOW OPS', title: 'THE AMPHIBIANS · #1', cls: 'SPECIAL · UNIQUE', tokenId: '1',
+  { id: 'shadow', name: 'NYX THE SHADOWBLADE', title: 'MASTER OF SHADOWS', cls: 'SHADOW ASSASSIN', art: 'shadow.webp',
     stats: { power: 4, speed: 5, range: 4 }, sparkColor: 0x35e0d0, ultKind: 'barrage', maxHp: 110, aiStyle: 'speed', aiMul: 0.9,
-    specNames: SPEC2, style: 'First of the Amphibians. Night-ops frog — cyan eyes, blackout armor.',
+    specNames: SPEC2, style: 'Master of shadows. Cyan eyes, blackout armor, silent feet.',
     skin: { body: 0x37474f, belly: 0x90a4ae, spot: 0x1c262b, armor: 0x10151a, trim: 0x35e0d0, cape: 0x0d1420, iris: 0x35e0d0, pupil: 0x062a28 } },
-  { id: 'frog17', name: 'CAPTAIN SPLASH', title: 'THE AMPHIBIANS · #17', cls: 'BLUE · LEGENDARY', tokenId: '17',
+  { id: 'captain', name: 'CAPTAIN DELMAR', title: 'THE TIDE CAPTAIN', cls: 'WAR CAPTAIN', art: 'captain.webp',
     stats: { power: 4, speed: 3, range: 5 }, sparkColor: 0x4da6ff, ultKind: 'barrage', maxHp: 110, aiStyle: 'zoner', aiMul: 0.95,
-    specNames: SPEC2, style: 'Blue-crest captain. Long-range orbs, red war cape.',
+    specNames: SPEC2, style: 'The tide captain. Long-range orbs, red war cape.',
     skin: { body: 0x2f6fd0, belly: 0xd6e6ff, spot: 0x1d4c96, armor: 0x1a2436, trim: 0xd8a83c, cape: 0x7a1f24, iris: 0xffd24d } },
-  { id: 'frog20', name: 'NIGHTBLADE', title: 'THE AMPHIBIANS · #20', cls: 'WARRIOR · EPIC', tokenId: '20',
+  { id: 'nightblade', name: 'NIGHTBLADE VOSS', title: 'BLADE OF THE NIGHT WATCH', cls: 'NIGHT WARRIOR', art: 'nightblade.webp',
     stats: { power: 4, speed: 4, range: 3 }, sparkColor: 0x8b5cf6, ultKind: 'combo', maxHp: 105, aiStyle: 'speed', aiMul: 1.0,
-    specNames: SPEC2, style: 'Warrior of the night watch. Bronze harness, fast hands.',
+    specNames: SPEC2, style: 'Blade of the night watch. Bronze harness, fast hands.',
     skin: { body: 0x2f6126, belly: 0xb9d69a, spot: 0x1e4218, armor: 0x4a3a1c, trim: 0xa8742c, cape: 0x241a10, headgear: 'band', iris: 0xd23b3b } },
-  { id: 'frog19', name: 'CADET CROAK', title: 'THE AMPHIBIANS · #19', cls: 'SOLDIER · EPIC', tokenId: '19',
+  { id: 'soldier', name: 'GRUMM THE BULWARK', title: 'THE FRONT-LINE BULWARK', cls: 'HEAVY SOLDIER', art: 'soldier.webp',
     stats: { power: 3, speed: 4, range: 2 }, sparkColor: 0xa8e063, ultKind: 'combo', maxHp: 105, aiStyle: 'balanced', aiMul: 1.05,
-    specNames: SPEC2, style: 'Front-line soldier frog. Big pauldrons, red trim, no cape.',
+    specNames: SPEC2, style: 'Front-line bulwark. Big pauldrons, red trim, no cape.',
     skin: { body: 0x47793a, belly: 0xcfe0ae, spot: 0x2f5724, armor: 0x3a4149, trim: 0xd23b3b, cape: null, iris: 0xff9a1f } },
-  { id: 'frog22', name: 'MAJOR ORBIT', title: 'THE AMPHIBIANS · #22', cls: 'COSMONAUT · RARE', tokenId: '22',
+  { id: 'starknight', name: 'STELLARIS', title: 'THE STAR KNIGHT', cls: 'STAR KNIGHT', art: 'starknight.webp',
     stats: { power: 3, speed: 3, range: 3 }, sparkColor: 0x8b5cf6, ultKind: 'combo', maxHp: 102, aiStyle: 'balanced', aiMul: 1.1,
-    specNames: SPEC2, style: 'The cosmonaut major. Pale suit armor, teal trim.',
+    specNames: SPEC2, style: 'The star knight. Pale suit armor, teal trim.',
     skin: { body: 0x55803f, belly: 0xdde8c8, spot: 0x3a5c2a, armor: 0x9aa7ad, trim: 0xff8c42, cape: null, iris: 0x8b5cf6 } },
-  { id: 'frog3', name: 'MOSSBACK', title: 'THE AMPHIBIANS · #3', cls: 'GREEN · COMMON', tokenId: '3',
+  { id: 'brawler', name: 'BRAMBLE', title: 'THE OLD POND BRAWLER', cls: 'VETERAN BRAWLER', art: 'brawler.webp',
     stats: { power: 2, speed: 2, range: 2 }, sparkColor: 0x7fe07a, ultKind: 'combo', maxHp: 100, aiStyle: 'balanced', aiMul: 1.2,
     specNames: SPEC2, style: 'The old pond brawler. Worn iron, ragged cape, honest fists.',
     skin: { body: 0x4a7d33, belly: 0xcfe0ae, spot: 0x2f5724, armor: 0x23282c, trim: 0x8a93a0, cape: 0x3a2e1e, iris: 0xff9a1f } },
@@ -1626,7 +1627,7 @@ function updateLegend() {
 function slotCfg(r, startX) {
   return {
     key: r.id, id: r.id, name: r.name, title: r.title,
-    tokenId: r.tokenId, cls: r.cls, skin: r.skin,
+    cls: r.cls, skin: r.skin,
     specNames: r.specNames, ultKind: r.ultKind, sparkColor: r.sparkColor,
     maxHp: r.maxHp, aiStyle: r.aiStyle, aiMul: r.aiMul,
     kit: FC.kitFromStats(r.stats), startX,
@@ -1656,8 +1657,8 @@ function buildSelectCards() {
     const bars = ['power', 'speed', 'range'].map(k =>
       `<div class="sbar"><span>${k.slice(0, 3).toUpperCase()}</span><i style="width:${r.stats[k] * 20}%"></i></div>`).join('');
     b.innerHTML =
-      `<img class="fart" alt="" src="/frog-art/amph/${r.tokenId}.webp" onerror="this.onerror=null;this.src='${AMPH_FRAMED}${r.tokenId}.png'">` +
-      `<b>${r.name}</b><small>#${r.tokenId} · ${r.cls}</small>${bars}<p>${r.style}</p>` +
+      `<img class="fart" alt="" src="warriors/${r.art}">` +
+      `<b>${r.name}</b><small>${r.cls}</small>${bars}<p>${r.style}</p>` +
       (r === cpuFighter ? `<em class="cpuTag">${FC.t('cpuTag')}</em>` : '');
     b.onclick = () => {
       pickFighter = r;
