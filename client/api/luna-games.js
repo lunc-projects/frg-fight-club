@@ -3600,6 +3600,541 @@ async function tdaFindGuided(seatId) {
   return null;
 }
 
+
+/* ---------- Tom's Dev i18n (2026-11-19 language fix) ----------
+   The agent answers in the language the seat writes in. The
+   server owns a few strings of its own — the instant ack on a
+   new row, the guide step prefixes / stop / nudge / all-done
+   lines, the refuse result — localized here for the app's 18
+   shipped languages, from the same tables the builder runner
+   uses (builder-runner/lang.mjs). Detection runs on the
+   request text itself; the request's language wins. */
+const TDA_I18N = {
+ "en": {
+  "gotIt": "Got it — one moment. I'll post the answer here as soon as it's ready.",
+  "stepOf": "Step {n} of {m}",
+  "guideIntro": "This one needs a few steps only you can do — I'll walk you through them, one at a time.",
+  "guideStop": "No problem — we've stopped there, and nothing was charged for the guide. If you want to pick it up again, just ask and we'll restart the steps.",
+  "guideNudge": "No rush — take your time with that step. When it's done, just say \"done\". If you want to stop, say \"stop\".",
+  "guideAllDone": "All steps done — nice work, you are set up.",
+  "refuseResult": "I can't build that one. Tom's Dev is for clean builds only — no scams, no copycat sites, nothing that impersonates anyone or takes people's keys or money under false pretenses. Nothing was charged. If I've misunderstood your idea, reword it and ask again."
+ },
+ "es": {
+  "gotIt": "Recibido — un momento. Publicaré la respuesta aquí en cuanto esté lista.",
+  "stepOf": "Paso {n} de {m}",
+  "guideIntro": "Esto necesita unos pasos que solo tú puedes hacer — te guiaré por ellos, uno a la vez.",
+  "guideStop": "Sin problema — paramos ahí y no se cobró nada por la guía. Si quieres retomarla, solo pídelo y reiniciamos los pasos.",
+  "guideNudge": "Sin prisa — tómate tu tiempo con ese paso. Cuando esté listo, solo di «listo». Si quieres parar, di «alto».",
+  "guideAllDone": "Todos los pasos están hechos — buen trabajo, ya quedó configurado.",
+  "refuseResult": "No puedo construir eso. Tom's Dev es solo para creaciones limpias: nada de estafas, sitios copia, nada que suplante a nadie ni que tome las claves o el dinero de la gente con engaños. No se cobró nada. Si entendí mal tu idea, dilo de otra manera y pide de nuevo."
+ },
+ "fr": {
+  "gotIt": "Bien reçu — un instant. Je publierai la réponse ici dès qu'elle sera prête.",
+  "stepOf": "Étape {n} sur {m}",
+  "guideIntro": "Ceci demande quelques étapes que vous seul pouvez faire — je vais vous guider, une à la fois.",
+  "guideStop": "Pas de problème — on s'arrête là, et rien n'a été facturé pour le guide. Si vous voulez reprendre, demandez et on recommencera les étapes.",
+  "guideNudge": "Pas de précipitation — prenez votre temps pour cette étape. Quand c'est fait, dites simplement «terminé». Pour arrêter, dites «stop».",
+  "guideAllDone": "Toutes les étapes sont faites — beau travail, tout est en place.",
+  "refuseResult": "Je ne peux pas construire ça. Tom's Dev est réservé aux créations propres — pas d'arnaques, pas de sites copiés, rien qui usurpe l'identité de quelqu'un ou prenne les clés ou l'argent des gens sous de faux prétextes. Rien n'a été facturé. Si j'ai mal compris votre idée, reformulez-la et redemandez."
+ },
+ "de": {
+  "gotIt": "Verstanden — einen Moment. Ich poste die Antwort hier, sobald sie fertig ist.",
+  "stepOf": "Schritt {n} von {m}",
+  "guideIntro": "Dafür sind ein paar Schritte nötig, die nur du tun kannst — ich führe dich einen nach dem anderen hindurch.",
+  "guideStop": "Kein Problem — wir hören hier auf, und für die Anleitung wurde nichts berechnet. Wenn du weitermachen willst, frag einfach, und wir starten die Schritte neu.",
+  "guideNudge": "Keine Eile — lass dir für diesen Schritt Zeit. Wenn er fertig ist, sag einfach „fertig“. Wenn du aufhören willst, sag „stopp“.",
+  "guideAllDone": "Alle Schritte sind erledigt — gut gemacht, alles ist eingerichtet.",
+  "refuseResult": "Das kann ich nicht bauen. Tom's Dev ist nur für saubere Builds — keine Betrügereien, keine kopierten Seiten, nichts, was sich als jemand anderes ausgibt oder unter falschen Versprechen an Schlüssel oder Geld der Leute will. Es wurde nichts berechnet. Wenn ich Ihre Idee falsch verstanden habe, formulieren Sie sie anders und fragen Sie erneut."
+ },
+ "pt": {
+  "gotIt": "Recebido — um momento. Publico a resposta aqui assim que estiver pronta.",
+  "stepOf": "Passo {n} de {m}",
+  "guideIntro": "Isso precisa de alguns passos que só você pode fazer — vou te guiar por eles, um de cada vez.",
+  "guideStop": "Sem problema — paramos aqui e nada foi cobrado pelo guia. Se quiser retomar, é só pedir e reiniciamos os passos.",
+  "guideNudge": "Sem pressa — leve o seu tempo nesse passo. Quando terminar, diga apenas «pronto». Se quiser parar, diga «para».",
+  "guideAllDone": "Todos os passos foram feitos — bom trabalho, está tudo configurado.",
+  "refuseResult": "Não posso construir isso. O Tom's Dev é só para criações limpas — nada de golpes, sites copiados, nada que se passe por outra pessoa ou pegue chaves ou dinheiro das pessoas com falsos pretextos. Nada foi cobrado. Se entendi mal a sua ideia, diga de outra forma e peça de novo."
+ },
+ "it": {
+  "gotIt": "Ricevuto — un momento. Pubblicherò la risposta qui appena sarà pronta.",
+  "stepOf": "Passo {n} di {m}",
+  "guideIntro": "Servono alcuni passi che puoi fare solo tu — ti guiderò uno alla volta.",
+  "guideStop": "Nessun problema — ci fermiamo qui e niente è stato addebitato per la guida. Se vuoi riprendere, basta chiedere e ricominciamo i passi.",
+  "guideNudge": "Nessuna fretta — prenditi il tuo tempo per questo passo. Quando è fatto, di' semplicemente «fatto». Se vuoi fermarti, di' «stop».",
+  "guideAllDone": "Tutti i passi sono fatti — ottimo lavoro, è tutto configurato.",
+  "refuseResult": "Non posso costruirlo. Tom's Dev è solo per creazioni pulite — niente truffe, siti copiati, niente che impersoni qualcuno o prenda chiavi o soldi delle persone con falsi pretesti. Non è stato addebitato nulla. Se ho frainteso la tua idea, riformulala e chiedi di nuovo."
+ },
+ "nl": {
+  "gotIt": "Begrepen — een moment. Ik plaats het antwoord hier zodra het klaar is.",
+  "stepOf": "Stap {n} van {m}",
+  "guideIntro": "Hiervoor zijn een paar stappen nodig die alleen jij kunt doen — ik begeleid je er één voor één doorheen.",
+  "guideStop": "Geen probleem — we stoppen hier, en er is niets in rekening gebracht voor de gids. Als je verder wilt, vraag het gewoon en we herstarten de stappen.",
+  "guideNudge": "Geen haast — neem je tijd voor die stap. Als hij klaar is, zeg je gewoon \"klaar\". Wil je stoppen, zeg dan \"stop\".",
+  "guideAllDone": "Alle stappen zijn gedaan — goed werk, alles is ingesteld.",
+  "refuseResult": "Dat kan ik niet bouwen. Tom's Dev is alleen voor schone builds — geen oplichting, geen gekopieerde sites, niets dat zich voordoet als iemand anders of onder valse voorwendselen aan sleutels of geld van mensen komt. Er is niets in rekening gebracht. Als ik je idee verkeerd heb begrepen, verwoord het anders en vraag het opnieuw."
+ },
+ "ru": {
+  "gotIt": "Понял — минутку. Опубликую ответ здесь, как только он будет готов.",
+  "stepOf": "Шаг {n} из {m}",
+  "guideIntro": "Для этого нужно несколько шагов, которые можете сделать только вы, — я проведу вас по ним по одному.",
+  "guideStop": "Без проблем — остановимся здесь, и за руководство ничего не списано. Если захотите продолжить, просто попросите — и мы начнём шаги заново.",
+  "guideNudge": "Не спешите — не торопитесь с этим шагом. Когда будет готово, просто напишите «готово». Если хотите остановиться, напишите «стоп».",
+  "guideAllDone": "Все шаги выполнены — отличная работа, всё настроено.",
+  "refuseResult": "Я не могу это построить. Tom's Dev — только для чистых сборок: никакого мошенничества, скопированных сайтов, ничего, что выдаёт себя за кого-то другого или под ложным предлогом забирает ключи или деньги людей. Ничего не списано. Если я неправильно понял вашу идею, переформулируйте её и попросите снова."
+ },
+ "uk": {
+  "gotIt": "Зрозумів — хвилинку. Опублікую відповідь тут, щойно вона буде готова.",
+  "stepOf": "Крок {n} з {m}",
+  "guideIntro": "Для цього потрібно кілька кроків, які можете зробити лише ви, — я проведу вас ними по одному.",
+  "guideStop": "Без проблем — зупинимося тут, і за посібник нічого не списано. Якщо захочете продовжити, просто попросіть — і ми почнемо кроки заново.",
+  "guideNudge": "Не поспішайте — не кваптеся з цим кроком. Коли буде готово, просто напишіть «готово». Якщо хочете зупинитися, напишіть «стоп».",
+  "guideAllDone": "Усі кроки виконано — чудова робота, все налаштовано.",
+  "refuseResult": "Я не можу це побудувати. Tom's Dev — лише для чистих збірок: жодного шахрайства, скопійованих сайтів, нічого, що видає себе за когось іншого або під хибним приводом забирає ключі чи гроші людей. Нічого не списано. Якщо я неправильно зрозумів вашу ідею, переформулюйте її та попросіть знову."
+ },
+ "tr": {
+  "gotIt": "Anlaşıldı — bir dakika. Cevap hazır olur olmaz buraya yazacağım.",
+  "stepOf": "{m} adımdan {n}. adım",
+  "guideIntro": "Bunun için yalnızca sizin yapabileceğiniz birkaç adım gerekiyor — sizi tek tek yönlendireceğim.",
+  "guideStop": "Sorun değil — burada durduk ve rehber için ücret alınmadı. Devam etmek isterseniz söylemeniz yeterli, adımları baştan başlatırız.",
+  "guideNudge": "Acele yok — o adım için acele etmeyin. Bitince sadece \"tamam\" yazın. Durmak isterseniz \"dur\" yazın.",
+  "guideAllDone": "Tüm adımlar bitti — güzel iş, her şey kuruldu.",
+  "refuseResult": "Bunu inşa edemem. Tom's Dev yalnızca temiz işler içindir — dolandırıcılık yok, kopya siteler yok, kimseyi taklit eden ya da sahte bahanelerle insanların anahtarlarını veya parasını alan hiçbir şey yok. Hiçbir ücret alınmadı. Fikrinizi yanlış anladıysam başka şekilde anlatıp tekrar isteyin."
+ },
+ "id": {
+  "gotIt": "Siap — sebentar. Saya akan memposting jawabannya di sini begitu siap.",
+  "stepOf": "Langkah {n} dari {m}",
+  "guideIntro": "Ini butuh beberapa langkah yang hanya bisa Anda lakukan — saya akan memandu Anda satu per satu.",
+  "guideStop": "Tidak masalah — kita berhenti di sini, dan tidak ada biaya untuk panduan ini. Jika ingin melanjutkannya lagi, cukup minta dan kita mulai ulang langkahnya.",
+  "guideNudge": "Tidak usah buru-buru — luangkan waktu untuk langkah itu. Jika sudah selesai, cukup katakan \"selesai\". Jika ingin berhenti, katakan \"berhenti\".",
+  "guideAllDone": "Semua langkah selesai — kerja bagus, semuanya sudah siap.",
+  "refuseResult": "Saya tidak bisa membuat yang itu. Tom's Dev hanya untuk karya yang bersih — tanpa penipuan, tanpa situs tiruan, tanpa apa pun yang menyamar sebagai orang lain atau mengambil kunci atau uang orang dengan dalih palsu. Tidak ada biaya yang dikenakan. Jika saya salah paham dengan ide Anda, sampaikan dengan cara lain dan minta lagi."
+ },
+ "vi": {
+  "gotIt": "Đã nhận — một lát. Tôi sẽ đăng câu trả lời ở đây ngay khi sẵn sàng.",
+  "stepOf": "Bước {n} trên {m}",
+  "guideIntro": "Việc này cần vài bước chỉ bạn mới làm được — tôi sẽ hướng dẫn bạn từng bước một.",
+  "guideStop": "Không sao — chúng ta dừng ở đây, và hướng dẫn này không bị tính phí. Nếu bạn muốn tiếp tục lại, chỉ cần yêu cầu và chúng ta sẽ bắt đầu lại các bước.",
+  "guideNudge": "Đừng vội — cứ từ từ với bước đó. Khi xong, chỉ cần nói \"xong\". Nếu muốn dừng, hãy nói \"dừng\".",
+  "guideAllDone": "Tất cả các bước đã xong — làm tốt lắm, mọi thứ đã được cài đặt.",
+  "refuseResult": "Tôi không thể xây dựng cái đó. Tom's Dev chỉ dành cho các bản dựng sạch — không lừa đảo, không trang sao chép, không giả mạo ai hoặc lấy khóa hay tiền của mọi người với lý do giả dối. Không tính phí gì cả. Nếu tôi hiểu sai ý tưởng của bạn, hãy diễn đạt lại và yêu cầu lại."
+ },
+ "th": {
+  "gotIt": "รับทราบ — สักครู่ ฉันจะโพสต์คำตอบที่นี่ทันทีที่พร้อม",
+  "stepOf": "ขั้นตอน {n} จาก {m}",
+  "guideIntro": "งานนี้ต้องใช้ขั้นตอนบางอย่างที่มีเพียงคุณเท่านั้นที่ทำได้ — ฉันจะแนะนำคุณทีละขั้นตอน",
+  "guideStop": "ไม่เป็นไร — เราหยุดตรงนี้ และไม่มีการคิดค่าใช้จ่ายสำหรับคำแนะนำนี้ หากคุณอยากทำต่อ แค่บอกมา แล้วเราจะเริ่มขั้นตอนใหม่",
+  "guideNudge": "ไม่ต้องรีบ — ใช้เวลากับขั้นตอนนั้นได้เลย เมื่อเสร็จแล้ว พิมพ์ \"เสร็จแล้ว\" หากต้องการหยุด พิมพ์ \"หยุด\"",
+  "guideAllDone": "ทุกขั้นตอนเสร็จแล้ว — ทำได้ดีมาก ทุกอย่างตั้งค่าเรียบร้อย",
+  "refuseResult": "ฉันสร้างอันนั้นให้ไม่ได้ Tom's Dev สำหรับงานที่สะอาดเท่านั้น — ไม่มีการหลอกลวง ไม่ทำเว็บเลียนแบบ ไม่แอบอ้างเป็นผู้อื่นหรือหลอกเอาคีย์หรือเงินของใคร ไม่มีการคิดค่าบริการ หากฉันเข้าใจไอเดียของคุณผิด โปรดอธิบายใหม่แล้วขออีกครั้ง"
+ },
+ "ar": {
+  "gotIt": "تم الاستلام — لحظة واحدة. سأنشر الإجابة هنا فور جاهزيتها.",
+  "stepOf": "الخطوة {n} من {m}",
+  "guideIntro": "هذا يحتاج إلى بعض الخطوات التي لا يمكن لأحد أن يقوم بها سواك — سأرشدك خلالها خطوة بخطوة.",
+  "guideStop": "لا مشكلة — توقفنا هنا، ولم يُخصم شيء مقابل الدليل. إذا أردت المتابعة لاحقًا، فقط اطلب وسنعيد بدء الخطوات.",
+  "guideNudge": "لا تستعجل — خذ وقتك في تلك الخطوة. عندما تنتهي، اكتب «تم» فقط. وإذا أردت التوقف، اكتب «توقف».",
+  "guideAllDone": "اكتملت جميع الخطوات — أحسنت، كل شيء جاهز.",
+  "refuseResult": "لا أستطيع بناء ذلك. Tom's Dev مخصص للأعمال النظيفة فقط — لا احتيال، لا مواقع مقلدة، لا شيء ينتحل شخصية أحد أو يأخذ مفاتيح الناس أو أموالهم بذرائع كاذبة. لم يتم خصم أي شيء. إذا أسأت فهم فكرتك، أعد صياغتها واطلب من جديد."
+ },
+ "hi": {
+  "gotIt": "मिल गया — एक क्षण। उत्तर तैयार होते ही मैं उसे यहाँ पोस्ट करूँगा।",
+  "stepOf": "{m} में से चरण {n}",
+  "guideIntro": "इसके लिए कुछ चरण चाहिए जो केवल आप ही कर सकते हैं — मैं आपको एक-एक करके उनके माध्यम से ले चलूँगा।",
+  "guideStop": "कोई बात नहीं — हम यहीं रुक गए, और गाइड के लिए कुछ भी शुल्क नहीं लिया गया। यदि आप फिर से शुरू करना चाहें, तो बस कहें और हम चरण फिर से शुरू कर देंगे।",
+  "guideNudge": "कोई जल्दी नहीं — उस चरण के लिए समय लें। जब हो जाए, तो बस \"हो गया\" लिखें। यदि रुकना चाहते हैं, तो \"रुको\" लिखें।",
+  "guideAllDone": "सभी चरण पूरे हो गए — बहुत बढ़िया, सब कुछ सेट हो गया है।",
+  "refuseResult": "मैं वह नहीं बना सकता। Tom's Dev केवल साफ़ कामों के लिए है — कोई धोखाधड़ी नहीं, कोई नकली साइट नहीं, ऐसा कुछ नहीं जो किसी और का रूप धरे या झूठे बहाने से लोगों की चाबियाँ या पैसे ले। कुछ भी शुल्क नहीं लिया गया। यदि मैं आपका विचार गलत समझा हूँ, तो उसे दूसरे शब्दों में कहकर फिर से पूछें।"
+ },
+ "zh": {
+  "gotIt": "收到——稍等片刻。答案一准备好，我就会发在这里。",
+  "stepOf": "第 {n} 步，共 {m} 步",
+  "guideIntro": "这件事需要几个只能由您亲自完成的步骤 — 我会一步一步带您完成。",
+  "guideStop": "没问题 — 我们就停在这里，本指南不收费。如果您想再继续，只需说一声，我们会重新开始这些步骤。",
+  "guideNudge": "不用急——这一步慢慢来。完成时只需说“好了”。如果想停下来，就说“停”。",
+  "guideAllDone": "所有步骤都完成了 — 做得好，一切就绪。",
+  "refuseResult": "这个我不能建。Tom's Dev 只做干净的构建——不做诈骗、不做仿冒网站、不冒充任何人、不以虚假借口获取他人的密钥或钱财。没有收取任何费用。如果我误解了您的想法，请换个说法再问一次。"
+ },
+ "ja": {
+  "gotIt": "承知しました——少々お待ちください。回答の準備ができ次第、ここに投稿します。",
+  "stepOf": "ステップ {n} / {m}",
+  "guideIntro": "これにはあなたにしかできないステップがいくつか必要です — 一つずつ案内します。",
+  "guideStop": "問題ありません — ここで止めます。ガイドの料金はかかっていません。また続けたいときは声をかけてください。ステップを最初からやり直します。",
+  "guideNudge": "急がなくて大丈夫です——そのステップはゆっくりどうぞ。終わったら「できました」とだけ言ってください。やめたい場合は「やめる」と言ってください。",
+  "guideAllDone": "すべてのステップが完了しました — お疲れさまでした。セットアップ完了です。",
+  "refuseResult": "それは作れません。Tom's Dev はクリーンなビルド専用です——詐欺、コピーサイト、他人になりすますもの、虚偽の口実で人のキーやお金を取るものは作りません。料金は発生していません。私があなたのアイデアを誤解していたら、言い方を変えてもう一度お尋ねください。"
+ },
+ "ko": {
+  "gotIt": "접수했습니다 — 잠시만요. 답변이 준비되는 대로 여기에 올리겠습니다.",
+  "stepOf": "{m}단계 중 {n}단계",
+  "guideIntro": "이 작업에는 회원님만 할 수 있는 단계가 몇 가지 필요합니다 — 하나씩 안내해 드리겠습니다.",
+  "guideStop": "괜찮습니다 — 여기서 멈추며, 가이드 요금은 부과되지 않았습니다. 다시 이어서 하고 싶으시면 말씀만 하세요. 단계를 다시 시작하겠습니다.",
+  "guideNudge": "서두르지 마세요 — 그 단계는 천천히 하세요. 끝나면 \"완료\"라고만 하세요. 중단하려면 \"중단\"이라고 하세요.",
+  "guideAllDone": "모든 단계가 끝났습니다 — 수고하셨습니다. 모두 설정되었습니다.",
+  "refuseResult": "그건 만들 수 없습니다. Tom's Dev는 깨끗한 빌드 전용입니다 — 사기, 모방 사이트, 다른 사람을 사칭하거나 거짓된 구실로 사람들의 키나 돈을 가져가는 것은 만들지 않습니다. 청구된 것은 없습니다. 제가 아이디어를 오해했다면 다르게 표현해서 다시 요청해 주세요."
+ }
+};
+const TDA_GUIDE_WORDS = {
+ "es": {
+  "done": [
+   "listo",
+   "hecho",
+   "hecha",
+   "ya",
+   "terminé",
+   "termine",
+   "siguiente",
+   "vale",
+   "ok",
+   "sí",
+   "si",
+   "he terminado"
+  ],
+  "stop": [
+   "alto",
+   "parar",
+   "cancelar",
+   "detener",
+   "basta",
+   "olvídalo",
+   "olvidalo"
+  ]
+ },
+ "fr": {
+  "done": [
+   "terminé",
+   "termine",
+   "fini",
+   "prêt",
+   "pret",
+   "suivant",
+   "fait",
+   "ok",
+   "oui"
+  ],
+  "stop": [
+   "stop",
+   "arrête",
+   "arrete",
+   "annuler",
+   "quitter"
+  ]
+ },
+ "de": {
+  "done": [
+   "fertig",
+   "erledigt",
+   "weiter",
+   "gemacht",
+   "ok",
+   "ja"
+  ],
+  "stop": [
+   "stopp",
+   "stop",
+   "abbrechen",
+   "beenden",
+   "aufhören",
+   "aufhoren"
+  ]
+ },
+ "pt": {
+  "done": [
+   "pronto",
+   "feito",
+   "terminei",
+   "seguinte",
+   "concluído",
+   "concluido",
+   "ok",
+   "sim"
+  ],
+  "stop": [
+   "parar",
+   "cancelar",
+   "sair",
+   "chega"
+  ]
+ },
+ "it": {
+  "done": [
+   "fatto",
+   "finito",
+   "pronto",
+   "avanti",
+   "ok",
+   "sì",
+   "si"
+  ],
+  "stop": [
+   "stop",
+   "ferma",
+   "fermati",
+   "annulla",
+   "basta",
+   "esci"
+  ]
+ },
+ "nl": {
+  "done": [
+   "klaar",
+   "gedaan",
+   "volgende",
+   "af",
+   "ok",
+   "ja"
+  ],
+  "stop": [
+   "stop",
+   "stoppen",
+   "annuleren",
+   "ophouden"
+  ]
+ },
+ "ru": {
+  "done": [
+   "готово",
+   "сделал",
+   "сделала",
+   "дальше",
+   "ок",
+   "окей",
+   "да"
+  ],
+  "stop": [
+   "стоп",
+   "отмена",
+   "хватит",
+   "выйти",
+   "отбой"
+  ]
+ },
+ "uk": {
+  "done": [
+   "готово",
+   "зробив",
+   "зробила",
+   "далі",
+   "ок",
+   "окей",
+   "так"
+  ],
+  "stop": [
+   "стоп",
+   "скасувати",
+   "досить",
+   "вийти"
+  ]
+ },
+ "tr": {
+  "done": [
+   "tamam",
+   "bitti",
+   "hazır",
+   "sonraki",
+   "yaptım",
+   "evet"
+  ],
+  "stop": [
+   "dur",
+   "iptal",
+   "bırak",
+   "vazgeç",
+   "durun"
+  ]
+ },
+ "id": {
+  "done": [
+   "selesai",
+   "sudah",
+   "berikutnya",
+   "siap",
+   "oke",
+   "ya"
+  ],
+  "stop": [
+   "berhenti",
+   "batal",
+   "stop",
+   "cukup",
+   "hentikan"
+  ]
+ },
+ "vi": {
+  "done": [
+   "xong",
+   "xong rồi",
+   "rồi",
+   "tiếp theo",
+   "ok",
+   "sẵn sàng"
+  ],
+  "stop": [
+   "dừng",
+   "dừng lại",
+   "hủy",
+   "thôi"
+  ]
+ },
+ "th": {
+  "done": [
+   "เสร็จแล้ว",
+   "เสร็จ",
+   "ต่อไป",
+   "ตกลง",
+   "พร้อม"
+  ],
+  "stop": [
+   "หยุด",
+   "ยกเลิก",
+   "พอ"
+  ]
+ },
+ "ar": {
+  "done": [
+   "تم",
+   "انتهيت",
+   "التالي",
+   "جاهز",
+   "نعم",
+   "حسنًا"
+  ],
+  "stop": [
+   "توقف",
+   "إلغاء",
+   "قف",
+   "إيقاف",
+   "كفى"
+  ]
+ },
+ "hi": {
+  "done": [
+   "हो गया",
+   "हो गया है",
+   "अगला",
+   "ठीक है",
+   "तैयार"
+  ],
+  "stop": [
+   "रुको",
+   "रद्द करो",
+   "बंद करो",
+   "रुक जाओ"
+  ]
+ },
+ "zh": {
+  "done": [
+   "好了",
+   "完成了",
+   "下一步",
+   "好的",
+   "完成"
+  ],
+  "stop": [
+   "停",
+   "取消",
+   "停止",
+   "不要了"
+  ]
+ },
+ "ja": {
+  "done": [
+   "できました",
+   "完了",
+   "次へ",
+   "はい",
+   "終わりました",
+   "おわりました"
+  ],
+  "stop": [
+   "やめる",
+   "キャンセル",
+   "中止",
+   "ストップ",
+   "やめて"
+  ]
+ },
+ "ko": {
+  "done": [
+   "완료",
+   "다 했어요",
+   "다음",
+   "네",
+   "끝났어요",
+   "했어요"
+  ],
+  "stop": [
+   "중단",
+   "취소",
+   "그만",
+   "멈춰",
+   "중지"
+  ]
+ }
+};
+const TDA_STOPWORDS = {
+  es: ['el','la','los','las','un','una','de','del','que','quiero','para','por','con','una','mi','mis','me','te','se','en','es','son','hacer','haz','este','esta','esto','gracias','favor','necesito','puedes','página','pagina','juego','hola'],
+  fr: ['le','la','les','un','une','des','de','du','que','je','veux','pour','avec','mon','ma','mes','est','sont','faire','merci','vous','nous','une','page','jeu','bonjour','sil'],
+  de: ['der','die','das','ein','eine','und','ich','möchte','mochte','für','fur','mit','mein','meine','ist','sind','machen','bitte','danke','haben','werden','seite','spiel','hallo'],
+  pt: ['o','a','os','as','um','uma','de','do','da','que','eu','quero','para','com','meu','minha','é','são','fazer','obrigado','obrigada','por','página','pagina','jogo','olá','ola'],
+  it: ['il','lo','la','i','le','un','una','di','che','io','voglio','per','con','mio','mia','è','sono','fare','grazie','prego','pagina','gioco','ciao'],
+  nl: ['de','het','een','ik','wil','voor','met','mijn','is','zijn','maken','dank','alsjeblieft','pagina','spel','hallo','graag'],
+  ru: ['я','хочу','мне','для','мой','моя','моё','это','что','сделать','сделай','пожалуйста','спасибо','страницу','страница','игру','привет','нужна','нужен'],
+  uk: ['я','хочу','мені','для','мій','моя','моє','це','що','зроби','зробити','будь','ласка','дякую','сторінку','сторінка','гру','привіт','потрібна','потрібен'],
+  tr: ['bir','ben','için','icin','istiyorum','benim','bu','ne','yap','yapar','misin','lütfen','lutfen','teşekkürler','tesekkurler','sayfa','oyun','merhaba'],
+  id: ['saya','aku','ingin','mau','untuk','saya','ini','itu','yang','dan','buat','buatkan','tolong','terima','kasih','halaman','halaman','permainan','halo'],
+  vi: ['tôi','toi','muốn','muon','cho','của','cua','một','mot','này','trang','trò','tro','chơi','choi','cảm','cam','ơn','on','xin','chào','chao','làm','lam'],
+  th: [], ar: [], hi: [], zh: [], ja: [], ko: [],
+};
+function tdaDetectLang(text) {
+  const t = String(text || '');
+  if (!t.trim()) return 'en';
+  if (/[぀-ヿ]/.test(t)) return 'ja';
+  if (/[가-힯]/.test(t)) return 'ko';
+  if (/[฀-๿]/.test(t)) return 'th';
+  if (/[ऀ-ॿ]/.test(t)) return 'hi';
+  if (/[؀-ۿ]/.test(t)) return 'ar';
+  if (/[Ѐ-ӿ]/.test(t)) return /[іїєґІЇЄҐ]/.test(t) ? 'uk' : 'ru';
+  if (/[一-鿿]/.test(t)) return 'zh';
+  const words = t.toLowerCase().replace(/[^\p{L}\s']/gu, ' ').split(/\s+/).filter(Boolean);
+  const set = new Set(words);
+  let best = 'en', bestN = 0, secondN = 0;
+  for (const lang of Object.keys(TDA_STOPWORDS)) {
+    const list = TDA_STOPWORDS[lang];
+    if (!list.length) continue;
+    let n = 0;
+    for (const w of list) if (set.has(w)) n++;
+    if (n > bestN) { secondN = bestN; bestN = n; best = lang; }
+    else if (n > secondN) secondN = n;
+  }
+  if (bestN >= 2 && bestN > secondN) return best;
+  if (/[ñ¿¡]/.test(t)) return 'es';
+  if (/[ãõ]/.test(t)) return 'pt';
+  if (/ß/.test(t)) return 'de';
+  if (/[ğışİ]/.test(t)) return 'tr';
+  if (/[đơư]/.test(t)) return 'vi';
+  if (bestN >= 2) return best;
+  return 'en';
+}
+function TDA_S(lang) {
+  const base = TDA_I18N.en;
+  const t = TDA_I18N[lang] || {};
+  const out = {};
+  for (const k of Object.keys(base)) out[k] = (typeof t[k] === 'string' && t[k]) ? t[k] : base[k];
+  return out;
+}
+function tdaFill(tpl, vars) {
+  return String(tpl || '').replace(/\{(\w+)\}/g, (m, k) => (vars && vars[k] !== undefined ? String(vars[k]) : m));
+}
+function tdaWordsHit(low, words) {
+  if (!words || !words.length) return false;
+  const toks = low.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  for (const w of words) {
+    if (toks.indexOf(w) >= 0) return true;
+    if ((w.indexOf(' ') >= 0 || /[぀-ヿ가-힯฀-๿一-鿿]/.test(w)) && low.indexOf(w) >= 0) return true;
+  }
+  return false;
+}
+
 /* Advance a guided-steps conversation by one seat reply.
    The reply always lands in the trail. "done" (or ok / yes /
    ready / finished) moves to the next step; the last step
@@ -3615,28 +4150,36 @@ async function tdaGuideAdvance(row, text) {
   const entries = [{ k: 'reply', m: text }];
   const low = text.trim().toLowerCase();
   const now = String(Date.now());
-  if (/\b(stop|cancel|quit)\b/.test(low)) {
-    const result = 'No problem — we\'ve stopped there, and nothing was charged for the guide. If you want to pick it up again, just ask and we\'ll restart the steps.';
+  /* The guide speaks the language the seat started it in
+     (stored on the row when the guide was created; rows from
+     before the fix fall back to detecting it from the
+     original request). Done/stop words work in that language
+     AND in English. */
+  const glang = String(row.guideLang || '') || tdaDetectLang(row.text || '');
+  const gs = TDA_S(glang);
+  const gwords = TDA_GUIDE_WORDS[glang] || {};
+  if (/\b(stop|cancel|quit)\b/.test(low) || tdaWordsHit(low, gwords.stop)) {
+    const result = gs.guideStop;
     await upstashPipeline([['HSET', 'tda:req:' + row.id, 'plog', tdaPlogJson(row.plog, entries), 'buildState', 'done', 'updated', now]]);
     await tdaFinishRow(row, result, 0);
     return { finished: true };
   }
-  const doneLike = /^(done|ok|okay|yes|ready|finished|did it|next)[.! ]*$/.test(low) || /\bdone\b/.test(low);
+  const doneLike = /^(done|ok|okay|yes|ready|finished|did it|next)[.! ]*$/.test(low) || /\bdone\b/.test(low) || tdaWordsHit(low, gwords.done);
   if (doneLike) {
     const nidx = idx + 1;
     if (nidx >= steps.length) {
       const charge = Math.max(0, parseInt(row.guideCharge, 10) || 0);
-      const result = String(row.guideDone || '') || 'All steps done — nice work, you are set up.';
+      const result = String(row.guideDone || '') || gs.guideAllDone;
       await upstashPipeline([['HSET', 'tda:req:' + row.id, 'plog', tdaPlogJson(row.plog, entries), 'buildState', 'done', 'updated', now]]);
       await tdaFinishRow(row, result, charge);
       return { finished: true };
     }
-    entries.push({ k: 'step', m: 'Step ' + (nidx + 1) + ' of ' + steps.length + ': ' + steps[nidx] });
+    entries.push({ k: 'step', m: tdaFill(gs.stepOf, { n: nidx + 1, m: steps.length }) + ': ' + steps[nidx] });
     await upstashPipeline([['HSET', 'tda:req:' + row.id, 'plog', tdaPlogJson(row.plog, entries), 'guideIdx', String(nidx), 'guideNudged', '', 'updated', now]]);
     return { finished: false };
   }
   if (String(row.guideNudged || '') !== String(idx)) {
-    entries.push({ k: 'builder', m: 'No rush — take your time with that step. When it\'s done, just say "done". If you want to stop, say "stop".' });
+    entries.push({ k: 'builder', m: gs.guideNudge });
     await upstashPipeline([['HSET', 'tda:req:' + row.id, 'plog', tdaPlogJson(row.plog, entries), 'guideNudged', String(idx), 'updated', now]]);
   } else {
     await upstashPipeline([['HSET', 'tda:req:' + row.id, 'plog', tdaPlogJson(row.plog, entries), 'updated', now]]);
@@ -4038,7 +4581,7 @@ export async function tdaHandler(req, res) {
            time the server cannot know the kind — a plain question
            or check-in lands here too, and the runner's real,
            kind-specific answer follows. Neutral wording only. */
-        rowCmd.push('plog', tdaPlogJson('', [{ k: 'builder', m: 'Got it — one moment. I\'ll post the answer here as soon as it\'s ready.' }]));
+        rowCmd.push('plog', tdaPlogJson('', [{ k: 'builder', m: TDA_S(tdaDetectLang(text)).gotIt }]));
       }
       const cmds = [
         rowCmd,
@@ -4230,17 +4773,19 @@ export async function tdaHandler(req, res) {
       if (!steps.length) return res.status(400).json({ ok: false, error: 'no steps' });
       let charge = tdaParseTokens(body.tokens, 0);
       if (charge === null) return res.status(400).json({ ok: false, error: 'bad token amount' });
+      const rowLang = tdaDetectLang(row.text || '');
+      const gs = TDA_S(rowLang);
       const intro = String(body.intro || '').trim().slice(0, TDA_PLOG_MSG_MAX)
-        || 'This one needs a few steps only you can do — I\'ll walk you through them, one at a time.';
+        || gs.guideIntro;
       const doneText = String(body.doneText || '').trim().slice(0, TDA_RESULT_MAX)
-        || 'All steps done — nice work, you are set up.';
+        || gs.guideAllDone;
       const plog = tdaPlogJson(row.plog, [
         { k: 'builder', m: intro },
-        { k: 'step', m: 'Step 1 of ' + steps.length + ': ' + steps[0] },
+        { k: 'step', m: tdaFill(gs.stepOf, { n: 1, m: steps.length }) + ': ' + steps[0] },
       ]);
       await upstashPipeline([
         ['HSET', 'tda:req:' + id, 'buildState', 'guided', 'guideSteps', JSON.stringify(steps),
-          'guideIdx', '0', 'guideCharge', String(charge), 'guideDone', doneText, 'guideNudged', '',
+          'guideIdx', '0', 'guideCharge', String(charge), 'guideDone', doneText, 'guideNudged', '', 'guideLang', rowLang,
           'plog', plog, 'updated', String(Date.now())],
         ['DEL', 'tda:claim:' + id],
       ]);
@@ -4255,7 +4800,7 @@ export async function tdaHandler(req, res) {
       if (!row) return res.status(200).json({ ok: false, error: 'claim not held' });
       const note = String(body.msg || '').trim().slice(0, TDA_PLOG_MSG_MAX)
         || 'Flagged by the builder\'s safety check.';
-      const result = 'I can\'t build that one. Tom\'s Dev is for clean builds only — no scams, no copycat sites, nothing that impersonates anyone or takes people\'s keys or money under false pretenses. Nothing was charged. If I\'ve misunderstood your idea, reword it and ask again.';
+      const result = TDA_S(tdaDetectLang(row.text || '')).refuseResult;
       await upstashPipeline([['HSET', 'tda:req:' + id,
         'plog', tdaPlogJson(row.plog, [{ k: 'builder', m: note }]),
         'buildState', 'refused', 'flagged', '1', 'updated', String(Date.now())]]);
