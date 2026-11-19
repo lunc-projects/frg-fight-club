@@ -4950,11 +4950,14 @@ export async function tdaHandler(req, res) {
 
     if (action === 'tdaEnSweep') {
       if (!(await tdaBuilderGate(req, res, tag, body))) return undefined;
-      /* Rows whose stored English renderings are incomplete:
-         a non-English ask without textEn, a non-English reply
-         without resultEn, or trail entries with no rendering
-         whose own words are not English. Newest first; the
-         runner translates and stores via tdaSetEn. */
+      /* Rows whose stored English renderings are incomplete.
+         Detection is PER PIECE, never row-gated: a guide
+         thread opened in English can still hold the seat's
+         Spanish replies, and a Spanish thread can hold an
+         English reply — each piece is judged by its own
+         words. Every piece carries its own detected language
+         so the runner translates it from the right source.
+         Newest first; the runner stores via tdaSetEn. */
       const limit = Math.max(1, Math.min(10, parseInt(body.limit, 10) || 3));
       const idsOut = await upstashPipeline([['LRANGE', 'tda:reqs', 0, 199]]);
       const ids = (idsOut[0] && idsOut[0].result) || [];
@@ -4965,14 +4968,15 @@ export async function tdaHandler(req, res) {
           if (out.length >= limit) break;
           const o = tdaHashToObj(rw && rw.result);
           if (!o.id || String(o.deletedAt || '')) continue;
-          const lang = tdaDetectLang(o.text || '');
-          if (lang === 'en') continue;
-          const need = { id: String(o.id), seatId: String(o.seatId || 'owner'), lang };
-          if (String(o.text || '') && !String(o.textEn || '')) need.text = String(o.text);
-          if (String(o.result || '') && !String(o.resultEn || '') && tdaDetectLang(o.result) !== 'en') need.result = String(o.result);
+          const need = { id: String(o.id), seatId: String(o.seatId || 'owner') };
+          const textLang = tdaDetectLang(o.text || '');
+          if (String(o.text || '') && !String(o.textEn || '') && textLang !== 'en') need.text = { v: String(o.text), lang: textLang };
+          const resultLang = tdaDetectLang(o.result || '');
+          if (String(o.result || '') && !String(o.resultEn || '') && resultLang !== 'en') need.result = { v: String(o.result), lang: resultLang };
           const missing = [];
           tdaParsePlog(o.plog).forEach((e, i) => {
-            if (!e.e && tdaDetectLang(e.m) !== 'en') missing.push({ i, t: e.t, kind: e.k, msg: e.m });
+            const el = tdaDetectLang(e.m);
+            if (!e.e && el !== 'en') missing.push({ i, t: e.t, kind: e.k, msg: e.m, lang: el });
           });
           if (missing.length) need.progress = missing;
           if (!need.text && !need.result && !need.progress) continue;
