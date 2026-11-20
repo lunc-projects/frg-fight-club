@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 
 /* ============================================================
-   FROG ARENA 2 — Gothic Colosseum (design test)
-   Fighters: articulated 3D gothic frog champions — the game's 10
+   FROG ARENA 2 — Sunlit Colosseum (design test)
+   Fighters: articulated 3D colorful frog champions — the game's 10
    original warriors — driven by the Arena Clash 3D engine (three.js
    r160, MIT). All game code/art direction original.
    ============================================================ */
@@ -30,7 +30,7 @@ renderer.toneMappingExposure = 1.16;
 document.getElementById('game').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x0a0614, 0.022);
+scene.fog = new THREE.FogExp2(0xa8dcf7, 0.010);
 
 let isPortrait = innerWidth < innerHeight;
 const camera = new THREE.PerspectiveCamera(isPortrait ? 52 : 41, innerWidth / innerHeight, 0.1, 200);
@@ -46,8 +46,8 @@ addEventListener('resize', () => {
 });
 
 /* ---------------- lights ---------------- */
-scene.add(new THREE.HemisphereLight(0xb9a8ff, 0x140a20, 0.55));
-const keyLight = new THREE.DirectionalLight(0xd8dcff, 2.3);
+scene.add(new THREE.HemisphereLight(0xcfeaff, 0x8a7a4a, 0.95));
+const keyLight = new THREE.DirectionalLight(0xfff1c4, 2.9);
 keyLight.position.set(4.5, 8, 5);
 keyLight.castShadow = true;
 keyLight.shadow.mapSize.set(2048, 2048);
@@ -55,15 +55,15 @@ keyLight.shadow.camera.left = -6; keyLight.shadow.camera.right = 6;
 keyLight.shadow.camera.top = 7; keyLight.shadow.camera.bottom = -3;
 keyLight.shadow.camera.far = 30; keyLight.shadow.bias = -0.0004;
 scene.add(keyLight);
-const rimLight = new THREE.DirectionalLight(0x8b5cf6, 2.0);
+const rimLight = new THREE.DirectionalLight(0x7ec8f2, 1.1);
 rimLight.position.set(-5, 4.5, -6);
 scene.add(rimLight);
 // soft frontal fill (visual pass, Nov 6): lifts faces/chests toward the
 // closer camera so the fighters read with more presence
-const fillLight = new THREE.DirectionalLight(0xcdb2ff, 0.55);
+const fillLight = new THREE.DirectionalLight(0xffffff, 0.5);
 fillLight.position.set(-3.5, 2.2, 6.5);
 scene.add(fillLight);
-const underGlow = new THREE.PointLight(0x8b5cf6, 12, 12, 1.8);
+const underGlow = new THREE.PointLight(0xffc46b, 12, 12, 1.8);
 underGlow.position.set(0, 0.7, -2.5);
 scene.add(underGlow);
 
@@ -81,19 +81,19 @@ const floorTex = (() => {
   const c = document.createElement('canvas'); c.width = c.height = 1024;
   const x = c.getContext('2d');
   const cx = 512, cy = 512;
-  x.fillStyle = '#17121f'; x.fillRect(0, 0, 1024, 1024);
+  x.fillStyle = '#9a825e'; x.fillRect(0, 0, 1024, 1024);
   // dark stone slabs
   for (let i = 0; i < 2600; i++) {
-    x.fillStyle = `rgba(${18 + Math.random() * 26},${14 + Math.random() * 20},${26 + Math.random() * 30},0.25)`;
+    x.fillStyle = `rgba(${140 + Math.random() * 60},${115 + Math.random() * 45},${70 + Math.random() * 35},0.28)`;
     x.fillRect(Math.random() * 1024, Math.random() * 1024, 3 + Math.random() * 22, 2 + Math.random() * 12);
   }
-  x.strokeStyle = 'rgba(0,0,0,0.5)'; x.lineWidth = 3;
+  x.strokeStyle = 'rgba(70,52,26,0.45)'; x.lineWidth = 3;
   for (let i = 0; i <= 8; i++) {
     x.beginPath(); x.moveTo(i * 128, 0); x.lineTo(i * 128, 1024); x.stroke();
     x.beginPath(); x.moveTo(0, i * 128); x.lineTo(1024, i * 128); x.stroke();
   }
   // cracks
-  x.strokeStyle = 'rgba(0,0,0,0.55)'; x.lineWidth = 1.6;
+  x.strokeStyle = 'rgba(80,60,30,0.4)'; x.lineWidth = 1.6;
   for (let i = 0; i < 26; i++) {
     let px = Math.random() * 1024, py = Math.random() * 1024;
     x.beginPath(); x.moveTo(px, py);
@@ -101,22 +101,22 @@ const floorTex = (() => {
     x.stroke();
   }
   const ring = (r, col, w) => { x.beginPath(); x.arc(cx, cy, r, 0, Math.PI * 2); x.strokeStyle = col; x.lineWidth = w; x.stroke(); };
-  ring(492, '#0a0710', 26);
-  ring(478, '#d8a83c', 5);
-  ring(300, 'rgba(216,168,60,0.9)', 7);
-  ring(268, 'rgba(123,79,216,0.85)', 4);
-  ring(150, 'rgba(216,168,60,0.55)', 3);
+  ring(492, '#6b5636', 26);
+  ring(478, '#f2b13c', 5);
+  ring(300, 'rgba(242,177,60,0.95)', 7);
+  ring(268, 'rgba(18,165,184,0.9)', 4);
+  ring(150, 'rgba(242,177,60,0.6)', 3);
   const crescent = (px, py, r, col) => {
     x.fillStyle = col;
     x.beginPath(); x.arc(px, py, r, 0, Math.PI * 2); x.fill();
-    x.fillStyle = '#17121f';
+    x.fillStyle = '#9a825e';
     x.beginPath(); x.arc(px + r * 0.38, py - r * 0.16, r * 0.82, 0, Math.PI * 2); x.fill();
   };
   const skull = (px, py, s, col) => {
     x.fillStyle = col;
     x.beginPath(); x.ellipse(px, py - s * 0.12, s * 0.62, s * 0.55, 0, 0, Math.PI * 2); x.fill();
     x.fillRect(px - s * 0.34, py + s * 0.22, s * 0.68, s * 0.42);
-    x.fillStyle = '#17121f';
+    x.fillStyle = '#9a825e';
     x.beginPath(); x.arc(px - s * 0.26, py - s * 0.08, s * 0.15, 0, Math.PI * 2); x.fill();
     x.beginPath(); x.arc(px + s * 0.26, py - s * 0.08, s * 0.15, 0, Math.PI * 2); x.fill();
     x.beginPath(); x.moveTo(px, py + s * 0.10); x.lineTo(px - s * 0.09, py + s * 0.30); x.lineTo(px + s * 0.09, py + s * 0.30); x.closePath(); x.fill();
@@ -125,10 +125,10 @@ const floorTex = (() => {
     x.fillRect(px + s * 0.22, py + s * 0.40, s * 0.05, s * 0.20);
   };
   // center emblem: skull over crescent (the spec image's mat)
-  skull(cx, cy - 6, 92, '#d8d2c0');
-  crescent(cx - 118, cy + 84, 30, '#d8a83c');
-  crescent(cx + 118, cy + 84, 30, '#d8a83c');
-  x.fillStyle = '#e9c766';
+  skull(cx, cy - 6, 92, '#f7f1de');
+  crescent(cx - 118, cy + 84, 30, '#ffd23c');
+  crescent(cx + 118, cy + 84, 30, '#ffd23c');
+  x.fillStyle = '#8a5a14';
   x.font = '900 64px "Arial Black", Arial, sans-serif';
   x.textAlign = 'center'; x.textBaseline = 'middle';
   const arcText = (txt, r, a0, a1, flip) => {
@@ -144,10 +144,10 @@ const floorTex = (() => {
   };
   arcText('FROG CLASSIC', 382, -Math.PI * 0.86, -Math.PI * 0.14, false);
   x.font = '900 40px "Arial Black", Arial, sans-serif';
-  x.fillStyle = 'rgba(185,140,255,0.95)';
-  arcText('GOTHIC COLOSSEUM', 388, Math.PI * 0.80, Math.PI * 0.20, true);
+  x.fillStyle = 'rgba(10,110,124,0.95)';
+  arcText('SUNLIT COLOSSEUM', 388, Math.PI * 0.80, Math.PI * 0.20, true);
   x.font = '900 34px "Arial Black", Arial, sans-serif';
-  x.fillStyle = 'rgba(233,199,102,0.95)';
+  x.fillStyle = 'rgba(138,90,20,0.95)';
   for (const sx of [-1, 1]) {
     x.save(); x.translate(cx + sx * 452, cy); x.rotate(sx * Math.PI / 2); x.fillText('LUNC', 0, 0); x.restore();
   }
@@ -160,36 +160,28 @@ const skyTex = (() => {
   const c = document.createElement('canvas'); c.width = 1024; c.height = 512;
   const x = c.getContext('2d');
   const g = x.createLinearGradient(0, 0, 0, 512);
-  g.addColorStop(0, '#07030f');
-  g.addColorStop(0.45, '#150a26');
-  g.addColorStop(0.75, '#2a1245');
-  g.addColorStop(1, '#3a1a55');
+  g.addColorStop(0, '#2f9be8');
+  g.addColorStop(0.45, '#6fc4f2');
+  g.addColorStop(0.75, '#a8dcf7');
+  g.addColorStop(1, '#dff4fd');
   x.fillStyle = g; x.fillRect(0, 0, 1024, 512);
-  // storm cloud bands
-  for (let i = 0; i < 46; i++) {
-    const y = Math.random() * 300, w = 140 + Math.random() * 340;
-    const cg = x.createRadialGradient(Math.random() * 1024, y, 4, Math.random() * 1024, y, w * 0.4);
-    cg.addColorStop(0, 'rgba(88,54,140,0.20)'); cg.addColorStop(1, 'rgba(88,54,140,0)');
+  // soft white clouds
+  for (let i = 0; i < 42; i++) {
+    const cy2 = Math.random() * 320, w = 120 + Math.random() * 300;
+    const cg = x.createRadialGradient(Math.random() * 1024, cy2, 4, Math.random() * 1024, cy2, w * 0.4);
+    cg.addColorStop(0, 'rgba(255,255,255,0.55)'); cg.addColorStop(1, 'rgba(255,255,255,0)');
     x.fillStyle = cg;
-    x.fillRect(0, y - 60, 1024, 120);
+    x.fillRect(0, cy2 - 60, 1024, 120);
   }
-  // stars
-  for (let i = 0; i < 240; i++) {
-    x.fillStyle = `rgba(230,220,255,${0.25 + Math.random() * 0.65})`;
-    const s = Math.random() < 0.12 ? 2.2 : 1.1;
-    x.fillRect(Math.random() * 1024, Math.random() * 300, s, s);
-  }
-  // pale violet moon, upper left
+  // bright sun with warm halo, upper left
   const mx = 205, my = 105;
-  const mg = x.createRadialGradient(mx, my, 10, mx, my, 130);
-  mg.addColorStop(0, 'rgba(216,196,255,0.5)'); mg.addColorStop(1, 'rgba(216,196,255,0)');
-  x.fillStyle = mg; x.fillRect(mx - 140, my - 140, 280, 280);
-  x.fillStyle = '#e6dcff';
-  x.beginPath(); x.arc(mx, my, 42, 0, Math.PI * 2); x.fill();
-  x.fillStyle = 'rgba(150,125,205,0.5)';
-  x.beginPath(); x.arc(mx - 13, my - 7, 8, 0, Math.PI * 2); x.fill();
-  x.beginPath(); x.arc(mx + 15, my + 13, 6, 0, Math.PI * 2); x.fill();
-  x.beginPath(); x.arc(mx + 6, my - 19, 5, 0, Math.PI * 2); x.fill();
+  const mg = x.createRadialGradient(mx, my, 10, mx, my, 150);
+  mg.addColorStop(0, 'rgba(255,236,160,0.85)'); mg.addColorStop(1, 'rgba(255,236,160,0)');
+  x.fillStyle = mg; x.fillRect(mx - 160, my - 160, 320, 320);
+  x.fillStyle = '#fff6c8';
+  x.beginPath(); x.arc(mx, my, 40, 0, Math.PI * 2); x.fill();
+  x.fillStyle = '#ffffff';
+  x.beginPath(); x.arc(mx, my, 30, 0, Math.PI * 2); x.fill();
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
@@ -203,13 +195,13 @@ const glowTex = canvasTex(128, 128, (x, w, h) => {
 const moonTex = canvasTex(256, 256, (x, w, h) => {
   x.clearRect(0, 0, w, h);
   const g = x.createRadialGradient(128, 128, 40, 128, 128, 126);
-  g.addColorStop(0, 'rgba(230,220,255,1)');
-  g.addColorStop(0.82, 'rgba(214,196,250,0.95)');
-  g.addColorStop(0.96, 'rgba(160,130,220,0.35)');
-  g.addColorStop(1, 'rgba(160,130,220,0)');
+  g.addColorStop(0, 'rgba(255,248,205,1)');
+  g.addColorStop(0.82, 'rgba(255,226,130,0.95)');
+  g.addColorStop(0.96, 'rgba(255,180,60,0.35)');
+  g.addColorStop(1, 'rgba(255,180,60,0)');
   x.fillStyle = g;
   x.beginPath(); x.arc(128, 128, 126, 0, Math.PI * 2); x.fill();
-  x.fillStyle = 'rgba(140,115,195,0.4)';
+  x.fillStyle = 'rgba(255,205,90,0.35)';
   for (const [cx2, cy2, r] of [[100, 100, 17], [158, 150, 13], [140, 84, 9], [92, 168, 10], [176, 108, 7]]) {
     x.beginPath(); x.arc(cx2, cy2, r, 0, Math.PI * 2); x.fill();
   }
@@ -217,12 +209,12 @@ const moonTex = canvasTex(256, 256, (x, w, h) => {
 const wallTex = (() => {
   const c = document.createElement('canvas'); c.width = 2048; c.height = 512;
   const x = c.getContext('2d');
-  x.fillStyle = '#120d1a'; x.fillRect(0, 0, 2048, 512);
+  x.fillStyle = '#c8b294'; x.fillRect(0, 0, 2048, 512);
   for (let i = 0; i < 5200; i++) {
-    x.fillStyle = `rgba(${22 + Math.random() * 26},${16 + Math.random() * 20},${32 + Math.random() * 30},0.28)`;
+    x.fillStyle = `rgba(${170 + Math.random() * 55},${145 + Math.random() * 45},${100 + Math.random() * 40},0.3)`;
     x.fillRect(Math.random() * 2048, Math.random() * 512, 4 + Math.random() * 26, 3 + Math.random() * 14);
   }
-  x.strokeStyle = 'rgba(0,0,0,0.45)'; x.lineWidth = 2;
+  x.strokeStyle = 'rgba(90,70,40,0.35)'; x.lineWidth = 2;
   for (let i = 0; i < 60; i++) {
     x.beginPath(); x.moveTo(Math.random() * 2048, 0); x.lineTo(Math.random() * 2048, 512); x.stroke();
   }
@@ -232,13 +224,13 @@ const wallTex = (() => {
     x.fillStyle = bg;
     x.beginPath(); x.arc(px + r * 0.38, py - r * 0.16, r * 0.82, 0, Math.PI * 2); x.fill();
   };
-  // seven ruined gothic arches with violet banners between
+  // seven arches with vivid banners between
   const NW = 7, WW = 2048 / NW;
   for (let i = 0; i < NW; i++) {
     const px = i * WW + WW / 2, top = 66 + (i % 3) * 22, w = 118, base = 500;
     // arch inset (deep violet night through the ruin)
     const ag = x.createLinearGradient(0, top, 0, base);
-    ag.addColorStop(0, '#241038'); ag.addColorStop(1, '#0d0618');
+    ag.addColorStop(0, '#8fd0f7'); ag.addColorStop(1, '#dff4fd');
     x.fillStyle = ag;
     x.beginPath();
     x.moveTo(px - w / 2, base);
@@ -247,8 +239,8 @@ const wallTex = (() => {
     x.quadraticCurveTo(px + w / 2, top + 8, px + w / 2, top + 90);
     x.lineTo(px + w / 2, base);
     x.closePath(); x.fill();
-    x.strokeStyle = '#3d3152'; x.lineWidth = 13; x.stroke();
-    x.strokeStyle = '#d8a83c'; x.lineWidth = 3;
+    x.strokeStyle = '#8a7350'; x.lineWidth = 13; x.stroke();
+    x.strokeStyle = '#f2b13c'; x.lineWidth = 3;
     x.beginPath();
     x.moveTo(px - w / 2 + 12, base); x.lineTo(px - w / 2 + 12, top + 92);
     x.quadraticCurveTo(px - w / 2 + 12, top + 22, px, top + 12);
@@ -256,18 +248,18 @@ const wallTex = (() => {
     x.lineTo(px + w / 2 - 12, base);
     x.stroke();
     // mullion cross inside the arch
-    x.strokeStyle = 'rgba(61,49,82,0.9)'; x.lineWidth = 7;
+    x.strokeStyle = 'rgba(120,95,60,0.85)'; x.lineWidth = 7;
     x.beginPath(); x.moveTo(px, top + 26); x.lineTo(px, base); x.stroke();
     x.beginPath(); x.moveTo(px - w / 2 + 8, top + 190); x.lineTo(px + w / 2 - 8, top + 190); x.stroke();
     // banner hanging between arches
     if (i < NW - 1) {
       const bx = (i + 1) * WW, bw = 74, bh = 190, by = 120;
-      x.fillStyle = i % 2 ? '#1d1030' : '#0e0a14';
+      x.fillStyle = ['#e0342b', '#12a5b8', '#7d3fd1', '#ff7a1a', '#2a9d4f', '#e7548f'][i % 6];
       x.fillRect(bx - bw / 2, by, bw, bh);
       x.beginPath(); x.moveTo(bx - bw / 2, by + bh); x.lineTo(bx, by + bh + 30); x.lineTo(bx + bw / 2, by + bh); x.closePath(); x.fill();
-      x.strokeStyle = '#d8a83c'; x.lineWidth = 3; x.strokeRect(bx - bw / 2, by, bw, bh);
-      crescent(bx, by + 62, 24, '#e9c766', i % 2 ? '#1d1030' : '#0e0a14');
-      x.fillStyle = '#e9c766';
+      x.strokeStyle = '#f2b13c'; x.lineWidth = 3; x.strokeRect(bx - bw / 2, by, bw, bh);
+      crescent(bx, by + 62, 24, '#ffe9a8', ['#e0342b', '#12a5b8', '#7d3fd1', '#ff7a1a', '#2a9d4f', '#e7548f'][i % 6]);
+      x.fillStyle = '#ffffff';
       x.font = '900 25px "Arial Black", Arial, sans-serif';
       x.textAlign = 'center';
       x.fillText(i % 2 ? 'FROG' : 'LUNC', bx, by + 138);
@@ -277,7 +269,7 @@ const wallTex = (() => {
   for (let i = 0; i < 14; i++) {
     const px = 70 + i * 146, py = 452;
     const tg = x.createRadialGradient(px, py, 2, px, py, 42);
-    tg.addColorStop(0, 'rgba(255,166,60,0.85)'); tg.addColorStop(1, 'rgba(255,166,60,0)');
+    tg.addColorStop(0, 'rgba(255,180,70,0.55)'); tg.addColorStop(1, 'rgba(255,180,70,0)');
     x.fillStyle = tg; x.fillRect(px - 44, py - 44, 88, 88);
     x.fillStyle = '#ffcf7a';
     x.beginPath(); x.arc(px, py, 4.5, 0, Math.PI * 2); x.fill();
@@ -344,19 +336,19 @@ function paintStone(x, w, h, base, joint) {
     x.fillRect(Math.random() * w, Math.random() * h, 2, 2);
   }
 }
-const stoneTex = canvasTex(512, 512, (x, w, h) => paintStone(x, w, h, '#241b31', 'rgba(4,6,8,0.85)'));
+const stoneTex = canvasTex(512, 512, (x, w, h) => paintStone(x, w, h, '#8a7350', 'rgba(60,45,20,0.6)'));
 const stoneBump = canvasTex(512, 512, (x, w, h) => paintStone(x, w, h, '#808080', 'rgba(0,0,0,0.9)'));
 const stoneMatT = new THREE.MeshStandardMaterial({ map: stoneTex, bumpMap: stoneBump, bumpScale: 0.6, roughness: 0.94, metalness: 0.04, envMapIntensity: 0.25, fog: false });
 function bannerTex(kind) {
   const c = document.createElement('canvas'); c.width = 512; c.height = 768;
   const x = c.getContext('2d');
   const lunc = kind === 0;
-  x.fillStyle = lunc ? '#0d0a13' : '#1d1030'; x.fillRect(0, 0, 512, 768);
+  x.fillStyle = lunc ? '#c22424' : '#0e8a99'; x.fillRect(0, 0, 512, 768);
   const g = x.createLinearGradient(0, 0, 0, 768);
   g.addColorStop(0, 'rgba(255,255,255,0.07)'); g.addColorStop(1, 'rgba(0,0,0,0.35)');
   x.fillStyle = g; x.fillRect(0, 0, 512, 768);
-  x.strokeStyle = '#d8a83c'; x.lineWidth = 10; x.strokeRect(18, 18, 476, 732);
-  x.strokeStyle = 'rgba(216,168,60,0.45)'; x.lineWidth = 3; x.strokeRect(40, 40, 432, 688);
+  x.strokeStyle = '#f2b13c'; x.lineWidth = 10; x.strokeRect(18, 18, 476, 732);
+  x.strokeStyle = 'rgba(255,255,255,0.5)'; x.lineWidth = 3; x.strokeRect(40, 40, 432, 688);
   const crescent = (px, py, r, col, bg) => {
     x.fillStyle = col;
     x.beginPath(); x.arc(px, py, r, 0, Math.PI * 2); x.fill();
@@ -372,15 +364,15 @@ function bannerTex(kind) {
     x.beginPath(); x.arc(px + s * 0.26, py - s * 0.08, s * 0.15, 0, Math.PI * 2); x.fill();
     x.beginPath(); x.moveTo(px, py + s * 0.10); x.lineTo(px - s * 0.09, py + s * 0.30); x.lineTo(px + s * 0.09, py + s * 0.30); x.closePath(); x.fill();
   };
-  const bg = lunc ? '#0d0a13' : '#1d1030';
-  crescent(256, 205, 105, '#e9c766', bg);
-  skull(256, 415, 74, '#d8d2c0', bg);
-  x.fillStyle = '#e9c766';
+  const bg = lunc ? '#c22424' : '#0e8a99';
+  crescent(256, 205, 105, '#ffe9a8', bg);
+  skull(256, 415, 74, '#f7f1de', bg);
+  x.fillStyle = '#ffd23c';
   x.textAlign = 'center'; x.textBaseline = 'middle';
   x.font = '900 92px "Arial Black", Arial, sans-serif';
   x.fillText(lunc ? 'LUNC' : 'FROG', 256, 585);
   x.font = '900 40px "Arial Black", Arial, sans-serif';
-  x.fillStyle = lunc ? '#b98cff' : '#e9c766';
+  x.fillStyle = '#ffffff';
   x.fillText(lunc ? 'CLASSIC' : 'CLASSIC', 256, 662);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
@@ -394,25 +386,25 @@ const bannerTexR = bannerTex(1);
 const signTex = (() => {
   const c = document.createElement('canvas'); c.width = 1024; c.height = 256;
   const x = c.getContext('2d');
-  x.fillStyle = '#0c0912'; x.fillRect(0, 0, 1024, 256);
+  x.fillStyle = '#12507e'; x.fillRect(0, 0, 1024, 256);
   for (let i = 0; i < 700; i++) {
-    x.fillStyle = `rgba(${30 + Math.random() * 26},${24 + Math.random() * 20},${40 + Math.random() * 30},0.3)`;
+    x.fillStyle = `rgba(${40 + Math.random() * 40},${110 + Math.random() * 40},${160 + Math.random() * 50},0.3)`;
     x.fillRect(Math.random() * 1024, Math.random() * 256, 4 + Math.random() * 18, 3 + Math.random() * 8);
   }
-  x.strokeStyle = '#d8a83c'; x.lineWidth = 7; x.strokeRect(12, 12, 1000, 232);
-  x.strokeStyle = 'rgba(185,140,255,0.5)'; x.lineWidth = 2; x.strokeRect(26, 26, 972, 204);
+  x.strokeStyle = '#f2b13c'; x.lineWidth = 7; x.strokeRect(12, 12, 1000, 232);
+  x.strokeStyle = 'rgba(126,230,245,0.6)'; x.lineWidth = 2; x.strokeRect(26, 26, 972, 204);
   const crescent = (px, py, r) => {
-    x.fillStyle = '#e9c766';
+    x.fillStyle = '#ffd23c';
     x.beginPath(); x.arc(px, py, r, 0, Math.PI * 2); x.fill();
-    x.fillStyle = '#0c0912';
+    x.fillStyle = '#12507e';
     x.beginPath(); x.arc(px + r * 0.38, py - r * 0.16, r * 0.82, 0, Math.PI * 2); x.fill();
   };
   crescent(92, 128, 44); crescent(932, 128, 44);
   x.textAlign = 'center'; x.textBaseline = 'middle';
-  x.fillStyle = '#e9c766';
+  x.fillStyle = '#ffd23c';
   x.font = '900 104px "Arial Black", Arial, sans-serif';
   x.fillText('FROG ARENA', 512, 106);
-  x.fillStyle = '#b98cff';
+  x.fillStyle = '#bfe9ff';
   x.font = '900 40px "Arial Black", Arial, sans-serif';
   x.fillText('L U N C   D E V   S T U D I O', 512, 196);
   const t = new THREE.CanvasTexture(c);
@@ -456,7 +448,7 @@ let embers = null;
      arena, three seating tiers stepping up to it with lit trim, and a
      dusting of distant crowd lights on the tiers. All procedural
      geometry + canvas textures, original to this project. FROG ARENA 2
-     re-skins the wall/trim/lights as a ruined gothic colosseum; the
+     re-skins the wall/trim/lights as a sunlit colosseum; the
      tier RING geometry is unchanged (see below). */
   const wall = new THREE.Mesh(new THREE.CylinderGeometry(17, 17.6, 7.6, 48, 1, true),
     new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.95, metalness: 0.04, side: THREE.BackSide, envMapIntensity: 0.2, fog: false }));
@@ -466,15 +458,15 @@ let embers = null;
   // wall's silhouette reaches higher into the sky (the fog used to eat
   // everything past the arch tops and the bowl read flat)
   const gallery = new THREE.Mesh(new THREE.CylinderGeometry(17.3, 17.1, 3.4, 48, 1, true),
-    new THREE.MeshStandardMaterial({ map: stoneTex, bumpMap: stoneBump, bumpScale: 0.5, color: 0x6f6486, roughness: 0.8, metalness: 0.35, side: THREE.BackSide, envMapIntensity: 0.15, fog: false }));
+    new THREE.MeshStandardMaterial({ map: stoneTex, bumpMap: stoneBump, bumpScale: 0.5, color: 0xa08b62, roughness: 0.8, metalness: 0.35, side: THREE.BackSide, envMapIntensity: 0.15, fog: false }));
   gallery.position.y = 8.4;
   arena.add(gallery);
   const galleryTrim = new THREE.Mesh(new THREE.TorusGeometry(17.2, 0.05, 8, 72),
-    new THREE.MeshStandardMaterial({ color: 0x1a0d05, emissive: 0x8b5cf6, emissiveIntensity: 0.7, roughness: 0.5, fog: false }));
+    new THREE.MeshStandardMaterial({ color: 0x1a0d05, emissive: 0xe8b13c, emissiveIntensity: 0.7, roughness: 0.5, fog: false }));
   galleryTrim.rotation.x = Math.PI / 2; galleryTrim.position.y = 6.72;
   arena.add(galleryTrim);
   const stepMat = stoneMatT;
-  const trimMat = new THREE.MeshStandardMaterial({ color: 0x0a1414, emissive: 0xd8a83c, emissiveIntensity: 0.9, roughness: 0.5, fog: false });
+  const trimMat = new THREE.MeshStandardMaterial({ color: 0x0a1414, emissive: 0xf2b13c, emissiveIntensity: 0.9, roughness: 0.5, fog: false });
   /* Seating tiers are RINGS (tread + inner riser), never solid discs:
      the first build used full cylinders, whose largest disc topped out
      at y=1.0 across the WHOLE arena — burying the platform (top y=0)
@@ -512,7 +504,7 @@ let embers = null;
     }
     const cg = new THREE.BufferGeometry();
     cg.setAttribute('position', new THREE.BufferAttribute(pos2, 3));
-    arena.add(new THREE.Points(cg, new THREE.PointsMaterial({ map: glowTex, color: 0xcdb2ff, size: 0.07, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending })));
+    arena.add(new THREE.Points(cg, new THREE.PointsMaterial({ map: glowTex, color: 0xfff3b0, size: 0.07, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending })));
   }
 
   const rim = new THREE.Mesh(new THREE.TorusGeometry(5.4, 0.045, 10, 90),
@@ -520,7 +512,7 @@ let embers = null;
   rim.rotation.x = Math.PI / 2; rim.position.y = 0.012;
   arena.add(rim);
   const rim2 = new THREE.Mesh(new THREE.TorusGeometry(4.1, 0.03, 8, 80),
-    new THREE.MeshStandardMaterial({ color: 0x050d1a, emissive: 0x8b5cf6, emissiveIntensity: 1.7 }));
+    new THREE.MeshStandardMaterial({ color: 0x050d1a, emissive: 0xffc46b, emissiveIntensity: 1.7 }));
   rim2.rotation.x = Math.PI / 2; rim2.position.y = 0.012;
   arena.add(rim2);
 
@@ -528,7 +520,7 @@ let embers = null;
   const gate = new THREE.Group();
   gate.add(new THREE.Mesh(new THREE.TorusGeometry(3.1, 0.16, 14, 64), gateMat));
   gate.add(new THREE.Mesh(new THREE.TorusGeometry(2.52, 0.06, 10, 56),
-    new THREE.MeshStandardMaterial({ color: 0x06121f, emissive: 0x8b5cf6, emissiveIntensity: 1.9, roughness: .4 })));
+    new THREE.MeshStandardMaterial({ color: 0x06121f, emissive: 0xffd76b, emissiveIntensity: 1.9, roughness: .4 })));
   const studMat = new THREE.MeshStandardMaterial({ color: 0x140b04, emissive: 0xffb340, emissiveIntensity: 2.2, roughness: .35 });
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
@@ -551,13 +543,13 @@ let embers = null;
   // layoutArena() hooks below keep the moonMesh/moonGlowSpr names — here
   // they point at the tower group and its teal glow sprite.
   /* The gate keeps its ring + glow (assigned just above); the radar
-     dish becomes the pale gothic moon. */
+     dish becomes the bright sun. */
   const moon = new THREE.Group();
   const moonDisc = new THREE.Mesh(new THREE.CircleGeometry(2.6, 40),
     new THREE.MeshBasicMaterial({ map: moonTex, transparent: true, fog: false }));
   moon.add(moonDisc);
   const moonGlow = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: glowTex, color: 0xb9a0ff, transparent: true, opacity: 0.5,
+    map: glowTex, color: 0xffd76b, transparent: true, opacity: 0.55,
     blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
   }));
   moonGlow.scale.set(11, 11, 1); moon.add(moonGlow);
@@ -588,7 +580,7 @@ let embers = null;
     const capP = new THREE.Mesh(new THREE.CylinderGeometry(0.86, 0.62, 0.5, 4), stoneMat);
     capP.position.y = 4.62; capP.rotation.y = Math.PI / 4;
     const rune = new THREE.Mesh(new THREE.BoxGeometry(0.16, 3.1, 0.06),
-      new THREE.MeshStandardMaterial({ color: 0x0a0a12, emissive: side < 0 ? 0xffb340 : 0x8b5cf6, emissiveIntensity: 2.0, roughness: .4 }));
+      new THREE.MeshStandardMaterial({ color: 0x0a0a12, emissive: side < 0 ? 0xffb340 : 0x2e9bff, emissiveIntensity: 2.0, roughness: .4 }));
     rune.position.set(0, 2.25, 0.56);
     const pflame = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffa63d, transparent: true, opacity: .85, depthWrite: false }));
     pflame.scale.set(1.3, 1.7, 1); pflame.position.y = 5.25; pflame.userData.base = 1.25;
@@ -608,14 +600,14 @@ let embers = null;
     bg.position.set(bx, 0.25, bz);
     arena.add(bg);
   }
-  /* Frog Arena 2 set dressing: twin ruined gothic towers flanking
+  /* Frog Arena 2 set dressing: twin stone towers flanking
      the gate with torch braziers, plus a pulsing holo projector ring
      around the platform. */
-  /* Ruined gothic towers flank the gate (replacing the sci-fi
+  /* Stone towers flank the gate (replacing the sci-fi
      searchlight towers): broken stone keeps with torch braziers,
      plus the pale moon the layout code positions. */
-  const ruinMat = new THREE.MeshStandardMaterial({ color: 0x241b31, roughness: 0.95, envMapIntensity: 0.25 });
-  const ruinDark = new THREE.MeshStandardMaterial({ color: 0x171021, roughness: 1, envMapIntensity: 0.2 });
+  const ruinMat = new THREE.MeshStandardMaterial({ color: 0xa68d64, roughness: 0.95, envMapIntensity: 0.25 });
+  const ruinDark = new THREE.MeshStandardMaterial({ color: 0x7d6a4c, roughness: 1, envMapIntensity: 0.2 });
   function ruinTower(side) {
     const g = new THREE.Group();
     const tiers = [[2.6, 3.2, 0], [2.1, 2.6, 3.0], [1.6, 2.0, 5.4]];
@@ -630,10 +622,10 @@ let embers = null;
     }
     // arched window glow
     const win = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 1.15),
-      new THREE.MeshBasicMaterial({ color: 0xffa63c, transparent: true, opacity: 0.85, fog: false }));
+      new THREE.MeshBasicMaterial({ color: 0xbfe6ff, transparent: true, opacity: 0.9, fog: false }));
     win.position.set(0, 4.6, 1.06); g.add(win);
     const winGlow = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: glowTex, color: 0xff9a3c, transparent: true, opacity: 0.4,
+      map: glowTex, color: 0x9fd8ff, transparent: true, opacity: 0.3,
       blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
     winGlow.scale.set(2.6, 2.6, 1); winGlow.position.set(0, 4.6, 1.3); g.add(winGlow);
     // torch brazier on top
@@ -651,7 +643,7 @@ let embers = null;
   ruinTower(-1); ruinTower(1);
   gateRing = gate; gateGlowSpr = gateGlow; moonMesh = moon; moonGlowSpr = moonGlow;
   const holo = new THREE.Mesh(new THREE.TorusGeometry(5.85, 0.022, 8, 96),
-    new THREE.MeshBasicMaterial({ color: 0x8b5cf6, transparent: true, opacity: 0.5, fog: false }));
+    new THREE.MeshBasicMaterial({ color: 0x2fb8d8, transparent: true, opacity: 0.5, fog: false }));
   holo.rotation.x = Math.PI / 2; holo.position.y = 0.65;
   arena.add(holo); holoRing = holo;
   for (const [side, tex] of [[-1, bannerTexL], [1, bannerTexR]]) {
@@ -674,7 +666,7 @@ let embers = null;
   }
   const eg = new THREE.BufferGeometry();
   eg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  embers = new THREE.Points(eg, new THREE.PointsMaterial({ map: glowTex, color: 0xffc98a, size: 0.09, transparent: true, opacity: .55, depthWrite: false, blending: THREE.AdditiveBlending }));
+  embers = new THREE.Points(eg, new THREE.PointsMaterial({ map: glowTex, color: 0xffe9a8, size: 0.09, transparent: true, opacity: .55, depthWrite: false, blending: THREE.AdditiveBlending }));
   arena.add(embers);
 }
 // Set pieces are composed per orientation: the landscape gate ring / moon
@@ -740,11 +732,11 @@ document.getElementById('muteBtn').addEventListener('click', () => {
   document.getElementById('muteBtn').textContent = AudioSys.muted ? '✕' : '♪';
 });
 
-  // (no GLB assets — the gothic frog champions are built from articulated primitives)
-/* Fighter = a REAL 3D gothic frog champion built from Three.js
+  // (no GLB assets — the colorful frog champions are built from articulated primitives)
+/* Fighter = a REAL 3D colorful frog champion built from Three.js
    primitives, modelled on the design spec (Tom's generated image):
    an upright MUSCULAR frog in black-and-gold spiked armor — crown,
-   skull motifs, cape — in a ruined gothic colosseum. Proportions:
+   skull motifs, cape — in a sunlit colosseum. Proportions:
    ~1.92 tall, broad chest, narrow waist, long articulated limbs.
    Every limb is TWO segments (upper + fore / thigh + shin) driven
    by a small IK solver to the same anchor points the combat engine
@@ -759,7 +751,7 @@ document.getElementById('muteBtn').addEventListener('click', () => {
    starcrown / circlet) and a feminine build for the Queen and
    Princess. The models are built to match the painted portraits
    (in the DOM character-select cards) — wide frog heads, throat
-   pouches, muscle-lathe limbs, full gothic armor. */
+   pouches, muscle-lathe limbs, full colorful armor. */
 const DUR = {
   idle: 1.6, walk: 0.8, crouch: 1.2, jump: 0.9, block: 1.2,
   jab: 0.55, heavy: 0.72, kick1: 0.5, kick2: 0.62,
@@ -890,7 +882,7 @@ class Fighter {
     this.applyFacing();
     this._loaded = true;
   }
-  /* Build the gothic frog champion — rebuilt Nov 18 (Tom's
+  /* Build the colorful frog champion — rebuilt Nov 18 (Tom's
      verdict: the first models were smooth toy figures that did not
      match the portraits; the pink Princess "looked like Miss
      Piggy"). Now modelled on the painted portraits: a WIDE flat
@@ -1741,13 +1733,13 @@ function koSequence(winner, loser) {
 }
 
 /* ---------------- fighters ---------------- */
-/* ===== FROG ARENA 2 — the game's 10 ORIGINAL gothic frog warriors =====
+/* ===== FROG ARENA 2 — the game's 10 ORIGINAL colorful frog warriors =====
    This game is its own thing: the fighters are original characters
    created for Frog Arena 2 (the future 1,000-warrior mint game) —
    they belong to no existing collection. Names, classes, titles ours;
    each warrior's painted portrait (warriors/*.webp) is the select-
    screen art and future mint art; in the arena the picked warrior IS
-   the 3D gothic frog model, tinted/armored per character. */
+   the 3D colorful frog model, tinted/armored per character. */
 const SPEC2 = {
   rise: 'TOAD RISE', sweep: 'NIGHT SWEEP', dash: 'SWAMP DASH', orb: 'BOG ORB',
   kingRise: 'SOLAR RISE', kingSweep: 'ECLIPSE SWEEP', kingDash: 'COMET DASH', kingOrb: 'NOVA ORB',
@@ -1756,44 +1748,44 @@ const ROSTER = [
   { id: 'king', name: 'KING CROAKMORE', title: 'THE CROWNED SOVEREIGN', cls: 'CROWNED KING', art: 'king.webp',
     stats: { power: 5, speed: 3, range: 4 }, sparkColor: 0xffc44d, ultKind: 'barrage', maxHp: 130, aiStyle: 'brawler', aiMul: 0.82,
     specNames: { rise: 'SOLAR RISE', sweep: 'ECLIPSE SWEEP', dash: 'COMET DASH', orb: 'NOVA ORB' },
-    style: 'The crowned sovereign of the colosseum. Solar specials, gold trim, the full crown.',
-    skin: { body: 0x4a7a35, belly: 0xb9c9a0, spot: 0x2f5523, armor: 0x17181c, trim: 0xd8a83c, cape: 0x2a1a3e, headgear: 'crown', iris: 0xff9a1f, emblem: 'sun', tassets: true } },
+    style: 'The crowned sovereign of the colosseum. Solar specials, red-and-gold armor, the full crown.',
+    skin: { body: 0x66bb44, belly: 0xf2e6b8, spot: 0x3f8f2f, armor: 0xc22424, trim: 0xf2b13c, cape: 0xb01e28, headgear: 'crown', iris: 0xff9a1f, gem: 0x27c46a, emblem: 'sun', tassets: true } },
   { id: 'queen', name: 'QUEEN VESPERA', title: 'THE VIOLET REGENT', cls: 'WARRIOR QUEEN', art: 'queen.webp',
     stats: { power: 4, speed: 4, range: 4 }, sparkColor: 0xb98cff, ultKind: 'barrage', maxHp: 115, aiStyle: 'zoner', aiMul: 0.9,
-    specNames: SPEC2, style: 'The roster\'s warrior queen. Violet armor, gold crown, regal cape.',
-    skin: { body: 0x55803a, belly: 0xcfe0b8, spot: 0x3a5c2a, armor: 0x2a2140, trim: 0xd8a83c, cape: 0x4a2470, headgear: 'crown', gem: 0xb98cff, iris: 0xffb03a, female: true, emblem: 'moon', tassets: true } },
+    specNames: SPEC2, style: 'The roster\'s warrior queen. Bright violet armor, gold crown, magenta cape.',
+    skin: { body: 0x4caf3f, belly: 0xe4f2c8, spot: 0x2f7a2a, armor: 0x7d3fd1, trim: 0xf2b13c, cape: 0xc22a72, headgear: 'crown', gem: 0xb98cff, iris: 0xffb03a, female: true, emblem: 'moon', tassets: true } },
   { id: 'princess', name: 'PRINCESS ROSALIE', title: 'THE ROSE PRINCESS', cls: 'ROYAL PRINCESS', art: 'princess.webp',
     stats: { power: 3, speed: 5, range: 3 }, sparkColor: 0xff9ecb, ultKind: 'combo', maxHp: 100, aiStyle: 'speed', aiMul: 0.95,
-    specNames: SPEC2, style: 'The young rose princess. Small, fast, rose-gold tiara.',
-    skin: { body: 0x69a844, belly: 0xe6f2cf, spot: 0x4a7d33, armor: 0x4a2c38, trim: 0xe88ca0, cape: 0x7a2a4e, headgear: 'rosecrown', iris: 0xff9a1f, female: true, scale: 0.93, emblem: 'rose', tassets: true } },
+    specNames: SPEC2, style: 'The young rose princess. Small, fast, bright rose-pink armor and tiara.',
+    skin: { body: 0x7ed957, belly: 0xf7f3d0, spot: 0x4da332, armor: 0xe7548f, trim: 0xf7a8b8, cape: 0xff4d8d, headgear: 'rosecrown', iris: 0xff9a1f, female: true, scale: 0.93, emblem: 'rose', tassets: true } },
   { id: 'ember', name: 'EMBERLORD KAEL', title: 'THE EMBERLORD', cls: 'EMBER KNIGHT', art: 'ember.webp',
     stats: { power: 5, speed: 2, range: 3 }, sparkColor: 0xff7a2a, ultKind: 'combo', maxHp: 120, aiStyle: 'brawler', aiMul: 0.88,
-    specNames: SPEC2, style: 'The ember knight. Heavy hits, flame crest, scorched black armor.',
-    skin: { body: 0x66713a, belly: 0xcac39a, spot: 0x47511f, armor: 0x191314, trim: 0xff6a1f, cape: 0x1c0f10, headgear: 'flamecrest', iris: 0xff5a1f, glow: true, emblem: 'skull', tassets: true, legArmor: true } },
+    specNames: SPEC2, style: 'The ember knight. Heavy hits, flame crest, bright flame-red armor.',
+    skin: { body: 0x6f8f3a, belly: 0xe8dfae, spot: 0x4a6423, armor: 0xd93a1e, trim: 0xffa62b, cape: 0x8e1f16, headgear: 'flamecrest', iris: 0xff5a1f, glow: true, emblem: 'skull', tassets: true, legArmor: true } },
   { id: 'shadow', name: 'NYX THE SHADOWBLADE', title: 'MASTER OF SHADOWS', cls: 'SHADOW ASSASSIN', art: 'shadow.webp',
     stats: { power: 4, speed: 5, range: 4 }, sparkColor: 0x35e0d0, ultKind: 'barrage', maxHp: 110, aiStyle: 'speed', aiMul: 0.9,
-    specNames: SPEC2, style: 'Master of shadows. Cyan eyes, blackout armor, silent feet.',
-    skin: { body: 0x2e4038, belly: 0x5a7268, spot: 0x16211c, armor: 0x0d1117, trim: 0x35e0d0, cape: 0x0a0e14, headgear: 'hood', iris: 0x35e0d0, pupil: 0x062a28, glow: true, emblem: 'rune' } },
+    specNames: SPEC2, style: 'Master of shadows. Electric-blue dart frog, purple crystal armor, glowing cyan eyes.',
+    skin: { body: 0x1e9be0, belly: 0xd8ecf5, spot: 0xff8c1a, armor: 0x5b2ea6, trim: 0x2ee6d6, cape: 0x241457, headgear: 'hood', iris: 0x2ee6d6, pupil: 0x063a34, glow: true, emblem: 'rune' } },
   { id: 'captain', name: 'CAPTAIN DELMAR', title: 'THE TIDE CAPTAIN', cls: 'WAR CAPTAIN', art: 'captain.webp',
     stats: { power: 4, speed: 3, range: 5 }, sparkColor: 0x4da6ff, ultKind: 'barrage', maxHp: 110, aiStyle: 'zoner', aiMul: 0.95,
-    specNames: SPEC2, style: 'The tide captain. Long-range orbs, red war cape.',
-    skin: { body: 0x3d7ea6, belly: 0xd8e8ee, spot: 0x26536e, armor: 0x1c2c50, trim: 0xd8a83c, cape: 0x8e1f28, headgear: 'plume', plume: 0x3fa9f5, iris: 0xffb03a, emblem: 'skull', tassets: true } },
+    specNames: SPEC2, style: 'The tide captain. Tropical turquoise armor, feather plume, long-range orbs.',
+    skin: { body: 0x2fae5f, belly: 0xeef5d8, spot: 0x1c7a40, armor: 0x12a5b8, trim: 0xff7a59, cape: 0x0e7a86, headgear: 'plume', plume: 0xff6b4a, iris: 0xffb03a, emblem: 'skull', tassets: true } },
   { id: 'nightblade', name: 'NIGHTBLADE VOSS', title: 'BLADE OF THE NIGHT WATCH', cls: 'NIGHT WARRIOR', art: 'nightblade.webp',
     stats: { power: 4, speed: 4, range: 3 }, sparkColor: 0x8b5cf6, ultKind: 'combo', maxHp: 105, aiStyle: 'speed', aiMul: 1.0,
-    specNames: SPEC2, style: 'Blade of the night watch. Bronze harness, fast hands.',
-    skin: { body: 0x7d8f6a, belly: 0xd6dcc4, spot: 0x55663f, armor: 0x6e5626, trim: 0xa8742c, cape: 0x14100c, headgear: 'circlet', iris: 0xd23b3b, emblem: 'none' } },
+    specNames: SPEC2, style: 'Blade of the night watch. Vivid orange-bronze armor, fast hands.',
+    skin: { body: 0x5da244, belly: 0xeef0cd, spot: 0x3c7031, armor: 0xe07b24, trim: 0xffd23c, cape: 0x7a2a5e, headgear: 'circlet', iris: 0xd23b3b, emblem: 'none' } },
   { id: 'soldier', name: 'GRUMM THE BULWARK', title: 'THE FRONT-LINE BULWARK', cls: 'HEAVY SOLDIER', art: 'soldier.webp',
     stats: { power: 3, speed: 4, range: 2 }, sparkColor: 0xa8e063, ultKind: 'combo', maxHp: 105, aiStyle: 'balanced', aiMul: 1.05,
-    specNames: SPEC2, style: 'Front-line bulwark. Big pauldrons, red trim, no cape.',
-    skin: { body: 0x77815f, belly: 0xc4c9ae, spot: 0x55603f, armor: 0x8a939c, trim: 0xc22e2e, cape: null, iris: 0xff9a1f, emblem: 'skull', tassets: true, legArmor: true } },
+    specNames: SPEC2, style: 'Front-line bulwark. Big pauldrons, bright red-and-gold armor, no cape.',
+    skin: { body: 0x55a83e, belly: 0xe9efc4, spot: 0x3a7031, armor: 0xc22424, trim: 0xf2b13c, cape: null, iris: 0xff9a1f, emblem: 'skull', tassets: true, legArmor: true } },
   { id: 'starknight', name: 'STELLARIS', title: 'THE STAR KNIGHT', cls: 'STAR KNIGHT', art: 'starknight.webp',
-    stats: { power: 3, speed: 3, range: 3 }, sparkColor: 0x8b5cf6, ultKind: 'combo', maxHp: 102, aiStyle: 'balanced', aiMul: 1.1,
-    specNames: SPEC2, style: 'The star knight. Pale suit armor, teal trim.',
-    skin: { body: 0x55803f, belly: 0xdde8c8, spot: 0x3a5c2a, armor: 0xb9c4c9, trim: 0x2fe0c8, cape: 0x10182e, headgear: 'starcrown', iris: 0xffb03a, glow: true, emblem: 'star', tassets: true, legArmor: true } },
+    stats: { power: 3, speed: 3, range: 3 }, sparkColor: 0x2fb8d8, ultKind: 'combo', maxHp: 102, aiStyle: 'balanced', aiMul: 1.1,
+    specNames: SPEC2, style: 'The star knight. Pearl-white armor, glowing teal trim.',
+    skin: { body: 0x4da653, belly: 0xe6f2d8, spot: 0x2f7038, armor: 0xdfe9ee, trim: 0x2fb8d8, cape: 0x3a7bd5, headgear: 'starcrown', iris: 0xffb03a, glow: true, emblem: 'star', tassets: true, legArmor: true } },
   { id: 'brawler', name: 'BRAMBLE', title: 'THE OLD POND BRAWLER', cls: 'VETERAN BRAWLER', art: 'brawler.webp',
     stats: { power: 2, speed: 2, range: 2 }, sparkColor: 0x7fe07a, ultKind: 'combo', maxHp: 100, aiStyle: 'balanced', aiMul: 1.2,
-    specNames: SPEC2, style: 'The old pond brawler. Worn iron, ragged cape, honest fists.',
-    skin: { body: 0x77705f, belly: 0xcfc6ae, spot: 0x57503f, armor: 0x4c3a28, trim: 0x7a6a55, cape: 0x3a2c1e, iris: 0xd8b25a, emblem: 'skull' } },
+    specNames: SPEC2, style: 'The old pond brawler. Warm bronze armor, rust-red cape, honest fists.',
+    skin: { body: 0x7f9a4a, belly: 0xefe6c4, spot: 0x5c7038, armor: 0xb5762e, trim: 0xe8c87a, cape: 0xa83a28, iris: 0xd8b25a, emblem: 'skull' } },
 ];
 let pickFighter = ROSTER[0], cpuFighter = ROSTER[9];
 let P1 = new Fighter(slotCfg(ROSTER[0], -1.7));

@@ -112,7 +112,7 @@ function kitFromStats(st){
 
 /* Arena-2 overrides: the test is ONE fight, no ladder. */
 const FA2_OVR = {
-en:{intro:"Two gothic frog warriors clash in the ruined colosseum — best of 3 rounds. This is the design test: pick one of the game's 10 original warriors, and the arena frog IS that character in full 3D armor. Chain jabs, hooks and slide kicks, fire directional specials, and at a full meter unleash the ULTIMATE.",
+en:{intro:"Two colorful frog warriors clash in the sunlit colosseum — best of 3 rounds. This is the design test: pick one of the game's 10 original warriors, and the arena frog IS that character in full 3D armor. Chain jabs, hooks and slide kicks, fire directional specials, and at a full meter unleash the ULTIMATE.",
 howtoBody:"Move with the floating joystick (or A/D and ◀ ▶). W jumps, S crouches, hold away or Shift to block. J = jab, K = hook, L = slide kick. U + direction fires a special (25 meter): ↑ launcher · ↓ sweep · → dash · ← orb. At a full 100 meter, U fires the ULTIMATE. Win 2 rounds to take the fight.",
 fight:"FIGHT", pickFighter:"CHOOSE YOUR FIGHTER", cpuTag:"CPU PICK"},
 };
