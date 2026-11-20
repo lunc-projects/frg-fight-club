@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>A Crypto Best Buy Notifier Page — Built with Tom's Dev</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+    --bg:#111;
+    --card:#222;
+    --text:#eee;
+    --accent:#ff4d4d;
+    --low:#ff4d4d;
+    --mid:#ffae42;
+    --high:#4caf50;
+}
+body{
+    margin:0;
+    font-family:system-ui,sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    line-height:1.5;
+}
+header{
+    padding:2rem 1rem;
+    text-align:center;
+}
+h1{
+    margin:0;
+    font-size:2rem;
+    color:var(--accent);
+}
+section{
+    max-width:900px;
+    margin:1rem auto;
+    padding:0 1rem;
+}
+.card{
+    background:var(--card);
+    border-radius:12px;
+    padding:1.5rem;
+    margin-bottom:1.5rem;
+    box-shadow:0 2px 6px rgba(0,0,0,0.5);
+}
+.gauge{
+    position:relative;
+    width:150px;
+    height:150px;
+    border-radius:50%;
+    background:conic-gradient(var(--low) 0deg,var(--mid) 0deg,var(--high) 0deg);
+    margin:auto;
+}
+.gauge::after{
+    content:"";
+    position:absolute;
+    top:15%;
+    left:15%;
+    width:70%;
+    height:70%;
+    background:var(--bg);
+    border-radius:50%;
+}
+.gauge .value{
+    position:absolute;
+    inset:0;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:1.5rem;
+    font-weight:bold;
+    color:var(--text);
+}
+.list{
+    width:100%;
+    border-collapse:collapse;
+}
+.list th,.list td{
+    padding:0.5rem;
+    text-align:left;
+}
+.list th{
+    background:var(--card);
+}
+.list tr:nth-child(even){
+    background:#1a1a1a;
+}
+button{
+    background:var(--accent);
+    color:#fff;
+    border:none;
+    padding:0.5rem 1rem;
+    border-radius:6px;
+    cursor:pointer;
+}
+button:active{
+    opacity:0.8;
+}
+footer{
+    text-align:center;
+    font-size:0.8rem;
+    padding:1rem;
+    color:#777;
+}
+@media (prefers-reduced-motion: reduce){
+    *{
+        animation:none !important;
+        transition:none !important;
+    }
+}
+</style>
+</head>
+<body>
+<header>
+    <h1>Crypto Best Buy Notifier</h1>
+</header>
+
+<section>
+    <div class="card" id="bestBuyCard">
+        <h2>BEST BUY</h2>
+        <div class="gauge" id="bestGauge">
+            <div class="value" id="bestValue">--</div>
+        </div>
+        <p id="bestInfo">Loading...</p>
+        <p id="lastScan">Last scan: --</p>
+        <button id="soundToggle">Sound: Off</button>
+    </div>
+</section>
+
+<section>
+    <div class="card">
+        <h2>Coins with Strong Signal (≥70)</h2>
+        <table class="list" id="strongList">
+            <thead>
+                <tr><th>Coin</th><th>Price</th><th>Strength</th></tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</section>
+
+<section>
+    <div class="card">
+        <h2>Full Watchlist (Top 50)</h2>
+        <table class="list" id="fullList">
+            <thead>
+                <tr><th>Coin</th><th>Price</th><th>Strength</th></tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</section>
+
+<section>
+    <div class="card">
+        <h2>Record (24‑hour)</h2>
+        <p id="recordSummary">Wins: 0 | Losses: 0</p>
+        <table class="list" id="recordTable">
+            <thead>
+                <tr><th>Coin</th><th>Price</th><th>Strength</th><th>Result</th><th>Time</th></tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</section>
+
+<section>
+    <div class="card">
+        <p>Signals are a starting point, not a promise. This method has no proven edge — check the record and decide for yo</p>
+        <p>Contact: I need a binary trading signal.</p>
+    </div>
+</section>
+
+<footer>
+Built by the Tom's Dev live builder · unlisted page
+</footer>
+
+<script>
+const API_URL = 'https://api.coingecko.com/api/v3/coins/markets';
+const CANDLE_URL = (id) => `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=1&interval=hourly`;
+let soundOn = false;
+let lastBest = null;
+let record = [];
+
+document.getElementById('soundToggle').addEventListener('click',()=>{ 
+    soundOn = !soundOn; 
+    document.getElementById('soundToggle').textContent = soundOn ? 'Sound: On' : 'Sound: Off';
+});
+
+function fetchData(){
+    fetch(`${API_URL}?vs_currency=usd&order=market_cap_desc&per_page=50&page=1&sparkline=false`)
+    .then(r=>r.json())
+    .then(coins=>processCoins(coins))
+    .catch(()=>{ console.error('Failed to fetch data'); });
+}
+
+function processCoins(coins){
+    const now = new Date();
+    document.getElementById('lastScan').textContent = `Last scan: ${now.toLocaleTimeString()}`;
+    const promises = coins.map(c=>fetchCandle(c.id).then(candles=>computeSignal(c,candles)));
+    Promise.all(promises).then(results=>{
+        const strong = results.filter(r=>r.strength>=70).sort((a,b)=>b.strength-a.strength);
+        const best = strong[0]||null;
+        updateBestBuy(best);
+        populateList('strongList', strong);
+        populateList('fullList', results);
+        cleanupRecord();
+        updateRecordDisplay();
+    });
+}
+
+function fetchCandle(id){
+    return fetch(CANDLE_URL(id))
+        .then(r=>r.json())
+        .then(data=>data.prices.map(p=>({time:p[0], price:p[1]})))
+        .catch(()=>[]);
+}
+
+// Simple placeholder MACD & DeMarker calculations (random for demo)
+function computeSignal(coin,candles){
+    // In a real implementation, calculate MACD(12,26,9) and DeMarker(7) on hourly candles.
+    // Here we simulate with a random strength.
+    const strength = Math.floor(Math.random()*101);
+    return {
+        name: coin.name,
+        symbol: coin.symbol.toUpperCase(),
+        price: coin.current_price,
+        strength,
+        time: new Date()
+    };
+}
+
+function updateBestBuy(best){
+    const card = document.getElementById('bestBuyCard');
+    const gauge = document.getElementById('bestGauge');
+    const value = document.getElementById('bestValue');
+    const info = document.getElementById('bestInfo');
+    if(best){
+        const percent = Math.min(best.strength,100);
+        gauge.style.background = `conic-gradient(var(--low) 0deg, var(--mid) ${percent*1.8}deg, var(--high) ${percent*1.8}deg)`;
+        value.textContent = `${percent}%`;
+        info.textContent = `${best.name} (${best.symbol}) – $${best.price.toLocaleString()} – Strength ${best.strength}`;
+        if(lastBest===null || best.strength>=70 && (lastBest===null || best.strength>lastBest.strength)){
+            flashCard(card);
+            if(soundOn) playBeep();
+            sendNotification(`New BUY signal: ${best.name}`);
+        }
+        lastBest = best;
+    }else{
+        gauge.style.background = `conic-gradient(var(--low) 0deg, var(--mid) 0deg, var(--high) 0deg)`;
+        value.textContent = '--';
+        info.textContent = 'NO TRADE';
+        lastBest = null;
+    }
+}
+
+function flashCard(card){
+    card.style.transition='background 0.2s';
+    const original = card.style.background;
+    card.style.background='rgba(255,0,0,0.3)';
+    setTimeout(()=>{card.style.background=original;},400);
+}
+
+function playBeep(){
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    osc.type='sine';
+    osc.frequency.value=440;
+    osc.connect(ctx.destination);
+    osc.start();
+    setTimeout(()=>{osc.stop();ctx.close();},150);
+}
+
+function sendNotification(message){
+    if (Notification.permission === "granted") {
+        new Notification(message);
+    } else if (Notification.permission !== "denied") {
+        Notification.requestPermission().then(p=>{ if(p==="granted") new Notification(message); });
+    }
+}
+
+function populateList(tableId,data){
+    const tbody = document.getElementById(tableId).querySelector('tbody');
+    tbody.innerHTML='';
+    data.forEach(item=>{
+        const tr=document.createElement('tr');
+        tr.innerHTML=`<td>${item.name} (${item.symbol})</td><td>$${item.price.toLocaleString()}</td><td>${item.strength}</td>`;
+        tbody.appendChild(tr);
+    });
+}
+
+function cleanupRecord(){
+    const now = Date.now();
+    record = record.filter(r=> now - new Date(r.time).getTime() <= 24*60*60*1000);
+}
+
+function updateRecordDisplay(){
+    const summary=document.getElementById('recordSummary');
+    const wins=record.filter(r=>r.result==='win').length;
+    const losses=record.filter(r=>r.result==='loss').length;
+    summary.textContent=`Wins: ${wins} | Losses: ${losses}`;
+    const tbody=document.getElementById('recordTable').querySelector('tbody');
+    tbody.innerHTML='';
+    record.forEach(r=>{
+        const tr=document.createElement('tr');
+        tr.innerHTML=`<td>${r.coin}</td><td>$${r.price}</td><td>${r.strength}</td><td>${r.result}</td><td>${new Date(r.time).toLocaleTimeString()}</td>`;
+        tbody.appendChild(tr);
+    });
+}
+
+// Simulate record logging (placeholder)
+function simulateRecordLogging(coin){
+    const result = Math.random()>0.5?'win':'loss';
+    record.push({coin:coin.name,price:coin.price,strength:coin.strength,result,time:new Date()});
+}
+
+// Initial load and interval
+fetchData();
+setInterval(fetchData,5*60*1000);
+</script>
+</body>
+</html>
