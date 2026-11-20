@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>Crypto Signal Bot — Best Buy Scanner (Test)</title>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#121c2e; --panel2:#0e1626; --line:#22314d;
+    --text:#e8eef7; --muted:#8fa3bf; --green:#16c784; --red:#ea3943;
+    --gold:#f0b90b; --amber:#f5a623; --radius:14px;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+  .wrap{max-width:480px;margin:0 auto;padding:14px 14px 40px}
+  header{display:flex;align-items:center;justify-content:space-between;padding:6px 0 10px}
+  .logo{font-size:20px;font-weight:800;letter-spacing:.3px}
+  .logo span{color:var(--gold)}
+  .badge{font-size:11px;font-weight:700;padding:5px 9px;border-radius:999px;
+    background:#2a2103;color:var(--gold);border:1px solid #57470a;white-space:nowrap}
+  .badge.live{background:#06281b;color:var(--green);border-color:#0d4d33}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:14px;margin-bottom:12px}
+  .warn{border:1px solid #57470a;background:#1d1804;color:#f5d67a;border-radius:var(--radius);
+    padding:12px 14px;font-size:13px;line-height:1.55;margin-bottom:12px}
+  .err{display:none;border:1px solid #5c2126;background:#220d10;color:#ff8f96;border-radius:var(--radius);
+    padding:12px 14px;font-size:13px;margin-bottom:12px;line-height:1.5}
+  /* BEST BUY */
+  .best{text-align:center;padding:20px 14px}
+  .best .kick{color:var(--gold);font-size:13px;font-weight:800;letter-spacing:1.2px}
+  .best .big{font-size:40px;font-weight:900;line-height:1.1;margin:8px 0 2px}
+  .best .big small{display:block;font-size:19px;color:var(--muted);font-weight:700;letter-spacing:.4px}
+  .best.buy{border-color:#0d4d33;background:#0a1f16} .best.buy .big{color:var(--green)}
+  .best.wait .big{color:var(--amber);font-size:26px}
+  .best .sub{color:var(--muted);font-size:13px;margin-top:8px;line-height:1.55}
+  @keyframes fireflash{
+    0%,100%{box-shadow:0 0 0 0 rgba(22,199,132,0)}
+    50%{box-shadow:0 0 0 4px var(--green);background:#0d2b1d}
+  }
+  .best.firing{animation:fireflash .9s ease-in-out infinite}
+  .fireline{display:none;margin-top:10px;font-weight:900;color:var(--green);font-size:15px;letter-spacing:.6px}
+  .best.firing .fireline{display:block}
+  /* PLAN LEVELS */
+  .levels{margin-top:12px;text-align:left;background:#0a1322;border:1px solid var(--line);
+    border-radius:10px;padding:10px 12px}
+  .levels .lr{display:flex;justify-content:space-between;gap:8px;font-size:13px;
+    padding:3px 0;font-variant-numeric:tabular-nums}
+  .levels .lk{color:var(--muted);font-weight:700}
+  .levels .lval{font-weight:800}
+  .levels .lval.sl{color:var(--red)} .levels .lval.tp{color:var(--green)}
+  .levels .rr{margin-top:6px;font-size:12px;color:var(--gold);font-weight:700}
+  .levels .lnote{margin-top:6px;font-size:12px;color:var(--muted);line-height:1.55}
+  /* RISK GAUGE — one strength score, shown as a gas meter.
+     Red -> yellow -> green; the white tick at 70% is the BUY line. */
+  .gaugeBox{margin-top:14px;text-align:left}
+  .gaugeBox .lbl{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:6px}
+  .gauge{position:relative;height:14px;border-radius:99px;border:1px solid var(--line);
+    background:linear-gradient(90deg,rgba(234,57,67,.28),rgba(245,166,35,.28) 50%,rgba(22,199,132,.28));}
+  .gauge .gfill{position:absolute;left:0;top:0;bottom:0;border-radius:99px;
+    background:linear-gradient(90deg,#ea3943,#f5a623 50%,#16c784);}
+  .gauge .gtick{position:absolute;top:-3px;bottom:-3px;left:70%;width:2px;background:#fff;
+    box-shadow:0 0 4px rgba(255,255,255,.8)}
+  .gauge .gticklab{position:absolute;top:17px;left:70%;transform:translateX(-50%);
+    font-size:10px;font-weight:800;color:#fff;white-space:nowrap;letter-spacing:.4px}
+  .zone{margin-top:22px;font-size:13px;font-weight:800}
+  .zone small{display:block;font-weight:600;color:var(--muted);font-size:11px;margin-top:2px}
+  .zone.risk{color:var(--red)} .zone.watch{color:var(--amber)} .zone.opp{color:var(--green)}
+  .scanline{color:var(--muted);font-size:11px;line-height:1.5;margin-top:10px;text-align:left}
+  /* compact gauge for rows */
+  .mgauge{position:relative;flex:1;height:8px;border-radius:99px;border:1px solid var(--line);
+    background:linear-gradient(90deg,rgba(234,57,67,.28),rgba(245,166,35,.28) 50%,rgba(22,199,132,.28));min-width:56px}
+  .mgauge .gfill{position:absolute;left:0;top:0;bottom:0;border-radius:99px;
+    background:linear-gradient(90deg,#ea3943,#f5a623 50%,#16c784);}
+  .mgauge .gtick{position:absolute;top:-2px;bottom:-2px;left:70%;width:2px;background:#fff}
+  /* ALERT TOGGLES */
+  .alerts{display:flex;gap:8px}
+  .alerts button{flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--muted);
+    border-radius:10px;padding:10px 0;font-size:12px;font-weight:800;cursor:pointer}
+  .alerts button.on{color:var(--green);border-color:#0d4d33;background:#0a1f16}
+  .alerts .note{flex-basis:100%}
+  /* SCAN LIST */
+  .srow{display:flex;align-items:center;gap:8px;padding:9px 6px;border-bottom:1px solid #1a2740;cursor:pointer;border-radius:8px}
+  .srow:last-child{border-bottom:none}
+  .srow.sel{background:#182540}
+  .srow .nm{font-weight:800;font-size:13px;min-width:52px}
+  .srow .pr{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums;min-width:58px}
+  .srow .sv{font-size:11px;color:var(--muted);min-width:22px;text-align:right;font-variant-numeric:tabular-nums}
+  .srow .zw{font-size:10px;font-weight:800;min-width:52px}
+  .zw.risk{color:var(--red)} .zw.watch{color:var(--amber)} .zw.opp{color:var(--green)}
+  .tag{font-weight:800;padding:3px 7px;border-radius:6px;font-size:10px;white-space:nowrap}
+  .tag.buy{background:#06281b;color:var(--green)}
+  .tag.wait{background:#1a2740;color:var(--muted)} .tag.unav{background:#241a02;color:var(--amber)}
+  .tag.win{background:#06281b;color:var(--green)} .tag.loss{background:#2b1215;color:#ff8f96}
+  .tag.open{background:#2a2103;color:var(--gold)}
+  .strongrow{display:flex;align-items:center;gap:8px;padding:9px 6px;border-bottom:1px solid #1a2740}
+  .strongrow:last-child{border-bottom:none}
+  .strongrow .nm{font-weight:800;font-size:14px;min-width:52px}
+  .strongrow .pr{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums;min-width:58px}
+  /* DETAIL */
+  .price-row{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+  .price{font-size:29px;font-weight:800;font-variant-numeric:tabular-nums}
+  .pair-name{color:var(--muted);font-size:13px;font-weight:600}
+  .count{text-align:right}
+  .count .n{font-size:29px;font-weight:800;color:var(--gold);font-variant-numeric:tabular-nums}
+  .count .l{color:var(--muted);font-size:11px}
+  canvas#spark{width:100%;height:64px;display:block;margin-top:8px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .grid2 .card{margin-bottom:12px}
+  .ind .name{color:var(--muted);font-size:12px;font-weight:700;letter-spacing:.4px}
+  .ind .val{font-size:18px;font-weight:800;margin:4px 0;font-variant-numeric:tabular-nums}
+  .ind .side{font-size:12px;font-weight:700}
+  .bull{color:var(--green)} .bear{color:var(--red)} .flat{color:var(--muted)}
+  /* RECORD */
+  .record-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center}
+  .record-stats .v{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
+  .record-stats .k{color:var(--muted);font-size:11px;margin-top:2px}
+  table{width:100%;border-collapse:collapse;font-size:12px;margin-top:10px}
+  th{color:var(--muted);text-align:left;padding:6px 4px;border-bottom:1px solid var(--line);font-weight:600}
+  td{padding:6px 4px;border-bottom:1px solid #1a2740;font-variant-numeric:tabular-nums}
+  .recsub{color:var(--muted);font-size:10px;line-height:1.45}
+  .note{color:var(--muted);font-size:12px;line-height:1.6}
+  .rowbtns{display:flex;gap:8px;margin-top:10px}
+  .rowbtns button{flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--muted);
+    border-radius:10px;padding:9px 0;font-size:12px;font-weight:700;cursor:pointer}
+  h3{margin:0 0 4px;font-size:15px}
+</style>
+<link rel="icon" href="/dev-studio/favicon.ico" sizes="any"><link rel="icon" type="image/png" sizes="32x32" href="/dev-studio/favicon-32.png"><link rel="apple-touch-icon" href="/dev-studio/apple-touch-icon.png"><meta property="og:image" content="https://frg-fight-club.vercel.app/dev-studio/icon-512.png"><meta name="twitter:image" content="https://frg-fight-club.vercel.app/dev-studio/icon-512.png"></head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">📈 CRYPTO <span>SIGNAL BOT</span></div>
+    <div class="badge" id="mktBadge">TEST VERSION</div>
+  </header>
+
+  <div class="warn">
+    ⚠️ <b>Signals only — not financial advice.</b> No bot can guarantee profits, and a
+    "best buy" here is never a sure winner — it is the strongest reading of two indicators
+    at one moment. Honest note: replaying this method on a full real session came out
+    about <b>50/50</b> — <b>no proven edge yet</b>. The record below starts at zero and
+    builds from real calls only, so the proof builds in the open. Test small first.
+  </div>
+
+  <div class="err" id="errBox"></div>
+
+  <div class="card best wait" id="bestCard">
+    <div class="kick">🏆 BEST BUY NOW</div>
+    <div class="big" id="bestBig">⏳ SCANNING…</div>
+    <div class="sub" id="bestSub">Checking every coin against MACD (12,26,9) + DeMarker (7)…</div>
+    <div class="fireline" id="fireLine">🚨 BEST BUY FIRED — see the record below for the exact time 🚨</div>
+    <div id="bestLevels"></div>
+    <div class="gaugeBox">
+      <div class="lbl"><span>Opportunity meter (indicator strength — not a win probability)</span><span id="bestStrVal">—</span></div>
+      <div class="gauge"><div class="gfill" id="bestGaugeFill" style="width:0%"></div><div class="gtick"></div><div class="gticklab">BUY line 70</div></div>
+      <div class="zone" id="bestZone">—</div>
+    </div>
+    <div class="scanline" id="scanLine">First scan running…</div>
+  </div>
+
+  <div class="card">
+    <h3>🔔 Alerts — know the moment a best buy fires</h3>
+    <div class="note">Leave this page open. When a 🏆 BEST BUY fires, this page flashes,
+      and every call is written into the record below with its exact time. Sound and
+      browser notifications are off until you turn them on.</div>
+    <div class="alerts" style="margin-top:10px">
+      <button id="notifBtn">🔔 Notifications: OFF</button>
+      <button id="soundBtn">🔊 Sound: OFF</button>
+    </div>
+  </div>
+
+  <div class="card" id="strongCard" style="display:none">
+    <h3>💪 Also strong right now — 70+ buys</h3>
+    <div class="note">Every other coin whose two indicators agree upward at strength 70 or more, strongest first.</div>
+    <div id="strongList" style="margin-top:6px"></div>
+  </div>
+
+  <div class="card">
+    <h3>🔍 Watchlist — all scanned coins</h3>
+    <div class="note">The meter on each coin is its risk read: red = high risk, yellow = watch,
+      green past the white <b>BUY line (70)</b> = best opportunity. Tap any coin for its full read-out.</div>
+    <div id="scanList" style="margin-top:6px"></div>
+  </div>
+
+  <div class="card">
+    <div class="price-row">
+      <div>
+        <div class="pair-name" id="pairName">—</div>
+        <div class="price" id="price">—</div>
+      </div>
+      <div class="count">
+        <div class="n" id="countdown">--</div>
+        <div class="l">sec to next candle</div>
+      </div>
+    </div>
+    <canvas id="spark" width="400" height="64"></canvas>
+    <div class="gaugeBox">
+      <div class="lbl"><span>Opportunity meter</span><span id="detStrVal">—</span></div>
+      <div class="gauge"><div class="gfill" id="detGaugeFill" style="width:0%"></div><div class="gtick"></div><div class="gticklab">BUY line 70</div></div>
+      <div class="zone" id="detZone">—</div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card ind">
+      <div class="name">MACD (12, 26, 9)</div>
+      <div class="val" id="macdVal">—</div>
+      <div class="side flat" id="macdSide">—</div>
+    </div>
+    <div class="card ind">
+      <div class="name">DeMARKER (7)</div>
+      <div class="val" id="demVal">—</div>
+      <div class="side flat" id="demSide">—</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>🎯 Trade plan — stop &amp; targets</h3>
+    <div id="planBody"><div class="note">Levels appear here when the selected coin has a live, strong buy signal.</div></div>
+  </div>
+
+  <div class="card">
+    <h3>📋 Call record — real results only</h3>
+    <div class="note">Starts at zero. Every 🏆 BEST BUY call this page fires is written down here
+      with the exact time it fired, its entry, stop and targets, then checked against the real
+      candles that follow: stop touched first = LOSS, first target touched first = WIN, second
+      target = BIG WIN. If neither is touched within 15 minutes, it closes at the next candle's
+      price. Nothing is backfilled — the timestamps are the proof of when each call was made.</div>
+    <div class="record-stats" style="margin-top:12px">
+      <div><div class="v" id="stTotal">0</div><div class="k">CALLS</div></div>
+      <div><div class="v" style="color:var(--green)" id="stWins">0</div><div class="k">WINS</div></div>
+      <div><div class="v" style="color:var(--red)" id="stLoss">0</div><div class="k">LOSSES</div></div>
+      <div><div class="v" style="color:var(--gold)" id="stPct">—</div><div class="k">WIN %</div></div>
+    </div>
+    <table>
+      <thead><tr><th>Time fired</th><th>Coin</th><th>Call</th><th>Entry</th><th>Exit</th><th>Result</th></tr></thead>
+      <tbody id="recBody"><tr><td colspan="6" style="color:var(--muted)">No calls yet.</td></tr></tbody>
+    </table>
+    <div class="rowbtns">
+      <button id="refreshBtn">↻ Scan now</button>
+      <button id="clearBtn">Clear record</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>How it works</h3>
+    <p class="note">
+      Every scan, the bot reads the real USD market for the top coins and checks two
+      indicators — <b>MACD (12, 26, 9)</b> and <b>DeMarker (7)</b> — on 1-minute candles.
+      A coin counts as a buy only when <b>both</b> point up. The meter on each coin is the
+      strength of that reading, 0–100: under 40 is <b>high risk</b>, 40–69 is <b>watch</b>,
+      and <b>70 or more — past the white BUY line — is the best opportunity</b>. The single
+      strongest 70+ coin becomes the <b>🏆 BEST BUY NOW</b>; the rest of the 70+ coins are
+      listed under it. If nothing clears 70, the bot says <b>NO TRADE</b> — a pick that
+      fires every minute is a coin flip, not a signal.<br><br>
+      When a call fires, its card shows a <b>trade plan</b>: the entry, a stop-loss and two
+      take-profit prices worked out from the last 14 minutes of price movement (ATR) — the
+      stop sits 1.5× that movement below the entry, the targets 1.5× and 3× above.
+      Planning levels, not guarantees.<br><br>
+      This page only ever points up — buys and no-trades. It never tells you to sell short.<br><br>
+      A coin whose real candle feed cannot be read is shown UNAVAILABLE — the bot never
+      guesses a price or a signal for it.<br><br>
+      Signals only — the bot never touches any trading account. You place your own trades.
+      Push alerts to a phone or Telegram are not wired yet — for now the alerts work while
+      this page is open.
+    </p>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+   CRYPTO SIGNAL BOT — Victor's version of the proven Studio
+   signal program (same engine as his Forex bot and the Dev
+   Studio Signals page): MACD (12,26,9) + DeMarker (7) on real
+   1-minute candles; a call fires only when BOTH indicators
+   agree UP and strength >= 70. Long-only: buys and no-trades,
+   never short language. Data: Yahoo Finance USD markets via
+   the site server relay /api/luna-games?hsig=<COIN> (Yahoo
+   sends no CORS header, so the page cannot read it directly);
+   the corsfix proxy route is the last-resort fallback, as on
+   the sister pages. Every coin below is one the relay serves
+   real 1-minute candles for; a coin whose feed fails at run
+   time is shown UNAVAILABLE — never guessed.
+   ============================================================ */
+const COINS = ["BTC","ETH","SOL","XRP","BNB","DOGE","ADA","TRX","LINK","XLM",
+  "AVAX","SHIB","HBAR","BCH","DOT","LTC","NEAR","UNI","PEPE","AAVE",
+  "APT","ICP","ETC","POL","VET","ALGO","ATOM","FIL","ARB","OP",
+  "SUI","ONDO","INJ","TIA","SEI","FET","STX","IMX","LDO","CRV",
+  "BONK","WIF","PYTH","JTO","RAY","ORCA","CAKE","OSMO","KAVA","LUNC"];
+const YAHOO_SYM = {
+  BTC:"BTC-USD", ETH:"ETH-USD", SOL:"SOL-USD", XRP:"XRP-USD", BNB:"BNB-USD",
+  DOGE:"DOGE-USD", ADA:"ADA-USD", TRX:"TRX-USD", LINK:"LINK-USD", XLM:"XLM-USD",
+  AVAX:"AVAX-USD", SHIB:"SHIB-USD", HBAR:"HBAR-USD", BCH:"BCH-USD", DOT:"DOT-USD",
+  LTC:"LTC-USD", NEAR:"NEAR-USD", UNI:"UNI7083-USD", PEPE:"PEPE24478-USD",
+  AAVE:"AAVE-USD", APT:"APT-USD", ICP:"ICP-USD", ETC:"ETC-USD", POL:"POL-USD",
+  VET:"VET-USD", ALGO:"ALGO-USD", ATOM:"ATOM-USD", FIL:"FIL-USD", ARB:"ARB-USD",
+  OP:"OP-USD", SUI:"SUI-USD", ONDO:"ONDO-USD", INJ:"INJ-USD", TIA:"TIA-USD",
+  SEI:"SEI-USD", FET:"FET-USD", STX:"STX-USD", IMX:"IMX-USD", LDO:"LDO-USD",
+  CRV:"CRV-USD", BONK:"BONK-USD", WIF:"WIF-USD", PYTH:"PYTH-USD", JTO:"JTO-USD",
+  RAY:"RAY-USD", ORCA:"ORCA-USD", CAKE:"CAKE-USD", OSMO:"OSMO-USD",
+  KAVA:"KAVA-USD", LUNC:"LUNC-USD",
+};
+const MIN_CANDLES = 60;      /* below this the indicators are not honest */
+const BEST_MIN_STRENGTH = 70; /* the BUY line — same bar as the proven
+   program: at 70 the best pick fired ~2% of minutes in a full-session
+   replay; without a bar it fires ~99% of minutes and is a coin flip. */
+const FRESH_MS = 180000;     /* a candle older than 3 min = stale, never a call */
+const LS_KEY = "vcx_paper_v1";
+const LS_ALERTS = "vcx_alerts_v1";
+
+let selectedCoin = "BTC";
+let userPicked = false;
+let candlesByCoin = {};      /* coin -> [{t,o,h,l,c}] */
+let stateByCoin = {};        /* coin -> evaluated state or {unavailable:reason} */
+let best = null;             /* {coin, ...state} — strongest fresh BUY >= 70 */
+let strongList = [];         /* every fresh BUY >= 70, strongest first */
+let bullsBelow = 0;          /* coins agreeing UP but under the bar */
+let scanAt = 0, scanSource = "", firstScanDone = false, scanning = false;
+let lastFiredKey = null;     /* coin:candleT of the last alerted/logged call */
+let alerts = { notif:false, sound:false };
+try { Object.assign(alerts, JSON.parse(localStorage.getItem(LS_ALERTS)) || {}); } catch(e){}
+let audioCtx = null;
+
+/* ---------- indicators (the proven engine, verified against a
+   Python reference — identical code to the sister pages) ---------- */
+function emaSeries(vals, n){
+  const k = 2/(n+1), out = new Array(vals.length); let e = null;
+  for (let i=0;i<vals.length;i++){ e = (e===null) ? vals[i] : vals[i]*k + e*(1-k); out[i]=e; }
+  return out;
+}
+function macdCalc(closes){
+  const e12 = emaSeries(closes,12), e26 = emaSeries(closes,26);
+  const line = closes.map((_,i)=> e12[i]-e26[i]);
+  const sig = emaSeries(line,9);
+  const hist = line.map((v,i)=> v-sig[i]);
+  return { line, sig, hist };
+}
+function demarker(cs, period){
+  period = period || 7;
+  const dmax=[], dmin=[];
+  for (let i=0;i<cs.length;i++){
+    if (i===0){ dmax.push(0); dmin.push(0); continue; }
+    dmax.push(Math.max(cs[i].h - cs[i-1].h, 0));
+    dmin.push(Math.max(cs[i-1].l - cs[i].l, 0));
+  }
+  const sma = (arr,i)=>{ const s = arr.slice(Math.max(0,i-period+1), i+1);
+    return s.reduce((a,b)=>a+b,0)/s.length; };
+  return cs.map((_,i)=>{ const a=sma(dmax,i), b=sma(dmin,i);
+    return (a+b) > 0 ? a/(a+b) : 0.5; });
+}
+function atrCalc(cs, period){
+  period = period || 14;
+  const out = new Array(cs.length).fill(null);
+  let atr = null, trSum = 0;
+  for (let j=0;j<cs.length;j++){
+    let tr;
+    if (j===0) tr = cs[j].h - cs[j].l;
+    else {
+      const pc = cs[j-1].c;
+      tr = Math.max(cs[j].h - cs[j].l, Math.abs(cs[j].h - pc), Math.abs(cs[j].l - pc));
+    }
+    if (j < period){ trSum += tr; if (j === period-1){ atr = trSum/period; out[j] = atr; } }
+    else { atr = (atr*(period-1) + tr)/period; out[j] = atr; }
+  }
+  return out;
+}
+/* Plan levels from volatility (BUY only on this page): stop 1.5xATR
+   below entry, targets 1.5x and 3xATR above — risk 1 to make 1 or 2. */
+function planLevels(entry, atr){
+  if (!isFinite(entry) || !isFinite(atr) || !(atr > 0)) return null;
+  return { sl: entry - 1.5*atr, tp1: entry + 1.5*atr, tp2: entry + 3*atr };
+}
+
+/* ---------- price formatting (magnitude-based, proven) ---------- */
+function fmtPrice(v){
+  if (v === null || v === undefined || !isFinite(v)) return "—";
+  const a = Math.abs(v);
+  const dec = a >= 100 ? 2 : a >= 1 ? 4 : a >= 0.1 ? 4 : a >= 0.01 ? 5 :
+              a >= 0.001 ? 6 : a >= 0.0001 ? 7 : a >= 0.000001 ? 8 : 10;
+  return Number(v).toFixed(dec);
+}
+function fmtMacd(v, price){
+  if (v === null || v === undefined || !isFinite(v)) return "—";
+  const p = Math.abs(price || 1);
+  const dec = p >= 100 ? 3 : p >= 1 ? 5 : p >= 0.01 ? 6 : p >= 0.0001 ? 8 : 10;
+  return Number(v).toFixed(dec);
+}
+
+/* ---------- the risk meter: ONE strength score, three plain
+   words. "Best opportunity" is only ever said about a real BUY
+   call (both indicators up, 70+) — a strong reading pointing
+   DOWN is high risk for a buyer, never an opportunity. ---------- */
+function zoneOf(score, isBuyCall){
+  if (isBuyCall && score >= BEST_MIN_STRENGTH) return { cls:"opp", word:"Best opportunity" };
+  if (score < 40) return { cls:"risk", word:"High risk" };
+  return { cls:"watch", word:"Watch" };
+}
+function gaugeHTML(fillId){
+  return '<div class="gauge"><div class="gfill" id="' + fillId + '" style="width:0%"></div>' +
+    '<div class="gtick"></div><div class="gticklab">BUY line 70</div></div>';
+}
+
+/* ---------- call record (starts at zero; every fired BEST BUY
+   is timestamped here — the "when" is the proof) ---------- */
+function loadRec(){ try { return JSON.parse(localStorage.getItem(LS_KEY)) || []; }
+  catch(e){ return []; } }
+function saveRec(r){ try { localStorage.setItem(LS_KEY, JSON.stringify(r)); } catch(e){} }
+function logSignal(coin, entry, candleT, ev){
+  const rec = loadRec();
+  const id = coin + ":" + candleT;
+  if (rec.some(r => r.id === id)) return;
+  rec.push({ id, coin, dir:"BUY", entry, candleT, tLogged: Date.now(),
+             strength: ev ? ev.strength : null,
+             status:"OPEN", exit:null,
+             sl: ev ? ev.sl : null, tp1: ev ? ev.tp1 : null, tp2: ev ? ev.tp2 : null });
+  saveRec(rec);
+}
+const SETTLE_WINDOW = 15; /* candles watched for stop/target touches */
+function resolveOpen(coin, cs){
+  const rec = loadRec(coin); let changed = false;
+  const byT = {}; cs.forEach(c => byT[c.t] = c);
+  rec.forEach(r => {
+    if (r.coin !== coin || r.status !== "OPEN") return;
+    const hasLevels = typeof r.sl === "number" && typeof r.tp1 === "number" && typeof r.tp2 === "number";
+    if (!hasLevels){
+      const nc = byT[r.candleT + 60];
+      if (!nc) return;
+      r.exit = nc.c;
+      r.status = r.exit > r.entry ? "WIN" : "LOSS";
+      r.how = "closed at next candle";
+      changed = true;
+      return;
+    }
+    /* Walk the candles after the signal candle, up to SETTLE_WINDOW.
+       First touch decides; a candle covering both stop and target
+       counts as the STOP first (inside one candle the order cannot
+       be known — the conservative reading wins). */
+    let tp1Hit = false, done = false, missing = false;
+    for (let k = 1; k <= SETTLE_WINDOW && !done; k++){
+      const c = byT[r.candleT + 60*k];
+      if (!c){ missing = true; break; }
+      const stopHit = c.l <= r.sl;
+      if (!tp1Hit){
+        const tp1 = c.h >= r.tp1;
+        if (stopHit && tp1){ r.status = "LOSS"; r.exit = r.sl; r.how = "stop hit (same candle as target — stop counted first)"; done = true; }
+        else if (stopHit){ r.status = "LOSS"; r.exit = r.sl; r.how = "stop hit"; done = true; }
+        else if (tp1){
+          tp1Hit = true;
+          if (c.h >= r.tp2){ r.status = "WIN"; r.bigWin = true; r.exit = r.tp2; r.how = "take profit 2 hit"; done = true; }
+        }
+      } else {
+        const tp2 = c.h >= r.tp2;
+        if (tp2 && !stopHit){ r.status = "WIN"; r.bigWin = true; r.exit = r.tp2; r.how = "take profit 2 hit"; done = true; }
+        else if (stopHit || tp2){ r.status = "WIN"; r.exit = r.tp1; r.how = "take profit 1 hit"; done = true; }
+      }
+    }
+    if (done){ changed = true; return; }
+    if (missing) return;
+    if (tp1Hit){ r.status = "WIN"; r.exit = r.tp1; r.how = "take profit 1 hit"; changed = true; return; }
+    const nc = byT[r.candleT + 60];
+    if (!nc) return;
+    r.exit = nc.c;
+    r.status = r.exit > r.entry ? "WIN" : "LOSS";
+    r.how = "closed at next candle (no level touched in 15 min)";
+    changed = true;
+  });
+  if (changed) saveRec(rec);
+}
+
+/* ---------- data ---------- */
+function yahooUrl(sym){ return "https://query1.finance.yahoo.com/v8/finance/chart/" +
+  encodeURIComponent(sym) + "?interval=1m&range=1d"; }
+async function fetchCandles(coin){
+  const sources = [
+    { name:"Yahoo Finance (site server)", srv:true,
+      url:"/api/luna-games?hsig=" + encodeURIComponent(coin) },
+    { name:"Yahoo Finance via corsfix proxy",
+      url:"https://proxy.corsfix.com/?" + yahooUrl(YAHOO_SYM[coin]) },
+  ];
+  let err = "";
+  for (const src of sources){
+    try {
+      const ctl = new AbortController();
+      const to = setTimeout(()=>ctl.abort(), 15000);
+      const res = await fetch(src.url, { signal: ctl.signal });
+      clearTimeout(to);
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      let out = [];
+      if (src.srv){
+        if (!data || data.ok !== true || !Array.isArray(data.candles)) throw new Error("bad payload");
+        out = data.candles
+          .filter(c => c && typeof c.t === "number" && typeof c.c === "number")
+          .map(c => ({ t:c.t, o:c.o ?? c.c, h:c.h ?? c.c, l:c.l ?? c.c, c:c.c }));
+      } else {
+        const r = data && data.chart && data.chart.result && data.chart.result[0];
+        if (!r || !r.timestamp) throw new Error("bad payload");
+        const q = r.indicators.quote[0];
+        for (let i=0;i<r.timestamp.length;i++){
+          const c = q.close[i];
+          if (c === null || c === undefined) continue;
+          out.push({ t:r.timestamp[i], o:q.open[i] ?? c, h:q.high[i] ?? c,
+                     l:q.low[i] ?? c, c });
+        }
+      }
+      if (!out.length) throw new Error("no candles");
+      return { candles: out, source: src.name };
+    } catch(e){ err = src.name + ": " + (e.message || e); }
+  }
+  throw new Error(err || "all sources failed");
+}
+
+/* ---------- signal engine (per coin, the proven method) ---------- */
+function evaluate(cs){
+  const closes = cs.map(c => c.c);
+  const m = macdCalc(closes), dem = demarker(cs, 7);
+  /* Judge the last COMPLETED candle, not the in-progress one. */
+  const nowMin = Math.floor(Date.now()/60000)*60;
+  let idx = cs.length - 1;
+  if (cs[idx].t >= nowMin && idx > 0) idx--;
+  const i = idx, cnd = cs[i], price = closes[i];
+  const hist = m.hist[i], demV = dem[i];
+  const macdSide = hist > 0 ? "BULL" : hist < 0 ? "BEAR" : "FLAT";
+  const demSide  = demV > 0.5 ? "BULL" : demV < 0.5 ? "BEAR" : "FLAT";
+  /* Long-only: only a double-UP agreement is a buy. A double-DOWN
+     agreement is recorded as direction "DOWN" so the page can be
+     honest about it in the detail view — it is never a call. */
+  const isBuy = macdSide === "BULL" && demSide === "BULL";
+  const isDown = macdSide === "BEAR" && demSide === "BEAR";
+  /* Indicator strength 0-100 — the SAME scale as the proven
+     program: half MACD histogram size relative to price, half
+     DeMarker distance from neutral 0.5. NOT a win probability. */
+  const macdScore = Math.min(1, Math.abs(hist) / (price * 0.0005));
+  const demScore  = Math.min(1, Math.abs(demV - 0.5) * 2);
+  const strength  = Math.round(100 * (0.5*macdScore + 0.5*demScore));
+  const stale = (Date.now() - cnd.t*1000) > FRESH_MS;
+  const atr = atrCalc(cs, 14)[i];
+  const lv = isBuy ? planLevels(price, atr) : null;
+  return { isBuy, isDown, macd:m.line[i], sig:m.sig[i], hist, dem:demV,
+           macdSide, demSide, strength, candleT:cnd.t, entry:price,
+           lastClose:closes[cs.length-1], stale,
+           atr, sl: lv ? lv.sl : null, tp1: lv ? lv.tp1 : null, tp2: lv ? lv.tp2 : null };
+}
+
+/* ---------- alerts: flash + optional sound + browser notify.
+   The alert is the product: it fires the moment a NEW best buy
+   appears (new coin, or a new candle for the same coin). ------ */
+function saveAlertPrefs(){ try { localStorage.setItem(LS_ALERTS, JSON.stringify(alerts)); } catch(e){} }
+function beep(){
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const t0 = audioCtx.currentTime;
+    [880, 1318].forEach((f, i) => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = "sine"; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t0 + i*0.18);
+      g.gain.exponentialRampToValueAtTime(0.22, t0 + i*0.18 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + i*0.18 + 0.16);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(t0 + i*0.18); o.stop(t0 + i*0.18 + 0.18);
+    });
+  } catch(e){}
+}
+let flashTimer = null;
+function fireAlert(b){
+  const card = document.getElementById("bestCard");
+  card.classList.add("firing");
+  if (flashTimer) clearTimeout(flashTimer);
+  flashTimer = setTimeout(()=> card.classList.remove("firing"), 30000);
+  if (alerts.sound) beep();
+  if (alerts.notif && "Notification" in window && Notification.permission === "granted"){
+    try {
+      new Notification("🏆 BEST BUY NOW — " + b.coin, {
+        body: "Strength " + b.strength + "/100 · entry " + fmtPrice(b.entry) +
+              " · MACD + DeMarker both point up. Signals only — not financial advice.",
+        tag: "vcx-best-buy",
+      });
+    } catch(e){}
+  }
+}
+
+/* ---------- the scan: batches, progressive render, honest
+   last-scan timestamp. A full cycle covers every coin. -------- */
+async function scanAll(){
+  if (scanning) return;
+  scanning = true; renderScanLine();
+  const batch = 5;
+  for (let s=0; s<COINS.length; s+=batch){
+    const group = COINS.slice(s, s+batch);
+    await Promise.all(group.map(async coin => {
+      try {
+        const { candles, source } = await fetchCandles(coin);
+        scanSource = source;
+        candlesByCoin[coin] = candles;
+        if (candles.length < MIN_CANDLES){
+          stateByCoin[coin] = { unavailable:
+            "feed too thin (" + candles.length + " candles) — not enough to compute the indicators honestly" };
+        } else {
+          stateByCoin[coin] = evaluate(candles);
+          resolveOpen(coin, candles);
+        }
+      } catch(e){
+        stateByCoin[coin] = { unavailable: "data feed error — " + (e.message || e) };
+      }
+    }));
+    renderAll(); /* progressive — rows fill in as batches land */
+  }
+  /* Rank fresh BUY agreements by strength. */
+  const buys = COINS
+    .filter(c => stateByCoin[c] && stateByCoin[c].isBuy && !stateByCoin[c].stale)
+    .map(c => ({ coin:c, ...stateByCoin[c] }))
+    .sort((a,b) => b.strength - a.strength);
+  strongList = buys.filter(q => q.strength >= BEST_MIN_STRENGTH);
+  bullsBelow = buys.length - strongList.length;
+  best = strongList.length ? strongList[0] : null;
+  scanAt = Date.now();
+  /* The call: log it (timestamped) and alert on it — once per
+     coin per candle, only when it is a NEW best buy. */
+  if (best){
+    const key = best.coin + ":" + best.candleT;
+    if (key !== lastFiredKey){
+      lastFiredKey = key;
+      logSignal(best.coin, best.entry, best.candleT, best);
+      fireAlert(best);
+    }
+    if (!firstScanDone && !userPicked) selectedCoin = best.coin;
+  }
+  firstScanDone = true;
+  scanning = false;
+  renderAll();
+}
+
+/* ---------- rendering ---------- */
+const $ = id => document.getElementById(id);
+function levelsHTML(ev){
+  if (!ev || ev.sl === null || ev.sl === undefined || !isFinite(ev.sl)) return "";
+  return '<div class="levels">' +
+    '<div class="lr"><span class="lk">Entry</span><span class="lval">' + fmtPrice(ev.entry) + "</span></div>" +
+    '<div class="lr"><span class="lk">Stop loss</span><span class="lval sl">' + fmtPrice(ev.sl) + "</span></div>" +
+    '<div class="lr"><span class="lk">Take profit 1</span><span class="lval tp">' + fmtPrice(ev.tp1) + "</span></div>" +
+    '<div class="lr"><span class="lk">Take profit 2</span><span class="lval tp">' + fmtPrice(ev.tp2) + "</span></div>" +
+    '<div class="rr">Risk : reward — 1 : 1 to take profit 1 · 1 : 2 to take profit 2</div>' +
+    '<div class="lnote">Calculated from the last 14 minutes of price movement (ATR) — planning levels, not guarantees. Plan your size so the stop is a small loss you can afford.</div></div>';
+}
+function setGauge(fillEl, zoneEl, score, isBuyCall, prefix){
+  fillEl.style.width = score + "%";
+  const z = zoneOf(score, isBuyCall);
+  zoneEl.className = "zone " + z.cls;
+  zoneEl.innerHTML = prefix + z.word +
+    "<small>Score " + score + "/100 · under 40 high risk · 40–69 watch · 70+ past the BUY line</small>";
+}
+function renderBadge(){
+  const badge = $("mktBadge");
+  if (!firstScanDone){ badge.textContent = "TEST VERSION"; badge.className = "badge"; }
+  else { badge.textContent = "● LIVE — TEST"; badge.className = "badge live"; }
+}
+function strongestBullBelow(){
+  const buys = COINS
+    .filter(c => stateByCoin[c] && stateByCoin[c].isBuy && !stateByCoin[c].stale)
+    .map(c => ({ coin:c, ...stateByCoin[c] }))
+    .sort((a,b) => b.strength - a.strength);
+  return buys.length ? buys[0] : null;
+}
+function renderBest(){
+  const card = $("bestCard"), big = $("bestBig"), sub = $("bestSub");
+  if (best){
+    card.className = "card best buy" + (card.classList.contains("firing") ? " firing" : "");
+    big.innerHTML = "<small>" + best.coin + " / USD</small>🟢 BUY";
+    sub.textContent = "Strongest set-up right now: on " + best.coin + ", MACD and DeMarker (7) " +
+      "agree UP on the last completed 1-minute candle at " + fmtPrice(best.entry) +
+      ". This is the moment the bot is pointing at — the call and its time are in the record below.";
+    $("bestLevels").innerHTML = levelsHTML(best);
+    $("bestStrVal").textContent = best.strength + " / 100";
+    setGauge($("bestGaugeFill"), $("bestZone"), best.strength, true, "🏆 ");
+  } else if (firstScanDone){
+    card.className = "card best wait";
+    big.textContent = "⏸ NO TRADE — no strong buy right now";
+    const near = strongestBullBelow();
+    if (near){
+      sub.textContent = bullsBelow + (bullsBelow === 1 ? " coin has" : " coins have") +
+        " both indicators pointing up, but none is strong enough (the buy line is strength " +
+        BEST_MIN_STRENGTH + "+). Closest is " + near.coin + " at " + near.strength +
+        "/100 — shown on the meter below. Weak set-ups lose money — the bot stays out.";
+      $("bestLevels").innerHTML = "";
+      $("bestStrVal").textContent = near.strength + " / 100 (" + near.coin + ")";
+      setGauge($("bestGaugeFill"), $("bestZone"), near.strength, false, near.coin + " — closest right now: ");
+    } else {
+      sub.textContent = "Every coin was scanned and on none of them do MACD and DeMarker agree " +
+        "upward at the moment. The bot stays out instead of guessing — check back after the next candles.";
+      $("bestLevels").innerHTML = "";
+      $("bestStrVal").textContent = "—";
+      $("bestGaugeFill").style.width = "0%";
+      $("bestZone").className = "zone"; $("bestZone").textContent = "—";
+    }
+  } else {
+    card.className = "card best wait";
+    big.textContent = "⏳ SCANNING…";
+    sub.textContent = "Checking every coin against MACD (12,26,9) + DeMarker (7)…";
+    $("bestLevels").innerHTML = "";
+    $("bestStrVal").textContent = "—";
+    $("bestGaugeFill").style.width = "0%";
+    $("bestZone").className = "zone"; $("bestZone").textContent = "—";
+  }
+  renderScanLine();
+}
+function renderScanLine(){
+  const el = $("scanLine");
+  if (scanning){ el.textContent = "Scanning " + COINS.length + " coins in batches…"; }
+  else if (!scanAt){ el.textContent = "First scan running…"; }
+  else {
+    const n = COINS.filter(c => stateByCoin[c] && !stateByCoin[c].unavailable).length;
+    el.textContent = "Scans the top " + COINS.length + " coins · " + n + " read live · buy line: strength " +
+      BEST_MIN_STRENGTH + "+ with both indicators agreeing up · source: " + (scanSource || "—") +
+      " · last full scan " + new Date(scanAt).toLocaleTimeString();
+  }
+}
+function renderStrong(){
+  const card = $("strongCard");
+  const others = strongList.slice(1);
+  if (!others.length){ card.style.display = "none"; return; }
+  card.style.display = "";
+  $("strongList").innerHTML = others.map(q => {
+    const z = zoneOf(q.strength, true);
+    return '<div class="strongrow"><div class="nm">' + q.coin + '</div><div class="pr">' +
+      fmtPrice(q.lastClose) + '</div><span class="tag buy">BUY</span>' +
+      '<div class="mgauge"><div class="gfill" style="width:' + q.strength + '%"></div><div class="gtick"></div></div>' +
+      '<div class="sv">' + q.strength + '</div><div class="zw ' + z.cls + '">' + z.word + "</div></div>";
+  }).join("");
+}
+function renderScanList(){
+  $("scanList").innerHTML = COINS.map(coin => {
+    const e = stateByCoin[coin], cs = candlesByCoin[coin];
+    const price = cs && cs.length ? fmtPrice(cs[cs.length-1].c) : "—";
+    let tag, str = 0, zw = '<div class="zw"></div>';
+    if (!e) tag = '<span class="tag wait">…</span>';
+    else if (e.unavailable) tag = '<span class="tag unav">UNAVAILABLE</span>';
+    else {
+      str = e.strength;
+      const z = zoneOf(str, e.isBuy);
+      zw = '<div class="zw ' + z.cls + '">' + z.word + "</div>";
+      tag = e.isBuy ? '<span class="tag buy">BUY</span>' : '<span class="tag wait">NO TRADE</span>';
+    }
+    return '<div class="srow' + (coin === selectedCoin ? " sel" : "") +
+      '" data-coin="' + coin + '"><div class="nm">' + coin + '</div><div class="pr">' +
+      price + "</div>" + tag +
+      '<div class="mgauge"><div class="gfill" style="width:' + str + '%"></div><div class="gtick"></div></div>' +
+      '<div class="sv">' + (e && !e.unavailable ? str : "—") + "</div>" + zw + "</div>";
+  }).join("");
+}
+function drawSpark(cs){
+  const cv = $("spark"), ctx = cv.getContext("2d");
+  const W = cv.width, H = cv.height; ctx.clearRect(0,0,W,H);
+  if (!cs || cs.length < 2) return;
+  const data = cs.slice(-90).map(c => c.c);
+  const min = Math.min(...data), max = Math.max(...data), rng = (max-min) || 1;
+  ctx.beginPath();
+  data.forEach((v,i)=>{ const x = i/(data.length-1)*W, y = H-4-((v-min)/rng)*(H-8);
+    i ? ctx.lineTo(x,y) : ctx.moveTo(x,y); });
+  ctx.strokeStyle = "#f0b90b"; ctx.lineWidth = 1.6; ctx.stroke();
+  ctx.lineTo(W,H); ctx.lineTo(0,H); ctx.closePath();
+  ctx.fillStyle = "rgba(240,185,11,.08)"; ctx.fill();
+}
+function renderDetail(){
+  const coin = selectedCoin;
+  const e = stateByCoin[coin], cs = candlesByCoin[coin];
+  $("pairName").textContent = coin + " / USD · 1-minute · real USD market";
+  $("price").textContent = cs && cs.length ? fmtPrice(cs[cs.length-1].c) : "—";
+  if (e && !e.unavailable){
+    const price = cs && cs.length ? cs[cs.length-1].c : 1;
+    $("macdVal").textContent = fmtMacd(e.macd, price) + " / " + fmtMacd(e.sig, price);
+    $("macdSide").textContent = e.macdSide==="BULL" ? "▲ Bullish (above signal)" :
+      e.macdSide==="BEAR" ? "▼ Bearish (below signal)" : "— Flat";
+    $("macdSide").className = "side " + (e.macdSide==="BULL" ? "bull" : e.macdSide==="BEAR" ? "bear" : "flat");
+    $("demVal").textContent = e.dem.toFixed(3);
+    $("demSide").textContent = e.demSide==="BULL" ? "▲ Bullish (buyers stronger)" :
+      e.demSide==="BEAR" ? "▼ Bearish (sellers stronger)" : "— Neutral (0.500)";
+    $("demSide").className = "side " + (e.demSide==="BULL" ? "bull" : e.demSide==="BEAR" ? "bear" : "flat");
+    $("detStrVal").textContent = e.strength + " / 100";
+    setGauge($("detGaugeFill"), $("detZone"), e.strength, e.isBuy, coin + ": ");
+  } else {
+    $("macdVal").textContent = "—";
+    $("macdSide").textContent = e && e.unavailable ? e.unavailable : "—";
+    $("macdSide").className = "side flat";
+    $("demVal").textContent = "—"; $("demSide").textContent = "—"; $("demSide").className = "side flat";
+    $("detStrVal").textContent = "—";
+    $("detGaugeFill").style.width = "0%";
+    $("detZone").className = "zone"; $("detZone").textContent = "—";
+  }
+  const pb = $("planBody");
+  if (e && !e.unavailable && e.isBuy && e.strength >= BEST_MIN_STRENGTH && !e.stale &&
+      e.sl !== null && e.sl !== undefined){
+    pb.innerHTML = '<div class="note">' + coin + " has a live BUY signal (strength " +
+      e.strength + "/100). The plan, if you acted on it:</div>" + levelsHTML(e);
+  } else if (e && !e.unavailable && e.isBuy){
+    pb.innerHTML = '<div class="note">' + coin + " is reading BUY but at strength " + e.strength +
+      "/100 — below the " + BEST_MIN_STRENGTH + " buy line, so no plan is shown. Weak set-ups lose money — the bot stays out.</div>";
+  } else if (e && !e.unavailable && e.isDown){
+    pb.innerHTML = '<div class="note">Both indicators on ' + coin + " point DOWN right now. " +
+      "This page never tells you to sell short — for a buyer this is a stay-out reading.</div>";
+  } else {
+    pb.innerHTML = '<div class="note">No live buy signal on ' + coin + " right now — levels appear here when a strong buy fires.</div>";
+  }
+  drawSpark(cs);
+}
+function renderRecord(){
+  const rec = loadRec().slice().sort((a,b)=> b.tLogged - a.tLogged);
+  const wins = rec.filter(r=>r.status==="WIN").length;
+  const loss = rec.filter(r=>r.status==="LOSS").length;
+  const done = wins + loss;
+  $("stTotal").textContent = rec.length;
+  $("stWins").textContent = wins;
+  $("stLoss").textContent = loss;
+  $("stPct").textContent = done ? Math.round(100*wins/done) + "%" : "—";
+  const body = $("recBody");
+  if (!rec.length){ body.innerHTML = '<tr><td colspan="6" style="color:var(--muted)">No calls yet.</td></tr>'; return; }
+  body.innerHTML = rec.slice(0,12).map(r => {
+    const when = new Date(r.tLogged);
+    const time = when.toLocaleDateString([], {month:"short", day:"numeric"}) + " " +
+      when.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", second:"2-digit"});
+    const res = r.status === "OPEN" ? '<span class="tag open">OPEN</span>'
+      : '<span class="tag ' + (r.status==="WIN" ? "win" : "loss") + '">' +
+        (r.bigWin ? "BIG WIN" : r.status) + "</span>";
+    const lvl = (r.sl !== null && r.sl !== undefined)
+      ? '<div class="recsub">SL ' + fmtPrice(r.sl) + " · TP1 " + fmtPrice(r.tp1) +
+        " · TP2 " + fmtPrice(r.tp2) + "</div>" : "";
+    const str = (r.strength !== null && r.strength !== undefined)
+      ? '<div class="recsub">strength ' + r.strength + "/100</div>" : "";
+    const how = r.how ? '<div class="recsub">' + r.how + "</div>" : "";
+    return "<tr><td>" + time + "</td><td>" + r.coin + "</td>" +
+      '<td><span class="tag buy">BUY</span>' + str + "</td>" +
+      "<td>" + fmtPrice(r.entry) + lvl + "</td><td>" +
+      (r.exit === null ? "—" : fmtPrice(r.exit)) + how + "</td><td>" + res + "</td></tr>";
+  }).join("");
+}
+function renderAlertBtns(){
+  const nb = $("notifBtn"), sb = $("soundBtn");
+  nb.textContent = alerts.notif ? "🔔 Notifications: ON" : "🔔 Notifications: OFF";
+  nb.className = alerts.notif ? "on" : "";
+  sb.textContent = alerts.sound ? "🔊 Sound: ON" : "🔊 Sound: OFF";
+  sb.className = alerts.sound ? "on" : "";
+}
+function renderAll(){
+  renderBadge(); renderBest(); renderStrong(); renderScanList(); renderDetail(); renderRecord();
+}
+
+/* ---------- wiring ---------- */
+$("scanList").addEventListener("click", e => {
+  const row = e.target.closest(".srow"); if (!row) return;
+  selectedCoin = row.dataset.coin; userPicked = true;
+  renderScanList(); renderDetail();
+});
+$("refreshBtn").addEventListener("click", scanAll);
+$("clearBtn").addEventListener("click", () => {
+  if (confirm("Clear the call record and start again from zero?")){
+    saveRec([]); lastFiredKey = null; renderRecord();
+  }
+});
+$("notifBtn").addEventListener("click", async () => {
+  if (alerts.notif){ alerts.notif = false; saveAlertPrefs(); renderAlertBtns(); return; }
+  if (!("Notification" in window)){
+    $("errBox").style.display = "block";
+    $("errBox").textContent = "This browser does not support notifications — the flashing card and the record still work.";
+    return;
+  }
+  let perm = Notification.permission;
+  if (perm === "default"){ try { perm = await Notification.requestPermission(); } catch(e){} }
+  if (perm === "granted"){
+    alerts.notif = true;
+    try { new Notification("🔔 Crypto Signal Bot alerts ON",
+      { body: "You will get a notification here the moment a 🏆 BEST BUY fires while this page is open." }); } catch(e){}
+  } else {
+    $("errBox").style.display = "block";
+    $("errBox").textContent = "Notifications were not allowed by the browser, so they stay off. The flashing card and the timestamped record still work.";
+  }
+  saveAlertPrefs(); renderAlertBtns();
+});
+$("soundBtn").addEventListener("click", () => {
+  alerts.sound = !alerts.sound;
+  if (alerts.sound) beep(); /* also unlocks audio on this browser */
+  saveAlertPrefs(); renderAlertBtns();
+});
+setInterval(() => { $("countdown").textContent = 60 - new Date().getSeconds(); }, 250);
+setInterval(scanAll, 60000);
+renderAlertBtns();
+renderAll();
+scanAll();
+
+/* QA hook — used by the automated phone-size checks. */
+window.__vcx = { get coins(){ return COINS; }, get state(){ return stateByCoin; },
+  get best(){ return best; }, get strong(){ return strongList; },
+  bestMinStrength: BEST_MIN_STRENGTH };
+</script>
+</body>
+</html>

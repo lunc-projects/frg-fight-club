@@ -6062,6 +6062,14 @@ const HSIG_SYMBOLS = {
   SEI: 'SEI-USD', KUJI: 'KUJI-USD', AKT: 'AKT-USD',
   /* Kava */
   KAVA: 'KAVA-USD',
+  /* Majors + top-50 — Victor crypto best-buy page (2026-11-20) */
+  BTC: 'BTC-USD', XRP: 'XRP-USD', DOGE: 'DOGE-USD', ADA: 'ADA-USD',
+  TRX: 'TRX-USD', XLM: 'XLM-USD', AVAX: 'AVAX-USD', HBAR: 'HBAR-USD',
+  BCH: 'BCH-USD', DOT: 'DOT-USD', LTC: 'LTC-USD', NEAR: 'NEAR-USD',
+  APT: 'APT-USD', ICP: 'ICP-USD', ETC: 'ETC-USD', POL: 'POL-USD',
+  VET: 'VET-USD', ALGO: 'ALGO-USD', FIL: 'FIL-USD', ARB: 'ARB-USD',
+  OP: 'OP-USD', SUI: 'SUI-USD', ONDO: 'ONDO-USD', FET: 'FET-USD',
+  STX: 'STX-USD', IMX: 'IMX-USD',
 };
 const HSIG_UPSTREAM = 'https://query1.finance.yahoo.com/v8/finance/chart/';
 
@@ -6570,6 +6578,157 @@ export async function hussyLadderHandler(req, res) {
 }
 /* hussy-ladder:end */
 
+/* =====================================================================
+   JOB SITE ANALYZER — router block for client/api/luna-games.js
+   DEPLOY STEPS (2 edits, no new api files):
+   1. Paste this whole block into luna-games.js just BEFORE the
+      "export default async function handler" line.
+   2. In the default handler, after the ?hsig dispatch line, add:
+        if (req.query && req.query.jsa !== undefined) return jsaHandler(req, res);
+   ===================================================================== */
+
+/* jobsite-analyzer:start — Job Site Analyzer (Tom's own work tool):
+   /api/luna-games?jsa=1. Photo-analysis jobs + job diary storage.
+   The page holds no keys and calls no AI itself: an analyze request
+   is stored as a job in Upstash; the shop runner (the local machine
+   that holds the Groq credential route) claims it, reads the photo
+   with the vision model (qwen/qwen3.8-27b — proven 2026-11-20), and
+   posts the answer back here. The runner proves itself with the
+   SHA-256 of its file-only secret — only the hash ever leaves that
+   machine, and the first claim registers it while the slot is unset
+   (same pattern as the tda builder runner). The diary is keyed by
+   the job name Tom types; entries live under jsa:diary:<slug>. */
+const JSA_PHOTO_MAX = 520000;       /* base64 chars, analyzer photo */
+const JSA_DIARY_PHOTO_MAX = 280000; /* base64 chars, diary photo */
+const JSA_JOB_TTL = 3600;
+
+function jsaSlug(name) {
+  return String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+}
+async function jsaRunnerOk(bhash) {
+  if (!/^[a-f0-9]{64}$/.test(String(bhash || ''))) return false;
+  const out = await upstashPipeline([['GET', 'jsa:runnerhash']]);
+  const stored = out && out[0] && out[0].result;
+  if (!stored) {
+    await upstashPipeline([['SET', 'jsa:runnerhash', String(bhash)]]);
+    return true;
+  }
+  return stored === String(bhash);
+}
+async function jsaGetJob(id) {
+  const out = await upstashPipeline([['GET', 'jsa:job:' + id]]);
+  const raw = out && out[0] && out[0].result;
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+
+export async function jsaHandler(req, res) {
+  if (req.method !== 'GET' && req.method !== 'POST') {
+    return res.status(405).json({ ok: false, error: 'method not allowed' });
+  }
+  if (!process.env.NEONRUSH_UPSTASH_URL || !process.env.NEONRUSH_UPSTASH_TOKEN) {
+    return res.status(500).json({ ok: false, unavailable: true, error: 'storage not configured' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  if (req.method === 'GET') {
+    try {
+      const out = await upstashPipeline([['SMEMBERS', 'jsa:jobs']]);
+      return res.status(200).json({ ok: true, jobs: (out && out[0] && out[0].result) || [] });
+    } catch (e) {
+      return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+    }
+  }
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }
+  if (!body || typeof body !== 'object') return res.status(400).json({ ok: false, error: 'bad request' });
+  const action = String(body.action || '');
+  try {
+    if (action === 'jsaAnalyze') {
+      const mode = body.mode === 'any' ? 'any' : 'site';
+      const question = String(body.question || '').slice(0, 300);
+      const photo = String(body.photo || '');
+      if (!/^data:image\/jpeg;base64,/.test(photo) || photo.length > JSA_PHOTO_MAX) {
+        return res.status(400).json({ ok: false, error: 'photo missing or too big' });
+      }
+      const id = 'j' + Date.now().toString(36) + crypto.randomBytes(4).toString('hex');
+      const job = { status: 'wait', mode, question, photo, ts: Date.now() };
+      await upstashPipeline([
+        ['SET', 'jsa:job:' + id, JSON.stringify(job), 'EX', String(JSA_JOB_TTL)],
+        ['LPUSH', 'jsa:queue', id],
+        ['LTRIM', 'jsa:queue', '0', '49'],
+      ]);
+      return res.status(200).json({ ok: true, id });
+    }
+    if (action === 'jsaPoll') {
+      const id = String(body.id || '');
+      if (!/^j[a-z0-9]+$/.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const job = await jsaGetJob(id);
+      if (!job) return res.status(200).json({ ok: true, status: 'gone' });
+      if (job.status === 'done') return res.status(200).json({ ok: true, status: 'done', answer: job.answer || '' });
+      if (job.status === 'error') return res.status(200).json({ ok: true, status: 'error', error: job.error || 'analysis failed' });
+      return res.status(200).json({ ok: true, status: job.status });
+    }
+    if (action === 'jsaDiaryAdd') {
+      const slug = jsaSlug(body.job);
+      if (!slug) return res.status(400).json({ ok: false, error: 'job name needed' });
+      const note = String(body.note || '').slice(0, 600);
+      const photo = String(body.photo || '');
+      if (photo && (!/^data:image\/jpeg;base64,/.test(photo) || photo.length > JSA_DIARY_PHOTO_MAX)) {
+        return res.status(400).json({ ok: false, error: 'photo too big' });
+      }
+      if (!note && !photo) return res.status(400).json({ ok: false, error: 'nothing to save' });
+      const entry = { note, photo, ts: Date.now() };
+      await upstashPipeline([
+        ['LPUSH', 'jsa:diary:' + slug, JSON.stringify(entry)],
+        ['LTRIM', 'jsa:diary:' + slug, '0', '99'],
+        ['SADD', 'jsa:jobs', slug],
+      ]);
+      return res.status(200).json({ ok: true });
+    }
+    if (action === 'jsaDiaryList') {
+      const slug = jsaSlug(body.job);
+      if (!slug) return res.status(400).json({ ok: false, error: 'job name needed' });
+      const out = await upstashPipeline([['LRANGE', 'jsa:diary:' + slug, '0', '99']]);
+      const rows = (out && out[0] && out[0].result) || [];
+      const entries = rows.map((r) => { try { return JSON.parse(r); } catch (e) { return null; } }).filter(Boolean);
+      return res.status(200).json({ ok: true, entries });
+    }
+    if (action === 'jsaClaim') {
+      if (!(await jsaRunnerOk(body.bhash))) return res.status(403).json({ ok: false, error: 'runner not accepted' });
+      const out = await upstashPipeline([['RPOP', 'jsa:queue']]);
+      const id = out && out[0] && out[0].result;
+      if (!id) return res.status(200).json({ ok: true, job: null });
+      const job = await jsaGetJob(id);
+      if (!job) return res.status(200).json({ ok: true, job: null });
+      job.status = 'working';
+      await upstashPipeline([['SET', 'jsa:job:' + id, JSON.stringify(job), 'EX', String(JSA_JOB_TTL)]]);
+      return res.status(200).json({ ok: true, job: { id, mode: job.mode, question: job.question, photo: job.photo } });
+    }
+    if (action === 'jsaAnswer') {
+      if (!(await jsaRunnerOk(body.bhash))) return res.status(403).json({ ok: false, error: 'runner not accepted' });
+      const id = String(body.id || '');
+      if (!/^j[a-z0-9]+$/.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const job = await jsaGetJob(id);
+      if (!job) return res.status(200).json({ ok: false, error: 'job gone' });
+      delete job.photo;
+      if (body.error) {
+        job.status = 'error';
+        job.error = String(body.error).slice(0, 200);
+      } else {
+        job.status = 'done';
+        job.answer = String(body.answer || '').slice(0, 6000);
+      }
+      await upstashPipeline([['SET', 'jsa:job:' + id, JSON.stringify(job), 'EX', String(JSA_JOB_TTL)]]);
+      return res.status(200).json({ ok: true });
+    }
+    return res.status(400).json({ ok: false, error: 'unknown action' });
+  } catch (e) {
+    console.error('jsa action failed', action, e && e.message);
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+}
+/* jobsite-analyzer:end */
+
 export default async function handler(req, res) {
   /* Wallet Scope counter: /api/scope-count is rewritten to
      /api/luna-games?scope=1 (see the wallet-scope block above). Runs
@@ -6647,6 +6806,7 @@ export default async function handler(req, res) {
      calls ?hsig=<TOKEN> directly (see the hussy-signals block above).
      Runs before game dispatch; game requests never carry ?hsig. */
   if (req.query && req.query.hsig !== undefined) return hsPairHandler(req, res);
+  if (req.query && req.query.jsa !== undefined) return jsaHandler(req, res);
   const game = String((req.query && req.query.game) || '');
   let cfg = GAMES[game];
   if (!cfg) return res.status(400).json({ error: 'unknown game' });
