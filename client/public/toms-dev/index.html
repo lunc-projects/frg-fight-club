@@ -178,6 +178,9 @@ header{position:sticky; top:0; z-index:50; background:rgba(18,18,43,.92); backdr
 .chip.done{background:rgba(61,220,132,.12); color:var(--green); border-color:rgba(61,220,132,.4);}
 .chip.seat{background:var(--cyansoft); color:var(--cyan2); border-color:rgba(34,211,238,.4);}
 .chip.tok{background:var(--ambersoft); color:var(--amber2); border-color:rgba(255,182,46,.35);}
+.qopts{display:flex; flex-wrap:wrap; gap:8px; margin:2px 0 10px;}
+.qopt{padding:9px 14px; border-radius:999px; border:1.5px solid var(--cyan); background:var(--cyansoft); color:var(--ink); font-size:14.5px; font-weight:700; cursor:pointer; font-family:inherit;}
+.qopt:active{transform:scale(.97);}
 .otools{display:none; gap:8px; margin:8px 4px 0; flex-wrap:wrap;}
 .owner .otools{display:flex;}
 .obtn{background:var(--card); color:var(--ink2); border:1px solid var(--line); border-radius:999px; padding:6px 12px; font-weight:800; font-size:12.5px;}
@@ -2037,6 +2040,19 @@ const rich = s => linkify(esc(s)).replace(/\n/g, '<br>');
    = fall back to the original words. */
 function dispText(r){ return isOwner() ? (r.textEn || r.text) : r.text; }
 function dispResult(r){ return isOwner() ? (r.resultEn || r.result) : r.result; }
+/* Builder questionnaire (2026-11-19): a question result
+   carries an options block the seat never reads as text —
+   it renders as tappable chips (seat view, latest row only;
+   liveQId is set by render()). The block is stripped from
+   the bubble text in BOTH views. */
+let liveQId = null;
+function splitOptions(text){
+  const s = String(text || '');
+  const m = s.match(/\[\[TD-OPTIONS\]\]\s*([\s\S]*?)\s*\[\[\/TD-OPTIONS\]\]/);
+  if (!m) return { text: s, options: [] };
+  const options = m[1].split('\n').map(x => x.trim()).filter(Boolean);
+  return { text: (s.slice(0, m.index) + s.slice(m.index + m[0].length)).trim(), options };
+}
 function dispMsg(e){ return isOwner() ? (e.en || e.msg) : e.msg; }
 function fmtTime(ts){
   if (!ts) return '';
@@ -2095,8 +2111,13 @@ function bubbleHTML(r){
     }
   }
   if ((r.status === 'done' || r.status === 'closed') && r.result){
-    h += '<div class="row td"><div class="who">Tom\'s Dev</div><div class="bubble">' + rich(dispResult(r)) + '</div>'
+    const parts = splitOptions(dispResult(r));
+    h += '<div class="row td"><div class="who">Tom\'s Dev</div><div class="bubble">' + rich(parts.text) + '</div>'
       + '<div class="meta"><span>— used ' + (r.tokensUsed || 0) + ' tokens</span><span>' + esc(fmtTime(r.updated)) + '</span></div></div>';
+    if (!isOwner() && liveQId && r.id === liveQId && parts.options.length){
+      h += '<div class="qopts">' + parts.options.map(label =>
+        '<button type="button" class="qopt" data-qopt="' + esc(label) + '">' + esc(label) + '</button>').join('') + '</div>';
+    }
   }
   return h;
 }
@@ -2179,9 +2200,27 @@ function render(reqs){
     return;
   }
   const ordered = [...rows].reverse(); /* server list is newest-first; chat reads oldest at top */
+  liveQId = null;
+  if (!isOwner() && ordered.length){
+    const last = ordered[ordered.length - 1];
+    if (last && (last.status === 'done' || last.status === 'closed') && last.result && /\[\[TD-OPTIONS\]\]/.test(last.result)) liveQId = last.id;
+  }
   el.innerHTML = ordered.map(bubbleHTML).join('');
   renderProjects();
 }
+$('thread').addEventListener('click', e=>{
+  const b = e.target.closest('[data-qopt]');
+  if (!b) return;
+  const label = b.getAttribute('data-qopt') || '';
+  if (/^✏️/.test(label)){
+    /* "Something else" — the seat types their own answer */
+    const i = $('msgInput');
+    barNote('Type your answer, then send.');
+    if (i) setTimeout(()=>i.focus(), 40);
+    return;
+  }
+  deliver(label);
+});
 $('peopleList').addEventListener('click', e=>{
   const b = e.target.closest('[data-person]');
   if (!b) return;
