@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>GARUDA GRAND PRIX — Built with Tom's Dev</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<style>
+html,body{margin:0;padding:0;height:100%;background:#111;color:#ffd700;font-family:sans-serif;overflow:hidden}
+#gameCanvas{display:block;background:#222}
+.overlay{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;background:rgba(0,0,0,0.8);z-index:10}
+button{background:#444;color:#ffd700;border:none;padding:10px 20px;margin:5px;font-size:1rem;cursor:pointer}
+button:hover{background:#555}
+#joystick{position:absolute;bottom:80px;left:20px;width:80px;height:80px;background:rgba(255,255,255,0.1);border-radius:50%;touch-action:none}
+#joystick .handle{position:absolute;width:40px;height:40px;background:#ffd700;border-radius:50%;top:20px;left:20px;transform:translate(-50%,-50%)}
+#gasBtn,#brakeBtn{position:absolute;bottom:20px;width:60px;height:60px;background:rgba(255,255,255,0.1);border-radius:50%;font-size:1.5rem;line-height:60px;text-align:center;color:#ffd700;user-select:none;touch-action:none}
+#gasBtn{right:100px}
+#brakeBtn{right:20px}
+#hud{position:absolute;top:10px;left:10px;color:#ffd700;font-size:1rem;z-index:5}
+</style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+
+<div id="startScreen" class="overlay">
+<h1>GARUDA GRAND PRIX</h1>
+<button id="startBtn">Start Championship</button>
+<button id="leaderboardBtn">Leaderboard</button>
+</div>
+
+<div id="garageScreen" class="overlay" style="display:none">
+<h2>Garage</h2>
+<div id="carSelect"></div>
+<div id="partsList"></div>
+<button id="raceBtn">Begin Race</button>
+</div>
+
+<div id="resultScreen" class="overlay" style="display:none">
+<h2 id="resultTitle"></h2>
+<p id="resultInfo"></p>
+<button id="nextRaceBtn">Next Race</button>
+<button id="backGarageBtn">Back to Garage</button>
+</div>
+
+<div id="leaderboardScreen" class="overlay" style="display:none">
+<h2>Leaderboard</h2>
+<ol id="leaderboardList"></ol>
+<button id="lbCloseBtn">Close</button>
+</div>
+
+<div id="joystick"><div class="handle"></div></div>
+<div id="gasBtn">⏩</div>
+<div id="brakeBtn">⏸</div>
+<div id="hud"></div>
+
+<footer style="position:absolute;bottom:0;width:100%;text-align:center;color:#777;font-size:0.8rem;padding:5px;background:#000;z-index:20">
+Built by the Tom's Dev live builder · unlisted page
+</footer>
+
+<script>
+(() => {
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const startScreen = document.getElementById('startScreen');
+    const garageScreen = document.getElementById('garageScreen');
+    const resultScreen = document.getElementById('resultScreen');
+    const leaderboardScreen = document.getElementById('leaderboardScreen');
+    const carSelectDiv = document.getElementById('carSelect');
+    const partsListDiv = document.getElementById('partsList');
+    const hud = document.getElementById('hud');
+    const joystick = document.getElementById('joystick');
+    const joystickHandle = joystick.querySelector('.handle');
+    const gasBtn = document.getElementById('gasBtn');
+    const brakeBtn = document.getElementById('brakeBtn');
+
+    // Game state
+    let gameState = 'start'; // start, garage, race, result, leaderboard
+    let raceNumber = 1;
+    const totalRaces = 10;
+    let tokenBalance = 0;
+    const tokenKey = 'garudaTokens';
+    const lbKey = 'garudaLeaderboard';
+    let playerName = '';
+    let playerCar = null;
+    let ownedParts = {engine:0, tires:0, wing:0, turbo:0};
+    const cars = [
+        {id:1,name:'🦅 Bronze',baseSpeed:2,baseHandling:2,rarity:1},
+        {id:2,name:'🦅 Silver',baseSpeed:2.5,baseHandling:2.2,rarity:2},
+        {id:3,name:'🦅 Gold',baseSpeed:3,baseHandling:2.5,rarity:3},
+        {id:4,name:'🦅 Platinum',baseSpeed:3.5,baseHandling:2.8,rarity:4}
+    ];
+    const partsCatalog = {
+        engine:{name:'Engine',cost:20,speedBoost:0.5,handlingBoost:0},
+        tires:{name:'Tires',cost:15,speedBoost:0,handlingBoost:0.3},
+        wing:{name:'Wing',cost:10,speedBoost:0,handlingBoost:0.2},
+        turbo:{name:'Turbo',cost:30,speedBoost:0.8,handlingBoost:0}
+    };
+    const rivals = [];
+    const player = {x:0,y:0,width:30,height:50,speed:0,angle:0,baseSpeed:0,baseHandling:0};
+    const track = {length:5000,progress:0};
+    let keys = {};
+    let joystickDir = {x:0,y:0};
+    let gasPressed = false, brakePressed = false;
+    let lastTime = 0;
+    let raceStartTime = 0;
+    let raceFinished = false;
+    let playerFinishTime = 0;
+    let rivalFinishTimes = [];
+
+    // Init
+    function init() {
+        resizeCanvas();
+        loadTokens();
+        loadLeaderboard();
+        bindUI();
+        requestAnimationFrame(gameLoop);
+    }
+
+    function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+
+    window.addEventListener('resize', resizeCanvas);
+
+    function bindUI() {
+        document.getElementById('startBtn').onclick = () => { startChampionship(); };
+        document.getElementById('leaderboardBtn').onclick = () => { showLeaderboard(); };
+        document.getElementById('lbCloseBtn').onclick = () => { hideLeaderboard(); };
+        document.getElementById('raceBtn').onclick = () => { startRace(); };
+        document.getElementById('nextRaceBtn').onclick = () => { nextRace(); };
+        document.getElementById('backGarageBtn').onclick = () => { openGarage(); };
+        // Keyboard
+        window.addEventListener('keydown', e=>keys[e.key]=true);
+        window.addEventListener('keyup', e=>keys[e.key]=false);
+        // Joystick
+        let dragging = false;
+        joystick.addEventListener('pointerdown', e=>{dragging=true; moveJoystick(e);});
+        window.addEventListener('pointermove', e=>{if(dragging) moveJoystick(e);});
+        window.addEventListener('pointerup', e=>{dragging=false; joystickDir={x:0,y:0}; joystickHandle.style.left='40px'; joystickHandle.style.top='40px';});
+        // Gas/Brake
+        gasBtn.addEventListener('pointerdown',()=>gasPressed=true);
+        gasBtn.addEventListener('pointerup',()=>gasPressed=false);
+        brakeBtn.addEventListener('pointerdown',()=>brakePressed=true);
+        brakeBtn.addEventListener('pointerup',()=>brakePressed=false);
+    }
+
+    function moveJoystick(e){
+        const rect = joystick.getBoundingClientRect();
+        const cx = rect.left+rect.width/2;
+        const cy = rect.top+rect.height/2;
+        const dx = e.clientX-cx;
+        const dy = e.clientY-cy;
+        const max = rect.width/2;
+        const dist = Math.min(Math.hypot(dx,dy),max);
+        const angle = Math.atan2(dy,dx);
+        const nx = Math.cos(angle)*dist;
+        const ny = Math.sin(angle)*dist;
+        joystickHandle.style.left = (40+nx)+'px';
+        joystickHandle.style.top = (40+ny)+'px';
+        joystickDir.x = nx/max;
+        joystickDir.y = ny/max;
+    }
+
+    function startChampionship() {
+        playerName = prompt('Enter your driver name','Racer')||'Racer';
+        raceNumber = 1;
+        tokenBalance = 0;
+        saveTokens();
+        openGarage();
+    }
+
+    function openGarage() {
+        gameState='garage';
+        startScreen.style.display='none';
+        resultScreen.style.display='none';
+        leaderboardScreen.style.display='none';
+        garageScreen.style.display='flex';
+        renderGarage();
+    }
+
+    function renderGarage() {
+        // Car selection
+        carSelectDiv.innerHTML = '<h3>Select Car (NFT)</h3>';
+        cars.forEach(c=>{
+            const btn=document.createElement('button');
+            btn.textContent=`${c.name} (Speed:${c.baseSpeed})`;
+            btn.onclick=()=>{playerCar=c; renderGarage();}
+            if(playerCar && playerCar.id===c.id) btn.style.border='2px solid #ffd700';
+            carSelectDiv.appendChild(btn);
+        });
+        // Parts
+        partsListDiv.innerHTML = '<h3>Buy Parts (Cost in TEST G)</h3>';
+        for(const key in partsCatalog){
+            const part=partsCatalog[key];
+            const owned=ownedParts[key]||0;
+            const btn=document.createElement('button');
+            btn.textContent=`${part.name} x${owned} (+${part.speedBoost}spd/${part.handlingBoost}hdl) - ${part.cost} TEST G`;
+            btn.onclick=()=>{buyPart(key);};
+            partsListDiv.appendChild(btn);
+        }
+        // HUD
+        updateHUD();
+    }
+
+    function buyPart(partKey){
+        const part=partsCatalog[partKey];
+        if(tokenBalance>=part.cost){
+            tokenBalance-=part.cost;
+            ownedParts[partKey]=(ownedParts[partKey]||0)+1;
+            saveTokens();
+            renderGarage();
+        }else{
+            alert('Not enough TEST G');
+        }
+    }
+
+    function startRace(){
+        if(!playerCar){alert('Select a car first');return;}
+        // Setup player stats
+        player.baseSpeed = playerCar.baseSpeed + (ownedParts.engine||0)*partsCatalog.engine.speedBoost + (ownedParts.turbo||0)*partsCatalog.turbo.speedBoost;
+        player.baseHandling = playerCar.baseHandling + (ownedParts.tires||0)*partsCatalog.tires.handlingBoost + (ownedParts.wing||0)*partsCatalog.wing.handlingBoost;
+        player.speed = 0;
+        player.x = canvas.width/2;
+        player.y = canvas.height - 100;
+        player.width = 30;
+        player.height = 50;
+        // Track
+        track.progress=0;
+        raceFinished=false;
+        playerFinishTime=0;
+        rivalFinishTimes=[];
+        // Rivals
+        rivals.length=0;
+        const difficulty = raceNumber;
+        const rivalCount = 3 + difficulty;
+        for(let i=0;i<rivalCount;i++){
+            const speed = player.baseSpeed * (0.8 + 0.1*difficulty) * (0.9+Math.random()*0.2);
+            rivals.push({x:Math.random()*canvas.width, y:-i*200, width:30, height:50, speed});
+        }
+        gameState='race';
+        garageScreen.style.display='none';
+        raceStartTime=performance.now();
+        updateHUD();
+    }
+
+    function nextRace(){
+        if(raceNumber<totalRaces){
+            raceNumber++;
+            openGarage();
+        }else{
+            showChampionshipResult();
+        }
+    }
+
+    function showChampionshipResult(){
+        gameState='result';
+        resultScreen.style.display='flex';
+        document.getElementById('resultTitle').textContent='Championship Complete!';
+        document.getElementById('resultInfo').innerHTML=`Total TEST G Earned: ${tokenBalance}<br>Thanks for playing, ${playerName}!`;
+        document.getElementById('nextRaceBtn').style.display='none';
+    }
+
+    function endRace(){
+        raceFinished=true;
+        playerFinishTime = (performance.now()-raceStartTime)/1000;
+        // Determine podium
+        const allTimes = rivalFinishTimes.concat(playerFinishTime).sort((a,b)=>a-b);
+        const position = allTimes.indexOf(playerFinishTime)+1;
+        let reward=0;
+        if(position===1) reward=20;
+        else if(position===2) reward=12;
+        else if(position===3) reward=8;
+        tokenBalance+=reward;
+        saveTokens();
+        // Show result
+        gameState='result';
+        resultScreen.style.display='flex';
+        document.getElementById('resultTitle').textContent=`Race ${raceNumber} Finished!`;
+        document.getElementById('resultInfo').innerHTML=`Position: ${position}<br>Time: ${playerFinishTime.toFixed(2)}s<br>Earned ${reward} TEST G`;
+        document.getElementById('nextRaceBtn').style.display='inline-block';
+    }
+
+    function updateHUD(){
+        hud.textContent=`Driver: ${playerName} | Race: ${raceNumber}/${totalRaces} | TEST G: ${tokenBalance}`;
+    }
+
+    function gameLoop(timestamp){
+        const delta = (timestamp - lastTime)/1000;
+        lastTime=timestamp;
+        if(gameState==='race'){
+            updateRace(delta);
+            drawRace();
+        }
+        requestAnimationFrame(gameLoop);
+    }
+
+    function updateRace(dt){
+        // Input
+        let steer = 0;
+        if(keys['ArrowLeft']||keys['a']) steer=-1;
+        if(keys['ArrowRight']||keys['d']) steer=1;
+        steer+=joystickDir.x;
+        if(gasPressed||keys['ArrowUp']||keys['w']) player.speed+=player.baseSpeed*dt*2;
+        if(brakePressed||keys['ArrowDown']||keys['s']) player.speed-=player.baseSpeed*dt*2;
+        // Apply handling
+        player.speed = Math.max(0,Math.min(player.baseSpeed*2, player.speed));
+        player.x += steer*player.baseHandling*dt*200;
+        player.x = Math.max(0,Math.min(canvas.width-player.width, player.x));
+        // Move forward
+        track.progress+=player.speed*dt*100;
+        // Move rivals
+        rivals.forEach(r=>{
+            r.y+=r.speed*dt*100;
+            if(r.y>canvas.height+50 && !r.finished){
+                r.finished=true;
+                rivalFinishTimes.push((performance.now()-raceStartTime)/1000);
+            }
+        });
+        // Check finish
+        if(track.progress>=track.length && !raceFinished){
+            // Ensure all rivals finished
+            if(rivalFinishTimes.length===rivals.length){
+                endRace();
+            }
+        }
+    }
+
+    function drawRace(){
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        // Background
+        ctx.fillStyle='#111';
+        ctx.fillRect(0,0,canvas.width,canvas.height);
+        // Road
+        ctx.fillStyle='#333';
+        const roadWidth = canvas.width*0.6;
+        ctx.fillRect((canvas.width-roadWidth)/2,0,roadWidth,canvas.height);
+        // Player car
+        ctx.fillStyle='#ffd700';
+        ctx.fillRect(player.x,player.y,player.width,player.height);
+        // Rivals
+        ctx.fillStyle='#777';
+        rivals.forEach(r=>{
+            ctx.fillRect(r.x, r.y, r.width, r.height);
+        });
+        // HUD
+        updateHUD();
+    }
+
+    // Token persistence
+    function loadTokens(){
+        const val = localStorage.getItem(tokenKey);
+        tokenBalance = val?parseInt(val):0;
+    }
+    function saveTokens(){
+        localStorage.setItem(tokenKey, tokenBalance);
+    }
+
+    // Leaderboard
+    function loadLeaderboard(){
+        const data = localStorage.getItem(lbKey);
+        if(!data) localStorage.setItem(lbKey, JSON.stringify([]));
+    }
+    function saveLeaderboard(entry){
+        const list = JSON.parse(localStorage.getItem(lbKey));
+        list.push(entry);
+        list.sort((a,b)=>b.score-a.score);
+        if(list.length>10) list.length=10;
+        localStorage.setItem(lbKey, JSON.stringify(list));
+    }
+    function showLeaderboard(){
+        gameState='leaderboard';
+        startScreen.style.display='none';
+        garageScreen.style.display='none';
+        resultScreen.style.display='none';
+        leaderboardScreen.style.display='flex';
+        const list = JSON.parse(localStorage.getItem(lbKey));
+        const ol = document.getElementById('leaderboardList');
+        ol.innerHTML='';
+        list.forEach(e=>{
+            const li=document.createElement('li');
+            li.textContent=`${e.name}: ${e.score} TEST G`;
+            ol.appendChild(li);
+        });
+    }
+    function hideLeaderboard(){
+        leaderboardScreen.style.display='none';
+        startScreen.style.display='flex';
+        gameState='start';
+    }
+
+    // Record score after each race
+    function recordScore(){
+        saveLeaderboard({name:playerName,score:tokenBalance});
+    }
+
+    // Hook result screen to record
+    document.getElementById('nextRaceBtn').addEventListener('click',recordScore);
+    document.getElementById('backGarageBtn').addEventListener('click',recordScore);
+
+    init();
+})();
+</script>
+</body>
+</html>
