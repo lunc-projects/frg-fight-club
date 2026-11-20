@@ -4281,8 +4281,8 @@ async function tdaGuideAdvance(row, text) {
    ({paused, contract}). The pause flag is the shop's Emergency
    Stop: the page checks it on load and before every buy, the mint
    service checks it every pass; unset settings = PAUSED (fail
-   closed). Owner actions ride the same builder hash as tda
-   (tdaAuthTier, owner tier). The endpoint holds no keys and signs
+   closed). Service actions ride the builder-runner gate
+   (tdaBuilderGate, body.bhash — the runner's own secret). The endpoint holds no keys and signs
    nothing. */
 const FA2_WARRIORS = ['king', 'queen', 'princess', 'ember', 'shadow', 'captain', 'nightblade', 'soldier', 'starknight', 'brawler'];
 const FA2_SETTINGS_KEY = 'fa2:settings';
@@ -4326,8 +4326,7 @@ export async function frogArena2Handler(req, res) {
       return res.status(200).json({ ok: true, paused: s.paused, contract: s.contract });
     }
     if (action === 'fa2ShopSet') {
-      const auth = await tdaAuthTier(req, res, 'fa2shop', String(body.hash || '').toLowerCase(), 'owner');
-      if (!auth) return undefined;
+      if (!(await tdaBuilderGate(req, res, 'fa2shop', body))) return undefined;
       const s = await fa2GetSettings();
       if (body.paused !== undefined) s.paused = !!body.paused;
       if (body.contract !== undefined) {
@@ -4381,8 +4380,7 @@ export async function frogArena2Handler(req, res) {
       return res.status(200).json({ ok: true, order: fa2PublicOrder(o) });
     }
     if (action === 'fa2Orders') {
-      const auth = await tdaAuthTier(req, res, 'fa2shop', String(body.hash || '').toLowerCase(), 'owner');
-      if (!auth) return undefined;
+      if (!(await tdaBuilderGate(req, res, 'fa2shop', body))) return undefined;
       const listOut = await upstashPipeline([['LRANGE', 'fa2:orders', 0, 99]]);
       const refs = (listOut[0] && listOut[0].result) || [];
       const orders = [];
@@ -4393,8 +4391,7 @@ export async function frogArena2Handler(req, res) {
       return res.status(200).json({ ok: true, orders });
     }
     if (action === 'fa2OrderDone') {
-      const auth = await tdaAuthTier(req, res, 'fa2shop', String(body.hash || '').toLowerCase(), 'owner');
-      if (!auth) return undefined;
+      if (!(await tdaBuilderGate(req, res, 'fa2shop', body))) return undefined;
       const ref = String(body.ref || '').trim().toLowerCase();
       const o = await fa2GetOrder(ref);
       if (!o) return res.status(404).json({ ok: false, error: 'order not found' });
@@ -4403,8 +4400,7 @@ export async function frogArena2Handler(req, res) {
       return res.status(200).json({ ok: true, order: fa2PublicOrder(o) });
     }
     if (action === 'fa2OrderFail') {
-      const auth = await tdaAuthTier(req, res, 'fa2shop', String(body.hash || '').toLowerCase(), 'owner');
-      if (!auth) return undefined;
+      if (!(await tdaBuilderGate(req, res, 'fa2shop', body))) return undefined;
       const ref = String(body.ref || '').trim().toLowerCase();
       const o = await fa2GetOrder(ref);
       if (!o) return res.status(404).json({ ok: false, error: 'order not found' });
