@@ -242,6 +242,13 @@ const GAMES = {
      ~29k, so the cap stays generous per the house rule; rateMul is
      sized from the same ceiling (~85/s at max speed incl. pickups). */
   'lunc-rush-3d': { prefix: 'lr3d', maxScore: 500000, minSec: 10, maxSec: 7200, rateMul: 120, rateBase: 5000 },
+  /* LUNC Moto Speed (client/public/lunc-moto-speed/): the motorcycle
+     sibling of LUNC High Speed — same infinity-speed scoring (distance
+     x1.6 at speed + near-miss bonuses + wheelie bonuses). The page board
+     stays local like High Speed's; this key reserves the shared board
+     under 'luncmoto'. A long run at ~600 km/h scores ~270/s, so the
+     rails stay generous per the house rule. */
+  luncmoto: { prefix: 'luncmoto', maxScore: 2000000, minSec: 5, maxSec: 7200, rateMul: 400, rateBase: 5000 },
 };
 
 function weekKey(d = new Date()) {
