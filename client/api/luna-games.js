@@ -182,6 +182,13 @@ const GAMES = {
      bonus (<=300) + 5000 champion; a full ladder clear lands ~35-65k —
      rails generous per the house rule. */
   frogclash: { prefix: 'frogclash', maxScore: 500000, minSec: 10, maxSec: 3600, rateMul: 300, rateBase: 2000 },
+  /* Frog Arena 2 (client/public/frog-arena-2/): the colorful 3D
+     rebuild on the same engine — score = ladder run total: per level
+     cleared 1000 + 500 x level + remaining-HP bonus (<=300) + 5000
+     champion; a full 10-level clear lands ~40k — rails generous per
+     the house rule. Board key 'frogarena2', fresh (the original
+     Frog Arena's 'frogarena' board above is a different game). */
+  frogarena2: { prefix: 'frogarena2', maxScore: 500000, minSec: 10, maxSec: 3600, rateMul: 300, rateBase: 2000 },
   /* Frog Cards (Frogztrik NFT card battles, client/public/frog-cards/):
      score = ladder run total — 400 x rival level per win + surviving
      hero life x5; a five-rival run lands ~4-8k, endless rematches at the
@@ -4258,6 +4265,162 @@ async function tdaGuideAdvance(row, text) {
   return { finished: false };
 }
 
+/* ================= FROG ARENA 2 — NFT SHOP ORDERS =================
+   The game page calls /api/luna-games?fa2=1 directly. The shop sells
+   Frog Arena Warriors (FAW) NFTs: the buyer picks a warrior + price
+   tier in the page, registers an order here (fa2Order — public,
+   grants NOTHING), pays LUNC to Goliath's wallet from their own
+   wallet with memo `FA2-BUY <ref>`, and reports the tx hash
+   (fa2OrderPaid — a claim only). The mint service (builder-runner
+   fa2-mint.mjs) verifies every order against the chain itself —
+   the tdaRenewSubmit discipline: tx success, bank-send legs read
+   from the tx, recipient = Goliath, sender = the order's buyer,
+   amount >= the tier, memo exact, <= 7 days old, ref single-use —
+   and only then mints. Order state lives at fa2:order:<ref> (JSON),
+   newest-first refs at fa2:orders, shop state at fa2:settings
+   ({paused, contract}). The pause flag is the shop's Emergency
+   Stop: the page checks it on load and before every buy, the mint
+   service checks it every pass; unset settings = PAUSED (fail
+   closed). Owner actions ride the same builder hash as tda
+   (tdaAuthTier, owner tier). The endpoint holds no keys and signs
+   nothing. */
+const FA2_WARRIORS = ['king', 'queen', 'princess', 'ember', 'shadow', 'captain', 'nightblade', 'soldier', 'starknight', 'brawler'];
+const FA2_SETTINGS_KEY = 'fa2:settings';
+const FA2_ORDER_TTL_SEC = 30 * 24 * 3600;
+
+async function fa2GetSettings() {
+  const out = await upstashPipeline([['GET', FA2_SETTINGS_KEY]]);
+  let s = null;
+  try { s = JSON.parse((out[0] && out[0].result) || 'null'); } catch (e) { s = null; }
+  if (!s || typeof s !== 'object') s = {};
+  return { paused: s.paused !== false, contract: String(s.contract || '') };
+}
+async function fa2GetOrder(ref) {
+  const out = await upstashPipeline([['GET', 'fa2:order:' + ref]]);
+  try { return JSON.parse((out[0] && out[0].result) || 'null'); } catch (e) { return null; }
+}
+async function fa2SaveOrder(o) {
+  await upstashPipeline([['SET', 'fa2:order:' + o.ref, JSON.stringify(o), 'EX', FA2_ORDER_TTL_SEC]]);
+}
+function fa2PublicOrder(o) {
+  if (!o) return null;
+  return { ref: o.ref, status: o.status, warrior: o.warrior, tierLunc: Math.round((+o.tierUluna || 0) / 1e6),
+    payTx: o.payTx || '', tokenId: o.tokenId || '', mintTx: o.mintTx || '', error: o.error || '' };
+}
+
+export async function frogArena2Handler(req, res) {
+  if (req.method !== 'GET' && req.method !== 'POST') {
+    return res.status(405).json({ ok: false, error: 'method not allowed' });
+  }
+  if (!process.env.NEONRUSH_UPSTASH_URL || !process.env.NEONRUSH_UPSTASH_TOKEN) {
+    return res.status(500).json({ ok: false, unavailable: true, error: 'storage not configured' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }
+  if (req.method === 'GET' || !body || typeof body !== 'object') body = {};
+  const action = String(body.action || (req.method === 'GET' ? 'fa2ShopState' : ''));
+  try {
+    if (action === 'fa2ShopState') {
+      const s = await fa2GetSettings();
+      return res.status(200).json({ ok: true, paused: s.paused, contract: s.contract });
+    }
+    if (action === 'fa2ShopSet') {
+      const auth = await tdaAuthTier(req, res, 'fa2shop', String(body.hash || '').toLowerCase(), 'owner');
+      if (!auth) return undefined;
+      const s = await fa2GetSettings();
+      if (body.paused !== undefined) s.paused = !!body.paused;
+      if (body.contract !== undefined) {
+        const c = String(body.contract || '').trim().toLowerCase();
+        if (c && !tdaTerraAddr(c)) return res.status(400).json({ ok: false, error: 'bad contract address' });
+        s.contract = c;
+      }
+      await upstashPipeline([['SET', FA2_SETTINGS_KEY, JSON.stringify(s)]]);
+      return res.status(200).json({ ok: true, paused: s.paused, contract: s.contract });
+    }
+    if (action === 'fa2Order') {
+      const ref = String(body.ref || '').trim().toLowerCase();
+      const buyer = String(body.buyer || '').trim().toLowerCase();
+      const warrior = String(body.warrior || '').trim().toLowerCase();
+      const tierLunc = Number(body.tierLunc);
+      if (!/^[a-z0-9][a-z0-9-]{7,47}$/.test(ref)) return res.status(400).json({ ok: false, error: 'bad order ref' });
+      if (!tdaTerraAddr(buyer)) return res.status(400).json({ ok: false, error: 'bad buyer wallet' });
+      if (!FA2_WARRIORS.includes(warrior)) return res.status(400).json({ ok: false, error: 'unknown warrior' });
+      if (!Number.isInteger(tierLunc) || tierLunc < 1 || tierLunc > 1000000) return res.status(400).json({ ok: false, error: 'bad tier' });
+      const existing = await fa2GetOrder(ref);
+      if (existing) {
+        if (existing.buyer === buyer && existing.warrior === warrior && +existing.tierUluna === tierLunc * 1000000) {
+          return res.status(200).json({ ok: true, order: fa2PublicOrder(existing) });
+        }
+        return res.status(409).json({ ok: false, error: 'that order ref is already used for a different order' });
+      }
+      const o = { ref, buyer, warrior, tierUluna: tierLunc * 1000000, status: 'awaiting', payTx: '', tokenId: '', mintTx: '', error: '', created: Date.now() };
+      await fa2SaveOrder(o);
+      await upstashPipeline([['LPUSH', 'fa2:orders', ref], ['LTRIM', 'fa2:orders', 0, 499]]);
+      return res.status(200).json({ ok: true, order: fa2PublicOrder(o) });
+    }
+    if (action === 'fa2OrderPaid') {
+      const ref = String(body.ref || '').trim().toLowerCase();
+      const txhash = String(body.txHash || '').trim().toUpperCase();
+      if (!/^[0-9A-F]{64}$/.test(txhash)) return res.status(400).json({ ok: false, error: 'bad tx hash' });
+      const o = await fa2GetOrder(ref);
+      if (!o) return res.status(404).json({ ok: false, error: 'order not found' });
+      if (o.status === 'awaiting' || o.status === 'paid-claimed') {
+        /* the hash is a claim only — the mint service verifies the
+           payment from the chain itself, so letting the buyer correct
+           a mistyped hash before any mint is safe. */
+        o.payTx = txhash; o.status = 'paid-claimed';
+        await fa2SaveOrder(o);
+      }
+      return res.status(200).json({ ok: true, order: fa2PublicOrder(o) });
+    }
+    if (action === 'fa2OrderStatus') {
+      const ref = String(body.ref || '').trim().toLowerCase();
+      const o = await fa2GetOrder(ref);
+      if (!o) return res.status(404).json({ ok: false, error: 'order not found' });
+      return res.status(200).json({ ok: true, order: fa2PublicOrder(o) });
+    }
+    if (action === 'fa2Orders') {
+      const auth = await tdaAuthTier(req, res, 'fa2shop', String(body.hash || '').toLowerCase(), 'owner');
+      if (!auth) return undefined;
+      const listOut = await upstashPipeline([['LRANGE', 'fa2:orders', 0, 99]]);
+      const refs = (listOut[0] && listOut[0].result) || [];
+      const orders = [];
+      for (const ref of refs) {
+        const o = await fa2GetOrder(ref);
+        if (o) orders.push(o);
+      }
+      return res.status(200).json({ ok: true, orders });
+    }
+    if (action === 'fa2OrderDone') {
+      const auth = await tdaAuthTier(req, res, 'fa2shop', String(body.hash || '').toLowerCase(), 'owner');
+      if (!auth) return undefined;
+      const ref = String(body.ref || '').trim().toLowerCase();
+      const o = await fa2GetOrder(ref);
+      if (!o) return res.status(404).json({ ok: false, error: 'order not found' });
+      o.status = 'done'; o.tokenId = String(body.tokenId || ''); o.mintTx = String(body.mintTx || '').toUpperCase(); o.doneAt = Date.now();
+      await fa2SaveOrder(o);
+      return res.status(200).json({ ok: true, order: fa2PublicOrder(o) });
+    }
+    if (action === 'fa2OrderFail') {
+      const auth = await tdaAuthTier(req, res, 'fa2shop', String(body.hash || '').toLowerCase(), 'owner');
+      if (!auth) return undefined;
+      const ref = String(body.ref || '').trim().toLowerCase();
+      const o = await fa2GetOrder(ref);
+      if (!o) return res.status(404).json({ ok: false, error: 'order not found' });
+      if (o.status !== 'done') {
+        o.status = 'failed'; o.error = String(body.error || 'payment could not be verified').slice(0, 140);
+        await fa2SaveOrder(o);
+      }
+      return res.status(200).json({ ok: true, order: fa2PublicOrder(o) });
+    }
+    return res.status(400).json({ ok: false, error: 'unknown action' });
+  } catch (e) {
+    console.error('fa2 handler failed', e && e.message);
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+}
+
 /* Parse an optional token amount (create / adjust / usage).
    Returns a non-negative integer, or null when malformed. */
 function tdaParseTokens(v, fallback) {
@@ -6469,6 +6632,12 @@ export default async function handler(req, res) {
      Public read of the merged effective settings; writes ride the
      garuda-admin gate, never this route. */
   if (req.query && req.query.garudasettings !== undefined) return garudaSettingsHandler(req, res);
+  /* Frog Arena 2 NFT shop orders: the game page calls
+     /api/luna-games?fa2=1 directly (see the frog-arena-2 block
+     above). Public order registration + status; minting is done by
+     the builder-runner mint service after its own on-chain
+     verification — this endpoint holds no keys and signs nothing. */
+  if (req.query && req.query.fa2 !== undefined) return frogArena2Handler(req, res);
   if (req.query && req.query.frogadmin !== undefined) return frogAdminHandler(req, res);
   if (req.query && req.query.frogsettings !== undefined) return frogSettingsHandler(req, res);
   /* Garuda Dash LEVEL EDITOR data: ?garudaedit=1 (see the garuda-edit

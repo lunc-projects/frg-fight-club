@@ -1800,7 +1800,7 @@ function updateLegend() {
 }
 function slotCfg(r, startX) {
   return {
-    key: r.id, id: r.id, name: r.name, title: r.title,
+    key: r.key || r.id, id: r.id, name: r.name, title: r.title,
     cls: r.cls, skin: r.skin,
     specNames: r.specNames, ultKind: r.ultKind, sparkColor: r.sparkColor,
     maxHp: r.maxHp, aiStyle: r.aiStyle, aiMul: r.aiMul,
@@ -1836,6 +1836,7 @@ function buildSelectCards() {
       (r === cpuFighter ? `<em class="cpuTag">${FC.t('cpuTag')}</em>` : '');
     b.onclick = () => {
       pickFighter = r;
+      if (window.__fa2PickBase) window.__fa2PickBase();
       if (cpuFighter === pickFighter) { const rest = ROSTER.filter(x => x !== pickFighter); cpuFighter = rest[Math.floor(Math.random() * rest.length)]; }
       buildSelectCards();
       applySelection();
@@ -2669,3 +2670,300 @@ document.getElementById('rematch').addEventListener('click', () => {
     console.error(err);
   }
 })();
+
+/* =====================================================================
+   FROG ARENA 2 — FULL TEST layer: NFT shop + owned fighters + ladder.
+   Wallet work lives in fa2wallet.js (the proven Garuda Dash stack);
+   this glue talks to it only through window.__fa2wallet and the
+   hooks below. Orders ride /api/luna-games?fa2=1; the mint service
+   (builder-runner fa2-mint.mjs) verifies payments on-chain itself —
+   nothing here can mint or mark an order paid.
+   ===================================================================== */
+const FA2_API = 'https://frg-fight-club.vercel.app/api/luna-games?fa2=1';
+const FA2_BOARD_API = 'https://frg-fight-club.vercel.app/api/luna-games?game=frogarena2';
+const FA2_GOLIATH = 'terra183yjyennklj77uc47txds9mmpu6vlaecaxk66g';
+const FA2_TIERS = [50000, 100000, 150000, 200000, 500000];
+const FA2_LADDER = ['brawler', 'starknight', 'soldier', 'nightblade', 'princess', 'captain', 'queen', 'shadow', 'ember', 'king'];
+function fa2TierBonus(t) { return t >= 500000 ? 8 : t >= 200000 ? 5 : t >= 150000 ? 4 : t >= 100000 ? 2 : t >= 50000 ? 1 : 0; }
+function fa2BasePower(r) { return r.stats.power + r.stats.speed + r.stats.range; }
+async function fa2Api(body) {
+  const r = await fetch(FA2_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  return r.json().catch(() => null);
+}
+let fa2ShopState = { paused: true, contract: '' };
+let fa2OwnedSel = null;         /* tokenId of the NFT picked as fighter */
+let fa2ShopSel = {};            /* warriorId -> selected tier */
+let fa2Order = null;            /* the live order being watched */
+let fa2PollTimer = null;
+
+/* ---------- owned NFT fighters in the select screen ---------- */
+function fa2OwnedClone(tok, base) {
+  const bonus = fa2TierBonus(tok.tier || 0);
+  const c = JSON.parse(JSON.stringify(base));
+  c.key = base.id + '#nft' + tok.tokenId;
+  c.stats = {
+    power: Math.min(8, base.stats.power + Math.ceil(bonus / 2)),
+    speed: Math.min(8, base.stats.speed + Math.floor(bonus / 3)),
+    range: Math.min(8, base.stats.range + Math.floor(bonus / 4)),
+  };
+  c.maxHp = Math.round(base.maxHp * (1 + bonus * 0.06));
+  c.cls = base.cls + ' · NFT ⚡' + (tok.power || 0);
+  return c;
+}
+function fa2RenderYourRow() {
+  const row = $('fa2YourRow'); if (!row) return;
+  const st = window.__fa2wallet ? window.__fa2wallet.state() : { owned: [] };
+  const owned = st.owned || [];
+  row.innerHTML = '';
+  $('fa2YourWrap').style.display = owned.length ? 'block' : 'none';
+  for (const tok of owned) {
+    const base = ROSTER.find(r => r.name === tok.fighter) || ROSTER.find(r => (tok.name || '').indexOf(r.name) === 0);
+    if (!base) continue;
+    const b = document.createElement('button');
+    b.className = 'fcard' + (fa2OwnedSel === tok.tokenId ? ' sel' : '');
+    b.innerHTML = `<img class="fart" alt="" src="warriors/${base.art}"><b>${base.name}</b><small>${FC.t('nftFighter')} · ⚡${tok.power} · ${Number(tok.tier || 0).toLocaleString('en-US')} LUNC</small>`;
+    b.onclick = () => { if (window.__fa2SelectOwned) window.__fa2SelectOwned(tok); };
+    row.appendChild(b);
+  }
+}
+window.__fa2SelectOwned = (tok) => {
+  const st = window.__fa2wallet ? window.__fa2wallet.state() : null;
+  if (!st || !st.connected) {
+    const el = $('nftStatus'); if (el) el.textContent = FC.t('viewOnly');
+    const p = $('fa2ShopPanel'); if (p) p.style.display = 'block';
+    return;
+  }
+  const base = ROSTER.find(r => r.name === tok.fighter) || ROSTER.find(r => (tok.name || '').indexOf(r.name) === 0) || ROSTER[0];
+  pickFighter = fa2OwnedClone(tok, base);
+  fa2OwnedSel = tok.tokenId;
+  buildSelectCards(); fa2RenderYourRow();
+  applySelection();
+};
+window.__fa2PickBase = () => { fa2OwnedSel = null; fa2RenderYourRow(); };
+window.__fa2OnWallet = () => { fa2RenderYourRow(); fa2RefreshBuyStates(); };
+
+/* ---------- shop ---------- */
+async function fa2LoadShopState() {
+  try {
+    const s = await fa2Api({ action: 'fa2ShopState' });
+    if (s && s.ok) fa2ShopState = { paused: !!s.paused, contract: s.contract || '' };
+  } catch (e) { /* unreadable = stays paused (fail closed) */ }
+  const note = $('fa2PausedNote');
+  if (note) note.style.display = fa2ShopState.paused ? 'block' : 'none';
+  fa2RefreshBuyStates();
+}
+function fa2RefreshBuyStates() {
+  const st = window.__fa2wallet ? window.__fa2wallet.state() : { connected: false };
+  document.querySelectorAll('.fa2buy').forEach(b => { b.disabled = fa2ShopState.paused || !st.connected; });
+}
+function fa2OrderLine(html) { const el = $('fa2OrderStatus'); if (el) el.innerHTML = html; }
+function fa2BuildShop() {
+  const grid = $('fa2ShopGrid'); if (!grid) return;
+  grid.innerHTML = '';
+  for (const r of ROSTER) {
+    fa2ShopSel[r.id] = fa2ShopSel[r.id] || 50000;
+    const card = document.createElement('div');
+    card.className = 'fa2card';
+    const chips = FA2_TIERS.map(t =>
+      `<button type="button" class="fa2chip${t === fa2ShopSel[r.id] ? ' on' : ''}" data-w="${r.id}" data-t="${t}">${t / 1000}k</button>`).join('');
+    card.innerHTML =
+      `<img alt="" src="warriors/${r.art}">` +
+      `<div class="fa2cn">${r.name}</div><div class="fa2ct">${r.title}</div>` +
+      `<div class="fa2chips">${chips}</div>` +
+      `<div class="fa2cp" id="fa2cp-${r.id}"></div>` +
+      `<button type="button" class="fa2buy" id="fa2buy-${r.id}">🛒 ${FC.t('buyNow')}</button>`;
+    grid.appendChild(card);
+    fa2ShopReadout(r);
+  }
+  grid.querySelectorAll('.fa2chip').forEach(ch => {
+    ch.onclick = () => {
+      const r = ROSTER.find(x => x.id === ch.dataset.w);
+      fa2ShopSel[r.id] = +ch.dataset.t;
+      grid.querySelectorAll(`.fa2chip[data-w="${r.id}"]`).forEach(c => c.classList.toggle('on', +c.dataset.t === fa2ShopSel[r.id]));
+      fa2ShopReadout(r);
+    };
+  });
+  grid.querySelectorAll('.fa2buy').forEach(b => {
+    b.onclick = () => fa2Buy(ROSTER.find(x => 'fa2buy-' + x.id === b.id));
+  });
+  fa2RefreshBuyStates();
+}
+function fa2ShopReadout(r) {
+  const el = $('fa2cp-' + r.id); if (!el) return;
+  const t = fa2ShopSel[r.id];
+  el.textContent = t.toLocaleString('en-US') + ' LUNC · ⚡ ' + FC.t('powerWord') + ' ' + (fa2BasePower(r) + fa2TierBonus(t));
+}
+async function fa2Buy(r) {
+  const W = window.__fa2wallet;
+  const st = W ? W.state() : null;
+  if (fa2ShopState.paused) { fa2OrderLine('⏸ ' + FC.t('shopPaused')); return; }
+  if (!st || !st.connected) { fa2OrderLine('🔗 ' + FC.t('connectFirst')); return; }
+  const tier = fa2ShopSel[r.id];
+  const ref = 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+  fa2OrderLine('⏳ ' + FC.t('orderCreating'));
+  let order = null;
+  try {
+    const res = await fa2Api({ action: 'fa2Order', ref, buyer: st.addr, warrior: r.id, tierLunc: tier });
+    if (!res || !res.ok) throw new Error((res && res.error) || 'order failed');
+    order = res.order;
+  } catch (e) { fa2OrderLine('⚠ ' + FC.t('orderFailed') + ' — ' + (e.message || e)); return; }
+  fa2Order = { ref, warrior: r.id, tier };
+  fa2OrderLine('💳 ' + FC.t('orderSending'));
+  let txHash = '';
+  try {
+    const sent = await W.sendLunc(FA2_GOLIATH, tier * 1000000, 'FA2-BUY ' + ref);
+    txHash = sent.transactionHash;
+  } catch (e) {
+    fa2OrderLine('⚠ ' + FC.t('orderFailed') + ' — ' + String((e && e.message) || e).slice(0, 120));
+    return;
+  }
+  fa2OrderLine('⛓ ' + FC.t('orderConfirming') + '<br><a target="_blank" rel="noopener" href="https://finder.terraclassic.community/mainnet/tx/' + txHash + '">' + FC.t('viewTx') + '</a>');
+  try { await fa2Api({ action: 'fa2OrderPaid', ref, txHash }); } catch (e) { /* the mint service also finds payments by memo */ }
+  fa2WatchOrder(ref, txHash);
+}
+function fa2WatchOrder(ref, txHash) {
+  if (fa2PollTimer) clearInterval(fa2PollTimer);
+  let tries = 0;
+  fa2PollTimer = setInterval(async () => {
+    tries++;
+    if (tries > 90) { clearInterval(fa2PollTimer); fa2OrderLine('⏳ ' + FC.t('orderMinting')); return; }
+    let o = null;
+    try { const res = await fa2Api({ action: 'fa2OrderStatus', ref }); o = res && res.order; } catch (e) {}
+    if (!o) return;
+    if (o.status === 'done') {
+      clearInterval(fa2PollTimer);
+      fa2OrderLine('✅ ' + FC.t('orderDone') + ' — #' + o.tokenId +
+        '<br><a target="_blank" rel="noopener" href="https://finder.terraclassic.community/mainnet/tx/' + o.mintTx + '">' + FC.t('viewTx') + '</a>' +
+        ' · <a target="_blank" rel="noopener" href="https://finder.terraclassic.community/mainnet/address/' + fa2ShopState.contract + '">' + FC.t('viewCollection') + '</a>');
+      if (window.__fa2wallet) window.__fa2wallet.refresh();
+    } else if (o.status === 'failed') {
+      clearInterval(fa2PollTimer);
+      fa2OrderLine('⚠ ' + FC.t('orderFailed') + (o.error ? ' — ' + o.error : ''));
+    } else if (o.status === 'paid-claimed') {
+      fa2OrderLine('⛏ ' + FC.t('orderMinting') + '<br><a target="_blank" rel="noopener" href="https://finder.terraclassic.community/mainnet/tx/' + txHash + '">' + FC.t('viewTx') + '</a>');
+    }
+  }, 4000);
+}
+
+/* ---------- leaderboard ---------- */
+async function fa2LoadBoard() {
+  const body = $('fa2BoardBody'); if (!body) return;
+  body.innerHTML = '<p class="fa2note">' + FC.t('loading') + '</p>';
+  try {
+    const r = await fetch(FA2_BOARD_API);
+    const j = await r.json();
+    const rows = (j && j.all) || [];
+    body.innerHTML = !rows.length ? '<p class="fa2note">' + FC.t('noScores') + '</p>'
+      : rows.slice(0, 10).map((x, i) => `<div class="fa2lbrow"><span>${i + 1}. ${String(x.name || 'PLAYER').replace(/[<>&]/g, '')}</span><b>${Number(x.score || 0).toLocaleString('en-US')}</b></div>`).join('');
+  } catch (e) { body.innerHTML = '<p class="fa2note">' + FC.t('boardFail') + '</p>'; }
+}
+
+/* ---------- ladder ---------- */
+let fa2Mode = 'single';
+let fa2Level = 0, fa2RunScore = 0, fa2RunStart = 0, fa2Handled = false, fa2Posted = false;
+function fa2LadderCpu(idx) {
+  const base = ROSTER.find(r => r.id === FA2_LADDER[idx]);
+  const L = idx + 1;
+  const c = JSON.parse(JSON.stringify(base));
+  c.key = base.id + '#L' + L;
+  c.aiMul = base.aiMul * (1.25 - 0.05 * L);
+  c.stats = { power: Math.max(1, Math.min(8, Math.round(base.stats.power * (0.8 + 0.045 * L)))), speed: base.stats.speed, range: base.stats.range };
+  c.maxHp = Math.round(base.maxHp * (0.9 + 0.03 * L));
+  return c;
+}
+async function fa2StartLevel() {
+  cpuFighter = fa2LadderCpu(fa2Level);
+  fa2Handled = false;
+  $('ladderNext').style.display = 'none';
+  $('ladderRetry').style.display = 'none';
+  $('rematch').style.display = 'none';
+  try { await applySelection(); } catch (e) { console.warn('ladder fighter load failed', e); }
+  startMatch();
+  setTimeout(() => { if (fa2Mode === 'ladder' && game.phase === 'intro') showBanner(FC.tf('ladderLevel', fa2Level + 1, 10), cpuFighter.name, 1.1); }, 150);
+}
+async function fa2StartLadder() {
+  AudioSys.init(); AudioSys.bell();
+  fa2Mode = 'ladder'; fa2Level = 0; fa2RunScore = 0; fa2Posted = false;
+  fa2RunStart = performance.now();
+  $('menu').style.display = 'none';
+  await fa2StartLevel();
+}
+async function fa2PostScore() {
+  if (fa2Posted || fa2RunScore <= 0) return;
+  fa2Posted = true;
+  const secs = Math.max(10, Math.round((performance.now() - fa2RunStart) / 1000));
+  const st = window.__fa2wallet ? window.__fa2wallet.state() : {};
+  const name = (st.connected && st.addr ? st.addr.slice(0, 14) : FC.t('guest')).slice(0, 16);
+  let ok = false;
+  try {
+    const r = await fetch(FA2_BOARD_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, score: fa2RunScore, seconds: secs, wallet: '' }) });
+    const j = await r.json(); ok = !!(j && j.ok !== false);
+  } catch (e) {}
+  const el = $('fa2LadderInfo');
+  if (el) el.textContent = (ok ? FC.t('scorePosted') : FC.t('scoreFailed')) + ' · ' + fa2RunScore.toLocaleString('en-US');
+}
+setInterval(() => {
+  if (fa2Mode !== 'ladder') return;
+  if (game.phase === 'menu') { fa2Mode = 'single'; $('ladderNext').style.display = 'none'; $('ladderRetry').style.display = 'none'; return; }
+  if (game.phase !== 'matchEnd' || fa2Handled) return;
+  fa2Handled = true;
+  $('rematch').style.display = 'none';
+  if (P1.roundsWon >= 2) {
+    fa2RunScore += 1000 + 500 * (fa2Level + 1) + Math.min(300, Math.max(0, Math.round(P1.hp)));
+    if (fa2Level >= 9) {
+      showBanner(FC.t('champion'), FC.t('championSub'), 3.2);
+      fa2PostScore();
+      $('ladderRetry').textContent = '🏆 ' + FC.t('newRun');
+      $('ladderRetry').style.display = 'block';
+    } else {
+      showBanner(FC.t('matchWon'), FC.tf('ladderLevel', fa2Level + 2, 10) + ' — ' + ROSTER.find(r => r.id === FA2_LADDER[fa2Level + 1]).name, 2.2);
+      $('ladderNext').style.display = 'block';
+    }
+  } else {
+    showBanner(FC.t('defeated'), FC.tf('ladderLevel', fa2Level + 1, 10), 2.4);
+    fa2PostScore();
+    $('ladderRetry').textContent = '↻ ' + FC.t('retryLadder');
+    $('ladderRetry').style.display = 'block';
+  }
+}, 300);
+
+/* ---------- menu wiring ---------- */
+function fa2ApplyTexts() {
+  const set = (id, txt) => { const el = $(id); if (el) el.textContent = txt; };
+  set('fa2LadderBtn', '🏆 ' + FC.t('ladderBtn'));
+  set('fa2ShopBtn', '🛒 ' + FC.t('shopBtn'));
+  set('fa2BoardBtn', '🏅 ' + FC.t('leaderboard'));
+  set('fa2YourLabel', '⭐ ' + FC.t('yourFighters'));
+  set('fa2OwnedLabel', '⭐ ' + FC.t('yourFighters'));
+  set('fa2ShopTitle', '🛒 ' + FC.t('shopTitle'));
+  set('fa2ShopNote', FC.t('shopNote'));
+  set('ladderNext', '▶ ' + FC.t('nextLevel'));
+  document.querySelectorAll('.fa2buy').forEach(b => { b.textContent = '🛒 ' + FC.t('buyNow'); });
+  for (const r of ROSTER) fa2ShopReadout(r);
+}
+document.getElementById('fa2LadderBtn').addEventListener('click', fa2StartLadder);
+document.getElementById('ladderNext').addEventListener('click', async () => { AudioSys.init(); fa2Level++; await fa2StartLevel(); });
+document.getElementById('ladderRetry').addEventListener('click', async () => { $('menu').style.display = 'none'; fa2Mode = 'ladder'; fa2Level = 0; fa2RunScore = 0; fa2Posted = false; fa2RunStart = performance.now(); await fa2StartLevel(); });
+document.getElementById('fightBtn').addEventListener('click', () => { fa2Mode = 'single'; $('ladderNext').style.display = 'none'; $('ladderRetry').style.display = 'none'; });
+document.getElementById('fa2ShopBtn').addEventListener('click', () => {
+  const p = $('fa2ShopPanel');
+  p.style.display = p.style.display === 'block' ? 'none' : 'block';
+  if (p.style.display === 'block') { fa2LoadShopState(); p.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+});
+document.getElementById('fa2BoardBtn').addEventListener('click', () => {
+  const p = $('fa2BoardPanel');
+  p.style.display = p.style.display === 'block' ? 'none' : 'block';
+  if (p.style.display === 'block') fa2LoadBoard();
+});
+{ const ls = document.getElementById('langSel'); if (ls) ls.addEventListener('change', () => setTimeout(fa2ApplyTexts, 60)); }
+fa2BuildShop();
+fa2ApplyTexts();
+fa2LoadShopState();
+
+/* QA hooks (ladder walk): ?qa= runs only — force a match win
+   through the real endRound path so the ladder advances. */
+window.__fa2 = {
+  startLadder: fa2StartLadder,
+  state: () => ({ mode: fa2Mode, level: fa2Level + 1, score: fa2RunScore, shopPaused: fa2ShopState.paused, contract: fa2ShopState.contract, phase: game.phase, p1Rounds: P1.roundsWon, p2Rounds: P2.roundsWon, nextVisible: $('ladderNext').style.display, retryVisible: $('ladderRetry').style.display }),
+  debugWinMatch: () => { if (game.phase === 'fight' || game.phase === 'intro') { P2.hp = 1; P1.roundsWon = 1; endRound(P1, 'K.O.'); } },
+};
