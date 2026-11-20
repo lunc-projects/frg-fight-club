@@ -4419,7 +4419,25 @@ export async function tdaHandler(req, res) {
       const seenRows = await upstashPipeline(seats.map(s => ['GET', 'tda:ownerseen:' + s.id]).concat([['GET', 'tda:ownerseen:owner']]));
       seats.forEach((s, i) => { s.seen = Number((seenRows[i] && seenRows[i].result) || 0) || 0; });
       const ownerSeen = Number((seenRows[seats.length] && seenRows[seats.length].result) || 0) || 0;
-      return res.status(200).json({ ok: true, seats, settings, ownerSeen });
+      /* Owner people-list (Nov 20): per-seat last activity from the
+         request index, so the Chat people list can sort by it and
+         show it even for a seat whose rows sit outside the thread
+         payload window. Read-only — no seat data is written. */
+      const lastBySeat = {};
+      const idxOut = await upstashPipeline([['LRANGE', 'tda:reqs', 0, 199]]);
+      const idxIds = (idxOut[0] && idxOut[0].result) || [];
+      if (idxIds.length) {
+        const idxRows = await upstashPipeline(idxIds.map(id => ['HGETALL', 'tda:req:' + id]));
+        for (const r of idxRows) {
+          const o = tdaHashToObj(r && r.result);
+          if (!o.id) continue;
+          const sid = String(o.seatId || 'owner');
+          const ts = Math.max(Number(o.updated) || 0, Number(o.created) || 0);
+          if (ts > (lastBySeat[sid] || 0)) lastBySeat[sid] = ts;
+        }
+      }
+      seats.forEach(s => { s.lastActive = lastBySeat[s.id] || 0; });
+      return res.status(200).json({ ok: true, seats, settings, ownerSeen, ownerLast: lastBySeat.owner || 0 });
     }
 
     if (action === 'tdaSeenMark') {
@@ -4676,7 +4694,12 @@ export async function tdaHandler(req, res) {
       /* Seat isolation: a seat's list is filtered to its own rows
          server-side — other seats' rows never leave this function. */
       if (auth.tier === 'seat') objs = objs.filter(o => String(o.seatId || '') === String(auth.seat.id));
-      objs = objs.slice(0, TDA_LIST_CAP);
+      /* The 50-row cap is a per-seat payload limit. The owner tier
+         gets the full request index (at most 200 rows — the index's
+         own storage cap): capping the owner at 50 let the busiest
+         seat's newest rows crowd every other seat out of the owner's
+         Chat people list and thread view (Nov 20 fix). */
+      if (auth.tier !== 'owner') objs = objs.slice(0, TDA_LIST_CAP);
       /* Resolve seat names for owner labels (few seats; archived
          seats keep their names so old threads stay attributed). */
       const seatIds = [...new Set(objs.map(o => String(o.seatId || 'owner')))];

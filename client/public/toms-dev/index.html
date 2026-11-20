@@ -952,6 +952,7 @@ async function loadSeats(){
     seenCache = {};
     seatsCache.forEach(s => { seenCache[s.id] = Number(s.seen) || 0; });
     seenCache.owner = Number(j.ownerSeen) || 0;
+    ownerLastCache = Number(j.ownerLast) || 0;
     renderPool();
     renderSeats();
     if (typeof render === 'function') render(lastReqs);
@@ -2127,6 +2128,7 @@ function bubbleHTML(r){
    of this; their thread is their own rows, unchanged. ===== */
 let openPerson = null;   /* owner-only: seatId whose thread is open; null = people list */
 let seenCache = {};      /* owner-only: seatId -> last-seen ts (tdaSeatList / tdaSeenMark) */
+let ownerLastCache = 0;  /* owner-only: newest ts among the owner's own rows (tdaSeatList ownerLast) */
 function personOf(r){ return String(r.seatId || 'owner'); }
 function peopleAgg(){
   const agg = new Map();
@@ -2137,6 +2139,27 @@ function peopleAgg(){
     if (r.seatName) a.name = r.seatName;
     a.count++;
     a.last = Math.max(a.last, Number(r.updated) || 0, Number(r.created) || 0);
+  }
+  /* Seat records are the source of truth (Nov 20 fix): the thread
+     payload alone under-reports — it is a capped window, so the
+     busiest seat filled it and every other seat vanished, with
+     counts read as rows-in-window instead of real totals. Every
+     ACTIVE seat with requests is listed from its seat record
+     (same name + request count as the Seats panel); REMOVED seats
+     never appear. Last activity merges the thread rows with the
+     seat's server-side lastActive. */
+  if (Array.isArray(seatsCache) && seatsCache.length){
+    for (const s of seatsCache){
+      if (!s.active){ agg.delete(s.id); continue; }
+      if (!(Number(s.reqs) > 0)) continue;
+      let a = agg.get(s.id);
+      if (!a){ a = { id: s.id, name: '', count: 0, last: 0 }; agg.set(s.id, a); }
+      if (s.name) a.name = s.name;
+      a.count = Number(s.reqs) || 0;
+      a.last = Math.max(a.last, Number(s.lastActive) || 0);
+    }
+    const own = agg.get('owner');
+    if (own) own.last = Math.max(own.last, ownerLastCache || 0);
   }
   const list = [...agg.values()];
   for (const a of list){
