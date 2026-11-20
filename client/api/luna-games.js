@@ -4331,7 +4331,7 @@ export async function frogArena2Handler(req, res) {
       if (body.paused !== undefined) s.paused = !!body.paused;
       if (body.contract !== undefined) {
         const c = String(body.contract || '').trim().toLowerCase();
-        if (c && !tdaTerraAddr(c)) return res.status(400).json({ ok: false, error: 'bad contract address' });
+        if (c && !/^terra1[a-z0-9]{38}([a-z0-9]{20})?$/.test(c)) return res.status(400).json({ ok: false, error: 'bad contract address' });
         s.contract = c;
       }
       await upstashPipeline([['SET', FA2_SETTINGS_KEY, JSON.stringify(s)]]);
