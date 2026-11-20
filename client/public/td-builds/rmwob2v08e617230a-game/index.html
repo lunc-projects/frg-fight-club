@@ -19,6 +19,7 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#000;font-fa
 .list div{padding:5px;border-bottom:1px solid #444;cursor:pointer;}
 .list div.selected{background:#555;}
 footer{position:absolute;bottom:0;width:100%;text-align:center;font-size:12px;color:#777;}
+#raceScreen{position:absolute;top:0;left:0;width:100%;flex-direction:row;justify-content:space-around;align-items:center;background:rgba(10,8,4,0.55);padding:8px 4px;font-size:15px;pointer-events:none;z-index:5;box-sizing:border-box;}
 </style>
 </head>
 <body>
@@ -46,7 +47,7 @@ footer{position:absolute;bottom:0;width:100%;text-align:center;font-size:12px;co
   <button id="btnBackFromGarage">Back</button>
 </div>
 
-<div id="raceScreen" class="screen" style="display:none;">
+<div id="raceScreen" style="display:none;">
   <h2>Race <span id="raceNumber"></span> / 10</h2>
   <div>Lap: <span id="lapNumber"></span> / 3</div>
   <div>Position: <span id="positionDisplay"></span></div>
@@ -203,14 +204,59 @@ footer{position:absolute;bottom:0;width:100%;text-align:center;font-size:12px;co
   window.addEventListener('keydown',e=>keys[e.key]=true);
   window.addEventListener('keyup',e=>keys[e.key]=false);
 
-  // Game objects
-  const track = {
-    // Simple rectangular loop
-    innerRect: {x:100, y:150, w:canvas.width-200, h:canvas.height-300},
-    outerRect: {x:50, y:100, w:canvas.width-100, h:canvas.height-200}
-  };
+  // Game objects — the track is a rectangular temple-court
+  // ring: an outer wall and an infield block, with the racing
+  // line running around the corridor between them. The
+  // centreline is sampled into waypoints; rivals ride the
+  // line (always upright, always on the road), the player
+  // drives freely inside the ring and is lap-counted by
+  // nearest-waypoint progress around the same line.
+  const RIVAL_COLORS = ['#44aaff','#37c978','#b678ff','#ff9f43','#e8e8f2','#ff6b9d'];
+  let track = null;
+  let waypoints = [];
+  const WP_SPACING = 32;
+  let steerVis = 0; // player's current steer input, for the front wheels
+  function computeTrack(){
+    const W = canvas.width, H = canvas.height;
+    const outer = {x:14, y:64, w:W-28, h:H-88};
+    const inner = {x:outer.x+84, y:outer.y+84, w:outer.w-168, h:outer.h-168};
+    track = { outerRect: outer, innerRect: inner };
+    const cx = outer.x + 42, cy = outer.y + 42, cw = outer.w - 84, ch = outer.h - 84;
+    const edges = [
+      {x1:cx, y1:cy+ch, x2:cx+cw, y2:cy+ch},   // bottom straight, heading right
+      {x1:cx+cw, y1:cy+ch, x2:cx+cw, y2:cy},   // right side, heading up
+      {x1:cx+cw, y1:cy, x2:cx, y2:cy},         // top straight, heading left
+      {x1:cx, y1:cy, x2:cx, y2:cy+ch}          // left side, heading down
+    ];
+    const pts = [];
+    for (const e of edges) {
+      const len = Math.hypot(e.x2-e.x1, e.y2-e.y1);
+      const steps = Math.max(2, Math.round(len/WP_SPACING));
+      for (let i=0;i<steps;i++) {
+        const t = i/steps;
+        pts.push({x: e.x1 + (e.x2-e.x1)*t, y: e.y1 + (e.y2-e.y1)*t});
+      }
+    }
+    waypoints = pts.map((p,i)=>{
+      const n = pts[(i+1)%pts.length];
+      const ang = Math.atan2(n.y-p.y, n.x-p.x);
+      return {x:p.x, y:p.y, ang, nx:-Math.sin(ang), ny:Math.cos(ang)};
+    });
+  }
+  computeTrack();
+  window.addEventListener('resize', computeTrack);
+  function pointAt(wf){
+    const N = waypoints.length;
+    if (!N) return {x:0, y:0, ang:0, nx:0, ny:1};
+    const fl = Math.floor(wf);
+    const i0 = ((fl%N)+N)%N;
+    const i1 = (i0+1)%N;
+    const fr = wf - fl;
+    const a = waypoints[i0], b = waypoints[i1];
+    return { x: a.x+(b.x-a.x)*fr, y: a.y+(b.y-a.y)*fr, ang: a.ang, nx: a.nx, ny: a.ny };
+  }
   const player = {
-    x:0,y:0,angle:0,speed:0,lap:0,finished:false
+    x:0,y:0,angle:0,speed:0,lap:0,finished:false,prog:0,local:0,startProg:0
   };
   const rivals = [];
   const maxLaps = 3;
@@ -273,35 +319,56 @@ footer{position:absolute;bottom:0;width:100%;text-align:center;font-size:12px;co
     raceTimes=[];
     startRace();
   }
+  let raceSetup = false;
   function startRace(){
-    // Initialize player position at start line (bottom middle)
-    player.x = track.innerRect.x + track.innerRect.w/2;
-    player.y = track.innerRect.y + track.innerRect.h - 20;
-    player.angle = -Math.PI/2;
-    player.speed=0;
-    player.lap=0;
-    player.finished=false;
-    // Initialize rivals based on difficulty
-    rivals.length=0;
+    computeTrack();
+    const startWf = 2; // just past the start line on the bottom straight
+    const sp = pointAt(startWf);
+    player.x = sp.x;
+    player.y = sp.y;
+    player.angle = sp.ang;
+    player.speed = 0;
+    player.lap = 0;
+    player.finished = false;
+    player.prog = startWf;
+    player.local = startWf;
+    player.startProg = startWf;
+    // Rivals grid up behind the start line, each in its own
+    // lane of the corridor, riding the racing line.
+    rivals.length = 0;
     const opponentCount = Math.min(3 + raceNumber, 6);
-    for(let i=0;i<opponentCount;i++){
-      const opp = {
-        x: player.x,
-        y: player.y + (i+1)*30,
-        angle: player.angle,
-        speed: 0,
-        lap:0,
-        finished:false,
-        // stats based on race number
-        baseSpeed: 2 + raceNumber*0.2,
-        baseHandling: 2 + raceNumber*0.1
-      };
-      rivals.push(opp);
+    const lanes = [-24, 24, -13, 13, -30, 0];
+    for (let i=0;i<opponentCount;i++){
+      rivals.push({
+        wf: startWf - 2.4*(i+1),
+        startWf: startWf - 2.4*(i+1),
+        lane: lanes[i % lanes.length],
+        factor: 0.93 + (i%4)*0.04,
+        x: 0, y: 0, angle: 0, lap: 0, finished: false,
+        baseSpeed: 218 + raceNumber*9, // px per second
+        hue: RIVAL_COLORS[i % RIVAL_COLORS.length]
+      });
     }
-    raceInProgress=true;
-    raceStartTime=performance.now();
+    placeRivals();
+    raceSetup = true;
+    raceInProgress = true;
+    raceStartTime = performance.now();
     switchState(STATE.RACE);
     updateRaceHUD();
+  }
+  // Rival positions are derived from their place on the
+  // racing line every frame — upright and on the road by
+  // construction, heading along the line's tangent.
+  function placeRivals(){
+    const N = waypoints.length;
+    if (!N) return;
+    for (const r of rivals) {
+      const p = pointAt(r.wf);
+      r.x = p.x + p.nx * r.lane;
+      r.y = p.y + p.ny * r.lane;
+      r.angle = p.ang;
+      r.lap = Math.max(0, Math.floor((r.wf - r.startWf) / N));
+    }
   }
   function updateRaceHUD(){
     raceNumberSpan.textContent = raceNumber;
@@ -310,30 +377,20 @@ footer{position:absolute;bottom:0;width:100%;text-align:center;font-size:12px;co
     positionDisplay.textContent = calculatePosition();
   }
   function calculatePosition(){
-    // Simple: count how many opponents have higher lap or same lap but closer to finish line
-    let pos=1;
-    rivals.forEach(r=>{
-      if(r.finished) return;
-      if(r.lap>player.lap) pos++;
-      else if(r.lap===player.lap){
-        const playerDist = distanceToFinish(player);
-        const oppDist = distanceToFinish(r);
-        if(oppDist<playerDist) pos++;
-      }
-    });
+    // Progress is measured in waypoints around the same
+    // line for everyone, so positions compare directly.
+    let pos = 1;
+    for (const r of rivals) if (r.wf > player.prog + 0.001) pos++;
     return pos;
-  }
-  function distanceToFinish(car){
-    // Approximate distance along track to next lap line (top middle)
-    const finishX = track.innerRect.x + track.innerRect.w/2;
-    const finishY = track.innerRect.y + 20;
-    return Math.hypot(car.x-finishX, car.y-finishY);
   }
 
   // Main loop
-  function gameLoop(){
+  let lastTs = 0;
+  function gameLoop(ts){
+    const dt = Math.min(0.05, lastTs ? (ts-lastTs)/1000 : 0.016);
+    lastTs = ts;
     if(currentState===STATE.RACE && raceInProgress){
-      updatePhysics();
+      updatePhysics(dt);
       renderScene();
       updateRaceHUD();
     }else{
@@ -356,68 +413,99 @@ footer{position:absolute;bottom:0;width:100%;text-align:center;font-size:12px;co
       }
     });
     return {
-      maxSpeed: (base.baseSpeed*speedMul)*2,
+      maxSpeed: (base.baseSpeed*speedMul)*120, // px per second
       acceleration: 0.1*speedMul,
       handling: (base.baseHandling*handlingMul)*0.05
     };
   }
-  function updatePhysics(){
+  function updatePhysics(dt){
     // Player input
     const stats = getPlayerStats();
-    const steerInput = (keys['ArrowLeft']||keys['a']?-1:0)+(keys['ArrowRight']||keys['d']?1:0)+steerValue;
+    const steerInput = Math.max(-1, Math.min(1,
+      (keys['ArrowLeft']||keys['a']?-1:0)+(keys['ArrowRight']||keys['d']?1:0)+steerValue));
+    steerVis = steerInput;
     const gasInput = (keys['ArrowUp']||keys['w']?1:0)+(gasPressed?1:0);
     const brakeInput = (keys['ArrowDown']||keys['s']?1:0)+(brakePressed?1:0);
-    // Steering
-    player.angle += steerInput * stats.handling;
-    // Speed
-    if(gasInput) player.speed+=stats.acceleration;
-    if(brakeInput) player.speed-=stats.acceleration*1.5;
-    // Friction
-    player.speed*=0.98;
-    // Clamp speed
-    if(player.speed>stats.maxSpeed) player.speed=stats.maxSpeed;
-    if(player.speed<0) player.speed=0;
+    // Steering — authority grows with speed, capped so the
+    // car turns like a car, not a top.
+    const authority = 0.35 + 0.65*Math.min(1, Math.abs(player.speed)/70);
+    const turnRate = Math.min(3.4, stats.handling*26) * authority;
+    player.angle += steerInput * turnRate * dt;
+    // Speed (px per second)
+    if (gasInput) player.speed += 320*dt;
+    else if (brakeInput) player.speed -= 520*dt;
+    else player.speed -= Math.sign(player.speed)*Math.min(Math.abs(player.speed), 90*dt);
+    if (player.speed > stats.maxSpeed) player.speed = Math.max(stats.maxSpeed, player.speed - 260*dt);
+    if (player.speed < 0) player.speed = 0;
     // Move
-    player.x += Math.cos(player.angle)*player.speed;
-    player.y += Math.sin(player.angle)*player.speed;
-    // Track bounds and lap detection
-    checkLapAndBounds(player);
-    // Rivals AI
-    rivals.forEach(r=>{
-      // Simple AI: follow center line with slight offset
-      const targetX = track.innerRect.x + track.innerRect.w/2 + (Math.random()*20-10);
-      const targetY = track.innerRect.y + track.innerRect.h/2;
-      const dx = targetX - r.x;
-      const dy = targetY - r.y;
-      const desiredAngle = Math.atan2(dy,dx);
-      const angleDiff = ((desiredAngle - r.angle + Math.PI*3)% (Math.PI*2)) - Math.PI;
-      r.angle += Math.sign(angleDiff)*r.baseHandling*0.02;
-      // Speed
-      r.speed += r.baseSpeed*0.02;
-      if(r.speed>r.baseSpeed*2) r.speed=r.baseSpeed*2;
-      r.x += Math.cos(r.angle)*r.speed;
-      r.y += Math.sin(r.angle)*r.speed;
-      checkLapAndBounds(r);
-    });
+    player.x += Math.cos(player.angle)*player.speed*dt;
+    player.y += Math.sin(player.angle)*player.speed*dt;
+    collideWalls(player);
+    updatePlayerProgress();
+    player.lap = Math.max(0, Math.floor((player.prog - player.startProg) / waypoints.length));
+    // Rivals ride the racing line; a rival closing on a
+    // slower car in the same lane matches its speed instead
+    // of piling into it.
+    for (const r of rivals) {
+      let v = r.baseSpeed * r.factor * (r.finished ? 0.55 : 1);
+      for (const o of rivals) {
+        if (o === r) continue;
+        const gap = o.wf - r.wf;
+        if (gap > 0 && gap < 1.4 && Math.abs(o.lane - r.lane) < 14) {
+          v = Math.min(v, o.baseSpeed * o.factor * (o.finished ? 0.55 : 1));
+        }
+      }
+      r.wf += (v * dt) / WP_SPACING;
+      if (!r.finished && Math.floor((r.wf - r.startWf) / waypoints.length) >= maxLaps) r.finished = true;
+    }
+    placeRivals();
     // Check race end
     if(!player.finished && player.lap>=maxLaps){
       player.finished=true;
       endRace();
     }
   }
-  function checkLapAndBounds(car){
-    const inner = track.innerRect;
-    // Simple rectangular bounds: if car goes beyond outer rect, push back
-    const outer = track.outerRect;
-    if(car.x<outer.x) car.x=outer.x;
-    if(car.x>outer.x+outer.w) car.x=outer.x+outer.w;
-    if(car.y<outer.y) car.y=outer.y;
-    if(car.y>outer.y+outer.h) car.y=outer.y+outer.h;
-    // Lap detection: crossing top line moving upward
-    const finishLineY = inner.y + 20;
-    if(car.y<finishLineY && car.speed>0 && Math.abs(car.angle+Math.PI/2)<0.5){
-      car.lap++;
+  // Keep the player inside the ring: clamp at the outer
+  // wall, push out of the infield block along the smallest
+  // penetration, and scrub speed on contact.
+  function collideWalls(car){
+    const R = 14;
+    const o = track.outerRect, inr = track.innerRect;
+    if (car.x < o.x+R) { car.x = o.x+R; hitWall(); }
+    if (car.x > o.x+o.w-R) { car.x = o.x+o.w-R; hitWall(); }
+    if (car.y < o.y+R) { car.y = o.y+R; hitWall(); }
+    if (car.y > o.y+o.h-R) { car.y = o.y+o.h-R; hitWall(); }
+    if (car.x > inr.x-R && car.x < inr.x+inr.w+R && car.y > inr.y-R && car.y < inr.y+inr.h+R) {
+      const dl = car.x-(inr.x-R), dr = (inr.x+inr.w+R)-car.x;
+      const dtp = car.y-(inr.y-R), db = (inr.y+inr.h+R)-car.y;
+      const m = Math.min(dl, dr, dtp, db);
+      if (m === dl) car.x = inr.x-R;
+      else if (m === dr) car.x = inr.x+inr.w+R;
+      else if (m === dtp) car.y = inr.y-R;
+      else car.y = inr.y+inr.h+R;
+      hitWall();
     }
+  }
+  function hitWall(){ player.speed *= 0.55; }
+  // Lap progress from the nearest racing-line waypoint,
+  // unwrapped so crossing the start line counts exactly
+  // once per loop — driving backwards unwinds it again.
+  function updatePlayerProgress(){
+    const N = waypoints.length;
+    if (!N) return;
+    const prev = ((Math.round(player.local)%N)+N)%N;
+    let best = prev, bd = Infinity;
+    for (let k=-12;k<=12;k++){
+      const i = ((prev+k)%N+N)%N;
+      const dx = waypoints[i].x-player.x, dy = waypoints[i].y-player.y;
+      const d = dx*dx+dy*dy;
+      if (d<bd){ bd=d; best=i; }
+    }
+    let delta = best - prev;
+    if (delta < -N/2) delta += N;
+    if (delta > N/2) delta -= N;
+    player.prog += delta;
+    player.local = best;
   }
   function endRace(){
     raceInProgress=false;
@@ -457,69 +545,127 @@ footer{position:absolute;bottom:0;width:100%;text-align:center;font-size:12px;co
     }
   }
 
-  // Rendering
+  // Rendering — a top-down temple circuit: bronze apron,
+  // gold rim, warm stone track ring you can actually read,
+  // chequered start line, and the infield block carrying
+  // the GARUDA name. No per-frame randomness (the old storm
+  // clouds flickered) and no full-screen dimmer over the
+  // race (the old HUD screen did that).
   function renderScene(){
-    // Clear
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-    // Draw sky gradient
-    const skyGrad = ctx.createLinearGradient(0,0,0,canvas.height/2);
-    skyGrad.addColorStop(0,'#0a0a2a');
-    skyGrad.addColorStop(1,'#1a1a3a');
-    ctx.fillStyle=skyGrad;
-    ctx.fillRect(0,0,canvas.width,canvas.height/2);
-    // Storm clouds (simple dark ellipses)
-    ctx.fillStyle='rgba(20,20,40,0.6)';
-    for(let i=0;i<5;i++){
-      const cx = Math.random()*canvas.width;
-      const cy = Math.random()*canvas.height/2;
-      ctx.beginPath();
-      ctx.ellipse(cx,cy,80+Math.random()*40,50+Math.random()*30,0,0,Math.PI*2);
-      ctx.fill();
+    const W = canvas.width, H = canvas.height;
+    ctx.fillStyle = '#14100b';
+    ctx.fillRect(0,0,W,H);
+    if (!track) return;
+    const o = track.outerRect, inr = track.innerRect;
+    // Bronze apron + gold rim
+    ctx.fillStyle = '#6e4f16';
+    ctx.fillRect(o.x-8, o.y-8, o.w+16, o.h+16);
+    ctx.strokeStyle = '#d4af37';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(o.x-8, o.y-8, o.w+16, o.h+16);
+    // Track surface — the ring between outer wall and infield
+    ctx.fillStyle = '#35312b';
+    ctx.fillRect(o.x, o.y, o.w, o.h);
+    // Centreline dashes
+    ctx.fillStyle = 'rgba(232,220,180,0.45)';
+    for (let i=0;i<waypoints.length;i+=2){
+      const p = waypoints[i];
+      ctx.save();
+      ctx.translate(p.x,p.y);
+      ctx.rotate(p.ang);
+      ctx.fillRect(-7,-1.5,14,3);
+      ctx.restore();
     }
-    // Temple arena walls
-    ctx.fillStyle='#8b5a00';
-    ctx.fillRect(track.outerRect.x,track.outerRect.y,track.outerRect.w,track.outerRect.h);
-    // Track surface
-    ctx.fillStyle='#222';
-    ctx.fillRect(track.innerRect.x,track.innerRect.y,track.innerRect.w,track.innerRect.h);
-    // Garuda banners (vertical strips)
-    const bannerCount = 8;
-    for(let i=0;i<bannerCount;i++){
-      const bx = track.outerRect.x + (i+0.5)*(track.outerRect.w/bannerCount);
-      ctx.fillStyle = i%2===0?'#d4af37':'#b8860b';
-      ctx.fillRect(bx-5,track.outerRect.y,10,track.outerRect.h);
+    // Start / finish chequers across the bottom straight
+    const sf = pointAt(0);
+    ctx.save();
+    ctx.translate(sf.x, sf.y);
+    ctx.rotate(sf.ang);
+    for (let rI=0;rI<6;rI++) for (let cI=0;cI<2;cI++){
+      ctx.fillStyle = (rI+cI)%2 ? '#e8e8e8' : '#151515';
+      ctx.fillRect(cI*6-6, -42 + rI*14, 6, 14);
     }
-    // Draw player car
-    drawCar(player.x,player.y,player.angle,'#ff4444');
-    // Draw rivals
-    rivals.forEach(r=>{
-      drawCar(r.x,r.y,r.angle,'#44aaff');
-    });
-    // HUD overlay (if not in menu)
-    if(currentState===STATE.RACE){
-      ctx.fillStyle='rgba(0,0,0,0.5)';
-      ctx.fillRect(0,0,canvas.width,80);
-      ctx.fillStyle='#fff';
-      ctx.font='20px sans-serif';
-      ctx.fillText(`Race ${raceNumber}/${totalRaces}  Lap ${player.lap+1}/${maxLaps}  Position ${calculatePosition()}`,10,30);
-      ctx.fillText(`TEST G: ${data.balance}`,10,60);
+    ctx.restore();
+    // Infield temple block
+    ctx.fillStyle = '#20180f';
+    ctx.fillRect(inr.x, inr.y, inr.w, inr.h);
+    ctx.strokeStyle = '#d4af37';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(inr.x, inr.y, inr.w, inr.h);
+    ctx.save();
+    ctx.translate(inr.x + inr.w/2, inr.y + inr.h/2);
+    ctx.rotate(-Math.PI/2);
+    ctx.fillStyle = '#d4af37';
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 26px sans-serif';
+    ctx.fillText('GARUDA', 0, -4);
+    ctx.font = 'bold 14px sans-serif';
+    ctx.fillText('TEMPLE CIRCUIT', 0, 18);
+    ctx.restore();
+    // Gold pennants along the top wall
+    for (let i=0;i<6;i++){
+      const bx = o.x + (i+0.5)*(o.w/6);
+      ctx.fillStyle = i%2 ? '#d4af37' : '#a37e1c';
+      ctx.fillRect(bx-11, o.y+4, 22, 30);
+    }
+    // Cars — only once a race is set up (no stray car in menus)
+    if (raceSetup) {
+      for (const r of rivals) drawCar(r.x, r.y, r.angle, r.hue, false, 0);
+      drawCar(player.x, player.y, player.angle, '#ff4444', true, steerVis);
     }
   }
-  function drawCar(x,y,angle,color){
+  // A drawn top-down car whose nose (+X after rotation) is
+  // its direction of travel — the old version drew the body
+  // along the other axis, so every car rendered sideways.
+  function drawCar(x,y,angle,color,isPlayer,steer){
     ctx.save();
     ctx.translate(x,y);
     ctx.rotate(angle);
-    // Body
-    ctx.fillStyle=color;
-    ctx.fillRect(-15,-30,30,60);
-    // Wheels
-    ctx.fillStyle='#111';
-    ctx.beginPath();ctx.arc(-12,-30,6,0,Math.PI*2);ctx.fill();
-    ctx.beginPath();ctx.arc(12,-30,6,0,Math.PI*2);ctx.fill();
-    ctx.beginPath();ctx.arc(-12,30,6,0,Math.PI*2);ctx.fill();
-    ctx.beginPath();ctx.arc(12,30,6,0,Math.PI*2);ctx.fill();
+    // Wheels (front pair turns with the steering)
+    ctx.fillStyle = '#0c0c0c';
+    ctx.save(); ctx.translate(13,-11); ctx.rotate(steer*0.4); ctx.fillRect(-5,-3,10,6); ctx.restore();
+    ctx.save(); ctx.translate(13, 11); ctx.rotate(steer*0.4); ctx.fillRect(-5,-3,10,6); ctx.restore();
+    ctx.fillRect(-18,-14,10,6);
+    ctx.fillRect(-18,  8,10,6);
+    // Body with a tapered nose
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(22,0);
+    ctx.lineTo(12,-9);
+    ctx.lineTo(-14,-10);
+    ctx.lineTo(-20,-6);
+    ctx.lineTo(-20,6);
+    ctx.lineTo(-14,10);
+    ctx.lineTo(12,9);
+    ctx.closePath();
+    ctx.fill();
+    // Racing stripe + cockpit
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillRect(-16,-2,30,4);
+    ctx.fillStyle = 'rgba(10,16,28,0.9)';
+    ctx.beginPath(); ctx.ellipse(0,0,8,6,0,0,Math.PI*2); ctx.fill();
+    // Rear wing
+    ctx.fillStyle = '#191919';
+    ctx.fillRect(-22,-12,5,24);
+    // The player's car wears a gold ring so it is never lost
+    if (isPlayer) {
+      ctx.strokeStyle = '#ffd94d';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0,0,26,0,Math.PI*2); ctx.stroke();
+    }
     ctx.restore();
   }
+
+  // Read-only snapshot for automated play checks — the same
+  // numbers the game itself is using, nothing invented.
+  window.__gpState = () => ({
+    state: currentState,
+    raceInProgress,
+    player: {x: player.x, y: player.y, angle: player.angle, speed: player.speed, lap: player.lap, prog: player.prog},
+    rivals: rivals.map(r => ({x: r.x, y: r.y, angle: r.angle, lap: r.lap, finished: r.finished})),
+    track: track ? {outer: track.outerRect, inner: track.innerRect} : null,
+    canvas: {w: canvas.width, h: canvas.height}
+  });
 })();
 </script>
 </body>
