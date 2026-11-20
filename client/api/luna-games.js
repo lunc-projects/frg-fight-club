@@ -3362,6 +3362,7 @@ function tdaPublicSeat(o) {
     active: String(o.active) === '1',
     created: Number(o.created) || 0,
     wallet: String(o.wallet || ''),
+    lang: String(o.lang || ''),
   };
 }
 
@@ -3492,6 +3493,10 @@ function tdaPublicReq(o, seatName) {
      words (textEn for the ask, resultEn for the reply, `en`
      on each trail entry). The page's owner view prefers
      them; the seat's own view ignores them completely. */
+  /* The seat's chosen language, stored on the row at post
+     time: the builder runner takes its session language
+     from here whenever the row carries one. */
+  if (String(o.lang || '')) out.lang = String(o.lang);
   if (String(o.textEn || '')) out.textEn = String(o.textEn);
   if (String(o.resultEn || '')) out.resultEn = String(o.resultEn);
   /* v3 builder trail: only present on builder-managed rows,
@@ -4182,6 +4187,13 @@ function tdaDetectLang(text) {
   if (bestN >= 2) return best;
   return 'en';
 }
+/* The seat's CHOSEN language (the top selector in the app):
+   a submitted value counts only when it names a real string
+   table; anything else is no choice at all. */
+function tdaChosenLang(v) {
+  const l = String(v || '').trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(TDA_I18N, l) ? l : '';
+}
 function TDA_S(lang) {
   const base = TDA_I18N.en;
   const t = TDA_I18N[lang] || {};
@@ -4724,6 +4736,12 @@ export async function tdaHandler(req, res) {
          preview page) are builder-managed; everything else
          keeps the exact v2 queue behaviour. */
       const wantBuilder = body.liveBuilder === true;
+      /* The language the seat picked in the app's top
+         selector, carried on the submission: it governs
+         everything the seat sees back (the ack, the
+         questionnaire, the replies, the build). Invalid
+         values are ignored, never stored. */
+      const submittedLang = tdaChosenLang(body.lang);
       /* Send idempotency: the page tags each composed message
          with a client key and reuses it across retries, so a
          flaky network can never post the same message twice
@@ -4765,6 +4783,7 @@ export async function tdaHandler(req, res) {
           const grow = await tdaFindGuided(seatId);
           if (grow) {
             if (ckKey) { try { await upstashPipeline([['SET', ckKey, String(grow.id), 'NX', 'EX', 3600]]); } catch (e) { /* best-effort */ } }
+            if (submittedLang) { try { await upstashPipeline([['HSET', 'tda:seat:' + seatId, 'lang', submittedLang]]); } catch (e) { /* best-effort */ } }
             const adv = await tdaGuideAdvance(grow, text);
             return res.status(200).json({ ok: true, guided: String(grow.id), finished: adv.finished });
           }
@@ -4813,6 +4832,17 @@ export async function tdaHandler(req, res) {
           return res.status(200).json({ ok: true, guided: String(grow.id), finished: adv.finished });
         }
       }
+      /* One language rule (Tom, Nov 20): the seat's chosen
+         language wins — this submission's choice first,
+         then the seat's stored choice. Detecting a language
+         from the message text is only the fallback for rows
+         that carry neither. */
+      let chosenLang = submittedLang;
+      if (!chosenLang && auth.tier === 'seat') chosenLang = tdaChosenLang(auth.seat.lang);
+      if (!chosenLang && seatId !== 'owner') {
+        const tgt = await tdaGetSeat(seatId);
+        if (tgt) chosenLang = tdaChosenLang(tgt.lang);
+      }
       const now = Date.now();
       const id = 'r' + now.toString(36) + crypto.randomBytes(4).toString('hex');
       /* Builder-managed rows are born Building with the
@@ -4823,13 +4853,14 @@ export async function tdaHandler(req, res) {
       const builderRow = wantBuilder && !ownerAdded;
       const rowCmd = ['HSET', 'tda:req:' + id, 'id', id, 'seatId', seatId, 'text', text, 'status', builderRow ? 'building' : 'received', 'result', '', 'tokensUsed', '0', 'created', String(now), 'updated', String(now)];
       if (ownerAdded) rowCmd.push('ownerAdded', '1');
+      if (chosenLang) rowCmd.push('lang', chosenLang);
       if (builderRow) {
         rowCmd.push('buildState', 'queued');
         /* The instant ack must never claim "building": at post
            time the server cannot know the kind — a plain question
            or check-in lands here too, and the runner's real,
            kind-specific answer follows. Neutral wording only. */
-        const ackLang = tdaDetectLang(text);
+        const ackLang = chosenLang || tdaDetectLang(text);
         const ackEntry = { k: 'builder', m: TDA_S(ackLang).gotIt };
         if (ackLang !== 'en') ackEntry.e = TDA_S('en').gotIt;
         rowCmd.push('plog', tdaPlogJson('', [ackEntry]));
@@ -4840,6 +4871,7 @@ export async function tdaHandler(req, res) {
         ['LTRIM', 'tda:reqs', 0, 199],
       ];
       if (auth.tier === 'seat') cmds.push(['HINCRBY', 'tda:seat:' + seatId, 'reqs', 1]);
+      if (auth.tier === 'seat' && submittedLang) cmds.push(['HSET', 'tda:seat:' + seatId, 'lang', submittedLang]);
       await upstashPipeline(cmds);
       if (ckKey) { try { await upstashPipeline([['SET', ckKey, id, 'NX', 'EX', 3600]]); } catch (e) { /* best-effort */ } }
       return res.status(200).json({ ok: true, id });
@@ -5032,7 +5064,7 @@ export async function tdaHandler(req, res) {
       if (!steps.length) return res.status(400).json({ ok: false, error: 'no steps' });
       let charge = tdaParseTokens(body.tokens, 0);
       if (charge === null) return res.status(400).json({ ok: false, error: 'bad token amount' });
-      const rowLang = tdaDetectLang(row.text || '');
+      const rowLang = tdaChosenLang(row.lang) || tdaDetectLang(row.text || '');
       const gs = TDA_S(rowLang);
       const intro = String(body.intro || '').trim().slice(0, TDA_PLOG_MSG_MAX)
         || gs.guideIntro;
@@ -5068,7 +5100,7 @@ export async function tdaHandler(req, res) {
       if (!row) return res.status(200).json({ ok: false, error: 'claim not held' });
       const note = String(body.msg || '').trim().slice(0, TDA_PLOG_MSG_MAX)
         || 'Flagged by the builder\'s safety check.';
-      const rowLang = tdaDetectLang(row.text || '');
+      const rowLang = tdaChosenLang(row.lang) || tdaDetectLang(row.text || '');
       const result = TDA_S(rowLang).refuseResult;
       const noteEnt = { k: 'builder', m: note };
       const noteEn = String(body.msgEn || '').trim();
