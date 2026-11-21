@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<base href="/moon-lander/">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Moon Lander — LUNC Dev Studio</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{width:100%;height:100%;overflow:hidden;background:#04060f;font-family:'Segoe UI',system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;color:#eef2ff;touch-action:none;user-select:none;-webkit-user-select:none}
+  #game{position:fixed;inset:0;display:block}
+  /* ---------- HUD ---------- */
+  #hud{position:fixed;top:0;left:0;right:0;padding:calc(6px + env(safe-area-inset-top)) 10px 6px;display:none;z-index:5;pointer-events:none}
+  #hud.on{display:block}
+  .hudrow{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
+  .chip{background:rgba(8,12,28,.72);border:1px solid rgba(140,170,255,.35);border-radius:10px;padding:4px 9px;font-size:12px;font-weight:700;letter-spacing:.4px;min-width:64px;text-align:center;backdrop-filter:blur(3px)}
+  .chip small{display:block;font-size:9px;font-weight:600;color:#9db4e8;letter-spacing:1px}
+  .chip .v{font-size:15px}
+  #fuelwrap{width:110px}
+  #fuelbar{height:8px;border-radius:5px;background:#26304f;margin-top:3px;overflow:hidden}
+  #fuel fill{display:block}
+  #fuelfill{height:100%;width:100%;background:linear-gradient(90deg,#ffb340,#ffd76a);border-radius:5px;transition:width .15s}
+  #fuelfill.low{background:linear-gradient(90deg,#ff5340,#ff8a5c)}
+  #vspeed.bad{color:#ff5d4d}
+  #vspeed.ok{color:#5df08a}
+  #livesv{color:#ffcf3d;font-size:14px;letter-spacing:2px}
+  #windv{color:#8fd8ff}
+  /* ---------- Language ---------- */
+  #langbar{position:fixed;top:calc(8px + env(safe-area-inset-top));right:10px;z-index:30}
+  #langsel{font-size:16px;font-weight:700;padding:9px 12px;border-radius:12px;border:2px solid #ffcf3d;background:rgba(10,14,32,.92);color:#ffcf3d;outline:none;cursor:pointer}
+  /* ---------- Cards ---------- */
+  .overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:20;padding:14px;background:rgba(2,4,12,.45)}
+  .overlay.hidden{display:none}
+  .card{background:linear-gradient(160deg,rgba(16,22,48,.97),rgba(8,11,26,.97));border:2px solid rgba(255,207,61,.55);border-radius:22px;padding:22px 20px;max-width:430px;width:100%;text-align:center;box-shadow:0 18px 60px rgba(0,0,0,.65),0 0 0 1px rgba(0,0,0,.4);max-height:92vh;overflow-y:auto}
+  .logo{font-size:44px;line-height:1}
+  h1{font-size:34px;letter-spacing:2px;color:#ffcf3d;text-shadow:0 2px 0 #a86e00,0 4px 14px rgba(255,180,0,.35);margin:4px 0 2px}
+  .tag{color:#aebfee;font-size:14px;margin-bottom:14px}
+  .brand{font-size:11px;letter-spacing:3px;color:#7f93c9;margin-top:2px}
+  .btn{display:block;width:100%;margin:9px 0;padding:15px 12px;font-size:19px;font-weight:800;letter-spacing:1px;border:none;border-radius:14px;cursor:pointer;color:#231a00;background:linear-gradient(180deg,#ffe066,#ffb340);box-shadow:0 5px 0 #a86e00,0 8px 18px rgba(0,0,0,.45)}
+  .btn:active{transform:translateY(3px);box-shadow:0 2px 0 #a86e00}
+  .btn.ghost{background:rgba(30,40,80,.9);color:#cfe0ff;box-shadow:0 5px 0 #101736;border:1px solid rgba(140,170,255,.4)}
+  .howto{text-align:left;background:rgba(10,16,38,.8);border:1px solid rgba(140,170,255,.25);border-radius:14px;padding:12px 14px;margin:12px 0;font-size:14px;line-height:1.55;color:#d7e2ff}
+  .howto b{color:#ffcf3d}
+  .howto h3{font-size:13px;letter-spacing:2px;color:#8fd8ff;margin-bottom:6px;text-align:center}
+  .stat{display:flex;justify-content:space-between;font-size:16px;padding:5px 4px;border-bottom:1px dashed rgba(140,170,255,.2)}
+  .stat b{color:#ffcf3d}
+  .big{font-size:26px;font-weight:800;margin:6px 0}
+  .good{color:#5df08a}.bad{color:#ff5d4d}
+  #newbest{display:none;color:#5df08a;font-weight:800;letter-spacing:1px;margin:4px 0}
+  /* ---------- Touch controls ---------- */
+  #controls{position:fixed;left:0;right:0;bottom:0;padding:0 12px calc(12px + env(safe-area-inset-bottom));display:none;z-index:6;pointer-events:none}
+  #controls.on{display:flex;justify-content:space-between;align-items:flex-end}
+  .cbtn{pointer-events:auto;width:74px;height:74px;border-radius:50%;border:2px solid rgba(160,190,255,.55);background:rgba(14,20,44,.66);color:#dbe7ff;font-size:30px;font-weight:800;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px)}
+  .cbtn:active,.cbtn.held{background:rgba(70,100,200,.75)}
+  #thrustbtn{width:104px;height:104px;font-size:15px;letter-spacing:1px;color:#231a00;background:radial-gradient(circle at 50% 35%,#ffe98a,#ffb340 70%);border-color:#ffdf7e;flex-direction:column;gap:0}
+  #thrustbtn .fl{font-size:30px;line-height:1}
+  #thrustbtn:active,#thrustbtn.held{background:radial-gradient(circle at 50% 35%,#fff3b0,#ff9d2e 70%)}
+  .tiltgroup{display:flex;gap:12px}
+  #toast{position:fixed;top:22%;left:50%;transform:translateX(-50%);z-index:8;font-size:26px;font-weight:900;letter-spacing:1px;color:#fff;text-shadow:0 2px 10px rgba(0,0,0,.8);opacity:0;transition:opacity .25s;pointer-events:none;text-align:center;width:92%}
+  [dir="rtl"] .howto{text-align:right}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud">
+  <div class="hudrow">
+    <div class="chip" id="fuelwrap"><small data-i18n="fuel">FUEL</small><div id="fuelbar"><div id="fuelfill"></div></div></div>
+    <div class="chip"><small data-i18n="vspeed">V/SPEED</small><span class="v" id="vspeed">0</span></div>
+    <div class="chip"><small data-i18n="alt">ALTITUDE</small><span class="v" id="altv">0</span></div>
+    <div class="chip"><small data-i18n="wind">WIND</small><span class="v" id="windv">→ 0</span></div>
+    <div class="chip"><small data-i18n="score">SCORE</small><span class="v" id="scorev">0</span></div>
+    <div class="chip"><small data-i18n="level">LEVEL</small><span class="v" id="levelv">1</span></div>
+    <div class="chip"><small data-i18n="lives">LIVES</small><span id="livesv">●●●</span></div>
+  </div>
+</div>
+
+<div id="langbar">
+  <select id="langsel" aria-label="Language">
+    <option value="en">🌐 English</option>
+    <option value="es">🌐 Español</option>
+    <option value="pt">🌐 Português</option>
+    <option value="fr">🌐 Français</option>
+    <option value="de">🌐 Deutsch</option>
+    <option value="it">🌐 Italiano</option>
+    <option value="nl">🌐 Nederlands</option>
+    <option value="pl">🌐 Polski</option>
+    <option value="ru">🌐 Русский</option>
+    <option value="uk">🌐 Українська</option>
+    <option value="tr">🌐 Türkçe</option>
+    <option value="ar">🌐 العربية</option>
+    <option value="zh">🌐 中文</option>
+    <option value="ja">🌐 日本語</option>
+    <option value="ko">🌐 한국어</option>
+    <option value="hi">🌐 हिन्दी</option>
+    <option value="id">🌐 Indonesia</option>
+    <option value="vi">🌐 Tiếng Việt</option>
+  </select>
+</div>
+
+<div id="toast"></div>
+
+<div id="controls">
+  <div class="tiltgroup">
+    <button class="cbtn" id="leftbtn" aria-label="Tilt left">◀</button>
+    <button class="cbtn" id="rightbtn" aria-label="Tilt right">▶</button>
+  </div>
+  <button class="cbtn" id="thrustbtn"><span class="fl">🔥</span><span data-i18n="thrust">THRUST</span></button>
+</div>
+
+<!-- MENU -->
+<div class="overlay" id="menu">
+  <div class="card">
+    <div class="logo">🌙</div>
+    <h1 data-i18n="title">MOON LANDER</h1>
+    <div class="brand">LUNC DEV STUDIO</div>
+    <p class="tag" data-i18n="tagline">Bring her down soft, pilot. The moon is watching.</p>
+    <button class="btn" id="playbtn" data-i18n="play">▶ PLAY</button>
+    <div class="howto">
+      <h3 data-i18n="howto">HOW TO PLAY</h3>
+      <div data-i18n="h1">🔥 Hold THRUST (or ↑ / SPACE) to fire the engine and slow your fall. It burns fuel!</div>
+      <div data-i18n="h2">◀ ▶ Tilt with the side buttons or arrow keys. Land flat and slow on a glowing pad.</div>
+      <div data-i18n="h3">🎯 Small pads pay big multipliers. Watch the wind on higher levels — and your fuel.</div>
+    </div>
+    <div class="stat"><span data-i18n="best">BEST</span><b id="menubest">0</b></div>
+  </div>
+</div>
+
+<!-- RESULT CARD -->
+<div class="overlay hidden" id="result">
+  <div class="card">
+    <div class="logo" id="reslogo">🎉</div>
+    <div class="big" id="restitle">LANDED!</div>
+    <p class="tag" id="resmsg"></p>
+    <div id="resstats"></div>
+    <div id="newbest" data-i18n="newBest">★ NEW BEST! ★</div>
+    <button class="btn" id="nextbtn" data-i18n="nextLevel">NEXT LEVEL ▶</button>
+    <button class="btn" id="retrybtn" data-i18n="tryAgain">TRY AGAIN</button>
+    <button class="btn ghost" id="menubtn" data-i18n="menu">MENU</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ================================================================
+   MOON LANDER — LUNC Dev Studio
+   Physics lander: gravity, thrust, tilt, wind, pads, multipliers.
+   ================================================================ */
+const I18N = {
+en:{title:"MOON LANDER",tagline:"Bring her down soft, pilot. The moon is watching.",play:"▶ PLAY",howto:"HOW TO PLAY",h1:"🔥 Hold THRUST (or ↑ / SPACE) to fire the engine and slow your fall. It burns fuel!",h2:"◀ ▶ Tilt with the side buttons or arrow keys. Land flat and slow on a glowing pad.",h3:"🎯 Small pads pay big multipliers. Watch the wind on higher levels — and your fuel.",best:"BEST",fuel:"FUEL",vspeed:"V/SPEED",alt:"ALTITUDE",wind:"WIND",score:"SCORE",level:"LEVEL",lives:"LIVES",thrust:"THRUST",landed:"LANDED!",perfect:"PERFECT LANDING!",crashSpeed:"Too fast! The lander broke apart.",crashTilt:"Too tilted! The lander tipped over.",crashGround:"You hit the surface. The moon wins this round.",nextLevel:"NEXT LEVEL ▶",tryAgain:"TRY AGAIN",gameOver:"GAME OVER",finalScore:"FINAL SCORE",newBest:"★ NEW BEST! ★",menu:"MENU",padBonus:"Pad points",fuelBonus:"Fuel bonus",getReady:"GET READY"},
+es:{title:"ALUNIZAJE",tagline:"Bájala suave, piloto. La luna está mirando.",play:"▶ JUGAR",howto:"CÓMO JUGAR",h1:"🔥 Mantén PROPULSIÓN (o ↑ / ESPACIO) para encender el motor y frenar la caída. ¡Gasta combustible!",h2:"◀ ▶ Inclina con los botones laterales o las flechas. Aterriza plano y lento en una plataforma brillante.",h3:"🎯 Las plataformas pequeñas pagan multiplicadores grandes. Cuidado con el viento en niveles altos — y con tu combustible.",best:"RÉCORD",fuel:"COMBUSTIBLE",vspeed:"V/VELOCIDAD",alt:"ALTITUD",wind:"VIENTO",score:"PUNTOS",level:"NIVEL",lives:"VIDAS",thrust:"PROPULSIÓN",landed:"¡ATERREZAJE!",perfect:"¡ATERREZAJE PERFECTO!",crashSpeed:"¡Demasiado rápido! El módulo se rompió.",crashTilt:"¡Demasiado inclinado! El módulo volcó.",crashGround:"Chocaste contra la superficie. La luna gana esta ronda.",nextLevel:"SIGUIENTE NIVEL ▶",tryAgain:"OTRA VEZ",gameOver:"FIN DEL JUEGO",finalScore:"PUNTOS FINALES",newBest:"★ ¡NUEVO RÉCORD! ★",menu:"MENÚ",padBonus:"Puntos de plataforma",fuelBonus:"Bono de combustible",getReady:"PREPÁRATE"},
+pt:{title:"POUSO LUNAR",tagline:"Desça com calma, piloto. A lua está observando.",play:"▶ JOGAR",howto:"COMO JOGAR",h1:"🔥 Segure PROPULSÃO (ou ↑ / ESPAÇO) para ligar o motor e frear a queda. Gasta combustível!",h2:"◀ ▶ Incline com os botões laterais ou as setas. Pouse reto e devagar numa plataforma brilhante.",h3:"🎯 Plataformas pequenas pagam multiplicadores grandes. Cuidado com o vento nos níveis altos — e com o combustível.",best:"RECORDE",fuel:"COMBUSTÍVEL",vspeed:"V/VELOCIDADE",alt:"ALTITUDE",wind:"VENTO",score:"PONTOS",level:"NÍVEL",lives:"VIDAS",thrust:"PROPULSÃO",landed:"POUSOU!",perfect:"POUSO PERFEITO!",crashSpeed:"Rápido demais! O módulo se despedaçou.",crashTilt:"Inclinado demais! O módulo tombou.",crashGround:"Você bateu na superfície. A lua venceu esta rodada.",nextLevel:"PRÓXIMO NÍVEL ▶",tryAgain:"TENTAR DE NOVO",gameOver:"FIM DE JOGO",finalScore:"PONTOS FINAIS",newBest:"★ NOVO RECORDE! ★",menu:"MENU",padBonus:"Pontos da plataforma",fuelBonus:"Bônus de combustível",getReady:"PREPARE-SE"},
+fr:{title:"ALUNISSAGE",tagline:"Pose-la en douceur, pilote. La lune regarde.",play:"▶ JOUER",howto:"COMMENT JOUER",h1:"🔥 Maintiens POUSSÉE (ou ↑ / ESPACE) pour allumer le moteur et freiner ta chute. Ça brûle du carburant !",h2:"◀ ▶ Incline avec les boutons latéraux ou les flèches. Atterris à plat et lentement sur une plateforme lumineuse.",h3:"🎯 Les petites plateformes paient de gros multiplicateurs. Attention au vent dans les niveaux élevés — et à ton carburant.",best:"RECORD",fuel:"CARBURANT",vspeed:"V/VITESSE",alt:"ALTITUDE",wind:"VENT",score:"SCORE",level:"NIVEAU",lives:"VIES",thrust:"POUSSÉE",landed:"ATTERRI !",perfect:"ATTERRISSAGE PARFAIT !",crashSpeed:"Trop vite ! Le module s'est brisé.",crashTilt:"Trop incliné ! Le module a basculé.",crashGround:"Tu as heurté la surface. La lune gagne cette manche.",nextLevel:"NIVEAU SUIVANT ▶",tryAgain:"RÉESSAYER",gameOver:"PARTIE TERMINÉE",finalScore:"SCORE FINAL",newBest:"★ NOUVEAU RECORD ! ★",menu:"MENU",padBonus:"Points de plateforme",fuelBonus:"Bonus carburant",getReady:"PRÉPARE-TOI"},
+de:{title:"MONDLANDUNG",tagline:"Bring sie sanft runter, Pilot. Der Mond schaut zu.",play:"▶ SPIELEN",howto:"SO GEHT'S",h1:"🔥 Halte SCHUB (oder ↑ / LEERTASTE), um das Triebwerk zu zünden und den Fall zu bremsen. Das kostet Treibstoff!",h2:"◀ ▶ Neige mit den Seitentasten oder Pfeiltasten. Lande flach und langsam auf einer leuchtenden Plattform.",h3:"🎯 Kleine Plattformen zahlen große Multiplikatoren. Achte in höheren Levels auf den Wind — und deinen Treibstoff.",best:"REKORD",fuel:"TREIBSTOFF",vspeed:"V/TEMPO",alt:"HÖHE",wind:"WIND",score:"PUNKTE",level:"LEVEL",lives:"LEBEN",thrust:"SCHUB",landed:"GELANDET!",perfect:"PERFEKTE LANDUNG!",crashSpeed:"Zu schnell! Die Fähre ist zerbrochen.",crashTilt:"Zu schräg! Die Fähre ist umgekippt.",crashGround:"Du bist auf der Oberfläche aufgeschlagen. Der Mond gewinnt diese Runde.",nextLevel:"NÄCHSTES LEVEL ▶",tryAgain:"NOCHMAL",gameOver:"SPIEL VORBEI",finalScore:"ENDSTAND",newBest:"★ NEUER REKORD! ★",menu:"MENÜ",padBonus:"Plattform-Punkte",fuelBonus:"Treibstoff-Bonus",getReady:"MACH DICH BEREIT"},
+it:{title:"ALLUNAGGIO",tagline:"Portala giù piano, pilota. La luna sta guardando.",play:"▶ GIOCA",howto:"COME SI GIOCA",h1:"🔥 Tieni premuto SPINTA (o ↑ / SPAZIO) per accendere il motore e frenare la caduta. Consuma carburante!",h2:"◀ ▶ Inclina con i pulsanti laterali o le frecce. Atterra piatto e lento su una piattaforma luminosa.",h3:"🎯 Le piattaforme piccole pagano moltiplicatori grandi. Attento al vento nei livelli alti — e al carburante.",best:"RECORD",fuel:"CARBURANTE",vspeed:"V/VELOCITÀ",alt:"ALTITUDINE",wind:"VENTO",score:"PUNTI",level:"LIVELLO",lives:"VITE",thrust:"SPINTA",landed:"ATTERRATO!",perfect:"ATTERRAGGIO PERFETTO!",crashSpeed:"Troppo veloce! Il modulo si è rotto.",crashTilt:"Troppo inclinato! Il modulo si è ribaltato.",crashGround:"Hai colpito la superficie. La luna vince questo round.",nextLevel:"LIVELLO SUCCESSIVO ▶",tryAgain:"RIPROVA",gameOver:"FINE PARTITA",finalScore:"PUNTI FINALI",newBest:"★ NUOVO RECORD! ★",menu:"MENU",padBonus:"Punti piattaforma",fuelBonus:"Bonus carburante",getReady:"PREPARATI"},
+nl:{title:"MAANLANDING",tagline:"Breng haar zachtjes neer, piloot. De maan kijkt mee.",play:"▶ SPELEN",howto:"ZO SPEEL JE",h1:"🔥 Houd STUWKRACHT (of ↑ / SPATIE) ingedrukt om de motor te starten en je val te remmen. Dat kost brandstof!",h2:"◀ ▶ Kantel met de zijknoppen of pijltjestoetsen. Land vlak en langzaam op een gloeiend platform.",h3:"🎯 Kleine platforms betalen grote vermenigvuldigers. Let in hogere levels op de wind — en je brandstof.",best:"RECORD",fuel:"BRANDSTOF",vspeed:"V/SNELHEID",alt:"HOOGTE",wind:"WIND",score:"SCORE",level:"LEVEL",lives:"LEVENS",thrust:"STUWKRACHT",landed:"GELAND!",perfect:"PERFECTE LANDING!",crashSpeed:"Te snel! De lander brak in stukken.",crashTilt:"Te schuin! De lander kantelde om.",crashGround:"Je raakte het oppervlak. De maan wint deze ronde.",nextLevel:"VOLGEND LEVEL ▶",tryAgain:"OPNIEUW",gameOver:"SPEL VOORBIJ",finalScore:"EINDSCORE",newBest:"★ NIEUW RECORD! ★",menu:"MENU",padBonus:"Platformpunten",fuelBonus:"Brandstofbonus",getReady:"MAAK JE KLAAR"},
+pl:{title:"LĄDOWANIE NA KSIĘŻYCU",tagline:"Sprowadź ją łagodnie, pilocie. Księżyc patrzy.",play:"▶ GRAJ",howto:"JAK GRAĆ",h1:"🔥 Przytrzymaj CIĄG (lub ↑ / SPACJĘ), aby odpalić silnik i wyhamować opadanie. Zużywa paliwo!",h2:"◀ ▶ Przechylaj bocznymi przyciskami lub strzałkami. Ląduj płasko i powoli na świecącej platformie.",h3:"🎯 Małe platformy płacą duże mnożniki. Na wyższych poziomach uważaj na wiatr — i na paliwo.",best:"REKORD",fuel:"PALIWO",vspeed:"V/PRĘDKOŚĆ",alt:"WYSOKOŚĆ",wind:"WIATR",score:"PUNKTY",level:"POZIOM",lives:"ŻYCIA",thrust:"CIĄG",landed:"WYLĄDOWAŁ!",perfect:"IDEALNE LĄDOWANIE!",crashSpeed:"Za szybko! Lądownik się rozpadł.",crashTilt:"Za duży przechył! Lądownik się przewrócił.",crashGround:"Uderzyłeś w powierzchnię. Księżyc wygrywa tę rundę.",nextLevel:"NASTĘPNY POZIOM ▶",tryAgain:"JESZCZE RAZ",gameOver:"KONIEC GRY",finalScore:"WYNIK KOŃCOWY",newBest:"★ NOWY REKORD! ★",menu:"MENU",padBonus:"Punkty platformy",fuelBonus:"Bonus paliwa",getReady:"PRZYGOTUJ SIĘ"},
+ru:{title:"ЛУННАЯ ПОСАДКА",tagline:"Сажай её мягко, пилот. Луна наблюдает.",play:"▶ ИГРАТЬ",howto:"КАК ИГРАТЬ",h1:"🔥 Удерживай ТЯГУ (или ↑ / ПРОБЕЛ), чтобы включить двигатель и замедлить падение. Это тратит топливо!",h2:"◀ ▶ Наклоняй боковыми кнопками или стрелками. Садись ровно и медленно на светящуюся площадку.",h3:"🎯 Маленькие площадки дают большие множители. На высоких уровнях следи за ветром — и за топливом.",best:"РЕКОРД",fuel:"ТОПЛИВО",vspeed:"В/СКОРОСТЬ",alt:"ВЫСОТА",wind:"ВЕТЕР",score:"ОЧКИ",level:"УРОВЕНЬ",lives:"ЖИЗНИ",thrust:"ТЯГА",landed:"ПОСАДКА!",perfect:"ИДЕАЛЬНАЯ ПОСАДКА!",crashSpeed:"Слишком быстро! Модуль развалился.",crashTilt:"Слишком большой наклон! Модуль опрокинулся.",crashGround:"Ты врезался в поверхность. Этот раунд за луной.",nextLevel:"СЛЕДУЮЩИЙ УРОВЕНЬ ▶",tryAgain:"ЕЩЁ РАЗ",gameOver:"ИГРА ОКОНЧЕНА",finalScore:"ИТОГОВЫЕ ОЧКИ",newBest:"★ НОВЫЙ РЕКОРД! ★",menu:"МЕНЮ",padBonus:"Очки площадки",fuelBonus:"Бонус топлива",getReady:"ПРИГОТОВЬСЯ"},
+uk:{title:"МІСЯЧНА ПОСАДКА",tagline:"Сади її м'яко, пілоте. Місяць спостерігає.",play:"▶ ГРАТИ",howto:"ЯК ГРАТИ",h1:"🔥 Утримуй ТЯГУ (або ↑ / ПРОБІЛ), щоб увімкнути двигун і сповільнити падіння. Це витрачає паливо!",h2:"◀ ▶ Нахиляй бічними кнопками або стрілками. Сідай рівно й повільно на сяючий майданчик.",h3:"🎯 Малі майданчики дають великі множники. На вищих рівнях стеж за вітром — і за паливом.",best:"РЕКОРД",fuel:"ПАЛИВО",vspeed:"В/ШВИДКІСТЬ",alt:"ВИСОТА",wind:"ВІТЕР",score:"ОЧКИ",level:"РІВЕНЬ",lives:"ЖИТТЯ",thrust:"ТЯГА",landed:"ПОСАДКА!",perfect:"ІДЕАЛЬНА ПОСАДКА!",crashSpeed:"Занадто швидко! Модуль розвалився.",crashTilt:"Занадто великий нахил! Модуль перекинувся.",crashGround:"Ти врізався в поверхню. Цей раунд за місяцем.",nextLevel:"НАСТУПНИЙ РІВЕНЬ ▶",tryAgain:"ЩЕ РАЗ",gameOver:"ГРУ ЗАВЕРШЕНО",finalScore:"ПІДСУМКОВІ ОЧКИ",newBest:"★ НОВИЙ РЕКОРД! ★",menu:"МЕНЮ",padBonus:"Очки майданчика",fuelBonus:"Бонус палива",getReady:"ПРИГОТУЙСЯ"},
+tr:{title:"AY'A İNİŞ",tagline:"Onu yumuşak indir, pilot. Ay izliyor.",play:"▶ OYNA",howto:"NASIL OYNANIR",h1:"🔥 Motoru ateşleyip düşüşü yavaşlatmak için İTİŞ'e (veya ↑ / BOŞLUK) basılı tut. Yakıt harcar!",h2:"◀ ▶ Yan düğmelerle veya ok tuşlarıyla eğ. Parlayan bir platforma düz ve yavaş in.",h3:"🎯 Küçük platformlar büyük çarpanlar öder. Yüksek seviyelerde rüzgara dikkat et — ve yakıtına.",best:"REKOR",fuel:"YAKIT",vspeed:"D/HIZ",alt:"İRTİFA",wind:"RÜZGAR",score:"SKOR",level:"SEVİYE",lives:"CAN",thrust:"İTİŞ",landed:"İNDİ!",perfect:"MÜKEMMEL İNİŞ!",crashSpeed:"Çok hızlı! Araç parçalandı.",crashTilt:"Çok eğik! Araç devrildi.",crashGround:"Yüzeye çarptın. Bu tur ayın.",nextLevel:"SONRAKİ SEVİYE ▶",tryAgain:"TEKRAR DENE",gameOver:"OYUN BİTTİ",finalScore:"FİNAL SKORU",newBest:"★ YENİ REKOR! ★",menu:"MENÜ",padBonus:"Platform puanı",fuelBonus:"Yakıt bonusu",getReady:"HAZIR OL"},
+ar:{title:"الهبوط على القمر",tagline:"أنزلها بلطف أيها الطيار. القمر يراقب.",play:"▶ العب",howto:"كيف تلعب",h1:"🔥 اضغط باستمرار على الدفع (أو ↑ / المسافة) لتشغيل المحرك وإبطاء السقوط. يستهلك الوقود!",h2:"◀ ▶ أمِل بالزرين الجانبيين أو الأسهم. اهبط بشكل مستوٍ وببطء على منصة مضيئة.",h3:"🎯 المنصات الصغيرة تدفع مضاعفات كبيرة. انتبه للرياح في المستويات العالية — ولوقودك.",best:"الأفضل",fuel:"الوقود",vspeed:"السرعة العمودية",alt:"الارتفاع",wind:"الرياح",score:"النقاط",level:"المستوى",lives:"المحاولات",thrust:"الدفع",landed:"هبطت!",perfect:"هبوط مثالي!",crashSpeed:"سريع جدًا! تحطمت المركبة.",crashTilt:"مائل جدًا! انقلبت المركبة.",crashGround:"اصطدمت بالسطح. القمر يفوز بهذه الجولة.",nextLevel:"المستوى التالي ▶",tryAgain:"حاول مجددًا",gameOver:"انتهت اللعبة",finalScore:"النقاط النهائية",newBest:"★ رقم قياسي جديد! ★",menu:"القائمة",padBonus:"نقاط المنصة",fuelBonus:"مكافأة الوقود",getReady:"استعد"},
+zh:{title:"月球着陆",tagline:"稳稳地降落，飞行员。月亮在看着你。",play:"▶ 开始",howto:"玩法",h1:"🔥 按住推力（或 ↑ / 空格）点燃引擎减缓下落。会消耗燃料！",h2:"◀ ▶ 用侧边按钮或方向键倾斜。在发光的平台上平稳缓慢地着陆。",h3:"🎯 小平台有大倍率。高关卡注意风——还有你的燃料。",best:"最佳",fuel:"燃料",vspeed:"垂直速度",alt:"高度",wind:"风",score:"分数",level:"关卡",lives:"生命",thrust:"推力",landed:"着陆成功！",perfect:"完美着陆！",crashSpeed:"太快了！着陆器解体了。",crashTilt:"倾斜过度！着陆器翻倒了。",crashGround:"你撞上了月面。这一局月亮赢了。",nextLevel:"下一关 ▶",tryAgain:"再试一次",gameOver:"游戏结束",finalScore:"最终分数",newBest:"★ 新纪录！ ★",menu:"菜单",padBonus:"平台分数",fuelBonus:"燃料奖励",getReady:"准备"},
+ja:{title:"ムーンランダー",tagline:"そっと降ろして、パイロット。月が見ているよ。",play:"▶ プレイ",howto:"遊び方",h1:"🔥 スラスト（または ↑ / スペース）を押し続けてエンジンを点火し、落下をゆるめよう。燃料を使うよ！",h2:"◀ ▶ サイドボタンや矢印キーで傾けよう。光るパッドに水平にゆっくり着陸して。",h3:"🎯 小さいパッドほど倍率が高い。高レベルでは風に注意 — そして燃料にも。",best:"ベスト",fuel:"燃料",vspeed:"垂直速度",alt:"高度",wind:"風",score:"スコア",level:"レベル",lives:"残機",thrust:"スラスト",landed:"着陸成功！",perfect:"パーフェクト着陸！",crashSpeed:"速すぎる！着陸船が壊れてしまった。",crashTilt:"傾きすぎ！着陸船が倒れてしまった。",crashGround:"月面に衝突。このラウンドは月の勝ち。",nextLevel:"次のレベル ▶",tryAgain:"もう一度",gameOver:"ゲームオーバー",finalScore:"最終スコア",newBest:"★ 新記録！ ★",menu:"メニュー",padBonus:"パッド得点",fuelBonus:"燃料ボーナス",getReady:"準備して"},
+ko:{title:"문 랜더",tagline:"부드럽게 내려요, 파일럿. 달이 보고 있어요.",play:"▶ 플레이",howto:"게임 방법",h1:"🔥 추력(또는 ↑ / 스페이스)을 누르고 있으면 엔진이 켜져 낙하 속도가 줄어요. 연료가 소모돼요!",h2:"◀ ▶ 옆 버튼이나 방향키로 기울이세요. 빛나는 패드에 수평으로 천천히 착륙하세요.",h3:"🎯 작은 패드일수록 배율이 커요. 높은 레벨에서는 바람을 조심하세요 — 연료도요.",best:"최고 기록",fuel:"연료",vspeed:"수직 속도",alt:"고도",wind:"바람",score:"점수",level:"레벨",lives:"목숨",thrust:"추력",landed:"착륙 성공!",perfect:"완벽한 착륙!",crashSpeed:"너무 빨라요! 착륙선이 부서졌어요.",crashTilt:"너무 기울었어요! 착륙선이 넘어졌어요.",crashGround:"표면에 충돌했어요. 이번 라운드는 달의 승리.",nextLevel:"다음 레벨 ▶",tryAgain:"다시 시도",gameOver:"게임 오버",finalScore:"최종 점수",newBest:"★ 새 기록! ★",menu:"메뉴",padBonus:"패드 점수",fuelBonus:"연료 보너스",getReady:"준비하세요"},
+hi:{title:"मून लैंडर",tagline:"धीरे से उतारो, पायलट। चाँद देख रहा है।",play:"▶ खेलें",howto:"कैसे खेलें",h1:"🔥 इंजन चालू करने और गिरना धीमा करने के लिए थ्रस्ट (या ↑ / स्पेस) दबाए रखें। ईंधन खर्च होता है!",h2:"◀ ▶ साइड बटन या तीर कुंजियों से झुकाएँ। चमकते पैड पर सीधा और धीरे उतरें।",h3:"🎯 छोटे पैड बड़े गुणक देते हैं। ऊँचे स्तरों पर हवा से बचें — और अपने ईंधन से भी।",best:"सर्वश्रेष्ठ",fuel:"ईंधन",vspeed:"ऊर्ध्व गति",alt:"ऊँचाई",wind:"हवा",score:"स्कोर",level:"स्तर",lives:"जीवन",thrust:"थ्रस्ट",landed:"उतर गए!",perfect:"बिल्कुल सही लैंडिंग!",crashSpeed:"बहुत तेज़! लैंडर टूट गया।",crashTilt:"बहुत ज़्यादा झुका हुआ! लैंडर पलट गया।",crashGround:"आप सतह से टकरा गए। यह राउंड चाँद का है।",nextLevel:"अगला स्तर ▶",tryAgain:"फिर से कोशिश",gameOver:"खेल खत्म",finalScore:"अंतिम स्कोर",newBest:"★ नया रिकॉर्ड! ★",menu:"मेनू",padBonus:"पैड अंक",fuelBonus:"ईंधन बोनस",getReady:"तैयार हो जाएँ"},
+id:{title:"PENDARAT BULAN",tagline:"Turunkan dengan lembut, pilot. Bulan sedang mengawasi.",play:"▶ MAIN",howto:"CARA BERMAIN",h1:"🔥 Tahan DORONG (atau ↑ / SPASI) untuk menyalakan mesin dan memperlambat jatuh. Membakar bahan bakar!",h2:"◀ ▶ Miringkan dengan tombol samping atau tombol panah. Mendaratlah datar dan pelan di landasan bercahaya.",h3:"🎯 Landasan kecil membayar pengali besar. Waspadai angin di level tinggi — dan bahan bakarmu.",best:"TERBAIK",fuel:"BAHAN BAKAR",vspeed:"K/VERTIKAL",alt:"KETINGGIAN",wind:"ANGIN",score:"SKOR",level:"LEVEL",lives:"NYAWA",thrust:"DORONG",landed:"MENDARAT!",perfect:"PENDARATAN SEMPURNA!",crashSpeed:"Terlalu cepat! Wahana hancur berkeping.",crashTilt:"Terlalu miring! Wahana terguling.",crashGround:"Kamu menabrak permukaan. Ronde ini milik bulan.",nextLevel:"LEVEL BERIKUTNYA ▶",tryAgain:"COBA LAGI",gameOver:"PERMAINAN SELESAI",finalScore:"SKOR AKHIR",newBest:"★ REKOR BARU! ★",menu:"MENU",padBonus:"Poin landasan",fuelBonus:"Bonus bahan bakar",getReady:"BERSIAPLAH"},
+vi:{title:"ĐỔ BỘ MẶT TRĂNG",tagline:"Hạ cánh nhẹ nhàng nhé, phi công. Mặt trăng đang nhìn đấy.",play:"▶ CHƠI",howto:"CÁCH CHƠI",h1:"🔥 Giữ LỰC ĐẨY (hoặc ↑ / SPACE) để đốt động cơ và giảm tốc độ rơi. Tốn nhiên liệu!",h2:"◀ ▶ Nghiêng bằng nút hai bên hoặc phím mũi tên. Hạ cánh thẳng và chậm trên bãi đáp phát sáng.",h3:"🎯 Bãi đáp nhỏ trả hệ số lớn. Cấp cao hãy coi chừng gió — và nhiên liệu của bạn.",best:"KỶ LỤC",fuel:"NHIÊN LIỆU",vspeed:"TỐC ĐỘ ĐỨNG",alt:"ĐỘ CAO",wind:"GIÓ",score:"ĐIỂM",level:"CẤP",lives:"MẠNG",thrust:"LỰC ĐẨY",landed:"ĐÃ HẠ CÁNH!",perfect:"HẠ CÁNH HOÀN HẢO!",crashSpeed:"Quá nhanh! Tàu đã vỡ tan.",crashTilt:"Nghiêng quá mức! Tàu bị lật.",crashGround:"Bạn đã đâm vào bề mặt. Vòng này mặt trăng thắng.",nextLevel:"CẤP TIẾP THEO ▶",tryAgain:"THỬ LẠI",gameOver:"KẾT THÚC",finalScore:"ĐIỂM CUỐI",newBest:"★ KỶ LỤC MỚI! ★",menu:"MENU",padBonus:"Điểm bãi đáp",fuelBonus:"Thưởng nhiên liệu",getReady:"CHUẨN BỊ"}
+};
+let lang = localStorage.getItem('moonlander_lang') || 'en';
+if(!I18N[lang]) lang = 'en';
+function t(k){ return (I18N[lang] && I18N[lang][k]) || I18N.en[k] || k; }
+function applyLang(){
+  document.querySelectorAll('[data-i18n]').forEach(el=>{ el.textContent = t(el.getAttribute('data-i18n')); });
+  document.getElementById('langsel').value = lang;
+  document.documentElement.lang = lang;
+  document.documentElement.dir = (lang==='ar') ? 'rtl' : 'ltr';
+  document.getElementById('menubest').textContent = best;
+}
+
+/* ================= ENGINE ================= */
+const cv = document.getElementById('game'), ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+let stars = [], craters = [], rocks = [], particles = [];
+let terrain = [], pads = [], baseX = 60, baseW = 96, baseY = 0;
+let S = null;            // run state
+let L = null;            // lander
+let mode = 'menu';       // menu | play | boom | rest
+let T = 0, lastTs = 0, windNow = 0, boomTimer = 0, resultShown = false;
+let best = parseInt(localStorage.getItem('moonlander_best') || '0', 10) || 0;
+
+const GRAV = 26, THRUST_ACC = 68, TILT_RATE = 95, MAX_TILT = 42;
+const SAFE_VY = 17, SAFE_VX = 15, SAFE_ANG = 9;
+const LEG = 30; // lander center -> foot
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = W * DPR; cv.height = H * DPR;
+  cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  stars = [];
+  for(let i = 0; i < 130; i++) stars.push({x: Math.random()*W, y: Math.random()*H*0.62, r: Math.random()*1.5+0.3, p: Math.random()*6.28});
+  if(mode === 'menu') buildLevel(1, true);
+}
+window.addEventListener('resize', resize);
+
+function levelConfig(lv){
+  const shrink = Math.max(0.52, 1 - (lv-1)*0.045);
+  return {
+    windAmp: lv < 2 ? 0 : Math.min(3 + (lv-1)*1.9, 17),
+    widths: [168*shrink, 118*shrink, 76*shrink],
+    mults: [1, 2, 4],
+    moving: lv >= 6
+  };
+}
+
+function buildLevel(lv, forMenu){
+  const cfg = levelConfig(lv);
+  terrain = []; craters = []; rocks = []; particles = [];
+  const baseLine = H * 0.80;
+  baseX = Math.max(14, W * 0.04); baseW = 96;
+  // choose pad slots spread across the field
+  const slots = [0.30, 0.55, 0.82];
+  pads = slots.map((f, i)=>{
+    const w = Math.max(46, cfg.widths[i] * (W < 500 ? 0.92 : 1));
+    const cx = W * f + (Math.random()*30-15);
+    const y = baseLine + (Math.random()*H*0.06 - H*0.02) + i*H*0.012;
+    return {cx: Math.min(Math.max(cx, w/2+8), W-w/2-8), w, y, mult: cfg.mults[i], moving: cfg.moving && i === 2, baseCx: 0, phase: Math.random()*6.28};
+  });
+  pads.forEach(p=> p.baseCx = p.cx);
+  baseY = baseLine + H*0.015;
+  // terrain points
+  const step = 22;
+  let seed = Math.random()*1000;
+  for(let x = 0; x <= W + step; x += step){
+    let y = baseLine + Math.sin(x*0.011 + seed)*H*0.028 + Math.sin(x*0.031 + seed*2)*H*0.012 + (Math.random()*6-3);
+    // flatten under base
+    if(x > baseX-14 && x < baseX + baseW + 14) y = baseY;
+    // flatten under pads (moving pad gets a runway)
+    for(const p of pads){
+      const half = p.w/2 + (p.moving ? 52 : 10);
+      if(x > p.baseCx - half && x < p.baseCx + half) y = p.y;
+    }
+    terrain.push({x, y: Math.min(y, H - 26)});
+  }
+  // craters + rocks on plain terrain
+  for(let i = 0; i < 7; i++){
+    const x = Math.random()*W, y = groundYRaw(x);
+    if(pads.some(p=> Math.abs(x-p.cx) < p.w/2+34)) continue;
+    if(x > baseX-20 && x < baseX+baseW+20) continue;
+    craters.push({x, y, r: 12 + Math.random()*22});
+  }
+  for(let i = 0; i < 9; i++){
+    const x = Math.random()*W, y = groundYRaw(x);
+    if(pads.some(p=> Math.abs(x-p.cx) < p.w/2+20)) continue;
+    rocks.push({x, y, s: 4 + Math.random()*8, a: Math.random()*6.28});
+  }
+  if(forMenu){
+    L = {x: pads[0].cx, y: pads[0].y - LEG, vx: 0, vy: 0, ang: 0, fuel: 100, dead: false};
+  }
+}
+function groundYRaw(x){
+  if(!terrain.length) return H*0.8;
+  for(const p of pads){ if(Math.abs(x - p.cx) <= p.w/2) return p.y; }
+  let a = terrain[0], b = terrain[terrain.length-1];
+  for(let i = 0; i < terrain.length-1; i++){
+    if(x >= terrain[i].x && x <= terrain[i+1].x){ a = terrain[i]; b = terrain[i+1]; break; }
+  }
+  const f = (x - a.x) / Math.max(1, (b.x - a.x));
+  return a.y + (b.y - a.y) * f;
+}
+function groundY(x){ return groundYRaw(x); }
+
+/* ================= INPUT ================= */
+const keys = {left: false, right: false, thrust: false};
+const KEYMAP = {ArrowLeft:'left', KeyA:'left', ArrowRight:'right', KeyD:'right', ArrowUp:'thrust', KeyW:'thrust', Space:'thrust'};
+window.addEventListener('keydown', e=>{
+  const k = KEYMAP[e.code]; if(k){ keys[k] = true; e.preventDefault(); }
+  if(e.code === 'Space') e.preventDefault();
+});
+window.addEventListener('keyup', e=>{ const k = KEYMAP[e.code]; if(k){ keys[k] = false; e.preventDefault(); } });
+function bindBtn(id, name){
+  const el = document.getElementById(id);
+  const on = e=>{ e.preventDefault(); keys[name] = true; el.classList.add('held'); };
+  const off = e=>{ e.preventDefault(); keys[name] = false; el.classList.remove('held'); };
+  el.addEventListener('pointerdown', on);
+  el.addEventListener('pointerup', off);
+  el.addEventListener('pointerleave', off);
+  el.addEventListener('pointercancel', off);
+  el.addEventListener('contextmenu', e=> e.preventDefault());
+}
+bindBtn('leftbtn', 'left'); bindBtn('rightbtn', 'right'); bindBtn('thrustbtn', 'thrust');
+
+/* ================= FLOW ================= */
+function submitScore(score){
+  // Parent wires the arcade leaderboard from this stored run.
+  try{ localStorage.setItem('moonlander_last', JSON.stringify({score: score, ts: Date.now()})); }catch(e){}
+}
+function startRun(){
+  S = {score: 0, level: 1, lives: 3};
+  startLevel(1);
+}
+function startLevel(lv){
+  buildLevel(lv, false);
+  L = {x: W*0.5, y: 64, vx: (Math.random()*10-5), vy: 0, ang: 0, fuel: 100, dead: false};
+  mode = 'play'; resultShown = false;
+  document.getElementById('menu').classList.add('hidden');
+  document.getElementById('result').classList.add('hidden');
+  document.getElementById('hud').classList.add('on');
+  document.getElementById('controls').classList.add('on');
+  showToast(t('level') + ' ' + lv + ' — ' + t('getReady'));
+  updateHUD();
+}
+function endRun(){
+  mode = 'rest';
+  submitScore(S.score);
+  if(S.score > best){ best = S.score; localStorage.setItem('moonlander_best', String(best)); }
+  showResult(true);
+}
+function crash(kind){
+  if(L.dead) return;
+  L.dead = true; mode = 'boom'; boomTimer = 1.0;
+  explode(L.x, L.y);
+  S.lives--;
+  S.crashKind = kind;
+}
+function landed(pad){
+  const padPts = 100 * pad.mult;
+  const fuelBonus = Math.round(L.fuel) * 2;
+  const perfect = L.vy <= 9 && Math.abs(L.vx) <= 7 && Math.abs(L.ang) <= 4;
+  const gained = Math.round(padPts * (perfect ? 1.5 : 1)) + fuelBonus;
+  S.score += gained;
+  S.lastGain = {padPts: Math.round(padPts * (perfect ? 1.5 : 1)), fuelBonus, perfect};
+  mode = 'rest';
+  celebrate(L.x, L.y - 20);
+  submitScore(S.score);
+  if(S.score > best){ best = S.score; localStorage.setItem('moonlander_best', String(best)); }
+  showResult(false);
+}
+function showResult(gameOver){
+  resultShown = true;
+  const R = document.getElementById('result');
+  const title = document.getElementById('restitle'), msg = document.getElementById('resmsg');
+  const stats = document.getElementById('resstats'), logo = document.getElementById('reslogo');
+  const next = document.getElementById('nextbtn'), retry = document.getElementById('retrybtn');
+  document.getElementById('newbest').style.display = (S.score >= best && S.score > 0) ? 'block' : 'none';
+  if(gameOver){
+    logo.textContent = '💥'; title.textContent = t('gameOver'); title.className = 'big bad';
+    msg.textContent = t(S.crashKind || 'crashGround');
+    stats.innerHTML = row(t('finalScore'), S.score) + row(t('level'), S.level) + row(t('best'), best);
+    next.style.display = 'none'; retry.style.display = 'block';
+  } else if(mode === 'rest' && L && !L.dead){
+    logo.textContent = '🎉'; title.textContent = S.lastGain.perfect ? t('perfect') : t('landed'); title.className = 'big good';
+    msg.textContent = '';
+    stats.innerHTML = row(t('padBonus'), '+' + S.lastGain.padPts) + row(t('fuelBonus'), '+' + S.lastGain.fuelBonus) + row(t('score'), S.score) + row(t('best'), best);
+    next.style.display = 'block'; retry.style.display = 'none';
+  }
+  R.classList.remove('hidden');
+  document.getElementById('controls').classList.remove('on');
+  function row(k, v){ return '<div class="stat"><span>' + k + '</span><b>' + v + '</b></div>'; }
+}
+function showCrashResult(){
+  // after explosion animation, if lives remain show retry card, else game over
+  if(S.lives > 0){
+    mode = 'rest';
+    const R = document.getElementById('result');
+    document.getElementById('reslogo').textContent = '💥';
+    const title = document.getElementById('restitle');
+    title.textContent = '✖'; title.className = 'big bad';
+    document.getElementById('resmsg').textContent = t(S.crashKind || 'crashGround');
+    document.getElementById('resstats').innerHTML =
+      '<div class="stat"><span>' + t('score') + '</span><b>' + S.score + '</b></div>' +
+      '<div class="stat"><span>' + t('lives') + '</span><b>' + S.lives + '</b></div>';
+    document.getElementById('newbest').style.display = 'none';
+    document.getElementById('nextbtn').style.display = 'none';
+    document.getElementById('retrybtn').style.display = 'block';
+    R.classList.remove('hidden');
+    document.getElementById('controls').classList.remove('on');
+  } else {
+    endRun();
+  }
+}
+let toastTimer = null;
+function showToast(txt){
+  const el = document.getElementById('toast');
+  el.textContent = txt; el.style.opacity = '1';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>{ el.style.opacity = '0'; }, 1600);
+}
+
+/* ================= PARTICLES ================= */
+function spawn(o){ if(particles.length < 420) particles.push(o); }
+function explode(x, y){
+  for(let i = 0; i < 52; i++){
+    const a = Math.random()*6.28, sp = 40 + Math.random()*190;
+    spawn({x, y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp - 40, life: 0, max: 0.7 + Math.random()*0.9, size: 2 + Math.random()*4.5, color: ['#ffb340','#ff7a3c','#ff5340','#cfd8ee','#8fa3cc'][i%5], grav: 60, type: 'spark'});
+  }
+  for(let i = 0; i < 16; i++){
+    spawn({x: x + (Math.random()*24-12), y: y + (Math.random()*16-8), vx: Math.random()*30-15, vy: -14 - Math.random()*26, life: 0, max: 1.4 + Math.random(), size: 9 + Math.random()*13, color: 'rgba(120,128,150,0.35)', grav: -6, type: 'smoke'});
+  }
+}
+function celebrate(x, y){
+  for(let i = 0; i < 40; i++){
+    const a = -Math.PI/2 + (Math.random()*1.6-0.8), sp = 90 + Math.random()*150;
+    spawn({x, y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp, life: 0, max: 0.9 + Math.random()*0.7, size: 2 + Math.random()*3, color: ['#ffcf3d','#5df08a','#8fd8ff','#ffffff'][i%4], grav: 130, type: 'spark'});
+  }
+}
+function stepParticles(dt){
+  for(let i = particles.length-1; i >= 0; i--){
+    const p = particles[i];
+    p.life += dt;
+    if(p.life >= p.max){ particles.splice(i, 1); continue; }
+    p.vy += (p.grav || 0) * dt;
+    p.x += p.vx * dt; p.y += p.vy * dt;
+  }
+}
+
+/* ================= PHYSICS ================= */
+function update(dt){
+  T += dt;
+  // moving pad
+  for(const p of pads){ if(p.moving) p.cx = p.baseCx + Math.sin(T*0.55 + p.phase) * 48; }
+  if(mode === 'boom'){
+    boomTimer -= dt; stepParticles(dt);
+    if(boomTimer <= 0 && !resultShown){ resultShown = true; showCrashResult(); }
+    return;
+  }
+  if(mode !== 'play'){ stepParticles(dt); return; }
+  const cfg = levelConfig(S.level);
+  windNow = cfg.windAmp * (0.6*Math.sin(T*0.9) + 0.4*Math.sin(T*2.3 + 1.7));
+  // tilt
+  if(keys.left && L.fuel > 0){ L.ang -= TILT_RATE * dt; L.fuel = Math.max(0, L.fuel - 1.4*dt); }
+  if(keys.right && L.fuel > 0){ L.ang += TILT_RATE * dt; L.fuel = Math.max(0, L.fuel - 1.4*dt); }
+  L.ang = Math.max(-MAX_TILT, Math.min(MAX_TILT, L.ang));
+  if(!keys.left && !keys.right) L.ang *= Math.pow(0.12, dt); // gentle self-level
+  // thrust
+  const rad = L.ang * Math.PI/180;
+  let ax = windNow * 0.55, ay = GRAV;
+  const thrusting = keys.thrust && L.fuel > 0;
+  if(thrusting){
+    ax += Math.sin(rad) * THRUST_ACC;
+    ay += -Math.cos(rad) * THRUST_ACC;
+    L.fuel = Math.max(0, L.fuel - 8.5*dt);
+    // flame particles
+    const nx = L.x - Math.sin(rad)*22, ny = L.y + Math.cos(rad)*22;
+    for(let i = 0; i < 3; i++)
+      spawn({x: nx + (Math.random()*6-3), y: ny, vx: -Math.sin(rad)*40 + (Math.random()*24-12), vy: Math.cos(rad)*120 + Math.random()*40, life: 0, max: 0.28 + Math.random()*0.2, size: 3 + Math.random()*3.5, color: ['#ffd76a','#ff9d2e','#ff6a2e'][i%3], grav: 0, type: 'flame'});
+    // dust kicked up near ground
+    const alt = groundY(L.x) - (L.y + LEG);
+    if(alt < 58){
+      for(let i = 0; i < 2; i++){
+        const dir = Math.random() < 0.5 ? -1 : 1;
+        spawn({x: L.x + dir*(8 + Math.random()*16), y: groundY(L.x) - 2, vx: dir*(30 + Math.random()*55), vy: -6 - Math.random()*14, life: 0, max: 0.6 + Math.random()*0.5, size: 3 + Math.random()*4, color: 'rgba(178,186,205,0.5)', grav: -4, type: 'dust'});
+      }
+    }
+  }
+  L.vx += ax * dt; L.vy += ay * dt;
+  L.x += L.vx * dt; L.y += L.vy * dt;
+  // walls / ceiling
+  if(L.x < 16){ L.x = 16; L.vx = Math.abs(L.vx)*0.4; }
+  if(L.x > W-16){ L.x = W-16; L.vx = -Math.abs(L.vx)*0.4; }
+  if(L.y < 26){ L.y = 26; L.vy = Math.max(0, L.vy); }
+  stepParticles(dt);
+  // touchdown?
+  const gy = groundY(L.x);
+  if(L.y + LEG >= gy){
+    L.y = gy - LEG;
+    const pad = pads.find(p => Math.abs(L.x - p.cx) <= p.w/2 - 4);
+    if(!pad) crash('crashGround');
+    else if(L.vy > SAFE_VY || Math.abs(L.vx) > SAFE_VX) crash('crashSpeed');
+    else if(Math.abs(L.ang) > SAFE_ANG) crash('crashTilt');
+    else landed(pad);
+  }
+  updateHUD();
+}
+function updateHUD(){
+  if(!S || !L) return;
+  const ff = document.getElementById('fuelfill');
+  ff.style.width = L.fuel + '%';
+  ff.className = L.fuel < 25 ? 'low' : '';
+  ff.id = 'fuelfill';
+  const vs = document.getElementById('vspeed');
+  vs.textContent = (L.vy >= 0 ? '▼ ' : '▲ ') + Math.abs(Math.round(L.vy * 3));
+  vs.className = 'v ' + ((L.vy > SAFE_VY) ? 'bad' : 'ok');
+  document.getElementById('altv').textContent = Math.max(0, Math.round((groundY(L.x) - (L.y + LEG)) * 1.4));
+  const wv = document.getElementById('windv');
+  const wr = Math.round(windNow * 3);
+  wv.textContent = (wr > 1 ? '→ ' : (wr < -1 ? '← ' : '· ')) + Math.abs(wr);
+  document.getElementById('scorev').textContent = S.score;
+  document.getElementById('levelv').textContent = S.level;
+  document.getElementById('livesv').textContent = '●'.repeat(Math.max(0, S.lives)) + '○'.repeat(Math.max(0, 3 - S.lives));
+}
+
+/* ================= DRAW ================= */
+function draw(){
+  // sky
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, '#02030a'); sky.addColorStop(0.55, '#060a1e'); sky.addColorStop(1, '#0a1026');
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+  // stars
+  for(const s of stars){
+    ctx.globalAlpha = 0.45 + 0.4*Math.sin(T*1.6 + s.p);
+    ctx.fillStyle = '#dfe8ff';
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 6.29); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  drawEarth();
+  drawHills();
+  drawTerrain();
+  drawBase();
+  drawPads();
+  drawParticles(false);
+  if(L && !L.dead) drawLander();
+  drawParticles(true);
+}
+function drawEarth(){
+  const ex = W - 74, ey = 74, er = 34;
+  const glow = ctx.createRadialGradient(ex, ey, er*0.6, ex, ey, er*2.1);
+  glow.addColorStop(0, 'rgba(90,150,255,0.35)'); glow.addColorStop(1, 'rgba(90,150,255,0)');
+  ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(ex, ey, er*2.1, 0, 6.29); ctx.fill();
+  const g = ctx.createRadialGradient(ex - 12, ey - 12, 6, ex, ey, er);
+  g.addColorStop(0, '#9fd0ff'); g.addColorStop(0.5, '#3f7fe0'); g.addColorStop(1, '#173d75');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(ex, ey, er, 0, 6.29); ctx.fill();
+  ctx.fillStyle = 'rgba(90,220,150,0.75)';
+  ctx.beginPath(); ctx.ellipse(ex - 10, ey - 6, 13, 8, 0.6, 0, 6.29); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(ex + 12, ey + 12, 10, 6, -0.4, 0, 6.29); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(ex + 4, ey - 16, 7, 4, 0.2, 0, 6.29); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.beginPath(); ctx.ellipse(ex - 4, ey + 4, 18, 5, 0.3, 0, 6.29); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(ex + 10, ey - 10, 13, 4, -0.3, 0, 6.29); ctx.fill();
+}
+function drawHills(){
+  ctx.fillStyle = '#0d1330';
+  ctx.beginPath(); ctx.moveTo(0, H*0.82);
+  for(let x = 0; x <= W; x += 30) ctx.lineTo(x, H*0.82 - Math.abs(Math.sin(x*0.006 + 2))*H*0.09 - Math.sin(x*0.017)*6);
+  ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath(); ctx.fill();
+}
+function drawTerrain(){
+  if(!terrain.length) return;
+  const g = ctx.createLinearGradient(0, H*0.7, 0, H);
+  g.addColorStop(0, '#9aa3b8'); g.addColorStop(0.25, '#767f95'); g.addColorStop(1, '#454e63');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.moveTo(-4, H);
+  for(const p of terrain) ctx.lineTo(p.x, p.y);
+  ctx.lineTo(W + 4, H); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(230,238,255,0.5)'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  terrain.forEach((p, i)=>{ if(i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
+  ctx.stroke();
+  // craters
+  for(const c of craters){
+    ctx.fillStyle = 'rgba(40,46,64,0.55)';
+    ctx.beginPath(); ctx.ellipse(c.x, c.y + 2, c.r, c.r*0.30, 0, 0, 6.29); ctx.fill();
+    ctx.strokeStyle = 'rgba(235,240,255,0.35)'; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.ellipse(c.x, c.y + 2, c.r, c.r*0.30, 0, 3.35, 6.0); ctx.stroke();
+  }
+  // rocks
+  ctx.fillStyle = '#59637a';
+  for(const r of rocks){
+    ctx.save(); ctx.translate(r.x, r.y); ctx.rotate(r.a);
+    ctx.beginPath(); ctx.moveTo(-r.s, 0); ctx.lineTo(-r.s*0.3, -r.s*0.8); ctx.lineTo(r.s*0.6, -r.s*0.5); ctx.lineTo(r.s, 0); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+}
+function drawBase(){
+  const gy = baseY, x = baseX;
+  // dome
+  const dg = ctx.createRadialGradient(x + 30, gy - 16, 4, x + 30, gy - 10, 34);
+  dg.addColorStop(0, 'rgba(190,225,255,0.95)'); dg.addColorStop(1, 'rgba(90,130,190,0.75)');
+  ctx.fillStyle = dg;
+  ctx.beginPath(); ctx.arc(x + 30, gy, 30, Math.PI, 0); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(220,238,255,0.8)'; ctx.lineWidth = 1.6; ctx.stroke();
+  // building block
+  ctx.fillStyle = '#c7cede';
+  ctx.fillRect(x + 62, gy - 20, 30, 20);
+  ctx.fillStyle = '#2c3a58'; ctx.fillRect(x + 68, gy - 14, 7, 7); ctx.fillRect(x + 79, gy - 14, 7, 7);
+  ctx.fillStyle = '#ffcf3d'; ctx.fillRect(x + 62, gy - 23, 30, 3.4);
+  // antenna + blinking light
+  ctx.strokeStyle = '#aeb9d4'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(x + 88, gy - 20); ctx.lineTo(x + 88, gy - 40); ctx.stroke();
+  if(Math.sin(T*4) > 0){ ctx.fillStyle = '#ff5340'; ctx.beginPath(); ctx.arc(x + 88, gy - 42, 3, 0, 6.29); ctx.fill(); }
+  // flag with crescent
+  ctx.strokeStyle = '#dfe6f5'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(x + 8, gy); ctx.lineTo(x + 8, gy - 30); ctx.stroke();
+  ctx.fillStyle = '#12305e'; ctx.fillRect(x + 8, gy - 30, 17, 11);
+  ctx.fillStyle = '#ffcf3d';
+  ctx.beginPath(); ctx.arc(x + 15.5, gy - 24.5, 4.2, 0, 6.29); ctx.fill();
+  ctx.fillStyle = '#12305e';
+  ctx.beginPath(); ctx.arc(x + 17.3, gy - 25.4, 3.5, 0, 6.29); ctx.fill();
+}
+function drawPads(){
+  for(const p of pads){
+    const x0 = p.cx - p.w/2, x1 = p.cx + p.w/2;
+    // glow
+    ctx.fillStyle = 'rgba(93,240,138,0.13)';
+    ctx.fillRect(x0 - 5, p.y - 16, p.w + 10, 18);
+    // platform
+    const g = ctx.createLinearGradient(0, p.y, 0, p.y + 10);
+    g.addColorStop(0, '#d7deee'); g.addColorStop(1, '#78839c');
+    ctx.fillStyle = g; ctx.fillRect(x0, p.y, p.w, 8);
+    ctx.fillStyle = '#39445e'; ctx.fillRect(x0 + 4, p.y + 8, 6, 7); ctx.fillRect(x1 - 10, p.y + 8, 6, 7);
+    // hazard stripes
+    ctx.fillStyle = '#ffcf3d';
+    for(let x = x0 + 3; x < x1 - 6; x += 13) ctx.fillRect(x, p.y + 2.6, 6, 2.6);
+    // edge lights
+    const on = Math.sin(T*5 + p.cx) > -0.2;
+    ctx.fillStyle = on ? '#5df08a' : '#1d5c34';
+    ctx.beginPath(); ctx.arc(x0 + 3, p.y - 2, 2.6, 0, 6.29); ctx.fill();
+    ctx.beginPath(); ctx.arc(x1 - 3, p.y - 2, 2.6, 0, 6.29); ctx.fill();
+    // multiplier + crescent
+    ctx.fillStyle = '#ffcf3d';
+    ctx.font = '900 15px system-ui, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('×' + p.mult, p.cx, p.y - 20);
+    ctx.beginPath(); ctx.arc(p.cx, p.y - 33, 5, 0, 6.29); ctx.fill();
+    ctx.fillStyle = '#060a1e';
+    ctx.beginPath(); ctx.arc(p.cx + 2.2, p.y - 34.2, 4.1, 0, 6.29); ctx.fill();
+  }
+}
+function drawParticles(front){
+  for(const p of particles){
+    if(front !== (p.type === 'spark')) continue;
+    const f = 1 - p.life / p.max;
+    ctx.globalAlpha = Math.max(0, f) * (p.type === 'smoke' || p.type === 'dust' ? 0.8 : 1);
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (p.type === 'smoke' ? (1.6 - f*0.6) : f + 0.25), 0, 6.29); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+function drawLander(){
+  const thrusting = mode === 'play' && keys.thrust && L.fuel > 0;
+  ctx.save();
+  ctx.translate(L.x, L.y);
+  ctx.rotate(L.ang * Math.PI/180);
+  // flame
+  if(thrusting){
+    const fl = 20 + Math.random()*13;
+    const fg = ctx.createLinearGradient(0, 14, 0, 14 + fl + 12);
+    fg.addColorStop(0, 'rgba(255,240,180,0.95)'); fg.addColorStop(0.45, 'rgba(255,157,46,0.85)'); fg.addColorStop(1, 'rgba(255,80,30,0)');
+    ctx.fillStyle = fg;
+    ctx.beginPath(); ctx.moveTo(-6, 14); ctx.lineTo(0, 14 + fl + 12); ctx.lineTo(6, 14); ctx.closePath(); ctx.fill();
+  }
+  // legs
+  ctx.strokeStyle = '#39445e'; ctx.lineWidth = 3.4; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-11, 6); ctx.lineTo(-19, 24); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(11, 6); ctx.lineTo(19, 24); ctx.stroke();
+  ctx.strokeStyle = '#ffcf3d'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(-25, 27); ctx.lineTo(-13, 27); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(13, 27); ctx.lineTo(25, 27); ctx.stroke();
+  // side tanks
+  for(const s of [-1, 1]){
+    const tg = ctx.createLinearGradient(s*15, -8, s*23, 10);
+    tg.addColorStop(0, '#e8edf7'); tg.addColorStop(1, '#8b96b0');
+    ctx.fillStyle = tg;
+    ctx.beginPath(); ctx.ellipse(s*18.5, 1, 5.6, 11, 0, 0, 6.29); ctx.fill();
+    ctx.fillStyle = '#c33'; ctx.fillRect(s*18.5 - 5.6, -3.4, 11.2, 3.4);
+  }
+  // body — gold foil lower + silver upper
+  const bg = ctx.createLinearGradient(-14, 0, 14, 0);
+  bg.addColorStop(0, '#a8741a'); bg.addColorStop(0.5, '#f4c542'); bg.addColorStop(1, '#a8741a');
+  ctx.fillStyle = bg;
+  ctx.beginPath();
+  ctx.moveTo(-14, 14); ctx.lineTo(-14, 0); ctx.quadraticCurveTo(-14, -10, -6, -12); ctx.lineTo(6, -12); ctx.quadraticCurveTo(14, -10, 14, 0); ctx.lineTo(14, 14); ctx.closePath(); ctx.fill();
+  const sg = ctx.createLinearGradient(-12, -22, 12, -10);
+  sg.addColorStop(0, '#8b96b0'); sg.addColorStop(0.5, '#eef2fa'); sg.addColorStop(1, '#78839c');
+  ctx.fillStyle = sg;
+  ctx.beginPath();
+  ctx.moveTo(-9, -11); ctx.quadraticCurveTo(-9, -23, 0, -23); ctx.quadraticCurveTo(9, -23, 9, -11); ctx.closePath(); ctx.fill();
+  // window with pilot
+  ctx.fillStyle = '#bfe0ff';
+  ctx.beginPath(); ctx.arc(0, -15.5, 6.4, 0, 6.29); ctx.fill();
+  ctx.fillStyle = '#f2c79b'; // pilot face
+  ctx.beginPath(); ctx.arc(0, -14.6, 3.9, 0, 6.29); ctx.fill();
+  ctx.fillStyle = '#20242e';
+  ctx.beginPath(); ctx.arc(-1.5, -15.2, 0.62, 0, 6.29); ctx.fill();
+  ctx.beginPath(); ctx.arc(1.5, -15.2, 0.62, 0, 6.29); ctx.fill();
+  ctx.strokeStyle = '#20242e'; ctx.lineWidth = 0.7;
+  ctx.beginPath(); ctx.arc(0, -13.6, 1.7, 0.35, 2.8); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1.6; // helmet rim
+  ctx.beginPath(); ctx.arc(0, -15.5, 6.4, 0, 6.29); ctx.stroke();
+  // crescent + LUNC on the foil
+  ctx.fillStyle = '#12305e';
+  ctx.beginPath(); ctx.arc(-6.5, 6, 4.4, 0, 6.29); ctx.fill();
+  ctx.fillStyle = bg;
+  ctx.fillStyle = '#f4c542';
+  ctx.beginPath(); ctx.arc(-6.5, 6, 3.4, 0, 6.29); ctx.fill();
+  ctx.fillStyle = '#a8741a';
+  ctx.beginPath(); ctx.arc(-5.2, 5.2, 2.8, 0, 6.29); ctx.fill();
+  ctx.fillStyle = '#231a00';
+  ctx.font = '900 7.5px system-ui, sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('LUNC', 0.5, 9.5);
+  // nozzle
+  ctx.fillStyle = '#39445e';
+  ctx.beginPath(); ctx.moveTo(-4.6, 14); ctx.lineTo(4.6, 14); ctx.lineTo(6.4, 19); ctx.lineTo(-6.4, 19); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+/* ================= LOOP / WIRING ================= */
+function frame(ts){
+  const dt = Math.min(0.033, (ts - lastTs) / 1000 || 0.016);
+  lastTs = ts;
+  update(dt);
+  draw();
+  requestAnimationFrame(frame);
+}
+document.getElementById('playbtn').addEventListener('click', startRun);
+document.getElementById('nextbtn').addEventListener('click', ()=>{ S.level++; startLevel(S.level); });
+document.getElementById('retrybtn').addEventListener('click', ()=>{
+  if(S.lives > 0 && mode !== 'play') startLevel(S.level);
+  else startRun();
+});
+document.getElementById('menubtn').addEventListener('click', ()=>{
+  mode = 'menu';
+  document.getElementById('result').classList.add('hidden');
+  document.getElementById('hud').classList.remove('on');
+  document.getElementById('controls').classList.remove('on');
+  document.getElementById('menu').classList.remove('hidden');
+  document.getElementById('menubest').textContent = best;
+  buildLevel(1, true);
+});
+document.getElementById('langsel').addEventListener('change', e=>{
+  lang = e.target.value;
+  localStorage.setItem('moonlander_lang', lang);
+  applyLang();
+  if(S) updateHUD();
+});
+resize();
+applyLang();
+requestAnimationFrame(frame);
+// test/debug handle
+window.ML = { get mode(){ return mode; }, get S(){ return S; }, get L(){ return L; }, get pads(){ return pads; }, start: startRun, keys };
+</script>
+</body>
+</html>
