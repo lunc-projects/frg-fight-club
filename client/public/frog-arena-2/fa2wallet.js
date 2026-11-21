@@ -864,7 +864,7 @@ async function fa2TaxUluna(amountUluna) {
 async function fa2SendLunc(toAddress, ulunaAmount, memo) {
   if (!gdWalletConnected || !gdWallet) throw new Error('Connect your wallet first.');
   const libs = await loadKitLibs();
-  const gasPrice = libs.stargate.GasPrice.fromString(GD_GAS_PRICE + 'uluna');
+  const gasPrice = libs.cosmjs.GasPrice.fromString(GD_GAS_PRICE + 'uluna');
   const coins = [{ denom: 'uluna', amount: String(ulunaAmount) }];
   if (gdWalletVia === 'luncdash' || gdWalletVia === 'station' && !kitChainWallet) {
     const wc = fa2DashWc;
@@ -890,11 +890,8 @@ async function fa2SendLunc(toAddress, ulunaAmount, memo) {
     const gasFee = BigInt(Math.ceil(400000 * GD_GAS_PRICE));
     const fee = { amount: [{ denom: 'uluna', amount: (gasFee + tax).toString() }], gas: '400000' };
     const msg = { typeUrl: '/cosmos.bank.v1beta1.MsgSend', value: { fromAddress: gdWallet, toAddress, amount: coins } };
-    const signing = await libs.stargate.SigningStargateClient.connectWithSigner(GD_RPC, dashSigner, { gasPrice });
-    const txRaw = await signing.sign(gdWallet, [msg], fee, memo || '');
-    const bytes = libs.stargate.TxRaw.encode(txRaw).finish();
-    const broadcaster = await libs.stargate.StargateClient.connect(GD_RPC);
-    const delivered = await broadcaster.broadcastTx(bytes);
+    const signing = await libs.cosmjs.SigningStargateClient.connectWithSigner(GD_RPC, dashSigner, { gasPrice });
+    const delivered = await signing.signAndBroadcast(gdWallet, [msg], fee, memo || '');
     if (delivered.code) throw new Error('Payment failed on-chain (code ' + delivered.code + ').');
     return { transactionHash: delivered.transactionHash };
   }
@@ -910,7 +907,7 @@ async function fa2SendLunc(toAddress, ulunaAmount, memo) {
     if (!signer) throw new Error('This wallet cannot sign here — try Keplr or LUNCDash.');
   }
   if (!signer) throw new Error('No signer available — connect Keplr, Galaxy Station or LUNCDash.');
-  const client = await libs.stargate.SigningStargateClient.connectWithSigner(GD_RPC, signer, { gasPrice });
+  const client = await libs.cosmjs.SigningStargateClient.connectWithSigner(GD_RPC, signer, { gasPrice });
   const result = await client.sendTokens(gdWallet, toAddress, coins, 'auto', memo || '');
   if (result.code) throw new Error('Payment failed on-chain (code ' + result.code + ').');
   return { transactionHash: result.transactionHash };

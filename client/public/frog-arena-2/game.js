@@ -46,8 +46,8 @@ addEventListener('resize', () => {
 });
 
 /* ---------------- lights ---------------- */
-scene.add(new THREE.HemisphereLight(0xcfeaff, 0x8a7a4a, 0.95));
-const keyLight = new THREE.DirectionalLight(0xfff1c4, 2.9);
+scene.add(new THREE.HemisphereLight(0xcfeaff, 0x8a7a4a, 0.78));
+const keyLight = new THREE.DirectionalLight(0xfff1c4, 3.05);
 keyLight.position.set(4.5, 8, 5);
 keyLight.castShadow = true;
 keyLight.shadow.mapSize.set(2048, 2048);
@@ -733,25 +733,31 @@ document.getElementById('muteBtn').addEventListener('click', () => {
 });
 
   // (no GLB assets — the colorful frog champions are built from articulated primitives)
-/* Fighter = a REAL 3D colorful frog champion built from Three.js
-   primitives, modelled on the design spec (Tom's generated image):
-   an upright MUSCULAR frog in black-and-gold spiked armor — crown,
-   skull motifs, cape — in a sunlit colosseum. Proportions:
-   ~1.92 tall, broad chest, narrow waist, long articulated limbs.
-   Every limb is TWO segments (upper + fore / thigh + shin) driven
-   by a small IK solver to the same anchor points the combat engine
-   reads (limbBones), so the swept-limb contact system works
-   unchanged: jab bone = front fist, heavy bone = back fist, kick
-   bone = front foot. Idle breathing/sway, walk steps, jab extends,
-   hook swings, kick extends, block, flinch, KO fall — real motion.
-   Character variants come from cfg.skin: palette (GREEN frog skin
-   for everyone — each portrait's colour lives in its armor), armor
-   tint, trim, cape, emblem (sun / moon / rose / skull / rune /
-   star), headgear (crown / rosecrown / flamecrest / hood / plume /
-   starcrown / circlet) and a feminine build for the Queen and
-   Princess. The models are built to match the painted portraits
-   (in the DOM character-select cards) — wide frog heads, throat
-   pouches, muscle-lathe limbs, full colorful armor. */
+/* Fighter = a REAL 3D colorful frog champion built from shaped
+   Three.js geometry, modelled on each warrior's painted NFT
+   portrait (the select-screen art IS the spec — QUALITY PASS,
+   Nov 20: Tom's verdict on the earlier builds was "blobby
+   circles", so this rebuild is silhouette-first):
+   - HEAD: a wide flat cranium (wider than tall) + forward snout +
+     jaw edge + a big pale THROAT POUCH bulging under the jaw, eye
+     turrets at the top corners with eyelid caps, heavy brow shelf,
+     portrait pupils (round / slit / glowing).
+   - TORSO: a lathe-profiled chest (broad at the pecs, narrow at
+     the waist) wearing a PLATE cuirass that ends mid-torso over a
+     pale belly — pec plates with real edges, a canvas-drawn emblem
+     decal (sun / moon / rose / skull / rune / star / anchor / gem)
+     and a gold bottom rim, exactly like the portraits.
+   - ARMS/LEGS: muscle-lathe limbs with joint spheres, long flared
+     gauntlets with dorsal plates and trim rings, knee discs and a
+     greave ridge; BOOTS for the armored warriors, bare long-toed
+     frog feet for ember / captain / brawler.
+   - Skin carries a canvas texture sampled from the portrait
+     (spots; Nyx gets her orange spots + yellow dart stripes).
+   Every limb is TWO segments driven by the aim2 IK solver to the
+   same anchor points the combat engine reads (limbBones), so the
+   swept-limb contact system works unchanged. Animation, hitboxes,
+   stats and names are untouched by this pass — only the meshes,
+   materials and per-warrior palettes changed. */
 const DUR = {
   idle: 1.6, walk: 0.8, crouch: 1.2, jump: 0.9, block: 1.2,
   jab: 0.55, heavy: 0.72, kick1: 0.5, kick2: 0.62,
@@ -796,7 +802,7 @@ function aim2(jx, jy, jz, seg1, seg2Grp, seg2Mesh, endGrp, tx, ty, tz, a, b, px,
    flare) instead of plain toy cylinders. */
 function latheGeo(ctrl) {
   const pts = [];
-  const N = 18;
+  const N = 26;
   for (let i = 0; i <= N; i++) {
     const t = i / N;
     let r = ctrl[ctrl.length - 1][1];
@@ -812,8 +818,237 @@ function latheGeo(ctrl) {
   }
   pts.unshift(new THREE.Vector2(0.012, 0.006));
   pts.push(new THREE.Vector2(0.012, -1.006));
-  return new THREE.LatheGeometry(pts, 14);
+  return new THREE.LatheGeometry(pts, 22);
 }
+/* Vertical lathe shell (torso / cuirass): profile = [[y, r], ...]
+   ordered bottom -> top, revolved around Y. */
+function latheYGeo(profile, seg) {
+  const pts = profile.map(p => new THREE.Vector2(Math.max(0.012, p[1]), p[0]));
+  return new THREE.LatheGeometry(pts, seg || 26);
+}
+/* Deterministic RNG so both copies of a warrior wear the same skin. */
+function fa2Rand(seedStr) {
+  let h = 2166136261;
+  for (let i = 0; i < seedStr.length; i++) { h ^= seedStr.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return () => {
+    h = Math.imul(h ^ (h >>> 15), 2246822507);
+    h = Math.imul(h ^ (h >>> 13), 3266489909);
+    return ((h ^= h >>> 16) >>> 0) / 4294967296;
+  };
+}
+const _texCache = new Map();
+function fa2SkinTex(id, bodyCss, spotCss, opts) {
+  opts = opts || {};
+  const key = 'skin:' + id + ':' + (opts.stripes ? 's' : '') + (opts.bigSpots ? 'b' : '');
+  if (_texCache.has(key)) return _texCache.get(key);
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const x = c.getContext('2d');
+  x.fillStyle = bodyCss; x.fillRect(0, 0, 256, 256);
+  const rnd = fa2Rand(id + bodyCss);
+  if (opts.stripes) {
+    x.fillStyle = opts.stripes; x.globalAlpha = 0.9;
+    for (let b = 0; b < 4; b++) {
+      const y0 = 30 + b * 62 + rnd() * 14;
+      x.beginPath(); x.moveTo(0, y0);
+      for (let px = 0; px <= 256; px += 16) x.lineTo(px, y0 + Math.sin(px * 0.05 + b * 2.1) * 7);
+      for (let px = 256; px >= 0; px -= 16) x.lineTo(px, y0 + 15 + Math.sin(px * 0.05 + b * 2.1) * 7);
+      x.closePath(); x.fill();
+    }
+    x.globalAlpha = 1;
+  }
+  x.fillStyle = spotCss;
+  const n = opts.bigSpots ? 70 : 120;
+  for (let i = 0; i < n; i++) {
+    const r = opts.bigSpots ? 7 + rnd() * 20 : 3 + rnd() * 13;
+    x.globalAlpha = opts.bigSpots ? 0.95 : 0.28 + rnd() * 0.3;
+    x.beginPath();
+    x.ellipse(rnd() * 256, rnd() * 256, r, r * (0.65 + rnd() * 0.5), rnd() * 3.2, 0, 6.3);
+    x.fill();
+  }
+  x.globalAlpha = 1;
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  _texCache.set(key, t);
+  return t;
+}
+function fa2StarPath(x, cx, cy, R, r) {
+  x.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const rad = i % 2 ? r : R, a = -Math.PI / 2 + i * Math.PI / 5;
+    const px = cx + Math.cos(a) * rad, py = cy + Math.sin(a) * rad;
+    i ? x.lineTo(px, py) : x.moveTo(px, py);
+  }
+  x.closePath();
+}
+/* Canvas-drawn chest emblem — crisp decal art (sun / moon / rose /
+   skull / rune / star / anchor / gem) instead of primitive blobs. */
+function fa2EmblemTex(kind, trimCss, gemCss, mainCss) {
+  const key = 'emb:' + kind + ':' + trimCss + ':' + gemCss + ':' + mainCss;
+  if (_texCache.has(key)) return _texCache.get(key);
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const x = c.getContext('2d');
+  x.lineJoin = 'round'; x.lineCap = 'round';
+  if (kind === 'sun') {
+    x.fillStyle = trimCss;
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      x.save(); x.translate(128, 128); x.rotate(a);
+      x.beginPath(); x.moveTo(-13, -52); x.lineTo(13, -52); x.lineTo(0, -108); x.closePath(); x.fill();
+      x.restore();
+    }
+    x.beginPath(); x.arc(128, 128, 56, 0, 6.3); x.fill();
+    x.fillStyle = 'rgba(0,0,0,0.20)';
+    x.beginPath(); x.arc(128, 128, 42, 0, 6.3); x.fill();
+    x.fillStyle = gemCss;
+    x.beginPath(); x.arc(128, 128, 23, 0, 6.3); x.fill();
+    x.fillStyle = 'rgba(255,255,255,0.55)';
+    x.beginPath(); x.arc(120, 120, 7, 0, 6.3); x.fill();
+  } else if (kind === 'moon') {
+    x.fillStyle = '#e8eef6';
+    x.beginPath(); x.arc(128, 128, 64, 0, 6.3); x.fill();
+    x.globalCompositeOperation = 'destination-out';
+    x.beginPath(); x.arc(160, 106, 54, 0, 6.3); x.fill();
+    x.globalCompositeOperation = 'source-over';
+    x.fillStyle = 'rgba(255,255,255,0.7)';
+    x.beginPath(); x.arc(96, 168, 6, 0, 6.3); x.fill();
+  } else if (kind === 'rose') {
+    x.fillStyle = trimCss;
+    x.beginPath(); x.ellipse(96, 176, 26, 12, -0.6, 0, 6.3); x.fill();
+    x.beginPath(); x.ellipse(160, 176, 26, 12, 0.6, 0, 6.3); x.fill();
+    x.fillStyle = mainCss;
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2 - 0.4;
+      x.beginPath(); x.ellipse(128 + Math.cos(a) * 30, 118 + Math.sin(a) * 30, 27, 19, a, 0, 6.3); x.fill();
+    }
+    x.fillStyle = 'rgba(0,0,0,0.22)';
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2 + 0.5;
+      x.beginPath(); x.ellipse(128 + Math.cos(a) * 14, 118 + Math.sin(a) * 14, 14, 10, a, 0, 6.3); x.fill();
+    }
+    x.fillStyle = gemCss;
+    x.beginPath(); x.arc(128, 118, 9, 0, 6.3); x.fill();
+  } else if (kind === 'skull') {
+    x.fillStyle = '#ddd6c2';
+    x.beginPath(); x.arc(128, 116, 54, 0, 6.3); x.fill();
+    x.fillRect(96, 148, 64, 44);
+    x.fillStyle = '#14161c';
+    x.beginPath(); x.ellipse(106, 122, 14, 18, 0, 0, 6.3); x.fill();
+    x.beginPath(); x.ellipse(150, 122, 14, 18, 0, 0, 6.3); x.fill();
+    x.beginPath(); x.moveTo(128, 140); x.lineTo(118, 158); x.lineTo(138, 158); x.closePath(); x.fill();
+    x.strokeStyle = '#14161c'; x.lineWidth = 4;
+    for (const tx of [110, 128, 146]) { x.beginPath(); x.moveTo(tx, 168); x.lineTo(tx, 190); x.stroke(); }
+  } else if (kind === 'rune') {
+    x.strokeStyle = '#8df7ff'; x.shadowColor = '#2ee6d6'; x.shadowBlur = 16;
+    x.lineWidth = 9;
+    x.beginPath(); x.arc(128, 128, 88, 0, 6.3); x.stroke();
+    x.lineWidth = 5;
+    x.beginPath(); x.arc(128, 128, 58, 0, 6.3); x.stroke();
+    x.lineWidth = 7;
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      x.beginPath();
+      x.moveTo(128 + Math.cos(a) * 62, 128 + Math.sin(a) * 62);
+      x.lineTo(128 + Math.cos(a) * 82, 128 + Math.sin(a) * 82);
+      x.stroke();
+    }
+    x.fillStyle = '#c8fbff';
+    x.beginPath(); x.arc(128, 128, 10, 0, 6.3); x.fill();
+    x.lineWidth = 5;
+    for (const [gx, gy, dx, dy] of [[52, 52, 14, 20], [204, 52, -14, 20], [52, 204, 14, -20], [204, 204, -14, -20]]) {
+      x.beginPath(); x.moveTo(gx, gy); x.lineTo(gx + dx, gy + dy); x.moveTo(gx, gy + dy * 0.6); x.lineTo(gx + dx * 0.7, gy + dy * 0.2); x.stroke();
+    }
+  } else if (kind === 'star') {
+    x.shadowColor = trimCss; x.shadowBlur = 18;
+    x.fillStyle = trimCss;
+    fa2StarPath(x, 128, 128, 96, 42); x.fill();
+    x.shadowBlur = 0;
+    x.fillStyle = '#c8fbff';
+    fa2StarPath(x, 128, 128, 48, 21); x.fill();
+  } else if (kind === 'anchor') {
+    x.strokeStyle = trimCss; x.fillStyle = trimCss;
+    x.lineWidth = 11;
+    x.beginPath(); x.arc(128, 46, 17, 0, 6.3); x.stroke();
+    x.lineWidth = 14;
+    x.beginPath(); x.moveTo(128, 63); x.lineTo(128, 200); x.stroke();
+    x.lineWidth = 11;
+    x.beginPath(); x.moveTo(82, 102); x.lineTo(174, 102); x.stroke();
+    x.lineWidth = 12;
+    x.beginPath(); x.arc(128, 138, 58, 0.35, Math.PI - 0.35); x.stroke();
+    for (const s of [-1, 1]) {
+      x.beginPath();
+      x.moveTo(128 + s * 58, 152); x.lineTo(128 + s * 82, 118); x.lineTo(128 + s * 38, 112);
+      x.closePath(); x.fill();
+    }
+  } else if (kind === 'gem') {
+    x.strokeStyle = trimCss; x.lineWidth = 13;
+    x.save(); x.translate(128, 128); x.rotate(Math.PI / 4); x.strokeRect(-46, -46, 92, 92); x.restore();
+    x.fillStyle = gemCss;
+    x.save(); x.translate(128, 128); x.rotate(Math.PI / 4); x.fillRect(-27, -27, 54, 54); x.restore();
+    x.fillStyle = 'rgba(255,255,255,0.5)';
+    x.beginPath(); x.arc(114, 112, 8, 0, 6.3); x.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  _texCache.set(key, t);
+  return t;
+}
+function fa2CapeTex(capeCss, trimCss) {
+  const key = 'cape:' + capeCss + ':' + trimCss;
+  if (_texCache.has(key)) return _texCache.get(key);
+  const c = document.createElement('canvas'); c.width = 128; c.height = 256;
+  const x = c.getContext('2d');
+  x.fillStyle = capeCss; x.fillRect(0, 0, 128, 256);
+  x.strokeStyle = trimCss; x.lineWidth = 9;
+  x.beginPath(); x.moveTo(5, 0); x.lineTo(5, 251); x.lineTo(123, 251); x.lineTo(123, 0); x.stroke();
+  x.globalAlpha = 0.55; x.lineWidth = 3;
+  x.beginPath(); x.moveTo(15, 0); x.lineTo(15, 241); x.lineTo(113, 241); x.lineTo(113, 0); x.stroke();
+  x.globalAlpha = 1;
+  const t = new THREE.CanvasTexture(c);
+  _texCache.set(key, t);
+  return t;
+}
+/* ================= ART FIGHTERS (Nov 20, 2026) =================
+   Tom's ruling after three rejected 3D-model passes: the fighters
+   ARE the NFT art. Warriors with pose art (ART_POSES) fight as 2D
+   pose-sprites on a flat side-view stage; the 3D pose/IK math keeps
+   running invisibly underneath, so limb-contact hit detection,
+   bones, timing and damage are identical to the 3D build. Poses:
+   the master paintings cut with rembg + generated action poses of
+   the same frog (see ART-FIGHTER-2026-11-20.md). */
+const ART_STAGE = true;               // this build's fight view is the 2D stage
+const ART_WORLD_H = 2.04;             // sprite height in world units (crown incl.)
+const ART_POSES = {
+  king: ['idle', 'strike', 'kick', 'block', 'hurt', 'victory'],
+  queen: ['idle', 'strike', 'kick', 'block', 'hurt', 'victory'],
+  princess: ['idle', 'strike', 'kick', 'block', 'hurt', 'victory'],
+  ember: ['idle', 'strike', 'kick', 'block', 'hurt', 'victory'],
+  shadow: ['idle', 'strike', 'kick', 'block', 'hurt', 'victory'],
+  captain: ['idle', 'strike', 'kick', 'block', 'hurt', 'victory'],
+  nightblade: ['idle', 'strike', 'kick', 'block', 'hurt', 'victory'],
+  soldier: ['idle', 'strike', 'kick', 'block', 'hurt', 'victory'],
+  starknight: ['idle', 'strike', 'kick', 'block', 'hurt', 'victory'],
+  brawler: ['idle', 'strike', 'kick', 'block', 'hurt', 'victory'],
+};
+let _artManifest = null;
+async function artManifest() {
+  if (_artManifest) return _artManifest;
+  try {
+    const r = await fetch('art/art-manifest.json');
+    _artManifest = await r.json();
+  } catch (e) { _artManifest = {}; }
+  return _artManifest;
+}
+const _artTexCache = {};
+function artTexture(key) {
+  if (_artTexCache[key]) return _artTexCache[key];
+  const p = new Promise(res => {
+    new THREE.TextureLoader().load('art/' + key + '.webp',
+      t => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; res(t); },
+      undefined, () => res(null));
+  });
+  _artTexCache[key] = p;
+  return p;
+}
+
 class Fighter {
   constructor(cfg) {
     this.cfg = cfg;
@@ -842,12 +1077,12 @@ class Fighter {
       Fighter._shTex = new THREE.CanvasTexture(c);
       Fighter._flatGeo = new THREE.PlaneGeometry(1, 1);
       Fighter._shieldGeo = new THREE.SphereGeometry(0.62, 18, 14);
-      Fighter._sphGeo = new THREE.SphereGeometry(1, 20, 16);
+      Fighter._sphGeo = new THREE.SphereGeometry(1, 28, 20);
       Fighter._segGeo = new THREE.CylinderGeometry(0.86, 1, 1, 10); Fighter._segGeo.translate(0, -0.5, 0);
-      Fighter._armUpGeo = latheGeo([[0, 0.100], [0.18, 0.128], [0.38, 0.138], [0.62, 0.112], [0.85, 0.092], [1, 0.084]]);
-      Fighter._armFoGeo = latheGeo([[0, 0.082], [0.30, 0.098], [0.62, 0.104], [0.85, 0.118], [1, 0.100]]);
-      Fighter._thighGeo = latheGeo([[0, 0.138], [0.25, 0.162], [0.50, 0.148], [0.75, 0.118], [1, 0.100]]);
-      Fighter._shinGeo = latheGeo([[0, 0.100], [0.22, 0.128], [0.50, 0.108], [0.80, 0.090], [1, 0.082]]);
+      Fighter._armUpGeo = latheGeo([[0, 0.105], [0.20, 0.148], [0.42, 0.155], [0.65, 0.122], [0.85, 0.100], [1, 0.090]]);
+      Fighter._armFoGeo = latheGeo([[0, 0.090], [0.25, 0.106], [0.55, 0.116], [0.80, 0.138], [1, 0.126]]);
+      Fighter._thighGeo = latheGeo([[0, 0.148], [0.25, 0.178], [0.50, 0.160], [0.75, 0.126], [1, 0.106]]);
+      Fighter._shinGeo = latheGeo([[0, 0.104], [0.22, 0.130], [0.50, 0.110], [0.80, 0.094], [1, 0.086]]);
     }
     return Fighter._shTex;
   }
@@ -864,6 +1099,7 @@ class Fighter {
     this.group.add(this.shadow);
     this._buildFrog();
     this.yawG.add(this.frog);
+    await this._buildArtSprite();
     this.shield = new THREE.Mesh(Fighter._shieldGeo, new THREE.MeshBasicMaterial({
       map: glowTex, color: 0xcdb2ff, transparent: true, opacity: 0.38,
       depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
@@ -882,40 +1118,44 @@ class Fighter {
     this.applyFacing();
     this._loaded = true;
   }
-  /* Build the colorful frog champion — rebuilt Nov 18 (Tom's
-     verdict: the first models were smooth toy figures that did not
-     match the portraits; the pink Princess "looked like Miss
-     Piggy"). Now modelled on the painted portraits: a WIDE flat
-     frog head (eyes on top, slit pupils, heavy brow, big throat
-     pouch, wide mouth), GREEN frog skin on every warrior (the
-     portraits' colour lives in the ARMOR, not the body), muscle-
-     bulked lathe-profile limbs, armored gauntlet forearms and
-     greave shins, layered spiked pauldrons, tassets, and each
-     portrait's own emblem + headgear (sun crown, violet-gem crown,
-     rose crown, flame crest, hood, plume, star crown, circlet).
-     Local space = pose space: +z toward the foe, feet at y=0.
-     Combat anchors, IK segment lengths and pose targets are
-     unchanged — only the meshes changed. */
+  /* Build the frog champion — QUALITY PASS rebuild (Nov 20).
+     Silhouette-first, per portrait: shaped head (wide cranium,
+     snout, jaw, throat pouch, brow, turret eyes with lids), lathe
+     torso + plate cuirass over a pale belly, canvas emblem decal,
+     layered pauldrons with medallions, gauntlet arms, knee-disc
+     greaves, boots or bare frog feet, gold belt with the portrait's
+     buckle, cape with a gold border. Local space = pose space:
+     +z toward the foe, feet at y=0. Combat anchors, IK segment
+     lengths and pose targets are unchanged — only meshes changed. */
   _buildFrog() {
     const sk = this.cfg.skin || {};
     const fem = !!sk.female;
+    const bulk = sk.bulk || 1;
     const std = (color, rough, metal) => new THREE.MeshStandardMaterial({ color, roughness: rough === undefined ? 0.6 : rough, metalness: metal || 0 });
+    const bodyCss = hexCss(sk.body !== undefined ? sk.body : 0x4a7a35);
+    const spotCss = hexCss(sk.spot !== undefined ? sk.spot : 0x2f5523);
+    const skinMap = fa2SkinTex(this.cfg.id || 'frog', bodyCss, spotCss, {
+      stripes: sk.stripe !== undefined ? hexCss(sk.stripe) : null,
+      bigSpots: !!sk.bigSpots,
+    });
     const M = {
-      body: std(sk.body !== undefined ? sk.body : 0x4a7a35, 0.52),
-      belly: std(sk.belly !== undefined ? sk.belly : 0xb9c9a0, 0.62),
-      spot: std(sk.spot !== undefined ? sk.spot : 0x2f5523, 0.62),
+      body: new THREE.MeshStandardMaterial({ map: skinMap, roughness: 0.46, metalness: 0 }),
+      belly: std(sk.belly !== undefined ? sk.belly : 0xb9c9a0, 0.58),
+      spot: std(sk.spot !== undefined ? sk.spot : 0x2f5523, 0.6),
       pupil: std(sk.pupil !== undefined ? sk.pupil : 0x141414, 0.3),
-      iris: std(sk.iris !== undefined ? sk.iris : 0xff9a1f, 0.3),
-      white: std(0xf4f1e6, 0.3),
-      armor: std(sk.armor !== undefined ? sk.armor : 0x17181c, 0.42, 0.85),
-      trim: std(sk.trim !== undefined ? sk.trim : 0xd8a83c, 0.3, 0.85),
+      iris: std(sk.iris !== undefined ? sk.iris : 0xff9a1f, 0.28),
+      white: std(0xf6f3ea, 0.28),
+      armor: std(sk.armor !== undefined ? sk.armor : 0x17181c, 0.30, 0.62),
+      trim: std(sk.trim !== undefined ? sk.trim : 0xd8a83c, 0.22, 1.0),
       cape: std(sk.cape !== undefined && sk.cape !== null ? sk.cape : 0x2a1a3e, 0.78),
       cloth: std(sk.cape !== undefined && sk.cape !== null ? sk.cape : 0x14100c, 0.85),
       bone: std(0xd8d2c0, 0.55),
       dark: std(0x0c0d10, 0.45),
       leather: std(0x3a2c1e, 0.82),
-      gem: std(sk.gem !== undefined ? sk.gem : (sk.iris !== undefined ? sk.iris : 0xff9a1f), 0.25, 0.3),
+      gem: new THREE.MeshStandardMaterial({ color: sk.gem !== undefined ? sk.gem : 0xff9a1f, roughness: 0.16, metalness: 0.25, emissive: sk.gem !== undefined ? sk.gem : 0xff9a1f, emissiveIntensity: 0.38 }),
       glow: sk.glow ? new THREE.MeshStandardMaterial({ color: 0x0b0c10, emissive: sk.trim, emissiveIntensity: 1.15, roughness: 0.4, metalness: 0.2 }) : null,
+      eyeGlow: sk.glow ? new THREE.MeshStandardMaterial({ color: 0x062a28, emissive: sk.iris, emissiveIntensity: 1.5, roughness: 0.3 }) : null,
+      hi: new THREE.MeshBasicMaterial({ color: 0xffffff }),
     };
     const ACC = M.glow || M.trim;
     const F = this.frog = new THREE.Group();
@@ -930,20 +1170,13 @@ class Fighter {
       m.position.set(px, py, pz); m.castShadow = true; (parent || F).add(m); return m;
     };
     const cone = (mat, r, h, px, py, pz, rx, rz, parent) => {
-      const m = new THREE.Mesh(new THREE.ConeGeometry(r, h, 8), mat);
+      const m = new THREE.Mesh(new THREE.ConeGeometry(r, h, 9), mat);
       m.position.set(px, py, pz); if (rx) m.rotation.x = rx; if (rz) m.rotation.z = rz;
       m.castShadow = true; (parent || F).add(m); return m;
     };
-    const sun = (mat, r) => {
-      const g = new THREE.Group();
-      const d = new THREE.Mesh(new THREE.CircleGeometry(r, 20), mat); d.castShadow = true; g.add(d);
-      for (let i = 0; i < 8; i++) {
-        const a = (i / 8) * Math.PI * 2;
-        const c = new THREE.Mesh(new THREE.ConeGeometry(r * 0.30, r * 0.9, 5), mat);
-        c.position.set(Math.cos(a) * r * 1.3, Math.sin(a) * r * 1.3, 0);
-        c.rotation.z = a - Math.PI / 2; c.castShadow = true; g.add(c);
-      }
-      return g;
+    const disc = (mat, r, px, py, pz, parent) => {
+      const m = new THREE.Mesh(new THREE.CircleGeometry(r, 20), mat);
+      m.position.set(px, py, pz); m.castShadow = true; (parent || F).add(m); return m;
     };
     const skull = (s) => {
       const g = new THREE.Group();
@@ -953,252 +1186,378 @@ class Fighter {
       sph(M.dark, 0.013 * s, 0.017 * s, 0.01 * s, -0.023 * s, 0.016 * s, 0.042 * s, g);
       return g;
     };
-    const emblem = (kind, r) => {
+    const starGrp = (mat, r) => {
       const g = new THREE.Group();
-      if (kind === 'sun') g.add(sun(M.trim, r));
-      else if (kind === 'moon') {
-        const c = new THREE.Mesh(new THREE.CircleGeometry(r, 20), M.trim); g.add(c);
-        const b = new THREE.Mesh(new THREE.CircleGeometry(r * 0.82, 20), M.armor);
-        b.position.set(r * 0.38, r * 0.28, 0.004); g.add(b);
-      } else if (kind === 'skull') { const k = skull(r / 0.055); g.add(k); }
-      else if (kind === 'rune') {
-        const d = box(ACC, r * 1.25, r * 1.25, 0.018, 0, 0, 0, g); d.rotation.z = Math.PI / 4;
-        const d2 = box(M.dark, r * 0.62, r * 0.62, 0.02, 0, 0, 0.004, g); d2.rotation.z = Math.PI / 4;
-      } else if (kind === 'star') {
-        for (const rz of [0, Math.PI / 2]) {
-          const c = new THREE.Mesh(new THREE.ConeGeometry(r * 0.30, r * 2.1, 5), ACC);
-          c.rotation.z = rz; c.castShadow = true; g.add(c);
-          const c2 = new THREE.Mesh(new THREE.ConeGeometry(r * 0.30, r * 2.1, 5), ACC);
-          c2.rotation.z = rz + Math.PI; c2.castShadow = true; g.add(c2);
-        }
-        sph(ACC, r * 0.30, r * 0.30, r * 0.30, 0, 0, 0.01, g);
-      } else if (kind === 'rose') {
-        sph(M.trim, r * 0.52, r * 0.52, r * 0.4, 0, 0.01, 0, g);
-        sph(M.trim, r * 0.4, r * 0.4, r * 0.32, -r * 0.55, -r * 0.3, -0.004, g);
-        sph(M.trim, r * 0.4, r * 0.4, r * 0.32, r * 0.55, -r * 0.3, -0.004, g);
-        sph(M.dark, r * 0.2, r * 0.2, r * 0.2, 0, 0.01, r * 0.3, g);
-      } else {
-        const d = new THREE.Mesh(new THREE.CircleGeometry(r * 0.7, 16), M.trim); g.add(d);
+      for (const rz of [0, Math.PI / 2]) {
+        const c = new THREE.Mesh(new THREE.ConeGeometry(r * 0.30, r * 2.1, 5), mat);
+        c.rotation.z = rz; c.castShadow = true; g.add(c);
+        const c2 = new THREE.Mesh(new THREE.ConeGeometry(r * 0.30, r * 2.1, 5), mat);
+        c2.rotation.z = rz + Math.PI; c2.castShadow = true; g.add(c2);
       }
+      sph(mat, r * 0.30, r * 0.30, r * 0.30, 0, 0, 0.01, g);
       return g;
     };
-    /* ---- cape (behind, -z) ---- */
+    const emblemPlane = (size, py, pz) => {
+      const kind = sk.emblem || 'none';
+      if (kind === 'none') return;
+      const tex = fa2EmblemTex(kind, hexCss(sk.trim !== undefined ? sk.trim : 0xd8a83c),
+        hexCss(sk.gem !== undefined ? sk.gem : (sk.iris || 0xff9a1f)), hexCss(sk.armor !== undefined ? sk.armor : 0x17181c));
+      const mat = kind === 'rune'
+        ? new THREE.MeshBasicMaterial({ map: tex, transparent: true })
+        : new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.32, metalness: 0.55 });
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(size, size), mat);
+      m.position.set(0, py, pz); m.rotation.x = -0.05;
+      F.add(m); return m;
+    };
+    /* ---- cape (behind, -z), gold-bordered like the portraits ---- */
     if (sk.cape !== null) {
-      const capeH = (fem && sk.headgear === 'crown') ? 1.60 : 1.42;
-      const cg = new THREE.PlaneGeometry(0.94, capeH, 1, 4); cg.translate(0, -capeH / 2, 0);
-      const cape = new THREE.Mesh(cg, M.cape);
+      const capeH = (fem && sk.headgear === 'crown') ? 1.60 : 1.44;
+      const cg = new THREE.PlaneGeometry(1.06, capeH, 1, 4); cg.translate(0, -capeH / 2, 0);
+      const capeMat = new THREE.MeshStandardMaterial({
+        map: fa2CapeTex(hexCss(sk.cape !== undefined && sk.cape !== null ? sk.cape : 0x2a1a3e), hexCss(sk.trim !== undefined ? sk.trim : 0xd8a83c)),
+        roughness: 0.78, side: THREE.DoubleSide });
+      const cape = new THREE.Mesh(cg, capeMat);
       cape.position.set(0, 1.66, -0.30); cape.rotation.x = 0.10; cape.castShadow = true;
-      cape.material.side = THREE.DoubleSide;
       F.add(cape); this.capeMesh = cape;
-      sph(M.trim, 0.05, 0.05, 0.05, 0.40, 1.64, -0.24);
-      sph(M.trim, 0.05, 0.05, 0.05, -0.40, 1.64, -0.24);
-    }
-    /* ---- pelvis, belt, skirt / tassets ---- */
-    sph(M.body, 0.335, 0.225, 0.265, 0, 1.02, 0);
-    {
-      const belt = new THREE.Mesh(new THREE.CylinderGeometry(0.328, 0.328, 0.095, 14), M.dark);
-      belt.position.y = 1.05; belt.castShadow = true; F.add(belt);
-      if (sk.emblem === 'skull') { const k = skull(1.15); k.position.set(0, 1.05, 0.315); F.add(k); }
-      else {
-        sph(M.trim, 0.052, 0.05, 0.035, 0, 1.05, 0.318);
-        sph(M.gem, 0.028, 0.028, 0.02, 0, 1.05, 0.345);
+      for (const s of [1, -1]) {
+        disc(M.trim, 0.052, 0.335 * s, 1.645, 0.225);
+        sph(M.gem, 0.024, 0.024, 0.02, 0.335 * s, 1.645, 0.245);
       }
+    }
+    /* ---- pelvis, gold belt + buckle, tassets / loincloth / skirt ---- */
+    sph(M.body, 0.335 * bulk, 0.225, 0.265, 0, 1.02, 0);
+    {
+      const under = new THREE.Mesh(new THREE.CylinderGeometry(0.332 * bulk, 0.332 * bulk, 0.115, 18), M.dark);
+      under.position.y = 1.055; under.castShadow = true; F.add(under);
+      const belt = new THREE.Mesh(new THREE.CylinderGeometry(0.34 * bulk, 0.34 * bulk, 0.078, 18), M.trim);
+      belt.position.y = 1.062; belt.castShadow = true; F.add(belt);
+      box(M.trim, 0.145, 0.118, 0.035, 0, 1.06, 0.322 * bulk);
+      if ((sk.belt || sk.emblem) === 'skull') { const k = skull(1.3); k.position.set(0, 1.062, 0.345); F.add(k); }
+      else sph(M.gem, 0.037, 0.037, 0.024, 0, 1.06, 0.35);
       if (sk.tassets) {
         for (let i = -3; i <= 3; i++) {
           if (i === 0) continue;
           const a = i * 0.40;
-          const plate = box(M.armor, 0.15, 0.30, 0.028, Math.sin(a) * 0.295, 0.855, Math.cos(a) * 0.295);
+          const plate = box(M.armor, 0.16, 0.30, 0.028, Math.sin(a) * 0.30 * bulk, 0.855, Math.cos(a) * 0.30);
           plate.rotation.set(0.17, a, 0);
-          const edge = box(M.trim, 0.15, 0.018, 0.03, Math.sin(a) * 0.315, 0.715, Math.cos(a) * 0.315);
+          const edge = box(M.trim, 0.16, 0.018, 0.03, Math.sin(a) * 0.32 * bulk, 0.715, Math.cos(a) * 0.32);
           edge.rotation.set(0.17, a, 0);
         }
-        const front = box(M.armor, 0.20, 0.38, 0.03, 0, 0.815, 0.30); front.rotation.x = 0.10;
-        const fe = emblem(sk.emblem || 'none', 0.052); fe.position.set(0, 0.86, 0.322); F.add(fe);
+        const front = box(M.armor, 0.21, 0.38, 0.03, 0, 0.815, 0.30); front.rotation.x = 0.10;
+        box(M.trim, 0.21, 0.02, 0.032, 0, 0.635, 0.335);
+      } else if (sk.loin) {
+        const panel = box(sk.loin === 'cloth' ? M.cloth : M.armor, 0.21, 0.37, 0.02, 0, 0.80, 0.305);
+        panel.rotation.x = 0.10;
+        box(M.trim, 0.21, 0.028, 0.024, 0, 0.625, 0.338);
+        for (const s of [1, -1]) {
+          const side = box(M.armor, 0.13, 0.26, 0.024, 0.24 * s, 0.86, 0.21);
+          side.rotation.set(0.15, 0.65 * s, 0);
+        }
       } else {
-        const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.315, fem ? 0.46 : 0.42, fem ? 0.44 : 0.36, 12, 1, true),
+        const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.315, fem ? 0.46 : 0.42, fem ? 0.44 : 0.36, 14, 1, true),
           new THREE.MeshStandardMaterial({ color: sk.cape !== undefined && sk.cape !== null ? sk.cape : 0x1a1426, roughness: 0.85, side: THREE.DoubleSide }));
         skirt.position.set(0, fem ? 0.81 : 0.84, 0); skirt.castShadow = true; F.add(skirt);
-        const hem = new THREE.Mesh(new THREE.TorusGeometry(fem ? 0.46 : 0.42, 0.015, 6, 24), M.trim);
+        const hem = new THREE.Mesh(new THREE.TorusGeometry(fem ? 0.46 : 0.42, 0.015, 6, 26), M.trim);
         hem.rotation.x = Math.PI / 2; hem.position.y = fem ? 0.595 : 0.665; F.add(hem);
       }
     }
-    /* ---- torso: narrow waist, broad muscular chest, full cuirass ---- */
-    sph(M.body, fem ? 0.27 : 0.30, 0.30, 0.235, 0, 1.24, 0);
-    sph(M.belly, fem ? 0.185 : 0.21, 0.25, 0.115, 0, 1.21, 0.10);
-    sph(M.body, fem ? 0.365 : 0.405, 0.335, 0.295, 0, 1.50, 0);
-    sph(M.body, 0.30, 0.16, 0.24, 0, 1.70, -0.02);
-    sph(M.armor, fem ? 0.375 : 0.415, 0.345, 0.275, 0, 1.52, 0.02);
-    sph(M.armor, fem ? 0.30 : 0.335, 0.27, 0.16, 0, 1.53, 0.14);
+    /* ---- torso: lathe chest + pale belly + plate cuirass ---- */
     {
-      const gorget = new THREE.Mesh(new THREE.TorusGeometry(0.205, 0.038, 8, 20), M.armor);
+      const torso = new THREE.Mesh(latheYGeo([[1.03, 0.262], [1.16, 0.298], [1.32, 0.372], [1.48, 0.422], [1.60, 0.432], [1.70, 0.388], [1.78, 0.295]]), M.body);
+      torso.scale.set(bulk, 1, 0.80); torso.castShadow = true; F.add(torso);
+      sph(M.belly, 0.238, 0.205, 0.128, 0, 1.165, 0.105);
+      box(M.spot, 0.15, 0.010, 0.006, 0, 1.215, 0.222);
+      box(M.spot, 0.13, 0.010, 0.006, 0, 1.115, 0.218);
+      const cuirass = new THREE.Mesh(latheYGeo([[1.225, 0.322], [1.34, 0.392], [1.48, 0.438], [1.60, 0.448], [1.70, 0.402], [1.775, 0.318]]), M.armor);
+      cuirass.scale.set(bulk, 1, 0.80); cuirass.castShadow = true; F.add(cuirass);
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(0.33, 0.021, 8, 30), M.trim);
+      rim.position.set(0, 1.235, 0); rim.rotation.x = Math.PI / 2; rim.scale.set(bulk, 0.80, 1); F.add(rim);
+      for (const s of [1, -1]) {
+        const pec = box(M.armor, 0.205, 0.175, 0.05, 0.108 * s * bulk, 1.545, 0.322);
+        pec.rotation.set(-0.08, -0.16 * s, 0);
+        const pecEdge = box(M.trim, 0.205, 0.016, 0.052, 0.108 * s * bulk, 1.462, 0.318);
+        pecEdge.rotation.set(-0.08, -0.16 * s, 0);
+      }
+      box(M.trim, 0.026, 0.30, 0.02, 0, 1.50, 0.345);
+      const gorget = new THREE.Mesh(new THREE.TorusGeometry(0.205, 0.04, 8, 22), M.armor);
       gorget.position.set(0, 1.715, 0.01); gorget.rotation.x = Math.PI / 2 - 0.15; gorget.scale.set(1, 0.9, 1);
       gorget.castShadow = true; F.add(gorget);
-      const trim = new THREE.Mesh(new THREE.TorusGeometry(0.345, 0.017, 6, 28), M.trim);
-      trim.position.set(0, 1.345, 0.02); trim.rotation.x = Math.PI / 2 - 0.25; trim.scale.set(1, 0.82, 1); F.add(trim);
-      const em = emblem(sk.emblem || 'none', 0.078); em.position.set(0, 1.565, 0.312); F.add(em);
-      for (const yy of [1.30, 1.19]) box(M.armor, 0.20, 0.018, 0.012, 0, yy, 0.238);
+      emblemPlane(0.335, 1.565, 0.372);
     }
     sph(M.spot, 0.10, 0.07, 0.05, 0.30, 1.30, -0.26);
     sph(M.spot, 0.12, 0.08, 0.05, -0.32, 1.12, -0.22);
     /* ---- neck + head: unmistakably FROG ---- */
     {
-      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.135, 0.165, 0.18, 10), M.body);
+      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.135, 0.165, 0.18, 12), M.body);
       neck.position.set(0, 1.71, 0.01); neck.castShadow = true; F.add(neck);
     }
     const head = new THREE.Group(); F.add(head); this.headG = head;
-    sph(M.body, 0.365, 0.205, 0.275, 0, 1.865, 0.0, head);
-    sph(M.spot, 0.30, 0.07, 0.13, 0, 1.955, 0.10, head);
-    sph(M.body, 0.29, 0.125, 0.225, 0, 1.775, 0.085, head);
-    sph(M.body, 0.245, 0.10, 0.195, 0, 1.685, 0.065, head);
-    sph(M.belly, 0.235, 0.175, 0.18, 0, 1.585, 0.045, head);
+    sph(M.body, 0.40, 0.225, 0.295, 0, 1.905, -0.01, head);            // wide cranium
+    sph(M.body, 0.315, 0.13, 0.205, 0, 1.815, 0.095, head);          // snout
+    sph(M.body, 0.295, 0.085, 0.19, 0, 1.735, 0.08, head);           // jaw
+    box(M.body, 0.34, 0.05, 0.17, 0, 1.695, 0.10, head);             // jaw edge / chin
+    sph(M.belly, 0.265, 0.195, 0.175, 0, 1.585, 0.05, head);         // throat pouch
     {
-      const mouth = new THREE.Mesh(new THREE.TorusGeometry(0.185, 0.016, 8, 24, Math.PI), M.dark);
+      const brow = box(fem ? M.body : M.spot, fem ? 0.50 : 0.54, fem ? 0.045 : 0.068, 0.10, 0, 2.0, 0.185, head);
+      brow.rotation.x = -0.18;
+      const mouth = new THREE.Mesh(new THREE.TorusGeometry(0.20, 0.015, 8, 26, Math.PI), M.dark);
       mouth.position.set(0, 1.775, 0.252); mouth.rotation.set(-0.10, 0, Math.PI); head.add(mouth);
     }
     sph(M.dark, 0.016, 0.012, 0.012, 0.068, 1.85, 0.262, head);
     sph(M.dark, 0.016, 0.012, 0.012, -0.068, 1.85, 0.262, head);
-    sph(M.spot, 0.032, 0.026, 0.03, 0.305, 1.90, 0.10, head);
-    sph(M.spot, 0.032, 0.026, 0.03, -0.305, 1.90, 0.10, head);
-    sph(M.spot, 0.026, 0.022, 0.026, 0.325, 1.815, 0.0, head);
-    sph(M.spot, 0.026, 0.022, 0.026, -0.325, 1.815, 0.0, head);
+    sph(M.spot, 0.032, 0.026, 0.03, 0.315, 1.90, 0.10, head);
+    sph(M.spot, 0.032, 0.026, 0.03, -0.315, 1.90, 0.10, head);
     for (const s of [1, -1]) {
-      sph(M.body, 0.118, 0.105, 0.108, 0.168 * s, 2.0, 0.04, head);
-      sph(M.white, 0.09, 0.09, 0.09, 0.168 * s, 2.015, 0.068, head);
-      sph(M.iris, 0.058, 0.058, 0.058, 0.168 * s, 2.02, 0.122, head);
-      sph(M.pupil, 0.05, 0.02, 0.02, 0.168 * s, 2.022, 0.15, head);
+      sph(M.body, 0.118, 0.108, 0.11, 0.185 * s, 2.03, 0.045, head);   // eye turret
+      sph(M.body, 0.128, 0.055, 0.12, 0.185 * s, 2.095, 0.04, head);   // eyelid cap
+      if (M.eyeGlow) {
+        sph(M.eyeGlow, 0.082, 0.078, 0.07, 0.185 * s, 2.038, 0.10, head);
+      } else {
+        sph(M.white, 0.093, 0.093, 0.093, 0.185 * s, 2.035, 0.075, head);
+        sph(M.iris, 0.070, 0.070, 0.070, 0.185 * s, 2.04, 0.125, head);
+        if (sk.slit === 'h') box(M.pupil, 0.088, 0.020, 0.02, 0.185 * s, 2.042, 0.182, head);
+        else if (sk.slit) box(M.pupil, 0.020, 0.088, 0.02, 0.185 * s, 2.042, 0.182, head);
+        else sph(M.pupil, 0.038, 0.038, 0.022, 0.185 * s, 2.042, 0.180, head);
+        sph(M.hi, 0.016, 0.016, 0.012, 0.162 * s, 2.075, 0.168, head);
+      }
       if (fem) for (let li = 0; li < 3; li++)
-        cone(M.dark, 0.008, 0.055, (0.168 + (li - 1) * 0.048) * s, 2.085, 0.095, -0.7, (li - 1) * 0.3 * s, head);
+        cone(M.dark, 0.008, 0.055, (0.185 + (li - 1) * 0.048) * s, 2.10, 0.10, -0.7, (li - 1) * 0.3 * s, head);
     }
     /* ---- headgear (per portrait) ---- */
     const gear = sk.headgear || null;
     if (gear === 'crown' || gear === 'starcrown') {
-      const crownMat = gear === 'starcrown' ? M.armor : M.trim;
-      const cr = new THREE.Group(); cr.position.set(0, 2.02, 0.0); head.add(cr);
-      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.235, 0.09, 14), crownMat);
-      band.position.y = 0.045; band.castShadow = true; cr.add(band);
+      const cs = sk.crownScale || 1;
+      const cr = new THREE.Group(); cr.position.set(0, 2.05, 0.0); cr.scale.setScalar(cs); head.add(cr);
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.215, 0.24, 0.10, 16), M.trim);
+      band.position.y = 0.05; band.castShadow = true; cr.add(band);
       for (let i = 0; i < 9; i++) {
         const a2 = (i / 9) * Math.PI * 2;
-        const h = (i % 2 ? 0.16 : 0.24) + (Math.sin(a2) > 0.94 ? 0.07 : 0);
-        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.03, h, 6), crownMat);
-        spike.position.set(Math.cos(a2) * 0.19, 0.09 + h / 2, Math.sin(a2) * 0.19);
+        const h = (i % 2 ? 0.19 : 0.30) + (Math.sin(a2) > 0.94 ? 0.08 : 0);
+        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.034, h, 6), M.trim);
+        spike.position.set(Math.cos(a2) * 0.195, 0.10 + h / 2, Math.sin(a2) * 0.195);
         spike.castShadow = true; cr.add(spike);
       }
-      sph(M.gem, 0.032, 0.032, 0.032, 0, 0.045, 0.228, cr);
-      sph(M.gem, 0.024, 0.024, 0.024, 0.155, 0.045, 0.165, cr);
-      sph(M.gem, 0.024, 0.024, 0.024, -0.155, 0.045, 0.165, cr);
+      sph(M.gem, 0.042, 0.042, 0.032, 0, 0.05, 0.232, cr);
+      sph(M.gem, 0.028, 0.028, 0.024, 0.16, 0.05, 0.168, cr);
+      sph(M.gem, 0.028, 0.028, 0.024, -0.16, 0.05, 0.168, cr);
+      if (gear === 'starcrown') for (const sx of [-0.13, 0, 0.13]) {
+        const st = starGrp(ACC, 0.055); st.position.set(sx, 0.46 - Math.abs(sx) * 0.5, 0.10); cr.add(st);
+      }
     } else if (gear === 'rosecrown') {
-      const ti = new THREE.Mesh(new THREE.TorusGeometry(0.235, 0.02, 8, 24), M.trim);
-      ti.position.set(0, 2.0, 0.01); ti.rotation.x = 0.35; ti.castShadow = true; head.add(ti);
+      const ti = new THREE.Mesh(new THREE.TorusGeometry(0.235, 0.02, 8, 26), M.trim);
+      ti.position.set(0, 2.02, 0.01); ti.rotation.x = 0.35; ti.castShadow = true; head.add(ti);
       for (let i = 0; i < 5; i++) {
-        const x = (i - 2) * 0.085;
-        sph(M.trim, 0.036, 0.036, 0.036, x, 2.075 - Math.abs(i - 2) * 0.012, 0.175 - Math.abs(i - 2) * 0.028, head);
-        if (i < 4) cone(M.body, 0.016, 0.06, x + 0.042, 2.045, 0.15 - Math.abs(i - 1.5) * 0.02, 0.5, 0.4, head);
+        const x = (i - 2) * 0.088;
+        const y = 2.085 - Math.abs(i - 2) * 0.014, z = 0.175 - Math.abs(i - 2) * 0.03;
+        sph(M.armor, 0.037, 0.037, 0.037, x, y, z, head);
+        sph(M.armor, 0.037, 0.037, 0.037, x + 0.026, y - 0.02, z - 0.006, head);
+        sph(M.dark, 0.015, 0.015, 0.015, x + 0.008, y - 0.006, z + 0.026, head);
+        if (i < 4) cone(M.trim, 0.013, 0.07, x + 0.044, 2.05, 0.15 - Math.abs(i - 1.5) * 0.02, 0.5, 0.4, head);
       }
-      sph(M.gem, 0.026, 0.026, 0.026, 0, 2.03, 0.215, head);
-    } else if (gear === 'tiara') {
-      const ti = new THREE.Mesh(new THREE.TorusGeometry(0.20, 0.02, 8, 24, Math.PI), M.trim);
-      ti.position.set(0, 1.99, 0.02); ti.rotation.x = 0.30; ti.castShadow = true; head.add(ti);
-      cone(M.trim, 0.026, 0.10, 0, 2.13, 0.10, 0.3, 0, head);
-      sph(M.iris, 0.03, 0.03, 0.03, 0, 2.02, 0.225, head);
+      sph(M.gem, 0.026, 0.026, 0.026, 0, 2.04, 0.215, head);
     } else if (gear === 'flamecrest') {
-      for (let i = 0; i < 5; i++) {
-        const h = [0.16, 0.25, 0.32, 0.25, 0.16][i];
-        cone(ACC, 0.034, h, (i - 2) * 0.078, 2.06 + h / 2 - 0.04, -0.02 - Math.abs(i - 2) * 0.014, -0.38, 0, head);
+      const flameMats = [std(0xd92b1e, 0.5), std(0xff6a1a, 0.5), new THREE.MeshStandardMaterial({ color: 0xffb81a, roughness: 0.5, emissive: 0xff8c1a, emissiveIntensity: 0.35 })];
+      const heights = [0.24, 0.38, 0.48, 0.56, 0.48, 0.38, 0.24];
+      for (let i = 0; i < 7; i++) {
+        const fm = flameMats[Math.abs(i - 3) === 0 ? 2 : Math.abs(i - 3) === 1 ? 1 : 0];
+        const fl = cone(fm, 0.052, heights[i], (i - 3) * 0.082, 2.05 + heights[i] / 2, -0.03 - Math.abs(i - 3) * 0.012, -0.34, 0, head);
+        fl.scale.set(0.92, 1, 0.45);
       }
-      const band = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.028, 8, 22), M.armor);
+      const band = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.028, 8, 24), M.armor);
       band.position.set(0, 2.0, 0.01); band.rotation.x = Math.PI / 2; band.scale.set(1.06, 0.94, 1);
       band.castShadow = true; head.add(band);
+      sph(M.gem, 0.026, 0.026, 0.02, 0, 2.03, 0.245, head);
     } else if (gear === 'hood') {
-      const hood = new THREE.Mesh(new THREE.ConeGeometry(0.315, 0.48, 12, 1, true), M.cloth);
-      hood.position.set(0, 2.07, -0.05); hood.rotation.x = 0.22; hood.castShadow = true;
+      const hood = new THREE.Mesh(new THREE.CylinderGeometry(0.30, 0.465, 0.56, 16, 1, true), M.cloth);
+      hood.position.set(0, 2.09, -0.05); hood.rotation.x = 0.10; hood.castShadow = true;
       hood.material = M.cloth; hood.material.side = THREE.DoubleSide;
       head.add(hood);
-      const mantle = new THREE.Mesh(new THREE.TorusGeometry(0.235, 0.05, 8, 20), M.cloth);
-      mantle.position.set(0, 1.79, 0); mantle.rotation.x = Math.PI / 2; mantle.scale.set(1.08, 0.95, 1);
+      cone(M.cloth, 0.13, 0.30, 0, 2.44, -0.14, -0.5, 0, head);
+      const mantle = new THREE.Mesh(new THREE.TorusGeometry(0.245, 0.052, 8, 22), M.cloth);
+      mantle.position.set(0, 1.80, 0); mantle.rotation.x = Math.PI / 2; mantle.scale.set(1.08, 0.95, 1);
       mantle.castShadow = true; head.add(mantle);
     } else if (gear === 'plume') {
-      sph(M.armor, 0.295, 0.15, 0.26, 0, 1.99, 0.0, head);
-      const plumeMat = std(sk.plume !== undefined ? sk.plume : 0x3fa9f5, 0.7);
-      for (let i = 0; i < 6; i++) {
-        const c = cone(plumeMat, 0.055, 0.34, 0, 2.20 - Math.abs(i - 1.5) * 0.018, 0.115 - i * 0.052, -0.75 + i * 0.27, 0, head);
-        c.scale.set(0.45, 1, 1);
+      sph(M.armor, 0.315, 0.175, 0.285, 0, 2.005, 0.0, head);
+      const brim = new THREE.Mesh(new THREE.TorusGeometry(0.29, 0.018, 8, 26), M.trim);
+      brim.position.set(0, 1.985, 0.01); brim.rotation.x = Math.PI / 2; brim.scale.set(1, 0.94, 1); head.add(brim);
+      {
+        const tex = fa2EmblemTex('anchor', hexCss(sk.trim), hexCss(sk.gem || 0xff9a1f), hexCss(sk.armor));
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(0.17, 0.17),
+          new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.3, metalness: 0.7 }));
+        m.position.set(0, 2.03, 0.272); head.add(m);
       }
-      sph(M.trim, 0.03, 0.03, 0.03, 0, 2.06, 0.20, head);
+      const featherMats = [M.armor, std(sk.plume !== undefined ? sk.plume : 0xff6b4a, 0.7), M.trim, std(sk.plume !== undefined ? sk.plume : 0xff6b4a, 0.7), M.armor, std(0xf2b13c, 0.7), M.armor];
+      for (let i = 0; i < 7; i++) {
+        const h = 0.62 - Math.abs(i - 3) * 0.055;
+        const c = cone(featherMats[i], 0.078, h, (i - 3) * 0.075, 2.14 + h / 2 - Math.abs(i - 3) * 0.03, 0.02 - Math.abs(i - 3) * 0.02, -0.22, (i - 3) * 0.30, head);
+        c.scale.set(0.34, 1, 0.10);
+      }
     } else if (gear === 'circlet') {
-      const band = new THREE.Mesh(new THREE.TorusGeometry(0.265, 0.017, 8, 22), M.armor);
+      const band = new THREE.Mesh(new THREE.TorusGeometry(0.265, 0.017, 8, 24), M.trim);
       band.position.set(0, 2.0, 0.01); band.rotation.x = Math.PI / 2; band.scale.set(1.08, 0.95, 1);
       band.castShadow = true; head.add(band);
       for (let i = 0; i < 5; i++)
         cone(M.trim, 0.012, 0.05, (i - 2) * 0.09, 2.06, 0.10 - Math.abs(i - 2) * 0.012, 0, 0, head);
-    } else if (gear === 'crest') {
-      for (let i = 0; i < 5; i++)
-        cone(M.iris, 0.035, 0.16 - Math.abs(i - 2) * 0.025, (i - 2) * 0.085, 2.06, -0.02 - Math.abs(i - 2) * 0.012, -0.25, 0, head);
+      sph(M.iris, 0.030, 0.030, 0.024, 0, 2.035, 0.245, head);
     } else if (gear === 'band') {
-      const band = new THREE.Mesh(new THREE.TorusGeometry(0.295, 0.04, 8, 22), M.iris);
-      band.position.set(0, 1.94, 0.02); band.rotation.x = Math.PI / 2; band.scale.set(1.05, 0.92, 1);
+      const band = new THREE.Mesh(new THREE.TorusGeometry(0.278, 0.036, 8, 24), M.armor);
+      band.position.set(0, 2.0, 0.015); band.rotation.x = Math.PI / 2 - 0.10; band.scale.set(1.08, 0.95, 1);
       band.castShadow = true; head.add(band);
+      box(M.trim, 0.07, 0.05, 0.02, 0, 2.03, 0.255, head);
+      sph(M.dark, 0.020, 0.020, 0.014, 0, 2.03, 0.268, head);
+      // Bramble's cheek scar (portrait detail)
+      const scar = box(M.spot, 0.05, 0.008, 0.006, 0.21, 1.79, 0.225, head); scar.rotation.z = 0.7;
+      const scar2 = box(M.spot, 0.05, 0.008, 0.006, 0.21, 1.79, 0.225, head); scar2.rotation.z = -0.7;
     }
-    /* ---- pauldrons (layered, spiked) ---- */
+    /* ---- pauldrons (layered, spiked, portrait medallions) ---- */
     for (const s of [1, -1]) {
-      const pg = new THREE.Group(); pg.position.set(0.475 * s, 1.675, 0); F.add(pg);
+      const pg = new THREE.Group(); pg.position.set(0.50 * bulk * s, 1.695, 0); F.add(pg);
       const dome = new THREE.Mesh(Fighter._sphGeo, M.armor);
-      dome.scale.set(0.205, 0.17, 0.205); dome.castShadow = true; pg.add(dome);
+      dome.scale.set(0.238, 0.19, 0.238); dome.castShadow = true; pg.add(dome);
       const dome2 = new THREE.Mesh(Fighter._sphGeo, M.armor);
-      dome2.scale.set(0.175, 0.125, 0.175); dome2.position.set(0.02 * s, -0.095, 0); dome2.castShadow = true; pg.add(dome2);
-      const rim = new THREE.Mesh(new THREE.TorusGeometry(0.165, 0.016, 6, 20), M.trim);
-      rim.rotation.x = Math.PI / 2; rim.position.y = -0.06; pg.add(rim);
-      cone(M.armor, 0.037, 0.17, 0, 0.175, 0, 0, 0, pg);
-      cone(M.armor, 0.031, 0.13, 0.095 * s, 0.125, 0.02, 0, -0.5 * s, pg);
-      cone(M.armor, 0.031, 0.13, -0.095 * s, 0.125, 0.02, 0, 0.5 * s, pg);
-      cone(M.armor, 0.028, 0.11, 0, 0.115, 0.115, 0.5, 0, pg);
-      cone(M.armor, 0.028, 0.11, 0, 0.115, -0.115, -0.5, 0, pg);
-      if (sk.emblem === 'sun') {
-        const sd = sun(M.trim, 0.072); sd.position.set(0.195 * s, 0.01, 0); sd.rotation.y = s * Math.PI / 2; pg.add(sd);
+      dome2.scale.set(0.215, 0.135, 0.215); dome2.position.set(0.025 * s, -0.105, 0); dome2.castShadow = true; pg.add(dome2);
+      if (sk.bulk) {
+        const dome3 = new THREE.Mesh(Fighter._sphGeo, M.armor);
+        dome3.scale.set(0.185, 0.105, 0.185); dome3.position.set(0.045 * s, -0.195, 0); dome3.castShadow = true; pg.add(dome3);
+      }
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(0.185, 0.02, 6, 22), M.trim);
+      rim.rotation.x = Math.PI / 2; rim.position.y = -0.07; pg.add(rim);
+      cone(M.armor, 0.037, 0.17, 0, 0.185, 0, 0, 0, pg);
+      cone(M.armor, 0.031, 0.13, 0.10 * s, 0.135, 0.02, 0, -0.5 * s, pg);
+      cone(M.armor, 0.031, 0.13, -0.10 * s, 0.135, 0.02, 0, 0.5 * s, pg);
+      cone(M.armor, 0.028, 0.11, 0, 0.125, 0.12, 0.5, 0, pg);
+      cone(M.armor, 0.028, 0.11, 0, 0.125, -0.12, -0.5, 0, pg);
+      disc(M.trim, 0.052, 0.02 * s, 0.03, 0.208, pg);
+      sph(M.gem, 0.027, 0.027, 0.02, 0.02 * s, 0.03, 0.222, pg);
+      if (gear === 'hood') for (const [cx, cy] of [[0.07, 0.16], [-0.06, 0.19]]) {
+        const cry = cone(ACC, 0.034, 0.15, cx * s, cy, 0.05, -0.3, 0.25 * s, pg);
+        cry.geometry = new THREE.ConeGeometry(0.034, 0.15, 4);
       }
     }
     /* ---- articulated limbs (two-segment IK, lathe-profiled) ---- */
-    const limbS = fem ? 0.86 : 1;
+    const limbS = (fem ? 0.86 : 1) * (sk.bulk ? 1.10 : 1);
     const leatherFore = this.cfg.id === 'brawler' || this.cfg.id === 'nightblade';
     const mkArm = (side) => {
       const shoulder = new THREE.Group(); shoulder.position.set(0.485 * side, 1.615, 0.02); F.add(shoulder);
-      sph(M.body, 0.105, 0.105, 0.105, 0, 0, 0, shoulder);
+      sph(M.body, 0.112, 0.112, 0.112, 0, 0, 0, shoulder);
       const upper = new THREE.Mesh(Fighter._armUpGeo, M.body);
       upper.scale.set(limbS, 1, limbS); upper.castShadow = true; shoulder.add(upper);
       const foreG = new THREE.Group(); shoulder.add(foreG);
+      sph(M.body, 0.088, 0.088, 0.088, 0, 0, 0, foreG);
       const fore = new THREE.Mesh(Fighter._armFoGeo, leatherFore ? M.leather : M.armor);
       fore.scale.set(limbS, 1, limbS); fore.castShadow = true; foreG.add(fore);
-      const cuff = new THREE.Mesh(new THREE.TorusGeometry(0.10, 0.015, 6, 14), M.trim);
-      cuff.rotation.x = Math.PI / 2; cuff.position.y = -0.315; foreG.add(cuff);
-      cone(M.trim, 0.017, 0.07, 0.105, -0.17, 0, 0, 1.1, foreG);
+      const ring1 = new THREE.Mesh(new THREE.TorusGeometry(0.104, 0.014, 6, 16), M.trim);
+      ring1.rotation.x = Math.PI / 2; ring1.position.y = -0.07; foreG.add(ring1);
+      const ring2 = new THREE.Mesh(new THREE.TorusGeometry(0.126, 0.015, 6, 16), M.trim);
+      ring2.rotation.x = Math.PI / 2; ring2.position.y = -0.30; foreG.add(ring2);
+      box(leatherFore ? M.leather : M.armor, 0.105, 0.28, 0.024, 0, -0.18, 0.108, foreG);
+      cone(M.trim, 0.017, 0.07, 0.108, -0.17, 0, 0, 1.1, foreG);
       const fistG = new THREE.Group(); foreG.add(fistG);
-      sph(M.body, 0.11, 0.10, 0.12, 0, 0, 0, fistG);
-      box(M.armor, 0.145, 0.055, 0.10, 0, 0.015, 0.05, fistG);
-      for (const kx of [-0.042, 0, 0.042]) sph(M.trim, 0.014, 0.014, 0.014, kx, 0.045, 0.10, fistG);
+      sph(M.body, 0.125, 0.115, 0.135, 0, 0, 0, fistG);
+      box(M.armor, 0.15, 0.058, 0.11, 0, 0.018, 0.055, fistG);
+      for (const kx of [-0.044, 0, 0.044]) sph(M.trim, 0.015, 0.015, 0.015, kx, 0.048, 0.105, fistG);
       return { shoulder, upper, foreG, fore, fistG, jx: 0.485 * side, jy: 1.615, jz: 0.02, a: 0.36, b: 0.36 };
     };
     this.armJab = mkArm(1); this.armHeavy = mkArm(-1);
     const mkLeg = (side) => {
       const hip = new THREE.Group(); hip.position.set(0.20 * side, 1.00, 0); F.add(hip);
-      sph(M.body, 0.135, 0.135, 0.135, 0, 0, 0, hip);
+      sph(M.body, 0.142, 0.142, 0.142, 0, 0, 0, hip);
       const thigh = new THREE.Mesh(Fighter._thighGeo, sk.legArmor ? M.armor : M.body);
       thigh.scale.set(limbS, 1, limbS); thigh.castShadow = true; hip.add(thigh);
       const shinG = new THREE.Group(); hip.add(shinG);
       const shin = new THREE.Mesh(Fighter._shinGeo, M.armor);
       shin.scale.set(limbS, 1, limbS); shin.castShadow = true; shinG.add(shin);
-      if (sk.emblem === 'sun') { const sd = sun(M.trim, 0.05); sd.position.set(0, -0.045, 0.108); shinG.add(sd); }
-      else {
-        const kd = new THREE.Mesh(new THREE.CircleGeometry(0.058, 16), M.trim);
-        kd.position.set(0, -0.045, 0.108); shinG.add(kd);
-      }
-      cone(M.trim, 0.028, 0.09, 0, -0.10, 0.115, 1.35, 0, shinG);
+      const knee = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.055, 18), M.armor);
+      knee.rotation.x = Math.PI / 2; knee.position.set(0, -0.03, 0.095); knee.castShadow = true; shinG.add(knee);
+      const kring = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.013, 6, 18), M.trim);
+      kring.position.set(0, -0.03, 0.118); shinG.add(kring);
+      if (sk.emblem === 'star' || gear === 'hood') {
+        const kg = cone(ACC, 0.032, 0.10, 0, -0.03, 0.135, 1.35, 0, shinG);
+        kg.geometry = new THREE.ConeGeometry(0.032, 0.10, 4);
+      } else sph(M.gem, 0.026, 0.026, 0.018, 0, -0.03, 0.128, shinG);
+      box(M.armor, 0.035, 0.30, 0.025, 0, -0.26, 0.10, shinG);
+      const aring = new THREE.Mesh(new THREE.TorusGeometry(0.096, 0.013, 6, 16), M.trim);
+      aring.rotation.x = Math.PI / 2; aring.position.y = -0.45; shinG.add(aring);
       const footG = new THREE.Group(); shinG.add(footG);
-      box(M.body, 0.125, 0.055, 0.30, 0, -0.01, 0.07, footG);
-      if (sk.legArmor || sk.tassets) box(M.armor, 0.13, 0.05, 0.15, 0, 0.008, 0.155, footG);
-      for (const ts of [1, 0, -1]) cone(M.body, 0.026, 0.11, 0.048 * ts, -0.015, 0.245, 1.25, 0, footG);
+      if (sk.boots) {
+        box(M.armor, 0.145, 0.06, 0.235, 0, 0.0, 0.095, footG);
+        sph(M.trim, 0.072, 0.048, 0.085, 0, -0.002, 0.215, footG);
+        box(M.armor, 0.13, 0.06, 0.09, 0, -0.002, -0.045, footG);
+        box(M.dark, 0.15, 0.02, 0.315, 0, -0.026, 0.075, footG);
+      } else {
+        box(M.body, 0.125, 0.055, 0.30, 0, -0.01, 0.07, footG);
+        for (const ts of [1, 0, -1]) cone(M.body, 0.026, 0.135, 0.048 * ts, -0.015, 0.255, 1.25, 0, footG);
+      }
       return { hip, thigh, shinG, shin, footG, jx: 0.20 * side, jy: 1.00, jz: 0, a: 0.49, b: 0.49 };
     };
     this.legFront = mkLeg(1); this.legBack = mkLeg(-1);
     F.scale.setScalar(S);
+  }
+  /* ---- ART FIGHTER sprite (Nov 20): the NFT painting, pose-swapped ---- */
+  async _buildArtSprite() {
+    if (this.artMesh) { scene.remove(this.artMesh); this.artMesh = null; this.art = null; }
+    const poses = ART_POSES[this.cfg.id];
+    if (!poses) return;
+    const man = await artManifest();
+    const texs = {};
+    for (const p of poses) {
+      const key = this.cfg.id + '-' + p;
+      const meta = man[key];
+      const tex = await artTexture(key);
+      if (tex && meta) texs[p] = { tex, w: meta.w, h: meta.h, ax: meta.anchorX };
+    }
+    if (!texs.idle) return; // art failed to load — keep the 3D model
+    this.frog.visible = false;
+    const mat = new THREE.MeshBasicMaterial({ map: texs.idle.tex, transparent: true, alphaTest: 0.06, depthWrite: false, side: THREE.DoubleSide });
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
+    mesh.renderOrder = 4;
+    mesh.frustumCulled = false;
+    mesh.position.set(this.x, ART_WORLD_H / 2, this.artZ());
+    scene.add(mesh);
+    this.artMesh = mesh;
+    this.art = { texs, pose: 'idle' };
+    if (this.shield) this.shield.renderOrder = 6;
+  }
+  artZ() { return (this.cfg.startX > 0 ? 0.045 : 0.03); }
+  _artPoseKey() {
+    const k = this.currentKey, s = this.state;
+    if (s === 'death') return 'hurt';
+    if (s === 'win') return 'victory';
+    switch (k) {
+      case 'jab': case 'heavy': case 'throw': case 'special': case 'dash': return 'strike';
+      case 'kick1': case 'kick2': return 'kick';
+      case 'block': return 'block';
+      case 'hitL': case 'hitH': case 'knock': return 'hurt';
+      default: return 'idle';
+    }
+  }
+  _updateArtSprite(bobY, dipY, lunge, tiltZ, scX, scY, flop) {
+    const A = this.art, mesh = this.artMesh;
+    if (!A || !mesh) return;
+    if (this.shield && this.shield.renderOrder !== 6) this.shield.renderOrder = 6;
+    let pk = this._artPoseKey();
+    if (!A.texs[pk]) pk = (A.texs.hurt && (this.state === 'hitstun' || this.state === 'knock' || this.state === 'death')) ? 'hurt' : 'idle';
+    const T = A.texs[pk] || A.texs.idle;
+    if (A.pose !== pk) { A.pose = pk; mesh.material.map = T.tex; mesh.material.needsUpdate = true; }
+    const S = (this.cfg.skin && this.cfg.skin.scale) || 1;
+    const H = ART_WORLD_H * S * scY;
+    const W = H * (T.w / T.h) * scX;
+    // reaction shake + white flash while a hit reaction is live
+    let shakeX = 0, flash = 0;
+    if (this.react) {
+      const s = Math.max(0, 1 - this.react.t / (this.react.dur || 0.25));
+      if (s > 0) { shakeX = (Math.random() - 0.5) * 0.10 * s; flash = s; }
+    }
+    // knocked down / dead: flop the painting back onto the ground line
+    const fl = Math.min(1, Math.abs(flop) / 1.25);
+    let rotZ = -tiltZ * this.face * 0.8 + this.face * fl * 1.25;
+    if (this.currentKey === 'idle' && !fl) rotZ += Math.sin(this.anim.t * 1.7) * 0.018; // idle sway
+    const rootX = this.x + this.face * lunge + shakeX - this.face * fl * H * 0.16;
+    const rootY = this.y + bobY + dipY - fl * H * 0.30;
+    mesh.position.set(rootX - this.face * (T.ax - 0.5) * W, rootY + H / 2, this.artZ());
+    mesh.rotation.set(0, 0, rotZ);
+    mesh.scale.set(W * this.face, H, 1);
+    mesh.material.color.setScalar(1 + flash * 1.5);
   }
   play(key, opts = {}) {
     const a = {
@@ -1328,6 +1687,7 @@ class Fighter {
     this.shadow.position.y = 0.015 - this.y;
     const shS = Math.max(0.45, 1 - this.y * 0.16);
     this.shadow.scale.set(1.7 * shS, 1.1 * shS, 1);
+    if (this.art) this._updateArtSprite(bobY, dipY, lunge, tiltZ, scX, scY, flop);
   }
 }
 /* ---------------- effects ---------------- */
@@ -1749,43 +2109,43 @@ const ROSTER = [
     stats: { power: 5, speed: 3, range: 4 }, sparkColor: 0xffc44d, ultKind: 'barrage', maxHp: 130, aiStyle: 'brawler', aiMul: 0.82,
     specNames: { rise: 'SOLAR RISE', sweep: 'ECLIPSE SWEEP', dash: 'COMET DASH', orb: 'NOVA ORB' },
     style: 'The crowned sovereign of the colosseum. Solar specials, red-and-gold armor, the full crown.',
-    skin: { body: 0x66bb44, belly: 0xf2e6b8, spot: 0x3f8f2f, armor: 0xc22424, trim: 0xf2b13c, cape: 0xb01e28, headgear: 'crown', iris: 0xff9a1f, gem: 0x27c46a, emblem: 'sun', tassets: true } },
+    skin: { body: 0x6fbf2e, belly: 0xf2e6b8, spot: 0x3f8f2f, armor: 0xc01f26, trim: 0xf2b13c, cape: 0xb01e28, headgear: 'crown', iris: 0xff9a1f, gem: 0x27c46a, emblem: 'sun', tassets: true, boots: true } },
   { id: 'queen', name: 'QUEEN VESPERA', title: 'THE VIOLET REGENT', cls: 'WARRIOR QUEEN', art: 'queen.webp',
     stats: { power: 4, speed: 4, range: 4 }, sparkColor: 0xb98cff, ultKind: 'barrage', maxHp: 115, aiStyle: 'zoner', aiMul: 0.9,
     specNames: SPEC2, style: 'The roster\'s warrior queen. Bright violet armor, gold crown, magenta cape.',
-    skin: { body: 0x4caf3f, belly: 0xe4f2c8, spot: 0x2f7a2a, armor: 0x7d3fd1, trim: 0xf2b13c, cape: 0xc22a72, headgear: 'crown', gem: 0xb98cff, iris: 0xffb03a, female: true, emblem: 'moon', tassets: true } },
+    skin: { body: 0x5cb531, belly: 0xe4f2c8, spot: 0x2f7a2a, armor: 0x8b1fc9, trim: 0xf2b13c, cape: 0xc22a72, headgear: 'crown', gem: 0xb98cff, iris: 0xffb03a, slit: true, female: true, emblem: 'moon', tassets: true, boots: true } },
   { id: 'princess', name: 'PRINCESS ROSALIE', title: 'THE ROSE PRINCESS', cls: 'ROYAL PRINCESS', art: 'princess.webp',
     stats: { power: 3, speed: 5, range: 3 }, sparkColor: 0xff9ecb, ultKind: 'combo', maxHp: 100, aiStyle: 'speed', aiMul: 0.95,
     specNames: SPEC2, style: 'The young rose princess. Small, fast, bright rose-pink armor and tiara.',
-    skin: { body: 0x7ed957, belly: 0xf7f3d0, spot: 0x4da332, armor: 0xe7548f, trim: 0xf7a8b8, cape: 0xff4d8d, headgear: 'rosecrown', iris: 0xff9a1f, female: true, scale: 0.93, emblem: 'rose', tassets: true } },
+    skin: { body: 0x93d654, belly: 0xf7f3d0, spot: 0x4da332, armor: 0xef6f9d, trim: 0xeda58c, cape: 0xef5b92, headgear: 'rosecrown', iris: 0xff9a1f, gem: 0xff8fb5, female: true, scale: 0.93, emblem: 'rose', tassets: true, boots: true } },
   { id: 'ember', name: 'EMBERLORD KAEL', title: 'THE EMBERLORD', cls: 'EMBER KNIGHT', art: 'ember.webp',
     stats: { power: 5, speed: 2, range: 3 }, sparkColor: 0xff7a2a, ultKind: 'combo', maxHp: 120, aiStyle: 'brawler', aiMul: 0.88,
     specNames: SPEC2, style: 'The ember knight. Heavy hits, flame crest, bright flame-red armor.',
-    skin: { body: 0x6f8f3a, belly: 0xe8dfae, spot: 0x4a6423, armor: 0xd93a1e, trim: 0xffa62b, cape: 0x8e1f16, headgear: 'flamecrest', iris: 0xff5a1f, glow: true, emblem: 'skull', tassets: true, legArmor: true } },
+    skin: { body: 0x63a03a, belly: 0xe8dfae, spot: 0x4a6423, armor: 0xd93a1e, trim: 0xffa62b, cape: 0x8e1f16, headgear: 'flamecrest', iris: 0xff5a1f, slit: true, glow: true, emblem: 'skull', belt: 'skull', tassets: true, legArmor: true } },
   { id: 'shadow', name: 'NYX THE SHADOWBLADE', title: 'MASTER OF SHADOWS', cls: 'SHADOW ASSASSIN', art: 'shadow.webp',
     stats: { power: 4, speed: 5, range: 4 }, sparkColor: 0x35e0d0, ultKind: 'barrage', maxHp: 110, aiStyle: 'speed', aiMul: 0.9,
     specNames: SPEC2, style: 'Master of shadows. Electric-blue dart frog, purple crystal armor, glowing cyan eyes.',
-    skin: { body: 0x1e9be0, belly: 0xd8ecf5, spot: 0xff8c1a, armor: 0x5b2ea6, trim: 0x2ee6d6, cape: 0x241457, headgear: 'hood', iris: 0x2ee6d6, pupil: 0x063a34, glow: true, emblem: 'rune' } },
+    skin: { body: 0x1e9be0, belly: 0xd8ecf5, spot: 0xff8c1a, stripe: 0xffc21a, bigSpots: true, armor: 0x5426a8, trim: 0x2ee6d6, cape: 0x241457, headgear: 'hood', iris: 0x2ee6d6, pupil: 0x063a34, glow: true, emblem: 'rune', loin: true, boots: true } },
   { id: 'captain', name: 'CAPTAIN DELMAR', title: 'THE TIDE CAPTAIN', cls: 'WAR CAPTAIN', art: 'captain.webp',
     stats: { power: 4, speed: 3, range: 5 }, sparkColor: 0x4da6ff, ultKind: 'barrage', maxHp: 110, aiStyle: 'zoner', aiMul: 0.95,
     specNames: SPEC2, style: 'The tide captain. Tropical turquoise armor, feather plume, long-range orbs.',
-    skin: { body: 0x2fae5f, belly: 0xeef5d8, spot: 0x1c7a40, armor: 0x12a5b8, trim: 0xff7a59, cape: 0x0e7a86, headgear: 'plume', plume: 0xff6b4a, iris: 0xffb03a, emblem: 'skull', tassets: true } },
+    skin: { body: 0x35b558, belly: 0xeef5d8, spot: 0x1c7a40, armor: 0x0f93ad, trim: 0xff7a59, cape: 0x0e7a86, headgear: 'plume', plume: 0xff6b4a, iris: 0xffb03a, emblem: 'anchor', loin: true } },
   { id: 'nightblade', name: 'NIGHTBLADE VOSS', title: 'BLADE OF THE NIGHT WATCH', cls: 'NIGHT WARRIOR', art: 'nightblade.webp',
     stats: { power: 4, speed: 4, range: 3 }, sparkColor: 0x8b5cf6, ultKind: 'combo', maxHp: 105, aiStyle: 'speed', aiMul: 1.0,
     specNames: SPEC2, style: 'Blade of the night watch. Vivid orange-bronze armor, fast hands.',
-    skin: { body: 0x5da244, belly: 0xeef0cd, spot: 0x3c7031, armor: 0xe07b24, trim: 0xffd23c, cape: 0x7a2a5e, headgear: 'circlet', iris: 0xd23b3b, emblem: 'none' } },
+    skin: { body: 0x5cb531, belly: 0xeef0cd, spot: 0x3c7031, armor: 0xd2691f, trim: 0xffd23c, cape: 0x8a2aa8, headgear: 'circlet', iris: 0xd23b3b, slit: true, gem: 0xff7a2a, emblem: 'gem', loin: true, boots: true } },
   { id: 'soldier', name: 'GRUMM THE BULWARK', title: 'THE FRONT-LINE BULWARK', cls: 'HEAVY SOLDIER', art: 'soldier.webp',
     stats: { power: 3, speed: 4, range: 2 }, sparkColor: 0xa8e063, ultKind: 'combo', maxHp: 105, aiStyle: 'balanced', aiMul: 1.05,
     specNames: SPEC2, style: 'Front-line bulwark. Big pauldrons, bright red-and-gold armor, no cape.',
-    skin: { body: 0x55a83e, belly: 0xe9efc4, spot: 0x3a7031, armor: 0xc22424, trim: 0xf2b13c, cape: null, iris: 0xff9a1f, emblem: 'skull', tassets: true, legArmor: true } },
+    skin: { body: 0x55a83e, belly: 0xe9efc4, spot: 0x3a7031, armor: 0xc22424, trim: 0xf2b13c, cape: null, iris: 0xff9a1f, gem: 0x1db954, emblem: 'gem', belt: 'skull', headgear: 'crown', crownScale: 0.78, bulk: 1.16, tassets: true, legArmor: true, boots: true } },
   { id: 'starknight', name: 'STELLARIS', title: 'THE STAR KNIGHT', cls: 'STAR KNIGHT', art: 'starknight.webp',
     stats: { power: 3, speed: 3, range: 3 }, sparkColor: 0x2fb8d8, ultKind: 'combo', maxHp: 102, aiStyle: 'balanced', aiMul: 1.1,
     specNames: SPEC2, style: 'The star knight. Pearl-white armor, glowing teal trim.',
-    skin: { body: 0x4da653, belly: 0xe6f2d8, spot: 0x2f7038, armor: 0xdfe9ee, trim: 0x2fb8d8, cape: 0x3a7bd5, headgear: 'starcrown', iris: 0xffb03a, glow: true, emblem: 'star', tassets: true, legArmor: true } },
+    skin: { body: 0x74a83e, belly: 0xe6f2d8, spot: 0x2f7038, armor: 0xdfe9ee, trim: 0x2fb8d8, cape: 0x6fc3ee, headgear: 'starcrown', iris: 0xffb03a, slit: 'h', glow: true, emblem: 'star', tassets: true, legArmor: true, boots: true } },
   { id: 'brawler', name: 'BRAMBLE', title: 'THE OLD POND BRAWLER', cls: 'VETERAN BRAWLER', art: 'brawler.webp',
     stats: { power: 2, speed: 2, range: 2 }, sparkColor: 0x7fe07a, ultKind: 'combo', maxHp: 100, aiStyle: 'balanced', aiMul: 1.2,
     specNames: SPEC2, style: 'The old pond brawler. Warm bronze armor, rust-red cape, honest fists.',
-    skin: { body: 0x7f9a4a, belly: 0xefe6c4, spot: 0x5c7038, armor: 0xb5762e, trim: 0xe8c87a, cape: 0xa83a28, iris: 0xd8b25a, emblem: 'skull' } },
+    skin: { body: 0x7f9a4a, belly: 0xefe6c4, spot: 0x5c7038, armor: 0xb5762e, trim: 0xe8c87a, cape: 0xa83a28, iris: 0xd8b25a, slit: 'h', emblem: 'none', belt: 'skull', headgear: 'band', loin: 'cloth' } },
 ];
 let pickFighter = ROSTER[0], cpuFighter = ROSTER[9];
 let P1 = new Fighter(slotCfg(ROSTER[0], -1.7));
@@ -2274,7 +2634,60 @@ $('quitBtn').addEventListener('click', () => {
 
 /* ---------------- camera ---------------- */
 const camTarget = new THREE.Vector3();
+/* ---------- ART STAGE (Nov 20): flat painted backdrop + sand floor ----------
+   The 3D arena set is hidden; the fight plays on a 2D side-view stage
+   in the same bright arena world as the NFT paintings. */
+if (ART_STAGE) {
+  arena.visible = false;
+  scene.background = new THREE.Color(0x52a3f3); // the painting's own sky blue
+  const bdTex = new THREE.TextureLoader().load('art/backdrop.webp',
+    t => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; });
+  // sized/placed so the painting's crowd band (v≈0.28–0.52) stands
+  // behind the fighters' bodies; its floor band stays below the sand
+  // disc (the disc IS the floor), and the texture's edges are
+  // alpha-faded into the sky colour / sand.
+  const bd = new THREE.Mesh(new THREE.PlaneGeometry(17, 8.5),
+    new THREE.MeshBasicMaterial({ map: bdTex, transparent: true, fog: false }));
+  bd.position.set(0, 0.25, -3.2);
+  scene.add(bd);
+  if (moonMesh) moonMesh.visible = false; // the 3D set's painted moon
+  const sand = new THREE.Mesh(new THREE.CircleGeometry(45, 40),
+    new THREE.MeshBasicMaterial({ color: 0xdbb47e, fog: false }));
+  sand.rotation.x = -Math.PI / 2; sand.position.y = -0.02;
+  scene.add(sand);
+}
+/* Side-view camera for the art stage: no orbit — the paintings are
+   flat, so the camera stays square-on, framing both fighters with
+   the same fit math as the 3D build. */
+function updateCameraArt(dt, t) {
+  const mid = (P1.x + P2.x) / 2;
+  const sep = Math.abs(P1.x - P2.x);
+  const fitK = 2 * Math.tan(camera.fov * Math.PI / 360) * (innerWidth / innerHeight);
+  const ext = f => (f.state === 'knock' || f.state === 'death') ? 1.55 : 0.62;
+  const spanL = Math.min(P1.x - ext(P1), P2.x - ext(P2));
+  const spanR = Math.max(P1.x + ext(P1), P2.x + ext(P2));
+  let anchorX = mid, dist, baseY = isPortrait ? 1.55 : 1.25;
+  if (game.phase === 'menu') { anchorX = 0; dist = isPortrait ? 8.6 : 7.6; }
+  else if (game.phase === 'roundEnd' || game.phase === 'matchEnd') {
+    const w = game.winner || P1; anchorX = w.x; dist = isPortrait ? 6.4 : 4.6;
+  } else {
+    const needW = Math.max(sep + 1.7, spanR - spanL + 0.6);
+    dist = THREE.MathUtils.clamp(needW / fitK, 3.4, isPortrait ? 16 : 9);
+  }
+  if (game.ultCamT > 0 && game.phase === 'fight') dist *= 0.9;
+  camTarget.set(anchorX, baseY, dist);
+  camera.position.lerp(camTarget, 1 - Math.pow(0.0015, dt));
+  if (shakeAmp > 0.002) {
+    camera.position.x += (Math.random() - .5) * shakeAmp * 0.35;
+    camera.position.y += (Math.random() - .5) * shakeAmp * 0.3;
+    shakeAmp *= Math.pow(0.0001, dt);
+  } else shakeAmp = 0;
+  camera.lookAt(anchorX, isPortrait ? 0.92 : 1.0, 0);
+  if (window.__qaCam) { const q = window.__qaCam; camera.position.set(q[0], q[1], q[2]); camera.lookAt(q[3], q[4], q[5]); }
+}
+
 function updateCamera(dt, t) {
+  if (ART_STAGE) return updateCameraArt(dt, t);
   const mid = (P1.x + P2.x) / 2;
   const sep = Math.abs(P1.x - P2.x);
   // Distance that fits (separation + body margin) inside the horizontal FOV
@@ -2359,6 +2772,7 @@ function updateCamera(dt, t) {
     shakeAmp *= Math.pow(0.0001, dt);
   } else shakeAmp = 0;
   camera.lookAt(anchorX, isPortrait ? 0.8 : 1.02, 0);
+  if (window.__qaCam) { const q = window.__qaCam; camera.position.set(q[0], q[1], q[2]); camera.lookAt(q[3], q[4], q[5]); }
 }
 
 /* ---------------- main loop ---------------- */
@@ -2511,6 +2925,7 @@ function animate() {
   updateFlashes(rawDt);
   for (const f of FIGHTERS) applyReaction(f);
   updateCamera(rawDt, elapsed);
+  for (const f of FIGHTERS) if (f.artMesh) f.artMesh.visible = f.group.visible !== false;
   renderer.render(scene, camera);
 
   if (qaProbe) qaProbeSample();
@@ -2574,6 +2989,21 @@ const IMPACT_SCENES = {
 async function setupQA() {
   const scene = QA_MODE;
   const hideMenu = () => { $('menu').style.display = 'none'; $('hud').style.display = 'flex'; $('controls').style.display = 'flex'; };
+  if (scene.startsWith('closeup:')) {
+    const n = Math.max(0, Math.min(ROSTER.length - 1, parseInt(scene.slice(8), 10) || 0));
+    pickFighter = ROSTER[n];
+    cpuFighter = ROSTER[(n + 3) % ROSTER.length];
+    buildSelectCards();
+    await applySelection();
+    hideMenu();
+    game.phase = 'frozen'; game.roundPhase = 'fight';
+    P1.x = -0.55; P1.face = 1; P1.applyFacing();
+    P1.group.position.x = P1.x;
+    P2.group.visible = false;
+    freezePose(P1, 'idle', 0.5);
+    $('hud').style.display = 'none'; $('controls').style.display = 'none';
+    window.__qaCam = [2.35, 1.55, 2.15, -0.55, 1.05, 0];
+  }
   if (scene.startsWith('roster:')) {
     const n = Math.max(0, Math.min(ROSTER.length - 1, parseInt(scene.slice(7), 10) || 0));
     pickFighter = ROSTER[n];
@@ -2608,6 +3038,19 @@ async function setupQA() {
     burst(_v1.x, _v1.y, 0, P2.cfg.sparkColor, 16, 3.2);
     slashArc(_v1.x, _v1.y, 0, P1.face, P2.cfg.sparkColor);
     game.phase = 'frozen';
+  } else if (scene === 'artfaceoff' || scene === 'artkinghit') {
+    // ART-FIGHTER proof scenes (Nov 20): held inputs, frozen poses —
+    // artfaceoff = both idle face-off; artkinghit = Bramble's jab
+    // frozen mid-swing while the King shows his hurt painting.
+    hideMenu();
+    game.phase = 'fight'; game.roundPhase = 'fight';
+    P1.x = -0.85; P2.x = 0.85;
+    P1.face = 1; P2.face = -1; P1.applyFacing(); P2.applyFacing();
+    P1.group.position.x = P1.x; P2.group.position.x = P2.x;
+    qaHoldInputs = true; qaHoldAI = true;
+    if (scene === 'artkinghit') { freezePose(P1, 'hitH', 0.2); freezePose(P2, 'jab', 0.3); }
+    else { freezePose(P1, 'idle', 0.5); freezePose(P2, 'idle', 0.5); }
+    updateHUD();
   } else if (IMPACT_SCENES[scene]) {
     const sc = IMPACT_SCENES[scene];
     hideMenu();
