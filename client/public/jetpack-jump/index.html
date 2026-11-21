@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<base href="/jetpack-jump/">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Jetpack Jump — LUNC Dev Studio</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{width:100%;height:100%;overflow:hidden;background:#04060f;font-family:'Segoe UI',system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;color:#eef2ff;touch-action:none;overscroll-behavior:none}
+  #game{position:fixed;inset:0;overflow:hidden}
+  canvas{position:absolute;inset:0;display:block}
+  /* ---------- HUD ---------- */
+  #hud{position:absolute;top:0;left:0;right:0;padding:calc(8px + env(safe-area-inset-top)) 10px 6px;display:none;flex-direction:column;gap:6px;pointer-events:none;z-index:5}
+  #hud.on{display:flex}
+  .hudrow{display:flex;gap:8px;align-items:stretch;justify-content:space-between}
+  .chip{background:rgba(8,12,30,.72);border:1px solid rgba(255,207,61,.35);border-radius:12px;padding:5px 10px;min-width:78px;text-align:center;backdrop-filter:blur(4px)}
+  .chip .lab{font-size:9px;letter-spacing:.14em;color:#ffcf3d;font-weight:700}
+  .chip .val{font-size:17px;font-weight:800;line-height:1.1;color:#fff}
+  #shieldChip{display:none;border-color:rgba(64,224,255,.7);color:#aef}
+  #shieldChip.on{display:block}
+  #fuelWrap{flex:1;background:rgba(8,12,30,.72);border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:5px 10px 7px}
+  #fuelWrap .lab{font-size:9px;letter-spacing:.14em;color:#ffb347;font-weight:700;display:flex;justify-content:space-between}
+  #fuelBarOuter{height:10px;border-radius:6px;background:rgba(255,255,255,.12);margin-top:3px;overflow:hidden}
+  #fuelBar{height:100%;width:100%;border-radius:6px;background:linear-gradient(90deg,#ff9d2e,#ffcf3d);transition:width .12s linear}
+  #fuelBar.low{background:linear-gradient(90deg,#ff4040,#ff7b2e)}
+  #pauseBtn{pointer-events:auto;background:rgba(8,12,30,.78);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:12px;width:42px;font-size:15px;font-weight:800;cursor:pointer}
+  /* ---------- Controls ---------- */
+  #joyBase{position:absolute;width:118px;height:118px;border-radius:50%;border:2px solid rgba(255,255,255,.35);background:radial-gradient(circle,rgba(255,255,255,.06),rgba(255,255,255,.14));display:none;z-index:6;pointer-events:none;transform:translate(-50%,-50%)}
+  #joyNub{position:absolute;width:52px;height:52px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffe9a8,#ffcf3d 60%,#d99a16);box-shadow:0 4px 14px rgba(0,0,0,.5);display:none;z-index:6;pointer-events:none;transform:translate(-50%,-50%)}
+  #thrustBtn{position:absolute;right:20px;bottom:calc(26px + env(safe-area-inset-bottom));width:96px;height:96px;border-radius:50%;border:3px solid rgba(255,207,61,.85);background:radial-gradient(circle at 38% 30%,#ffedb0,#ffb52e 55%,#e07f13);color:#5a2d00;font-size:34px;display:none;z-index:6;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.55),0 0 22px rgba(255,170,40,.35);user-select:none;-webkit-user-select:none;touch-action:none}
+  #thrustBtn small{display:block;font-size:10px;font-weight:900;letter-spacing:.12em}
+  #thrustBtn.firing{transform:scale(.93);box-shadow:0 4px 14px rgba(0,0,0,.5),0 0 38px rgba(255,170,40,.85)}
+  #thrustBtn:disabled{filter:grayscale(.7) brightness(.6)}
+  /* ---------- Toast ---------- */
+  #toast{position:absolute;top:22%;left:50%;transform:translateX(-50%) scale(.9);font-size:21px;font-weight:900;letter-spacing:.06em;color:#aef;text-shadow:0 2px 12px rgba(0,200,255,.8);opacity:0;transition:opacity .18s,transform .18s;z-index:7;pointer-events:none;text-align:center;white-space:nowrap}
+  #toast.show{opacity:1;transform:translateX(-50%) scale(1)}
+  /* ---------- Overlays ---------- */
+  .overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(2,4,14,.55);z-index:10;padding:14px}
+  .overlay.hidden{display:none}
+  .card{background:linear-gradient(165deg,rgba(16,22,52,.96),rgba(7,10,28,.97));border:1px solid rgba(255,207,61,.45);border-radius:22px;padding:22px 20px 18px;max-width:400px;width:100%;text-align:center;box-shadow:0 18px 50px rgba(0,0,0,.65);max-height:94vh;overflow-y:auto}
+  .moonLogo{width:74px;height:74px;margin:0 auto 4px}
+  h1.title{font-size:34px;font-weight:900;letter-spacing:.04em;background:linear-gradient(180deg,#fff3c4,#ffcf3d 55%,#e09c12);-webkit-background-clip:text;background-clip:text;color:transparent;text-shadow:0 2px 0 rgba(0,0,0,0)}
+  .tagline{font-size:13.5px;color:#c6d2ff;margin:4px 2px 12px;line-height:1.45}
+  .brandline{font-size:10px;letter-spacing:.3em;color:#8fa2d8;font-weight:700;margin-top:12px}
+  .bigbtn{display:block;width:100%;padding:15px 10px;margin:10px 0 4px;border:none;border-radius:16px;background:linear-gradient(180deg,#ffe066,#ffb52e);color:#4a2700;font-size:19px;font-weight:900;letter-spacing:.05em;cursor:pointer;box-shadow:0 8px 20px rgba(255,160,30,.35)}
+  .bigbtn:active{transform:scale(.97)}
+  .ghostbtn{display:block;width:100%;padding:12px 10px;margin:8px 0 2px;border:1px solid rgba(255,255,255,.35);border-radius:16px;background:rgba(255,255,255,.06);color:#eef2ff;font-size:15px;font-weight:800;cursor:pointer}
+  .howbox{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:11px 13px;margin-top:12px;text-align:left}
+  .howbox h3{font-size:11px;letter-spacing:.18em;color:#ffcf3d;margin-bottom:6px;text-align:center}
+  .howbox p{font-size:12.8px;line-height:1.5;color:#dbe4ff;margin:3px 0}
+  .langsel{width:100%;padding:12px;border-radius:14px;border:1px solid rgba(255,207,61,.6);background:#0c1230;color:#ffe9a8;font-size:16px;font-weight:700;margin:8px 0 2px;cursor:pointer}
+  .bestline{font-size:13px;color:#ffcf3d;font-weight:800;margin-top:8px;letter-spacing:.06em}
+  .scorerow{display:flex;justify-content:space-between;background:rgba(255,255,255,.05);border-radius:12px;padding:10px 14px;margin:6px 0;font-size:15px}
+  .scorerow b{color:#ffcf3d;font-size:18px}
+  #newBestBadge{display:none;background:linear-gradient(90deg,#ffcf3d,#ff9d2e);color:#4a2700;font-weight:900;border-radius:20px;padding:5px 14px;font-size:14px;margin:6px auto 2px;width:fit-content}
+  h2.overTitle{font-size:27px;font-weight:900;color:#ff8f6b;letter-spacing:.03em;margin-bottom:8px}
+</style>
+</head>
+<body>
+<div id="game">
+  <canvas id="cv"></canvas>
+
+  <div id="hud">
+    <div class="hudrow">
+      <div class="chip"><div class="lab" data-i="altitude">ALTITUDE</div><div class="val"><span id="hudAlt">0</span> m</div></div>
+      <div class="chip"><div class="lab" data-i="coins">COINS</div><div class="val">☾ <span id="hudCoins">0</span></div></div>
+      <div class="chip"><div class="lab" data-i="score">SCORE</div><div class="val" id="hudScore">0</div></div>
+      <button id="pauseBtn" aria-label="pause">❚❚</button>
+    </div>
+    <div class="hudrow">
+      <div id="fuelWrap"><div class="lab"><span data-i="fuel">FUEL</span><span id="fuelPct">100%</span></div><div id="fuelBarOuter"><div id="fuelBar"></div></div></div>
+      <div class="chip" id="shieldChip"><div class="lab" data-i="shieldUp">SHIELD ON</div><div class="val">🛡</div></div>
+    </div>
+  </div>
+
+  <div id="joyBase"></div><div id="joyNub"></div>
+  <button id="thrustBtn">🔥<small>HOLD</small></button>
+  <div id="toast"></div>
+
+  <div id="menu" class="overlay">
+    <div class="card">
+      <svg class="moonLogo" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" fill="#0c1230" stroke="#ffcf3d" stroke-width="3"/><path d="M63 14a37 37 0 1 0 23 55A41 41 0 0 1 63 14z" fill="#ffcf3d"/><circle cx="38" cy="38" r="3.4" fill="#ffe9a8"/><circle cx="30" cy="60" r="2.4" fill="#ffe9a8"/><circle cx="46" cy="70" r="2" fill="#ffe9a8"/></svg>
+      <h1 class="title" data-i="title">JETPACK JUMP</h1>
+      <p class="tagline" data-i="tagline">Blast off from the Moon. Dodge the belt. Chase the sky.</p>
+      <select id="langSel" class="langsel" aria-label="language"></select>
+      <button id="playBtn" class="bigbtn" data-i="play">▶ LAUNCH</button>
+      <div class="bestline"><span data-i="best">BEST</span>: <span id="menuBest">0</span></div>
+      <div class="howbox">
+        <h3 data-i="howTitle">HOW TO PLAY</h3>
+        <p data-i="how1">HOLD the thrust button (or SPACE) to fire your jetpack — watch your fuel.</p>
+        <p data-i="how2">Steer with the joystick, arrow keys or A / D.</p>
+        <p data-i="how3">Grab LUNC coins and fuel cans. Dodge asteroids and satellites.</p>
+        <p data-i="how4">A shield saves you once. One hit without it ends the run.</p>
+      </div>
+      <div class="brandline" data-i="brand">LUNC DEV STUDIO</div>
+    </div>
+  </div>
+
+  <div id="over" class="overlay hidden">
+    <div class="card">
+      <h2 class="overTitle" data-i="gameOver">RUN OVER</h2>
+      <div id="newBestBadge" data-i="newBest">★ NEW BEST! ★</div>
+      <div class="scorerow"><span data-i="yourScore">SCORE</span><b id="finalScore">0</b></div>
+      <div class="scorerow"><span data-i="yourAlt">ALTITUDE REACHED</span><b><span id="finalAlt">0</span> m</b></div>
+      <div class="scorerow"><span data-i="best">BEST</span><b id="finalBest">0</b></div>
+      <button id="againBtn" class="bigbtn" data-i="playAgain">↻ FLY AGAIN</button>
+      <button id="menuBtn" class="ghostbtn" data-i="mainMenu">MENU</button>
+      <select id="langSel2" class="langsel" aria-label="language"></select>
+      <div class="brandline" data-i="brand">LUNC DEV STUDIO</div>
+    </div>
+  </div>
+
+  <div id="pauseOv" class="overlay hidden">
+    <div class="card">
+      <h2 class="overTitle" style="color:#ffcf3d" data-i="paused">PAUSED</h2>
+      <button id="resumeBtn" class="bigbtn" data-i="resume">▶ RESUME</button>
+      <button id="quitBtn" class="ghostbtn" data-i="mainMenu">MENU</button>
+    </div>
+  </div>
+</div>
+<script>
+"use strict";
+/* ================= I18N ================= */
+const LANGS = {
+en:{title:"JETPACK JUMP",brand:"LUNC DEV STUDIO",tagline:"Blast off from the Moon. Dodge the belt. Chase the sky.",play:"▶ LAUNCH",howTitle:"HOW TO PLAY",how1:"HOLD the thrust button (or SPACE) to fire your jetpack — watch your fuel.",how2:"Steer with the joystick, arrow keys or A / D.",how3:"Grab LUNC coins and fuel cans. Dodge asteroids and satellites.",how4:"A shield saves you once. One hit without it ends the run.",altitude:"ALTITUDE",coins:"COINS",fuel:"FUEL",score:"SCORE",best:"BEST",gameOver:"RUN OVER",yourScore:"SCORE",yourAlt:"ALTITUDE REACHED",newBest:"★ NEW BEST! ★",playAgain:"↻ FLY AGAIN",mainMenu:"MENU",shieldUp:"SHIELD ON",shieldLost:"SHIELD DOWN!",lowFuel:"LOW FUEL",getReady:"GET READY…",paused:"PAUSED",resume:"▶ RESUME"},
+es:{title:"JETPACK JUMP",brand:"LUNC DEV STUDIO",tagline:"Despega de la Luna. Esquiva el cinturón. Persigue el cielo.",play:"▶ DESPEGAR",howTitle:"CÓMO JUGAR",how1:"MANTÉN el botón de empuje (o ESPACIO) para encender tu mochila — cuida el combustible.",how2:"Dirige con el joystick, las flechas o A / D.",how3:"Recoge monedas LUNC y bidones de combustible. Esquiva asteroides y satélites.",how4:"Un escudo te salva una vez. Un golpe sin escudo termina la partida.",altitude:"ALTITUD",coins:"MONEDAS",fuel:"COMBUSTIBLE",score:"PUNTOS",best:"RÉCORD",gameOver:"FIN DE LA PARTIDA",yourScore:"PUNTOS",yourAlt:"ALTITUD ALCANZADA",newBest:"★ ¡NUEVO RÉCORD! ★",playAgain:"↻ VOLAR OTRA VEZ",mainMenu:"MENÚ",shieldUp:"ESCUDO ACTIVO",shieldLost:"¡ESCUDO PERDIDO!",lowFuel:"POCO COMBUSTIBLE",getReady:"PREPARADO…",paused:"PAUSA",resume:"▶ SEGUIR"},
+pt:{title:"JETPACK JUMP",brand:"LUNC DEV STUDIO",tagline:"Decole da Lua. Desvie do cinturão. Persiga o céu.",play:"▶ DECOLAR",howTitle:"COMO JOGAR",how1:"SEGURE o botão de impulso (ou ESPAÇO) para ligar o jetpack — cuide do combustível.",how2:"Pilote com o joystick, as setas ou A / D.",how3:"Pegue moedas LUNC e galões de combustível. Desvie de asteroides e satélites.",how4:"Um escudo salva você uma vez. Uma batida sem escudo encerra a corrida.",altitude:"ALTITUDE",coins:"MOEDAS",fuel:"COMBUSTÍVEL",score:"PONTOS",best:"RECORDE",gameOver:"FIM DA CORRIDA",yourScore:"PONTOS",yourAlt:"ALTITUDE ALCANÇADA",newBest:"★ NOVO RECORDE! ★",playAgain:"↻ VOAR DE NOVO",mainMenu:"MENU",shieldUp:"ESCUDO ATIVO",shieldLost:"ESCUDO PERDIDO!",lowFuel:"POUCO COMBUSTÍVEL",getReady:"PREPARAR…",paused:"PAUSADO",resume:"▶ CONTINUAR"},
+fr:{title:"JETPACK JUMP",brand:"LUNC DEV STUDIO",tagline:"Décolle de la Lune. Évite la ceinture. Vise le ciel.",play:"▶ DÉCOLLAGE",howTitle:"COMMENT JOUER",how1:"MAINTIENS le bouton de poussée (ou ESPACE) pour allumer ton jetpack — surveille le carburant.",how2:"Dirige avec le joystick, les flèches ou A / D.",how3:"Ramasse les pièces LUNC et les bidons de carburant. Évite astéroïdes et satellites.",how4:"Un bouclier te sauve une fois. Un choc sans bouclier termine la partie.",altitude:"ALTITUDE",coins:"PIÈCES",fuel:"CARBURANT",score:"SCORE",best:"RECORD",gameOver:"PARTIE TERMINÉE",yourScore:"SCORE",yourAlt:"ALTITUDE ATTEINTE",newBest:"★ NOUVEAU RECORD ! ★",playAgain:"↻ REVOLER",mainMenu:"MENU",shieldUp:"BOUCLIER ACTIF",shieldLost:"BOUCLIER PERDU !",lowFuel:"PEU DE CARBURANT",getReady:"PRÊT…",paused:"PAUSE",resume:"▶ REPRENDRE"},
+de:{title:"JETPACK JUMP",brand:"LUNC DEV STUDIO",tagline:"Starte vom Mond. Weiche dem Gürtel aus. Jag den Himmel.",play:"▶ STARTEN",howTitle:"SO GEHT'S",how1:"HALTE die Schubtaste (oder LEERTASTE), um dein Jetpack zu zünden — achte auf den Treibstoff.",how2:"Steuere mit Joystick, Pfeiltasten oder A / D.",how3:"Sammle LUNC-Münzen und Kanister. Weiche Asteroiden und Satelliten aus.",how4:"Ein Schild rettet dich einmal. Ein Treffer ohne Schild beendet den Flug.",altitude:"HÖHE",coins:"MÜNZEN",fuel:"TREIBSTOFF",score:"PUNKTE",best:"REKORD",gameOver:"FLUG VORBEI",yourScore:"PUNKTE",yourAlt:"ERREICHTE HÖHE",newBest:"★ NEUER REKORD! ★",playAgain:"↻ NOCHMAL FLIEGEN",mainMenu:"MENÜ",shieldUp:"SCHILD AN",shieldLost:"SCHILD WEG!",lowFuel:"WENIG TREIBSTOFF",getReady:"BEREIT…",paused:"PAUSE",resume:"▶ WEITER"},
+it:{title:"JETPACK JUMP",brand:"LUNC DEV STUDIO",tagline:"Decolla dalla Luna. Schiva la cintura. Insegui il cielo.",play:"▶ DECOLLA",howTitle:"COME GIOCARE",how1:"TIENI premuto il pulsante di spinta (o SPAZIO) per accendere il jetpack — occhio al carburante.",how2:"Guida con il joystick, le frecce o A / D.",how3:"Raccogli monete LUNC e taniche di carburante. Schiva asteroidi e satelliti.",how4:"Uno scudo ti salva una volta. Un colpo senza scudo chiude la corsa.",altitude:"ALTITUDINE",coins:"MONETE",fuel:"CARBURANTE",score:"PUNTI",best:"RECORD",gameOver:"CORSA FINITA",yourScore:"PUNTI",yourAlt:"ALTITUDINE RAGGIUNTA",newBest:"★ NUOVO RECORD! ★",playAgain:"↻ VOLA ANCORA",mainMenu:"MENU",shieldUp:"SCUDO ATTIVO",shieldLost:"SCUDO PERSO!",lowFuel:"POCO CARBURANTE",getReady:"PRONTI…",paused:"PAUSA",resume:"▶ RIPRENDI"},
+nl:{title:"JETPACK JUMP",brand:"LUNC DEV STUDIO",tagline:"Vertrek van de maan. Ontwijk de gordel. Jaag de hemel na.",play:"▶ LANCEREN",howTitle:"ZO SPEEL JE",how1:"HOUD de stuwknop (of SPATIE) ingedrukt om je jetpack te vuren — let op je brandstof.",how2:"Stuur met de joystick, pijltjes of A / D.",how3:"Pak LUNC-munten en brandstofblikken. Ontwijk asteroïden en satellieten.",how4:"Een schild redt je één keer. Eén klap zonder schild eindigt de vlucht.",altitude:"HOOGTE",coins:"MUNTEN",fuel:"BRANDSTOF",score:"SCORE",best:"RECORD",gameOver:"VLUCHT VOORBIJ",yourScore:"SCORE",yourAlt:"BEREIKTE HOOGTE",newBest:"★ NIEUW RECORD! ★",playAgain:"↻ VLIEG OPNIEUW",mainMenu:"MENU",shieldUp:"SCHILD AAN",shieldLost:"SCHILD WEG!",lowFuel:"WEINIG BRANDSTOF",getReady:"KLAAR…",paused:"GEPAUZEERD",resume:"▶ DOORGAAN"},
+ru:{title:"JETPACK JUMP",brand:"LUNC DEV STUDIO",tagline:"Взлетай с Луны. Уклоняйся от пояса астероидов. Гонись за небом.",play:"▶ СТАРТ",howTitle:"КАК ИГРАТЬ",how1:"ДЕРЖИ кнопку тяги (или ПРОБЕЛ), чтобы включить джетпак — следи за топливом.",how2:"Управляй джойстиком, стрелками или A / D.",how3:"Собирай монеты LUNC и канистры топлива. Уклоняйся от астероидов и спутников.",how4:"Щит спасает один раз. Удар без щита — конец полёта.",altitude:"ВЫСОТА",coins:"МОНЕТЫ",fuel:"ТОПЛИВО",score:"СЧЁТ",best:"РЕКОРД",gameOver:"ПОЛЁТ ОКОНЧЕН",yourScore:"СЧЁТ",yourAlt:"ДОСТИГНУТАЯ ВЫСОТА",newBest:"★ НОВЫЙ РЕКОРД! ★",playAgain:"↻ ЛЕТЕТЬ СНОВА",mainMenu:"МЕНЮ",shieldUp:"ЩИТ ВКЛЮЧЁН",shieldLost:"ЩИТ ПОТЕРЯН!",lowFuel:"МАЛО ТОПЛИВА",getReady:"ПРИГОТОВЬСЯ…",paused:"ПАУЗА",resume:"▶ ДАЛЬШЕ"},
+uk:{title:"JETPACK JUMP",brand:"LUNC DEV STUDIO",tagline:"Злітай з Місяця. Ухиляйся від поясу. Женися за небом.",play:"▶ СТАРТ",howTitle:"ЯК ГРАТИ",how1:"ТРИМАЙ кнопку тяги (або ПРОБІЛ), щоб увімкнути джетпак — стеж за паливом.",how2:"Керуй джойстиком, стрілками або A / D.",how3:"Збирай монети LUNC і каністри палива. Ухиляйся від астероїдів і супутників.",how4:"Щит рятує один раз. Удар без щита — кінець польоту.",altitude:"ВИСОТА",coins:"МОНЕТИ",fuel:"ПАЛИВО",score:"РАХУНОК",best:"РЕКОРД",gameOver:"ПОЛІТ ЗАВЕРШЕНО",yourScore:"РАХУНОК",yourAlt:"ДОСЯГНУТА ВИСОТА",newBest:"★ НОВИЙ РЕКОРД! ★",playAgain:"↻ ЛЕТІТИ ЗНОВУ",mainMenu:"МЕНЮ",shieldUp:"ЩИТ УВІМКНЕНО",shieldLost:"ЩИТ ВТРАЧЕНО!",lowFuel:"МАЛО ПАЛИВА",getReady:"ПРИГОТУЙСЯ…",paused:"ПАУЗА",resume:"▶ ДАЛІ"},
+tr:{title:"JETPACK JUMP",brand:"LUNC DEV STUDIO",tagline:"Ay'dan havalan. Kuşaktan kaç. Gökyüzünü kovala.",play:"▶ FIRLAT",howTitle:"NASIL OYNANIR",how1:"Jetpack'i ateşlemek için itme düğmesini (veya BOŞLUK) BASILI TUT — yakıtına dikkat et.",how2:"Joystick, ok tuşları veya A / D ile yön ver.",how3:"LUNC paralarını ve yakıt bidonlarını topla. Asteroitlerden ve uydulardan kaç.",how4:"Kalkan seni bir kez kurtarır. Kalkansız bir çarpma uçuşu bitirir.",altitude:"İRTİFA",coins:"PARA",fuel:"YAKIT",score:"SKOR",best:"REKOR",gameOver:"UÇUŞ BİTTİ",yourScore:"SKOR",yourAlt:"ULAŞILAN İRTİFA",newBest:"★ YENİ REKOR! ★",playAgain:"↻ TEKRAR UÇ",mainMenu:"MENÜ",shieldUp:"KALKAN AÇIK",shieldLost:"KALKAN GİTTİ!",lowFuel:"YAKIT AZ",getReady:"HAZIR OL…",paused:"DURAKLATILDI",resume:"▶ DEVAM ET"},
+ar:{title:"JETPACK JUMP",brand:"LUNC DEV STUDIO",tagline:"انطلق من القمر. تجنّب الحزام. طارد السماء.",play:"▶ انطلاق",howTitle:"طريقة اللعب",how1:"اضغط باستمرار على زر الدفع (أو المسافة) لتشغيل الحقيبة النفاثة — راقب الوقود.",how2:"وجّه بعصا التحكم أو الأسهم أو A / D.",how3:"اجمع عملات LUNC وعلب الوقود. تجنّب الكويكبات والأقمار الصناعية.",how4:"الدرع ينقذك مرة واحدة. ضربة واحدة بدونه تنهي الرحلة.",altitude:"الارتفاع",coins:"العملات",fuel:"الوقود",score:"النقاط",best:"الأفضل",gameOver:"انتهت الرحلة",yourScore:"النقاط",yourAlt:"الارتفاع المحقق",newBest:"★ رقم قياسي جديد! ★",playAgain:"↻ حلّق مجددًا",mainMenu:"القائمة",shieldUp:"الدرع مفعّل",shieldLost:"فُقد الدرع!",lowFuel:"وقود منخفض",getReady:"استعد…",paused:"إيقاف مؤقت",resume:"▶ متابعة"},
+hi:{title:"JETPACK JUMP",brand:"LUNC DEV STUDIO",tagline:"चाँद से उड़ान भरो। बेल्ट से बचो। आसमान का पीछा करो।",play:"▶ उड़ान भरो",howTitle:"कैसे खेलें",how1:"जेटपैक चलाने के लिए थ्रस्ट बटन (या SPACE) दबाए रखो — ईंधन पर नज़र रखो।",how2:"जॉयस्टिक, एरो की या A / D से दिशा दो।",how3:"LUNC सिक्के और ईंधन कैन उठाओ। क्षुद्रग्रहों और उपग्रहों से बचो।",how4:"शील्ड एक बार बचाती है। बिना शील्ड एक टक्कर = खेल खत्म।",altitude:"ऊँचाई",coins:"सिक्के",fuel:"ईंधन",score:"स्कोर",best:"सर्वश्रेष्ठ",gameOver:"उड़ान खत्म",yourScore:"स्कोर",yourAlt:"पहुँची ऊँचाई",newBest:"★ नया रिकॉर्ड! ★",playAgain:"↻ फिर उड़ो",mainMenu:"मेनू",shieldUp:"शील्ड चालू",shieldLost:"शील्ड खत्म!",lowFuel:"ईंधन कम",getReady:"तैयार रहो…",paused:"रुका हुआ",resume:"▶ जारी रखो"},
+id:{title:"JETPACK JUMP",brand:"LUNC DEV STUDIO",tagline:"Lepas landas dari Bulan. Hindari sabuk asteroid. Kejar langit.",play:"▶ MELUNCUR",howTitle:"CARA BERMAIN",how1:"TAHAN tombol dorong (atau SPASI) untuk menyalakan jetpack — perhatikan bahan bakar.",how2:"Kendalikan dengan joystick, tombol panah, atau A / D.",how3:"Ambil koin LUNC dan kaleng bahan bakar. Hindari asteroid dan satelit.",how4:"Perisai menyelamatkanmu sekali. Satu tabrakan tanpa perisai mengakhiri penerbangan.",altitude:"KETINGGIAN",coins:"KOIN",fuel:"BAHAN BAKAR",score:"SKOR",best:"TERBAIK",gameOver:"PENERBANGAN SELESAI",yourScore:"SKOR",yourAlt:"KETINGGIAN DICAPAI",newBest:"★ REKOR BARU! ★",playAgain:"↻ TERBANG LAGI",mainMenu:"MENU",shieldUp:"PERISAI AKTIF",shieldLost:"PERISAI HILANG!",lowFuel:"BAHAN BAKAR SEDIKIT",getReady:"BERSIAP…",paused:"JEDA",resume:"▶ LANJUTKAN"},
+vi:{title:"JETPACK JUMP",brand:"LUNC DEV STUDIO",tagline:"Cất cánh từ Mặt Trăng. Né vành đai. Đuổi theo bầu trời.",play:"▶ PHÓNG",howTitle:"CÁCH CHƠI",how1:"GIỮ nút đẩy (hoặc SPACE) để kích hoạt jetpack — chú ý nhiên liệu.",how2:"Điều khiển bằng joystick, phím mũi tên hoặc A / D.",how3:"Nhặt xu LUNC và can nhiên liệu. Né thiên thạch và vệ tinh.",how4:"Khiên cứu bạn một lần. Một cú va chạm không khiên là kết thúc.",altitude:"ĐỘ CAO",coins:"XU",fuel:"NHIÊN LIỆU",score:"ĐIỂM",best:"KỶ LỤC",gameOver:"KẾT THÚC",yourScore:"ĐIỂM",yourAlt:"ĐỘ CAO ĐẠT ĐƯỢC",newBest:"★ KỶ LỤC MỚI! ★",playAgain:"↻ BAY LẠI",mainMenu:"MENU",shieldUp:"KHIÊN ĐÃ BẬT",shieldLost:"MẤT KHIÊN!",lowFuel:"SẮP HẾT NHIÊN LIỆU",getReady:"SẴN SÀNG…",paused:"TẠM DỪNG",resume:"▶ TIẾP TỤC"},
+th:{title:"JETPACK JUMP",brand:"LUNC DEV STUDIO",tagline:"ทะยานจากดวงจันทร์ หลบแถบอุกกาบาต ไล่ล่าท้องฟ้า",play:"▶ ออกตัว",howTitle:"วิธีเล่น",how1:"กดปุ่มแรงขับ (หรือ SPACE) ค้างไว้เพื่อจุดเจ็ตแพ็ก — ระวังเชื้อเพลิง",how2:"บังคับด้วยจอยสติ๊ก ปุ่มลูกศร หรือ A / D",how3:"เก็บเหรียญ LUNC และถังเชื้อเพลิง หลบอุกกาบาตและดาวเทียม",how4:"โล่ช่วยคุณได้หนึ่งครั้ง ชนครั้งเดียวโดยไม่มีโล่คือจบเกม",altitude:"ความสูง",coins:"เหรียญ",fuel:"เชื้อเพลิง",score:"คะแนน",best:"สถิติ",gameOver:"จบเที่ยวบิน",yourScore:"คะแนน",yourAlt:"ความสูงที่ทำได้",newBest:"★ สถิติใหม่! ★",playAgain:"↻ บินอีกครั้ง",mainMenu:"เมนู",shieldUp:"เปิดโล่แล้ว",shieldLost:"โล่หาย!",lowFuel:"เชื้อเพลิงต่ำ",getReady:"เตรียมตัว…",paused:"หยุดชั่วคราว",resume:"▶ เล่นต่อ"},
+ja:{title:"JETPACK JUMP",brand:"LUNC DEV STUDIO",tagline:"月から飛び立とう。小惑星帯をかわし、空を追え。",play:"▶ 発射",howTitle:"遊び方",how1:"推力ボタン（またはスペース）を長押しでジェットパック点火 — 燃料に注意。",how2:"ジョイスティック、矢印キー、または A / D で操縦。",how3:"LUNCコインと燃料缶を集めよう。隕石と衛星を避けて。",how4:"シールドは1回だけ身を守る。シールドなしの衝突で終了。",altitude:"高度",coins:"コイン",fuel:"燃料",score:"スコア",best:"ベスト",gameOver:"フライト終了",yourScore:"スコア",yourAlt:"到達高度",newBest:"★ 新記録！ ★",playAgain:"↻ もう一度飛ぶ",mainMenu:"メニュー",shieldUp:"シールドON",shieldLost:"シールド消失！",lowFuel:"燃料わずか",getReady:"準備…",paused:"一時停止",resume:"▶ 再開"},
+ko:{title:"JETPACK JUMP",brand:"LUNC DEV STUDIO",tagline:"달에서 이륙하세요. 소행성대를 피하고 하늘을 향해 날아가세요.",play:"▶ 발사",howTitle:"게임 방법",how1:"추진 버튼(또는 스페이스)을 길게 눌러 제트팩을 켜세요 — 연료를 확인하세요.",how2:"조이스틱, 방향키 또는 A / D로 조종하세요.",how3:"LUNC 코인과 연료통을 모으세요. 소행성과 위성을 피하세요.",how4:"실드는 한 번 구해줍니다. 실드 없이 충돌하면 종료됩니다.",altitude:"고도",coins:"코인",fuel:"연료",score:"점수",best:"최고 기록",gameOver:"비행 종료",yourScore:"점수",yourAlt:"도달 고도",newBest:"★ 신기록! ★",playAgain:"↻ 다시 날기",mainMenu:"메뉴",shieldUp:"실드 ON",shieldLost:"실드 소멸!",lowFuel:"연료 부족",getReady:"준비…",paused:"일시정지",resume:"▶ 계속하기"},
+zh:{title:"JETPACK JUMP",brand:"LUNC DEV STUDIO",tagline:"从月球起飞，躲开小行星带，追逐天空。",play:"▶ 发射",howTitle:"玩法",how1:"按住推力按钮（或空格键）点燃喷气背包 — 注意燃料。",how2:"用摇杆、方向键或 A / D 控制方向。",how3:"收集 LUNC 金币和燃料罐，躲避小行星和卫星。",how4:"护盾能救你一次。没有护盾撞上一次就结束。",altitude:"高度",coins:"金币",fuel:"燃料",score:"分数",best:"最佳",gameOver:"飞行结束",yourScore:"分数",yourAlt:"达到高度",newBest:"★ 新纪录！ ★",playAgain:"↻ 再飞一次",mainMenu:"菜单",shieldUp:"护盾已开",shieldLost:"护盾消失！",lowFuel:"燃料不足",getReady:"准备…",paused:"已暂停",resume:"▶ 继续"}
+};
+const LANG_NAMES = {en:"English",es:"Español",pt:"Português",fr:"Français",de:"Deutsch",it:"Italiano",nl:"Nederlands",ru:"Русский",uk:"Українська",tr:"Türkçe",ar:"العربية",hi:"हिन्दी",id:"Bahasa Indonesia",vi:"Tiếng Việt",th:"ไทย",ja:"日本語",ko:"한국어",zh:"中文"};
+let curLang = "en";
+try{ const s = localStorage.getItem("jetpackjump_lang"); if(s && LANGS[s]) curLang = s; }catch(e){}
+function T(k){ return (LANGS[curLang] && LANGS[curLang][k]) || LANGS.en[k] || k; }
+function applyLang(l){
+  if(!LANGS[l]) l = "en";
+  curLang = l;
+  try{ localStorage.setItem("jetpackjump_lang", l); }catch(e){}
+  document.documentElement.lang = l;
+  document.documentElement.dir = (l === "ar") ? "rtl" : "ltr";
+  document.querySelectorAll("[data-i]").forEach(el=>{ el.textContent = T(el.getAttribute("data-i")); });
+  document.getElementById("langSel").value = l;
+  document.getElementById("langSel2").value = l;
+}
+(function initLangSelects(){
+  ["langSel","langSel2"].forEach(id=>{
+    const sel = document.getElementById(id);
+    Object.keys(LANGS).forEach(code=>{
+      const o = document.createElement("option"); o.value = code; o.textContent = LANG_NAMES[code]; sel.appendChild(o);
+    });
+    sel.addEventListener("change", ()=>applyLang(sel.value));
+  });
+})();
+
+/* ================= GAME ================= */
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+let W = 0, H = 0, DPR = 1;
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  cv.style.width = W + "px"; cv.style.height = H + "px";
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener("resize", resize); resize();
+
+function mulberry(seed){ return function(){ seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const clamp = (v,a,b)=> v<a?a : v>b?b : v;
+const lerp = (a,b,t)=> a + (b-a)*t;
+
+/* ---- pre-rendered sprites ---- */
+function makeRock(r, seed){
+  const c = document.createElement("canvas"); const s = Math.ceil(r*2+8); c.width = s; c.height = s;
+  const g = c.getContext("2d"); const rnd = mulberry(seed);
+  const cx = s/2, cy = s/2; const pts = [];
+  const n = 11;
+  for(let i=0;i<n;i++){ const a = (i/n)*Math.PI*2; const rr = r*(0.78 + rnd()*0.34); pts.push([cx+Math.cos(a)*rr, cy+Math.sin(a)*rr]); }
+  const grad = g.createRadialGradient(cx-r*0.35, cy-r*0.4, r*0.15, cx, cy, r*1.15);
+  grad.addColorStop(0, "#a89a86"); grad.addColorStop(0.55, "#7d7263"); grad.addColorStop(1, "#453d33");
+  g.beginPath(); pts.forEach((p,i)=> i? g.lineTo(p[0],p[1]) : g.moveTo(p[0],p[1])); g.closePath();
+  g.fillStyle = grad; g.fill();
+  g.strokeStyle = "rgba(30,24,18,.65)"; g.lineWidth = 2; g.stroke();
+  g.save(); g.clip();
+  for(let i=0;i<5;i++){ const x = cx+(rnd()-0.5)*r*1.3, y = cy+(rnd()-0.5)*r*1.3, cr = r*(0.12+rnd()*0.2);
+    const cg = g.createRadialGradient(x-cr*0.3, y-cr*0.3, cr*0.15, x, y, cr);
+    cg.addColorStop(0, "rgba(38,32,26,.85)"); cg.addColorStop(0.8, "rgba(52,45,38,.55)"); cg.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = cg; g.beginPath(); g.arc(x,y,cr,0,7); g.fill();
+    g.strokeStyle = "rgba(210,198,175,.28)"; g.lineWidth = 1.4; g.beginPath(); g.arc(x,y,cr*0.92, Math.PI*0.9, Math.PI*1.7); g.stroke(); }
+  for(let i=0;i<26;i++){ g.fillStyle = "rgba(255,244,214,"+(0.05+rnd()*0.13)+")"; g.fillRect(cx+(rnd()-0.5)*r*1.7, cy+(rnd()-0.5)*r*1.7, 2, 2); }
+  g.restore();
+  return c;
+}
+const rockSprites = [makeRock(30,11), makeRock(38,47), makeRock(26,83), makeRock(44,129), makeRock(34,197)];
+function makeSat(){
+  const c = document.createElement("canvas"); c.width = 132; c.height = 84;
+  const g = c.getContext("2d");
+  const panel = (x)=>{ const gr = g.createLinearGradient(x,20,x,64); gr.addColorStop(0,"#2c5fb8"); gr.addColorStop(0.5,"#173d80"); gr.addColorStop(1,"#2c5fb8");
+    g.fillStyle = gr; g.fillRect(x,22,42,40); g.strokeStyle = "#9fc2ff"; g.lineWidth = 1.6; g.strokeRect(x,22,42,40);
+    g.strokeStyle = "rgba(159,194,255,.5)"; g.lineWidth = 1;
+    for(let i=1;i<3;i++){ g.beginPath(); g.moveTo(x+i*14,22); g.lineTo(x+i*14,62); g.stroke(); }
+    g.beginPath(); g.moveTo(x,42); g.lineTo(x+42,42); g.stroke(); };
+  panel(2); panel(88);
+  g.fillStyle = "#8b93a5"; g.fillRect(44,38,44,8);
+  const bg = g.createLinearGradient(52,14,52,70); bg.addColorStop(0,"#e8ecf4"); bg.addColorStop(0.5,"#aab2c4"); bg.addColorStop(1,"#79839c");
+  g.fillStyle = bg; g.fillRect(52,14,28,56); g.strokeStyle = "#565f74"; g.lineWidth = 1.6; g.strokeRect(52,14,28,56);
+  g.fillStyle = "#ffcf3d"; g.beginPath(); g.arc(66,30,6,0,7); g.fill();
+  g.fillStyle = "#233252"; g.fillRect(57,46,18,14);
+  g.fillStyle = "#40e0ff"; g.beginPath(); g.arc(66,53,3.4,0,7); g.fill();
+  g.fillStyle = "#ff5a4e"; g.beginPath(); g.arc(88,18,3.4,0,7); g.fill();
+  return c;
+}
+const satSprite = makeSat();
+function makeNebula(color){
+  const c = document.createElement("canvas"); c.width = 340; c.height = 340;
+  const g = c.getContext("2d");
+  const gr = g.createRadialGradient(170,170,10,170,170,170);
+  gr.addColorStop(0, color); gr.addColorStop(1, "rgba(0,0,0,0)");
+  g.fillStyle = gr; g.fillRect(0,0,340,340);
+  return c;
+}
+const nebulas = [makeNebula("rgba(84,52,160,.34)"), makeNebula("rgba(20,90,140,.30)"), makeNebula("rgba(160,60,110,.22)")];
+const stars = [];
+for(let layer=0; layer<3; layer++){ const arr = []; const rnd = mulberry(900+layer*77);
+  for(let i=0;i<70;i++) arr.push({x: rnd(), y: rnd(), r: 0.6 + rnd()*(layer+1)*0.75, tw: rnd()*7});
+  stars.push({f: 0.12 + layer*0.14, arr}); }
+
+/* ---- state ---- */
+let mode = "menu"; // menu | play | pause | over
+const PXM = 12; // pixels per meter
+const player = { x:0, y:0, vx:0, vy:0, fuel:100, shield:false, tilt:0, legPh:0, launched:false, invuln:0 };
+let camY = 0, coinsGot = 0, score = 0, best = 0, nextSpawnY = 0, timeNow = 0, lowFuelWarned = false, overTimer = -1, submitted = false;
+let rocks = [], sats = [], coinsArr = [], fuels = [], shields = [], parts = [];
+try{ best = parseInt(localStorage.getItem("jetpackjump_best") || "0", 10) || 0; }catch(e){}
+function submitScore(s){ try{ localStorage.setItem("jetpackjump_last", String(s|0)); }catch(e){} }
+
+function reset(){
+  player.x = W/2; player.y = 0; player.vx = 0; player.vy = 0; player.fuel = 100;
+  player.shield = false; player.tilt = 0; player.legPh = 0; player.launched = false; player.invuln = 0;
+  camY = 0; coinsGot = 0; score = 0; nextSpawnY = 420; lowFuelWarned = false; overTimer = -1; submitted = false;
+  rocks = []; sats = []; coinsArr = []; fuels = []; shields = []; parts = [];
+}
+function altM(){ return Math.max(0, Math.floor(player.y / PXM)); }
+function difficulty(){ return clamp(altM() / 2600, 0, 1); }
+
+function spawnRow(y){
+  const d = difficulty(); const rnd = Math.random;
+  const nR = 1 + (rnd() < 0.35 + d*0.5 ? 1 : 0) + (rnd() < d*0.45 ? 1 : 0);
+  const gapX = 60 + rnd()*(W-120); // guaranteed flight gap column
+  for(let i=0;i<nR;i++){
+    let x = 34 + rnd()*(W-68);
+    if(Math.abs(x - gapX) < 74) x = (x + W/2) % W;
+    const spr = rockSprites[(rnd()*rockSprites.length)|0];
+    const r = (spr.width/2 - 4) * (0.75 + rnd()*0.5);
+    rocks.push({x, y, r, spr, rot: rnd()*7, vr: (rnd()-0.5)*0.7, vx: (rnd()-0.5)*(14 + d*36)});
+  }
+  const roll = rnd();
+  if(roll < 0.42){ // coin arc / line
+    const cx0 = 40 + rnd()*(W-80), n = 3 + (rnd()*3|0), arc = rnd() < 0.5;
+    for(let i=0;i<n;i++) coinsArr.push({x: clamp(cx0 + (i-(n-1)/2)*34, 22, W-22), y: y + 46 + (arc ? Math.sin(i/(n-1)*Math.PI)*26 : 0), ph: rnd()*7, got:false});
+  } else if(roll < 0.55){ fuels.push({x: 34 + rnd()*(W-68), y: y + 40, ph: rnd()*7}); }
+  else if(roll < 0.60 && !player.shield && shields.length === 0){ shields.push({x: 34 + rnd()*(W-68), y: y + 40, ph: rnd()*7}); }
+  if(altM() > 260 && rnd() < 0.10 + d*0.06){ sats.push({x: W/2 + (rnd()-0.5)*W*0.5, y: y + 60, vx: (rnd()<0.5?-1:1)*(22 + rnd()*26), ph: rnd()*7}); }
+}
+function burst(x, y, n, colors, spd, life, grav){
+  for(let i=0;i<n;i++){ const a = Math.random()*Math.PI*2, s = (0.3+Math.random()*0.7)*spd;
+    parts.push({x, y, vx: Math.cos(a)*s, vy: Math.sin(a)*s, life: life*(0.5+Math.random()*0.7), maxLife: life, col: colors[(Math.random()*colors.length)|0], r: 1.6+Math.random()*2.8, grav: grav||0}); }
+}
+
+/* ---- drawing ---- */
+function drawBackground(){
+  const g = ctx.createLinearGradient(0,0,0,H);
+  const a = clamp(altM()/3000, 0, 1);
+  g.addColorStop(0, a > 0.5 ? "#01020a" : "#060a24");
+  g.addColorStop(0.6, "#081026"); g.addColorStop(1, "#0a1030");
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+  // nebulas (deep parallax)
+  for(let i=0;i<3;i++){ const nx = ((i*0.37+0.12)*W) - 170, ny = ((i*263 - camY*0.03) % (H+340) + H+340) % (H+340) - 340;
+    ctx.globalAlpha = 0.8; ctx.drawImage(nebulas[i], nx, ny); }
+  ctx.globalAlpha = 1;
+  // stars
+  stars.forEach(L=>{
+    L.arr.forEach(s=>{
+      const sy = ((s.y*H - camY*L.f) % H + H) % H;
+      const tw = 0.55 + 0.45*Math.sin(timeNow*2 + s.tw);
+      ctx.globalAlpha = tw * (0.35 + L.f);
+      ctx.fillStyle = "#dfe8ff";
+      ctx.beginPath(); ctx.arc(s.x*W, sy, s.r, 0, 7); ctx.fill();
+    });
+  });
+  ctx.globalAlpha = 1;
+  // Earth — high in the sky at launch, shrinking & sinking as you climb
+  const er = clamp(84 - altM()*0.05, 20, 84);
+  const ex = W*0.85, ey = H*0.135 + camY*0.04;
+  if(ey < H + er){
+    const eg = ctx.createRadialGradient(ex-er*0.35, ey-er*0.35, er*0.1, ex, ey, er);
+    eg.addColorStop(0, "#7ec3ff"); eg.addColorStop(0.45, "#2f7fe0"); eg.addColorStop(0.8, "#174a96"); eg.addColorStop(1, "#0c2c63");
+    ctx.fillStyle = eg; ctx.beginPath(); ctx.arc(ex, ey, er, 0, 7); ctx.fill();
+    ctx.save(); ctx.beginPath(); ctx.arc(ex, ey, er, 0, 7); ctx.clip();
+    ctx.fillStyle = "rgba(74,190,110,.75)";
+    ctx.beginPath(); ctx.ellipse(ex-er*0.3, ey-er*0.25, er*0.34, er*0.2, 0.5, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(ex+er*0.32, ey+er*0.3, er*0.28, er*0.16, -0.4, 0, 7); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,.5)";
+    ctx.beginPath(); ctx.ellipse(ex-er*0.05, ey+er*0.05, er*0.5, er*0.1, 0.25, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(ex+er*0.15, ey-er*0.5, er*0.36, er*0.08, -0.2, 0, 7); ctx.fill();
+    ctx.restore();
+    ctx.strokeStyle = "rgba(140,200,255,.35)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(ex, ey, er+2.5, 0, 7); ctx.stroke();
+  }
+  // moon surface + launch pad (world y=0)
+  const gy = H - (0 - camY);
+  if(gy > -80){
+    const gg = ctx.createLinearGradient(0, gy, 0, H);
+    gg.addColorStop(0, "#9aa0ab"); gg.addColorStop(0.25, "#767c88"); gg.addColorStop(1, "#434854");
+    ctx.fillStyle = gg; ctx.fillRect(0, gy, W, H - gy + 90);
+    ctx.fillStyle = "rgba(255,255,255,.16)"; ctx.fillRect(0, gy, W, 3);
+    ctx.fillStyle = "rgba(30,33,44,.35)";
+    [[0.14,26,9],[0.36,15,6],[0.62,34,11],[0.86,19,7]].forEach(c=>{ ctx.beginPath(); ctx.ellipse(W*c[0], gy+26+((c[0]*97)%22), c[1], c[2], 0, 0, 7); ctx.fill(); });
+    // pad
+    const px = W/2;
+    ctx.fillStyle = "#39404f"; ctx.fillRect(px-58, gy-10, 116, 10);
+    ctx.fillStyle = "#ffcf3d"; ctx.fillRect(px-58, gy-13, 116, 3);
+    ctx.fillStyle = "#59637a"; ctx.fillRect(px-58, gy-2, 10, 10); ctx.fillRect(px+48, gy-2, 10, 10);
+    // gantry + banner
+    ctx.strokeStyle = "#7d879c"; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(px+64, gy-10); ctx.lineTo(px+64, gy-96); ctx.lineTo(px+16, gy-96); ctx.stroke();
+    ctx.fillStyle = "#0c1230"; ctx.fillRect(px-96, gy-128, 128, 24);
+    ctx.strokeStyle = "#ffcf3d"; ctx.lineWidth = 1.6; ctx.strokeRect(px-96, gy-128, 128, 24);
+    ctx.fillStyle = "#ffcf3d"; ctx.font = "900 11px 'Segoe UI',sans-serif"; ctx.textAlign = "center";
+    ctx.fillText("LUNC DEV STUDIO", px-32, gy-112);
+    // crescent flag
+    const wav = Math.sin(timeNow*5)*3;
+    ctx.fillStyle = "#e8b62a"; ctx.beginPath();
+    ctx.moveTo(px+64, gy-96); ctx.lineTo(px+88, gy-90+wav); ctx.lineTo(px+64, gy-82); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#0c1230"; ctx.beginPath(); ctx.arc(px+73, gy-89+wav*0.6, 4.6, 0, 7); ctx.fill();
+  }
+}
+function drawCoin(x, y, ph){
+  const sq = Math.abs(Math.cos(timeNow*3.4 + ph));
+  const r = 13;
+  ctx.save(); ctx.translate(x, y); ctx.scale(0.25 + 0.75*sq, 1);
+  const glow = ctx.createRadialGradient(0,0,2,0,0,r+9);
+  glow.addColorStop(0, "rgba(255,215,80,.5)"); glow.addColorStop(1, "rgba(255,215,80,0)");
+  ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(0,0,r+9,0,7); ctx.fill();
+  const g = ctx.createRadialGradient(-4,-5,2,0,0,r);
+  g.addColorStop(0, "#fff3b0"); g.addColorStop(0.55, "#ffcf3d"); g.addColorStop(1, "#cf8f0e");
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0,0,r,0,7); ctx.fill();
+  ctx.strokeStyle = "#8a5f06"; ctx.lineWidth = 1.8; ctx.stroke();
+  ctx.strokeStyle = "rgba(138,95,6,.75)"; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(0,0,r-3.4,0,7); ctx.stroke();
+  ctx.fillStyle = "#8a5f06";
+  ctx.beginPath(); ctx.arc(2.6, 0, 7.2, -1.15, 1.15, false); ctx.arc(-1.2, 0, 5.4, 1.15, -1.15, true); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+function drawFuelCan(x, y, ph){
+  const bob = Math.sin(timeNow*2.6 + ph)*3;
+  ctx.save(); ctx.translate(x, y + bob);
+  const glow = ctx.createRadialGradient(0,0,2,0,0,30);
+  glow.addColorStop(0, "rgba(255,110,60,.4)"); glow.addColorStop(1, "rgba(255,110,60,0)");
+  ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(0,0,30,0,7); ctx.fill();
+  ctx.fillStyle = "#c93327"; roundRect(-11, -15, 22, 30, 5); ctx.fill();
+  ctx.fillStyle = "#e8503f"; roundRect(-11, -15, 8, 30, 4); ctx.fill();
+  ctx.fillStyle = "#8f1f16"; ctx.fillRect(-6, -20, 12, 6);
+  ctx.fillStyle = "#f4f6fb"; roundRect(-11, -4, 22, 11, 2); ctx.fill();
+  ctx.fillStyle = "#ff7b2e"; ctx.beginPath();
+  ctx.moveTo(0, -2.4); ctx.quadraticCurveTo(4.6, 2.6, 3.4, 4.6); ctx.arc(0, 4.4, 3.4, 0, Math.PI); ctx.quadraticCurveTo(-4.6, 2.6, 0, -2.4); ctx.fill();
+  ctx.strokeStyle = "rgba(0,0,0,.3)"; ctx.lineWidth = 1.2; roundRect(-11, -15, 22, 30, 5); ctx.stroke();
+  ctx.restore();
+}
+function drawShieldPickup(x, y, ph){
+  const bob = Math.sin(timeNow*2.2 + ph)*3, pulse = 1 + Math.sin(timeNow*4 + ph)*0.09;
+  ctx.save(); ctx.translate(x, y + bob); ctx.scale(pulse, pulse);
+  const glow = ctx.createRadialGradient(0,0,2,0,0,32);
+  glow.addColorStop(0, "rgba(64,224,255,.5)"); glow.addColorStop(1, "rgba(64,224,255,0)");
+  ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(0,0,32,0,7); ctx.fill();
+  ctx.fillStyle = "rgba(24,140,190,.92)";
+  ctx.beginPath(); ctx.moveTo(0,-14); ctx.quadraticCurveTo(11,-11,12,-4); ctx.quadraticCurveTo(12,8,0,15); ctx.quadraticCurveTo(-12,8,-12,-4); ctx.quadraticCurveTo(-11,-11,0,-14); ctx.fill();
+  ctx.strokeStyle = "#aef4ff"; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = "#eafcff"; ctx.font = "900 13px 'Segoe UI',sans-serif"; ctx.textAlign = "center"; ctx.fillText("✓", 0, 5);
+  ctx.restore();
+}
+function roundRect(x, y, w, h, r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function drawAstronaut(x, y, thrusting){
+  const t = timeNow, tilt = player.tilt, kick = Math.sin(player.legPh) * (thrusting ? 7 : 3.4);
+  ctx.save(); ctx.translate(x, y); ctx.rotate(tilt);
+  // jetpack flame
+  if(thrusting){
+    const fl = 26 + Math.random()*16;
+    [-9, 9].forEach(ox=>{
+      const fg = ctx.createLinearGradient(0, 16, 0, 16 + fl + 14);
+      fg.addColorStop(0, "rgba(255,255,240,.95)"); fg.addColorStop(0.3, "rgba(255,190,60,.9)"); fg.addColorStop(0.7, "rgba(255,110,30,.55)"); fg.addColorStop(1, "rgba(255,60,10,0)");
+      ctx.fillStyle = fg; ctx.beginPath();
+      ctx.moveTo(ox-5.5, 15); ctx.lineTo(ox+5.5, 15); ctx.lineTo(ox, 17 + fl + 12); ctx.closePath(); ctx.fill();
+    });
+  }
+  // legs (behind torso)
+  ctx.strokeStyle = "#dfe5f2"; ctx.lineWidth = 7.5; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(-6, 10); ctx.lineTo(-8 + kick*0.5, 22); ctx.lineTo(-9 + kick, 31); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(6, 10); ctx.lineTo(8 - kick*0.5, 22); ctx.lineTo(9 - kick, 31); ctx.stroke();
+  ctx.fillStyle = "#39404f";
+  ctx.fillRect(-14 + kick, 29, 10, 5.5); ctx.fillRect(4 - kick, 29, 10, 5.5);
+  // jetpack
+  const pg = ctx.createLinearGradient(-17, -14, 17, 20);
+  pg.addColorStop(0, "#f2f4f9"); pg.addColorStop(0.5, "#aeb6c8"); pg.addColorStop(1, "#78839c");
+  ctx.fillStyle = pg; roundRect(-18, -13, 36, 27, 7); ctx.fill();
+  ctx.strokeStyle = "#4c5568"; ctx.lineWidth = 1.6; roundRect(-18, -13, 36, 27, 7); ctx.stroke();
+  ctx.fillStyle = "#ff8c1a"; ctx.fillRect(-18, -3, 36, 6);
+  ctx.fillStyle = "#39404f"; ctx.fillRect(-13, 13, 8, 6); ctx.fillRect(5, 13, 8, 6);
+  ctx.fillStyle = "#ffcf3d"; ctx.beginPath(); ctx.arc(0, -7, 3.4, 0, 7); ctx.fill();
+  // arms
+  ctx.strokeStyle = "#e7ecf6"; ctx.lineWidth = 6.5;
+  const armSwing = Math.sin(player.legPh*0.7)*2.4;
+  ctx.beginPath(); ctx.moveTo(-13, -6); ctx.lineTo(-20, 4 + armSwing); ctx.lineTo(-17, 13 + armSwing); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(13, -6); ctx.lineTo(20, 4 - armSwing); ctx.lineTo(17, 13 - armSwing); ctx.stroke();
+  ctx.fillStyle = "#ffb52e"; ctx.beginPath(); ctx.arc(-17, 14 + armSwing, 3.8, 0, 7); ctx.arc(17, 14 - armSwing, 3.8, 0, 7); ctx.fill();
+  // torso / suit
+  const tg = ctx.createLinearGradient(0, -12, 0, 16);
+  tg.addColorStop(0, "#ffffff"); tg.addColorStop(0.6, "#dde4f2"); tg.addColorStop(1, "#b9c3d9");
+  ctx.fillStyle = tg; roundRect(-13.5, -11, 27, 25, 9); ctx.fill();
+  ctx.strokeStyle = "#8b96b0"; ctx.lineWidth = 1.3; roundRect(-13.5, -11, 27, 25, 9); ctx.stroke();
+  // chest unit
+  ctx.fillStyle = "#233252"; roundRect(-8, -4, 16, 11, 3); ctx.fill();
+  ctx.fillStyle = "#40e0ff"; ctx.fillRect(-5.5, -1.5, 4.4, 3); ctx.fillStyle = "#ff5a4e"; ctx.fillRect(0.5, -1.5, 4.4, 3);
+  ctx.fillStyle = "#7dff9a"; ctx.beginPath(); ctx.arc(0, 4.8, 1.9, 0, 7); ctx.fill();
+  // LUNC crescent patch
+  ctx.fillStyle = "#ffcf3d"; ctx.beginPath(); ctx.arc(-8.6, 9.6, 4.4, -1.2, 1.2, false); ctx.arc(-10.6, 9.6, 3.3, 1.2, -1.2, true); ctx.closePath(); ctx.fill();
+  // helmet + face
+  const hg = ctx.createRadialGradient(-5, -26, 3, 0, -19, 17);
+  hg.addColorStop(0, "#ffffff"); hg.addColorStop(0.7, "#dbe2f0"); hg.addColorStop(1, "#a7b1c9");
+  ctx.fillStyle = hg; ctx.beginPath(); ctx.arc(0, -19, 14.5, 0, 7); ctx.fill();
+  ctx.strokeStyle = "#8b96b0"; ctx.lineWidth = 1.4; ctx.stroke();
+  // visor glass
+  const vg = ctx.createLinearGradient(0, -31, 0, -8);
+  vg.addColorStop(0, "rgba(255,196,64,.92)"); vg.addColorStop(0.55, "rgba(214,140,32,.88)"); vg.addColorStop(1, "rgba(146,84,16,.92)");
+  ctx.fillStyle = vg; ctx.beginPath(); ctx.ellipse(0, -19, 10.6, 9.2, 0, 0, 7); ctx.fill();
+  // face inside visor
+  ctx.fillStyle = "#f2c79b"; ctx.beginPath(); ctx.ellipse(0, -18.4, 7.6, 7.9, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = "#6b4423"; ctx.beginPath(); ctx.ellipse(0, -24.6, 7.7, 3.6, 0, Math.PI, 0); ctx.fill(); // hair
+  ctx.fillStyle = "#20242e";
+  ctx.beginPath(); ctx.arc(-2.9, -18.6, 1.15, 0, 7); ctx.arc(2.9, -18.6, 1.15, 0, 7); ctx.fill(); // eyes
+  ctx.strokeStyle = "#8a5a30"; ctx.lineWidth = 1.1; ctx.beginPath(); ctx.arc(0, -15.6, 2.9, 0.35, Math.PI - 0.35); ctx.stroke(); // smile
+  ctx.fillStyle = "rgba(255,150,130,.55)"; ctx.beginPath(); ctx.arc(-5.2, -15.9, 1.7, 0, 7); ctx.arc(5.2, -15.9, 1.7, 0, 7); ctx.fill(); // cheeks
+  ctx.fillStyle = "rgba(255,255,255,.5)"; ctx.beginPath(); ctx.ellipse(-4.4, -25.5, 4.6, 2.1, -0.5, 0, 7); ctx.fill(); // glass glare
+  // shield bubble
+  if(player.shield){
+    const sg = ctx.createRadialGradient(0, -4, 20, 0, -4, 42);
+    sg.addColorStop(0, "rgba(64,224,255,0)"); sg.addColorStop(0.8, "rgba(64,224,255,.14)"); sg.addColorStop(1, "rgba(64,224,255,.5)");
+    ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(0, -4, 42, 0, 7); ctx.fill();
+    ctx.strokeStyle = "rgba(140,240,255," + (0.55 + 0.3*Math.sin(t*5)) + ")"; ctx.lineWidth = 2; ctx.stroke();
+  }
+  ctx.restore();
+  // invulnerability blink handled by caller alpha
+}
+function w2sY(wy){ return H - (wy - camY); }
+
+/* ---- update ---- */
+let thrustHeld = false, joyX = 0;
+const keys = {};
+function step(dt){
+  timeNow += dt;
+  if(mode === "play"){
+    // steering
+    let steer = joyX;
+    if(keys.ArrowLeft || keys.KeyA) steer -= 1;
+    if(keys.ArrowRight || keys.KeyD) steer += 1;
+    steer = clamp(steer, -1, 1);
+    const targetVx = steer * 330;
+    player.vx = lerp(player.vx, targetVx, 1 - Math.pow(0.0001, dt));
+    player.x += player.vx * dt;
+    if(player.x < 26){ player.x = 26; player.vx = Math.max(0, player.vx); }
+    if(player.x > W - 26){ player.x = W - 26; player.vx = Math.min(0, player.vx); }
+    player.tilt = lerp(player.tilt, clamp(player.vx * 0.00055, -0.3, 0.3), 0.18);
+    // thrust & gravity
+    const thrusting = thrustHeld && player.fuel > 0;
+    if(thrusting){
+      player.vy += 1980 * dt;
+      player.fuel = Math.max(0, player.fuel - 29 * dt);
+      player.launched = true;
+      if(Math.random() < 0.85) parts.push({x: player.x + (Math.random()-0.5)*14, y: player.y + 24, vx: (Math.random()-0.5)*26, vy: -120 - Math.random()*90, life: 0.5+Math.random()*0.4, maxLife: 0.9, col: Math.random()<0.6 ? "#c8ccd6" : "#8f96a8", r: 2.4+Math.random()*3.2, grav: 60, smoke: true});
+      if(player.fuel < 25 && !lowFuelWarned){ lowFuelWarned = true; toast(T("lowFuel"), "#ffb347"); }
+    }
+    player.vy -= 980 * dt;
+    const maxUp = 760 + difficulty()*190;
+    player.vy = clamp(player.vy, -640, maxUp);
+    player.y += player.vy * dt;
+    player.legPh += dt * (thrusting ? 13 : 6);
+    if(player.invuln > 0) player.invuln -= dt;
+    if(player.y <= 0){
+      player.y = 0;
+      if(player.launched && player.vy < -60){ crash(); }
+      else player.vy = 0;
+    }
+    // camera
+    const targetCam = Math.max(0, player.y - H*0.46);
+    camY = lerp(camY, targetCam, 1 - Math.pow(0.0005, dt));
+    if(camY - player.y > 80) crash(); // fell below screen
+    // spawning
+    const topY = camY + H + 260;
+    while(nextSpawnY < topY){ spawnRow(nextSpawnY); nextSpawnY += lerp(215, 128, difficulty()) * (0.8 + Math.random()*0.45); }
+    // entities
+    rocks.forEach(r=>{ r.x += r.vx*dt; r.rot += r.vr*dt; if(r.x < r.r) { r.x = r.r; r.vx *= -1; } if(r.x > W - r.r) { r.x = W - r.r; r.vx *= -1; } });
+    sats.forEach(s=>{ s.x += s.vx*dt; if(s.x < 70 || s.x > W-70) s.vx *= -1; });
+    const prune = arr => arr.filter(o => o.y > camY - 160);
+    rocks = prune(rocks); sats = prune(sats); coinsArr = prune(coinsArr); fuels = prune(fuels); shields = prune(shields);
+    // collisions
+    const px = player.x, py = player.y + 26, pr = 17;
+    coinsArr.forEach(c=>{ if(!c.got && Math.hypot(c.x-px, c.y-py) < 32){ c.got = true; coinsGot++; burst(c.x, c.y, 7, ["#ffcf3d","#ffe9a8","#fff6d8"], 130, 0.45, -40); } });
+    coinsArr = coinsArr.filter(c=>!c.got);
+    fuels.forEach(f=>{ if(Math.hypot(f.x-px, f.y-py) < 34){ f.taken = true; player.fuel = Math.min(100, player.fuel + 38); if(player.fuel >= 25) lowFuelWarned = false; burst(f.x, f.y, 9, ["#ff7b2e","#ffb347","#ffe9a8"], 140, 0.5, -30); } });
+    fuels = fuels.filter(f=>!f.taken);
+    shields.forEach(s=>{ if(Math.hypot(s.x-px, s.y-py) < 36){ s.taken = true; player.shield = true; player.invuln = Math.max(player.invuln, 0.6); toast(T("shieldUp"), "#7df3ff"); updateShieldChip(); burst(s.x, s.y, 12, ["#40e0ff","#aef4ff"], 150, 0.55, 0); } });
+    shields = shields.filter(s=>!s.taken);
+    if(player.invuln <= 0){
+      const hitRock = rocks.find(r => Math.hypot(r.x-px, r.y-py) < r.r*0.82 + pr);
+      const hitSat = sats.find(s => Math.abs(s.x-px) < 52 && Math.abs(s.y-py) < 34);
+      if(hitRock || hitSat){
+        if(player.shield){
+          player.shield = false; player.invuln = 1.6;
+          if(hitRock){ burst(hitRock.x, hitRock.y, 22, ["#a89a86","#7d7263","#ffcf3d"], 260, 0.8, 200); rocks = rocks.filter(r=>r!==hitRock); }
+          if(hitSat){ burst(hitSat.x, hitSat.y, 22, ["#aab2c4","#2c5fb8","#ffcf3d"], 260, 0.8, 200); sats = sats.filter(s=>s!==hitSat); }
+          toast(T("shieldLost"), "#ff9d8a"); updateShieldChip();
+        } else { crash(); }
+      }
+    }
+    score = altM() + coinsGot*25;
+  }
+  // particles always animate
+  parts.forEach(p=>{ p.life -= dt; p.x += p.vx*dt; p.y += p.vy*dt; p.vy += (p.grav||0)*dt; });
+  parts = parts.filter(p=>p.life > 0);
+  if(overTimer > 0){ overTimer -= dt; if(overTimer <= 0){ overTimer = -1; showGameOver(); } }
+}
+function crash(){
+  if(mode !== "play") return;
+  burst(player.x, player.y + 26, 34, ["#ff8c1a","#ffcf3d","#ff5a4e","#e8ecf4"], 320, 1.0, 160);
+  mode = "dying"; overTimer = 0.75;
+}
+function showGameOver(){
+  mode = "over";
+  score = altM() + coinsGot*25;
+  const isBest = score > best;
+  if(isBest){ best = score; try{ localStorage.setItem("jetpackjump_best", String(best)); }catch(e){} }
+  if(!submitted){ submitted = true; submitScore(score); }
+  document.getElementById("finalScore").textContent = score;
+  document.getElementById("finalAlt").textContent = altM();
+  document.getElementById("finalBest").textContent = best;
+  document.getElementById("newBestBadge").style.display = isBest ? "block" : "none";
+  document.getElementById("menuBest").textContent = best;
+  show(document.getElementById("over"), true);
+  setControls(false);
+}
+function render(){
+  drawBackground();
+  const topWorld = camY + H + 80;
+  coinsArr.forEach(c=>{ if(c.y < topWorld) drawCoin(c.x, w2sY(c.y), c.ph); });
+  fuels.forEach(f=> drawFuelCan(f.x, w2sY(f.y), f.ph));
+  shields.forEach(s=> drawShieldPickup(s.x, w2sY(s.y), s.ph));
+  sats.forEach(s=>{ ctx.save(); ctx.translate(s.x, w2sY(s.y)); ctx.rotate(Math.sin(timeNow*0.8 + s.ph)*0.14); ctx.drawImage(satSprite, -66, -42); ctx.restore(); });
+  rocks.forEach(r=>{ ctx.save(); ctx.translate(r.x, w2sY(r.y)); ctx.rotate(r.rot); const s = r.r*2 + 8; ctx.drawImage(r.spr, -s/2, -s/2, s, s); ctx.restore(); });
+  // particles (world space, smoke behind player)
+  parts.forEach(p=>{ const a = clamp(p.life/p.maxLife, 0, 1); ctx.globalAlpha = p.smoke ? a*0.3 : a; ctx.fillStyle = p.col; ctx.beginPath(); ctx.arc(p.x, w2sY(p.y), p.r*(p.smoke ? (1.6-a*0.6) : 1), 0, 7); ctx.fill(); });
+  ctx.globalAlpha = 1;
+  if(mode !== "over"){
+    const thrusting = (mode === "play" && thrustHeld && player.fuel > 0);
+    if(!(player.invuln > 0 && Math.floor(timeNow*14) % 2 === 0 && mode === "play"))
+      drawAstronaut(player.x, w2sY(player.y + 46), thrusting);
+  }
+  // HUD numbers
+  if(mode === "play" || mode === "dying" || mode === "pause"){
+    document.getElementById("hudAlt").textContent = altM();
+    document.getElementById("hudCoins").textContent = coinsGot;
+    document.getElementById("hudScore").textContent = score;
+    const fp = Math.round(player.fuel);
+    document.getElementById("fuelPct").textContent = fp + "%";
+    const bar = document.getElementById("fuelBar");
+    bar.style.width = fp + "%"; bar.className = fp < 25 ? "low" : ""; bar.id = "fuelBar";
+  }
+}
+let lastTs = 0;
+function loop(ts){
+  requestAnimationFrame(loop);
+  const dt = Math.min(0.033, lastTs ? (ts - lastTs)/1000 : 0.016);
+  lastTs = ts;
+  step(dt);
+  render();
+}
+requestAnimationFrame(loop);
+
+/* ---- UI wiring ---- */
+const $ = id => document.getElementById(id);
+function show(el, on){ el.classList.toggle("hidden", !on); }
+function setControls(on){
+  $("hud").className = on ? "on" : ""; $("hud").id = "hud";
+  $("thrustBtn").style.display = on ? "block" : "none";
+  if(!on){ $("joyBase").style.display = "none"; $("joyNub").style.display = "none"; }
+}
+function updateShieldChip(){ $("shieldChip").className = player.shield ? "chip on" : "chip"; $("shieldChip").id = "shieldChip"; }
+let toastTimer = null;
+function toast(msg, color){
+  const t = $("toast"); t.textContent = msg; t.style.color = color || "#aef";
+  t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(()=>t.classList.remove("show"), 1300);
+}
+function startGame(){
+  reset(); mode = "play";
+  show($("menu"), false); show($("over"), false); show($("pauseOv"), false);
+  setControls(true); updateShieldChip();
+  toast(T("getReady"), "#ffcf3d");
+}
+function toMenu(){
+  mode = "menu"; reset();
+  show($("menu"), true); show($("over"), false); show($("pauseOv"), false);
+  setControls(false);
+  $("menuBest").textContent = best;
+}
+function pauseGame(on){
+  if(on && mode === "play"){ mode = "pause"; show($("pauseOv"), true); thrustHeld = false; $("thrustBtn").classList.remove("firing"); }
+  else if(!on && mode === "pause"){ mode = "play"; show($("pauseOv"), false); }
+}
+$("playBtn").addEventListener("click", startGame);
+$("againBtn").addEventListener("click", startGame);
+$("menuBtn").addEventListener("click", toMenu);
+$("quitBtn").addEventListener("click", toMenu);
+$("resumeBtn").addEventListener("click", ()=>pauseGame(false));
+$("pauseBtn").addEventListener("click", ()=>pauseGame(true));
+document.addEventListener("visibilitychange", ()=>{ if(document.hidden) pauseGame(true); });
+
+/* ---- input: joystick + thrust + keys ---- */
+let joyId = null, joyCx = 0, joyCy = 0;
+const joyBase = $("joyBase"), joyNub = $("joyNub");
+window.addEventListener("pointerdown", e=>{
+  if(mode !== "play") return;
+  if(e.target.closest("button, select, .overlay, #hud")) return;
+  if(e.clientX < W*0.52 && joyId === null){
+    joyId = e.pointerId; joyCx = e.clientX; joyCy = e.clientY;
+    joyBase.style.display = "block"; joyNub.style.display = "block";
+    joyBase.style.left = joyCx + "px"; joyBase.style.top = joyCy + "px";
+    joyNub.style.left = joyCx + "px"; joyNub.style.top = joyCy + "px";
+  }
+});
+window.addEventListener("pointermove", e=>{
+  if(e.pointerId !== joyId) return;
+  const dx = e.clientX - joyCx, dy = e.clientY - joyCy;
+  const d = Math.hypot(dx, dy), max = 46;
+  const cx = d > max ? dx/d*max : dx, cy = d > max ? dy/d*max : dy;
+  joyNub.style.left = (joyCx + cx) + "px"; joyNub.style.top = (joyCy + cy) + "px";
+  joyX = clamp(dx / max, -1, 1);
+});
+function joyEnd(e){ if(e.pointerId === joyId){ joyId = null; joyX = 0; joyBase.style.display = "none"; joyNub.style.display = "none"; } }
+window.addEventListener("pointerup", joyEnd);
+window.addEventListener("pointercancel", joyEnd);
+const tBtn = $("thrustBtn");
+tBtn.addEventListener("pointerdown", e=>{ e.preventDefault(); thrustHeld = true; tBtn.classList.add("firing"); });
+["pointerup","pointerleave","pointercancel"].forEach(ev=> tBtn.addEventListener(ev, ()=>{ thrustHeld = false; tBtn.classList.remove("firing"); }));
+window.addEventListener("keydown", e=>{
+  keys[e.code] = true;
+  if(e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW"){ thrustHeld = true; tBtn.classList.add("firing"); e.preventDefault(); }
+  if(e.code === "ArrowLeft" || e.code === "ArrowRight") e.preventDefault();
+  if(e.code === "KeyP" || e.code === "Escape"){ if(mode === "play") pauseGame(true); else if(mode === "pause") pauseGame(false); }
+});
+window.addEventListener("keyup", e=>{
+  keys[e.code] = false;
+  if(e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW"){ thrustHeld = false; tBtn.classList.remove("firing"); }
+});
+window.addEventListener("blur", ()=>{ thrustHeld = false; tBtn.classList.remove("firing"); pauseGame(true); });
+
+/* debug/QA handle */
+window.__JJ = { get state(){ return { mode, alt: altM(), coins: coinsGot, score, fuel: Math.round(player.fuel), px: player.x, py: player.y,
+  coinTargets: coinsArr.map(c=>({x: c.x, y: c.y})), rockTargets: rocks.map(r=>({x: r.x, y: r.y, r: r.r})), best,
+  last: (()=>{ try{ return localStorage.getItem("jetpackjump_last"); }catch(e){ return null; } })() }; },
+  start: startGame };
+
+applyLang(curLang);
+$("menuBest").textContent = best;
+reset();
+</script>
+</body>
+</html>
