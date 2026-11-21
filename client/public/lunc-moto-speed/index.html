@@ -668,6 +668,7 @@ function spawnVehicle(v, ahead){
   v.shoveVX = 0; v.spin = 0; v.bumpCd = 0; v.counted = false; v.active = true;
   v.g.visible = true;
   v.g.position.set(laneX(v.lane) + (Math.random() - 0.5) * 0.5, 0, z);
+  v.targetX = v.g.position.x; v.laneT = 2 + Math.random() * 6;
   v.g.rotation.y = 0;
 }
 function activeTarget(){ return Math.min(4, 1 + Math.floor(S.dist / 2200)); }
@@ -1328,6 +1329,24 @@ function animate(){
     for (const v of traffic) {
       if (!v.active) { if (activeCount < target) { spawnVehicle(v, true); activeCount++; } else continue; }
       v.g.position.z += (S.speedMs - v.speedMs) * sdt;
+      /* --- lane changes (owner, Nov 20): traffic cars don't sit in one lane
+         forever — every few seconds a car drifts into the next lane over,
+         but only when that lane is clear near it --- */
+      if (v.targetX === undefined) { v.targetX = v.g.position.x; v.laneT = 2 + Math.random() * 6; }
+      v.laneT -= sdt;
+      if (v.laneT <= 0) {
+        v.laneT = 3 + Math.random() * 7;
+        const nl = v.lane + (Math.random() < 0.5 ? -1 : 1);
+        if (nl >= 0 && nl <= 3) {
+          let clear = true;
+          for (const o of traffic) { if (o !== v && o.active && Math.abs(o.g.position.x - laneX(nl)) < 2.2 && Math.abs(o.g.position.z - v.g.position.z) < v.halfL + o.halfL + 7) { clear = false; break; } }
+          if (clear) { v.lane = nl; v.targetX = laneX(nl) + (Math.random() - 0.5) * 0.5; }
+        }
+      }
+      if (v.shoveVX === 0) {
+        const dxT = v.targetX - v.g.position.x;
+        if (Math.abs(dxT) > 0.02) v.g.position.x += THREE.MathUtils.clamp(dxT, -1.7 * sdt, 1.7 * sdt);
+      }
       if (v.wheels) { const wr = v.speedMs * sdt / 0.35; for (const w of v.wheels) w.rotation.x -= wr; }
       if (v.shoveVX !== 0) {
         v.g.position.x += v.shoveVX * sdt;
