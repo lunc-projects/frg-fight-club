@@ -1622,6 +1622,12 @@ async function frogAdminChallenge(req, res, body) {
   const rec = JSON.stringify({ nonce, message, exp: Date.now() + FROG_ADMIN_CHAL_TTL_SEC * 1000 });
   try {
     await upstashPipeline([['SET', 'frog:adminchal:' + address, rec, 'EX', String(FROG_ADMIN_CHAL_TTL_SEC)]]);
+    /* Read-back guard against the intermittent empty store view:
+       if the write is not visible, write it once more. */
+    const back = await upstashPipeline([['GET', 'frog:adminchal:' + address]]);
+    if (!((back && back[0] && back[0].result) || null)) {
+      await upstashPipeline([['SET', 'frog:adminchal:' + address, rec, 'EX', String(FROG_ADMIN_CHAL_TTL_SEC)]]);
+    }
   } catch (e) {
     console.error('frog admin challenge save failed', e && e.message);
     return res.status(502).json({ error: 'store unavailable' });
@@ -1661,27 +1667,47 @@ function frogAdminVerifyAdr36(message, signer, pub, sig) {
       format: 'jwk',
       key: { kty: 'EC', crv: 'secp256k1', x: pt.x.toString('base64url'), y: pt.y.toString('base64url') },
     });
-    return crypto.verify('sha256', frogAdminAdr36SignBytes(message, signer, 'columbus-5'), { key, dsaEncoding: 'ieee-p1363' }, sig);
+    if (crypto.verify('sha256', frogAdminAdr36SignBytes(message, signer, 'columbus-5'), { key, dsaEncoding: 'ieee-p1363' }, sig)) return true;
+    /* Some mobile wallets sign the raw challenge text directly. */
+    return crypto.verify('sha256', Buffer.from(message, 'utf8'), { key, dsaEncoding: 'ieee-p1363' }, sig);
   } catch (e) { return false; }
 }
+/* The store behind upstashPipeline intermittently serves an empty
+   view (seen 2026-11-20/21 across apps): a record written seconds
+   ago can read back null. Reads that gate a live user flow retry a
+   few times before believing a miss. */
+const frogSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function frogGetRetry(key, tries, gapMs) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const out = await upstashPipeline([['GET', key]]);
+      const v = (out && out[0] && out[0].result) || null;
+      if (v) return v;
+    } catch (e) { /* fall through to retry */ }
+    if (i < tries - 1) await frogSleep(gapMs);
+  }
+  return null;
+}
 async function frogAdminVerify(req, res, body) {
-  const fail = () => res.status(401).json({ ok: false, error: 'sign-in failed' });
+  const fail = (code) => res.status(401).json({ ok: false, error: 'sign-in failed', code });
   const address = String(body.address || '');
-  const role = await frogAdminAuthorized(address);
-  if (!role) return fail();
+  let role = await frogAdminAuthorized(address);
+  if (!role) { await frogSleep(800); role = await frogAdminAuthorized(address); }
+  if (!role) { await frogSleep(1200); role = await frogAdminAuthorized(address); }
+  if (!role) return fail('role');
   let stored = null;
   try {
-    const out = await upstashPipeline([['GET', 'frog:adminchal:' + address]]);
-    stored = (out && out[0] && out[0].result) || null;
+    stored = await frogGetRetry('frog:adminchal:' + address, 5, 1000);
   } catch (e) {
     console.error('frog admin challenge read failed', e && e.message);
     return res.status(502).json({ error: 'store unavailable' });
   }
-  if (!stored) return fail();
+  if (!stored) return fail('no-challenge');
   let chal = null;
   try { chal = JSON.parse(stored); } catch (e) { /* corrupt record */ }
-  if (!chal || !chal.nonce || !chal.message || !(chal.exp > Date.now())) return fail();
-  if (String(body.nonce || '') !== chal.nonce) return fail();
+  if (!chal || !chal.nonce || !chal.message) return fail('no-challenge');
+  if (!(chal.exp > Date.now())) return fail('expired');
+  if (String(body.nonce || '') !== chal.nonce) return fail('nonce');
   let pubB64 = String(body.pubKey || '');
   let sigB64 = String(body.signature || '');
   if (body.signature && typeof body.signature === 'object') {
@@ -1692,9 +1718,9 @@ async function frogAdminVerify(req, res, body) {
   try {
     pub = Buffer.from(pubB64, 'base64');
     sig = Buffer.from(sigB64, 'base64');
-  } catch (e) { return fail(); }
-  if (gdAddressFromPubKey(pub) !== address) return fail();
-  if (!frogAdminVerifyAdr36(chal.message, address, pub, sig)) return fail();
+  } catch (e) { return fail('encoding'); }
+  if (gdAddressFromPubKey(pub) !== address) return fail('address');
+  if (!frogAdminVerifyAdr36(chal.message, address, pub, sig)) return fail('signature');
   /* Signature proven — burn the challenge NOW so it stays
      single-success. A failed attempt never reaches this delete,
      so a legitimate retry inside the TTL (slow app-switch, a
@@ -1717,8 +1743,7 @@ async function frogAdminResolveSession(token) {
   try {
     if (!token) return null;
     const key = 'frog:adminsess:' + crypto.createHash('sha256').update(token).digest('hex');
-    const out = await upstashPipeline([['GET', key]]);
-    const raw = (out && out[0] && out[0].result) || null;
+    const raw = await frogGetRetry(key, 3, 700);
     if (!raw) return null;
     let addr = raw;
     try {
