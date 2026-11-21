@@ -523,9 +523,13 @@ function setScreen(big,small,color){ const x=screenCtx; if(!x) return;
    Drawn, not assembled — no sphere-eyes, no line mouth. */
 function faceTex(o){ const st=o.faceStyle||'grin';
   const skinC='#'+(o.skin>>>0).toString(16).padStart(6,'0'), hairC='#'+(o.hair||0x2a1a0e).toString(16).padStart(6,'0');
-  return cnv(1024,640,(x,w,h)=>{ x.fillStyle=skinC; x.fillRect(0,0,w,h);
-    const sh=x.createLinearGradient(0,0,0,120); sh.addColorStop(0,'rgba(70,35,10,.30)'); sh.addColorStop(1,'rgba(70,35,10,0)');
-    x.fillStyle=sh; x.fillRect(0,0,w,120);
+  return cnv(1024,640,(x,w,h)=>{ x.fillStyle=hairC; x.fillRect(0,0,w,h);
+    /* face lives ONLY in a skin oval at the front-centre of the texture —
+       everything outside the oval is hair colour, so from behind/side angles
+       the head reads as hair, never a smeared wrap-around face */
+    x.fillStyle=skinC; x.beginPath(); x.ellipse(512,340,312,264,0,0,7); x.fill();
+    x.save(); x.beginPath(); x.ellipse(512,340,312,264,0,0,7); x.clip();
+    x.translate(512,330); x.scale(.66,.66); x.translate(-512,-330);
     [150,874].forEach(cx=>{ const rg=x.createRadialGradient(cx,505,6,cx,505,85);
       rg.addColorStop(0,'rgba(255,105,105,.55)'); rg.addColorStop(1,'rgba(255,105,105,0)');
       x.fillStyle=rg; x.beginPath(); x.arc(cx,505,85,0,7); x.fill(); });
@@ -586,6 +590,7 @@ function faceTex(o){ const st=o.faceStyle||'grin';
     x.beginPath(); x.moveTo(512-mw,my); x.quadraticCurveTo(512,my+mh*1.55,512+mw,my); x.stroke(); }
     if(o.freckles){ x.fillStyle='rgba(150,90,40,.85)';
       [[398,442],[446,454],[576,454],[624,442],[512,462],[470,436],[554,436]].forEach(p=>{ x.beginPath(); x.arc(p[0],p[1],6,0,7); x.fill(); }); }
+    x.restore();
   }); }
 function makeChibi(o){ const g=new THREE.Group(); const parts={group:g};
   const skin=mat(o.skin,.55), jersey=mat(o.jersey,.68), pants=mat(o.pants,.9),
@@ -690,8 +695,8 @@ function makeChibi(o){ const g=new THREE.Group(); const parts={group:g};
     new THREE.MeshStandardMaterial({map:faceTex(o),roughness:.55}));
   face.position.y=.17; hg.add(face);
   /* hair — three original styles, living in the visible band under the cap rim */
-  const hairBack=new THREE.Mesh(new THREE.SphereGeometry(.425,16,12), hairM);
-  hairBack.scale.set(1.0,.94,.72); hairBack.position.set(0,.20,-.12); hg.add(hairBack);
+  const hairBack=new THREE.Mesh(new THREE.SphereGeometry(.445,16,12), hairM);
+  hairBack.scale.set(1.0,.94,.80); hairBack.position.set(0,.20,-.12); hg.add(hairBack);
   if(o.hairStyle==='tuft'){ [-1,1].forEach(s=>{ [.05,-.12].forEach(z=>{ const spike=new THREE.Mesh(new THREE.ConeGeometry(.055,.16,6), hairM);
       spike.position.set(.385*s,.30,z); spike.rotation.z=1.05*s; hg.add(spike); });
       const tail=new THREE.Mesh(new THREE.ConeGeometry(.06,.17,6), hairM);
@@ -752,7 +757,7 @@ function attachBat(b){ const pivot=new THREE.Group(); pivot.position.set(.11,1.1
   const bat=new THREE.Mesh(new THREE.CylinderGeometry(.058,.033,1.30,12), batMat); bat.position.y=.53; bat.castShadow=true; pivot.add(bat);
   const capEnd=new THREE.Mesh(new THREE.SphereGeometry(.058,10,8), batMat); capEnd.position.y=1.24; pivot.add(capEnd);
   const knob=new THREE.Mesh(new THREE.SphereGeometry(.052,10,8), mat(0x8a5a33,.6)); knob.position.y=-.12; pivot.add(knob);
-  pivot.rotation.set(-.675,0,.15); b.group.add(pivot); b.batPivot=pivot;
+  pivot.rotation.set(-2.179,0,.035); b.group.add(pivot); b.batPivot=pivot;
   b.armR.rotation.set(-1.05,.15,-.38); b.elbowR.rotation.x=-1.15;
   b.armL.rotation.set(-1.0,.1,.42); b.elbowL.rotation.x=-.55; }
 function applyUniform(){ const c=new THREE.Color(COLOURS[profile.colour][0]);
@@ -1004,10 +1009,10 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
     else if(poseAge<=D+.16){ const s=(poseAge-D)/.16, e=1-Math.pow(1-s,3);
       _qW.copy(G.swQC).slerp(G.swQF, e); }
     else { const s=Math.min(1,(poseAge-D-.16)/.19), e=s*s*(3-2*s);
-      _qIdle.setFromEuler(_eIdle.set(-.675,0,.15)); _qW.copy(G.swQF).slerp(_qG.clone().multiply(_qIdle), e); }
+      _qIdle.setFromEuler(_eIdle.set(-2.179,0,.035)); _qW.copy(G.swQF).slerp(_qG.clone().multiply(_qIdle), e); }
     batter.batPivot.quaternion.copy(_qG.invert()).multiply(_qW);
     if(age>=D+.35){ G.swingT=-1; } }
-  else { batter.batPivot.rotation.set(-.675+Math.sin(time*2.1)*.045, 0, .15+Math.sin(time*1.6)*.05);
+  else { batter.batPivot.rotation.set(-2.179+Math.sin(time*2.1)*.045, 0, .035+Math.sin(time*1.6)*.05);
     batter.group.rotation.y=1.85+Math.sin(time*.9)*.02; }
   /* the bat has arrived at the ball — fire the deferred launch from the contact point */
   if(G&&G.pendingLaunch&&G.swingT>=(G.swContactT||SWING_CONTACT_T)) firePendingLaunch();
