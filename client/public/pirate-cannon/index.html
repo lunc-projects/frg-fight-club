@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<base href="/pirate-cannon/">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Pirate Cannon Duel — LUNC Dev Studio</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overflow:hidden;background:#0b2239;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;color:#fff;touch-action:none;user-select:none;-webkit-user-select:none}
+  #wrap{position:fixed;inset:0;display:flex;flex-direction:column}
+  /* ---------- HUD ---------- */
+  #hud{background:linear-gradient(180deg,#123a5c,#0d2c47);padding:6px 8px 7px;box-shadow:0 2px 10px rgba(0,0,0,.45);z-index:5}
+  #hudTop{display:flex;align-items:center;gap:8px}
+  .side{flex:1;min-width:0}
+  .side .nm{font-size:11px;font-weight:700;letter-spacing:.4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 2px #000}
+  .side.foe{text-align:right}
+  .bar{height:12px;background:#081a2c;border:1px solid #3f7bab;border-radius:7px;overflow:hidden;margin-top:2px}
+  .bar>i{display:block;height:100%;border-radius:6px;transition:width .5s ease}
+  #hpP>i{background:linear-gradient(90deg,#37d67a,#a6f26d)}
+  #hpE>i{background:linear-gradient(90deg,#ff9a3d,#ff5252);float:right}
+  #midBox{text-align:center;min-width:86px}
+  #windBox{font-size:12px;font-weight:800;color:#ffe082;text-shadow:0 1px 2px #000;white-space:nowrap}
+  #roundBox{font-size:10px;color:#bfe3ff;letter-spacing:.6px;font-weight:700;margin-top:1px}
+  #scoreBox{font-size:10px;color:#ffd54f;font-weight:700}
+  #langRow{display:flex;justify-content:center;margin-top:5px}
+  #langSel{font-size:14px;padding:4px 10px;border-radius:9px;border:2px solid #ffcf3d;background:#0a2438;color:#ffe082;font-weight:700;max-width:92vw}
+  /* ---------- Stage ---------- */
+  #stage{flex:1;position:relative;min-height:0}
+  canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+  #turnBanner{position:absolute;top:10px;left:50%;transform:translateX(-50%);background:rgba(6,26,44,.82);border:1.5px solid #ffcf3d;color:#ffe082;font-weight:800;font-size:14px;padding:6px 16px;border-radius:20px;pointer-events:none;opacity:0;transition:opacity .3s;white-space:nowrap;z-index:4}
+  /* ---------- Controls ---------- */
+  #controls{background:linear-gradient(180deg,#0d2c47,#081c30);padding:8px 10px calc(10px + env(safe-area-inset-bottom));display:flex;gap:10px;align-items:stretch;z-index:5;box-shadow:0 -2px 10px rgba(0,0,0,.45)}
+  .ctl{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
+  .ctl label{font-size:11px;font-weight:800;letter-spacing:.5px;color:#bfe3ff;display:flex;justify-content:space-between}
+  .ctl label b{color:#ffe082;font-size:12px}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:30px;background:transparent;cursor:pointer}
+  input[type=range]::-webkit-slider-runnable-track{height:10px;border-radius:6px;background:linear-gradient(90deg,#1d5c8a,#3f9bd6);border:1px solid #0a2438}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:28px;height:28px;margin-top:-10px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffe9a8,#f5a623 70%,#c77f0a);border:2px solid #7a4d00;box-shadow:0 2px 6px rgba(0,0,0,.5)}
+  input[type=range]::-moz-range-track{height:10px;border-radius:6px;background:#2a76ac}
+  input[type=range]::-moz-range-thumb{width:26px;height:26px;border-radius:50%;background:#f5a623;border:2px solid #7a4d00}
+  #fireBtn{flex:0 0 104px;border:none;border-radius:16px;background:linear-gradient(180deg,#ff7043,#d84315);color:#fff;font-size:19px;font-weight:900;letter-spacing:.5px;box-shadow:0 4px 0 #8e2400,0 6px 14px rgba(0,0,0,.5);cursor:pointer;text-shadow:0 1px 2px rgba(0,0,0,.4)}
+  #fireBtn:active{transform:translateY(3px);box-shadow:0 1px 0 #8e2400}
+  #fireBtn:disabled{filter:grayscale(.7) brightness(.6);transform:none;box-shadow:0 4px 0 #444}
+  /* ---------- Overlays ---------- */
+  .overlay{position:absolute;inset:0;background:rgba(4,18,32,.72);display:flex;align-items:center;justify-content:center;z-index:10;padding:14px;backdrop-filter:blur(2px)}
+  .card{background:linear-gradient(180deg,#14406a,#0c2a47);border:2px solid #ffcf3d;border-radius:20px;padding:20px 18px;max-width:430px;width:100%;text-align:center;box-shadow:0 14px 44px rgba(0,0,0,.6);max-height:92%;overflow-y:auto}
+  .card h1{font-size:27px;color:#ffcf3d;text-shadow:0 2px 0 #7a4d00,0 4px 10px rgba(0,0,0,.5);letter-spacing:.5px}
+  .card h2{font-size:22px;color:#ffcf3d;margin-bottom:6px}
+  .card .sub{color:#bfe3ff;font-size:13.5px;margin:6px 0 12px;line-height:1.45}
+  .card p.how{text-align:left;color:#dcefff;font-size:13.5px;line-height:1.55;margin:5px 0}
+  .bigbtn{display:block;width:100%;margin:9px 0 2px;padding:14px;border:none;border-radius:14px;background:linear-gradient(180deg,#ffd54f,#f5a623);color:#4a2c00;font-size:18px;font-weight:900;cursor:pointer;box-shadow:0 4px 0 #9c6a00}
+  .bigbtn:active{transform:translateY(2px);box-shadow:0 2px 0 #9c6a00}
+  .ghostbtn{display:block;width:100%;margin-top:8px;padding:11px;border-radius:12px;background:transparent;border:1.5px solid #3f7bab;color:#bfe3ff;font-size:14px;font-weight:700;cursor:pointer}
+  .statRow{display:flex;justify-content:space-between;background:rgba(0,0,0,.28);border-radius:10px;padding:8px 13px;margin:6px 0;font-size:14px}
+  .statRow b{color:#ffe082}
+  .hidden{display:none!important}
+  #toast{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);background:rgba(6,26,44,.9);border:1px solid #ffcf3d;color:#ffe082;padding:7px 16px;border-radius:16px;font-weight:800;font-size:14px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:6;white-space:nowrap}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="hud">
+    <div id="hudTop">
+      <div class="side">
+        <div class="nm" id="nmP">🏴‍☠️ YOU</div>
+        <div class="bar" id="hpP"><i style="width:100%"></i></div>
+      </div>
+      <div id="midBox">
+        <div id="windBox">💨 0</div>
+        <div id="roundBox">ROUND 1/5</div>
+        <div id="scoreBox">⭐ 0</div>
+      </div>
+      <div class="side foe">
+        <div class="nm" id="nmE">ENEMY</div>
+        <div class="bar" id="hpE"><i style="width:100%"></i></div>
+      </div>
+    </div>
+    <div id="langRow">
+      <select id="langSel" aria-label="Language">
+        <option value="en">🇬🇧 English</option><option value="es">🇪🇸 Español</option>
+        <option value="pt">🇵🇹 Português</option><option value="fr">🇫🇷 Français</option>
+        <option value="de">🇩🇪 Deutsch</option><option value="it">🇮🇹 Italiano</option>
+        <option value="nl">🇳🇱 Nederlands</option><option value="pl">🇵🇱 Polski</option>
+        <option value="ru">🇷🇺 Русский</option><option value="uk">🇺🇦 Українська</option>
+        <option value="tr">🇹🇷 Türkçe</option><option value="ar">🇸🇦 العربية</option>
+        <option value="zh">🇨🇳 中文</option><option value="ja">🇯🇵 日本語</option>
+        <option value="ko">🇰🇷 한국어</option><option value="hi">🇮🇳 हिन्दी</option>
+        <option value="id">🇮🇩 Indonesia</option><option value="vi">🇻🇳 Tiếng Việt</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="turnBanner"></div>
+    <div id="toast"></div>
+
+    <div class="overlay" id="menuOv">
+      <div class="card">
+        <h1 data-i="title">☠ PIRATE CANNON DUEL</h1>
+        <p class="sub" data-i="tagline">Sink the enemy fleet across the bay — mind the wind, captain!</p>
+        <p class="how" data-i="how1">🎯 Drag the sliders (or drag on the sky) to set ANGLE and POWER, then hit FIRE.</p>
+        <p class="how" data-i="how2">💨 The wind changes every turn and pushes your shot. Watch the flag on top!</p>
+        <p class="how" data-i="how3">🏴‍☠️ Beat 5 enemy captains, each tougher and sharper than the last. Sink them before they sink you!</p>
+        <button class="bigbtn" id="playBtn" data-i="play">▶ PLAY</button>
+        <div class="statRow"><span data-i="best">Best score</span><b id="bestVal">0</b></div>
+      </div>
+    </div>
+
+    <div class="overlay hidden" id="endOv">
+      <div class="card">
+        <h2 id="endTitle">VICTORY!</h2>
+        <p class="sub" id="endMsg"></p>
+        <div class="statRow"><span data-i="final">Final score</span><b id="finalScore">0</b></div>
+        <div class="statRow"><span data-i="best">Best score</span><b id="bestVal2">0</b></div>
+        <div class="statRow hidden" id="newBestRow"><span>🏆</span><b data-i="newBest">NEW BEST!</b></div>
+        <button class="bigbtn" id="againBtn" data-i="playAgain">↻ PLAY AGAIN</button>
+        <button class="ghostbtn" id="menuBtn" data-i="menu">MENU</button>
+      </div>
+    </div>
+
+    <div class="overlay hidden" id="roundOv">
+      <div class="card">
+        <h2 id="roundTitle">SUNK!</h2>
+        <p class="sub" id="roundMsg"></p>
+        <div class="statRow"><span data-i="score">Score</span><b id="roundScore">0</b></div>
+        <button class="bigbtn" id="nextBtn" data-i="nextFoe">NEXT ENEMY ➜</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="controls">
+    <div class="ctl">
+      <label><span data-i="angle">ANGLE</span><b id="angVal">45°</b></label>
+      <input type="range" id="angSlider" min="5" max="85" value="45">
+    </div>
+    <div class="ctl">
+      <label><span data-i="power">POWER</span><b id="powVal">60</b></label>
+      <input type="range" id="powSlider" min="10" max="100" value="60">
+    </div>
+    <button id="fireBtn" data-i="fire">🔥 FIRE</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ================= I18N — 18 languages, full key parity ================= */
+const I18N = {
+en:{title:"☠ PIRATE CANNON DUEL",tagline:"Sink the enemy fleet across the bay — mind the wind, captain!",how1:"🎯 Drag the sliders (or drag on the sky) to set ANGLE and POWER, then hit FIRE.",how2:"💨 The wind changes every turn and pushes your shot. Watch the flag on top!",how3:"🏴‍☠️ Beat 5 enemy captains, each tougher and sharper than the last. Sink them before they sink you!",play:"▶ PLAY",best:"Best score",final:"Final score",newBest:"NEW BEST!",playAgain:"↻ PLAY AGAIN",menu:"MENU",score:"Score",nextFoe:"NEXT ENEMY ➜",angle:"ANGLE",power:"POWER",fire:"🔥 FIRE",you:"🏴‍☠️ YOU",round:"ENEMY",victory:"🏆 VICTORY!",defeat:"💀 SUNK!",winMsg:"You sank the whole fleet! The bay is yours, captain!",loseMsg:"Your ship went down with all hands. The sea wins this time…",sunkMsg:"You sank {name}! One less terror of the seas.",yourTurn:"⚓ YOUR TURN",foeTurn:"💣 ENEMY FIRE!",hitMsg:"💥 DIRECT HIT!",closeMsg:"🌊 So close!",cap1:"One-Eyed Pete",cap2:"Captain Rosa",cap3:"Blackbeard Jr.",cap4:"Admiral Kraken",cap5:"Dread Captain Gator"},
+es:{title:"☠ DUELO DE CAÑONES PIRATA",tagline:"¡Hunde la flota enemiga al otro lado de la bahía — cuidado con el viento, capitán!",how1:"🎯 Mueve los controles (o arrastra en el cielo) para ajustar ÁNGULO y POTENCIA, y pulsa FUEGO.",how2:"💨 El viento cambia en cada turno y empuja tu disparo. ¡Mira la bandera arriba!",how3:"🏴‍☠️ Vence a 5 capitanes enemigos, cada uno más duro y preciso. ¡Húndelos antes de que te hundan!",play:"▶ JUGAR",best:"Mejor puntuación",final:"Puntuación final",newBest:"¡NUEVO RÉCORD!",playAgain:"↻ JUGAR OTRA VEZ",menu:"MENÚ",score:"Puntos",nextFoe:"SIGUIENTE ENEMIGO ➜",angle:"ÁNGULO",power:"POTENCIA",fire:"🔥 FUEGO",you:"🏴‍☠️ TÚ",round:"ENEMIGO",victory:"🏆 ¡VICTORIA!",defeat:"💀 ¡HUNDIDO!",winMsg:"¡Hundiste toda la flota! ¡La bahía es tuya, capitán!",loseMsg:"Tu barco se hundió con toda la tripulación. Esta vez gana el mar…",sunkMsg:"¡Hundiste a {name}! Un terror menos en los mares.",yourTurn:"⚓ TU TURNO",foeTurn:"💣 ¡FUEGO ENEMIGO!",hitMsg:"💥 ¡IMPACTO DIRECTO!",closeMsg:"🌊 ¡Por poco!",cap1:"Pete el Tuerto",cap2:"Capitana Rosa",cap3:"Barbanegra Jr.",cap4:"Almirante Kraken",cap5:"El Temible Capitán Gator"},
+pt:{title:"☠ DUELO DE CANHÕES PIRATA",tagline:"Afunde a frota inimiga do outro lado da baía — cuidado com o vento, capitão!",how1:"🎯 Arraste os controles (ou arraste no céu) para ajustar ÂNGULO e POTÊNCIA, depois toque em FOGO.",how2:"💨 O vento muda a cada turno e empurra seu tiro. Observe a bandeira no topo!",how3:"🏴‍☠️ Vença 5 capitães inimigos, cada um mais forte e preciso. Afunde-os antes que afundem você!",play:"▶ JOGAR",best:"Melhor pontuação",final:"Pontuação final",newBest:"NOVO RECORDE!",playAgain:"↻ JOGAR DE NOVO",menu:"MENU",score:"Pontos",nextFoe:"PRÓXIMO INIMIGO ➜",angle:"ÂNGULO",power:"POTÊNCIA",fire:"🔥 FOGO",you:"🏴‍☠️ VOCÊ",round:"INIMIGO",victory:"🏆 VITÓRIA!",defeat:"💀 AFUNDOU!",winMsg:"Você afundou toda a frota! A baía é sua, capitão!",loseMsg:"Seu navio afundou com toda a tripulação. Desta vez o mar venceu…",sunkMsg:"Você afundou {name}! Um terror a menos nos mares.",yourTurn:"⚓ SUA VEZ",foeTurn:"💣 FOGO INIMIGO!",hitMsg:"💥 ACERTO DIRETO!",closeMsg:"🌊 Quase!",cap1:"Pete Caolho",cap2:"Capitã Rosa",cap3:"Barba Negra Jr.",cap4:"Almirante Kraken",cap5:"O Temível Capitão Gator"},
+fr:{title:"☠ DUEL DE CANONS PIRATES",tagline:"Coulez la flotte ennemie de l'autre côté de la baie — attention au vent, capitaine !",how1:"🎯 Faites glisser les curseurs (ou glissez sur le ciel) pour régler ANGLE et PUISSANCE, puis FEU.",how2:"💨 Le vent change à chaque tour et pousse votre tir. Surveillez le drapeau en haut !",how3:"🏴‍☠️ Battez 5 capitaines ennemis, chacun plus fort et plus précis. Coulez-les avant qu'ils ne vous coulent !",play:"▶ JOUER",best:"Meilleur score",final:"Score final",newBest:"NOUVEAU RECORD !",playAgain:"↻ REJOUER",menu:"MENU",score:"Score",nextFoe:"ENNEMI SUIVANT ➜",angle:"ANGLE",power:"PUISSANCE",fire:"🔥 FEU",you:"🏴‍☠️ VOUS",round:"ENNEMI",victory:"🏆 VICTOIRE !",defeat:"💀 COULÉ !",winMsg:"Vous avez coulé toute la flotte ! La baie est à vous, capitaine !",loseMsg:"Votre navire a sombré avec tout l'équipage. Cette fois, la mer gagne…",sunkMsg:"Vous avez coulé {name} ! Une terreur de moins sur les mers.",yourTurn:"⚓ À VOUS",foeTurn:"💣 TIR ENNEMI !",hitMsg:"💥 TOUCHÉ EN PLEIN !",closeMsg:"🌊 Si près !",cap1:"Pete le Borgne",cap2:"Capitaine Rosa",cap3:"Barbe-Noire Jr.",cap4:"Amiral Kraken",cap5:"Le Redouté Capitaine Gator"},
+de:{title:"☠ PIRATEN-KANONENDUELL",tagline:"Versenke die feindliche Flotte über der Bucht — achte auf den Wind, Kapitän!",how1:"🎯 Stelle WINKEL und KRAFT mit den Reglern ein (oder ziehe über den Himmel) und drücke FEUER.",how2:"💨 Der Wind wechselt jede Runde und drückt deinen Schuss. Beobachte die Flagge oben!",how3:"🏴‍☠️ Besiege 5 feindliche Kapitäne, jeder stärker und treffsicherer. Versenke sie, bevor sie dich versenken!",play:"▶ SPIELEN",best:"Beste Punktzahl",final:"Endpunktzahl",newBest:"NEUER REKORD!",playAgain:"↻ NOCHMAL SPIELEN",menu:"MENÜ",score:"Punkte",nextFoe:"NÄCHSTER GEGNER ➜",angle:"WINKEL",power:"KRAFT",fire:"🔥 FEUER",you:"🏴‍☠️ DU",round:"GEGNER",victory:"🏆 SIEG!",defeat:"💀 VERSENKT!",winMsg:"Du hast die ganze Flotte versenkt! Die Bucht gehört dir, Kapitän!",loseMsg:"Dein Schiff sank mit der ganzen Mannschaft. Diesmal gewinnt das Meer…",sunkMsg:"Du hast {name} versenkt! Ein Schrecken der Meere weniger.",yourTurn:"⚓ DU BIST DRAN",foeTurn:"💣 FEINDLICHES FEUER!",hitMsg:"💥 VOLLTREFFER!",closeMsg:"🌊 Knapp daneben!",cap1:"Einäugiger Pete",cap2:"Kapitänin Rosa",cap3:"Schwarzbart Jr.",cap4:"Admiral Kraken",cap5:"Der Gefürchtete Kapitän Gator"},
+it:{title:"☠ DUELLO DI CANNONI PIRATA",tagline:"Affonda la flotta nemica dall'altra parte della baia — attento al vento, capitano!",how1:"🎯 Trascina i cursori (o trascina sul cielo) per impostare ANGOLO e POTENZA, poi premi FUOCO.",how2:"💨 Il vento cambia a ogni turno e spinge il tuo tiro. Guarda la bandiera in alto!",how3:"🏴‍☠️ Sconfiggi 5 capitani nemici, ognuno più forte e preciso. Affondali prima che affondino te!",play:"▶ GIOCA",best:"Punteggio migliore",final:"Punteggio finale",newBest:"NUOVO RECORD!",playAgain:"↻ GIOCA ANCORA",menu:"MENU",score:"Punti",nextFoe:"PROSSIMO NEMICO ➜",angle:"ANGOLO",power:"POTENZA",fire:"🔥 FUOCO",you:"🏴‍☠️ TU",round:"NEMICO",victory:"🏆 VITTORIA!",defeat:"💀 AFFONDATO!",winMsg:"Hai affondato tutta la flotta! La baia è tua, capitano!",loseMsg:"La tua nave è colata a picco con tutto l'equipaggio. Stavolta vince il mare…",sunkMsg:"Hai affondato {name}! Un terrore in meno sui mari.",yourTurn:"⚓ TOCCA A TE",foeTurn:"💣 FUOCO NEMICO!",hitMsg:"💥 COLPITO IN PIENO!",closeMsg:"🌊 Quasi!",cap1:"Pete Guercio",cap2:"Capitana Rosa",cap3:"Barbanera Jr.",cap4:"Ammiraglio Kraken",cap5:"Il Temuto Capitano Gator"},
+nl:{title:"☠ PIRATEN KANONNENDUEL",tagline:"Zink de vijandelijke vloot aan de overkant van de baai — let op de wind, kapitein!",how1:"🎯 Sleep de schuiven (of sleep over de lucht) om HOEK en KRACHT in te stellen en druk op VUUR.",how2:"💨 De wind verandert elke beurt en duwt je schot. Kijk naar de vlag bovenaan!",how3:"🏴‍☠️ Versla 5 vijandelijke kapiteins, elk sterker en scherper. Zink ze voordat ze jou zinken!",play:"▶ SPELEN",best:"Beste score",final:"Eindscore",newBest:"NIEUW RECORD!",playAgain:"↻ OPNIEUW SPELEN",menu:"MENU",score:"Score",nextFoe:"VOLGENDE VIJAND ➜",angle:"HOEK",power:"KRACHT",fire:"🔥 VUUR",you:"🏴‍☠️ JIJ",round:"VIJAND",victory:"🏆 OVERWINNING!",defeat:"💀 GEZONKEN!",winMsg:"Je hebt de hele vloot gezonken! De baai is van jou, kapitein!",loseMsg:"Je schip zonk met de hele bemanning. Deze keer wint de zee…",sunkMsg:"Je hebt {name} gezonken! Eén schrik van de zee minder.",yourTurn:"⚓ JOUW BEURT",foeTurn:"💣 VIJANDELIJK VUUR!",hitMsg:"💥 VOLTREFFER!",closeMsg:"🌊 Net mis!",cap1:"Eénogige Pete",cap2:"Kapitein Rosa",cap3:"Zwartbaard Jr.",cap4:"Admiraal Kraken",cap5:"De Gevreesde Kapitein Gator"},
+pl:{title:"☠ PIRACKI POJEDYNEK ARMATNI",tagline:"Zatop wrogą flotę po drugiej stronie zatoki — uważaj na wiatr, kapitanie!",how1:"🎯 Przeciągnij suwaki (lub przeciągnij po niebie), aby ustawić KĄT i MOC, a potem naciśnij OGNIA.",how2:"💨 Wiatr zmienia się co turę i spycha twój strzał. Patrz na flagę u góry!",how3:"🏴‍☠️ Pokonaj 5 wrogich kapitanów, każdy silniejszy i celniejszy. Zatop ich, zanim zatopią ciebie!",play:"▶ GRAJ",best:"Najlepszy wynik",final:"Wynik końcowy",newBest:"NOWY REKORD!",playAgain:"↻ GRAJ PONOWNIE",menu:"MENU",score:"Punkty",nextFoe:"NASTĘPNY WRÓG ➜",angle:"KĄT",power:"MOC",fire:"🔥 OGNIA",you:"🏴‍☠️ TY",round:"WRÓG",victory:"🏆 ZWYCIĘSTWO!",defeat:"💀 ZATOPIONY!",winMsg:"Zatopiłeś całą flotę! Zatoka jest twoja, kapitanie!",loseMsg:"Twój statek poszedł na dno z całą załogą. Tym razem wygrywa morze…",sunkMsg:"Zatopiłeś: {name}! O jeden postrach mórz mniej.",yourTurn:"⚓ TWOJA TURA",foeTurn:"💣 OSTRZAŁ WROGA!",hitMsg:"💥 BEZPOŚREDNIE TRAFIENIE!",closeMsg:"🌊 O włos!",cap1:"Jednooki Pete",cap2:"Kapitan Rosa",cap3:"Czarnobrody Jr.",cap4:"Admirał Kraken",cap5:"Straszliwy Kapitan Gator"},
+ru:{title:"☠ ПИРАТСКАЯ ДУЭЛЬ ПУШЕК",tagline:"Потопи вражеский флот через бухту — следи за ветром, капитан!",how1:"🎯 Двигай ползунки (или веди по небу), чтобы задать УГОЛ и МОЩНОСТЬ, и жми ОГОНЬ.",how2:"💨 Ветер меняется каждый ход и сносит твой выстрел. Следи за флагом наверху!",how3:"🏴‍☠️ Победи 5 вражеских капитанов — каждый крепче и точнее. Потопи их, пока они не потопили тебя!",play:"▶ ИГРАТЬ",best:"Лучший результат",final:"Итоговый счёт",newBest:"НОВЫЙ РЕКОРД!",playAgain:"↻ ИГРАТЬ СНОВА",menu:"МЕНЮ",score:"Очки",nextFoe:"СЛЕДУЮЩИЙ ВРАГ ➜",angle:"УГОЛ",power:"МОЩНОСТЬ",fire:"🔥 ОГОНЬ",you:"🏴‍☠️ ВЫ",round:"ВРАГ",victory:"🏆 ПОБЕДА!",defeat:"💀 ПОТОПЛЕН!",winMsg:"Ты потопил весь флот! Бухта твоя, капитан!",loseMsg:"Твой корабль ушёл на дно со всей командой. В этот раз море сильнее…",sunkMsg:"Ты потопил: {name}! Одним ужасом морей меньше.",yourTurn:"⚓ ВАШ ХОД",foeTurn:"💣 ВРАЖЕСКИЙ ОГОНЬ!",hitMsg:"💥 ПРЯМОЕ ПОПАДАНИЕ!",closeMsg:"🌊 Почти!",cap1:"Одноглазый Пит",cap2:"Капитан Роза",cap3:"Чёрная Борода-мл.",cap4:"Адмирал Кракен",cap5:"Грозный Капитан Гатор"}
+};
+</script>
+
+<script>
+"use strict";
+Object.assign(I18N, {
+uk:{title:"☠ ПІРАТСЬКА ДУЕЛЬ ГАРМАТ",tagline:"Потопи ворожий флот через бухту — стеж за вітром, капітане!",how1:"🎯 Рухай повзунки (або веди по небу), щоб задати КУТ і ПОТУЖНІСТЬ, і тисни ВОГОНЬ.",how2:"💨 Вітер змінюється кожного ходу й зносить твій постріл. Стеж за прапором угорі!",how3:"🏴‍☠️ Переможи 5 ворожих капітанів — кожен міцніший і точніший. Потопи їх, поки вони не потопили тебе!",play:"▶ ГРАТИ",best:"Найкращий результат",final:"Підсумковий рахунок",newBest:"НОВИЙ РЕКОРД!",playAgain:"↻ ГРАТИ ЗНОВУ",menu:"МЕНЮ",score:"Очки",nextFoe:"НАСТУПНИЙ ВОРОГ ➜",angle:"КУТ",power:"ПОТУЖНІСТЬ",fire:"🔥 ВОГОНЬ",you:"🏴‍☠️ ВИ",round:"ВОРОГ",victory:"🏆 ПЕРЕМОГА!",defeat:"💀 ПОТОПЛЕНИЙ!",winMsg:"Ти потопив увесь флот! Бухта твоя, капітане!",loseMsg:"Твій корабель пішов на дно з усією командою. Цього разу море сильніше…",sunkMsg:"Ти потопив: {name}! Одним жахом морів менше.",yourTurn:"⚓ ВАШ ХІД",foeTurn:"💣 ВОРОЖИЙ ВОГОНЬ!",hitMsg:"💥 ПРЯМЕ ВЛУЧАННЯ!",closeMsg:"🌊 Майже!",cap1:"Одноокий Піт",cap2:"Капітан Роза",cap3:"Чорна Борода-мол.",cap4:"Адмірал Кракен",cap5:"Грізний Капітан Гатор"},
+tr:{title:"☠ KORSAN TOP DÜELLOSU",tagline:"Koyun karşısındaki düşman filosunu batır — rüzgâra dikkat et, kaptan!",how1:"🎯 AÇI ve GÜÇ ayarlamak için kaydırıcıları sürükle (veya gökyüzünde sürükle) ve ATEŞ'e bas.",how2:"💨 Rüzgâr her tur değişir ve atışını sürükler. Üstteki bayrağa bak!",how3:"🏴‍☠️ Her biri daha güçlü ve isabetli 5 düşman kaptanı yen. Onlar seni batırmadan sen batır!",play:"▶ OYNA",best:"En iyi skor",final:"Final skoru",newBest:"YENİ REKOR!",playAgain:"↻ TEKRAR OYNA",menu:"MENÜ",score:"Skor",nextFoe:"SONRAKİ DÜŞMAN ➜",angle:"AÇI",power:"GÜÇ",fire:"🔥 ATEŞ",you:"🏴‍☠️ SEN",round:"DÜŞMAN",victory:"🏆 ZAFER!",defeat:"💀 BATTI!",winMsg:"Tüm filoyu batırdın! Koy senin, kaptan!",loseMsg:"Gemin tüm mürettebatla battı. Bu sefer deniz kazandı…",sunkMsg:"{name} battı! Denizlerde bir korku eksildi.",yourTurn:"⚓ SENİN SIRAN",foeTurn:"💣 DÜŞMAN ATEŞİ!",hitMsg:"💥 TAM İSABET!",closeMsg:"🌊 Çok yakındı!",cap1:"Tek Göz Pete",cap2:"Kaptan Rosa",cap3:"Karasakal Jr.",cap4:"Amiral Kraken",cap5:"Korkunç Kaptan Gator"},
+ar:{title:"☠ مبارزة مدافع القراصنة",tagline:"أغرق أسطول العدو عبر الخليج — انتبه للرياح يا قبطان!",how1:"🎯 اسحب المنزلقات (أو اسحب على السماء) لضبط الزاوية والقوة، ثم اضغط نار.",how2:"💨 تتغير الرياح كل دور وتدفع طلقتك. راقب العلم في الأعلى!",how3:"🏴‍☠️ اهزم ٥ قباطنة أعداء، كل واحد أقوى وأدق. أغرقهم قبل أن يغرقوك!",play:"▶ العب",best:"أفضل نتيجة",final:"النتيجة النهائية",newBest:"رقم قياسي جديد!",playAgain:"↻ العب مجدداً",menu:"القائمة",score:"النقاط",nextFoe:"العدو التالي ➜",angle:"الزاوية",power:"القوة",fire:"🔥 نار",you:"🏴‍☠️ أنت",round:"العدو",victory:"🏆 النصر!",defeat:"💀 غرقت!",winMsg:"لقد أغرقت الأسطول بأكمله! الخليج لك يا قبطان!",loseMsg:"غرقت سفينتك بكل طاقمها. هذه المرة البحر ينتصر…",sunkMsg:"لقد أغرقت {name}! رعب أقل في البحار.",yourTurn:"⚓ دورك",foeTurn:"💣 نار العدو!",hitMsg:"💥 إصابة مباشرة!",closeMsg:"🌊 قريب جداً!",cap1:"بيت الأعور",cap2:"القبطانة روزا",cap3:"اللحية السوداء الابن",cap4:"الأدميرال كراكن",cap5:"القبطان غاتور الرهيب"},
+zh:{title:"☠ 海盗炮战对决",tagline:"击沉海湾对面的敌方舰队——注意风向，船长！",how1:"🎯 拖动滑块（或在天空中拖动）设置角度和火力，然后点开火。",how2:"💨 风向每回合都会变化，会吹偏你的炮弹。注意顶部的旗帜！",how3:"🏴‍☠️ 击败5位敌方船长，一个比一个更强更准。在他们击沉你之前先击沉他们！",play:"▶ 开始游戏",best:"最高分",final:"最终得分",newBest:"新纪录！",playAgain:"↻ 再来一局",menu:"菜单",score:"得分",nextFoe:"下一个敌人 ➜",angle:"角度",power:"火力",fire:"🔥 开火",you:"🏴‍☠️ 你",round:"敌人",victory:"🏆 胜利！",defeat:"💀 被击沉！",winMsg:"你击沉了整支舰队！海湾归你了，船长！",loseMsg:"你的船连同全体船员一起沉没了。这次是大海赢了…",sunkMsg:"你击沉了{name}！海上少了一个恐怖传说。",yourTurn:"⚓ 你的回合",foeTurn:"💣 敌方开火！",hitMsg:"💥 直接命中！",closeMsg:"🌊 就差一点！",cap1:"独眼皮特",cap2:"罗莎船长",cap3:"小黑胡子",cap4:"海怪上将",cap5:"恐怖的鳄鱼船长"},
+ja:{title:"☠ 海賊キャノンデュエル",tagline:"湾の向こうの敵艦隊を沈めよう——風に注意、船長！",how1:"🎯 スライダーをドラッグ（または空をドラッグ）して角度とパワーを決め、発射を押そう。",how2:"💨 風は毎ターン変わり、弾を流します。上の旗を見て！",how3:"🏴‍☠️ 敵の船長5人を倒そう。1人ごとに強く、正確になる。沈められる前に沈めろ！",play:"▶ プレイ",best:"ベストスコア",final:"最終スコア",newBest:"新記録！",playAgain:"↻ もう一度プレイ",menu:"メニュー",score:"スコア",nextFoe:"次の敵 ➜",angle:"角度",power:"パワー",fire:"🔥 発射",you:"🏴‍☠️ あなた",round:"敵",victory:"🏆 勝利！",defeat:"💀 沈没！",winMsg:"敵艦隊を全滅させた！湾はあなたのものだ、船長！",loseMsg:"船は全乗組員とともに沈んだ。今回は海の勝ち…",sunkMsg:"{name}を沈めた！海の恐怖が1つ減った。",yourTurn:"⚓ あなたの番",foeTurn:"💣 敵の攻撃！",hitMsg:"💥 直撃！",closeMsg:"🌊 惜しい！",cap1:"片目のピート",cap2:"ローザ船長",cap3:"黒ひげJr.",cap4:"クラーケン提督",cap5:"恐怖のゲーター船長"},
+ko:{title:"☠ 해적 대포 결투",tagline:"만 건너편의 적 함대를 침몰시켜라 — 바람을 조심해, 선장!",how1:"🎯 슬라이더를 드래그(또는 하늘을 드래그)해 각도와 파워를 맞추고 발사를 누르세요.",how2:"💨 바람은 매 턴 바뀌어 포탄을 밀어냅니다. 위쪽 깃발을 보세요!",how3:"🏴‍☠️ 적 선장 5명을 물리치세요. 점점 강하고 정확해집니다. 침몰당하기 전에 침몰시키세요!",play:"▶ 플레이",best:"최고 점수",final:"최종 점수",newBest:"신기록!",playAgain:"↻ 다시 플레이",menu:"메뉴",score:"점수",nextFoe:"다음 적 ➜",angle:"각도",power:"파워",fire:"🔥 발사",you:"🏴‍☠️ 나",round:"적",victory:"🏆 승리!",defeat:"💀 침몰!",winMsg:"적 함대를 전부 침몰시켰다! 만은 당신의 것, 선장!",loseMsg:"배가 모든 선원과 함께 가라앉았다. 이번엔 바다가 이겼다…",sunkMsg:"{name}을(를) 침몰시켰다! 바다의 공포가 하나 줄었다.",yourTurn:"⚓ 당신의 차례",foeTurn:"💣 적의 공격!",hitMsg:"💥 직격!",closeMsg:"🌊 아깝다!",cap1:"외눈 피트",cap2:"로사 선장",cap3:"검은수염 주니어",cap4:"크라켄 제독",cap5:"공포의 게이터 선장"},
+hi:{title:"☠ समुद्री डाकू तोप द्वंद्व",tagline:"खाड़ी के पार दुश्मन के बेड़े को डुबो दो — हवा का ध्यान रखो, कप्तान!",how1:"🎯 कोण और ताकत सेट करने के लिए स्लाइडर खींचो (या आसमान पर खींचो), फिर फायर दबाओ।",how2:"💨 हवा हर बारी बदलती है और तुम्हारे गोले को धकेलती है। ऊपर के झंडे को देखो!",how3:"🏴‍☠️ 5 दुश्मन कप्तानों को हराओ, हर एक ज़्यादा मज़बूत और सटीक। वे तुम्हें डुबोएं उससे पहले उन्हें डुबो दो!",play:"▶ खेलो",best:"सर्वश्रेष्ठ स्कोर",final:"अंतिम स्कोर",newBest:"नया रिकॉर्ड!",playAgain:"↻ फिर से खेलो",menu:"मेनू",score:"स्कोर",nextFoe:"अगला दुश्मन ➜",angle:"कोण",power:"ताकत",fire:"🔥 फायर",you:"🏴‍☠️ तुम",round:"दुश्मन",victory:"🏆 जीत!",defeat:"💀 डूब गया!",winMsg:"तुमने पूरा बेड़ा डुबो दिया! खाड़ी तुम्हारी है, कप्तान!",loseMsg:"तुम्हारा जहाज़ पूरे दल के साथ डूब गया। इस बार समुद्र जीता…",sunkMsg:"तुमने {name} को डुबो दिया! समुद्र का एक आतंक कम हुआ।",yourTurn:"⚓ तुम्हारी बारी",foeTurn:"💣 दुश्मन का हमला!",hitMsg:"💥 सीधा निशाना!",closeMsg:"🌊 बस थोड़ा सा!",cap1:"एक-आँख पीट",cap2:"कप्तान रोज़ा",cap3:"काली-दाढ़ी जूनियर",cap4:"एडमिरल क्रैकन",cap5:"भयानक कप्तान गेटर"},
+id:{title:"☠ DUEL MERIAM BAJAK LAUT",tagline:"Tenggelamkan armada musuh di seberang teluk — perhatikan anginnya, kapten!",how1:"🎯 Geser penggeser (atau geser di langit) untuk mengatur SUDUT dan KEKUATAN, lalu tekan TEMBAK.",how2:"💨 Angin berubah setiap giliran dan mendorong tembakanmu. Perhatikan bendera di atas!",how3:"🏴‍☠️ Kalahkan 5 kapten musuh, masing-masing lebih kuat dan akurat. Tenggelamkan mereka sebelum mereka menenggelamkanmu!",play:"▶ MAIN",best:"Skor terbaik",final:"Skor akhir",newBest:"REKOR BARU!",playAgain:"↻ MAIN LAGI",menu:"MENU",score:"Skor",nextFoe:"MUSUH BERIKUTNYA ➜",angle:"SUDUT",power:"KEKUATAN",fire:"🔥 TEMBAK",you:"🏴‍☠️ KAMU",round:"MUSUH",victory:"🏆 MENANG!",defeat:"💀 TENGGELAM!",winMsg:"Kamu menenggelamkan seluruh armada! Teluk ini milikmu, kapten!",loseMsg:"Kapalmu tenggelam bersama seluruh awaknya. Kali ini laut yang menang…",sunkMsg:"Kamu menenggelamkan {name}! Satu teror laut berkurang.",yourTurn:"⚓ GILIRANMU",foeTurn:"💣 TEMBAKAN MUSUH!",hitMsg:"💥 KENA LANGSUNG!",closeMsg:"🌊 Hampir!",cap1:"Pete Bermata Satu",cap2:"Kapten Rosa",cap3:"Janggut Hitam Jr.",cap4:"Laksamana Kraken",cap5:"Kapten Gator yang Menakutkan"},
+vi:{title:"☠ ĐẤU PHÁO CƯỚP BIỂN",tagline:"Đánh chìm hạm đội địch bên kia vịnh — chú ý gió nhé, thuyền trưởng!",how1:"🎯 Kéo thanh trượt (hoặc kéo trên bầu trời) để chỉnh GÓC và LỰC, rồi nhấn BẮN.",how2:"💨 Gió thay đổi mỗi lượt và đẩy đường đạn của bạn. Nhìn lá cờ phía trên!",how3:"🏴‍☠️ Đánh bại 5 thuyền trưởng địch, mỗi người mạnh và chính xác hơn. Đánh chìm họ trước khi họ đánh chìm bạn!",play:"▶ CHƠI",best:"Điểm cao nhất",final:"Điểm cuối",newBest:"KỶ LỤC MỚI!",playAgain:"↻ CHƠI LẠI",menu:"MENU",score:"Điểm",nextFoe:"KẺ ĐỊCH TIẾP THEO ➜",angle:"GÓC",power:"LỰC",fire:"🔥 BẮN",you:"🏴‍☠️ BẠN",round:"KẺ ĐỊCH",victory:"🏆 CHIẾN THẮNG!",defeat:"💀 ĐÃ CHÌM!",winMsg:"Bạn đã đánh chìm cả hạm đội! Vịnh này là của bạn, thuyền trưởng!",loseMsg:"Tàu của bạn chìm cùng toàn bộ thủy thủ. Lần này biển thắng…",sunkMsg:"Bạn đã đánh chìm {name}! Bớt một nỗi khiếp sợ trên biển.",yourTurn:"⚓ LƯỢT CỦA BẠN",foeTurn:"💣 ĐỊCH BẮN!",hitMsg:"💥 TRÚNG TRỰC TIẾP!",closeMsg:"🌊 Suýt nữa!",cap1:"Pete Một Mắt",cap2:"Thuyền trưởng Rosa",cap3:"Râu Đen Jr.",cap4:"Đô đốc Kraken",cap5:"Thuyền trưởng Gator Khủng Khiếp"}
+});
+let LANG = localStorage.getItem('piratecannon_lang') || 'en';
+if(!I18N[LANG]) LANG = 'en';
+const T = k => (I18N[LANG] && I18N[LANG][k]) || I18N.en[k] || k;
+function applyLang(){
+  document.querySelectorAll('[data-i]').forEach(el=>{ el.textContent = T(el.dataset.i); });
+  document.documentElement.lang = LANG;
+  document.documentElement.dir = (LANG==='ar') ? 'rtl' : 'ltr';
+  refreshHUD();
+}
+</script>
+
+<script>
+"use strict";
+/* ================= GAME ================= */
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const W = 960, H = 540, WATER = 415, GRAV = 300;
+let DPR = 1, SC = 1, OX = 0, OY = 0;
+function resize(){
+  const st = document.getElementById('stage'), r = st.getBoundingClientRect();
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  cv.width = r.width*DPR; cv.height = r.height*DPR;
+  SC = Math.min(r.width/W, r.height/H); OX = (r.width - W*SC)/2; OY = (r.height - H*SC)/2;
+}
+window.addEventListener('resize', resize);
+
+/* ---------- audio (tiny synth, optional juice) ---------- */
+let AC = null;
+function beep(freq, dur, type, vol){ try{ if(!AC) AC = new (window.AudioContext||window.webkitAudioContext)(); const o=AC.createOscillator(), g=AC.createGain(); o.type=type||'sine'; o.frequency.value=freq; g.gain.setValueAtTime(vol||.12, AC.currentTime); g.gain.exponentialRampToValueAtTime(.001, AC.currentTime+dur); o.connect(g); g.connect(AC.destination); o.start(); o.stop(AC.currentTime+dur);}catch(e){} }
+function boom(){ beep(70,.35,'triangle',.25); beep(45,.5,'sine',.2); }
+function splashSnd(){ beep(300,.18,'sine',.06); }
+
+/* ---------- score submit (leaderboard hook) ---------- */
+/* submitScore: stores the finished game's score to localStorage ONLY. */
+function submitScore(score){ try{ localStorage.setItem('piratecannon_last', String(score)); }catch(e){} }
+
+/* ---------- data ---------- */
+const FOES = [
+  {hp:60,  err:17,  dmg:13, sail:'#e8e0cc', stripe:'#8d6e63', hull:'#7a4a21'},
+  {hp:80,  err:13,  dmg:16, sail:'#f6c9d4', stripe:'#c2185b', hull:'#6d3b1a'},
+  {hp:100, err:10,  dmg:19, sail:'#37474f', stripe:'#11181d', hull:'#4e2c12'},
+  {hp:125, err:7,   dmg:22, sail:'#5e35b1', stripe:'#311b92', hull:'#5d3413'},
+  {hp:155, err:4.5, dmg:26, sail:'#1b5e20', stripe:'#0d3311', hull:'#3e2723'}
+];
+const SKIES = [
+  ['#2b4a73','#7fb2d9','#f7c873'], ['#3a7bd5','#a8d8f0','#fff3b0'],
+  ['#2f80c9','#9fd9f6','#ffffff'], ['#5b3a6e','#e8875b','#ffd54f'],
+  ['#232a3d','#4a5a75','#90a4ae']
+];
+let lvl = 0, score = 0, wind = 0, state = 'menu', turnT = 0;
+let angle = 45, power = 60, shake = 0, lastAIError = 0;
+const player = {x:120, dir:1, hp:100, maxHp:100, recoil:0, sink:0, dead:false, foe:false};
+let enemy = null;
+let ball = null, parts = [], clouds = [], birds = [];
+for(let i=0;i<6;i++) clouds.push({x:Math.random()*W, y:25+Math.random()*90, s:.6+Math.random()*.9, v:4+Math.random()*6});
+for(let i=0;i<3;i++) birds.push({x:Math.random()*W, y:50+Math.random()*70, v:14+Math.random()*10, ph:Math.random()*6});
+
+function newEnemy(){
+  const f = FOES[lvl];
+  enemy = {x:840, dir:-1, hp:f.hp, maxHp:f.hp, recoil:0, sink:0, dead:false, foe:true, cfg:f, name:T('cap'+(lvl+1))};
+  lastAIError = 0;
+}
+function rollWind(){ wind = Math.round((Math.random()*20-10)); if(Math.random()<.12) wind = 0; }
+
+/* ---------- HUD ---------- */
+const $ = id => document.getElementById(id);
+function refreshHUD(){
+  if(!enemy) return;
+  $('nmP').textContent = T('you');
+  $('nmE').textContent = '☠ ' + T('cap'+(lvl+1));
+  $('hpP').firstElementChild.style.width = Math.max(0, player.hp/player.maxHp*100)+'%';
+  $('hpE').firstElementChild.style.width = Math.max(0, enemy.hp/enemy.maxHp*100)+'%';
+  $('windBox').textContent = '💨 ' + (wind===0 ? '· 0' : (wind>0 ? '▶ ' : '◀ ') + Math.abs(wind));
+  $('roundBox').textContent = T('round') + ' ' + (lvl+1) + '/5';
+  $('scoreBox').textContent = '⭐ ' + score;
+  $('angVal').textContent = Math.round(angle)+'°';
+  $('powVal').textContent = Math.round(power);
+}
+function banner(txt, ms){ const b=$('turnBanner'); b.textContent=txt; b.style.opacity=1; clearTimeout(b._t); b._t=setTimeout(()=>b.style.opacity=0, ms||1400); }
+function toast(txt){ const t=$('toast'); t.textContent=txt; t.style.opacity=1; clearTimeout(t._t); t._t=setTimeout(()=>t.style.opacity=0,1300); }
+
+/* ---------- particles ---------- */
+function spawn(x,y,n,type){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*Math.PI*2, sp=(type==='splash'?40+Math.random()*130:20+Math.random()*80);
+    parts.push({x,y,vx:Math.cos(a)*sp*(type==='wood'?1.4:.7), vy:Math.sin(a)*sp-(type==='splash'?120:30), life:0, max:.5+Math.random()*.8, type, sz:2+Math.random()*(type==='smoke'?9:4)});
+  }
+}
+function stepParts(dt){
+  parts = parts.filter(p=>{ p.life+=dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy += (p.type==='smoke'? -18 : 260)*dt; if(p.type==='smoke'){p.vx*=.985;} return p.life<p.max && p.y<WATER+24; });
+}
+
+/* ---------- firing & physics ---------- */
+function muzzle(ship){ return {x: ship.x + ship.dir*46, y: WATER-58 + Math.sin(perf*.9+ship.x)*2}; }
+let perf = 0;
+function fire(ship, ang, pow, fromPlayer){
+  const m = muzzle(ship), rad = ang*Math.PI/180, sp = 300 + pow*4.2;
+  ball = {x:m.x, y:m.y, vx: Math.cos(rad)*sp*ship.dir, vy: -Math.sin(rad)*sp, t:0, fromPlayer};
+  ship.recoil = 1; spawn(m.x, m.y, 10, 'smoke'); spawn(m.x, m.y, 3, 'fire'); boom(); shake = Math.max(shake, 3);
+  state = fromPlayer ? 'fly' : 'enemyFly';
+}
+function islandTop(x){ const d = Math.abs(x-480); if(d>=150) return WATER+40; return WATER - 86*(1-Math.pow(d/150,2)); }
+function shipHit(ship, bx, by){
+  if(ship.dead) return false;
+  const bobY = Math.sin(perf*.9 + ship.x)*2.5;
+  return bx > ship.x-64 && bx < ship.x+64 && by > WATER-158+bobY && by < WATER+8;
+}
+function resolveShot(fp){
+  if(state==='over') return;
+  if(fp){ /* player's shot resolved, enemy still afloat -> enemy turn */
+    state = 'enemyWait';
+    setTimeout(()=>{ if(state==='over' || !enemy || enemy.dead) return; banner(T('foeTurn')); setTimeout(enemyShoot, 950); }, 450);
+  } else {
+    if(player.hp<=0){ sinkShip(player); return; }
+    rollWind(); refreshHUD(); banner(T('yourTurn')); state='aim'; $('fireBtn').disabled=false;
+  }
+}
+function damage(ship, dmg, hx, hy){
+  ship.hp -= dmg; spawn(hx, hy, 16, 'wood'); spawn(hx, hy, 8, 'fire'); spawn(hx, hy, 10, 'smoke');
+  shake = Math.max(shake, 7); boom();
+  if(ship===enemy){ score += 100 + Math.round(dmg)*2; toast(T('hitMsg') + ' +' + (100+Math.round(dmg)*2)); }
+  refreshHUD();
+  if(ship.hp<=0){ ship.hp = 0; ship.dead = true; }
+}
+function sinkShip(ship){
+  state = 'sinking'; let t0 = performance.now();
+  const iv = setInterval(()=>{ ship.sink = Math.min(1, ship.sink + .02); if(ship.sink>=1){ clearInterval(iv); setTimeout(()=> ship===enemy ? roundWon() : gameOver(false), 500); } }, 30);
+}
+let curFP = true;
+function stepBall(dt){
+  if(!ball) return;
+  curFP = ball.fromPlayer;
+  ball.t += dt;
+  const steps = 3, sdt = dt/steps;
+  for(let s=0;s<steps;s++){
+    ball.vx += wind*6*sdt; ball.vy += GRAV*sdt; ball.x += ball.vx*sdt; ball.y += ball.vy*sdt;
+    if(Math.random()<.5) parts.push({x:ball.x,y:ball.y,vx:0,vy:0,life:0,max:.4,type:'smoke',sz:3});
+    const target = ball.fromPlayer ? enemy : player;
+    if(ball.t>.3 && shipHit(target, ball.x, ball.y)){
+      const d = ball.fromPlayer ? 24+Math.random()*10 : (FOES[lvl].dmg + Math.random()*8 - 2);
+      const hx=ball.x, hy=ball.y; ball=null; damage(target, d, hx, hy);
+      if(target.dead){ sinkShip(target); } else resolveShot(curFP);
+      return;
+    }
+    if(ball.y > islandTop(ball.x) && ball.y < WATER && Math.abs(ball.x-480)<150){
+      spawn(ball.x, ball.y, 12, 'dirt'); if(!ball.fromPlayer) lastAIError = player.x - ball.x;
+      ball=null; resolveShot(curFP); return;
+    }
+    if(ball.y >= WATER){
+      spawn(ball.x, WATER, 16, 'splash'); splashSnd();
+      if(!ball.fromPlayer) lastAIError = player.x - ball.x;
+      const dist = Math.abs(ball.x - target.x), fp = curFP;
+      ball=null;
+      if(!target.dead && dist >= 64 && dist < 105){ /* splash shock damage */
+        damage(target, fp ? 6 : 5, target.x, WATER-20);
+        if(target.dead){ sinkShip(target); } else resolveShot(curFP);
+      } else {
+        if(dist < 150 && target===enemy) toast(T('closeMsg'));
+        resolveShot(curFP);
+      }
+      return;
+    }
+    if(ball.x < -60 || ball.x > W+60){ if(ball && !ball.fromPlayer) lastAIError = 0; ball=null; resolveShot(curFP); return; }
+  }
+}
+
+/* ---------- enemy AI ---------- */
+function simLanding(ang, pow, fromX, dir){
+  let x=fromX+dir*46, y=WATER-58, rad=ang*Math.PI/180, sp=300+pow*4.2;
+  let vx=Math.cos(rad)*sp*dir, vy=-Math.sin(rad)*sp, dt=.03;
+  for(let i=0;i<400;i++){ vx+=wind*6*dt; vy+=GRAV*dt; x+=vx*dt; y+=vy*dt; if(y>=WATER) return x; if(y>islandTop(x)&&Math.abs(x-480)<150) return x; }
+  return x;
+}
+function enemyShoot(){
+  if(state==='over' || !enemy || enemy.dead) return;
+  let best=null, bd=1e9;
+  for(let a=22;a<=72;a+=4) for(let p=30;p<=100;p+=5){
+    const lx = simLanding(a,p,enemy.x,-1), d = Math.abs(lx - (player.x + lastAIError*.55));
+    if(d<bd){ bd=d; best={a,p}; }
+  }
+  for(let a=best.a-4;a<=best.a+4;a+=1.5) for(let p=best.p-5;p<=best.p+5;p+=2){
+    const lx = simLanding(a,p,enemy.x,-1), d = Math.abs(lx - (player.x + lastAIError*.55));
+    if(d<bd){ bd=d; best={a,p}; }
+  }
+  const err = FOES[lvl].err;
+  const ang = Math.max(8, Math.min(84, best.a + (Math.random()*2-1)*err*.55));
+  const pow = Math.max(12, Math.min(100, best.p + (Math.random()*2-1)*err));
+  fire(enemy, ang, pow, false);
+}
+/* track AI error after its shot lands */
+let aiWatch = null;
+</script>
+
+<script>
+"use strict";
+/* ================= RENDER ================= */
+function drawSky(t){
+  const sk = SKIES[lvl];
+  const g = ctx.createLinearGradient(0,0,0,WATER);
+  g.addColorStop(0, sk[0]); g.addColorStop(.75, sk[1]); g.addColorStop(1, sk[2]);
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,WATER+2);
+  /* sun / moon */
+  const sx = 130 + lvl*170, sy = 74;
+  ctx.save(); ctx.globalAlpha=.95; ctx.fillStyle = lvl===4 ? '#e8ecf2' : '#ffdf6b';
+  ctx.shadowColor = lvl===4 ? '#aebfd4' : '#ffb300'; ctx.shadowBlur = 34;
+  ctx.beginPath(); ctx.arc(sx, sy, 27, 0, 7); ctx.fill(); ctx.restore();
+  if(lvl===4){ ctx.fillStyle = sk[0]; ctx.beginPath(); ctx.arc(sx+13, sy-7, 22, 0, 7); ctx.fill(); }
+  /* clouds */
+  ctx.fillStyle = 'rgba(255,255,255,.82)';
+  clouds.forEach(c=>{ ctx.beginPath(); ctx.ellipse(c.x, c.y, 34*c.s, 13*c.s, 0, 0, 7); ctx.ellipse(c.x+22*c.s, c.y+3, 24*c.s, 10*c.s, 0, 0, 7); ctx.ellipse(c.x-24*c.s, c.y+4, 20*c.s, 9*c.s, 0, 0, 7); ctx.fill(); });
+  /* distant hazy isles on the horizon */
+  ctx.fillStyle = 'rgba(38,84,110,.5)';
+  ctx.beginPath(); ctx.ellipse(238, WATER-2, 120, 17, 0, Math.PI, 0); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(726, WATER-2, 150, 21, 0, Math.PI, 0); ctx.fill();
+  ctx.fillStyle = 'rgba(38,84,110,.65)';
+  ctx.beginPath(); ctx.ellipse(238, WATER-6, 60, 12, 0, Math.PI, 0); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(726, WATER-7, 74, 14, 0, Math.PI, 0); ctx.fill();
+  /* birds */
+  ctx.strokeStyle = 'rgba(20,40,60,.65)'; ctx.lineWidth = 2; ctx.beginPath();
+  birds.forEach(b=>{ const f = Math.sin(t*6+b.ph)*4; ctx.moveTo(b.x-7, b.y+f); ctx.quadraticCurveTo(b.x-2, b.y-4, b.x, b.y); ctx.quadraticCurveTo(b.x+2, b.y-4, b.x+7, b.y+f); });
+  ctx.stroke();
+}
+function drawSea(t){
+  const g = ctx.createLinearGradient(0,WATER,0,H);
+  g.addColorStop(0,'#1e7fa8'); g.addColorStop(.25,'#1668a0'); g.addColorStop(1,'#0a3d66');
+  ctx.fillStyle = g; ctx.fillRect(0,WATER,W,H-WATER);
+  ctx.strokeStyle = 'rgba(160,225,255,.35)'; ctx.lineWidth = 2;
+  for(let r=0;r<4;r++){
+    ctx.beginPath();
+    for(let x=0;x<=W;x+=16){ const y = WATER+8+r*26 + Math.sin(x*.022 + t*(1.4+r*.4) + r*2)*3.2; x===0?ctx.moveTo(x,y):ctx.lineTo(x,y); }
+    ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(255,255,255,.25)';
+  for(let i=0;i<14;i++){ const x=(i*173 + Math.sin(t*.7+i)*22)%W, y=WATER+14+((i*61)%100); ctx.fillRect(x, y, 12, 2); }
+}
+function palm(x, y, s, lean){
+  ctx.save(); ctx.translate(x,y); ctx.scale(s,s);
+  ctx.strokeStyle = '#6d4520'; ctx.lineWidth = 7; ctx.beginPath(); ctx.moveTo(0,0);
+  ctx.quadraticCurveTo(lean*.4, -34, lean, -62); ctx.stroke();
+  ctx.strokeStyle = '#2e9e4f'; ctx.lineWidth = 5; ctx.lineCap='round';
+  for(let i=0;i<6;i++){ const a = -Math.PI*.95 + i*.36; ctx.beginPath(); ctx.moveTo(lean,-62); ctx.quadraticCurveTo(lean+Math.cos(a)*26, -62+Math.sin(a)*20-8, lean+Math.cos(a)*44, -62+Math.sin(a)*30+8); ctx.stroke(); }
+  ctx.fillStyle = '#7a4a21'; ctx.beginPath(); ctx.arc(lean-5,-58,5,0,7); ctx.arc(lean+6,-57,4.5,0,7); ctx.fill();
+  ctx.restore();
+}
+function drawIsland(t){
+  /* sand mound */
+  let g = ctx.createLinearGradient(0,WATER-90,0,WATER+6);
+  g.addColorStop(0,'#e8cf8f'); g.addColorStop(1,'#c9a45c');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(480-152, WATER+4);
+  for(let x=-152;x<=152;x+=12) ctx.lineTo(480+x, islandTop(480+x)-2);
+  ctx.lineTo(480+152, WATER+4); ctx.closePath(); ctx.fill();
+  /* grass cap */
+  ctx.fillStyle = '#3f9e4d'; ctx.beginPath(); ctx.moveTo(480-118, WATER-52);
+  for(let x=-118;x<=118;x+=12){ const y = islandTop(480+x); if(y<WATER-40) ctx.lineTo(480+x, y-3); }
+  ctx.lineTo(480+118, WATER-46); ctx.quadraticCurveTo(480, WATER-118, 480-118, WATER-52); ctx.closePath(); ctx.fill();
+  palm(428, WATER-64, 1.05, -14); palm(528, WATER-58, .85, 12); palm(478, WATER-76, .62, -6);
+  /* treasure chest + barrel */
+  ctx.fillStyle = '#7a4a21'; ctx.fillRect(452, WATER-84, 30, 18);
+  ctx.fillStyle = '#5d3413'; ctx.fillRect(452, WATER-84, 30, 6);
+  ctx.fillStyle = '#ffcf3d'; ctx.fillRect(464, WATER-82, 6, 8);
+  ctx.fillStyle = '#8d5a2b'; ctx.beginPath(); ctx.ellipse(508, WATER-70, 9, 12, 0, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#5d3413'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(508, WATER-70, 9, 12, 0, 0, 7); ctx.stroke();
+}
+function crescent(x, y, r, col){
+  ctx.save(); ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.beginPath(); ctx.arc(x + r*.42, y - r*.18, r*.82, 0, 7); ctx.fill();
+  ctx.restore();
+}
+function drawShip(ship, t){
+  const bob = Math.sin(t*.9 + ship.x)*2.5, rock = Math.sin(t*.7 + ship.x)*.014;
+  const list = (1 - Math.max(0,ship.hp)/ship.maxHp) * .13 * ship.dir;
+  const sinkY = ship.sink * 95, sinkRot = ship.sink * .38 * ship.dir;
+  ctx.save();
+  ctx.translate(ship.x - ship.recoil*ship.dir*7, WATER + bob + sinkY);
+  ctx.scale(ship.dir, 1); ctx.rotate(rock + list + sinkRot);
+  const hull = ship.foe ? ship.cfg.hull : '#6d3b1a';
+  /* hull */
+  let g = ctx.createLinearGradient(0,-52,0,16);
+  g.addColorStop(0,'#a06a35'); g.addColorStop(.55, hull); g.addColorStop(1,'#3c2110');
+  ctx.fillStyle = g; ctx.beginPath();
+  ctx.moveTo(-66,-26); ctx.lineTo(52,-26); ctx.quadraticCurveTo(70,-24, 66,-4);
+  ctx.quadraticCurveTo(60,12, 34,15); ctx.lineTo(-40,15); ctx.quadraticCurveTo(-62,10,-66,-8); ctx.closePath(); ctx.fill();
+  /* plank lines + gold trim */
+  ctx.strokeStyle = 'rgba(0,0,0,.28)'; ctx.lineWidth = 1.4;
+  [-16,-6,4].forEach(y=>{ ctx.beginPath(); ctx.moveTo(-62,y); ctx.lineTo(60,y); ctx.stroke(); });
+  ctx.strokeStyle = '#ffcf3d'; ctx.lineWidth = 2.4; ctx.beginPath(); ctx.moveTo(-66,-26); ctx.lineTo(58,-26); ctx.stroke();
+  /* stern castle + bow */
+  ctx.fillStyle = '#7a4a21'; ctx.fillRect(-66,-44,20,20); ctx.fillRect(-68,-48,24,6);
+  ctx.fillStyle = '#54300f'; ctx.fillRect(-60,-40,7,8);
+  ctx.strokeStyle = '#4e2c12'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(58,-24); ctx.lineTo(84,-38); ctx.stroke(); /* bowsprit */
+  /* cannons */
+  ctx.fillStyle = '#22252a';
+  [-26,-2,22].forEach(x=>{ ctx.fillRect(x,-30,15,6); ctx.beginPath(); ctx.arc(x+15,-27,3.4,0,7); ctx.fill(); });
+  /* crew — captain (tricorn + coat) & sailor */
+  function crew(x, coat, hat){
+    ctx.fillStyle = coat; ctx.beginPath(); ctx.moveTo(x-6,-26); ctx.lineTo(x+6,-26); ctx.lineTo(x+4,-40); ctx.lineTo(x-4,-40); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#f0c08a'; ctx.beginPath(); ctx.arc(x,-43,4.4,0,7); ctx.fill();
+    ctx.fillStyle = hat; ctx.beginPath(); ctx.moveTo(x-7.5,-46); ctx.quadraticCurveTo(x,-52,x+7.5,-46); ctx.quadraticCurveTo(x,-43.4,x-7.5,-46); ctx.fill();
+    ctx.fillStyle = '#ffcf3d'; ctx.fillRect(x-1,-47.4,2,2);
+  }
+  crew(-56, ship.foe ? '#37474f' : '#b71c1c', '#20242a');
+  crew(30, ship.foe ? '#5d4037' : '#1565c0', '#20242a');
+  /* mast + rigging */
+  ctx.strokeStyle = '#4e2c12'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(0,-26); ctx.lineTo(0,-138); ctx.stroke();
+  ctx.strokeStyle = 'rgba(30,20,10,.55)'; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(0,-134); ctx.lineTo(-58,-28); ctx.moveTo(0,-134); ctx.lineTo(56,-28); ctx.moveTo(0,-100); ctx.lineTo(80,-36); ctx.stroke();
+  /* sail */
+  const sailCol = ship.foe ? ship.cfg.sail : '#f7efdb', stripe = ship.foe ? ship.cfg.stripe : '#c62828';
+  const tear = 1 - Math.max(0,ship.hp)/ship.maxHp;
+  ctx.fillStyle = sailCol; ctx.beginPath();
+  ctx.moveTo(3,-132); ctx.quadraticCurveTo(38,-104, 30,-58); ctx.lineTo(3,-56); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = stripe; ctx.fillRect(3,-96,25,9);
+  ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.lineWidth = 1.4; ctx.stroke();
+  /* jib (fore) sail */
+  ctx.fillStyle = sailCol; ctx.beginPath();
+  ctx.moveTo(6,-128); ctx.lineTo(58,-52); ctx.lineTo(6,-52); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,.22)'; ctx.stroke();
+  if(tear > .35){ /* torn hole grows with damage */
+    ctx.fillStyle = 'rgba(20,16,8,.88)'; ctx.beginPath();
+    const r = 4 + tear*11; ctx.moveTo(14,-92); ctx.lineTo(14+r,-86); ctx.lineTo(12+r*.4,-86+r); ctx.lineTo(10,-84); ctx.closePath(); ctx.fill();
+  }
+  if(!ship.foe){ /* LUNC crescent on your sail — drawn on overlay pass */
+    ctx.save(); ctx.translate(15,-112); ctx.fillStyle = '#d99a06';
+    ctx.beginPath(); ctx.arc(0,0,9,0,7); ctx.fill();
+    ctx.fillStyle = sailCol; ctx.beginPath(); ctx.arc(4,-2,7.4,0,7); ctx.fill(); ctx.restore();
+  } else { /* skull mark on enemy sail */
+    ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.beginPath(); ctx.arc(16,-112,7,0,7); ctx.fill();
+    ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(13.4,-113,1.7,0,7); ctx.arc(18.6,-113,1.7,0,7); ctx.fill();
+    ctx.fillRect(13,-107,6,2.4);
+  }
+  /* crow's nest + flag */
+  ctx.fillStyle = '#5d3413'; ctx.fillRect(-7,-140,14,7);
+  ctx.fillStyle = ship.foe ? '#263238' : '#f5a623';
+  ctx.beginPath(); ctx.moveTo(0,-152); ctx.lineTo(24,-147 + Math.sin(t*7+ship.x)*1.6); ctx.lineTo(0,-141); ctx.closePath(); ctx.fill();
+  if(!ship.foe){ ctx.fillStyle = '#7a4d00'; ctx.beginPath(); ctx.arc(8,-146.5,3.1,0,7); ctx.fill(); ctx.fillStyle = '#f5a623'; ctx.beginPath(); ctx.arc(9.3,-147.3,2.5,0,7); ctx.fill(); }
+  ctx.restore();
+  /* damage smoke / fire */
+  if(!ship.dead && ship.hp < ship.maxHp*.45 && Math.random()<.3) spawn(ship.x+ (Math.random()*40-20), WATER-90, 1, ship.hp<ship.maxHp*.25?'fire':'smoke');
+  if(ship.sink>0 && Math.random()<.4) parts.push({x:ship.x+(Math.random()*90-45), y:WATER+4, vx:0, vy:-22-Math.random()*20, life:0, max:.7, type:'bubble', sz:2+Math.random()*3});
+}
+function drawParts(){
+  parts.forEach(p=>{
+    const a = 1 - p.life/p.max;
+    if(p.type==='smoke'){ ctx.fillStyle = `rgba(70,70,78,${a*.55})`; ctx.beginPath(); ctx.arc(p.x,p.y,p.sz+p.life*13,0,7); ctx.fill(); }
+    else if(p.type==='splash'){ ctx.fillStyle = `rgba(190,235,255,${a})`; ctx.fillRect(p.x-1.4,p.y-1.4,3,3); }
+    else if(p.type==='wood'){ ctx.fillStyle = `rgba(146,96,44,${a})`; ctx.fillRect(p.x-2,p.y-1.4,5,3); }
+    else if(p.type==='dirt'){ ctx.fillStyle = `rgba(150,120,70,${a})`; ctx.fillRect(p.x-2,p.y-2,4,4); }
+    else if(p.type==='fire'){ ctx.fillStyle = `rgba(255,${120+Math.floor(100*a)},30,${a})`; ctx.beginPath(); ctx.arc(p.x,p.y,p.sz*(1+a),0,7); ctx.fill(); }
+    else if(p.type==='bubble'){ ctx.strokeStyle = `rgba(200,240,255,${a})`; ctx.lineWidth=1.2; ctx.beginPath(); ctx.arc(p.x,p.y,p.sz,0,7); ctx.stroke(); }
+  });
+}
+function drawAim(){
+  if(state!=='aim' || !enemy) return;
+  const m = {x: player.x+46, y: WATER-58}, rad = angle*Math.PI/180, sp = 300+power*4.2;
+  let x=m.x, y=m.y, vx=Math.cos(rad)*sp, vy=-Math.sin(rad)*sp, dt=.045;
+  ctx.fillStyle = 'rgba(255,255,255,.75)';
+  for(let i=0;i<11;i++){ vx += wind*6*dt; vy += GRAV*dt; x += vx*dt; y += vy*dt; if(i%2===0){ ctx.beginPath(); ctx.arc(x,y,3.6,0,7); ctx.fill(); } }
+  /* cannon barrel angled on player ship */
+  ctx.save(); ctx.translate(player.x+34, WATER-34); ctx.rotate(-rad);
+  ctx.fillStyle = '#22252a'; ctx.fillRect(0,-4.5,30,9); ctx.beginPath(); ctx.arc(30,0,5,0,7); ctx.fill(); ctx.restore();
+}
+function drawBall(){
+  if(!ball) return;
+  ctx.fillStyle = '#191c20'; ctx.beginPath(); ctx.arc(ball.x, ball.y, 6.5, 0, 7); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.beginPath(); ctx.arc(ball.x-2, ball.y-2, 2, 0, 7); ctx.fill();
+}
+/* ================= LOOP ================= */
+let lastTs = 0;
+function frame(ts){
+  requestAnimationFrame(frame);
+  const dt = Math.min(.033, (ts-lastTs)/1000 || .016); lastTs = ts; perf = ts/1000;
+  resize();
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  /* full-bleed backdrop so the letterbox blends into sky/sea on tall screens */
+  const skb = SKIES[lvl], cw = cv.width/DPR, chh = cv.height/DPR;
+  const bg = ctx.createLinearGradient(0,0,0,chh);
+  bg.addColorStop(0, skb[0]); bg.addColorStop(.42, skb[1]); bg.addColorStop(.58, skb[2]);
+  bg.addColorStop(.72, '#1668a0'); bg.addColorStop(1, '#07293f');
+  ctx.fillStyle = bg; ctx.fillRect(0,0,cw,chh);
+  ctx.translate(OX + (Math.random()*2-1)*shake, OY + (Math.random()*2-1)*shake);
+  ctx.scale(SC,SC); shake *= .88; if(shake<.15) shake = 0;
+  clouds.forEach(c=>{ c.x += (c.v + wind*1.2)*dt; if(c.x>W+60) c.x=-60; if(c.x<-60) c.x=W+60; });
+  birds.forEach(b=>{ b.x += b.v*dt; if(b.x>W+20) b.x=-20; });
+  drawSky(perf); drawSea(perf); drawIsland(perf);
+  if(enemy) drawShip(enemy, perf);
+  drawShip(player, perf);
+  drawAim(); drawBall(); stepParts(dt); drawParts();
+  if(ball) stepBall(dt);
+  if(player.recoil>0) player.recoil = Math.max(0, player.recoil - dt*3);
+  if(enemy && enemy.recoil>0) enemy.recoil = Math.max(0, enemy.recoil - dt*3);
+}
+requestAnimationFrame(frame);
+
+/* ================= FLOW ================= */
+function startGame(){
+  lvl = 0; score = 0; player.hp = player.maxHp; player.dead = false; player.sink = 0;
+  newEnemy(); rollWind();
+  $('menuOv').classList.add('hidden'); $('endOv').classList.add('hidden'); $('roundOv').classList.add('hidden');
+  state = 'aim'; $('fireBtn').disabled = false;
+  refreshHUD(); banner(T('yourTurn'));
+}
+function roundWon(){
+  score += 250 + Math.round(player.hp);
+  if(lvl >= FOES.length-1){ gameOver(true); return; }
+  $('roundTitle').textContent = '💀 ' + T('cap'+(lvl+1));
+  $('roundMsg').textContent = T('sunkMsg').replace('{name}', T('cap'+(lvl+1)));
+  $('roundScore').textContent = score;
+  $('roundOv').classList.remove('hidden'); state = 'over';
+  refreshHUD();
+}
+function nextRound(){
+  lvl++; player.hp = player.maxHp; player.dead = false; player.sink = 0;
+  newEnemy(); rollWind();
+  $('roundOv').classList.add('hidden');
+  state = 'aim'; $('fireBtn').disabled = false;
+  refreshHUD(); banner(T('yourTurn'));
+}
+function gameOver(won){
+  state = 'over'; $('fireBtn').disabled = true;
+  submitScore(score);
+  let best = 0; try{ best = +localStorage.getItem('piratecannon_best')||0; }catch(e){}
+  const isBest = score > best;
+  if(isBest){ best = score; try{ localStorage.setItem('piratecannon_best', String(best)); }catch(e){} }
+  $('endTitle').textContent = won ? T('victory') : T('defeat');
+  $('endMsg').textContent = won ? T('winMsg') : T('loseMsg');
+  $('finalScore').textContent = score;
+  $('bestVal2').textContent = best;
+  $('newBestRow').classList.toggle('hidden', !isBest);
+  $('endOv').classList.remove('hidden');
+}
+
+/* ================= INPUT ================= */
+const angS = $('angSlider'), powS = $('powSlider');
+function syncFromSliders(){ angle = +angS.value; power = +powS.value; refreshHUD(); }
+angS.addEventListener('input', syncFromSliders);
+powS.addEventListener('input', syncFromSliders);
+$('fireBtn').addEventListener('click', ()=>{
+  if(state!=='aim') return;
+  $('fireBtn').disabled = true;
+  fire(player, angle, power, true);
+});
+/* drag on sky to aim */
+let drag = null;
+cv.addEventListener('pointerdown', e=>{ if(state!=='aim') return; drag = {x:e.clientX, y:e.clientY, a:angle, p:power}; });
+window.addEventListener('pointermove', e=>{
+  if(!drag) return;
+  power = Math.max(10, Math.min(100, drag.p + (e.clientX-drag.x)*.25));
+  angle = Math.max(5, Math.min(85, drag.a - (e.clientY-drag.y)*.25));
+  angS.value = angle; powS.value = power; refreshHUD();
+});
+window.addEventListener('pointerup', ()=> drag = null);
+window.addEventListener('keydown', e=>{
+  if(state!=='aim'){ if(e.code==='Space' && state==='menu'){ startGame(); } return; }
+  if(e.key==='ArrowUp'){ angle = Math.min(85, angle+1); }
+  else if(e.key==='ArrowDown'){ angle = Math.max(5, angle-1); }
+  else if(e.key==='ArrowRight'){ power = Math.min(100, power+1); }
+  else if(e.key==='ArrowLeft'){ power = Math.max(10, power-1); }
+  else if(e.code==='Space'){ e.preventDefault(); $('fireBtn').click(); return; }
+  else return;
+  angS.value = angle; powS.value = power; refreshHUD();
+});
+$('playBtn').addEventListener('click', startGame);
+$('againBtn').addEventListener('click', startGame);
+$('nextBtn').addEventListener('click', nextRound);
+$('menuBtn').addEventListener('click', ()=>{ $('endOv').classList.add('hidden'); $('menuOv').classList.remove('hidden'); state='menu'; loadBest(); });
+$('langSel').value = LANG;
+$('langSel').addEventListener('change', e=>{ LANG = e.target.value; try{ localStorage.setItem('piratecannon_lang', LANG); }catch(err){} if(enemy) enemy.name = T('cap'+(lvl+1)); applyLang(); });
+function loadBest(){ let b=0; try{ b = +localStorage.getItem('piratecannon_best')||0; }catch(e){} $('bestVal').textContent = b; }
+
+/* init */
+newEnemy(); rollWind(); loadBest(); applyLang(); refreshHUD(); resize();
+</script>
+</body>
+</html>
