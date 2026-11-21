@@ -969,28 +969,88 @@ async function ffbExecuteApprove(contract){
   const result = await client.execute(gdWallet, contract, execMsg, 'auto');
   return { transactionHash: result.transactionHash };
 }
+/* One chain read of this card's approval state for the connected
+   wallet — the same `operator` query ffbRefreshApprovals uses. */
+function ffbCheckApproved(c){
+  return gdSmart(c.contract, { operator: { owner: gdWallet, operator: FFB_OPERATOR } })
+    .then(d => !!(d && (d.expires || d.approval)))
+    .catch(() => false);
+}
+/* Page-load state: read the OWNER wallet's current approval state
+   before any connect, so a collection that is already approved
+   shows Approved the moment the page opens. A later connect
+   re-reads for the connected wallet (ffbRefreshApprovals). */
+async function ffbBootOwnerState(){
+  for (const c of FFB_COLLECTIONS){
+    try {
+      const d = await gdSmart(c.contract, { operator: { owner: FFB_GOLIATH, operator: FFB_OPERATOR } });
+      if (d && (d.expires || d.approval) && !gdWallet){
+        ffbApproved[c.key] = true;
+        ffbCardStatus(c, t('approved'));
+      }
+    } catch (e) {}
+  }
+}
+const ffbAttempt = {};   /* per-card tap counter — watchers from an older tap go inert */
 async function ffbApproveClick(c){
   if (!gdWalletConnected || !gdWallet){ ffbCardStatus(c, t('connectFirst')); gdRenderPanel(t('connectFirst')); return; }
   const btn = $(c.key + 'Btn');
+  const attempt = (ffbAttempt[c.key] = (ffbAttempt[c.key] || 0) + 1);
+  const mine = () => ffbAttempt[c.key] === attempt;
   if (btn) btn.disabled = true;
   ffbCardStatus(c, t('approving'));
-  try {
-    const res = await ffbExecuteApprove(c.contract);
+  let settled = false;
+  const finishOk = (txHash) => {
+    if (settled || !mine()) return;
+    settled = true;
     ffbApproved[c.key] = true;
     ffbCardStatus(c, t('doneTx'));
-    const txEl = $(c.key + 'Tx');
-    if (txEl && res && res.transactionHash){
-      txEl.innerHTML = '';
-      const a = document.createElement('a');
-      a.href = 'https://finder.terraclassic.community/mainnet/tx/' + res.transactionHash;
-      a.target = '_blank'; a.rel = 'noopener';
-      a.textContent = 'Tx: ' + res.transactionHash.slice(0, 18) + '…';
-      txEl.appendChild(a);
+    if (txHash){
+      const txEl = $(c.key + 'Tx');
+      if (txEl){
+        txEl.innerHTML = '';
+        const a = document.createElement('a');
+        a.href = 'https://finder.terraclassic.community/mainnet/tx/' + txHash;
+        a.target = '_blank'; a.rel = 'noopener';
+        a.textContent = 'Tx: ' + txHash.slice(0, 18) + '…';
+        txEl.appendChild(a);
+      }
     }
     gdRenderPanel(t('doneTx'));
+    if (btn) btn.disabled = false;
+  };
+  /* Chain watcher: on a phone the wallet handoff can take minutes
+     and the wallet's callback may never return to this tab — the
+     chain is the source of truth. Poll every 10s and flip the card
+     the moment the approval lands, whatever the promise does. */
+  const t0 = Date.now();
+  const watcher = setInterval(async () => {
+    if (!mine() || Date.now() - t0 > 600000){ clearInterval(watcher); return; }
+    if (await ffbCheckApproved(c)) { clearInterval(watcher); finishOk(null); }
+  }, 10000);
+  /* 90s watchdog: never sit on "opening…" in silence — explain,
+     point at the wallet, and hand the button back. The watcher
+     above keeps running, so a late sign still flips the card. */
+  const watchdog = setTimeout(() => {
+    if (!mine() || settled) return;
+    ffbCardStatus(c, t('stillWaiting'));
+    if (btn) btn.disabled = false;
+  }, 90000);
+  try {
+    const res = await ffbExecuteApprove(c.contract);
+    clearInterval(watcher); clearTimeout(watchdog);
+    finishOk(res && res.transactionHash);
   } catch (e) {
+    /* a wallet can report an error after the tx actually landed —
+       one last chain check before calling it a failure */
+    const ok = await ffbCheckApproved(c);
+    clearInterval(watcher); clearTimeout(watchdog);
+    if (ok) { finishOk(null); return; }
+    if (!mine()) return;
+    settled = true;
     ffbCardStatus(c, t('failed') + ' ' + String((e && e.message) || e).slice(0, 110));
-  } finally { if (btn) btn.disabled = false; }
+    if (btn) btn.disabled = false;
+  }
 }
 
 /* ================= FFB — language (EN / ES) ================= */
@@ -1006,6 +1066,7 @@ const FFB_STR = {
     pairHint: 'Pairing link for the wallet app:',
     ffbName: 'Boost Collection — FFB', ffbpName: 'Premium Collection — FFBP',
     approve: '✅ Approve / Aprobar', approving: 'Opening your wallet to sign…',
+    stillWaiting: 'Still waiting — if your wallet shows a sign request, approve it there. If nothing arrived in your wallet, tap Approve to try again.',
     notApproved: 'Not approved yet — tap the button below.', approved: '✅ Approved — the market can complete sales from this collection.',
     doneTx: 'Done ✓ — approval is on-chain.', failed: 'Approval failed or was declined — nothing was approved.',
     revoke: 'One approval per collection. Revoking later: send a revoke_all for the same operator from the same wallet.',
@@ -1021,6 +1082,7 @@ const FFB_STR = {
     pairHint: 'Enlace de conexión para la app de billetera:',
     ffbName: 'Colección Boost — FFB', ffbpName: 'Colección Premium — FFBP',
     approve: '✅ Aprobar / Approve', approving: 'Abriendo tu billetera para firmar…',
+    stillWaiting: 'Sigo esperando — si tu billetera muestra una solicitud de firma, apruébala ahí. Si no llegó nada a tu billetera, toca Aprobar para intentarlo de nuevo.',
     notApproved: 'Aún no aprobado — toca el botón de abajo.', approved: '✅ Aprobado — el mercado puede completar ventas de esta colección.',
     doneTx: 'Listo ✓ — la aprobación está en la blockchain.', failed: 'La aprobación falló o fue rechazada — no se aprobó nada.',
     revoke: 'Una aprobación por colección. Para revocarla después: envía un revoke_all para el mismo operador desde la misma billetera.',
@@ -1035,7 +1097,7 @@ function ffbApplyLang(){
   if (s) s.classList.toggle('on', ffbLang === 'es');
   gdRenderPanel(gdWallet ? t('connectedOk') : t('notSignedIn'));
   for (const c of FFB_COLLECTIONS)
-    ffbCardStatus(c, !gdWallet ? t('connectFirst') : (ffbApproved[c.key] ? t('approved') : t('notApproved')));
+    ffbCardStatus(c, ffbApproved[c.key] ? t('approved') : (!gdWallet ? t('connectFirst') : t('notApproved')));
 }
 
 /* ---- panel wiring (same ids the copied wallet core expects) ---- */
@@ -1049,6 +1111,7 @@ for (const c of FFB_COLLECTIONS){
 { const e = $('langEn'); if (e) e.onclick = () => { ffbLang = 'en'; ffbApplyLang(); }; }
 { const s = $('langEs'); if (s) s.onclick = () => { ffbLang = 'es'; ffbApplyLang(); }; }
 ffbApplyLang();
+ffbBootOwnerState();
 
 /* bridge for QA / future glue: wallet state + approval state. */
 window.__ffbApprove = {
