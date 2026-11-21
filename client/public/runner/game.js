@@ -27740,52 +27740,108 @@ void main() {
   var player = new Group();
   var bodyG = new Group();
   player.add(bodyG);
-  var torso = capsule(0.33, 0.55, 1120295);
-  torso.position.y = 1.12;
-  bodyG.add(torso);
-  var stripe = new Mesh(
-    new BoxGeometry(0.1, 0.62, 0.05),
-    new MeshStandardMaterial({ color: 2282478, emissive: 2282478, emissiveIntensity: 1.6 })
+  // Neon sports car (front = -Z, down-track). Body parts live in bodyG so the
+  // slide squat / lean / jump pitch apply; wheels sit directly in `player` so
+  // the squat drops the body over them instead of squashing them.
+  var carPaint = new MeshStandardMaterial({ color: 1713216, roughness: 0.35, metalness: 0.65, emissive: 659488, emissiveIntensity: 0.6 });
+  var carDark = new MeshStandardMaterial({ color: 658970, roughness: 0.6, metalness: 0.3 });
+  var neonCyanMat = new MeshStandardMaterial({ color: 2282478, emissive: 2282478, emissiveIntensity: 2 });
+  var chassis = new Mesh(new BoxGeometry(1.14, 0.3, 2.2), carPaint);
+  chassis.position.y = 0.46;
+  bodyG.add(chassis);
+  var hood = new Mesh(new BoxGeometry(1.04, 0.14, 0.95), carPaint);
+  hood.position.set(0, 0.63, -0.58);
+  hood.rotation.x = -0.1;
+  bodyG.add(hood);
+  var canopy = new Mesh(
+    new BoxGeometry(0.88, 0.3, 1.05),
+    new MeshStandardMaterial({ color: 858160, roughness: 0.12, metalness: 0.7, emissive: 928314, emissiveIntensity: 0.4 })
   );
-  stripe.position.set(0, 1.14, -0.33);
-  bodyG.add(stripe);
-  var pack = new Mesh(
-    new BoxGeometry(0.44, 0.56, 0.2),
-    new MeshStandardMaterial({ color: 2042167, roughness: 0.6 })
-  );
-  pack.position.set(0, 1.16, 0.36);
-  bodyG.add(pack);
-  var packGlow = new Mesh(
-    new BoxGeometry(0.26, 0.3, 0.03),
-    new MeshStandardMaterial({ color: 2282478, emissive: 2282478, emissiveIntensity: 2 })
-  );
-  packGlow.position.set(0, 1.18, 0.47);
-  bodyG.add(packGlow);
-  var head = new Mesh(
-    new SphereGeometry(0.24, 18, 14),
-    new MeshStandardMaterial({ color: 988970, roughness: 0.4 })
-  );
-  head.position.y = 1.78;
-  bodyG.add(head);
-  var visor = new Mesh(
-    new BoxGeometry(0.34, 0.09, 0.06),
-    new MeshStandardMaterial({ color: 2282478, emissive: 2282478, emissiveIntensity: 2 })
-  );
-  visor.position.set(0, 1.8, -0.21);
-  bodyG.add(visor);
-  function limb(x, y, r, len, color) {
-    const g = new Group();
-    g.position.set(x, y, 0);
-    const m = capsule(r, len, color);
-    m.position.y = -len / 2 - r;
-    g.add(m);
-    bodyG.add(g);
-    return g;
+  canopy.position.set(0, 0.72, 0.22);
+  canopy.rotation.x = 0.05;
+  bodyG.add(canopy);
+  for (const sx of [-1, 1]) {
+    const skirt = new Mesh(new BoxGeometry(0.04, 0.06, 1.9), neonCyanMat);
+    skirt.position.set(sx * 0.58, 0.36, 0);
+    bodyG.add(skirt);
   }
-  var armL = limb(-0.45, 1.42, 0.09, 0.42, 1120295);
-  var armR = limb(0.45, 1.42, 0.09, 0.42, 1120295);
-  var legL = limb(-0.17, 0.82, 0.11, 0.5, 725280);
-  var legR = limb(0.17, 0.82, 0.11, 0.5, 725280);
+  var lip = new Mesh(new BoxGeometry(1, 0.05, 0.04), neonCyanMat);
+  lip.position.set(0, 0.34, -1.11);
+  bodyG.add(lip);
+  for (const sx of [-1, 1]) {
+    const hl = new Mesh(
+      new BoxGeometry(0.26, 0.09, 0.05),
+      new MeshStandardMaterial({ color: 16774857, emissive: 16772784, emissiveIntensity: 3 })
+    );
+    hl.position.set(sx * 0.36, 0.52, -1.11);
+    bodyG.add(hl);
+  }
+  var beams = new PointLight(12578815, 10, 9);
+  beams.position.set(0, 0.5, -1.6);
+  bodyG.add(beams);
+  var tail = new Mesh(
+    new BoxGeometry(1.06, 0.09, 0.05),
+    new MeshStandardMaterial({ color: 16722500, emissive: 16722500, emissiveIntensity: 2.4 })
+  );
+  tail.position.set(0, 0.56, 1.11);
+  bodyG.add(tail);
+  for (const sx of [-1, 1]) {
+    const strut = new Mesh(new BoxGeometry(0.06, 0.22, 0.06), carDark);
+    strut.position.set(sx * 0.42, 0.72, 1.02);
+    bodyG.add(strut);
+  }
+  var wing = new Mesh(new BoxGeometry(1.24, 0.05, 0.3), carDark);
+  wing.position.set(0, 0.85, 1.04);
+  bodyG.add(wing);
+  var wingEdge = new Mesh(new BoxGeometry(1.24, 0.03, 0.03), neonCyanMat);
+  wingEdge.position.set(0, 0.85, 1.19);
+  bodyG.add(wingEdge);
+  var underglow = new Mesh(
+    new PlaneGeometry(1.6, 2.55),
+    new MeshBasicMaterial({ color: 2282478, transparent: true, opacity: 0.22, blending: AdditiveBlending, depthWrite: false })
+  );
+  underglow.rotation.x = -Math.PI / 2;
+  underglow.position.y = 0.03;
+  bodyG.add(underglow);
+  function crescentTexture() {
+    const c = document.createElement("canvas");
+    c.width = 128;
+    c.height = 128;
+    const g = c.getContext("2d");
+    g.fillStyle = "#fbbf24";
+    g.beginPath();
+    g.arc(64, 64, 44, 0, Math.PI * 2);
+    g.fill();
+    g.globalCompositeOperation = "destination-out";
+    g.beginPath();
+    g.arc(84, 50, 38, 0, Math.PI * 2);
+    g.fill();
+    return new CanvasTexture(c);
+  }
+  var crescent = new Mesh(
+    new PlaneGeometry(0.52, 0.52),
+    new MeshBasicMaterial({ map: crescentTexture(), transparent: true })
+  );
+  crescent.rotation.x = -Math.PI / 2 - 0.1;
+  crescent.position.set(0, 0.715, -0.58);
+  bodyG.add(crescent);
+  var wheels = [];
+  {
+    const tireGeo = new CylinderGeometry(0.34, 0.34, 0.24, 20);
+    tireGeo.rotateZ(Math.PI / 2);
+    const hubGeo = new CylinderGeometry(0.17, 0.17, 0.26, 12);
+    hubGeo.rotateZ(Math.PI / 2);
+    const tireMat = new MeshStandardMaterial({ color: 657938, roughness: 0.9 });
+    const hubMat = new MeshStandardMaterial({ color: 10135485, roughness: 0.3, metalness: 0.8, emissive: 2282478, emissiveIntensity: 0.35 });
+    for (const sx of [-1, 1]) for (const zz of [-0.72, 0.72]) {
+      const w = new Group();
+      w.position.set(sx * 0.58, 0.34, zz);
+      w.add(new Mesh(tireGeo, tireMat));
+      w.add(new Mesh(hubGeo, hubMat));
+      player.add(w);
+      wheels.push(w);
+    }
+  }
   scene.add(player);
   function stripesTexture() {
     const c = document.createElement("canvas");
@@ -28065,21 +28121,13 @@ void main() {
     }
     player.position.y = playerY;
     const slidingNow = sliding > 0 && playerY <= 1e-3;
-    bodyG.scale.y = slidingNow ? 0.52 : 1;
-    bodyG.position.y = slidingNow ? -0.18 : 0;
-    bodyG.rotation.x = slidingNow ? 0.5 : playerY > 0 ? -0.12 : 0;
+    bodyG.scale.y = slidingNow ? 0.8 : 1;
+    bodyG.position.y = slidingNow ? -0.12 : 0;
+    bodyG.rotation.x = slidingNow ? 0.03 : playerY > 0 ? 0.09 : 0;
     bodyG.rotation.z = (LANES[lane] - player.position.x) * -0.14;
     runPhase += dt * (4 + v * 0.55);
-    const sw = playerY > 0 ? 0.25 : Math.sin(runPhase) * 0.75;
-    legL.rotation.x = sw;
-    legR.rotation.x = -sw;
-    armL.rotation.x = -sw * 0.85;
-    armR.rotation.x = sw * 0.85;
-    if (playerY > 0) {
-      legL.rotation.x = 0.55;
-      legR.rotation.x = -0.3;
-    }
-    bodyG.position.y += Math.abs(Math.sin(runPhase)) * 0.05 * (playerY > 0 ? 0 : 1);
+    for (const w of wheels) w.rotation.x -= dt * v / 0.34;
+    bodyG.position.y += Math.abs(Math.sin(runPhase)) * 0.02 * (playerY > 0 ? 0 : 1);
     for (let i = obstacles.length - 1; i >= 0; i--) {
       const o = obstacles[i];
       o.position.z += v * dt;
