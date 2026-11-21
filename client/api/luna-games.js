@@ -1456,9 +1456,12 @@ async function gdSettingsAction(req, res, body, by) {
      POST {action:"challenge", address} issues a one-time login
      message (single-use nonce, 5-minute TTL, frog:adminchal:<addr>)
      and only to an authorised wallet; POST {action:"verify", ...}
-     burns the challenge on ANY attempt, verifies the signature with
-     the SAME gd* ADR-36 helpers the Garuda sign-in uses (the address
-     derived from the pubkey must equal the claimed address), and on
+     deletes the challenge only after a SUCCESSFUL verify (a failed
+     attempt keeps it, inside the same 5-minute TTL), verifies the
+     signature with the gd* ADR-36 helpers the Garuda sign-in uses
+     PLUS the Keplr-mobile chain-id variant (see frogAdminVerifyAdr36
+     below). The address derived from the pubkey must equal the
+     claimed address, and on
      success issues a random session token (stored hashed,
      frog:adminsess:<sha256>, 4-hour TTL). Nothing here holds a key
      or signs a transaction — it is a login signature only.
@@ -1626,6 +1629,41 @@ async function frogAdminChallenge(req, res, body) {
   res.setHeader('Cache-Control', 'no-store');
   return res.status(200).json({ ok: true, message, nonce, expiresIn: FROG_ADMIN_CHAL_TTL_SEC });
 }
+/* Keplr MOBILE's signArbitrary has historically signed the same
+   ADR-36 amino doc as the extension but with the real chain_id
+   ('columbus-5') where the extension puts ''. Both docs carry the
+   same message and the same signer, so accepting either costs no
+   security: the signature must still verify against the pubkey
+   whose derived address equals the claimed (authorised) wallet.
+   gdAdr36SignBytes hardcodes chain_id '', so the variant doc is
+   built here with the chain id as a parameter. */
+function frogAdminAdr36SignBytes(message, signer, chainId) {
+  const doc = {
+    account_number: '0',
+    chain_id: chainId,
+    fee: { amount: [], gas: '0' },
+    memo: '',
+    msgs: [{ type: 'sign/MsgSignData', value: { data: Buffer.from(message, 'utf8').toString('base64'), signer } }],
+    sequence: '0',
+  };
+  const json = JSON.stringify(gdSortJson(doc))
+    .replace(/&/g, '\\u0026').replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+  return Buffer.from(json, 'utf8');
+}
+function frogAdminVerifyAdr36(message, signer, pub, sig) {
+  if (gdVerifyAdr36(message, signer, pub, sig)) return true;   /* extension doc (chain_id '') */
+  try {
+    if (!Buffer.isBuffer(pub) || pub.length !== 33 || (pub[0] !== 2 && pub[0] !== 3)) return false;
+    if (!Buffer.isBuffer(sig) || sig.length !== 64) return false;
+    const pt = gdDecompressPubKey(pub);
+    if (!pt) return false;
+    const key = crypto.createPublicKey({
+      format: 'jwk',
+      key: { kty: 'EC', crv: 'secp256k1', x: pt.x.toString('base64url'), y: pt.y.toString('base64url') },
+    });
+    return crypto.verify('sha256', frogAdminAdr36SignBytes(message, signer, 'columbus-5'), { key, dsaEncoding: 'ieee-p1363' }, sig);
+  } catch (e) { return false; }
+}
 async function frogAdminVerify(req, res, body) {
   const fail = () => res.status(401).json({ ok: false, error: 'sign-in failed' });
   const address = String(body.address || '');
@@ -1633,7 +1671,7 @@ async function frogAdminVerify(req, res, body) {
   if (!role) return fail();
   let stored = null;
   try {
-    const out = await upstashPipeline([['GETDEL', 'frog:adminchal:' + address]]);
+    const out = await upstashPipeline([['GET', 'frog:adminchal:' + address]]);
     stored = (out && out[0] && out[0].result) || null;
   } catch (e) {
     console.error('frog admin challenge read failed', e && e.message);
@@ -1656,7 +1694,14 @@ async function frogAdminVerify(req, res, body) {
     sig = Buffer.from(sigB64, 'base64');
   } catch (e) { return fail(); }
   if (gdAddressFromPubKey(pub) !== address) return fail();
-  if (!gdVerifyAdr36(chal.message, address, pub, sig)) return fail();
+  if (!frogAdminVerifyAdr36(chal.message, address, pub, sig)) return fail();
+  /* Signature proven — burn the challenge NOW so it stays
+     single-success. A failed attempt never reaches this delete,
+     so a legitimate retry inside the TTL (slow app-switch, a
+     double-tap, one rejected signature variant) still works. */
+  try {
+    await upstashPipeline([['DEL', 'frog:adminchal:' + address]]);
+  } catch (e) { console.error('frog admin challenge delete failed', e && e.message); }
   const token = crypto.randomBytes(32).toString('base64url');
   const tokenKey = 'frog:adminsess:' + crypto.createHash('sha256').update(token).digest('hex');
   try {
