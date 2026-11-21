@@ -523,10 +523,11 @@ function setScreen(big,small,color){ const x=screenCtx; if(!x) return;
    Drawn, not assembled — no sphere-eyes, no line mouth. */
 function faceTex(o){ const st=o.faceStyle||'grin';
   const skinC='#'+(o.skin>>>0).toString(16).padStart(6,'0'), hairC='#'+(o.hair||0x2a1a0e).toString(16).padStart(6,'0');
-  return cnv(1024,640,(x,w,h)=>{ x.fillStyle=hairC; x.fillRect(0,0,w,h);
+  return cnv(1024,640,(x,w,h)=>{
     /* face lives ONLY in a skin oval at the front-centre of the texture —
-       everything outside the oval is hair colour, so from behind/side angles
-       the head reads as hair, never a smeared wrap-around face */
+       everything outside the oval is TRANSPARENT (round-3): the texture is
+       carried on a one-sided front decal, so from behind/side angles there
+       is no face surface at all — the head reads as hair, never a wrap */
     x.fillStyle=skinC; x.beginPath(); x.ellipse(512,340,312,264,0,0,7); x.fill();
     x.save(); x.beginPath(); x.ellipse(512,340,312,264,0,0,7); x.clip();
     x.translate(512,330); x.scale(.66,.66); x.translate(-512,-330);
@@ -691,9 +692,23 @@ function makeChibi(o){ const g=new THREE.Group(); const parts={group:g};
   head.position.y=.17; head.castShadow=true; hg.add(head);
   [-1,1].forEach(s=>{ const ear=new THREE.Mesh(new THREE.SphereGeometry(.078,8,8), skin);
     ear.scale.set(.5,1,.75); ear.position.set(.415*s,.16,0); hg.add(ear); });
-  const face=new THREE.Mesh(new THREE.SphereGeometry(.428,24,18,Math.PI/2-.75,1.5,.80,1.25),
-    new THREE.MeshStandardMaterial({map:faceTex(o),roughness:.55}));
-  face.position.y=.17; hg.add(face);
+  /* face DECAL (round-3 fix): a plane bent ONLY around the horizontal axis
+     (cylindrical, R = head radius .42, centreline ~.012 proud of the skin),
+     so it hugs the head vertically and tucks under the cap dome. It is
+     one-sided: from any angle >90 deg off the face axis the whole decal is
+     backface-culled, so no face feature can ever wrap onto the side or back
+     of the head — the old curved sphere patch always showed its camera-side
+     sliver (eye at the silhouette) from the behind-catcher gameplay camera. */
+  const faceGeo=new THREE.PlaneGeometry(.64,.535,16,12);
+  { const fp=faceGeo.attributes.position, fdy=.064, fR=.42,
+          fRef=Math.sqrt(fR*fR-fdy*fdy);
+    for(let i=0;i<fp.count;i++){ const fy=fp.getY(i);
+      fp.setZ(i,Math.sqrt(Math.max(.001,fR*fR-(fy+fdy)*(fy+fdy)))-fRef); }
+    faceGeo.computeVertexNormals();
+    var faceDecalZ=fRef+.012; }
+  const face=new THREE.Mesh(faceGeo,
+    new THREE.MeshStandardMaterial({map:faceTex(o),transparent:true,alphaTest:.05,roughness:.55}));
+  face.position.set(0,.234,faceDecalZ); hg.add(face);
   /* hair — three original styles, living in the visible band under the cap rim */
   const hairBack=new THREE.Mesh(new THREE.SphereGeometry(.445,16,12), hairM);
   hairBack.scale.set(1.0,.94,.80); hairBack.position.set(0,.20,-.12); hg.add(hairBack);
