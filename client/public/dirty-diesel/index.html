@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<base href="/dirty-diesel/">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Dirty Diesel — LUNC Dev Studio</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{width:100%;height:100%;overflow:hidden;background:#170b1e;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;color:#fff4e0;touch-action:none;user-select:none;-webkit-user-select:none}
+  #game{position:fixed;inset:0}
+  canvas{display:block}
+
+  /* ---------- language selector ---------- */
+  #langWrap{position:fixed;top:calc(6px + env(safe-area-inset-top));right:8px;z-index:80;display:flex;align-items:center;gap:6px;background:rgba(24,10,26,.85);border:1px solid #ffb347;border-radius:999px;padding:5px 10px;box-shadow:0 0 14px rgba(255,150,50,.3)}
+  #langWrap span{font-size:17px}
+  #langSel{background:transparent;border:none;color:#ffb347;font-size:15px;font-weight:700;outline:none;max-width:128px}
+  #langSel option{background:#1c0d22;color:#fff}
+
+  /* ---------- generic overlay cards ---------- */
+  .screen{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:18px;background:radial-gradient(ellipse at 50% 115%,rgba(255,110,30,.28),rgba(10,4,16,.55) 60%);text-align:center}
+  .hidden{display:none !important}
+  .titleArt{font-size:clamp(44px,13vw,84px);font-weight:900;font-style:italic;letter-spacing:1px;line-height:.95;color:#ffd23e;text-shadow:0 0 26px rgba(255,140,0,.75),0 3px 0 #8a3c00,0 6px 0 rgba(0,0,0,.45);transform:skewX(-6deg)}
+  .titleArt .d2{color:#ff7b24}
+  .tagline{margin-top:10px;font-size:clamp(14px,4.4vw,20px);font-weight:800;letter-spacing:3px;color:#ffe9c9;text-shadow:0 2px 8px #000}
+  .crescent{color:#ffd23e}
+  .btn{display:block;width:min(320px,84vw);margin:10px auto 0;padding:15px 18px;border:none;border-radius:14px;font-size:20px;font-weight:900;letter-spacing:1px;cursor:pointer;color:#2a1400;background:linear-gradient(180deg,#ffd23e,#ff8b1f);box-shadow:0 5px 0 #9c4d00,0 10px 22px rgba(0,0,0,.5)}
+  .btn:active{transform:translateY(3px);box-shadow:0 2px 0 #9c4d00}
+  .btn.dark{color:#ffe9c9;background:linear-gradient(180deg,#4a2358,#2a1236);box-shadow:0 5px 0 #17081f,0 10px 22px rgba(0,0,0,.5);border:1px solid #ffb347}
+  .btn.small{font-size:16px;padding:11px 14px;width:min(240px,70vw)}
+  .bestLine{margin-top:14px;font-size:15px;font-weight:700;color:#ffcf99;text-shadow:0 1px 4px #000}
+  .card{background:rgba(20,8,24,.92);border:1px solid #ffb347;border-radius:18px;padding:20px 18px;max-width:min(430px,94vw);max-height:82vh;overflow-y:auto;box-shadow:0 14px 40px rgba(0,0,0,.6)}
+  .card h2{color:#ffd23e;letter-spacing:1px;margin-bottom:10px;font-size:24px}
+  .card p{font-size:15px;line-height:1.5;color:#ffe9c9;text-align:left;margin-bottom:8px}
+  [dir="rtl"] .card p{text-align:right}
+
+  /* ---------- HUD ---------- */
+  #hud{position:fixed;inset:0;z-index:40;pointer-events:none}
+  .hudCard{position:absolute;background:rgba(18,7,22,.78);border:1px solid rgba(255,179,71,.55);border-radius:12px;padding:6px 12px;min-width:86px}
+  .hudCard .lab{font-size:10px;font-weight:800;letter-spacing:1.5px;color:#ffcf99}
+  .hudCard .val{font-size:22px;font-weight:900;color:#fff;line-height:1.05}
+  #hudLeft{top:calc(52px + env(safe-area-inset-top));left:8px}
+  #hudRight{top:calc(52px + env(safe-area-inset-top));right:8px;text-align:right}
+  #speedo{position:absolute;right:10px;bottom:calc(196px + env(safe-area-inset-bottom));text-align:center;background:rgba(18,7,22,.78);border:1px solid rgba(255,179,71,.55);border-radius:14px;padding:4px 14px 7px}
+  #speedo .sv{font-size:44px;font-weight:900;font-style:italic;color:#ffd23e;line-height:1;text-shadow:0 0 16px rgba(255,150,0,.6)}
+  #speedo .sl{font-size:11px;font-weight:800;letter-spacing:2px;color:#ffcf99}
+  #msg{position:absolute;top:24%;left:0;right:0;text-align:center;font-size:clamp(26px,8vw,44px);font-weight:900;font-style:italic;letter-spacing:1px;color:#ffd23e;text-shadow:0 0 20px rgba(255,140,0,.8),0 3px 0 #7a3800;opacity:0;transition:opacity .15s;pointer-events:none}
+  #msg.show{opacity:1}
+  #msg.crush{color:#ff5d3a;text-shadow:0 0 22px rgba(255,60,0,.9),0 3px 0 #5e0e00}
+
+  /* ---------- touch controls ---------- */
+  #controls{position:fixed;inset:0;z-index:45;pointer-events:none}
+  #joy{position:absolute;left:16px;bottom:calc(22px + env(safe-area-inset-bottom));width:128px;height:128px;border-radius:50%;background:rgba(20,8,24,.5);border:2px solid rgba(255,179,71,.5);pointer-events:auto}
+  #joyKnob{position:absolute;left:50%;top:50%;width:58px;height:58px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffd23e,#c96a00);transform:translate(-50%,-50%);box-shadow:0 4px 12px rgba(0,0,0,.55)}
+  #pedals{position:absolute;right:12px;bottom:calc(16px + env(safe-area-inset-bottom));display:flex;align-items:flex-end;gap:10px;pointer-events:auto}
+  .pedal{border:2px solid rgba(255,179,71,.6);color:#ffe9c9;font-weight:900;letter-spacing:1px;border-radius:14px;background:rgba(24,10,26,.72);display:flex;align-items:center;justify-content:center;text-align:center;cursor:pointer}
+  .pedal.on{background:rgba(255,150,30,.55);border-color:#ffd23e}
+  #btnTurbo{width:74px;height:74px;border-radius:50%;font-size:13px;background:radial-gradient(circle at 35% 30%,#5a5a66,#23232c);border-color:#cfd6dd;color:#fff}
+  #btnTurbo.on{background:radial-gradient(circle at 35% 30%,#ff9a3c,#c22e00);border-color:#ffd23e}
+  #btnBrake{width:64px;height:88px;font-size:13px}
+  #btnGas{width:64px;height:118px;font-size:14px;background:rgba(46,20,8,.78)}
+
+  /* ---------- garage ---------- */
+  #garage{position:fixed;inset:0;z-index:50;pointer-events:none}
+  #garageTop{position:absolute;top:calc(50px + env(safe-area-inset-top));left:0;right:0;text-align:center;pointer-events:none}
+  #garageTop h2{font-size:clamp(24px,7vw,36px);font-weight:900;font-style:italic;color:#ffd23e;text-shadow:0 0 18px rgba(255,140,0,.7),0 2px 0 #7a3800;letter-spacing:1px}
+  #garagePanel{position:absolute;left:0;right:0;bottom:0;pointer-events:auto;background:linear-gradient(180deg,rgba(22,9,26,.88),rgba(12,4,16,.97));border-top:2px solid #ffb347;padding:8px 10px calc(10px + env(safe-area-inset-bottom))}
+  #catRow{display:flex;gap:6px;overflow-x:auto;padding-bottom:7px;scrollbar-width:none}
+  #catRow::-webkit-scrollbar{display:none}
+  .catChip{flex:0 0 auto;padding:8px 13px;border-radius:999px;border:1px solid #ffb347;background:rgba(60,30,10,.6);color:#ffcf99;font-size:13px;font-weight:800;letter-spacing:.5px;cursor:pointer}
+  .catChip.sel{background:#ffb347;color:#2a1400}
+  #optRow{display:flex;gap:7px;overflow-x:auto;padding:2px 0 8px;scrollbar-width:none;min-height:52px;align-items:stretch}
+  #optRow::-webkit-scrollbar{display:none}
+  .optBtn{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:7px 12px;border-radius:12px;border:2px solid rgba(255,179,71,.4);background:rgba(35,16,40,.85);color:#ffe9c9;font-size:12.5px;font-weight:800;cursor:pointer;min-width:74px}
+  .optBtn.sel{border-color:#ffd23e;background:rgba(120,60,0,.75);color:#fff}
+  .optBtn .sw{width:30px;height:20px;border-radius:6px;border:1px solid rgba(255,255,255,.5)}
+  .optBtn .st{font-size:10px;color:#ffd23e;letter-spacing:1px}
+  #garageBtns{display:flex;gap:10px}
+  #garageBtns .btn{margin:0;flex:1;width:auto}
+</style>
+<script type="importmap">{"imports":{"three":"./lib/three.module.js"}}</script>
+</head>
+<body>
+<div id="game"></div>
+
+<div id="langWrap"><span>🌐</span><select id="langSel" aria-label="Language"></select></div>
+
+<!-- HUD -->
+<div id="hud" class="hidden">
+  <div class="hudCard" id="hudLeft">
+    <div class="lab" data-i18n="score">SCORE</div><div class="val" id="hScore">0</div>
+    <div class="lab" data-i18n="dist">DISTANCE</div><div class="val" id="hDist" style="font-size:16px">0.00</div>
+  </div>
+  <div class="hudCard" id="hudRight">
+    <div class="lab">🪙 <span data-i18n="coins">COINS</span></div><div class="val" id="hCoins">0</div>
+    <div class="lab">💥 <span data-i18n="crushedLbl">CRUSHED</span></div><div class="val" id="hCrush">0</div>
+  </div>
+  <div id="speedo"><div class="sv" id="hSpeed">0</div><div class="sl" data-i18n="mph">MPH</div></div>
+  <div id="msg"></div>
+</div>
+
+<!-- touch controls -->
+<div id="controls" class="hidden">
+  <div id="joy"><div id="joyKnob"></div></div>
+  <div id="pedals">
+    <div class="pedal" id="btnTurbo">🔥<br><span data-i18n="turbo">TURBO</span></div>
+    <div class="pedal" id="btnBrake"><span data-i18n="brake">BRAKE</span></div>
+    <div class="pedal" id="btnGas"><span data-i18n="gas">GAS</span></div>
+  </div>
+</div>
+
+<!-- MENU -->
+<div id="menu" class="screen">
+  <div class="titleArt">DIRTY <span class="d2">DIESEL</span></div>
+  <div class="tagline"><span class="crescent">☾</span> <span data-i18n="tagline">MONSTER TRUCK MAYHEM</span> <span class="crescent">☾</span></div>
+  <div style="height:26vh"></div>
+  <button class="btn" id="btnPlay" data-i18n="play">▶ PLAY</button>
+  <button class="btn dark" id="btnGarage" data-i18n="garageBtn">🔧 BUILD YOUR TRUCK</button>
+  <button class="btn dark small" id="btnHow" data-i18n="howBtn">HOW TO PLAY</button>
+  <div class="bestLine"><span data-i18n="best">BEST</span>: <span id="menuBest">0</span></div>
+</div>
+
+<!-- GARAGE -->
+<div id="garage" class="hidden">
+  <div id="garageTop"><h2 data-i18n="garageTitle">🔧 BUILD YOUR TRUCK</h2></div>
+  <div id="garagePanel">
+    <div id="catRow"></div>
+    <div id="optRow"></div>
+    <div id="garageBtns">
+      <button class="btn dark" id="btnGarageBack" data-i18n="backBtn">← BACK</button>
+      <button class="btn" id="btnRace" data-i18n="raceBtn">🏁 RACE!</button>
+    </div>
+  </div>
+</div>
+
+<!-- HOW TO -->
+<div id="howto" class="screen hidden" style="background:rgba(8,3,12,.72)">
+  <div class="card">
+    <h2 data-i18n="howTitle">HOW TO PLAY</h2>
+    <p data-i18n="how1"><b>Steer:</b> drag the joystick, or use ← → / A D keys.</p>
+    <p data-i18n="how2"><b>Gas &amp; brake:</b> hold the pedals, or ↑ / ↓ keys. Speed keeps climbing the longer you run!</p>
+    <p data-i18n="how3"><b>TURBO:</b> hold 🔥 TURBO (or SPACE) for a speed surge — watch the stacks roll coal!</p>
+    <p data-i18n="how4"><b>CRUSH cars:</b> drive right over traffic cars for +150 and a bounce. Grab LUNC coins, thread near misses for +50.</p>
+    <p data-i18n="how5"><b>Watch out:</b> big semi trucks and road barriers WILL wreck you. Dodge those!</p>
+    <button class="btn small" id="btnHowClose" data-i18n="closeBtn">CLOSE</button>
+  </div>
+</div>
+
+<!-- GAME OVER -->
+<div id="over" class="screen hidden" style="background:rgba(10,2,8,.55)">
+  <div class="card" style="text-align:center">
+    <h2 data-i18n="gameOver" style="color:#ff5d3a">WRECKED!</h2>
+    <div id="newBestLine" style="font-size:19px;font-weight:900;color:#ffd23e;min-height:24px"></div>
+    <div style="font-size:14px;font-weight:800;letter-spacing:2px;color:#ffcf99" data-i18n="yourScore">YOUR SCORE</div>
+    <div id="finalScore" style="font-size:52px;font-weight:900;color:#fff;line-height:1.05">0</div>
+    <div style="font-size:15px;color:#ffe9c9">🪙 <span id="finalCoins">0</span> &nbsp;•&nbsp; 💥 <span id="finalCrush">0</span> &nbsp;•&nbsp; <span id="finalDist">0.00</span></div>
+    <div class="bestLine"><span data-i18n="best">BEST</span>: <span id="overBest">0</span></div>
+    <button class="btn" id="btnAgain" data-i18n="playAgain">PLAY AGAIN</button>
+    <button class="btn dark small" id="btnOverGarage" data-i18n="garageBtn">🔧 BUILD YOUR TRUCK</button>
+    <button class="btn dark small" id="btnOverMenu" data-i18n="menuBtn">MENU</button>
+  </div>
+</div>
+
+<script>
+/* ================= i18n — 18 languages, full key parity ================= */
+const LANGS = {
+en:{name:"English",tagline:"MONSTER TRUCK MAYHEM",play:"▶ PLAY",garageBtn:"🔧 BUILD YOUR TRUCK",howBtn:"HOW TO PLAY",howTitle:"HOW TO PLAY",how1:"<b>Steer:</b> drag the joystick, or use ← → / A D keys.",how2:"<b>Gas &amp; brake:</b> hold the pedals, or ↑ / ↓ keys. Speed keeps climbing the longer you run!",how3:"<b>TURBO:</b> hold 🔥 TURBO (or SPACE) for a speed surge — watch the stacks roll coal!",how4:"<b>CRUSH cars:</b> drive right over traffic cars for +150 and a bounce. Grab LUNC coins, thread near misses for +50.",how5:"<b>Watch out:</b> big semi trucks and road barriers WILL wreck you. Dodge those!",closeBtn:"CLOSE",score:"SCORE",dist:"DISTANCE",coins:"COINS",crushedLbl:"CRUSHED",crush:"CRUSH!",nearMiss:"NEAR MISS!",mph:"MPH",gameOver:"WRECKED!",yourScore:"YOUR SCORE",newBest:"★ NEW BEST! ★",playAgain:"PLAY AGAIN",menuBtn:"MENU",garageTitle:"🔧 BUILD YOUR TRUCK",raceBtn:"🏁 RACE!",backBtn:"← BACK",catPaint:"🎨 PAINT",catStacks:"🚬 STACKS",catWheels:"⚙ WHEELS",catChrome:"✨ CHROME",catGlow:"💡 GLOW",catSmoke:"💨 SMOKE",catTires:"🛞 TIRES",pBlack:"Midnight Black",pRed:"Diesel Red",pGold:"LUNC Gold",pBlue:"Ocean Blue",pGreen:"Forest Green",pPurple:"Purple Haze",pSilver:"Chrome Silver",stChrome:"Chrome Straight",stTall:"Tall Chrome",stBlack:"Black Stacks",wChrome:"Chrome Deep-Dish",wBlack:"Black Rims",wSteel:"Steel Rims",chBumper:"Chrome Bumper",chBullbar:"Bull Bar",chVisor:"Sun Visor",chHorns:"Air Horns",chTanks:"Chrome Tanks",chLightbar:"Light Bar",chMirrors:"Chrome Mirrors",chFlaps:"Mud Flaps",gNone:"None",gRed:"Red",gBlue:"Blue",gGold:"Gold",gGreen:"Green",sGray:"Gray",sBlack:"Black Coal",sWhite:"White",tBig:"Big",tBigger:"Bigger",tMonster:"MONSTER",on:"ON",off:"OFF",gas:"GAS",brake:"BRAKE",turbo:"TURBO"},
+es:{name:"Español",tagline:"CAOS MONSTER TRUCK",play:"▶ JUGAR",garageBtn:"🔧 ARMA TU CAMIÓN",howBtn:"CÓMO JUGAR",howTitle:"CÓMO JUGAR",how1:"<b>Dirección:</b> arrastra el joystick o usa las teclas ← → / A D.",how2:"<b>Gas y freno:</b> mantén los pedales, o ↑ / ↓. ¡La velocidad sube cuanto más avanzas!",how3:"<b>TURBO:</b> mantén 🔥 TURBO (o ESPACIO) para acelerar — ¡mira el humo negro de los escapes!",how4:"<b>APLASTA autos:</b> pasa sobre los autos del tráfico por +150 y un salto. Recoge monedas LUNC, roces cercanos +50.",how5:"<b>Cuidado:</b> los camiones grandes y las barreras SÍ te destruyen. ¡Esquívalos!",closeBtn:"CERRAR",score:"PUNTOS",dist:"DISTANCIA",coins:"MONEDAS",crushedLbl:"APLASTADOS",crush:"¡APLASTADO!",nearMiss:"¡POR POCO!",mph:"MPH",gameOver:"¡DESTROZADO!",yourScore:"TU PUNTUACIÓN",newBest:"★ ¡NUEVO RÉCORD! ★",playAgain:"JUGAR OTRA VEZ",menuBtn:"MENÚ",garageTitle:"🔧 ARMA TU CAMIÓN",raceBtn:"🏁 ¡A CORRER!",backBtn:"← ATRÁS",catPaint:"🎨 PINTURA",catStacks:"🚬 ESCAPES",catWheels:"⚙ RUEDAS",catChrome:"✨ CROMO",catGlow:"💡 BRILLO",catSmoke:"💨 HUMO",catTires:"🛞 NEUMÁTICOS",pBlack:"Negro Medianoche",pRed:"Rojo Diésel",pGold:"Dorado LUNC",pBlue:"Azul Océano",pGreen:"Verde Bosque",pPurple:"Morado Bruma",pSilver:"Plata Cromada",stChrome:"Cromo Recto",stTall:"Cromo Alto",stBlack:"Escapes Negros",wChrome:"Cromo Profundo",wBlack:"Llantas Negras",wSteel:"Llantas de Acero",chBumper:"Parachoques Cromo",chBullbar:"Defensa Toro",chVisor:"Visera Solar",chHorns:"Bocinas de Aire",chTanks:"Tanques Cromo",chLightbar:"Barra de Luces",chMirrors:"Espejos Cromo",chFlaps:"Faldones",gNone:"Ninguno",gRed:"Rojo",gBlue:"Azul",gGold:"Dorado",gGreen:"Verde",sGray:"Gris",sBlack:"Carbón Negro",sWhite:"Blanco",tBig:"Grande",tBigger:"Más Grande",tMonster:"MONSTRUO",on:"SÍ",off:"NO",gas:"GAS",brake:"FRENO",turbo:"TURBO"},
+pt:{name:"Português",tagline:"CAOS MONSTER TRUCK",play:"▶ JOGAR",garageBtn:"🔧 MONTE SEU CAMINHÃO",howBtn:"COMO JOGAR",howTitle:"COMO JOGAR",how1:"<b>Direção:</b> arraste o joystick ou use ← → / A D.",how2:"<b>Gás e freio:</b> segure os pedais, ou ↑ / ↓. A velocidade aumenta quanto mais você anda!",how3:"<b>TURBO:</b> segure 🔥 TURBO (ou ESPAÇO) para acelerar — veja a fumaça preta dos escapamentos!",how4:"<b>ESMAGE carros:</b> passe por cima dos carros por +150 e um salto. Pegue moedas LUNC, quase-batas +50.",how5:"<b>Cuidado:</b> caminhões grandes e barreiras VÃO te destruir. Desvie!",closeBtn:"FECHAR",score:"PONTOS",dist:"DISTÂNCIA",coins:"MOEDAS",crushedLbl:"ESMAGADOS",crush:"ESMAGOU!",nearMiss:"QUASE!",mph:"MPH",gameOver:"DESTRUÍDO!",yourScore:"SEU PLACAR",newBest:"★ NOVO RECORDE! ★",playAgain:"JOGAR DE NOVO",menuBtn:"MENU",garageTitle:"🔧 MONTE SEU CAMINHÃO",raceBtn:"🏁 CORRER!",backBtn:"← VOLTAR",catPaint:"🎨 PINTURA",catStacks:"🚬 ESCAPES",catWheels:"⚙ RODAS",catChrome:"✨ CROMO",catGlow:"💡 BRILHO",catSmoke:"💨 FUMAÇA",catTires:"🛞 PNEUS",pBlack:"Preto Meia-Noite",pRed:"Vermelho Diesel",pGold:"Dourado LUNC",pBlue:"Azul Oceano",pGreen:"Verde Floresta",pPurple:"Roxo Névoa",pSilver:"Prata Cromada",stChrome:"Cromo Reto",stTall:"Cromo Alto",stBlack:"Escapes Pretos",wChrome:"Cromo Profundo",wBlack:"Rodas Pretas",wSteel:"Rodas de Aço",chBumper:"Para-choque Cromo",chBullbar:"Quebra-Mato",chVisor:"Quebra-Sol",chHorns:"Buzinas de Ar",chTanks:"Tanques Cromo",chLightbar:"Barra de Luzes",chMirrors:"Espelhos Cromo",chFlaps:"Para-barros",gNone:"Nenhum",gRed:"Vermelho",gBlue:"Azul",gGold:"Dourado",gGreen:"Verde",sGray:"Cinza",sBlack:"Carvão Preto",sWhite:"Branco",tBig:"Grande",tBigger:"Maior",tMonster:"MONSTRO",on:"LIG",off:"DESL",gas:"GÁS",brake:"FREIO",turbo:"TURBO"},
+fr:{name:"Français",tagline:"FOLIE MONSTER TRUCK",play:"▶ JOUER",garageBtn:"🔧 CUSTOMISE TON CAMION",howBtn:"COMMENT JOUER",howTitle:"COMMENT JOUER",how1:"<b>Direction :</b> glissez le joystick ou utilisez ← → / A D.",how2:"<b>Gaz et frein :</b> maintenez les pédales, ou ↑ / ↓. La vitesse monte plus vous roulez !",how3:"<b>TURBO :</b> maintenez 🔥 TURBO (ou ESPACE) pour accélérer — regardez la fumée noire !",how4:"<b>ÉCRASEZ les voitures :</b> roulez dessus pour +150 et un rebond. Ramassez les pièces LUNC, frôlements +50.",how5:"<b>Attention :</b> les gros camions et les barrières VOUS détruiront. Évitez-les !",closeBtn:"FERMER",score:"SCORE",dist:"DISTANCE",coins:"PIÈCES",crushedLbl:"ÉCRASÉES",crush:"ÉCRASÉ !",nearMiss:"DE JUSTESSE !",mph:"MPH",gameOver:"DÉTRUIT !",yourScore:"VOTRE SCORE",newBest:"★ NOUVEAU RECORD ! ★",playAgain:"REJOUER",menuBtn:"MENU",garageTitle:"🔧 CUSTOMISE TON CAMION",raceBtn:"🏁 COURSE !",backBtn:"← RETOUR",catPaint:"🎨 PEINTURE",catStacks:"🚬 POTS",catWheels:"⚙ ROUES",catChrome:"✨ CHROME",catGlow:"💡 LUEUR",catSmoke:"💨 FUMÉE",catTires:"🛞 PNEUS",pBlack:"Noir Minuit",pRed:"Rouge Diesel",pGold:"Or LUNC",pBlue:"Bleu Océan",pGreen:"Vert Forêt",pPurple:"Brume Violette",pSilver:"Argent Chromé",stChrome:"Chrome Droit",stTall:"Chrome Haut",stBlack:"Pots Noirs",wChrome:"Chrome Profond",wBlack:"Jantes Noires",wSteel:"Jantes Acier",chBumper:"Pare-chocs Chrome",chBullbar:"Pare-buffle",chVisor:"Pare-soleil",chHorns:"Klaxons à Air",chTanks:"Réservoirs Chrome",chLightbar:"Barre de Phares",chMirrors:"Miroirs Chrome",chFlaps:"Bavettes",gNone:"Aucune",gRed:"Rouge",gBlue:"Bleu",gGold:"Or",gGreen:"Vert",sGray:"Gris",sBlack:"Charbon Noir",sWhite:"Blanc",tBig:"Grand",tBigger:"Plus Grand",tMonster:"MONSTRE",on:"OUI",off:"NON",gas:"GAZ",brake:"FREIN",turbo:"TURBO"},
+de:{name:"Deutsch",tagline:"MONSTER TRUCK CHAOS",play:"▶ SPIELEN",garageBtn:"🔧 BAUE DEINEN TRUCK",howBtn:"SO GEHT'S",howTitle:"SO GEHT'S",how1:"<b>Steuern:</b> Joystick ziehen oder ← → / A D Tasten.",how2:"<b>Gas &amp; Bremse:</b> Pedale halten, oder ↑ / ↓. Je länger du fährst, desto schneller!",how3:"<b>TURBO:</b> 🔥 TURBO (oder LEERTASTE) halten für Schub — schau dir den schwarzen Rauch an!",how4:"<b>Autos ZERQUETSCHEN:</b> fahre über Autos für +150 und einen Sprung. Sammle LUNC-Münzen, knapp vorbei +50.",how5:"<b>Achtung:</b> große LKWs und Barrieren machen dich PLATT. Weiche aus!",closeBtn:"SCHLIESSEN",score:"PUNKTE",dist:"STRECKE",coins:"MÜNZEN",crushedLbl:"ZERQUETSCHT",crush:"ZERQUETSCHT!",nearMiss:"KNAPP DANEBEN!",mph:"MPH",gameOver:"SCHROTT!",yourScore:"DEIN ERGEBNIS",newBest:"★ NEUER REKORD! ★",playAgain:"NOCHMAL",menuBtn:"MENÜ",garageTitle:"🔧 BAUE DEINEN TRUCK",raceBtn:"🏁 RENNEN!",backBtn:"← ZURÜCK",catPaint:"🎨 LACK",catStacks:"🚬 AUSPUFF",catWheels:"⚙ RÄDER",catChrome:"✨ CHROM",catGlow:"💡 GLOW",catSmoke:"💨 RAUCH",catTires:"🛞 REIFEN",pBlack:"Mitternachtsschwarz",pRed:"Dieselrot",pGold:"LUNC Gold",pBlue:"Ozeanblau",pGreen:"Waldgrün",pPurple:"Lila Nebel",pSilver:"Chromsilber",stChrome:"Chrom Gerade",stTall:"Chrom Hoch",stBlack:"Schwarze Rohre",wChrome:"Chrom Tiefbett",wBlack:"Schwarze Felgen",wSteel:"Stahlfelgen",chBumper:"Chromstoßstange",chBullbar:"Bullenfänger",chVisor:"Sonnenblende",chHorns:"Lufthörner",chTanks:"Chromtanks",chLightbar:"Lichtbalken",chMirrors:"Chromspiegel",chFlaps:"Schmutzfänger",gNone:"Aus",gRed:"Rot",gBlue:"Blau",gGold:"Gold",gGreen:"Grün",sGray:"Grau",sBlack:"Schwarze Kohle",sWhite:"Weiß",tBig:"Groß",tBigger:"Größer",tMonster:"MONSTER",on:"AN",off:"AUS",gas:"GAS",brake:"BREMSE",turbo:"TURBO"},
+it:{name:"Italiano",tagline:"FOLLIA MONSTER TRUCK",play:"▶ GIOCA",garageBtn:"🔧 COSTRUISCI IL TUO CAMION",howBtn:"COME SI GIOCA",howTitle:"COME SI GIOCA",how1:"<b>Sterza:</b> trascina il joystick o usa ← → / A D.",how2:"<b>Gas e freno:</b> tieni premuti i pedali, o ↑ / ↓. La velocità sale più vai avanti!",how3:"<b>TURBO:</b> tieni 🔥 TURBO (o SPAZIO) per lo scatto — guarda il fumo nero dai camini!",how4:"<b>SCHIACCIA le auto:</b> passaci sopra per +150 e un rimbalzo. Prendi monete LUNC, sfiorate +50.",how5:"<b>Attento:</b> i camion grandi e le barriere ti DISTRUGGONO. Evitali!",closeBtn:"CHIUDI",score:"PUNTI",dist:"DISTANZA",coins:"MONETE",crushedLbl:"SCHIACCIATE",crush:"SCHIACCIATA!",nearMiss:"Sfiorata!",mph:"MPH",gameOver:"DISTRUTTO!",yourScore:"IL TUO PUNTEGGIO",newBest:"★ NUOVO RECORD! ★",playAgain:"GIOCA ANCORA",menuBtn:"MENU",garageTitle:"🔧 COSTRUISCI IL TUO CAMION",raceBtn:"🏁 CORSA!",backBtn:"← INDIETRO",catPaint:"🎨 VERNICE",catStacks:"🚬 CAMINI",catWheels:"⚙ RUOTE",catChrome:"✨ CROMO",catGlow:"💡 BAGLIORE",catSmoke:"💨 FUMO",catTires:"🛞 GOMME",pBlack:"Nero Mezzanotte",pRed:"Rosso Diesel",pGold:"Oro LUNC",pBlue:"Blu Oceano",pGreen:"Verde Foresta",pPurple:"Viola Bruma",pSilver:"Argento Cromato",stChrome:"Cromo Dritto",stTall:"Cromo Alto",stBlack:"Camini Neri",wChrome:"Cromo Profondo",wBlack:"Cerchi Neri",wSteel:"Cerchi Acciaio",chBumper:"Paraurti Cromo",chBullbar:"Parauri Toro",chVisor:"Visiera Sole",chHorns:"Trombe ad Aria",chTanks:"Serbatoi Cromo",chLightbar:"Barra Luci",chMirrors:"Specchi Cromo",chFlaps:"Paraspruzzi",gNone:"Nessuno",gRed:"Rosso",gBlue:"Blu",gGold:"Oro",gGreen:"Verde",sGray:"Grigio",sBlack:"Carbone Nero",sWhite:"Bianco",tBig:"Grandi",tBigger:"Più Grandi",tMonster:"MOSTRO",on:"SÌ",off:"NO",gas:"GAS",brake:"FRENO",turbo:"TURBO"},
+nl:{name:"Nederlands",tagline:"MONSTER TRUCK GEKTE",play:"▶ SPELEN",garageBtn:"🔧 BOUW JE TRUCK",howBtn:"HOE TE SPELEN",howTitle:"HOE TE SPELEN",how1:"<b>Sturen:</b> sleep de joystick of gebruik ← → / A D.",how2:"<b>Gas &amp; rem:</b> houd de pedalen vast, of ↑ / ↓. Hoe langer je rijdt, hoe sneller!",how3:"<b>TURBO:</b> houd 🔥 TURBO (of SPATIE) vast voor een boost — kijk naar die zwarte rook!",how4:"<b>PLET auto's:</b> rijd eroverheen voor +150 en een sprong. Pak LUNC-munten, bijna-raak +50.",how5:"<b>Pas op:</b> grote vrachtwagens en barrières MAKEN je kapot. Ontwijk ze!",closeBtn:"SLUITEN",score:"SCORE",dist:"AFSTAND",coins:"MUNTEN",crushedLbl:"GEPLET",crush:"GEPLET!",nearMiss:"NET NIET!",mph:"MPH",gameOver:"WRAK!",yourScore:"JOUW SCORE",newBest:"★ NIEUW RECORD! ★",playAgain:"OPNIEUW SPELEN",menuBtn:"MENU",garageTitle:"🔧 BOUW JE TRUCK",raceBtn:"🏁 RACEN!",backBtn:"← TERUG",catPaint:"🎨 LAK",catStacks:"🚬 PIJPEN",catWheels:"⚙ WIELEN",catChrome:"✨ CHROOM",catGlow:"💡 GLOED",catSmoke:"💨 ROOK",catTires:"🛞 BANDEN",pBlack:"Middernachtzwart",pRed:"Dieselrood",pGold:"LUNC Goud",pBlue:"Oceaanblauw",pGreen:"Bosgroen",pPurple:"Paarse Nevel",pSilver:"Chroomzilver",stChrome:"Chroom Recht",stTall:"Chroom Hoog",stBlack:"Zwarte Pijpen",wChrome:"Chroom Diep",wBlack:"Zwarte Velgen",wSteel:"Stalen Velgen",chBumper:"Chroom Bumper",chBullbar:"Bullenbar",chVisor:"Zonneklep",chHorns:"Luchthoorns",chTanks:"Chroom Tanks",chLightbar:"Lichtbalk",chMirrors:"Chroom Spiegels",chFlaps:"Spatlappen",gNone:"Geen",gRed:"Rood",gBlue:"Blauw",gGold:"Goud",gGreen:"Groen",sGray:"Grijs",sBlack:"Zwarte Kool",sWhite:"Wit",tBig:"Groot",tBigger:"Groter",tMonster:"MONSTER",on:"AAN",off:"UIT",gas:"GAS",brake:"REM",turbo:"TURBO"},
+pl:{name:"Polski",tagline:"SZALEŃSTWO MONSTER TRUCK",play:"▶ GRAJ",garageBtn:"🔧 ZBUDUJ SWÓJ TRUCK",howBtn:"JAK GRAĆ",howTitle:"JAK GRAĆ",how1:"<b>Skręt:</b> przeciągnij joystick lub użyj ← → / A D.",how2:"<b>Gaz i hamulec:</b> trzymaj pedały, lub ↑ / ↓. Im dłużej jedziesz, tym szybciej!",how3:"<b>TURBO:</b> trzymaj 🔥 TURBO (lub SPACJĘ) dla przyspieszenia — patrz na czarny dym!",how4:"<b>MIAŻDŻ auta:</b> przejedź po autach za +150 i podskok. Zbieraj monety LUNC, minięcia o włos +50.",how5:"<b>Uwaga:</b> duże ciężarówki i bariery cię ROZWALĄ. Omijaj je!",closeBtn:"ZAMKNIJ",score:"WYNIK",dist:"DYSTANS",coins:"MONETY",crushedLbl:"ZMIAŻDŻONE",crush:"ZMIAŻDŻONE!",nearMiss:"O WŁOS!",mph:"MPH",gameOver:"ROZWALONY!",yourScore:"TWÓJ WYNIK",newBest:"★ NOWY REKORD! ★",playAgain:"GRAJ PONOWNIE",menuBtn:"MENU",garageTitle:"🔧 ZBUDUJ SWÓJ TRUCK",raceBtn:"🏁 WYŚCIG!",backBtn:"← WSTECZ",catPaint:"🎨 LAKIER",catStacks:"🚬 KOMINY",catWheels:"⚙ KOŁA",catChrome:"✨ CHROM",catGlow:"💡 POŚWIATA",catSmoke:"💨 DYM",catTires:"🛞 OPONY",pBlack:"Czarna Północ",pRed:"Czerwony Diesel",pGold:"Złoty LUNC",pBlue:"Błękit Oceanu",pGreen:"Leśna Zieleń",pPurple:"Fioletowa Mgła",pSilver:"Chromowane Srebro",stChrome:"Chrom Prosty",stTall:"Chrom Wysoki",stBlack:"Czarne Kominy",wChrome:"Chrom Głęboki",wBlack:"Czarne Felgi",wSteel:"Felgi Stalowe",chBumper:"Zderzak Chrom",chBullbar:"Kangurownik",chVisor:"Daszek",chHorns:"Klaksony Powietrzne",chTanks:"Zbiorniki Chrom",chLightbar:"Belka Świateł",chMirrors:"Lusterka Chrom",chFlaps:"Chlapacze",gNone:"Brak",gRed:"Czerwona",gBlue:"Niebieska",gGold:"Złota",gGreen:"Zielona",sGray:"Szary",sBlack:"Czarny Węgiel",sWhite:"Biały",tBig:"Duże",tBigger:"Większe",tMonster:"POTWÓR",on:"WŁ",off:"WYŁ",gas:"GAZ",brake:"HAMULEC",turbo:"TURBO"},
+ru:{name:"Русский",tagline:"БЕЗУМИЕ МОНСТР-ТРАКОВ",play:"▶ ИГРАТЬ",garageBtn:"🔧 СОБЕРИ СВОЙ ТРАК",howBtn:"КАК ИГРАТЬ",howTitle:"КАК ИГРАТЬ",how1:"<b>Руль:</b> тяните джойстик или используйте ← → / A D.",how2:"<b>Газ и тормоз:</b> держите педали, или ↑ / ↓. Чем дольше едешь, тем быстрее!",how3:"<b>ТУРБО:</b> держите 🔥 ТУРБО (или ПРОБЕЛ) для рывка — смотрите на чёрный дым!",how4:"<b>ДАВИТЕ машины:</b> проезжайте по машинам за +150 и прыжок. Собирайте монеты LUNC, впритирку +50.",how5:"<b>Осторожно:</b> большие фуры и барьеры вас РАЗОБЬЮТ. Уворачивайтесь!",closeBtn:"ЗАКРЫТЬ",score:"СЧЁТ",dist:"ДИСТАНЦИЯ",coins:"МОНЕТЫ",crushedLbl:"РАЗДАВЛЕНО",crush:"РАЗДАВИЛ!",nearMiss:"ВПРИТИРКУ!",mph:"МИЛЬ/Ч",gameOver:"РАЗБИЛСЯ!",yourScore:"ВАШ СЧЁТ",newBest:"★ НОВЫЙ РЕКОРД! ★",playAgain:"ИГРАТЬ СНОВА",menuBtn:"МЕНЮ",garageTitle:"🔧 СОБЕРИ СВОЙ ТРАК",raceBtn:"🏁 ГОНКА!",backBtn:"← НАЗАД",catPaint:"🎨 КРАСКА",catStacks:"🚬 ТРУБЫ",catWheels:"⚙ КОЛЁСА",catChrome:"✨ ХРОМ",catGlow:"💡 ПОДСВЕТКА",catSmoke:"💨 ДЫМ",catTires:"🛞 ШИНЫ",pBlack:"Полуночный Чёрный",pRed:"Дизельный Красный",pGold:"Золотой LUNC",pBlue:"Океанский Синий",pGreen:"Лесной Зелёный",pPurple:"Фиолетовая Дымка",pSilver:"Хром Серебро",stChrome:"Хром Прямые",stTall:"Хром Высокие",stBlack:"Чёрные Трубы",wChrome:"Хром Глубокие",wBlack:"Чёрные Диски",wSteel:"Стальные Диски",chBumper:"Хром Бампер",chBullbar:"Кенгурятник",chVisor:"Козырёк",chHorns:"Воздушные Горны",chTanks:"Хром Баки",chLightbar:"Люстра",chMirrors:"Хром Зеркала",chFlaps:"Брызговики",gNone:"Нет",gRed:"Красная",gBlue:"Синяя",gGold:"Золотая",gGreen:"Зелёная",sGray:"Серый",sBlack:"Чёрный Уголь",sWhite:"Белый",tBig:"Большие",tBigger:"Побольше",tMonster:"МОНСТР",on:"ВКЛ",off:"ВЫКЛ",gas:"ГАЗ",brake:"ТОРМОЗ",turbo:"ТУРБО"},
+uk:{name:"Українська",tagline:"БОЖЕВІЛЛЯ МОНСТР-ТРАКІВ",play:"▶ ГРАТИ",garageBtn:"🔧 ЗБЕРИ СВІЙ ТРАК",howBtn:"ЯК ГРАТИ",howTitle:"ЯК ГРАТИ",how1:"<b>Кермо:</b> тягніть джойстик або ← → / A D.",how2:"<b>Газ і гальмо:</b> тримайте педалі, або ↑ / ↓. Що довше їдеш, то швидше!",how3:"<b>ТУРБО:</b> тримайте 🔥 ТУРБО (або ПРОБІЛ) для ривка — дивіться на чорний дим!",how4:"<b>ЧАВІТЬ авто:</b> проїжджайте по авто за +150 і стрибок. Збирайте монети LUNC, впритик +50.",how5:"<b>Обережно:</b> великі фури й бар'єри вас РОЗІБ'ЮТЬ. Ухиляйтеся!",closeBtn:"ЗАКРИТИ",score:"РАХУНОК",dist:"ДИСТАНЦІЯ",coins:"МОНЕТИ",crushedLbl:"РОЗЧАВЛЕНО",crush:"РОЗЧАВИВ!",nearMiss:"ВПРИТИК!",mph:"МИЛЬ/ГОД",gameOver:"РОЗБИВСЯ!",yourScore:"ВАШ РАХУНОК",newBest:"★ НОВИЙ РЕКОРД! ★",playAgain:"ГРАТИ ЗНОВУ",menuBtn:"МЕНЮ",garageTitle:"🔧 ЗБЕРИ СВІЙ ТРАК",raceBtn:"🏁 ГОНКА!",backBtn:"← НАЗАД",catPaint:"🎨 ФАРБА",catStacks:"🚬 ТРУБИ",catWheels:"⚙ КОЛЕСА",catChrome:"✨ ХРОМ",catGlow:"💡 ПІДСВІТКА",catSmoke:"💨 ДИМ",catTires:"🛞 ШИНИ",pBlack:"Опівнічний Чорний",pRed:"Дизельний Червоний",pGold:"Золотий LUNC",pBlue:"Океанський Синій",pGreen:"Лісовий Зелений",pPurple:"Фіолетовий Серпанок",pSilver:"Хром Срібло",stChrome:"Хром Прямі",stTall:"Хром Високі",stBlack:"Чорні Труби",wChrome:"Хром Глибокі",wBlack:"Чорні Диски",wSteel:"Стальні Диски",chBumper:"Хром Бампер",chBullbar:"Кенгурятник",chVisor:"Козирок",chHorns:"Повітряні Горни",chTanks:"Хром Баки",chLightbar:"Люстра",chMirrors:"Хром Дзеркала",chFlaps:"Бризковики",gNone:"Немає",gRed:"Червона",gBlue:"Синя",gGold:"Золота",gGreen:"Зелена",sGray:"Сірий",sBlack:"Чорне Вугілля",sWhite:"Білий",tBig:"Великі",tBigger:"Більші",tMonster:"МОНСТР",on:"УВІМК",off:"ВИМК",gas:"ГАЗ",brake:"ГАЛЬМО",turbo:"ТУРБО"},
+tr:{name:"Türkçe",tagline:"MONSTER TRUCK ÇILGINLIĞI",play:"▶ OYNA",garageBtn:"🔧 KAMYONUNU YAP",howBtn:"NASIL OYNANIR",howTitle:"NASIL OYNANIR",how1:"<b>Direksiyon:</b> joystick'i sürükleyin veya ← → / A D kullanın.",how2:"<b>Gaz ve fren:</b> pedalları basılı tutun, veya ↑ / ↓. Ne kadar gidersen o kadar hızlanırsın!",how3:"<b>TURBO:</b> 🔥 TURBO'yu (veya BOŞLUK) basılı tut — bacalardan çıkan kara dumana bak!",how4:"<b>Arabaları EZ:</b> arabaların üstünden geç, +150 ve zıplama. LUNC paralarını topla, sıyırma +50.",how5:"<b>Dikkat:</b> büyük tırlar ve bariyerler seni PERT eder. Kaçın!",closeBtn:"KAPAT",score:"SKOR",dist:"MESAFE",coins:"PARA",crushedLbl:"EZİLEN",crush:"EZDİN!",nearMiss:"SIYIRDI!",mph:"MPH",gameOver:"PERT OLDUN!",yourScore:"SKORUN",newBest:"★ YENİ REKOR! ★",playAgain:"TEKRAR OYNA",menuBtn:"MENÜ",garageTitle:"🔧 KAMYONUNU YAP",raceBtn:"🏁 YARIŞ!",backBtn:"← GERİ",catPaint:"🎨 BOYA",catStacks:"🚬 BACALAR",catWheels:"⚙ TEKERLER",catChrome:"✨ KROM",catGlow:"💡 PARLAMA",catSmoke:"💨 DUMAN",catTires:"🛞 LASTİKLER",pBlack:"Gece Siyahı",pRed:"Dizel Kırmızı",pGold:"LUNC Altın",pBlue:"Okyanus Mavi",pGreen:"Orman Yeşili",pPurple:"Mor Sis",pSilver:"Krom Gümüş",stChrome:"Krom Düz",stTall:"Krom Uzun",stBlack:"Siyah Bacalar",wChrome:"Krom Derin",wBlack:"Siyah Jant",wSteel:"Çelik Jant",chBumper:"Krom Tampon",chBullbar:"Boğa Barı",chVisor:"Güneşlik",chHorns:"Hava Kornaları",chTanks:"Krom Depolar",chLightbar:"Işık Barı",chMirrors:"Krom Aynalar",chFlaps:"Paçalıklar",gNone:"Yok",gRed:"Kırmızı",gBlue:"Mavi",gGold:"Altın",gGreen:"Yeşil",sGray:"Gri",sBlack:"Kara Kömür",sWhite:"Beyaz",tBig:"Büyük",tBigger:"Daha Büyük",tMonster:"CANAVAR",on:"AÇIK",off:"KAPALI",gas:"GAZ",brake:"FREN",turbo:"TURBO"},
+ar:{name:"العربية",tagline:"جنون الشاحنات العملاقة",play:"▶ العب",garageBtn:"🔧 ابنِ شاحنتك",howBtn:"كيف تلعب",howTitle:"كيف تلعب",how1:"<b>التوجيه:</b> اسحب عصا التحكم أو استخدم ← → / A D.",how2:"<b>البنزين والفرامل:</b> اضغط الدواسات باستمرار، أو ↑ / ↓. كلما تقدمت زادت السرعة!",how3:"<b>التيربو:</b> اضغط 🔥 TURBO (أو المسافة) للانطلاق — شاهد الدخان الأسود من المداخن!",how4:"<b>اسحق السيارات:</b> اعبر فوق السيارات مقابل +150 وقفزة. اجمع عملات LUNC، والمرور القريب +50.",how5:"<b>احذر:</b> الشاحنات الكبيرة والحواجز ستدمرك. تجنبها!",closeBtn:"إغلاق",score:"النقاط",dist:"المسافة",coins:"العملات",crushedLbl:"المسحوقة",crush:"سحقتها!",nearMiss:"بفارق ضئيل!",mph:"ميل/س",gameOver:"تحطمت!",yourScore:"نتيجتك",newBest:"★ رقم قياسي جديد! ★",playAgain:"العب مجددًا",menuBtn:"القائمة",garageTitle:"🔧 ابنِ شاحنتك",raceBtn:"🏁 سباق!",backBtn:"← رجوع",catPaint:"🎨 الطلاء",catStacks:"🚬 المداخن",catWheels:"⚙ العجلات",catChrome:"✨ الكروم",catGlow:"💡 التوهج",catSmoke:"💨 الدخان",catTires:"🛞 الإطارات",pBlack:"أسود منتصف الليل",pRed:"أحمر ديزل",pGold:"ذهبي LUNC",pBlue:"أزرق المحيط",pGreen:"أخضر الغابة",pPurple:"ضباب بنفسجي",pSilver:"فضي كروم",stChrome:"كروم مستقيم",stTall:"كروم طويل",stBlack:"مداخن سوداء",wChrome:"كروم عميق",wBlack:"جنوط سوداء",wSteel:"جنوط فولاذ",chBumper:"صدام كروم",chBullbar:"واقي أمامي",chVisor:"واقي الشمس",chHorns:"أبواق هوائية",chTanks:"خزانات كروم",chLightbar:"شريط الأضواء",chMirrors:"مرايا كروم",chFlaps:"واقيات الطين",gNone:"لا شيء",gRed:"أحمر",gBlue:"أزرق",gGold:"ذهبي",gGreen:"أخضر",sGray:"رمادي",sBlack:"فحم أسود",sWhite:"أبيض",tBig:"كبيرة",tBigger:"أكبر",tMonster:"وحش",on:"تشغيل",off:"إيقاف",gas:"بنزين",brake:"فرامل",turbo:"تيربو"},
+hi:{name:"हिन्दी",tagline:"मॉन्स्टर ट्रक धमाका",play:"▶ खेलें",garageBtn:"🔧 अपना ट्रक बनाएं",howBtn:"कैसे खेलें",howTitle:"कैसे खेलें",how1:"<b>स्टीयर:</b> जॉयस्टिक खींचें, या ← → / A D कुंजियाँ।",how2:"<b>गैस और ब्रेक:</b> पेडल दबाए रखें, या ↑ / ↓। जितना चलेंगे, गति उतनी बढ़ेगी!",how3:"<b>टर्बो:</b> 🔥 TURBO (या SPACE) दबाए रखें — चिमनियों से काला धुआँ देखें!",how4:"<b>कारें कुचलें:</b> कारों के ऊपर से चलें, +150 और उछाल। LUNC सिक्के लें, करीबी चूक +50।",how5:"<b>सावधान:</b> बड़े ट्रक और बैरियर आपको तबाह कर देंगे। बचकर चलें!",closeBtn:"बंद करें",score:"स्कोर",dist:"दूरी",coins:"सिक्के",crushedLbl:"कुचली गईं",crush:"कुचल दिया!",nearMiss:"बाल-बाल बचे!",mph:"MPH",gameOver:"तबाह!",yourScore:"आपका स्कोर",newBest:"★ नया रिकॉर्ड! ★",playAgain:"फिर से खेलें",menuBtn:"मेनू",garageTitle:"🔧 अपना ट्रक बनाएं",raceBtn:"🏁 रेस!",backBtn:"← वापस",catPaint:"🎨 पेंट",catStacks:"🚬 चिमनियाँ",catWheels:"⚙ पहिए",catChrome:"✨ क्रोम",catGlow:"💡 चमक",catSmoke:"💨 धुआँ",catTires:"🛞 टायर",pBlack:"मिडनाइट ब्लैक",pRed:"डीज़ल रेड",pGold:"LUNC गोल्ड",pBlue:"ओशन ब्लू",pGreen:"फॉरेस्ट ग्रीन",pPurple:"पर्पल हेज़",pSilver:"क्रोम सिल्वर",stChrome:"क्रोम सीधा",stTall:"क्रोम लंबा",stBlack:"काली चिमनियाँ",wChrome:"क्रोम डीप-डिश",wBlack:"काले रिम",wSteel:"स्टील रिम",chBumper:"क्रोम बंपर",chBullbar:"बुल बार",chVisor:"सन वाइज़र",chHorns:"एयर हॉर्न",chTanks:"क्रोम टैंक",chLightbar:"लाइट बार",chMirrors:"क्रोम मिरर",chFlaps:"मड फ्लैप",gNone:"कोई नहीं",gRed:"लाल",gBlue:"नीला",gGold:"सुनहरा",gGreen:"हरा",sGray:"ग्रे",sBlack:"काला कोयला",sWhite:"सफेद",tBig:"बड़े",tBigger:"और बड़े",tMonster:"मॉन्स्टर",on:"चालू",off:"बंद",gas:"गैस",brake:"ब्रेक",turbo:"टर्बो"},
+id:{name:"Bahasa Indonesia",tagline:"KEGILAAN MONSTER TRUCK",play:"▶ MAIN",garageBtn:"🔧 BANGUN TRUKMU",howBtn:"CARA BERMAIN",howTitle:"CARA BERMAIN",how1:"<b>Setir:</b> seret joystick, atau gunakan ← → / A D.",how2:"<b>Gas &amp; rem:</b> tahan pedal, atau ↑ / ↓. Semakin jauh, semakin cepat!",how3:"<b>TURBO:</b> tahan 🔥 TURBO (atau SPASI) untuk melesat — lihat asap hitam dari cerobong!",how4:"<b>HANCURKAN mobil:</b> lalui mobil untuk +150 dan lompatan. Ambil koin LUNC, nyaris kena +50.",how5:"<b>Hati-hati:</b> truk besar dan penghalang akan MENGHANCURKANMU. Hindari!",closeBtn:"TUTUP",score:"SKOR",dist:"JARAK",coins:"KOIN",crushedLbl:"DIHANCURKAN",crush:"HANCUR!",nearMiss:"NYARIS!",mph:"MPH",gameOver:"HANCUR!",yourScore:"SKORMU",newBest:"★ REKOR BARU! ★",playAgain:"MAIN LAGI",menuBtn:"MENU",garageTitle:"🔧 BANGUN TRUKMU",raceBtn:"🏁 BALAP!",backBtn:"← KEMBALI",catPaint:"🎨 CAT",catStacks:"🚬 CEROBONG",catWheels:"⚙ RODA",catChrome:"✨ KROM",catGlow:"💡 CAHAYA",catSmoke:"💨 ASAP",catTires:"🛞 BAN",pBlack:"Hitam Tengah Malam",pRed:"Merah Diesel",pGold:"Emas LUNC",pBlue:"Biru Samudra",pGreen:"Hijau Hutan",pPurple:"Kabut Ungu",pSilver:"Perak Krom",stChrome:"Krom Lurus",stTall:"Krom Tinggi",stBlack:"Cerobong Hitam",wChrome:"Krom Dalam",wBlack:"Velg Hitam",wSteel:"Velg Baja",chBumper:"Bemper Krom",chBullbar:"Bull Bar",chVisor:"Pelindung Matahari",chHorns:"Klakson Angin",chTanks:"Tangki Krom",chLightbar:"Bar Lampu",chMirrors:"Spion Krom",chFlaps:"Penahan Lumpur",gNone:"Tidak Ada",gRed:"Merah",gBlue:"Biru",gGold:"Emas",gGreen:"Hijau",sGray:"Abu-abu",sBlack:"Arang Hitam",sWhite:"Putih",tBig:"Besar",tBigger:"Lebih Besar",tMonster:"MONSTER",on:"NYALA",off:"MATI",gas:"GAS",brake:"REM",turbo:"TURBO"},
+vi:{name:"Tiếng Việt",tagline:"XE QUÁI VẬT ĐIÊN CUỒNG",play:"▶ CHƠI",garageBtn:"🔧 DỰNG XE CỦA BẠN",howBtn:"CÁCH CHƠI",howTitle:"CÁCH CHƠI",how1:"<b>Lái:</b> kéo cần điều khiển, hoặc dùng ← → / A D.",how2:"<b>Ga &amp; phanh:</b> giữ bàn đạp, hoặc ↑ / ↓. Càng chạy lâu càng nhanh!",how3:"<b>TURBO:</b> giữ 🔥 TURBO (hoặc SPACE) để tăng tốc — xem khói đen từ ống xả!",how4:"<b>NGHIỀN xe:</b> chạy qua xe hơi để +150 và nảy lên. Nhặt xu LUNC, suýt va +50.",how5:"<b>Cẩn thận:</b> xe tải lớn và rào chắn SẼ phá hủy bạn. Hãy né!",closeBtn:"ĐÓNG",score:"ĐIỂM",dist:"QUÃNG ĐƯỜNG",coins:"XU",crushedLbl:"ĐÃ NGHIỀN",crush:"NGHIỀN NÁT!",nearMiss:"SUÝT NỮA!",mph:"MPH",gameOver:"TAN NÁT!",yourScore:"ĐIỂM CỦA BẠN",newBest:"★ KỶ LỤC MỚI! ★",playAgain:"CHƠI LẠI",menuBtn:"MENU",garageTitle:"🔧 DỰNG XE CỦA BẠN",raceBtn:"🏁 ĐUA!",backBtn:"← QUAY LẠI",catPaint:"🎨 SƠN",catStacks:"🚬 ỐNG XẢ",catWheels:"⚙ BÁNH XE",catChrome:"✨ CROM",catGlow:"💡 PHÁT SÁNG",catSmoke:"💨 KHÓI",catTires:"🛞 LỐP",pBlack:"Đen Nửa Đêm",pRed:"Đỏ Diesel",pGold:"Vàng LUNC",pBlue:"Xanh Đại Dương",pGreen:"Xanh Rừng",pPurple:"Tím Sương",pSilver:"Bạc Crom",stChrome:"Crom Thẳng",stTall:"Crom Cao",stBlack:"Ống Xả Đen",wChrome:"Crom Sâu",wBlack:"Mâm Đen",wSteel:"Mâm Thép",chBumper:"Cản Crom",chBullbar:"Thanh Chắn",chVisor:"Tấm Che Nắng",chHorns:"Còi Hơi",chTanks:"Bình Crom",chLightbar:"Thanh Đèn",chMirrors:"Gương Crom",chFlaps:"Chắn Bùn",gNone:"Không",gRed:"Đỏ",gBlue:"Xanh Dương",gGold:"Vàng",gGreen:"Xanh Lá",sGray:"Xám",sBlack:"Than Đen",sWhite:"Trắng",tBig:"Lớn",tBigger:"Lớn Hơn",tMonster:"QUÁI VẬT",on:"BẬT",off:"TẮT",gas:"GA",brake:"PHANH",turbo:"TURBO"},
+zh:{name:"中文",tagline:"怪兽卡车狂潮",play:"▶ 开始",garageBtn:"🔧 打造你的卡车",howBtn:"玩法说明",howTitle:"玩法说明",how1:"<b>转向：</b>拖动摇杆，或用 ← → / A D 键。",how2:"<b>油门和刹车：</b>按住踏板，或 ↑ / ↓ 键。跑得越久速度越快！",how3:"<b>涡轮：</b>按住 🔥 TURBO（或空格）加速——看烟囱滚滚黑烟！",how4:"<b>碾压汽车：</b>从汽车上开过去 +150 并弹跳。收集 LUNC 金币，险超 +50。",how5:"<b>小心：</b>大卡车和路障会把你撞毁。躲开它们！",closeBtn:"关闭",score:"分数",dist:"距离",coins:"金币",crushedLbl:"已碾压",crush:"碾压！",nearMiss:"险超！",mph:"英里/时",gameOver:"撞毁了！",yourScore:"你的分数",newBest:"★ 新纪录！★",playAgain:"再来一局",menuBtn:"菜单",garageTitle:"🔧 打造你的卡车",raceBtn:"🏁 开赛！",backBtn:"← 返回",catPaint:"🎨 油漆",catStacks:"🚬 烟囱",catWheels:"⚙ 轮毂",catChrome:"✨ 镀铬",catGlow:"💡 底盘灯",catSmoke:"💨 烟雾",catTires:"🛞 轮胎",pBlack:"午夜黑",pRed:"柴油红",pGold:"LUNC 金",pBlue:"海洋蓝",pGreen:"森林绿",pPurple:"紫雾",pSilver:"铬银",stChrome:"直镀铬",stTall:"高镀铬",stBlack:"黑烟囱",wChrome:"深盘镀铬",wBlack:"黑轮毂",wSteel:"钢轮毂",chBumper:"镀铬保险杠",chBullbar:"防撞杠",chVisor:"遮阳板",chHorns:"气喇叭",chTanks:"镀铬油箱",chLightbar:"灯条",chMirrors:"镀铬后视镜",chFlaps:"挡泥板",gNone:"无",gRed:"红色",gBlue:"蓝色",gGold:"金色",gGreen:"绿色",sGray:"灰色",sBlack:"黑煤烟",sWhite:"白色",tBig:"大",tBigger:"更大",tMonster:"怪兽",on:"开",off:"关",gas:"油门",brake:"刹车",turbo:"涡轮"},
+ja:{name:"日本語",tagline:"モンスタートラック大暴走",play:"▶ プレイ",garageBtn:"🔧 トラックを作ろう",howBtn:"遊び方",howTitle:"遊び方",how1:"<b>ステアリング：</b>ジョイスティックをドラッグ、または ← → / A D キー。",how2:"<b>アクセル＆ブレーキ：</b>ペダルを長押し、または ↑ / ↓ キー。走るほど速くなる！",how3:"<b>ターボ：</b>🔥 TURBO（またはスペース）を長押しで加速——煙突の黒煙を見よ！",how4:"<b>車を潰せ：</b>車の上を走って +150 とバウンス。LUNCコインを集め、ニアミスで +50。",how5:"<b>注意：</b>大型トラックとバリケードは大破する。避けて！",closeBtn:"閉じる",score:"スコア",dist:"距離",coins:"コイン",crushedLbl:"潰した数",crush:"クラッシュ！",nearMiss:"ニアミス！",mph:"MPH",gameOver:"大破！",yourScore:"あなたのスコア",newBest:"★ 新記録！★",playAgain:"もう一度",menuBtn:"メニュー",garageTitle:"🔧 トラックを作ろう",raceBtn:"🏁 レース！",backBtn:"← 戻る",catPaint:"🎨 ペイント",catStacks:"🚬 マフラー",catWheels:"⚙ ホイール",catChrome:"✨ クローム",catGlow:"💡 グロー",catSmoke:"💨 煙",catTires:"🛞 タイヤ",pBlack:"ミッドナイトブラック",pRed:"ディーゼルレッド",pGold:"LUNC ゴールド",pBlue:"オーシャンブルー",pGreen:"フォレストグリーン",pPurple:"パープルヘイズ",pSilver:"クロームシルバー",stChrome:"クロームストレート",stTall:"クロームトール",stBlack:"ブラックマフラー",wChrome:"クロームディープ",wBlack:"ブラックリム",wSteel:"スチールリム",chBumper:"クロームバンパー",chBullbar:"ブルバー",chVisor:"サンバイザー",chHorns:"エアホーン",chTanks:"クロームタンク",chLightbar:"ライトバー",chMirrors:"クロームミラー",chFlaps:"マッドフラップ",gNone:"なし",gRed:"レッド",gBlue:"ブルー",gGold:"ゴールド",gGreen:"グリーン",sGray:"グレー",sBlack:"ブラックコール",sWhite:"ホワイト",tBig:"ビッグ",tBigger:"ビッガー",tMonster:"モンスター",on:"オン",off:"オフ",gas:"アクセル",brake:"ブレーキ",turbo:"ターボ"},
+ko:{name:"한국어",tagline:"몬스터 트럭 대소동",play:"▶ 플레이",garageBtn:"🔧 내 트럭 만들기",howBtn:"게임 방법",howTitle:"게임 방법",how1:"<b>조향:</b> 조이스틱을 드래그하거나 ← → / A D 키를 사용하세요.",how2:"<b>가스와 브레이크:</b> 페달을 누르고 있거나 ↑ / ↓ 키. 오래 달릴수록 빨라집니다!",how3:"<b>터보:</b> 🔥 TURBO(또는 스페이스)를 누르면 가속 — 굴뚝의 검은 연기를 보세요!",how4:"<b>차 뭉개기:</b> 차 위로 달리면 +150과 바운스. LUNC 코인을 모으고, 아슬아슬하게 지나치면 +50.",how5:"<b>주의:</b> 대형 트럭과 바리케이드는 당신을 박살 냅니다. 피하세요!",closeBtn:"닫기",score:"점수",dist:"거리",coins:"코인",crushedLbl:"뭉갠 수",crush:"뭉갰다!",nearMiss:"아슬아슬!",mph:"MPH",gameOver:"박살!",yourScore:"내 점수",newBest:"★ 새 기록! ★",playAgain:"다시 플레이",menuBtn:"메뉴",garageTitle:"🔧 내 트럭 만들기",raceBtn:"🏁 레이스!",backBtn:"← 뒤로",catPaint:"🎨 페인트",catStacks:"🚬 굴뚝",catWheels:"⚙ 휠",catChrome:"✨ 크롬",catGlow:"💡 글로우",catSmoke:"💨 연기",catTires:"🛞 타이어",pBlack:"미드나잇 블랙",pRed:"디젤 레드",pGold:"LUNC 골드",pBlue:"오션 블루",pGreen:"포레스트 그린",pPurple:"퍼플 헤이즈",pSilver:"크롬 실버",stChrome:"크롬 스트레이트",stTall:"크롬 톨",stBlack:"블랙 굴뚝",wChrome:"크롬 딥디쉬",wBlack:"블랙 림",wSteel:"스틸 림",chBumper:"크롬 범퍼",chBullbar:"불 바",chVisor:"선 바이저",chHorns:"에어 혼",chTanks:"크롬 탱크",chLightbar:"라이트 바",chMirrors:"크롬 미러",chFlaps:"머드 플랩",gNone:"없음",gRed:"레드",gBlue:"블루",gGold:"골드",gGreen:"그린",sGray:"회색",sBlack:"블랙 콜",sWhite:"화이트",tBig:"빅",tBigger:"비거",tMonster:"몬스터",on:"켬",off:"끔",gas:"가스",brake:"브레이크",turbo:"터보"}
+};
+let curLang = localStorage.getItem('dirtydiesel_lang') || 'en';
+if(!LANGS[curLang]) curLang = 'en';
+function t(k){ return (LANGS[curLang] && LANGS[curLang][k]) || LANGS.en[k] || k; }
+function applyLang(){
+  document.querySelectorAll('[data-i18n]').forEach(el=>{ el.innerHTML = t(el.getAttribute('data-i18n')); });
+  document.documentElement.lang = curLang;
+  document.body.style.direction = (curLang==='ar') ? 'rtl' : 'ltr';
+  if(window.renderGarage) window.renderGarage();
+}
+const langSel = document.getElementById('langSel');
+Object.keys(LANGS).forEach(code=>{ const o=document.createElement('option'); o.value=code; o.textContent=LANGS[code].name; langSel.appendChild(o); });
+langSel.value = curLang;
+langSel.addEventListener('change', ()=>{ curLang = langSel.value; localStorage.setItem('dirtydiesel_lang', curLang); applyLang(); });
+
+/* ================= score submission hook =================
+   submitScore(score): leaderboard hook for the parent router.
+   Per spec it ONLY stores the score to localStorage — nothing else. */
+function submitScore(score){ try{ localStorage.setItem('dirtydiesel_last', String(score)); }catch(e){} }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+/* ============================================================
+   DIRTY DIESEL — monster diesel truck highway crusher
+   ============================================================ */
+const $ = id => document.getElementById(id);
+
+/* ---------- config / save ---------- */
+const PAINTS = { black:0x17181d, red:0xb01e24, gold:0xd9a520, blue:0x14549e, green:0x1e6b34, purple:0x5b2a86, silver:0xc8ccd4 };
+const TIRE_R = { big:0.80, bigger:0.95, monster:1.10 };
+const GLOWS  = { none:null, red:0xff2a1a, blue:0x2277ff, gold:0xffb52e, green:0x2aff5a };
+const SMOKES = { gray:0x8f8f96, black:0x141416, white:0xe9e9ee };
+const DEF_CFG = { paint:'red', stacks:'tall', wheels:'chrome', glow:'gold', smoke:'black', tires:'bigger',
+  chrome:{ bumper:true, bullbar:true, visor:true, horns:true, tanks:true, lightbar:true, mirrors:true, flaps:true } };
+let cfg = JSON.parse(JSON.stringify(DEF_CFG));
+try{ const s = JSON.parse(localStorage.getItem('dirtydiesel_cfg')||'null'); if(s){ cfg = Object.assign(JSON.parse(JSON.stringify(DEF_CFG)), s); cfg.chrome = Object.assign({}, DEF_CFG.chrome, s.chrome||{}); } }catch(e){}
+function saveCfg(){ try{ localStorage.setItem('dirtydiesel_cfg', JSON.stringify(cfg)); }catch(e){} }
+let best = parseInt(localStorage.getItem('dirtydiesel_best')||'0',10) || 0;
+
+/* ---------- renderer / scene ---------- */
+const renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 1.75));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.12;
+$('game').appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x3a1830, 55, 340);
+const camera = new THREE.PerspectiveCamera(62, window.innerWidth/window.innerHeight, 0.1, 900);
+
+/* dusk sky gradient — also used as the environment map so CHROME actually shines */
+function makeSkyTexture(env){
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 512;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0,0,0,512);
+  if(env){ /* muted silvery palette — this is what CHROME reflects */
+    grad.addColorStop(0.00,'#232030'); grad.addColorStop(0.30,'#4c4453');
+    grad.addColorStop(0.52,'#8a6f74'); grad.addColorStop(0.66,'#c99a68');
+    grad.addColorStop(0.74,'#e8cf9e'); grad.addColorStop(0.80,'#6e5138');
+    grad.addColorStop(1.00,'#241a16');
+  } else {
+  grad.addColorStop(0.00,'#1b0f38'); grad.addColorStop(0.30,'#4a1e56');
+  grad.addColorStop(0.52,'#a03a54'); grad.addColorStop(0.66,'#e86a2e');
+  grad.addColorStop(0.74,'#ffb347'); grad.addColorStop(0.80,'#7a4526');
+  grad.addColorStop(1.00,'#241118');
+  }
+  g.fillStyle = grad; g.fillRect(0,0,1024,512);
+  const sun = g.createRadialGradient(512,392,10,512,392,190);
+  sun.addColorStop(0,'rgba(255,230,170,0.95)'); sun.addColorStop(0.25,'rgba(255,180,80,0.55)'); sun.addColorStop(1,'rgba(255,150,50,0)');
+  g.fillStyle = sun; g.fillRect(0,0,1024,512);
+  g.fillStyle = '#ffe9b0'; g.beginPath(); g.arc(512,392,26,0,7); g.fill();
+  const tex = new THREE.CanvasTexture(c);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+const skyTex = makeSkyTexture(false);
+scene.background = skyTex;
+scene.environment = makeSkyTexture(true);   /* <- chrome reflections come from this (muted twin) */
+
+const hemi = new THREE.HemisphereLight(0x8a5aa8, 0x3a2015, 0.85); scene.add(hemi);
+const sunLight = new THREE.DirectionalLight(0xff9a40, 1.5); sunLight.position.set(-30, 18, -60); scene.add(sunLight);
+const fill = new THREE.DirectionalLight(0x6a7aff, 0.35); fill.position.set(20, 30, 40); scene.add(fill);
+
+/* ---------- canvas texture helpers ---------- */
+function cnv(w,h,fn){ const c=document.createElement('canvas'); c.width=w; c.height=h; fn(c.getContext('2d'),w,h); const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; t.anisotropy=4; return t; }
+function drawCrescent(g,x,y,r,color){ g.save(); g.fillStyle=color; g.beginPath(); g.arc(x,y,r,0,7); g.fill(); g.globalCompositeOperation='destination-out'; g.beginPath(); g.arc(x+r*0.42,y-r*0.18,r*0.82,0,7); g.fill(); g.restore(); }
+
+const asphaltTex = cnv(512,512,(g,w,h)=>{
+  g.fillStyle='#333338'; g.fillRect(0,0,w,h);
+  for(let i=0;i<9000;i++){ g.fillStyle = Math.random()<0.5?'rgba(255,255,255,0.05)':'rgba(0,0,0,0.16)'; g.fillRect(Math.random()*w, Math.random()*h, 2, 2); }
+  g.fillStyle='rgba(0,0,0,0.25)'; for(let i=0;i<26;i++){ g.fillRect(Math.random()*w, Math.random()*h, 30+Math.random()*60, 3); }
+  /* rumble strips on both edges */
+  g.fillStyle='#8c2f22'; g.fillRect(0,0,10,h); g.fillRect(w-10,0,10,h);
+  g.fillStyle='#e8e2d2'; g.fillRect(14,0,5,h); g.fillRect(w-19,0,5,h);
+  /* dashed lane lines at 1/4, 2/4, 3/4 */
+  g.fillStyle='#f5d13d';
+  [0.25,0.5,0.75].forEach(fx=>{ for(let y=0;y<h;y+=128) g.fillRect(w*fx-4, y, 8, 62); });
+});
+asphaltTex.wrapS = asphaltTex.wrapT = THREE.RepeatWrapping;
+
+const treadTex = cnv(256,256,(g,w,h)=>{
+  g.fillStyle='#17171a'; g.fillRect(0,0,w,h);
+  g.fillStyle='#26262b';
+  for(let y=0;y<4;y++) for(let x=0;x<4;x++){ g.save(); g.translate(x*64+32,y*64+32); g.rotate((x+y)%2?0.5:-0.5); g.fillRect(-24,-11,48,22); g.restore(); }
+  g.fillStyle='rgba(0,0,0,0.5)'; for(let y=0;y<4;y++) g.fillRect(0,y*64,w,5);
+});
+treadTex.wrapS = treadTex.wrapT = THREE.RepeatWrapping; treadTex.repeat.set(6,1);
+
+const bedTex = cnv(1024,256,(g,w,h)=>{
+  g.fillStyle='#f2f0ea'; g.fillRect(0,0,w,h);
+  g.fillStyle='#191919'; g.font='900 118px Arial Black, Arial'; g.textAlign='center';
+  g.fillText('DIRTY DIESEL', w/2+40, 128);
+  g.fillStyle='#c98a12'; g.font='900 54px Arial'; g.fillText('☾  L U N A   C L A S S I C  ☾', w/2+40, 205);
+  drawCrescent(g, 86, 118, 58, '#e8a812');
+  g.fillStyle='#191919'; g.font='900 30px Arial'; g.fillText('LUNC', 86, 216);
+  g.fillStyle='#c22e2e'; g.fillRect(0,0,w,14); g.fillRect(0,h-14,w,14);
+});
+const doorTex = cnv(256,256,(g,w,h)=>{
+  g.clearRect(0,0,w,h);
+  drawCrescent(g, w/2, 96, 52, '#ffd23e');
+  g.fillStyle='#ffffff'; g.font='900 34px Arial'; g.textAlign='center';
+  g.fillText('DIRTY', w/2, 178); g.fillText('DIESEL', w/2, 216);
+});
+const coinTex = cnv(128,128,(g,w,h)=>{
+  g.fillStyle='#f7b731'; g.beginPath(); g.arc(64,64,60,0,7); g.fill();
+  g.strokeStyle='#a86e00'; g.lineWidth=6; g.beginPath(); g.arc(64,64,54,0,7); g.stroke();
+  drawCrescent(g, 64, 64, 34, '#a86e00');
+});
+function signTex(lines, bg, fg){ return cnv(512,256,(g,w,h)=>{ g.fillStyle=bg; g.fillRect(0,0,w,h); g.strokeStyle=fg; g.lineWidth=8; g.strokeRect(10,10,w-20,h-20); g.fillStyle=fg; g.textAlign='center'; const n=lines.length; lines.forEach((ln,i)=>{ g.font='900 '+(n>1?54:64)+'px Arial'; g.fillText(ln, w/2, h/2 + (i-(n-1)/2)*64 + 20); }); }); }
+const billboardTexs = [
+  signTex(['DIRTY DIESEL','MONSTER TRUCKS'], '#1c0d22', '#ffd23e'),
+  signTex(['LUNA CLASSIC','☾ LUNC ☾'], '#101d33', '#7ec3ff'),
+  signTex(['LUNC DEV STUDIO','TRUCK STOP →'], '#241118', '#ffb347'),
+  signTex(['EAT • GAS • LUNC','NEXT EXIT'], '#33200c', '#ffe9c9')
+];
+const gantryTex = signTex(['LUNA CLASSIC  NEXT EXIT','LUNC DEV STUDIO TRUCK STOP →'], '#0d4023', '#ffffff');
+const smokeTex = cnv(128,128,(g,w,h)=>{ const r=g.createRadialGradient(64,64,4,64,64,62); r.addColorStop(0,'rgba(255,255,255,0.85)'); r.addColorStop(0.55,'rgba(255,255,255,0.38)'); r.addColorStop(1,'rgba(255,255,255,0)'); g.fillStyle=r; g.fillRect(0,0,w,h); });
+const blobTex = cnv(128,128,(g,w,h)=>{ const r=g.createRadialGradient(64,64,4,64,64,62); r.addColorStop(0,'rgba(0,0,0,0.55)'); r.addColorStop(1,'rgba(0,0,0,0)'); g.fillStyle=r; g.fillRect(0,0,w,h); });
+const glowTex = smokeTex;
+
+/* ---------- shared materials ---------- */
+const M = {
+  chrome: new THREE.MeshStandardMaterial({ color:0xf6f8fa, metalness:1.0, roughness:0.13, envMapIntensity:1.15 }),
+  chromeSoft: new THREE.MeshStandardMaterial({ color:0xdfe6ee, metalness:1.0, roughness:0.24, envMapIntensity:0.9 }),
+  blackMetal: new THREE.MeshStandardMaterial({ color:0x1b1b1f, metalness:0.7, roughness:0.45 }),
+  steel: new THREE.MeshStandardMaterial({ color:0x8f979e, metalness:0.9, roughness:0.42, envMapIntensity:0.8 }),
+  tire: new THREE.MeshStandardMaterial({ map:treadTex, bumpMap:treadTex, bumpScale:0.6, color:0xbbbbbb, roughness:0.95, metalness:0 }),
+  glass: new THREE.MeshStandardMaterial({ color:0x1a2436, metalness:0.9, roughness:0.12, envMapIntensity:1.4 }),
+  frame: new THREE.MeshStandardMaterial({ color:0x23242a, metalness:0.6, roughness:0.6 }),
+  shockRed: new THREE.MeshStandardMaterial({ color:0xc22418, metalness:0.4, roughness:0.4 }),
+  lightOn: new THREE.MeshStandardMaterial({ color:0xfff2c0, emissive:0xffdf8a, emissiveIntensity:2.6 }),
+  tailOn: new THREE.MeshStandardMaterial({ color:0x550000, emissive:0xff1a1a, emissiveIntensity:1.8 }),
+  marker: new THREE.MeshStandardMaterial({ color:0x331a00, emissive:0xff8b1f, emissiveIntensity:2.0 })
+};
+function box(w,h,d,mat,x,y,z,parent){ const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat); m.position.set(x||0,y||0,z||0); if(parent)parent.add(m); return m; }
+function cyl(rt,rb,h,mat,x,y,z,parent,seg){ const m=new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,seg||18),mat); m.position.set(x||0,y||0,z||0); if(parent)parent.add(m); return m; }
+function blobShadow(w,d){ const m=new THREE.Mesh(new THREE.PlaneGeometry(w,d), new THREE.MeshBasicMaterial({ map:blobTex, transparent:true, depthWrite:false })); m.rotation.x=-Math.PI/2; m.position.y=0.02; return m; }
+
+/* ============================================================
+   THE MONSTER TRUCK — built from cfg, rebuilt on garage changes
+   ============================================================ */
+let truck = null, truckParts = null;
+function buildTruck(){
+  if(truck){ scene.remove(truck); truck.traverse(o=>{ if(o.geometry) o.geometry.dispose(); }); }
+  const g = new THREE.Group();
+  const R = TIRE_R[cfg.tires];                 // tire radius
+  const paint = new THREE.MeshStandardMaterial({ color:PAINTS[cfg.paint], metalness:0.55, roughness:0.34, envMapIntensity:1.0 });
+  const chromeTgl = (onMat) => cfg.chrome.tanks ? M.chrome : M.blackMetal;
+  const body = new THREE.Group();              // sprung body (bounces)
+  const wheels = [];
+  const frameY = R + 0.52;                     // chassis rail height
+  const floorY = frameY + 0.34;                // body floor
+
+  /* frame + suspension */
+  box(0.16,0.2,4.9, M.frame, -0.55, frameY, 0, g); box(0.16,0.2,4.9, M.frame, 0.55, frameY, 0, g);
+  [-1.55, 1.55].forEach(z=>{ const ax = cyl(0.09,0.09,1.9, M.steel, 0, R, z, g); ax.rotation.z = Math.PI/2; });
+  [-0.72,0.72].forEach(x=>[-1.55,1.55].forEach(z=>{ const s = cyl(0.07,0.07,frameY-R+0.25, M.shockRed, x, (R+frameY)/2, z, g); s.rotation.x = z>0?0.16:-0.16; }));
+  const shaft = cyl(0.06,0.06,3.0, M.steel, 0, R+0.12, 0, g); shaft.rotation.x = Math.PI/2;
+  box(0.7,0.34,0.7, M.blackMetal, 0, R+0.1, 0, g);   // transfer case
+
+  /* cab (pickup style) */
+  const cab = new THREE.Group(); cab.position.y = floorY; body.add(cab);
+  box(1.86,0.62,1.15, paint, 0, 0.62, -1.95, cab);                       // hood
+  box(1.9,0.16,1.2, paint, 0, 0.98, -1.95, cab);                          // hood top
+  box(1.94,1.06,1.5, paint, 0, 0.85, -0.55, cab);                        // cab main
+  const shield = box(1.7,0.78,0.06, M.glass, 0, 1.06, -1.28, cab); shield.rotation.x = 0.18;  // windshield
+  box(1.7,0.6,0.05, M.glass, 0, 1.02, 0.22, cab);                         // rear glass
+  [-0.99,0.99].forEach(x=>{ const wgeo = box(0.04,0.52,1.1, M.glass, x, 1.06, -0.55, cab); });
+  box(1.98,0.14,1.62, paint, 0, 1.44, -0.55, cab);                        // roof
+  [-1.0,1.0].forEach(x=>{ const d = new THREE.Mesh(new THREE.PlaneGeometry(1.06,0.8), new THREE.MeshStandardMaterial({ map:doorTex, transparent:true, metalness:0.3, roughness:0.5, polygonOffset:true, polygonOffsetFactor:-1 })); d.position.set(x*1.0, 0.82, -0.55); d.rotation.y = x>0?Math.PI/2:-Math.PI/2; cab.add(d); });
+  /* bed */
+  const bedMat = new THREE.MeshStandardMaterial({ map:bedTex, metalness:0.35, roughness:0.5 });
+  const bedSideMats = [bedMat, bedMat, paint, paint, paint, paint];
+  const bed = new THREE.Mesh(new THREE.BoxGeometry(1.94,0.78,1.85), bedSideMats); bed.position.set(0, 0.55, 1.32); cab.add(bed);
+  box(1.94,0.1,1.85, M.blackMetal, 0, 0.18, 1.32, cab);                   // bed floor
+  box(1.98,0.5,0.08, paint, 0, 0.62, 2.28, cab);                          // tailgate
+  /* fenders over monster wheels */
+  [-1.02,1.02].forEach(x=>[-1.55,1.55].forEach(z=>{ const f = box(0.24,0.16,1.5, paint, x, floorY+0.28, z, g); }));
+
+  /* grille + front */
+  box(1.5,0.52,0.1, M.chrome, 0, floorY+0.6, -2.56, g);
+  [-0.58,0.58].forEach(x=>{ cyl(0.11,0.11,0.06, M.lightOn, x, floorY+0.66, -2.6, g).rotation.x = Math.PI/2; });
+  const coneMat = new THREE.MeshBasicMaterial({ color:0xffd9a0, transparent:true, opacity:0.10, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide });
+  [-0.58,0.58].forEach(x=>{ const cone = new THREE.Mesh(new THREE.ConeGeometry(0.55,4.6,14,1,true), coneMat); cone.position.set(x, floorY+0.55, -4.8); cone.rotation.x = -Math.PI/2 - 0.06; g.add(cone); });
+  [-0.6,0.6].forEach(x=> box(0.3,0.12,0.05, M.tailOn, x, floorY+0.55, 2.33, g));  // tail lights on tailgate
+
+  /* chrome toggles */
+  const bumper = box(2.0,0.3,0.18, cfg.chrome.bumper?M.chrome:M.blackMetal, 0, floorY+0.18, -2.62, g);
+  if(cfg.chrome.bullbar){
+    const bb = new THREE.Group(); bb.position.set(0, floorY+0.45, -2.78); g.add(bb);
+    [-0.55,0.55].forEach(x=> cyl(0.05,0.05,0.95, M.chrome, x, 0, 0, bb));
+    [-0.28,0.28].forEach(y=>{ const bar = cyl(0.05,0.05,1.35, M.chrome, 0, y, 0, bb); bar.rotation.z = Math.PI/2; });
+    const mid = cyl(0.05,0.05,0.95, M.chrome, 0, 0, 0, bb);
+  }
+  if(cfg.chrome.visor){ const v = box(1.8,0.05,0.42, M.chrome, 0, floorY+1.62, -1.42, g); v.rotation.x = 0.35; }
+  if(cfg.chrome.horns){ [-0.42,0.42].forEach(x=>{ const hgrp = new THREE.Group(); hgrp.position.set(x, floorY+1.56, -0.6); g.add(hgrp); const tube = cyl(0.035,0.035,0.85, M.chrome, 0, 0, -0.2, hgrp); tube.rotation.x = Math.PI/2; const bell = cyl(0.02,0.11,0.24, M.chrome, 0, 0, -0.72, hgrp); bell.rotation.x = Math.PI/2; }); }
+  if(cfg.chrome.lightbar){
+    const bar = cyl(0.045,0.045,1.7, M.chrome, 0, floorY+1.66, -1.05, g); bar.rotation.z = Math.PI/2;
+    [-0.63,-0.21,0.21,0.63].forEach(x=>{ cyl(0.1,0.11,0.14, M.chrome, x, floorY+1.66, -1.14, g).rotation.x = Math.PI/2; cyl(0.085,0.085,0.03, M.lightOn, x, floorY+1.66, -1.22, g).rotation.x = Math.PI/2; });
+  } else {
+    [-0.7,-0.35,0,0.35,0.7].forEach(x=> box(0.09,0.05,0.04, M.marker, x, floorY+1.53, -1.3, g));
+  }
+  if(cfg.chrome.mirrors){ [-1,1].forEach(s=>{ const arm = cyl(0.025,0.025,0.4, M.chrome, s*1.06, floorY+1.15, -1.15, g); arm.rotation.z = s*0.7; box(0.06,0.3,0.18, M.chrome, s*1.18, floorY+1.2, -1.15, g); }); }
+  [-0.8,0.8].forEach(x=>{ const tank = cyl(0.21,0.21,1.15, chromeTgl(), x, floorY-0.12, -0.5, g); tank.rotation.x = Math.PI/2; });
+  if(cfg.chrome.flaps){ [-0.85,0.85].forEach(x=>{ box(0.5,0.55,0.04, M.blackMetal, x, R+0.1, 2.28, g); box(0.5,0.09,0.045, M.chrome, x, R-0.12, 2.28, g); }); }
+
+  /* stacks behind cab */
+  const stackMat = cfg.stacks==='black' ? M.blackMetal : M.chrome;
+  const stackTopY = cfg.stacks==='tall' ? floorY+2.35 : floorY+1.8;
+  const stackTips = [];
+  [-0.8,0.8].forEach(x=>{
+    cyl(0.085,0.085, stackTopY-(floorY+0.1), stackMat, x, (stackTopY+floorY+0.1)/2, 0.48, g);
+    const tip = cyl(0.085,0.12,0.22, stackMat, x, stackTopY+0.08, 0.48, g);
+    stackTips.push(new THREE.Vector3(x, stackTopY+0.2, 0.48));
+  });
+
+  /* wheels — giant knobby */
+  const rimMat = cfg.wheels==='chrome' ? M.chrome : (cfg.wheels==='black' ? M.blackMetal : M.steel);
+  const tireGeo = new THREE.CylinderGeometry(R, R, 0.62, 30);
+  const rimGeo = new THREE.CylinderGeometry(R*0.52, R*0.52, 0.66, 20);
+  const hubGeo = new THREE.CylinderGeometry(R*0.16, R*0.16, 0.72, 12);
+  [[-1.06,-1.55],[1.06,-1.55],[-1.06,1.55],[1.06,1.55]].forEach(([x,z])=>{
+    const wgrp = new THREE.Group(); wgrp.position.set(x, R, z); g.add(wgrp);
+    const tire = new THREE.Mesh(tireGeo, M.tire); tire.rotation.z = Math.PI/2; wgrp.add(tire);
+    const rim = new THREE.Mesh(rimGeo, rimMat); rim.rotation.z = Math.PI/2; wgrp.add(rim);
+    const lip = new THREE.Mesh(new THREE.TorusGeometry(R*0.52, R*0.06, 10, 24), rimMat); lip.rotation.y = Math.PI/2; lip.position.x = x>0?0.3:-0.3; wgrp.add(lip);
+    const hub = new THREE.Mesh(hubGeo, M.blackMetal); hub.rotation.z = Math.PI/2; wgrp.add(hub);
+    wheels.push(wgrp);
+  });
+
+  /* underglow */
+  let glowLight = null;
+  if(GLOWS[cfg.glow]){
+    const gm = new THREE.Mesh(new THREE.PlaneGeometry(4.6,6.4), new THREE.MeshBasicMaterial({ map:glowTex, color:GLOWS[cfg.glow], transparent:true, opacity:0.5, blending:THREE.AdditiveBlending, depthWrite:false }));
+    gm.rotation.x = -Math.PI/2; gm.position.y = 0.06; g.add(gm);
+    glowLight = new THREE.PointLight(GLOWS[cfg.glow], 12, 8); glowLight.position.set(0,0.4,0); g.add(glowLight);
+  }
+  const shadow = blobShadow(4.4, 6.2); g.add(shadow);
+
+  g.add(body);
+  truck = g; truckParts = { body, wheels, stackTips, R };
+  scene.add(truck);
+  return truck;
+}
+
+/* ============================================================
+   WORLD — endless dusk highway, recycled segments
+   ============================================================ */
+const ROAD_HALF = 6.9;                 // 4 lanes
+const LANES = [-5.1, -1.7, 1.7, 5.1];
+const world = new THREE.Group(); scene.add(world);
+
+/* road */
+const roadTex = asphaltTex.clone(); roadTex.needsUpdate = true; roadTex.repeat.set(1, 46);
+const road = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_HALF*2, 460), new THREE.MeshStandardMaterial({ map:roadTex, roughness:0.94, metalness:0 }));
+road.rotation.x = -Math.PI/2; road.position.set(0, 0, -190); world.add(road);
+/* desert ground */
+const desertTex = cnv(256,256,(g,w,h)=>{ g.fillStyle='#5e3a22'; g.fillRect(0,0,w,h); for(let i=0;i<2600;i++){ g.fillStyle=Math.random()<0.5?'rgba(255,190,120,0.07)':'rgba(0,0,0,0.12)'; g.fillRect(Math.random()*w,Math.random()*h,3,3); } });
+desertTex.wrapS = desertTex.wrapT = THREE.RepeatWrapping; desertTex.repeat.set(30,30);
+const desert = new THREE.Mesh(new THREE.PlaneGeometry(900, 700), new THREE.MeshStandardMaterial({ map:desertTex, roughness:1 }));
+desert.rotation.x = -Math.PI/2; desert.position.set(0, -0.05, -190); world.add(desert);
+/* guardrails (scrolling reflector texture) */
+const railTex = cnv(256,64,(g,w,h)=>{ g.fillStyle='#9aa2ab'; g.fillRect(0,0,w,h); g.fillStyle='#6e767f'; g.fillRect(0,0,w,8); g.fillRect(0,h-8,w,8); g.fillStyle='#ff3b30'; g.fillRect(118,22,20,20); g.fillStyle='#fff'; g.fillRect(20,22,20,20); });
+railTex.wrapS = THREE.RepeatWrapping; railTex.repeat.set(60,1);
+const railMat = new THREE.MeshStandardMaterial({ map:railTex, metalness:0.7, roughness:0.35, envMapIntensity:0.7 });
+[-8.1, 8.1].forEach(x=>{ const r = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.5, 460), railMat); r.position.set(x, 0.62, -190); world.add(r); });
+
+/* distant mesas + sun-side silhouettes (static, far) */
+const mesaMat = new THREE.MeshStandardMaterial({ color:0x6e3428, roughness:1 });
+[[-120,-300,90,42],[130,-330,120,55],[-190,-240,70,30],[200,-210,80,36],[0,-390,240,70]].forEach(([x,z,w2,h2])=>{ const m = box(w2,h2,26, mesaMat, x, h2/2-2, z, world); });
+
+/* recycled prop segments */
+const SEG_LEN = 46, SEG_N = 9;
+const segments = [];
+function cactus(parent, x, z, s){
+  const cm = new THREE.MeshStandardMaterial({ color:0x2e5d33, roughness:0.9 });
+  const grp = new THREE.Group(); grp.position.set(x, 0, z); grp.scale.setScalar(s); parent.add(grp);
+  cyl(0.16,0.2,2.2, cm, 0, 1.1, 0, grp, 8);
+  const a1 = cyl(0.11,0.11,0.9, cm, -0.42, 1.5, 0, grp, 8); a1.rotation.z = 1.1;
+  const a2 = cyl(0.11,0.11,0.7, cm, 0.4, 1.75, 0, grp, 8); a2.rotation.z = -1.1;
+  return grp;
+}
+function makeSegment(i){
+  const grp = new THREE.Group(); grp.position.z = -i*SEG_LEN; world.add(grp);
+  /* guardrail posts */
+  const postMat = M.steel;
+  for(let k=0;k<4;k++){ [-8.1,8.1].forEach(x=> box(0.12,0.62,0.12, postMat, x, 0.31, -k*12, grp)); }
+  /* mile marker */
+  if(i%2===0){ const mm = box(0.3,0.7,0.06, new THREE.MeshStandardMaterial({ color:0x1d5c33, roughness:0.6 }), 7.6, 0.55, -8, grp); }
+  /* desert props, random side */
+  const side = Math.random()<0.5?-1:1;
+  const px = side*(11+Math.random()*16);
+  if(Math.random()<0.62) cactus(grp, px, -Math.random()*40, 0.8+Math.random()*0.9);
+  if(Math.random()<0.4){ const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.7+Math.random()*0.9), new THREE.MeshStandardMaterial({ color:0x7a5a44, roughness:1 })); rock.position.set(-side*(10+Math.random()*10), 0.4, -Math.random()*40); rock.rotation.set(Math.random(),Math.random(),Math.random()); grp.add(rock); }
+  if(Math.random()<0.3){ const bb = new THREE.Group(); bb.position.set(side*13.5, 0, -20); bb.rotation.y = side>0?-0.28:0.28; grp.add(bb);
+    cyl(0.09,0.09,3.4, M.steel, -1.8, 1.7, 0, bb, 8); cyl(0.09,0.09,3.4, M.steel, 1.8, 1.7, 0, bb, 8);
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(5.4,2.5,0.14), new THREE.MeshStandardMaterial({ map:billboardTexs[i%billboardTexs.length], roughness:0.6, emissive:0xffffff, emissiveMap:billboardTexs[i%billboardTexs.length], emissiveIntensity:0.28 }));
+    panel.position.y = 4.2; bb.add(panel);
+  }
+  if(i%5===2){ /* overhead gantry sign */
+    const gan = new THREE.Group(); gan.position.z = -30; grp.add(gan);
+    [-7.6,7.6].forEach(x=> cyl(0.12,0.12,5.6, M.steel, x, 2.8, 0, gan, 10));
+    const beam = cyl(0.1,0.1,15.6, M.steel, 0, 5.5, 0, gan, 8); beam.rotation.z = Math.PI/2;
+    const sign = new THREE.Mesh(new THREE.BoxGeometry(9.6,1.9,0.12), new THREE.MeshStandardMaterial({ map:gantryTex, roughness:0.55, emissive:0xffffff, emissiveMap:gantryTex, emissiveIntensity:0.3 }));
+    sign.position.set(0, 4.3, 0); gan.add(sign);
+  }
+  if(i%7===4){ /* truck stop on the right */
+    const ts = new THREE.Group(); ts.position.set(17, 0, -24); grp.add(ts);
+    box(9,3.4,5, new THREE.MeshStandardMaterial({ color:0x8a6a4a, roughness:0.9 }), 0, 1.7, 0, ts);
+    box(10,0.24,6, new THREE.MeshStandardMaterial({ color:0x4a2c18, roughness:1 }), 0, 3.5, 0, ts);
+    const tsSign = new THREE.Mesh(new THREE.BoxGeometry(6.4,1.4,0.12), new THREE.MeshStandardMaterial({ map:billboardTexs[2], emissive:0xffffff, emissiveMap:billboardTexs[2], emissiveIntensity:0.5, roughness:0.6 }));
+    tsSign.position.set(0, 4.6, -2.4); ts.add(tsSign);
+    [-3,3].forEach(x=> cyl(0.07,0.07,4.4, M.steel, x, 2.2, -2.4, ts, 8));
+  }
+  segments.push(grp);
+  return grp;
+}
+for(let i=0;i<SEG_N;i++) makeSegment(i);
+
+/* garage showroom pad */
+const showroom = new THREE.Group(); scene.add(showroom);
+{
+  const pad = new THREE.Mesh(new THREE.CylinderGeometry(7.4, 7.4, 0.14, 36), new THREE.MeshStandardMaterial({ color:0x2c2c31, roughness:0.85, metalness:0.1 }));
+  pad.position.y = 0.0; showroom.add(pad);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(7.4, 0.07, 8, 48), new THREE.MeshStandardMaterial({ color:0xffb52e, emissive:0xff9a1f, emissiveIntensity:1.4, roughness:0.4 }));
+  ring.rotation.x = Math.PI/2; ring.position.y = 0.08; showroom.add(ring);
+  const sign = new THREE.Mesh(new THREE.BoxGeometry(8.6,1.7,0.14), new THREE.MeshStandardMaterial({ map:billboardTexs[2], emissive:0xffffff, emissiveMap:billboardTexs[2], emissiveIntensity:0.55, roughness:0.6 }));
+  sign.position.set(0, 4.6, -8.6); showroom.add(sign);
+  [-4.6,4.6].forEach(x=> cyl(0.09,0.09,4.2, M.steel, x, 2.1, -8.6, showroom, 8));
+  [-6.5,6.5].forEach(x=>{ cyl(0.07,0.07,5.2, M.blackMetal, x, 2.6, -3, showroom, 8); const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.16,10,10), M.lightOn); lamp.position.set(x, 5.25, -3); showroom.add(lamp); const pl = new THREE.PointLight(0xffc37a, 30, 20); pl.position.set(x, 5.1, -3); showroom.add(pl); });
+}
+
+/* ============================================================
+   TRAFFIC — crushable cars + deadly semis + barriers, coins, ramps
+   ============================================================ */
+const CAR_COLORS = [0xd8d8dc, 0x3a6bc5, 0xc23b2e, 0x3fa34d, 0xe0a51c, 0x7a4fa3, 0x22242a, 0xbfc7cc, 0x8c4a2f];
+function carGlassTex(){ return cnv(128,64,(g,w,h)=>{ g.fillStyle='#141c2a'; g.fillRect(0,0,w,h); g.fillStyle='rgba(160,200,255,0.5)'; g.fillRect(8,8,50,20); }); }
+const glassTexShared = carGlassTex();
+function buildCar(kind){
+  const grp = new THREE.Group();
+  const color = CAR_COLORS[Math.floor(Math.random()*CAR_COLORS.length)];
+  const paintM = new THREE.MeshStandardMaterial({ color, metalness:0.5, roughness:0.4, envMapIntensity:0.8 });
+  const glassM = new THREE.MeshStandardMaterial({ map:glassTexShared, metalness:0.7, roughness:0.25 });
+  let len=4.2, wid=1.8, top=1.32;
+  if(kind==='van'){ len=4.8; top=1.95; box(wid,1.0,len*0.62, paintM, 0, 0.78, -0.4, grp); box(wid,0.95,len*0.4, paintM, 0, 1.45, len*0.28, grp); box(wid*0.92,0.6,0.06, glassM, 0, 1.2, -len*0.68, grp); }
+  else if(kind==='pickup'){ box(wid,0.72,len*0.45, paintM, 0, 0.72, -len*0.26, grp); box(wid,0.85,len*0.3, paintM, 0, 1.15, -len*0.05, grp); box(wid*0.9,0.5,0.05, glassM, 0, 1.2, -len*0.21, grp); box(wid,0.55,len*0.32, paintM, 0, 0.85, len*0.33, grp); }
+  else { box(wid,0.62,len, paintM, 0, 0.62, 0, grp); box(wid*0.86,0.55,len*0.5, glassM, 0, 1.12, 0.1, grp); box(wid*0.9,0.1,len*0.3, paintM, 0, 1.42, 0.1, grp); }
+  [-0.62,0.62].forEach(x=>[-len*0.32, len*0.32].forEach(z=>{ const w = cyl(0.31,0.31,0.2, M.blackMetal, x, 0.31, z, grp, 12); w.rotation.z = Math.PI/2; }));
+  [-0.6,0.6].forEach(x=> box(0.28,0.1,0.04, M.tailOn, x, 0.78, len/2+0.01, grp));
+  [-0.6,0.6].forEach(x=> box(0.28,0.1,0.04, M.lightOn, x, 0.78, -len/2-0.01, grp));
+  grp.add(blobShadow(2.6, len+0.8));
+  grp.userData = { kind:'car', len, wid, top, paintM, crushed:false, crushT:0, passed:false, speed: 26+Math.random()*16, laneX:0 };
+  return grp;
+}
+function buildSemi(){
+  const grp = new THREE.Group();
+  const cabM = new THREE.MeshStandardMaterial({ color:CAR_COLORS[Math.floor(Math.random()*CAR_COLORS.length)], metalness:0.5, roughness:0.4 });
+  box(2.3,1.9,2.2, cabM, 0, 1.75, -4.6, grp);
+  box(2.1,0.8,0.08, M.glass, 0, 2.2, -5.72, grp);
+  box(2.0,0.5,0.14, M.chromeSoft, 0, 0.95, -5.72, grp);
+  [-0.7,0.7].forEach(x=> box(0.34,0.12,0.05, M.lightOn, x, 1.15, -5.74, grp));
+  const trailTexSemi = cnv(512,256,(g,w,h)=>{ g.fillStyle='#e8e6e0'; g.fillRect(0,0,w,h); g.fillStyle='#173a6b'; g.font='900 74px Arial'; g.textAlign='center'; g.fillText('LUNA CLASSIC', w/2, 118); g.fillStyle='#c98a12'; g.font='900 40px Arial'; g.fillText('☾ FREIGHT LINES ☾', w/2, 180); });
+  const sideM = new THREE.MeshStandardMaterial({ map:trailTexSemi, roughness:0.6 });
+  const plainM = new THREE.MeshStandardMaterial({ color:0xe8e6e0, roughness:0.6 });
+  const trailer = new THREE.Mesh(new THREE.BoxGeometry(2.5,2.7,7.6), [sideM, sideM, plainM, plainM, plainM, plainM]);
+  trailer.position.set(0, 2.15, 1.4); grp.add(trailer);
+  [-0.95,0.95].forEach(x=>[-4.9,-0.2,3.9].forEach(z=>{ const w = cyl(0.5,0.5,0.3, M.blackMetal, x, 0.5, z, grp, 14); w.rotation.z = Math.PI/2; }));
+  [-0.8,0.8].forEach(x=> box(0.3,0.12,0.05, M.tailOn, x, 0.9, 5.22, grp));
+  grp.add(blobShadow(3.4, 12));
+  grp.userData = { kind:'semi', len:11, wid:2.5, top:3.6, crushed:false, passed:false, speed: 40+Math.random()*8, laneX:0 };
+  return grp;
+}
+function buildBarrier(){
+  const grp = new THREE.Group();
+  const stripeTex = cnv(128,64,(g,w,h)=>{ g.fillStyle='#e86a1c'; g.fillRect(0,0,w,h); g.fillStyle='#f5f5f5'; for(let x=-1;x<4;x++){ g.save(); g.translate(x*48,0); g.rotate(0.6); g.fillRect(0,-20,20,110); g.restore(); } });
+  const bm = new THREE.MeshStandardMaterial({ map:stripeTex, roughness:0.7 });
+  const b = new THREE.Mesh(new THREE.BoxGeometry(3.1,0.95,0.5), bm); b.position.y = 0.75; grp.add(b);
+  [-1.3,1.3].forEach(x=> box(0.12,0.5,0.4, M.blackMetal, x, 0.25, 0, grp));
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.09,8,8), M.marker); lamp.position.set(0,1.35,0); grp.add(lamp);
+  grp.add(blobShadow(3.6, 1.2));
+  grp.userData = { kind:'barrier', len:1.0, wid:3.1, top:1.3, crushed:false, passed:false, speed:0, laneX:0 };
+  return grp;
+}
+function buildRamp(){
+  const grp = new THREE.Group();
+  const shape = new THREE.Shape(); shape.moveTo(0,0); shape.lineTo(3.4,0); shape.lineTo(3.4,1.05); shape.lineTo(0,0);
+  const geo = new THREE.ExtrudeGeometry(shape, { depth:3.0, bevelEnabled:false });
+  const rm = new THREE.MeshStandardMaterial({ color:0x8a8f96, metalness:0.6, roughness:0.5 });
+  const wedge = new THREE.Mesh(geo, rm); wedge.rotation.y = Math.PI/2; wedge.position.set(-1.5, 0, 1.7); grp.add(wedge);
+  const stripe = box(3.0,0.06,0.5, new THREE.MeshStandardMaterial({ color:0xf5d13d, emissive:0xf5d13d, emissiveIntensity:0.5 }), 0, 0.55, -0.6, grp); stripe.rotation.x = -0.3;
+  grp.userData = { kind:'ramp', len:3.4, wid:3.0, top:1.05, crushed:false, passed:false, speed:0, laneX:0, used:false };
+  return grp;
+}
+const coinGeo = new THREE.CylinderGeometry(0.55, 0.55, 0.09, 22);
+coinGeo.rotateX(Math.PI/2);
+const coinMat = new THREE.MeshStandardMaterial({ map:coinTex, metalness:0.85, roughness:0.25, emissive:0xa86e00, emissiveIntensity:0.35 });
+function buildCoinRow(x, z, n){
+  const grp = new THREE.Group();
+  for(let i=0;i<n;i++){ const c = new THREE.Mesh(coinGeo, coinMat); c.position.set(x, 1.05, z - i*2.4); grp.add(c); }
+  grp.userData = { kind:'coins', items: grp.children.slice(), x };
+  return grp;
+}
+
+/* ---------- smoke particle system ---------- */
+const SMOKE_N = 260;
+const smokeGeo = new THREE.BufferGeometry();
+const sPos = new Float32Array(SMOKE_N*3), sScale = new Float32Array(SMOKE_N), sAlpha = new Float32Array(SMOKE_N);
+smokeGeo.setAttribute('position', new THREE.BufferAttribute(sPos, 3));
+const smokeMat = new THREE.PointsMaterial({ size:1, map:smokeTex, transparent:true, depthWrite:false, color:0x141416, sizeAttenuation:true, opacity:0.85 });
+const smokePts = new THREE.Points(smokeGeo, smokeMat); smokePts.frustumCulled = false; scene.add(smokePts);
+const smokePool = Array.from({length:SMOKE_N}, ()=>({ life:0, max:1, x:0,y:-99,z:0, vx:0,vy:0,vz:0, grow:1 }));
+let smokeIdx = 0, smokeAcc = 0;
+function puff(x,y,z, spread, up, life, baseVz){
+  const p = smokePool[smokeIdx]; smokeIdx = (smokeIdx+1)%SMOKE_N;
+  p.life = life; p.max = life;
+  p.x = x + (Math.random()-0.5)*spread; p.y = y; p.z = z + (Math.random()-0.5)*spread;
+  p.vx = (Math.random()-0.5)*0.7; p.vy = up*(0.8+Math.random()*0.5); p.vz = (baseVz||0) + Math.random()*0.6;
+  p.grow = 1.6+Math.random()*1.6;
+}
+function updateSmoke(dt){
+  for(let i=0;i<SMOKE_N;i++){
+    const p = smokePool[i];
+    if(p.life<=0){ sPos[i*3+1] = -99; sAlpha[i]=0; continue; }
+    p.life -= dt;
+    p.x += p.vx*dt; p.y += p.vy*dt; p.z += p.vz*dt;
+    p.vy += 0.6*dt;
+    sPos[i*3] = p.x; sPos[i*3+1] = p.y; sPos[i*3+2] = p.z;
+  }
+  smokeGeo.attributes.position.needsUpdate = true;
+}
+
+/* ============================================================
+   GAME STATE + INPUT
+   ============================================================ */
+let mode = 'menu';
+let speedMph = 0, distMi = 0, score = 0, coinsN = 0, crushN = 0;
+let truckX = 0, truckY = 0, vy = 0, steer = 0, bodyDip = 0, shakeT = 0, fovCur = 62;
+let entities = [], coinRows = [];
+let spawnCarIn = 30, spawnSemiIn = 300, spawnCoinIn = 150, spawnRampIn = 700, spawnBarrierIn = 520;
+const keys = {};
+const input = { joy:0, gas:false, brake:false, turbo:false };
+
+addEventListener('keydown', e=>{ keys[e.code] = true; if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space'].includes(e.code)) e.preventDefault(); });
+addEventListener('keyup', e=>{ keys[e.code] = false; });
+
+/* joystick */
+const joyEl = $('joy'), knob = $('joyKnob');
+let joyId = null;
+function joyMove(e){ const r = joyEl.getBoundingClientRect(); const dx = e.clientX - (r.left + r.width/2); input.joy = Math.max(-1, Math.min(1, dx/42)); knob.style.transform = `translate(calc(-50% + ${input.joy*36}px), -50%)`; }
+joyEl.addEventListener('pointerdown', e=>{ joyId = e.pointerId; joyEl.setPointerCapture(joyId); joyMove(e); });
+joyEl.addEventListener('pointermove', e=>{ if(e.pointerId===joyId) joyMove(e); });
+function joyEnd(e){ if(e.pointerId===joyId){ joyId = null; input.joy = 0; knob.style.transform = 'translate(-50%,-50%)'; } }
+joyEl.addEventListener('pointerup', joyEnd); joyEl.addEventListener('pointercancel', joyEnd);
+
+/* pedals */
+function hold(el, prop){ const on = e=>{ e.preventDefault(); input[prop] = true; el.classList.add('on'); }; const off = ()=>{ input[prop] = false; el.classList.remove('on'); };
+  el.addEventListener('pointerdown', on); el.addEventListener('pointerup', off); el.addEventListener('pointerleave', off); el.addEventListener('pointercancel', off); }
+hold($('btnGas'), 'gas'); hold($('btnBrake'), 'brake'); hold($('btnTurbo'), 'turbo');
+
+/* garage camera drag-rotate */
+let garAngle = 0.7, garDragId = null, garLastX = 0, garIdleT = 0;
+renderer.domElement.addEventListener('pointerdown', e=>{ if(mode==='garage'){ garDragId = e.pointerId; garLastX = e.clientX; garIdleT = 0; } });
+renderer.domElement.addEventListener('pointermove', e=>{ if(mode==='garage' && e.pointerId===garDragId){ garAngle -= (e.clientX-garLastX)*0.008; garLastX = e.clientX; garIdleT = 0; } });
+renderer.domElement.addEventListener('pointerup', e=>{ if(e.pointerId===garDragId) garDragId = null; });
+
+/* ============================================================
+   GARAGE UI
+   ============================================================ */
+const cap = s => s.charAt(0).toUpperCase()+s.slice(1);
+const CATS = [
+  { id:'paint',  type:'pick', opts:['black','red','gold','blue','green','purple','silver'], lk:o=>'p'+cap(o), sw:o=>'#'+PAINTS[o].toString(16).padStart(6,'0') },
+  { id:'stacks', type:'pick', opts:['chrome','tall','black'], lk:o=>({chrome:'stChrome',tall:'stTall',black:'stBlack'})[o] },
+  { id:'wheels', type:'pick', opts:['chrome','black','steel'], lk:o=>'w'+cap(o), sw:o=>({chrome:'linear-gradient(135deg,#fff,#8a97a5)',black:'#1b1b1f',steel:'#8f979e'})[o] },
+  { id:'chrome', type:'toggles', opts:['bumper','bullbar','visor','horns','tanks','lightbar','mirrors','flaps'], lk:o=>'ch'+cap(o) },
+  { id:'glow',   type:'pick', opts:['none','red','blue','gold','green'], lk:o=>'g'+cap(o), sw:o=> GLOWS[o] ? '#'+GLOWS[o].toString(16).padStart(6,'0') : 'transparent' },
+  { id:'smoke',  type:'pick', opts:['gray','black','white'], lk:o=>'s'+cap(o), sw:o=>'#'+SMOKES[o].toString(16).padStart(6,'0') },
+  { id:'tires',  type:'pick', opts:['big','bigger','monster'], lk:o=>'t'+cap(o) }
+];
+let gCat = 'paint';
+function renderGarage(){
+  const catRow = $('catRow'), optRow = $('optRow');
+  catRow.innerHTML = ''; optRow.innerHTML = '';
+  CATS.forEach(c=>{
+    const b = document.createElement('button'); b.className = 'catChip'+(gCat===c.id?' sel':''); b.textContent = t('cat'+cap(c.id));
+    b.onclick = ()=>{ gCat = c.id; renderGarage(); };
+    catRow.appendChild(b);
+  });
+  const cat = CATS.find(c=>c.id===gCat);
+  cat.opts.forEach(o=>{
+    const b = document.createElement('button');
+    const isSel = cat.type==='toggles' ? !!cfg.chrome[o] : cfg[cat.id]===o;
+    b.className = 'optBtn'+(isSel?' sel':'');
+    let inner = '';
+    if(cat.sw) inner += `<span class="sw" style="background:${cat.sw(o)}"></span>`;
+    inner += `<span>${t(cat.lk(o))}</span>`;
+    if(cat.type==='toggles') inner += `<span class="st">${isSel?t('on'):t('off')}</span>`;
+    b.innerHTML = inner;
+    b.onclick = ()=>{
+      if(cat.type==='toggles') cfg.chrome[o] = !cfg.chrome[o]; else cfg[cat.id] = o;
+      saveCfg(); applyCfgToTruck(); renderGarage();
+    };
+    optRow.appendChild(b);
+  });
+}
+window.renderGarage = renderGarage;
+function applyCfgToTruck(){
+  buildTruck();
+  smokeMat.color.set(SMOKES[cfg.smoke]);
+  if(truck){ truck.position.set(0,0,0); truck.rotation.set(0,0,0); }
+}
+
+/* ============================================================
+   MODES
+   ============================================================ */
+function show(el, on){ $(el).classList.toggle('hidden', !on); }
+function toMenu(){ mode='menu'; show('menu',true); show('garage',false); show('over',false); show('hud',false); show('controls',false); showroom.visible = true; $('menuBest').textContent = best; resetTruckPose(); }
+function toGarage(){ mode='garage'; show('menu',false); show('over',false); show('garage',true); show('hud',false); show('controls',false); showroom.visible = true; renderGarage(); resetTruckPose(); }
+function resetTruckPose(){ if(!truck) return; truck.position.set(0,0,0); truck.rotation.set(0,0,0); truckX=0; truckY=0; vy=0; }
+function clearEntities(){ entities.forEach(e=>{ scene.remove(e); }); coinRows.forEach(r=> scene.remove(r)); entities=[]; coinRows=[]; }
+function startRace(){
+  mode='race'; show('menu',false); show('garage',false); show('over',false); show('howto',false); show('hud',true); show('controls',true);
+  showroom.visible = false; clearEntities(); resetTruckPose();
+  speedMph=0; distMi=0; score=0; coinsN=0; crushN=0; steer=0; shakeT=0;
+  spawnCarIn=40; spawnSemiIn=330; spawnCoinIn=170; spawnRampIn=750; spawnBarrierIn=560;
+  updateHUD(true);
+}
+let overTimer = null;
+function gameOver(){
+  if(mode!=='race') return;
+  mode='over'; shakeT=0.7;
+  const final = Math.floor(score);
+  submitScore(final);
+  const isNew = final > best;
+  if(isNew){ best = final; try{ localStorage.setItem('dirtydiesel_best', String(best)); }catch(e){} }
+  $('finalScore').textContent = final;
+  $('finalCoins').textContent = coinsN;
+  $('finalCrush').textContent = crushN;
+  $('finalDist').textContent = distMi.toFixed(2);
+  $('overBest').textContent = best;
+  $('newBestLine').textContent = isNew ? t('newBest') : '';
+  clearTimeout(overTimer);
+  overTimer = setTimeout(()=>{ show('over',true); show('hud',false); show('controls',false); }, 650);
+}
+$('btnPlay').onclick = startRace;
+$('btnGarage').onclick = toGarage;
+$('btnRace').onclick = startRace;
+$('btnGarageBack').onclick = toMenu;
+$('btnHow').onclick = ()=> show('howto', true);
+$('btnHowClose').onclick = ()=> show('howto', false);
+$('btnAgain').onclick = startRace;
+$('btnOverGarage').onclick = toGarage;
+$('btnOverMenu').onclick = toMenu;
+
+/* ============================================================
+   SPAWNING + COLLISIONS
+   ============================================================ */
+function laneFree(z, x){ return !entities.some(e=> Math.abs(e.position.z - z) < 16 && Math.abs(e.position.x - x) < 2); }
+function spawnCar(x, z){ const kinds=['sedan','pickup','van']; const c = buildCar(kinds[Math.floor(Math.random()*kinds.length)]); c.position.set(x, 0, z); c.userData.laneX = x; scene.add(c); entities.push(c); return c; }
+function spawnSemi(x, z){ const s = buildSemi(); s.position.set(x, 0, z); s.userData.laneX = x; scene.add(s); entities.push(s); return s; }
+function spawnBarrier(x, z){ const b = buildBarrier(); b.position.set(x, 0, z); scene.add(b); entities.push(b); return b; }
+function spawnRamp(x, z){ const r = buildRamp(); r.position.set(x, 0, z); scene.add(r); entities.push(r); return r; }
+function spawnCoins(x, z){ const row = buildCoinRow(x, z, 5); scene.add(row); coinRows.push(row); return row; }
+
+let msgTimer = null;
+function showMsg(txt, cls){ const m = $('msg'); m.textContent = txt; m.className = 'show '+(cls||''); clearTimeout(msgTimer); msgTimer = setTimeout(()=>{ m.className=''; }, 950); }
+
+function crushCar(e){
+  const ud = e.userData; ud.crushed = true; ud.crushT = 0.0001;
+  ud.paintM.color.multiplyScalar(0.42);
+  score += 150; crushN++;
+  vy = Math.max(vy, 6.4); shakeT = Math.max(shakeT, 0.32); bodyDip = 0.16;
+  showMsg(t('crush')+' +150', 'crush');
+  for(let i=0;i<9;i++) puff(e.position.x, 1.0, e.position.z, 1.6, 2.2, 0.7, 2);
+  updateHUD(true);
+}
+
+/* ============================================================
+   HUD
+   ============================================================ */
+let hudCache = {};
+function updateHUD(force){
+  const vals = { hScore: Math.floor(score), hDist: distMi.toFixed(2), hCoins: coinsN, hCrush: crushN, hSpeed: Math.round(speedMph) };
+  for(const k in vals){ if(force || hudCache[k]!==vals[k]){ $(k).textContent = vals[k]; hudCache[k]=vals[k]; } }
+}
+
+/* ============================================================
+   MAIN LOOP
+   ============================================================ */
+const clock = new THREE.Clock();
+function animate(){
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const time = clock.elapsedTime;
+
+  if(mode==='menu' || mode==='garage'){
+    garIdleT += dt;
+    if(mode==='menu') garAngle += dt*0.14;
+    else if(garDragId===null && garIdleT>1.6) garAngle += dt*0.12;
+    const radBase = mode==='garage' ? 8.6 : 11.5;
+    const rad = radBase * (camera.aspect<0.8 ? 1.55 : camera.aspect<1.2 ? 1.22 : 1);
+    const hgt = mode==='garage' ? 1.5 : 2.7;
+    camera.position.set(Math.sin(garAngle)*rad, hgt, Math.cos(garAngle)*rad);
+    camera.lookAt(0, 1.55, 0);
+    if(camera.fov !== 55){ camera.fov = 55; camera.updateProjectionMatrix(); }
+    /* idle stack puffs for showroom life */
+    smokeAcc += dt*2.4;
+    while(smokeAcc>1){ smokeAcc--; if(truckParts) puff(truckParts.stackTips[Math.random()<0.5?0:1].x, truckParts.stackTips[0].y, 0.48, 0.1, 1.6, 1.6, 0.4); }
+    if(truckParts) truckParts.wheels.forEach(w=> w.rotation.x = 0);
+  }
+  else if(mode==='race' || mode==='over'){
+    const racing = mode==='race';
+    /* --- input --- */
+    const gasOn = input.gas || keys['ArrowUp'] || keys['KeyW'];
+    const brakeOn = input.brake || keys['ArrowDown'] || keys['KeyS'];
+    const turboOn = racing && (input.turbo || keys['Space']);
+    let steerT = input.joy + (keys['ArrowLeft']||keys['KeyA'] ? -1:0) + (keys['ArrowRight']||keys['KeyD'] ? 1:0);
+    steerT = Math.max(-1, Math.min(1, steerT));
+    steer += (steerT - steer) * Math.min(1, dt*9);
+
+    /* --- speed --- */
+    if(racing){
+      const capBase = 92 + Math.min(30, distMi*7);
+      const cap = turboOn ? capBase + 40 : capBase;
+      if(gasOn) speedMph += (turboOn? 30:16)*dt;
+      else if(turboOn && speedMph>4) speedMph += 22*dt;
+      if(brakeOn) speedMph -= 36*dt;
+      if(!gasOn && !turboOn) speedMph -= 3.2*dt;
+      if(speedMph > cap) speedMph = Math.max(cap, speedMph - 26*dt);
+      speedMph = Math.max(0, speedMph);
+      distMi += speedMph*dt/3600;
+      score += speedMph*dt*0.55;
+    } else { speedMph = Math.max(0, speedMph - 60*dt); }
+    const speedMs = speedMph*0.44704;
+
+    /* --- steering / truck pose --- */
+    truckX += steer * (6.5 + speedMph*0.085) * dt * (speedMph>1?1:0);
+    truckX = Math.max(-(ROAD_HALF-1.2), Math.min(ROAD_HALF-1.2, truckX));
+    if(truckY>0 || vy>0){ vy -= 24*dt; truckY += vy*dt; if(truckY<=0){ truckY=0; if(vy<-5){ bodyDip=0.2; shakeT=Math.max(shakeT,0.18); } vy=0; } }
+    bodyDip *= Math.pow(0.0018, dt); if(bodyDip<0.002) bodyDip=0;
+    truck.position.set(truckX, truckY, 0);
+    truckParts.body.position.y = -bodyDip;
+    truckParts.body.rotation.z = -steer*0.045;
+    truckParts.body.rotation.x = (gasOn? -0.012:0) + (turboOn? -0.02:0);
+    truck.rotation.y = -steer*0.07;
+    truckParts.wheels.forEach(w=>{ w.rotation.x += speedMs*dt/truckParts.R; });
+
+    /* --- world scroll --- */
+    roadTex.offset.y += speedMs*dt/10;
+    railTex.offset.x -= speedMs*dt/7.67;
+    segments.forEach(s=>{ s.position.z += speedMs*dt; if(s.position.z > SEG_LEN) s.position.z -= SEG_LEN*SEG_N; });
+
+    /* --- spawning --- */
+    if(racing && speedMph>8){
+      spawnCarIn -= speedMs*dt; spawnSemiIn -= speedMs*dt; spawnCoinIn -= speedMs*dt; spawnRampIn -= speedMs*dt; spawnBarrierIn -= speedMs*dt;
+      if(spawnCarIn<=0){ spawnCarIn = 60+Math.random()*55; const x = LANES[Math.floor(Math.random()*4)]; if(laneFree(-295, x)) spawnCar(x, -295); }
+      if(spawnSemiIn<=0){ spawnSemiIn = 270+Math.random()*170; const x = LANES[Math.floor(Math.random()*4)]; if(laneFree(-300, x)) spawnSemi(x, -300); }
+      if(spawnCoinIn<=0){ spawnCoinIn = 190+Math.random()*130; spawnCoins(LANES[Math.floor(Math.random()*4)], -290); }
+      if(spawnRampIn<=0){ spawnRampIn = 680+Math.random()*380; const x = LANES[Math.floor(Math.random()*4)]; if(laneFree(-295, x)) spawnRamp(x, -295); }
+      if(spawnBarrierIn<=0){ spawnBarrierIn = 520+Math.random()*300; const x = LANES[Math.floor(Math.random()*4)]; if(laneFree(-295, x)) spawnBarrier(x, -295); }
+    }
+
+    /* --- entities --- */
+    for(let i=entities.length-1;i>=0;i--){
+      const e = entities[i], ud = e.userData;
+      e.position.z += (speedMph - ud.speed)*0.44704*dt;
+      if(e.position.z > 30 || e.position.z < -330){ scene.remove(e); entities.splice(i,1); continue; }
+      if(ud.crushT>0 && ud.crushT<1){ ud.crushT = Math.min(1, ud.crushT + dt*4.2); const s = ud.crushT; e.scale.y = 1-0.72*s; e.scale.x = 1+0.16*s; e.scale.z = 1+0.1*s; }
+      if(!racing) continue;
+      const dz = e.position.z, dx = e.position.x - truckX;
+      if(ud.kind==='car'){
+        if(!ud.crushed && Math.abs(dz) < ud.len/2+2.4 && Math.abs(dx) < 2.0 && truckY < 1.75) crushCar(e);
+        else if(!ud.passed && dz > 7){ ud.passed = true; if(!ud.crushed && Math.abs(dx)>=2.0 && Math.abs(dx)<3.5){ score+=50; showMsg(t('nearMiss')+' +50'); updateHUD(true); } }
+      } else if(ud.kind==='semi'){
+        if(Math.abs(dz) < 7.7 && Math.abs(dx) < 2.3 && truckY < 1.5){ gameOver(); }
+        else if(!ud.passed && dz > 10){ ud.passed = true; if(Math.abs(dx)>=2.3 && Math.abs(dx)<3.9){ score+=50; showMsg(t('nearMiss')+' +50'); updateHUD(true); } }
+      } else if(ud.kind==='barrier'){
+        if(Math.abs(dz) < 2.7 && Math.abs(dx) < 2.5 && truckY < 1.25){ gameOver(); }
+      } else if(ud.kind==='ramp'){
+        if(!ud.used && Math.abs(dz) < 2.0 && Math.abs(dx) < 1.9 && truckY<=0.02 && speedMph>15){ ud.used = true; vy = 12.5; showMsg('🤘 +AIR'); }
+      }
+    }
+    /* coins */
+    for(let i=coinRows.length-1;i>=0;i--){
+      const row = coinRows[i];
+      row.position.z += speedMs*dt;
+      let alive = false;
+      row.userData.items.forEach(c=>{
+        if(!c.visible) return;
+        c.rotation.y += dt*3.2;
+        const wz = row.position.z + c.position.z;
+        if(wz < 26) alive = true;
+        if(racing && Math.abs(wz) < 2.3 && Math.abs(c.position.x - truckX) < 1.8 && truckY < 2.1){ c.visible = false; coinsN++; score += 25; updateHUD(true); }
+      });
+      if(!alive && row.position.z > 0){ scene.remove(row); coinRows.splice(i,1); }
+    }
+
+    /* --- turbo smoke (roll coal!) --- */
+    if(turboOn && speedMph>10){
+      smokeAcc += dt*80;
+      while(smokeAcc>1){ smokeAcc--; const tip = truckParts.stackTips[Math.random()<0.5?0:1]; puff(truckX+tip.x, truckY+tip.y, tip.z, 0.14, 3.4, 1.5, 2.5); }
+      if(Math.random()<0.5) puff(truckX, 0.3, 2.4, 1.4, 0.8, 0.8, 3);
+    } else if(gasOn && speedMph>6){
+      smokeAcc += dt*11;
+      while(smokeAcc>1){ smokeAcc--; const tip = truckParts.stackTips[Math.random()<0.5?0:1]; puff(truckX+tip.x, truckY+tip.y, tip.z, 0.1, 2.2, 0.9, 1.5); }
+    }
+
+    /* --- camera --- */
+    const targetFov = turboOn ? 75 : 62;
+    fovCur += (targetFov - fovCur)*Math.min(1, dt*5);
+    if(Math.abs(camera.fov - fovCur) > 0.1){ camera.fov = fovCur; camera.updateProjectionMatrix(); }
+    shakeT = Math.max(0, shakeT - dt);
+    const shx = shakeT>0 ? (Math.random()-0.5)*shakeT*0.5 : 0;
+    const shy = shakeT>0 ? (Math.random()-0.5)*shakeT*0.4 : 0;
+    camera.position.set(truckX*0.55 + shx, 4.7 + truckY*0.55 + shy, 10.6);
+    camera.lookAt(truckX*0.82, 1.7 + truckY*0.4, -9);
+    updateHUD(false);
+  }
+
+  updateSmoke(dt);
+  renderer.render(scene, camera);
+}
+
+/* ---------- boot ---------- */
+buildTruck();
+smokeMat.color.set(SMOKES[cfg.smoke]);
+applyLang();
+toMenu();
+animate();
+
+addEventListener('resize', ()=>{ camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+
+/* QA hooks (read-only state + spawn helpers for automated user-play tests) */
+window.__dd = {
+  get mode(){ return mode; }, get score(){ return Math.floor(score); },
+  get crushed(){ return crushN; }, get coins(){ return coinsN; },
+  get speed(){ return Math.round(speedMph); }, get truckX(){ return truckX; }, get truckY(){ return truckY; },
+  cfg, startRace, toGarage, toMenu,
+  spawnCarAt(x){ return spawnCar(x, -70); }, spawnSemiAt(x){ return spawnSemi(x, -80); },
+  setCfg(p){ Object.assign(cfg, p); if(p.chrome) cfg.chrome = Object.assign({}, DEF_CFG.chrome, p.chrome); saveCfg(); applyCfgToTruck(); }
+};
+</script>
+</body>
+</html>
