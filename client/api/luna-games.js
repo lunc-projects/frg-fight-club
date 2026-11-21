@@ -1632,8 +1632,9 @@ async function frogAdminChallenge(req, res, body) {
     console.error('frog admin challenge save failed', e && e.message);
     return res.status(502).json({ error: 'store unavailable' });
   }
+  const cht = frogSignToken({ kind: 'chal', addr: address, nonce, message, exp: Date.now() + FROG_ADMIN_CHAL_TTL_SEC * 1000 });
   res.setHeader('Cache-Control', 'no-store');
-  return res.status(200).json({ ok: true, message, nonce, expiresIn: FROG_ADMIN_CHAL_TTL_SEC });
+  return res.status(200).json({ ok: true, message, nonce, cht, expiresIn: FROG_ADMIN_CHAL_TTL_SEC });
 }
 /* Keplr MOBILE's signArbitrary has historically signed the same
    ADR-36 amino doc as the extension but with the real chain_id
@@ -1672,6 +1673,39 @@ function frogAdminVerifyAdr36(message, signer, pub, sig) {
     return crypto.verify('sha256', Buffer.from(message, 'utf8'), { key, dsaEncoding: 'ieee-p1363' }, sig);
   } catch (e) { return false; }
 }
+/* STATELESS CHALLENGE + SESSION (2026-11-21): the store behind
+   upstashPipeline is currently write/read divergent — a challenge
+   SET returns success yet reads back null seconds later, even with
+   retries (reproduced live: challenge issued, verify 2s later ->
+   no-challenge). So the frog-admin login no longer depends on a
+   store read: the challenge and the session are HMAC-signed tokens
+   the server verifies locally. HMAC key derives from the Upstash
+   token env (server-side only). Tradeoff, accepted: a session
+   token stays valid until its 4h expiry even if the wallet is
+   later removed from the admin list — the resolver still enforces
+   the stored list whenever the store answers; the HMAC path is
+   the fallback for when it does not. The legacy stored challenge
+   and stored session paths remain as fallbacks. */
+function frogHmacKey() {
+  return crypto.createHash('sha256').update('frog-admin-v2:' + (process.env.NEONRUSH_UPSTASH_TOKEN || '')).digest();
+}
+function frogSignToken(obj) {
+  const payload = Buffer.from(JSON.stringify(obj), 'utf8').toString('base64url');
+  const mac = crypto.createHmac('sha256', frogHmacKey()).update(payload).digest('base64url');
+  return 'v2.' + payload + '.' + mac;
+}
+function frogReadToken(tok) {
+  try {
+    const parts = String(tok || '').split('.');
+    if (parts.length !== 3 || parts[0] !== 'v2') return null;
+    const mac = crypto.createHmac('sha256', frogHmacKey()).update(parts[1]).digest('base64url');
+    const a = Buffer.from(mac), b = Buffer.from(parts[2]);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+    const obj = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    if (!obj || !(obj.exp > Date.now())) return null;
+    return obj;
+  } catch (e) { return null; }
+}
 /* The store behind upstashPipeline intermittently serves an empty
    view (seen 2026-11-20/21 across apps): a record written seconds
    ago can read back null. Reads that gate a live user flow retry a
@@ -1695,18 +1729,23 @@ async function frogAdminVerify(req, res, body) {
   if (!role) { await frogSleep(800); role = await frogAdminAuthorized(address); }
   if (!role) { await frogSleep(1200); role = await frogAdminAuthorized(address); }
   if (!role) return fail('role');
-  let stored = null;
-  try {
-    stored = await frogGetRetry('frog:adminchal:' + address, 5, 1000);
-  } catch (e) {
-    console.error('frog admin challenge read failed', e && e.message);
-    return res.status(502).json({ error: 'store unavailable' });
-  }
-  if (!stored) return fail('no-challenge');
   let chal = null;
-  try { chal = JSON.parse(stored); } catch (e) { /* corrupt record */ }
-  if (!chal || !chal.nonce || !chal.message) return fail('no-challenge');
-  if (!(chal.exp > Date.now())) return fail('expired');
+  const chtObj = body.cht ? frogReadToken(body.cht) : null;
+  if (chtObj && chtObj.kind === 'chal' && chtObj.addr === address) {
+    chal = { nonce: chtObj.nonce, message: chtObj.message, exp: chtObj.exp };
+  } else {
+    let stored = null;
+    try {
+      stored = await frogGetRetry('frog:adminchal:' + address, 5, 1000);
+    } catch (e) {
+      console.error('frog admin challenge read failed', e && e.message);
+      return res.status(502).json({ error: 'store unavailable' });
+    }
+    if (!stored) return fail('no-challenge');
+    try { chal = JSON.parse(stored); } catch (e) { /* corrupt record */ }
+    if (!chal || !chal.nonce || !chal.message) return fail('no-challenge');
+    if (!(chal.exp > Date.now())) return fail('expired');
+  }
   if (String(body.nonce || '') !== chal.nonce) return fail('nonce');
   let pubB64 = String(body.pubKey || '');
   let sigB64 = String(body.signature || '');
@@ -1728,20 +1767,27 @@ async function frogAdminVerify(req, res, body) {
   try {
     await upstashPipeline([['DEL', 'frog:adminchal:' + address]]);
   } catch (e) { console.error('frog admin challenge delete failed', e && e.message); }
-  const token = crypto.randomBytes(32).toString('base64url');
+  /* Session = stateless signed token (see frogSignToken note);
+     also stored best-effort for the legacy resolver path. A store
+     failure must NOT fail a proven login anymore. */
+  const token = frogSignToken({ kind: 'sess', addr: address, role, exp: Date.now() + FROG_ADMIN_SESS_TTL_SEC * 1000 });
   const tokenKey = 'frog:adminsess:' + crypto.createHash('sha256').update(token).digest('hex');
   try {
     await upstashPipeline([['SET', tokenKey, JSON.stringify({ addr: address, role }), 'EX', String(FROG_ADMIN_SESS_TTL_SEC)]]);
-  } catch (e) {
-    console.error('frog admin session save failed', e && e.message);
-    return res.status(502).json({ error: 'store unavailable' });
-  }
+  } catch (e) { console.error('frog admin session save failed (non-fatal)', e && e.message); }
   res.setHeader('Cache-Control', 'no-store');
   return res.status(200).json({ ok: true, token, role, expiresIn: FROG_ADMIN_SESS_TTL_SEC });
 }
 async function frogAdminResolveSession(token) {
   try {
     if (!token) return null;
+    const st = frogReadToken(token);
+    if (st && st.kind === 'sess' && GD_ADDR_RE.test(st.addr || '')) {
+      if (st.addr === frogAdminOwner()) return { addr: st.addr, role: 'owner' };
+      const stored = await frogAdminStoredList();
+      if (stored === null) return { addr: st.addr, role: st.role === 'owner' ? 'admin' : (st.role || 'admin') };
+      return stored.includes(st.addr) ? { addr: st.addr, role: 'admin' } : null;
+    }
     const key = 'frog:adminsess:' + crypto.createHash('sha256').update(token).digest('hex');
     const raw = await frogGetRetry(key, 3, 700);
     if (!raw) return null;
