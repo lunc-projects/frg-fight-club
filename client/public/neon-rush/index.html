@@ -37,8 +37,16 @@
   .btn { pointer-events:auto; cursor:pointer; border:none; border-radius:999px; padding:15px 42px; font-size:18px; font-weight:900; letter-spacing:.08em; color:#fff; background:linear-gradient(90deg,#ff2d96,#ff7a2a); box-shadow:0 6px 26px rgba(255,45,150,.5); }
   .btn:active { transform:scale(.96); }
   #finalScore { font-size:21px; font-weight:900; }
-  .zone { position:fixed; bottom:0; z-index:9; width:38%; height:46%; display:none; align-items:flex-end; justify-content:center; padding-bottom:26px; font-size:44px; color:rgba(255,255,255,.35); pointer-events:none; }
+  .zone { position:fixed; bottom:0; z-index:9; width:38%; height:46%; display:none; align-items:flex-end; justify-content:center; padding-bottom:178px; font-size:44px; color:rgba(255,255,255,.35); pointer-events:none; }
   #zoneL { left:0; } #zoneR { right:0; }
+  /* 🕹️ floating joystick — bottom-left thumb (mirrors LUNC Moto Speed): drag the knob, LEFT / RIGHT steers (analog) */
+  #joyBase { position:fixed; left:18px; bottom:calc(env(safe-area-inset-bottom,0px) + 20px); z-index:11; width:124px; height:124px; border-radius:50%; pointer-events:auto; background:radial-gradient(circle,rgba(46,16,86,.45),rgba(14,4,34,.62)); border:2px solid rgba(125,244,255,.45); touch-action:none; }
+  #joyKnob { position:absolute; left:50%; top:50%; width:56px; height:56px; border-radius:50%; transform:translate(-50%,-50%); background:radial-gradient(circle at 35% 30%,#b45fd6,#4a1666); border:2px solid rgba(255,255,255,.55); box-shadow:0 4px 12px rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; font-size:19px; color:#ffe9fb; }
+  /* ⚡ NITRO button — big, right thumb; ALWAYS live: press-and-hold to boost, no charge, no drain, never runs out */
+  #nitroBtn { position:fixed; right:18px; bottom:calc(env(safe-area-inset-bottom,0px) + 20px); z-index:11; width:96px; height:96px; border-radius:50%; pointer-events:auto; border:3px solid #ffcf3d; background:radial-gradient(circle at 35% 30%,rgba(110,76,8,.92),rgba(26,17,2,.95)); color:#ffd76a; box-shadow:0 0 16px rgba(255,190,40,.45); display:flex; flex-direction:column; align-items:center; justify-content:center; cursor:pointer; overflow:hidden; touch-action:none; }
+  #nitroBtn .zap { font-size:33px; line-height:1; }
+  #nitroBtn .cap { font-size:9.5px; font-weight:900; letter-spacing:1.5px; margin-top:2px; }
+  #nitroBtn.firing { border-color:#fff; color:#fff; background:radial-gradient(circle at 35% 30%,rgba(255,170,30,.95),rgba(160,70,0,.95)); box-shadow:0 0 34px rgba(255,160,30,.95); transform:scale(1.07); }
   #load { position:fixed; inset:0; z-index:30; background:#160a2e; color:#cfd8ff; display:flex; align-items:center; justify-content:center; font-size:15px; }
 </style>
 <link rel="icon" href="favicon.ico" sizes="any"><link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png"><link rel="apple-touch-icon" href="apple-touch-icon.png"><meta property="og:image" content="https://frg-fight-club.vercel.app/arcade/img/neon-rush.webp"><meta name="twitter:image" content="https://frg-fight-club.vercel.app/arcade/img/neon-rush.webp"><script defer src="/_vercel/insights/script.js"></script>
@@ -53,6 +61,8 @@
 <div class="hud" id="combo"></div>
 <div class="hud" id="flash"></div>
 <div class="zone" id="zoneL">◀</div><div class="zone" id="zoneR">▶</div>
+<div id="joyBase" style="display:none"><div id="joyKnob">✥</div></div>
+<div id="nitroBtn" style="display:none"><div class="zap">⚡</div><div class="cap">NITRO</div></div>
 
 <div class="overlay" id="startScreen">
   <div class="tag">LUNA CLASSIC</div>
@@ -60,7 +70,7 @@
   <h1>NEON RUSH</h1>
   <p>Weave through traffic on the neon highway. Near misses build your combo — grab the LUNC and USTC coins, don’t kiss the bumpers.</p>
   <p>🪙 Coins are your <b>fuel</b> — run dry and the run ends. USTC coins carry more fuel than LUNC coins.</p>
-  <p style="font-size:12.5px; opacity:.75">◀ ▶ buttons, drag, or arrow keys to steer</p>
+  <p style="font-size:12.5px; opacity:.75">🕹️ Floating joystick, ◀ ▶ buttons, drag, or arrow keys to steer<br>⚡ Hold the NITRO button (or Space) to boost — nitrous never runs out, and there is NO top speed: the longer you run, the faster you go</p>
   <button class="btn" id="startBtn">▶ START ENGINE</button>
   <button class="btn alt" id="boardBtn">🏆 LEADERBOARD</button>
 </div>
@@ -367,6 +377,7 @@ let score = 0, best = +(localStorage.getItem('neonRushBest') || 0);
 let speed = 0, combo = 0, comboTimer = 0, trafficTimer = 0, coinTimer = 1.2;
 const FUEL_MAX = 100, FUEL_START = 80;
 let fuel = FUEL_START, runStart = 0, runSeconds = 0, lowBeep = 0;
+let boosting = false, boostHold = 0;   /* ⚡ nitrous state — infinite: no meter, no drain, no lockout */
 const player = { x: 0, vx: 0 };
 $('best').textContent = best;
 
@@ -405,6 +416,7 @@ function spawnCoins(){
 }
 function startGame(){
   score = 0; combo = 0; comboTimer = 0; speed = 26;
+  boosting = false; boostHold = 0; $('nitroBtn').classList.remove('firing');
   fuel = FUEL_START; runStart = performance.now(); runSeconds = 0;
   $('submitBtn').disabled = false;
   $('submitStatus').textContent = '';
@@ -416,6 +428,7 @@ function startGame(){
   $('startScreen').style.display = 'none';
   $('overScreen').style.display = 'none';
   $('zoneL').style.display = 'flex'; $('zoneR').style.display = 'flex';
+  $('joyBase').style.display = 'block'; $('nitroBtn').style.display = 'flex';
   state = 'run';
   flash('GO!');
   beep(440, .1, 'square', .05, 220);
@@ -430,14 +443,16 @@ function gameOver(reason){
   $('finalBest').textContent = 'Best: ' + best;
   $('overScreen').style.display = 'flex';
   $('zoneL').style.display = 'none'; $('zoneR').style.display = 'none';
+  $('joyBase').style.display = 'none'; $('nitroBtn').style.display = 'none';
+  boosting = false; $('nitroBtn').classList.remove('firing');
 }
 $('startBtn').addEventListener('click', startGame);
 $('againBtn').addEventListener('click', startGame);
 
 /* =============== input =============== */
 const keys = {};
-addEventListener('keydown', e => { keys[e.code] = true; if (['ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault(); });
-addEventListener('keyup', e => keys[e.code] = false);
+addEventListener('keydown', e => { keys[e.code] = true; if (['ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault(); if ((e.code === 'Space' || e.code === 'KeyN') && !e.repeat) startNitro(); });
+addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'Space' || e.code === 'KeyN') stopNitro(); });
 let holdL = false, holdR = false, dragId = null, dragStartX = 0, dragSteer = 0;
 const cv = renderer.domElement;
 cv.addEventListener('pointerdown', e => {
@@ -455,6 +470,54 @@ function ptrEnd(e){ if (e.pointerId === dragId){ dragId = null; holdL = holdR = 
 cv.addEventListener('pointerup', ptrEnd);
 cv.addEventListener('pointercancel', ptrEnd);
 
+/* =============== 🕹️ floating joystick (mirrors LUNC Moto Speed) =============== */
+const joyBase = $('joyBase'), joyKnob = $('joyKnob');
+let joyId = null, joySteer = 0;
+function joySet(dx, dy){
+  joyKnob.style.transform = 'translate(calc(-50% + ' + dx + 'px), calc(-50% + ' + dy + 'px))';
+}
+function joyFromEvent(e){
+  const r = joyBase.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  let dx = (e.clientX - cx) / (r.width / 2), dy = (e.clientY - cy) / (r.height / 2);
+  const m = Math.hypot(dx, dy); if (m > 1) { dx /= m; dy /= m; }
+  joySet(dx * 38, dy * 38);
+  const dz = 0.1; // center deadzone — no twitch at rest
+  joySteer = Math.abs(dx) < dz ? 0 : dx;
+}
+joyBase.addEventListener('pointerdown', e => { e.preventDefault(); joyId = e.pointerId; try { joyBase.setPointerCapture(joyId); } catch (_) {} joyFromEvent(e); });
+joyBase.addEventListener('pointermove', e => { if (e.pointerId === joyId) joyFromEvent(e); });
+function joyEnd(e){ if (e.pointerId === joyId) { joyId = null; joySteer = 0; joySet(0, 0); } }
+joyBase.addEventListener('pointerup', joyEnd);
+joyBase.addEventListener('pointercancel', joyEnd);
+joyBase.addEventListener('contextmenu', e => e.preventDefault());
+
+/* =============== ⚡ NITRO — infinite nitrous: hold to boost, never drains, never locks out =============== */
+const nitroBtn = $('nitroBtn');
+let nitroPointerId = null;
+function startNitro(){
+  if (state !== 'run' || boosting) return;
+  boosting = true;
+  nitroBtn.classList.add('firing');
+  beep(150, .38, 'sawtooth', .045, 620);   /* whoosh */
+}
+function stopNitro(){
+  boosting = false; nitroPointerId = null;
+  nitroBtn.classList.remove('firing');
+}
+nitroBtn.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  nitroPointerId = e.pointerId;
+  try { nitroBtn.setPointerCapture(e.pointerId); } catch (_) {}
+  startNitro();
+});
+function nitroRelease(e){ if (e.pointerId === nitroPointerId) stopNitro(); }
+nitroBtn.addEventListener('pointerup', nitroRelease);
+nitroBtn.addEventListener('pointercancel', nitroRelease);
+nitroBtn.addEventListener('lostpointercapture', () => stopNitro());
+addEventListener('pointerup', e => { if (e.pointerId === nitroPointerId) stopNitro(); });
+addEventListener('pointercancel', e => { if (e.pointerId === nitroPointerId) stopNitro(); });
+nitroBtn.addEventListener('contextmenu', e => e.preventDefault());
+
 /* =============== update =============== */
 const clock = new THREE.Clock();
 let firstFrame = true;
@@ -466,9 +529,13 @@ function loop(){
   const t = clock.elapsedTime;
 
   if (state === 'run'){
-    speed = Math.min(63, speed + dt * .38);
+    /* speed — INFINITE SPEED (Tom, Nov 21, same as LUNC High Speed / Moto Speed):
+       NO top-speed cap — the base pace keeps creeping up the longer the run lasts,
+       and ⚡ nitrous rides on top with strong extra acceleration, unlimited */
+    if (boosting) boostHold += dt; else boostHold = 0;
+    speed += dt * (.38 + (boosting ? 6.5 : 0));
     /* steering */
-    let steer = dragSteer;
+    let steer = dragSteer + joySteer;
     if (keys.ArrowLeft || keys.KeyA || holdL) steer -= 1;
     if (keys.ArrowRight || keys.KeyD || holdR) steer += 1;
     steer = Math.max(-1, Math.min(1, steer));
@@ -477,8 +544,9 @@ function loop(){
     addScore(speed * dt * 1.15);
     /* combo decay */
     if (combo > 0){ comboTimer -= dt; if (comboTimer <= 0) combo = 0; }
-    /* fuel drain — faster the faster you drive */
-    fuel -= (2.4 + speed * .014) * dt;
+    /* fuel drain — the speed term is clamped at the OLD top speed (63), so the
+       drain rate never grows past the old rate no matter how fast you now go */
+    fuel -= (2.4 + Math.min(speed, 63) * .014) * dt;
     if (fuel <= 25 && fuel > 0){
       lowBeep -= dt;
       if (lowBeep <= 0){ lowBeep = 1; beep(196, .12, 'square', .05, -40); }
@@ -545,7 +613,7 @@ function loop(){
   camera.position.x += ((player.x * .55) - camera.position.x) * Math.min(1, dt * 6);
   camera.position.y = 4.35; camera.position.z = 8.8;
   camera.lookAt(player.x * .78, 1.05, -12);
-  const targetFov = 68 + (speed / 63) * 9;
+  const targetFov = 68 + Math.min(speed / 63, 2.6) * 9 + (boosting ? 4 : 0);
   if (Math.abs(camera.fov - targetFov) > .1){ camera.fov += (targetFov - camera.fov) * dt * 3; camera.updateProjectionMatrix(); }
 
   /* HUD */
