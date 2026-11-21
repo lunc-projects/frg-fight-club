@@ -103,6 +103,15 @@ function errMsg(e) {
   return mm ? mm[1] : String(m).slice(0, 180);
 }
 function factory() { return tronWeb.contract(FACTORY_ABI, FACTORY_ADDRESS); }
+/* Multi-value contract results come back as objects with named keys and/or
+   numeric indexes depending on the TronWeb version — pick the field safely. */
+function pick(res, name, idx) {
+  if (res && typeof res === "object") {
+    if (res[name] !== undefined) return res[name];
+    if (res[idx] !== undefined) return res[idx];
+  }
+  return res;
+}
 function curveAt(addr) { return tronWeb.contract(CURVE_ABI, addr); }
 function tokenAt(addr) { return tronWeb.contract(TOKEN_ABI, addr); }
 
@@ -111,7 +120,8 @@ function paceInfo() {
   const v = Number($("inPace").value);                    // 0..100
   const key = v < 34 ? "paceSlow" : (v < 67 ? "paceMed" : "paceSteep");
   const depthMult = Math.max(2, Math.round(8 - (v / 100) * 6));  // CP depth 8 (slow) .. 2 (steep)
-  return { v, key, depthMult };
+  const pace = v < 34 ? 0 : (v < 67 ? 1 : 2);                     // contract enum: 0 slow, 1 medium, 2 steep
+  return { v, key, depthMult, pace };
 }
 function paceRatio(kind, u, depthMult) {
   if (kind === 1) return 1 + 60 * u * u - 40 * u * u * u;         // sigmoid: 1x -> 21x
@@ -172,15 +182,21 @@ $("createForm").addEventListener("submit", async (ev) => {
   let preMintWallet = $("inPreMintWallet").value.trim();
   if (preMintWhole > 0 && !preMintWallet) preMintWallet = account;
   const gradDex = $("inGrad").value === "dex";
+  /* Factory.LaunchParams field order (Factory.sol) — do not reorder:
+     name, symbol, totalSupply, preMintAmount, preMintWallet, curveType,
+     pace, feeBps, initialPriceSun, graduateToDex, graduationTargetSun,
+     snipeWindowSeconds, snipeWalletCapSun, maxBuyPerTxSun, sellLimitPerTx,
+     cooldownSeconds. */
   const args = [
     name, sym,
     wholeToBase(supply),
     wholeToBase(preMintWhole),
     preMintWallet ? tronWeb.address.toHex(preMintWallet) : "0x0000000000000000000000000000000000000000",
-    String(toSun(price)),
     Number($("inCurve").value),
-    String(paceInfo().depthMult),
-    String(Number($("inFee").value)),
+    paceInfo().pace,
+    Number($("inFee").value),
+    String(toSun(price)),
+    gradDex,
     gradDex ? String(toSun($("inTarget").value || 0)) : "0",
     String(Number($("inSnipeWin").value || 0)),
     String(toSun($("inSnipeCap").value || 0)),
@@ -190,15 +206,15 @@ $("createForm").addEventListener("submit", async (ev) => {
   ];
   out.textContent = t("creating");
   try {
-    const listingFee = await factory().listingFee().call();
+    const listingFee = await factory().listingFeeSun().call();
     const tx = await factory().createLaunch(args).send({ callValue: Number(listingFee || 0), feeLimit: 300_000_000 });
     out.textContent = t("createdOk") + " tx: " + tx;
     if (logoDataUrl) {
       setTimeout(async () => {
         try {
           const n = Number(await factory().launchCount().call());
-          const l = await factory().getLaunch(n - 1).call();
-          localStorage.setItem("lp-logo-" + tronWeb.address.fromHex(l.token), logoDataUrl);
+          const l = await factory().launches(n - 1).call();
+          localStorage.setItem("lp-logo-" + tronWeb.address.fromHex(pick(l, "token", 0)), logoDataUrl);
         } catch (e) { /* logo is cosmetic */ }
       }, 4000);
     }
@@ -209,17 +225,20 @@ $("createForm").addEventListener("submit", async (ev) => {
 /* ---------- Launches list + trade panel ---------- */
 async function readCurveState(curveAddr, tokenAddr) {
   const c = curveAt(curveAddr), tk = tokenAt(tokenAddr);
-  const [owner, paused, graduated, shutdown, price, sold, saleSupply, reserve, gradTarget] =
+  const [owner, stateRaw, price, sold, saleSupply, reserve, gradTarget] =
     await Promise.all([
-      c.owner().call(), c.paused().call(), c.graduated().call(), c.shutdown().call(),
-      c.currentPriceSun().call(), c.tokensSold().call(), c.saleSupply().call(),
-      c.realReserveSun().call(), c.gradTargetSun().call(),
+      c.owner().call(), c.state().call(),
+      c.spotPriceSunPerToken().call(), c.sold().call(), c.saleSupply().call(),
+      c.reserve().call(), c.graduationTargetSun().call(),
     ]);
   const [name, symbol] = await Promise.all([tk.name().call(), tk.symbol().call()]);
+  /* BondingCurve.State: 0 Active, 1 Paused, 2 Graduating, 3 Graduated, 4 Shutdown */
+  const stateNum = Number(stateRaw);
+  const paused = stateNum === 1, graduated = stateNum === 3, shutdown = stateNum === 4;
   return {
     curve: curveAddr, token: tokenAddr, name, symbol,
     owner: tronWeb.address.fromHex(owner),
-    paused: !!paused, graduated: !!graduated, shutdown: !!shutdown,
+    paused, graduated, shutdown,
     priceSun: Number(price), sold: baseToWhole(sold), saleSupply: baseToWhole(saleSupply),
     reserveTrx: fromSun(reserve), gradTargetTrx: fromSun(gradTarget),
     canGrad: !graduated && !shutdown && Number(gradTarget) > 0 && Number(reserve) >= Number(gradTarget),
@@ -234,8 +253,8 @@ async function refreshLaunches() {
     wrap.innerHTML = "";
     if (n === 0) { wrap.innerHTML = '<p class="note">' + esc(t("noLaunches")) + '</p>'; return; }
     for (let i = n - 1; i >= 0; i--) {
-      const l = await factory().getLaunch(i).call();
-      const st = await readCurveState(tronWeb.address.fromHex(l.curve), tronWeb.address.fromHex(l.token));
+      const l = await factory().launches(i).call();
+      const st = await readCurveState(tronWeb.address.fromHex(pick(l, "curve", 1)), tronWeb.address.fromHex(pick(l, "token", 0)));
       const logo = localStorage.getItem("lp-logo-" + st.token) || "";
       const pct = st.saleSupply > 0 ? Math.min(100, (st.sold / st.saleSupply) * 100) : 0;
       const el = document.createElement("button");
@@ -268,7 +287,7 @@ async function quoteBuy() {
     const amt = Number($("buyAmt").value || 0);
     if (!amt) { $("buyQuote").textContent = "—"; return; }
     const q = await curveAt(selected.curve).quoteBuy(toSun(amt)).call();
-    $("buyQuote").textContent = fmt(baseToWhole(q)) + " " + selected.symbol;
+    $("buyQuote").textContent = fmt(baseToWhole(pick(q, "tokensOut", 0))) + " " + selected.symbol;
   } catch (e) { $("buyQuote").textContent = "—"; }
 }
 async function quoteSell() {
@@ -277,7 +296,7 @@ async function quoteSell() {
     const amt = Number($("sellAmt").value || 0);
     if (!amt) { $("sellQuote").textContent = "—"; return; }
     const q = await curveAt(selected.curve).quoteSell(wholeToBase(amt)).call();
-    $("sellQuote").textContent = fmt(fromSun(q)) + " TRX";
+    $("sellQuote").textContent = fmt(fromSun(pick(q, "trxOut", 0))) + " TRX";
   } catch (e) { $("sellQuote").textContent = "—"; }
 }
 $("buyAmt").addEventListener("input", quoteBuy);
@@ -288,7 +307,7 @@ $("buyBtn").addEventListener("click", async () => {
     const amt = Number($("buyAmt").value || 0);
     const cc = curveAt(selected.curve);
     const q = await cc.quoteBuy(toSun(amt)).call();
-    const minOut = (BigInt(q) * 99n / 100n).toString();      // 1% slippage guard
+    const minOut = (BigInt(pick(q, "tokensOut", 0)) * 99n / 100n).toString();      // 1% slippage guard
     await cc.buy(minOut).send({ callValue: toSun(amt), feeLimit: 100_000_000 });
     selected = await readCurveState(selected.curve, selected.token);
     renderTradePanel(); refreshLaunches();
@@ -303,7 +322,7 @@ $("sellBtn").addEventListener("click", async () => {
     const allow = await tk.allowance(account, selected.curve).call();
     if (BigInt(allow) < BigInt(base)) await tk.approve(selected.curve, base).send({ feeLimit: 50_000_000 });
     const q = await cc.quoteSell(base).call();
-    const minOut = Math.floor(Number(q) * 0.99);
+    const minOut = Math.floor(Number(pick(q, "trxOut", 0)) * 0.99);
     await cc.sell(base, minOut).send({ feeLimit: 100_000_000 });
     selected = await readCurveState(selected.curve, selected.token);
     renderTradePanel(); refreshLaunches();
