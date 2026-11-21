@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<base href="/moon-bowling/">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Moon Bowling — LUNC Dev Studio</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{width:100%;height:100%;overflow:hidden;background:#05070f;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;color:#eef2ff;touch-action:none;user-select:none;-webkit-user-select:none}
+  #game{position:fixed;inset:0}
+  canvas{display:block}
+
+  /* ---------- language selector ---------- */
+  #langWrap{position:fixed;top:calc(6px + env(safe-area-inset-top));right:8px;z-index:60;display:flex;align-items:center;gap:6px;background:rgba(10,14,30,.82);border:1px solid #ffd94d;border-radius:999px;padding:5px 10px;box-shadow:0 0 14px rgba(255,217,77,.25)}
+  #langWrap span{font-size:17px}
+  #langSel{background:transparent;border:none;color:#ffd94d;font-size:15px;font-weight:700;outline:none;max-width:128px}
+  #langSel option{background:#0a0e1e;color:#fff}
+
+  /* ---------- scorecard ---------- */
+  #card{position:fixed;top:calc(48px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);z-index:40;display:flex;gap:2px;background:rgba(8,11,24,.86);border:1px solid rgba(120,160,255,.45);border-radius:10px;padding:4px;max-width:97vw}
+  .fr{flex:0 0 auto;width:8.6vw;max-width:44px;min-width:27px;text-align:center}
+  .fr .fh{font-size:8px;letter-spacing:.5px;color:#9db8ff;font-weight:700;border-bottom:1px solid rgba(120,160,255,.35);padding:1px 0}
+  .fr .frb{display:flex;height:15px}
+  .fr .rb{flex:1;font-size:11px;font-weight:800;line-height:15px;border-right:1px solid rgba(120,160,255,.25)}
+  .fr .rb:last-child{border-right:none}
+  .fr .ft{font-size:12px;font-weight:900;color:#ffd94d;height:17px;line-height:17px;border-top:1px solid rgba(120,160,255,.35)}
+  .fr.cur{outline:2px solid #ffd94d;border-radius:5px}
+  .fr.f10{width:12.5vw;max-width:62px;min-width:40px}
+
+  /* ---------- HUD ---------- */
+  #hud{position:fixed;left:0;right:0;bottom:0;z-index:40;pointer-events:none;padding:0 10px calc(8px + env(safe-area-inset-bottom))}
+  #msg{ text-align:center;font-size:clamp(22px,6.5vw,38px);font-weight:900;letter-spacing:1px;color:#ffd94d;text-shadow:0 0 18px rgba(255,180,0,.65),0 2px 0 #7a4d00;min-height:44px;opacity:0;transition:opacity .18s}
+  #msg.show{opacity:1}
+  #hint{text-align:center;font-size:14px;font-weight:600;color:#cfe0ff;text-shadow:0 1px 4px #000;min-height:20px;margin-bottom:6px}
+  #meters{display:flex;gap:10px;justify-content:center;align-items:flex-end}
+  .meter{width:38vw;max-width:210px;background:rgba(8,11,24,.78);border:1px solid rgba(120,160,255,.4);border-radius:10px;padding:5px 8px 7px}
+  .meter label{display:block;font-size:10px;font-weight:800;letter-spacing:1px;color:#9db8ff;margin-bottom:3px;text-align:center}
+  .bar{height:12px;border-radius:6px;background:#141b36;overflow:hidden}
+  .bar i{display:block;height:100%;width:0%;border-radius:6px;background:linear-gradient(90deg,#37e08b,#ffd94d,#ff5d5d);transition:width .03s linear}
+  #curveBar{position:relative;height:12px;border-radius:6px;background:#141b36}
+  #curveDot{position:absolute;top:1px;width:10px;height:10px;border-radius:50%;background:#4dd8ff;left:50%;margin-left:-5px;box-shadow:0 0 8px #4dd8ff}
+  #curveZero{position:absolute;left:50%;top:0;width:1px;height:12px;background:rgba(255,255,255,.35)}
+  #frameInfo{position:fixed;left:8px;top:calc(104px + env(safe-area-inset-top));z-index:40;background:rgba(8,11,24,.82);border:1px solid rgba(120,160,255,.4);border-radius:10px;padding:6px 10px;font-size:12px;font-weight:800;color:#cfe0ff;line-height:1.5}
+  #frameInfo b{color:#ffd94d;font-size:15px}
+
+  /* ---------- overlays / cards ---------- */
+  .overlay{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(3,5,12,.66);backdrop-filter:blur(3px);padding:14px}
+  .hidden{display:none!important}
+  .panel{background:linear-gradient(165deg,#131c3d,#0a0f24 70%);border:1px solid #ffd94d;border-radius:20px;box-shadow:0 0 34px rgba(255,217,77,.22),0 18px 50px rgba(0,0,0,.6);padding:22px 20px;width:100%;max-width:400px;text-align:center;max-height:92vh;overflow-y:auto}
+  .logo{font-size:44px;line-height:1}
+  h1{font-size:clamp(28px,8vw,38px);font-weight:900;letter-spacing:1px;background:linear-gradient(180deg,#fff6c9,#ffd94d 55%,#e79b12);-webkit-background-clip:text;background-clip:text;color:transparent;margin:4px 0 2px}
+  .tag{color:#9db8ff;font-weight:700;font-size:13px;letter-spacing:2px;margin-bottom:14px}
+  .btn{display:block;width:100%;border:none;cursor:pointer;border-radius:14px;padding:15px 10px;font-size:19px;font-weight:900;letter-spacing:1px;margin:9px 0;color:#221a02;background:linear-gradient(180deg,#ffe97a,#ffc21f);box-shadow:0 5px 0 #9c7000,0 10px 22px rgba(0,0,0,.45)}
+  .btn:active{transform:translateY(3px);box-shadow:0 2px 0 #9c7000}
+  .btn.ghost{background:rgba(120,160,255,.12);color:#cfe0ff;box-shadow:none;border:1px solid rgba(120,160,255,.5);font-size:15px;padding:12px 10px}
+  .howtxt{text-align:left;font-size:14.5px;line-height:1.55;color:#dbe7ff}
+  .howtxt p{margin:9px 0}
+  .howtxt b{color:#ffd94d}
+  .stat{display:flex;justify-content:space-between;background:rgba(120,160,255,.08);border:1px solid rgba(120,160,255,.25);border-radius:12px;padding:10px 14px;margin:8px 0;font-weight:800}
+  .stat b{color:#ffd94d;font-size:19px}
+  #newBest{color:#37e08b;font-weight:900;font-size:17px;letter-spacing:1px;min-height:22px}
+  .brandline{margin-top:12px;font-size:11px;letter-spacing:2px;color:#7e93c9;font-weight:700}
+</style>
+<script type="importmap">{"imports":{"three":"./lib/three.module.js"}}</script>
+</head>
+<body>
+<div id="game"></div>
+
+<div id="langWrap"><span>🌐</span><select id="langSel" aria-label="Language"></select></div>
+
+<div id="frameInfo"><span data-i18n="frame">FRAME</span> <b id="fiFrame">1</b><br><span data-i18n="roll">ROLL</span> <b id="fiRoll">1</b><br><span data-i18n="score">SCORE</span> <b id="fiScore">0</b></div>
+
+<div id="card"></div>
+
+<div id="hud">
+  <div id="msg"></div>
+  <div id="hint" data-i18n="dragPos">Drag to position the ball</div>
+  <div id="meters">
+    <div class="meter"><label data-i18n="power">POWER</label><div class="bar"><i id="powerFill"></i></div></div>
+    <div class="meter"><label data-i18n="curve">CURVE</label><div id="curveBar"><div id="curveZero"></div><div id="curveDot"></div></div></div>
+  </div>
+</div>
+
+<div class="overlay" id="menuOv">
+  <div class="panel">
+    <div class="logo">🌙🎳</div>
+    <h1 data-i18n="title">MOON BOWLING</h1>
+    <div class="tag" data-i18n="tagline">LUNA CLASSIC LANES</div>
+    <button class="btn" id="playBtn" data-i18n="play">PLAY</button>
+    <button class="btn ghost" id="howBtn" data-i18n="howBtn">HOW TO PLAY</button>
+    <div class="stat"><span data-i18n="best">BEST</span><b id="menuBest">—</b></div>
+    <div class="brandline">LUNC DEV STUDIO</div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="howOv">
+  <div class="panel">
+    <h1 style="font-size:26px" data-i18n="howTitle">HOW TO PLAY</h1>
+    <div class="howtxt">
+      <p data-i18n="how1"><b>Position:</b> drag left or right to place the ball on the lane.</p>
+      <p data-i18n="how2"><b>Throw:</b> flick up fast to roll. A faster flick = more power.</p>
+      <p data-i18n="how3"><b>Curve:</b> flick sideways while you throw to hook the ball.</p>
+      <p data-i18n="how4"><b>Scoring:</b> real bowling rules — 10 frames, strikes and spares score bonus pins. Moon gravity makes the pins fly!</p>
+    </div>
+    <button class="btn" id="howClose" data-i18n="closeBtn">CLOSE</button>
+  </div>
+</div>
+
+<div class="overlay hidden" id="overOv">
+  <div class="panel">
+    <div class="logo">🏆</div>
+    <h1 style="font-size:30px" data-i18n="gameOver">GAME OVER</h1>
+    <div id="newBest"></div>
+    <div class="stat"><span data-i18n="yourScore">YOUR SCORE</span><b id="finalScore">0</b></div>
+    <div class="stat"><span data-i18n="best">BEST</span><b id="overBest">—</b></div>
+    <button class="btn" id="againBtn" data-i18n="playAgain">PLAY AGAIN</button>
+    <button class="btn ghost" id="menuBtn" data-i18n="menuBtn">MENU</button>
+    <div class="brandline">LUNC DEV STUDIO</div>
+  </div>
+</div>
+
+<script>
+/* ================= i18n — 18 languages, full key parity ================= */
+const LANGS = {
+en:{name:"English",title:"MOON BOWLING",tagline:"LUNA CLASSIC LANES",play:"PLAY",howBtn:"HOW TO PLAY",howTitle:"HOW TO PLAY",how1:"<b>Position:</b> drag left or right to place the ball on the lane.",how2:"<b>Throw:</b> flick up fast to roll. A faster flick = more power.",how3:"<b>Curve:</b> flick sideways while you throw to hook the ball.",how4:"<b>Scoring:</b> real bowling rules — 10 frames, strikes and spares score bonus pins. Moon gravity makes the pins fly!",closeBtn:"CLOSE",frame:"FRAME",roll:"ROLL",score:"SCORE",power:"POWER",curve:"CURVE",dragPos:"Drag to position the ball",flickHint:"Flick up to throw!",strike:"STRIKE!",spare:"SPARE!",gutter:"GUTTER BALL",pinsWord:"pins",gameOver:"GAME OVER",yourScore:"YOUR SCORE",best:"BEST",playAgain:"PLAY AGAIN",menuBtn:"MENU",newBest:"★ NEW BEST! ★",ready:"Your throw"},
+es:{name:"Español",title:"MOON BOWLING",tagline:"PISTAS LUNA CLASSIC",play:"JUGAR",howBtn:"CÓMO JUGAR",howTitle:"CÓMO JUGAR",how1:"<b>Posición:</b> arrastra a izquierda o derecha para colocar la bola.",how2:"<b>Lanzar:</b> desliza rápido hacia arriba. Más rápido = más potencia.",how3:"<b>Curva:</b> desliza de lado al lanzar para dar efecto a la bola.",how4:"<b>Puntos:</b> reglas reales de bolos: 10 turnos, plenos y semiplenos dan bonificación. ¡La gravedad lunar hace volar los bolos!",closeBtn:"CERRAR",frame:"TURNO",roll:"TIRO",score:"PUNTOS",power:"POTENCIA",curve:"CURVA",dragPos:"Arrastra para colocar la bola",flickHint:"¡Desliza hacia arriba para lanzar!",strike:"¡PLENO!",spare:"¡SEMIPLENO!",gutter:"BOLA AL CANAL",pinsWord:"bolos",gameOver:"FIN DEL JUEGO",yourScore:"TU PUNTUACIÓN",best:"RÉCORD",playAgain:"JUGAR OTRA VEZ",menuBtn:"MENÚ",newBest:"★ ¡NUEVO RÉCORD! ★",ready:"Tu turno"},
+pt:{name:"Português",title:"MOON BOWLING",tagline:"PISTAS LUNA CLASSIC",play:"JOGAR",howBtn:"COMO JOGAR",howTitle:"COMO JOGAR",how1:"<b>Posição:</b> arraste para a esquerda ou direita para colocar a bola.",how2:"<b>Arremesso:</b> deslize rápido para cima. Mais rápido = mais força.",how3:"<b>Curva:</b> deslize para o lado ao arremessar para dar efeito.",how4:"<b>Pontos:</b> regras reais de boliche — 10 frames, strikes e spares dão bônus. A gravidade da Lua faz os pinos voarem!",closeBtn:"FECHAR",frame:"FRAME",roll:"JOGADA",score:"PONTOS",power:"FORÇA",curve:"CURVA",dragPos:"Arraste para posicionar a bola",flickHint:"Deslize para cima para arremessar!",strike:"STRIKE!",spare:"SPARE!",gutter:"BOLA NA CALHA",pinsWord:"pinos",gameOver:"FIM DE JOGO",yourScore:"SEU PLACAR",best:"RECORDE",playAgain:"JOGAR NOVAMENTE",menuBtn:"MENU",newBest:"★ NOVO RECORDE! ★",ready:"Sua vez"},
+fr:{name:"Français",title:"MOON BOWLING",tagline:"PISTES LUNA CLASSIC",play:"JOUER",howBtn:"COMMENT JOUER",howTitle:"COMMENT JOUER",how1:"<b>Position :</b> glissez à gauche ou à droite pour placer la boule.",how2:"<b>Lancer :</b> balayez vite vers le haut. Plus vite = plus de puissance.",how3:"<b>Effet :</b> balayez de côté en lançant pour courber la boule.",how4:"<b>Score :</b> vraies règles du bowling — 10 frames, strikes et spares donnent des bonus. La gravité lunaire fait voler les quilles !",closeBtn:"FERMER",frame:"FRAME",roll:"LANCER",score:"SCORE",power:"PUISSANCE",curve:"EFFET",dragPos:"Glissez pour placer la boule",flickHint:"Balayez vers le haut pour lancer !",strike:"STRIKE !",spare:"SPARE !",gutter:"GOUTTIÈRE",pinsWord:"quilles",gameOver:"PARTIE TERMINÉE",yourScore:"VOTRE SCORE",best:"RECORD",playAgain:"REJOUER",menuBtn:"MENU",newBest:"★ NOUVEAU RECORD ! ★",ready:"À vous de jouer"},
+de:{name:"Deutsch",title:"MOON BOWLING",tagline:"LUNA CLASSIC BAHNEN",play:"SPIELEN",howBtn:"SO GEHT'S",howTitle:"SO GEHT'S",how1:"<b>Position:</b> Ziehe links oder rechts, um die Kugel zu platzieren.",how2:"<b>Werfen:</b> Schnell nach oben wischen. Schneller = mehr Kraft.",how3:"<b>Kurve:</b> Beim Werfen seitlich wischen, um die Kugel zu drehen.",how4:"<b>Punkte:</b> Echte Bowling-Regeln — 10 Frames, Strikes und Spares geben Bonus. Mondschwerkraft lässt die Pins fliegen!",closeBtn:"SCHLIESSEN",frame:"FRAME",roll:"WURF",score:"PUNKTE",power:"KRAFT",curve:"KURVE",dragPos:"Ziehen, um die Kugel zu platzieren",flickHint:"Nach oben wischen zum Werfen!",strike:"STRIKE!",spare:"SPARE!",gutter:"RINNE",pinsWord:"Pins",gameOver:"SPIEL VORBEI",yourScore:"DEIN ERGEBNIS",best:"REKORD",playAgain:"NOCHMAL",menuBtn:"MENÜ",newBest:"★ NEUER REKORD! ★",ready:"Dein Wurf"},
+it:{name:"Italiano",title:"MOON BOWLING",tagline:"PISTE LUNA CLASSIC",play:"GIOCA",howBtn:"COME SI GIOCA",howTitle:"COME SI GIOCA",how1:"<b>Posizione:</b> trascina a sinistra o destra per piazzare la palla.",how2:"<b>Lancio:</b> scorri veloce verso l'alto. Più veloce = più potenza.",how3:"<b>Curva:</b> scorri di lato mentre lanci per dare effetto.",how4:"<b>Punti:</b> regole vere del bowling — 10 frame, strike e spare danno bonus. La gravità lunare fa volare i birilli!",closeBtn:"CHIUDI",frame:"FRAME",roll:"TIRO",score:"PUNTI",power:"POTENZA",curve:"CURVA",dragPos:"Trascina per posizionare la palla",flickHint:"Scorri verso l'alto per lanciare!",strike:"STRIKE!",spare:"SPARE!",gutter:"NEL CANALE",pinsWord:"birilli",gameOver:"FINE PARTITA",yourScore:"IL TUO PUNTEGGIO",best:"RECORD",playAgain:"GIOCA ANCORA",menuBtn:"MENU",newBest:"★ NUOVO RECORD! ★",ready:"Tocca a te"},
+nl:{name:"Nederlands",title:"MOON BOWLING",tagline:"LUNA CLASSIC BANEN",play:"SPELEN",howBtn:"HOE TE SPELEN",howTitle:"HOE TE SPELEN",how1:"<b>Positie:</b> sleep links of rechts om de bal te plaatsen.",how2:"<b>Gooien:</b> veeg snel omhoog. Sneller = meer kracht.",how3:"<b>Curve:</b> veeg zijwaarts tijdens het gooien voor effect.",how4:"<b>Score:</b> echte bowlingregels — 10 frames, strikes en spares geven bonus. Maangravitatie laat de pins vliegen!",closeBtn:"SLUITEN",frame:"FRAME",roll:"WORP",score:"SCORE",power:"KRACHT",curve:"CURVE",dragPos:"Sleep om de bal te plaatsen",flickHint:"Veeg omhoog om te gooien!",strike:"STRIKE!",spare:"SPARE!",gutter:"IN DE GOOT",pinsWord:"pins",gameOver:"SPEL VOORBIJ",yourScore:"JOUW SCORE",best:"RECORD",playAgain:"OPNIEUW SPELEN",menuBtn:"MENU",newBest:"★ NIEUW RECORD! ★",ready:"Jouw worp"},
+pl:{name:"Polski",title:"MOON BOWLING",tagline:"TORY LUNA CLASSIC",play:"GRAJ",howBtn:"JAK GRAĆ",howTitle:"JAK GRAĆ",how1:"<b>Pozycja:</b> przeciągnij w lewo lub prawo, aby ustawić kulę.",how2:"<b>Rzut:</b> szybko przesuń w górę. Szybciej = więcej mocy.",how3:"<b>Podkręcenie:</b> przesuń w bok podczas rzutu, aby zakręcić kulę.",how4:"<b>Punkty:</b> prawdziwe zasady kręgli — 10 ramek, strike i spare dają bonus. Księżycowa grawitacja unosi kręgle!",closeBtn:"ZAMKNIJ",frame:"RAMKA",roll:"RZUT",score:"WYNIK",power:"MOC",curve:"SKRĘT",dragPos:"Przeciągnij, aby ustawić kulę",flickHint:"Przesuń w górę, aby rzucić!",strike:"STRIKE!",spare:"SPARE!",gutter:"RYNNA",pinsWord:"kręgli",gameOver:"KONIEC GRY",yourScore:"TWÓJ WYNIK",best:"REKORD",playAgain:"GRAJ PONOWNIE",menuBtn:"MENU",newBest:"★ NOWY REKORD! ★",ready:"Twój rzut"},
+ru:{name:"Русский",title:"MOON BOWLING",tagline:"ДОРОЖКИ LUNA CLASSIC",play:"ИГРАТЬ",howBtn:"КАК ИГРАТЬ",howTitle:"КАК ИГРАТЬ",how1:"<b>Позиция:</b> тяните влево или вправо, чтобы поставить шар.",how2:"<b>Бросок:</b> быстро проведите вверх. Быстрее = сильнее.",how3:"<b>Подкрутка:</b> ведите вбок при броске, чтобы закрутить шар.",how4:"<b>Очки:</b> настоящие правила боулинга — 10 фреймов, страйки и спэры дают бонус. Лунная гравитация разбрасывает кегли!",closeBtn:"ЗАКРЫТЬ",frame:"ФРЕЙМ",roll:"БРОСОК",score:"СЧЁТ",power:"СИЛА",curve:"ПОДКРУТКА",dragPos:"Тяните, чтобы поставить шар",flickHint:"Проведите вверх для броска!",strike:"СТРАЙК!",spare:"СПЭР!",gutter:"ЖЕЛОБ",pinsWord:"кегель",gameOver:"ИГРА ОКОНЧЕНА",yourScore:"ВАШ СЧЁТ",best:"РЕКОРД",playAgain:"ИГРАТЬ СНОВА",menuBtn:"МЕНЮ",newBest:"★ НОВЫЙ РЕКОРД! ★",ready:"Ваш бросок"},
+uk:{name:"Українська",title:"MOON BOWLING",tagline:"ДОРІЖКИ LUNA CLASSIC",play:"ГРАТИ",howBtn:"ЯК ГРАТИ",howTitle:"ЯК ГРАТИ",how1:"<b>Позиція:</b> тягніть ліворуч або праворуч, щоб поставити кулю.",how2:"<b>Кидок:</b> швидко проведіть угору. Швидше = сильніше.",how3:"<b>Підкрутка:</b> ведіть убік під час кидка, щоб закрутити кулю.",how4:"<b>Очки:</b> справжні правила боулінгу — 10 фреймів, страйки та спери дають бонус. Місячна гравітація розкидає кеглі!",closeBtn:"ЗАКРИТИ",frame:"ФРЕЙМ",roll:"КИДОК",score:"РАХУНОК",power:"СИЛА",curve:"ПІДКРУТКА",dragPos:"Тягніть, щоб поставити кулю",flickHint:"Проведіть угору для кидка!",strike:"СТРАЙК!",spare:"СПЕР!",gutter:"ЖОЛОБ",pinsWord:"кегель",gameOver:"ГРУ ЗАВЕРШЕНО",yourScore:"ВАШ РАХУНОК",best:"РЕКОРД",playAgain:"ГРАТИ ЗНОВУ",menuBtn:"МЕНЮ",newBest:"★ НОВИЙ РЕКОРД! ★",ready:"Ваш кидок"},
+tr:{name:"Türkçe",title:"MOON BOWLING",tagline:"LUNA CLASSIC KULVARLARI",play:"OYNA",howBtn:"NASIL OYNANIR",howTitle:"NASIL OYNANIR",how1:"<b>Konum:</b> topu yerleştirmek için sola veya sağa sürükleyin.",how2:"<b>Atış:</b> hızlıca yukarı kaydırın. Daha hızlı = daha fazla güç.",how3:"<b>Kavis:</b> atarken yana kaydırarak topa falso verin.",how4:"<b>Puan:</b> gerçek bovling kuralları — 10 frame, strike ve spare bonus verir. Ay yerçekimi labutları uçurur!",closeBtn:"KAPAT",frame:"FRAME",roll:"ATIŞ",score:"SKOR",power:"GÜÇ",curve:"KAVİS",dragPos:"Topu yerleştirmek için sürükleyin",flickHint:"Atmak için yukarı kaydırın!",strike:"STRIKE!",spare:"SPARE!",gutter:"OLUĞA GİTTİ",pinsWord:"labut",gameOver:"OYUN BİTTİ",yourScore:"SKORUN",best:"REKOR",playAgain:"TEKRAR OYNA",menuBtn:"MENÜ",newBest:"★ YENİ REKOR! ★",ready:"Sıra sende"},
+ar:{name:"العربية",title:"MOON BOWLING",tagline:"ممرات لونا كلاسيك",play:"العب",howBtn:"كيف تلعب",howTitle:"كيف تلعب",how1:"<b>الموضع:</b> اسحب لليسار أو اليمين لوضع الكرة.",how2:"<b>الرمي:</b> مرّر بسرعة للأعلى. الأسرع = قوة أكبر.",how3:"<b>الانحناء:</b> مرّر جانبًا أثناء الرمي لتدوير الكرة.",how4:"<b>النقاط:</b> قواعد البولينج الحقيقية — 10 جولات، السترايك والسبير يمنحان مكافأة. جاذبية القمر تجعل القوارير تطير!",closeBtn:"إغلاق",frame:"جولة",roll:"رمية",score:"النقاط",power:"القوة",curve:"الانحناء",dragPos:"اسحب لوضع الكرة",flickHint:"مرّر للأعلى للرمي!",strike:"سترايك!",spare:"سبير!",gutter:"في القناة",pinsWord:"قوارير",gameOver:"انتهت اللعبة",yourScore:"نتيجتك",best:"الأفضل",playAgain:"العب مجددًا",menuBtn:"القائمة",newBest:"★ رقم قياسي جديد! ★",ready:"دورك"},
+hi:{name:"हिन्दी",title:"MOON BOWLING",tagline:"लूना क्लासिक लेन्स",play:"खेलें",howBtn:"कैसे खेलें",howTitle:"कैसे खेलें",how1:"<b>स्थिति:</b> गेंद रखने के लिए बाएँ या दाएँ खींचें।",how2:"<b>फेंकें:</b> तेज़ी से ऊपर की ओर स्वाइप करें। तेज़ = ज़्यादा ताकत।",how3:"<b>मोड़:</b> फेंकते समय साइड में स्वाइप करके गेंद को घुमाएँ।",how4:"<b>स्कोर:</b> असली बॉलिंग नियम — 10 फ़्रेम, स्ट्राइक और स्पेयर पर बोनस। चाँद की गुरुत्वाकर्षण पिनों को उड़ाती है!",closeBtn:"बंद करें",frame:"फ़्रेम",roll:"थ्रो",score:"स्कोर",power:"ताकत",curve:"मोड़",dragPos:"गेंद रखने के लिए खींचें",flickHint:"फेंकने के लिए ऊपर स्वाइप करें!",strike:"स्ट्राइक!",spare:"स्पेयर!",gutter:"गटर बॉल",pinsWord:"पिन",gameOver:"खेल खत्म",yourScore:"आपका स्कोर",best:"सर्वश्रेष्ठ",playAgain:"फिर से खेलें",menuBtn:"मेनू",newBest:"★ नया रिकॉर्ड! ★",ready:"आपकी बारी"},
+id:{name:"Bahasa Indonesia",title:"MOON BOWLING",tagline:"LINTASAN LUNA CLASSIC",play:"MAIN",howBtn:"CARA BERMAIN",howTitle:"CARA BERMAIN",how1:"<b>Posisi:</b> seret ke kiri atau kanan untuk menempatkan bola.",how2:"<b>Lempar:</b> usap cepat ke atas. Lebih cepat = lebih kuat.",how3:"<b>Lengkung:</b> usap ke samping saat melempar untuk memutar bola.",how4:"<b>Skor:</b> aturan bowling asli — 10 frame, strike dan spare memberi bonus. Gravitasi bulan membuat pin beterbangan!",closeBtn:"TUTUP",frame:"FRAME",roll:"LEMPARAN",score:"SKOR",power:"KEKUATAN",curve:"LENGKUNG",dragPos:"Seret untuk menempatkan bola",flickHint:"Usap ke atas untuk melempar!",strike:"STRIKE!",spare:"SPARE!",gutter:"MASUK SELOKAN",pinsWord:"pin",gameOver:"PERMAINAN SELESAI",yourScore:"SKORMU",best:"TERBAIK",playAgain:"MAIN LAGI",menuBtn:"MENU",newBest:"★ REKOR BARU! ★",ready:"Giliranmu"},
+vi:{name:"Tiếng Việt",title:"MOON BOWLING",tagline:"LÀN LUNA CLASSIC",play:"CHƠI",howBtn:"CÁCH CHƠI",howTitle:"CÁCH CHƠI",how1:"<b>Vị trí:</b> kéo sang trái hoặc phải để đặt bóng.",how2:"<b>Ném:</b> vuốt nhanh lên trên. Càng nhanh = càng mạnh.",how3:"<b>Xoáy:</b> vuốt sang ngang khi ném để bóng cong.",how4:"<b>Điểm:</b> luật bowling thật — 10 frame, strike và spare được cộng điểm thưởng. Trọng lực mặt trăng làm pin bay tung tóe!",closeBtn:"ĐÓNG",frame:"FRAME",roll:"LƯỢT NÉM",score:"ĐIỂM",power:"LỰC",curve:"XOÁY",dragPos:"Kéo để đặt bóng",flickHint:"Vuốt lên để ném!",strike:"STRIKE!",spare:"SPARE!",gutter:"BÓNG XUỐNG RÃNH",pinsWord:"pin",gameOver:"HẾT GAME",yourScore:"ĐIỂM CỦA BẠN",best:"KỶ LỤC",playAgain:"CHƠI LẠI",menuBtn:"MENU",newBest:"★ KỶ LỤC MỚI! ★",ready:"Lượt của bạn"},
+zh:{name:"中文",title:"月球保龄球",tagline:"LUNA CLASSIC 球道",play:"开始游戏",howBtn:"玩法说明",howTitle:"玩法说明",how1:"<b>站位：</b>左右拖动来放置球的位置。",how2:"<b>投球：</b>快速向上滑动，越快力量越大。",how3:"<b>弧线：</b>投球时向侧面滑动可让球旋转出弧线。",how4:"<b>计分：</b>真实保龄球规则——10轮，全中和补中都有奖励分。月球重力让球瓶飞起来！",closeBtn:"关闭",frame:"轮次",roll:"投球",score:"分数",power:"力量",curve:"弧线",dragPos:"拖动来放置球",flickHint:"向上滑动投球！",strike:"全中！",spare:"补中！",gutter:"落沟了",pinsWord:"瓶",gameOver:"游戏结束",yourScore:"你的分数",best:"最高分",playAgain:"再来一局",menuBtn:"菜单",newBest:"★ 新纪录！★",ready:"轮到你了"},
+ja:{name:"日本語",title:"ムーンボウリング",tagline:"LUNA CLASSIC レーン",play:"プレイ",howBtn:"遊び方",howTitle:"遊び方",how1:"<b>位置：</b>左右にドラッグしてボールを置きます。",how2:"<b>投球：</b>上に速くフリック。速いほどパワーが上がります。",how3:"<b>カーブ：</b>投げるときに横にフリックすると曲がります。",how4:"<b>スコア：</b>本物のボウリングルール——10フレーム、ストライクとスペアでボーナス。月の重力でピンが飛びます！",closeBtn:"閉じる",frame:"フレーム",roll:"投球",score:"スコア",power:"パワー",curve:"カーブ",dragPos:"ドラッグしてボールを配置",flickHint:"上にフリックして投球！",strike:"ストライク！",spare:"スペア！",gutter:"ガター",pinsWord:"ピン",gameOver:"ゲーム終了",yourScore:"あなたのスコア",best:"ベスト",playAgain:"もう一度",menuBtn:"メニュー",newBest:"★ 新記録！★",ready:"あなたの番です"},
+ko:{name:"한국어",title:"문 볼링",tagline:"LUNA CLASSIC 레인",play:"플레이",howBtn:"게임 방법",howTitle:"게임 방법",how1:"<b>위치:</b> 좌우로 드래그해 공을 놓으세요.",how2:"<b>던지기:</b> 위로 빠르게 플릭하세요. 빠를수록 파워가 커집니다.",how3:"<b>커브:</b> 던질 때 옆으로 플릭하면 공이 휘어집니다.",how4:"<b>점수:</b> 실제 볼링 규칙 — 10프레임, 스트라이크와 스페어는 보너스 점수. 달의 중력으로 핀이 날아갑니다!",closeBtn:"닫기",frame:"프레임",roll:"투구",score:"점수",power:"파워",curve:"커브",dragPos:"드래그해서 공 위치 정하기",flickHint:"위로 플릭해서 던지세요!",strike:"스트라이크!",spare:"스페어!",gutter:"거터 볼",pinsWord:"핀",gameOver:"게임 종료",yourScore:"내 점수",best:"최고 기록",playAgain:"다시 플레이",menuBtn:"메뉴",newBest:"★ 새 기록! ★",ready:"당신 차례예요"}
+};
+let curLang = localStorage.getItem('moonbowling_lang') || 'en';
+if(!LANGS[curLang]) curLang = 'en';
+function t(k){ return (LANGS[curLang] && LANGS[curLang][k]) || LANGS.en[k] || k; }
+function applyLang(){
+  document.querySelectorAll('[data-i18n]').forEach(el=>{ el.innerHTML = t(el.getAttribute('data-i18n')); });
+  document.documentElement.lang = curLang;
+  document.body.style.direction = (curLang==='ar') ? 'rtl' : 'ltr';
+}
+const langSel = document.getElementById('langSel');
+Object.keys(LANGS).forEach(code=>{ const o=document.createElement('option'); o.value=code; o.textContent=LANGS[code].name; langSel.appendChild(o); });
+langSel.value = curLang;
+langSel.addEventListener('change', ()=>{ curLang = langSel.value; localStorage.setItem('moonbowling_lang', curLang); applyLang(); if(window.refreshCard) window.refreshCard(); if(window.updateFrameInfo) window.updateFrameInfo(); });
+
+/* ================= score submission hook =================
+   submitScore(score): leaderboard hook for the parent router.
+   Per spec it ONLY stores the score to localStorage — nothing else. */
+function submitScore(score){ try{ localStorage.setItem('moonbowling_last', String(score)); }catch(e){} }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+/* ================= renderer / scene ================= */
+const container = document.getElementById('game');
+const renderer = new THREE.WebGLRenderer({antialias:true, powerPreference:'high-performance'});
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.12;
+container.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x05070f);
+scene.fog = new THREE.Fog(0x05070f, 26, 60);
+const camera = new THREE.PerspectiveCamera(58, innerWidth/innerHeight, 0.1, 200);
+
+scene.add(new THREE.AmbientLight(0x8899ff, 0.72));
+const key = new THREE.DirectionalLight(0xfff2d8, 1.6);
+key.position.set(4, 9, 6); key.castShadow = true;
+key.shadow.mapSize.set(1024,1024);
+key.shadow.camera.left=-8; key.shadow.camera.right=8; key.shadow.camera.top=24; key.shadow.camera.bottom=-6; key.shadow.camera.far=40;
+scene.add(key);
+const neonPink = new THREE.PointLight(0xff4dd8, 30, 18); neonPink.position.set(4.2, 2.6, 8); scene.add(neonPink);
+const neonBlue = new THREE.PointLight(0x3d7bff, 26, 18); neonBlue.position.set(-4.2, 2.6, 14); scene.add(neonBlue);
+const deckLight = new THREE.SpotLight(0xffffff, 60, 16, 0.7, 0.4); deckLight.position.set(0,4.4,17.5); deckLight.target.position.set(0,0,18.8); scene.add(deckLight, deckLight.target);
+
+/* ================= canvas texture helpers ================= */
+function cnv(w,h,fn){ const c=document.createElement('canvas'); c.width=w; c.height=h; fn(c.getContext('2d'),w,h); const tx=new THREE.CanvasTexture(c); tx.anisotropy=8; tx.colorSpace=THREE.SRGBColorSpace; return tx; }
+function crescent(x, cx, cy, r, color){ x.save(); x.fillStyle=color; x.beginPath(); x.arc(cx,cy,r,0,Math.PI*2); x.fill(); x.globalCompositeOperation='destination-out'; x.beginPath(); x.arc(cx+r*0.42,cy-r*0.18,r*0.86,0,Math.PI*2); x.fill(); x.restore(); }
+
+const laneTex = cnv(512, 2048, (x,w,h)=>{
+  const g = x.createLinearGradient(0,0,w,0);
+  g.addColorStop(0,'#b98548'); g.addColorStop(.5,'#d9a55e'); g.addColorStop(1,'#b98548');
+  x.fillStyle=g; x.fillRect(0,0,w,h);
+  for(let i=0;i<39;i++){ x.fillStyle = i%2? 'rgba(120,70,20,.16)':'rgba(255,230,170,.10)'; x.fillRect(i*(w/39),0,w/39,h); }
+  x.fillStyle='rgba(90,50,10,.35)';
+  for(let i=0;i<39;i++) x.fillRect(i*(w/39),0,1.5,h);
+  // range arrows (pointing down-lane = -v)
+  x.fillStyle='rgba(70,35,5,.75)';
+  const arrows=[[0.5,0.60],[0.30,0.66],[0.70,0.66],[0.14,0.72],[0.86,0.72]];
+  arrows.forEach(([ax,ay])=>{ const px=ax*w, py=ay*h; x.beginPath(); x.moveTo(px,py-46); x.lineTo(px-11,py+16); x.lineTo(px+11,py+16); x.closePath(); x.fill(); });
+  x.fillStyle='rgba(70,35,5,.6)';
+  [0.2,0.4,0.6,0.8].forEach((ax,i)=>{ x.beginPath(); x.arc(ax*w, (0.86+ (i%2)*0.03)*h, 6, 0, Math.PI*2); x.fill(); });
+  crescent(x, w*0.5, h*0.955, 30, 'rgba(60,30,0,.55)');
+});
+laneTex.wrapS = laneTex.wrapT = THREE.ClampToEdgeWrapping;
+
+const ballTex = cnv(1024, 512, (x,w,h)=>{
+  const g=x.createRadialGradient(w*0.3,h*0.35,40,w*0.5,h*0.5,w*0.75);
+  g.addColorStop(0,'#5b2ea6'); g.addColorStop(.55,'#2a1660'); g.addColorStop(1,'#0d0730');
+  x.fillStyle=g; x.fillRect(0,0,w,h);
+  x.strokeStyle='rgba(140,90,255,.35)'; x.lineWidth=10;
+  for(let i=0;i<5;i++){ x.beginPath(); x.arc(w*(0.15+i*0.18), h*(0.3+((i*37)%40)/100), 60+i*14, 0.4, 2.4); x.stroke(); }
+  crescent(x, w*0.5, h*0.44, 62, '#ffd94d');
+  x.fillStyle='#ffd94d'; x.font='900 64px Segoe UI, sans-serif'; x.textAlign='center';
+  x.fillText('L U N C', w*0.5, h*0.72);
+  x.font='700 30px Segoe UI, sans-serif'; x.fillStyle='rgba(255,255,255,.85)';
+  x.fillText('LUNA CLASSIC', w*0.5, h*0.82);
+});
+
+const pinTex = cnv(256,256,(x,w,h)=>{
+  x.fillStyle='#f7f9ff'; x.fillRect(0,0,w,h);
+  const g=x.createLinearGradient(0,0,w,0); g.addColorStop(0,'rgba(160,180,220,.35)'); g.addColorStop(.5,'rgba(255,255,255,0)'); g.addColorStop(1,'rgba(160,180,220,.35)');
+  x.fillStyle=g; x.fillRect(0,0,w,h);
+  x.fillStyle='#e8232a'; x.fillRect(0,h*0.185, w, h*0.045); x.fillRect(0,h*0.255, w, h*0.045);
+});
+
+const signTex = cnv(1024,256,(x,w,h)=>{
+  x.clearRect(0,0,w,h);
+  x.textAlign='center';
+  x.shadowColor='#ff4dd8'; x.shadowBlur=34; x.fillStyle='#ff9df1';
+  x.font='900 92px Segoe UI, sans-serif'; x.fillText('LUNA CLASSIC', w/2, 104);
+  x.shadowColor='#4dd8ff'; x.shadowBlur=30; x.fillStyle='#b8f2ff';
+  x.font='900 64px Segoe UI, sans-serif'; x.fillText('☾ MOON BOWLING ☾', w/2, 198);
+  crescent(x, 66, 70, 34, '#ffd94d'); crescent(x, w-66, 70, 34, '#ffd94d');
+});
+const maskTex = cnv(1024,256,(x,w,h)=>{
+  x.fillStyle='#0d1330'; x.fillRect(0,0,w,h);
+  x.strokeStyle='#ffd94d'; x.lineWidth=6; x.strokeRect(10,10,w-20,h-20);
+  crescent(x, w/2, 92, 44, '#ffd94d');
+  x.fillStyle='#ffd94d'; x.font='900 62px Segoe UI, sans-serif'; x.textAlign='center';
+  x.fillText('LUNA CLASSIC', w/2, 205);
+});
+const earthTex = cnv(512,256,(x,w,h)=>{
+  x.fillStyle='#1b4f9e'; x.fillRect(0,0,w,h);
+  x.fillStyle='#2e9e5b';
+  [[90,80,52],[180,120,40],[300,70,58],[390,140,44],[70,170,36],[250,185,48]].forEach(([cx,cy,r])=>{ x.beginPath(); x.ellipse(cx,cy,r,r*0.62,0.5,0,Math.PI*2); x.fill(); });
+  x.fillStyle='rgba(255,255,255,.75)';
+  for(let i=0;i<26;i++){ x.beginPath(); x.ellipse((i*67)%w,(i*41)%h,26,7,0.3,0,Math.PI*2); x.fill(); }
+  x.fillStyle='rgba(255,255,255,.9)'; x.fillRect(0,0,w,10); x.fillRect(0,h-14,w,14);
+});
+
+/* ================= the room ================= */
+const room = new THREE.Group(); scene.add(room);
+const floorMat = new THREE.MeshStandardMaterial({color:0x1a2138, roughness:0.35, metalness:0.55});
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(11, 30), floorMat);
+floor.rotation.x = -Math.PI/2; floor.position.set(0,-0.062,7.5); floor.receiveShadow = true; room.add(floor);
+
+const wallMat = new THREE.MeshStandardMaterial({color:0x232c4e, roughness:0.6, metalness:0.3});
+function wall(wd,ht,px,py,pz,ry){ const m=new THREE.Mesh(new THREE.PlaneGeometry(wd,ht), wallMat); m.position.set(px,py,pz); m.rotation.y=ry; m.receiveShadow=true; room.add(m); return m; }
+wall(11.5, 5.4, -4.6, 2.7, -1.75, Math.PI/2);       // left, back segment
+wall(9, 5.4, -4.6, 2.7, 18, Math.PI/2);             // left, front segment
+wall(9.5, 0.9, -4.6, 4.95, 8.75, Math.PI/2);        // left, above window
+wall(9.5, 1.1, -4.6, 0.55, 8.75, Math.PI/2);        // left, below window
+wall(30, 5.4,  4.6, 2.7, 7.5, -Math.PI/2);          // right
+wall(11, 5.4, 0, 2.7, -7.6, 0);                     // back
+wall(11, 5.4, 0, 2.7, 21.6, Math.PI);               // front (behind pit)
+const ceil = new THREE.Mesh(new THREE.PlaneGeometry(11,30), new THREE.MeshStandardMaterial({color:0x11172c, roughness:0.9}));
+ceil.rotation.x = Math.PI/2; ceil.position.set(0,5.4,7.5); room.add(ceil);
+// glowing ceiling strips
+for(let i=0;i<5;i++){ const s=new THREE.Mesh(new THREE.BoxGeometry(3.6,0.05,0.3), new THREE.MeshBasicMaterial({color:0xbfd8ff})); s.position.set(0,5.36,-4+i*5.4); room.add(s); }
+// wall trim glow lines
+[-4.58,4.58].forEach(px=>{ const s=new THREE.Mesh(new THREE.BoxGeometry(0.04,0.07,29), new THREE.MeshBasicMaterial({color:0x3d7bff})); s.position.set(px,3.6,7.5); room.add(s); });
+
+/* window + Earth + stars (left wall) */
+const frameMat = new THREE.MeshStandardMaterial({color:0x39466e, roughness:0.3, metalness:0.8});
+[[2.8+1.72, 0.14, 9.7],[2.8-1.72, 0.14, 9.7]].forEach(([fy, fh, fw])=>{ const bar=new THREE.Mesh(new THREE.BoxGeometry(0.2, fh, fw), frameMat); bar.position.set(-4.62, fy, 8.75); room.add(bar); });
+[4.0, 13.5].forEach(fz=>{ const bar=new THREE.Mesh(new THREE.BoxGeometry(0.2, 3.55, 0.14), frameMat); bar.position.set(-4.62, 2.8, fz); room.add(bar); });
+const winGlass = new THREE.Mesh(new THREE.PlaneGeometry(9.5, 3.4), new THREE.MeshPhysicalMaterial({color:0x8fb8ff, transparent:true, opacity:0.10, roughness:0.05, metalness:0, depthWrite:false}));
+winGlass.rotation.y = Math.PI/2; winGlass.position.set(-4.66, 2.8, 8.75); room.add(winGlass);
+const earth = new THREE.Mesh(new THREE.SphereGeometry(1.7, 28, 20), new THREE.MeshBasicMaterial({map:earthTex}));
+earth.position.set(-6.4, 3.1, 13.0); room.add(earth);
+const starGeo = new THREE.BufferGeometry(); { const pts=[]; for(let i=0;i<420;i++){ pts.push(-6-Math.random()*7, Math.random()*7-0.5, Math.random()*26-2); } starGeo.setAttribute('position', new THREE.Float32BufferAttribute(pts,3)); }
+room.add(new THREE.Points(starGeo, new THREE.PointsMaterial({color:0xffffff, size:0.055})));
+const moonRock = new THREE.Mesh(new THREE.SphereGeometry(0.5, 18, 14), new THREE.MeshStandardMaterial({color:0x9aa3b5, roughness:1}));
+moonRock.position.set(-6.4, 0.4, 15.5); moonRock.scale.y=0.7; room.add(moonRock);
+
+/* neon sign (right wall) */
+const sign = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 1.6), new THREE.MeshBasicMaterial({map:signTex, transparent:true}));
+sign.rotation.y = -Math.PI/2; sign.position.set(4.55, 3.1, 8); room.add(sign);
+const sign2 = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 1.15), new THREE.MeshBasicMaterial({map:signTex, transparent:true}));
+sign2.position.set(0, 3.9, -7.55); room.add(sign2);
+
+/* ================= lane, gutters, deck, pit ================= */
+const laneMat = new THREE.MeshPhysicalMaterial({map:laneTex, roughness:0.16, metalness:0.05, clearcoat:0.9, clearcoatRoughness:0.18});
+const lane = new THREE.Mesh(new THREE.BoxGeometry(1.06, 0.05, 20.6), laneMat);
+lane.position.set(0, -0.025, 9.35); lane.receiveShadow = true; scene.add(lane);
+const gutMat = new THREE.MeshStandardMaterial({color:0x39466e, roughness:0.3, metalness:0.8});
+[-0.635, 0.635].forEach(gx=>{ const gMesh=new THREE.Mesh(new THREE.BoxGeometry(0.19,0.03,20.6), gutMat); gMesh.position.set(gx,-0.045,9.35); gMesh.receiveShadow=true; scene.add(gMesh); });
+const capMat = new THREE.MeshStandardMaterial({color:0xffd94d, roughness:0.4, metalness:0.4});
+[-0.755, 0.755].forEach(cx=>{ const cap=new THREE.Mesh(new THREE.BoxGeometry(0.05,0.09,20.6), capMat); cap.position.set(cx,0.0,9.35); scene.add(cap); });
+const approach = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.05, 6.4), new THREE.MeshPhysicalMaterial({color:0x8a5a28, roughness:0.3, clearcoat:0.6}));
+approach.position.set(0,-0.026,-3.4); approach.receiveShadow=true; scene.add(approach);
+// foul line glow
+const foul = new THREE.Mesh(new THREE.BoxGeometry(1.5,0.056,0.06), new THREE.MeshBasicMaterial({color:0xff5d5d})); foul.position.set(0,-0.02,0); scene.add(foul);
+// pit
+const pit = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.9, 1.4), new THREE.MeshStandardMaterial({color:0x05070d, roughness:1}));
+pit.position.set(0,-0.28,20.35); scene.add(pit);
+const pitCushion = new THREE.Mesh(new THREE.BoxGeometry(1.7, 1.1, 0.18), new THREE.MeshStandardMaterial({color:0x141b36, roughness:0.9}));
+pitCushion.position.set(0,0.45,21.0); scene.add(pitCushion);
+// masking unit above pins
+const mask = new THREE.Mesh(new THREE.BoxGeometry(2.5, 1.15, 0.24), new THREE.MeshStandardMaterial({map:maskTex, roughness:0.5}));
+mask.position.set(0, 2.05, 20.1); scene.add(mask);
+const maskBar = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.1, 0.3), new THREE.MeshStandardMaterial({color:0xffd94d, metalness:0.6, roughness:0.35}));
+maskBar.position.set(0, 1.44, 20.1); scene.add(maskBar);
+
+/* ball return machine + spare balls */
+const brm = new THREE.Group();
+const brmBody = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.75, 1.9), new THREE.MeshPhysicalMaterial({color:0x2a1660, roughness:0.25, clearcoat:0.8}));
+brmBody.position.y = 0.38; brmBody.castShadow = true; brm.add(brmBody);
+const brmStripe = new THREE.Mesh(new THREE.BoxGeometry(0.87, 0.12, 1.92), new THREE.MeshBasicMaterial({color:0xffd94d})); brmStripe.position.y = 0.62; brm.add(brmStripe);
+const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.035,0.035,2.6,10), new THREE.MeshStandardMaterial({color:0xb9c6e8, metalness:0.9, roughness:0.25}));
+rail.rotation.x = Math.PI/2; rail.position.set(-0.3, 0.82, 0.4); brm.add(rail);
+brm.position.set(1.75, 0, -2.6); scene.add(brm);
+
+/* ================= the ball ================= */
+const BALL_R = 0.108;
+const ball = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 32, 24),
+  new THREE.MeshPhysicalMaterial({map:ballTex, roughness:0.08, metalness:0.1, clearcoat:1, clearcoatRoughness:0.06}));
+ball.castShadow = true; scene.add(ball);
+[-0.9, -0.1].forEach((dz,i)=>{ const spare = ball.clone(); spare.position.set(1.45, BALL_R+0.78, -2.6+dz); spare.rotation.y = i*1.7; scene.add(spare); });
+
+/* ================= pins ================= */
+const PIN_H = 0.381;
+const profile = [[0.001,0],[0.052,0],[0.058,0.02],[0.0605,0.07],[0.059,0.11],[0.047,0.17],[0.0285,0.235],[0.0265,0.26],[0.033,0.295],[0.036,0.325],[0.028,0.355],[0.012,0.375],[0.001,0.381]]
+  .map(p=>new THREE.Vector2(p[0],p[1]));
+const pinGeo = new THREE.LatheGeometry(profile, 26);
+const pinMat = new THREE.MeshPhysicalMaterial({map:pinTex, roughness:0.22, clearcoat:0.4, clearcoatRoughness:0.25});
+const PIN_SPOTS = [];
+{ const rowZ = 18.29, dz = 0.264, dx = 0.1524;
+  PIN_SPOTS.push([0,rowZ]);
+  PIN_SPOTS.push([-dx,rowZ+dz],[dx,rowZ+dz]);
+  PIN_SPOTS.push([-2*dx,rowZ+2*dz],[0,rowZ+2*dz],[2*dx,rowZ+2*dz]);
+  PIN_SPOTS.push([-3*dx,rowZ+3*dz],[-dx,rowZ+3*dz],[dx,rowZ+3*dz],[3*dx,rowZ+3*dz]);
+}
+const pins = PIN_SPOTS.map(([px,pz],i)=>{
+  const m = new THREE.Mesh(pinGeo, pinMat); m.castShadow = true; m.position.set(px, 0, pz); scene.add(m);
+  return { mesh:m, home:{x:px,z:pz}, vx:0, vz:0, tipX:0, tipZ:0, tipVX:0, tipVZ:0, spin:0, down:false, active:true, hop:0 };
+});
+
+/* ================= game state ================= */
+const $ = id => document.getElementById(id);
+const msgEl=$('msg'), hintEl=$('hint'), powerFill=$('powerFill'), curveDot=$('curveDot');
+let state = 'menu';            // menu | aim | rolling | settle | over
+let rolls = [];                // flat roll history (pin counts)
+let frameIdx = 0;              // 0..9
+let rollInFrame = 0;           // frames 1-9: 0 or 1
+let tenthRolls = [];
+let ballVel = {vx:0, vz:0};
+let hook = 0, inGutter = false, rollClock = 0, settleClock = 0, ballDone = false;
+let downAtStart = new Set();
+let camMode = 'menu';
+const camTarget = new THREE.Vector3(3.4, 2.4, -4.5), camLook = new THREE.Vector3(0, 0.4, 10);
+camera.position.copy(camTarget);
+
+function showMsg(txt, ms=1500){ msgEl.textContent = txt; msgEl.classList.add('show'); clearTimeout(showMsg._t); showMsg._t = setTimeout(()=>msgEl.classList.remove('show'), ms); }
+function setHint(k){ hintEl.textContent = k ? t(k) : ''; }
+
+/* ---------- rack / pin management ---------- */
+function resetPin(p, toHome){
+  if(toHome){ p.mesh.position.set(p.home.x, 0, p.home.z); }
+  p.mesh.position.y = 0; p.vx = 0; p.vz = 0; p.tipX = 0; p.tipZ = 0; p.tipVX = 0; p.tipVZ = 0; p.spin = 0; p.hop = 0;
+  p.down = false; p.active = true; p.mesh.visible = true; p.mesh.rotation.set(0,0,0);
+}
+function freshRack(){ pins.forEach(p=>resetPin(p, true)); }
+function sweepAndKeep(){
+  pins.forEach(p=>{ if(p.down){ p.active=false; p.mesh.visible=false; } else if(p.active){ p.vx=0; p.vz=0; p.tipX=0; p.tipZ=0; p.tipVX=0; p.tipVZ=0; p.mesh.rotation.set(0, p.mesh.rotation.y, 0); p.mesh.position.y=0; } });
+}
+function standingPins(){ return pins.filter(p=>p.active && !p.down); }
+function resetBall(){ ball.position.set(0, BALL_R, -1.15); ballVel.vx = 0; ballVel.vz = 0; hook = 0; inGutter = false; ballDone = false; }
+
+/* ---------- scoring ---------- */
+function frameScores(r){
+  const sc = []; let i = 0, total = 0;
+  for(let f=0; f<10; f++){
+    let v = null;
+    if(f < 9){
+      if(r[i] === 10){ if(r[i+1] != null && r[i+2] != null) v = 10 + r[i+1] + r[i+2]; i += 1; }
+      else if(r[i] != null && r[i+1] != null){ v = (r[i] + r[i+1] === 10) ? (r[i+2] != null ? 10 + r[i+2] : null) : r[i] + r[i+1]; i += 2; }
+      else if(r[i] != null){ i += 1; }
+    } else {
+      const tt = r.slice(i);
+      if(tt.length === 3 || (tt.length === 2 && tt[0] < 10 && tt[0] + tt[1] < 10)) v = tt.reduce((a,b)=>a+b,0);
+    }
+    if(v == null) sc.push(null); else { total += v; sc.push(total); }
+  }
+  return sc;
+}
+function segment(r){
+  const frames = []; let i = 0;
+  for(let f=0; f<9; f++){
+    if(i >= r.length){ frames.push([]); continue; }
+    if(r[i] === 10){ frames.push([10]); i += 1; }
+    else { const fr = [r[i]]; if(i+1 < r.length) fr.push(r[i+1]); frames.push(fr); i += 2; }
+  }
+  frames.push(r.slice(i)); return frames;
+}
+function mark(v){ return v === 10 ? 'X' : v === 0 ? '–' : String(v); }
+function buildCard(){
+  const card = $('card'); card.innerHTML = '';
+  for(let f=0; f<10; f++){
+    const d = document.createElement('div'); d.className = 'fr' + (f===9 ? ' f10' : '');
+    d.innerHTML = `<div class="fh">${f+1}</div><div class="frb">${f===9 ? '<div class="rb"></div><div class="rb"></div><div class="rb"></div>' : '<div class="rb"></div><div class="rb"></div>'}</div><div class="ft"></div>`;
+    card.appendChild(d);
+  }
+}
+function refreshCard(){
+  const frames = segment(rolls), sc = frameScores(rolls);
+  document.querySelectorAll('#card .fr').forEach((d, f)=>{
+    const boxes = d.querySelectorAll('.rb'), fr = frames[f] || [];
+    boxes.forEach(b=>b.textContent='');
+    if(f < 9){
+      if(fr[0] === 10){ boxes[1].textContent = 'X'; }
+      else { if(fr[0] != null) boxes[0].textContent = mark(fr[0]);
+             if(fr[1] != null) boxes[1].textContent = (fr[0] + fr[1] === 10) ? '/' : mark(fr[1]); }
+    } else {
+      if(fr[0] != null) boxes[0].textContent = mark(fr[0]);
+      if(fr[1] != null) boxes[1].textContent = (fr[0] < 10 && fr[0] + fr[1] === 10) ? '/' : mark(fr[1]);
+      if(fr[2] != null) boxes[2].textContent = (fr[0] === 10 && fr[1] < 10 && fr[1] + fr[2] === 10) ? '/' : mark(fr[2]);
+    }
+    d.querySelector('.ft').textContent = sc[f] != null ? sc[f] : '';
+    d.classList.toggle('cur', state !== 'over' && f === frameIdx);
+  });
+}
+function currentTotal(){ const sc = frameScores(rolls); for(let i=9;i>=0;i--) if(sc[i] != null) return sc[i]; return 0; }
+function updateFrameInfo(){
+  $('fiFrame').textContent = Math.min(frameIdx+1, 10);
+  $('fiRoll').textContent = frameIdx < 9 ? rollInFrame+1 : tenthRolls.length+1;
+  $('fiScore').textContent = currentTotal();
+}
+
+/* ---------- flow ---------- */
+function startGame(){
+  rolls = []; frameIdx = 0; rollInFrame = 0; tenthRolls = [];
+  freshRack(); resetBall();
+  $('menuOv').classList.add('hidden'); $('overOv').classList.add('hidden');
+  state = 'aim'; camMode = 'aim'; setHint('dragPos');
+  refreshCard(); updateFrameInfo();
+}
+function setupNextRoll(){
+  resetBall(); state = 'aim'; camMode = 'aim'; setHint('dragPos');
+  powerFill.style.width = '0%'; curveDot.style.left = '50%';
+  refreshCard(); updateFrameInfo();
+}
+function gameOver(){
+  state = 'over'; camMode = 'menu'; setHint('');
+  const total = currentTotal();
+  submitScore(total);
+  const prevBest = parseInt(localStorage.getItem('moonbowling_best') || '0', 10);
+  const isBest = total > prevBest;
+  if(isBest) localStorage.setItem('moonbowling_best', String(total));
+  $('finalScore').textContent = total;
+  $('overBest').textContent = Math.max(prevBest, total);
+  $('menuBest').textContent = Math.max(prevBest, total);
+  $('newBest').textContent = isBest ? t('newBest') : '';
+  $('overOv').classList.remove('hidden');
+  refreshCard();
+}
+function finishRoll(){
+  const knocked = pins.filter(p=>downAtStart.has(p) && p.down).length;
+  rolls.push(knocked);
+  let msg = '';
+  if(frameIdx < 9){
+    if(rollInFrame === 0 && knocked === 10) msg = t('strike');
+    else if(rollInFrame === 1){
+      const prev = rolls[rolls.length-2];
+      if(prev + knocked === 10) msg = t('spare');
+    }
+  } else {
+    if(knocked === 10) msg = t('strike');
+    else if(tenthRolls.length === 1 && tenthRolls[0] < 10 && tenthRolls[0] + knocked === 10) msg = t('spare');
+  }
+  if(!msg && inGutter && knocked === 0) msg = t('gutter');
+  if(msg) showMsg(msg);
+  refreshCard(); updateFrameInfo();
+
+  setTimeout(()=>{
+    if(frameIdx < 9){
+      if(rollInFrame === 0 && knocked < 10){ rollInFrame = 1; sweepAndKeep(); setupNextRoll(); }
+      else { frameIdx++; rollInFrame = 0; freshRack(); setupNextRoll(); }
+    } else {
+      tenthRolls.push(knocked);
+      if(tenthRolls.length === 1){
+        if(knocked === 10){ freshRack(); } else { sweepAndKeep(); }
+        setupNextRoll();
+      } else if(tenthRolls.length === 2){
+        const r1 = tenthRolls[0], r2 = tenthRolls[1];
+        if(r1 === 10){ if(r2 === 10){ freshRack(); } else { sweepAndKeep(); } setupNextRoll(); }
+        else if(r1 + r2 === 10){ freshRack(); setupNextRoll(); }
+        else gameOver();
+      } else gameOver();
+    }
+  }, msg ? 1250 : 800);
+}
+
+/* ---------- throwing ---------- */
+function doThrow(power, curveVal){
+  state = 'rolling'; camMode = 'roll'; rollClock = 0; settleClock = 0; ballDone = false;
+  ballVel.vz = 6.6 + power * 7.0;
+  ballVel.vx = curveVal * 0.85;
+  hook = curveVal * 3.4;
+  downAtStart = new Set(standingPins());
+  setHint('');
+}
+let dragging = false, samples = [];
+const el = renderer.domElement;
+el.addEventListener('pointerdown', e=>{
+  if(state !== 'aim') return;
+  dragging = true; samples = [{x:e.clientX, y:e.clientY, t:performance.now()}];
+  try{ el.setPointerCapture(e.pointerId); }catch(err){}
+});
+el.addEventListener('pointermove', e=>{
+  if(!dragging || state !== 'aim') return;
+  const last = samples[samples.length-1];
+  ball.position.x = THREE.MathUtils.clamp(ball.position.x + (e.clientX - last.x) * 0.0042, -0.42, 0.42);
+  samples.push({x:e.clientX, y:e.clientY, t:performance.now()});
+  if(samples.length > 7) samples.shift();
+  const v = flickVelocity();
+  powerFill.style.width = (v.power * 100).toFixed(0) + '%';
+  curveDot.style.left = (50 + v.curve * 46) + '%';
+  setHint(v.power > 0.22 ? 'flickHint' : 'dragPos');
+});
+el.addEventListener('pointerup', ()=>{
+  if(!dragging) return; dragging = false;
+  if(state !== 'aim') return;
+  const v = flickVelocity();
+  if(v.power >= 0.22) doThrow(v.power, v.curve);
+  else { powerFill.style.width = '0%'; curveDot.style.left = '50%'; setHint('dragPos'); }
+});
+el.addEventListener('pointercancel', ()=>{ dragging = false; });
+function flickVelocity(){
+  if(samples.length < 2) return {power:0, curve:0};
+  const a = samples[0], b = samples[samples.length-1], dt = Math.max((b.t - a.t)/1000, 0.016);
+  const vy = (a.y - b.y) / dt;             // px/s upward positive
+  const vx = (b.x - a.x) / dt;
+  return { power: THREE.MathUtils.clamp(vy / 2600, 0, 1), curve: THREE.MathUtils.clamp(vx / 1500, -1, 1) };
+}
+
+/* ---------- physics ---------- */
+function pinDownCheck(p){
+  if(p.down) return;
+  const tip = Math.hypot(p.tipX, p.tipZ);
+  const disp = Math.hypot(p.mesh.position.x - p.home.x, p.mesh.position.z - p.home.z);
+  if(tip > 1.02 || disp > 0.105 || p.mesh.position.z > 19.75) p.down = true;
+}
+function stepPhysics(dt, now){
+  /* ball */
+  if(state === 'rolling' && !ballDone){
+    ballVel.vz = Math.max(ballVel.vz - 0.12*dt, 0);
+    const hookNow = hook * (ball.position.z < 12 ? 1 : 0.35);
+    ballVel.vx += hookNow * dt; hook *= Math.exp(-0.55*dt);
+    ball.position.x += ballVel.vx * dt;
+    ball.position.z += ballVel.vz * dt;
+    if(!inGutter && Math.abs(ball.position.x) > 0.545){ inGutter = true; }
+    if(inGutter) ball.position.x = THREE.MathUtils.clamp(ball.position.x, -0.66, 0.66);
+    const targetY = inGutter ? 0.055 : BALL_R;
+    ball.position.y += (targetY - ball.position.y) * Math.min(1, dt*14);
+    ball.rotateOnWorldAxis(new THREE.Vector3(1,0,0), -ballVel.vz * dt / BALL_R);
+    ball.rotateOnWorldAxis(new THREE.Vector3(0,0,1), ballVel.vx * dt / BALL_R);
+    if(ball.position.z > 20.45 || ballVel.vz < 0.3){ ballDone = true; }
+    rollClock += dt;
+    if(rollClock > 10) ballDone = true;
+    if(ball.position.z > 16.6 && camMode === 'roll') camMode = 'pins';
+  }
+  /* pins */
+  const anyMoving = pins.some(p=>p.active && (Math.abs(p.vx) > 0.02 || Math.abs(p.vz) > 0.02 || Math.abs(p.tipVX) > 0.05 || Math.abs(p.tipVZ) > 0.05));
+  if(state === 'rolling' || state === 'settle' || anyMoving){
+    for(const p of pins){
+      if(!p.active) continue;
+      if(p.mesh.position.z > 19.85){ p.down = true; p.mesh.position.y -= 1.4*dt; if(p.mesh.position.y < -0.55){ p.active = false; p.mesh.visible = false; } continue; }
+      p.mesh.position.x += p.vx * dt;
+      p.mesh.position.z += p.vz * dt;
+      const fr = Math.exp(-2.1*dt); p.vx *= fr; p.vz *= fr;
+      p.tipX += p.tipVX * dt; p.tipZ += p.tipVZ * dt;
+      const td = Math.exp(-2.6*dt); p.tipVX *= td; p.tipVZ *= td;
+      const tipMag = Math.hypot(p.tipX, p.tipZ);
+      if(tipMag > 1.62){ p.tipX *= 1.62/tipMag; p.tipZ *= 1.62/tipMag; }
+      p.mesh.rotation.set(p.tipX, p.mesh.rotation.y + p.spin*dt, p.tipZ);
+      const spd = Math.hypot(p.vx, p.vz);
+      p.hop = Math.max(0, p.hop - 0.35*dt);
+      if(!p.down) p.mesh.position.y = p.hop * Math.abs(Math.sin(now*0.02 + p.home.x*20));
+      if(Math.abs(p.mesh.position.x) > 0.72 && p.mesh.position.z > 17.4){ p.vz += 2.5*dt; }
+      pinDownCheck(p);
+    }
+    /* pin-pin collisions */
+    for(let i=0;i<pins.length;i++) for(let j=i+1;j<pins.length;j++){
+      const a = pins[i], b = pins[j];
+      if(!a.active || !b.active || a.mesh.position.y < -0.1 || b.mesh.position.y < -0.1) continue;
+      const dx = b.mesh.position.x - a.mesh.position.x, dz = b.mesh.position.z - a.mesh.position.z;
+      const d2 = dx*dx + dz*dz, min = 0.118;
+      if(d2 > min*min || d2 === 0) continue;
+      const d = Math.sqrt(d2), nx = dx/d, nz = dz/d;
+      const rel = (a.vx - b.vx)*nx + (a.vz - b.vz)*nz;
+      if(rel <= 0) continue;
+      const imp = rel * 0.82;
+      a.vx -= imp*nx; a.vz -= imp*nz; b.vx += imp*nx; b.vz += imp*nz;
+      const hit = Math.abs(rel);
+      if(hit > 0.4){ b.tipVX += nz * hit * 2.1; b.tipVZ += -nx * hit * 2.1; b.hop = Math.min(0.13, hit*0.03); b.spin = (Math.random()-0.5)*4; }
+      if(hit > 0.9){ a.tipVX += -nz * hit * 0.7; a.tipVZ += nx * hit * 0.7; }
+    }
+    /* ball-pin collisions */
+    if(state === 'rolling' && ball.position.z > 16.5){
+      for(const p of pins){
+        if(!p.active) continue;
+        const dx = p.mesh.position.x - ball.position.x, dz = p.mesh.position.z - ball.position.z;
+        const rr = BALL_R + 0.058;
+        if(dx*dx + dz*dz < rr*rr){
+          const d = Math.max(Math.hypot(dx,dz), 0.001), nx = dx/d, nz = dz/d;
+          const push = 1.25;
+          p.vx += ballVel.vx * 0.9 + nx * ballVel.vz * 0.55 * push;
+          p.vz += ballVel.vz * 1.12 * push;
+          p.tipVX += nz * ballVel.vz * 0.85; p.tipVZ += -nx * ballVel.vz * 0.85;
+          p.hop = Math.min(0.14, ballVel.vz * 0.012);
+          p.spin = (Math.random()-0.5) * 6;
+          ballVel.vz *= 0.88; ballVel.vx += nx * 0.35;
+          pinDownCheck(p);
+        }
+      }
+    }
+  }
+  /* roll end / settle */
+  if(state === 'rolling' && ballDone){
+    state = 'settle'; settleClock = 0;
+  } else if(state === 'settle'){
+    settleClock += dt;
+    const moving = pins.some(p=>p.active && (Math.hypot(p.vx,p.vz) > 0.55 || Math.hypot(p.tipVX,p.tipVZ) > 0.9));
+    if((!moving && settleClock > 0.55) || settleClock > 2.6){ state = 'resolving'; finishRoll(); }
+  }
+}
+
+/* ---------- camera + main loop ---------- */
+const clockT = new THREE.Clock();
+function animate(){
+  requestAnimationFrame(animate);
+  const frameDt = Math.min(clockT.getDelta(), 0.06), now = performance.now();
+  const nSteps = Math.max(1, Math.ceil(frameDt / 0.0167)), h = frameDt / nSteps;
+  for(let s=0; s<nSteps; s++) stepPhysics(h, now);
+  const dt = frameDt;
+  earth.rotation.y += dt * 0.02;
+  neonPink.intensity = 28 + Math.sin(now*0.011)*3 + (Math.random() < 0.012 ? -14 : 0);
+  if(camMode === 'menu'){ camTarget.set(3.4 + Math.sin(now*0.00016)*0.7, 2.4, -4.5); camLook.set(0, 0.4, 10); }
+  else if(camMode === 'aim' || camMode === 'roll'){ camTarget.set(ball.position.x*0.55, 1.65, ball.position.z - 3.1); camLook.set(ball.position.x*0.5, 0.05, ball.position.z + 9); }
+  else if(camMode === 'pins'){ camTarget.set(2.35, 1.3, 15.9); camLook.set(-0.2, 0.1, 18.9); }
+  const k = 1 - Math.exp(-dt*4.2);
+  camera.position.lerp(camTarget, k);
+  camera.lookAt(camLook);
+  renderer.render(scene, camera);
+}
+animate();
+
+addEventListener('resize', ()=>{
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+/* ---------- UI wiring ---------- */
+$('playBtn').addEventListener('click', startGame);
+$('againBtn').addEventListener('click', startGame);
+$('menuBtn').addEventListener('click', ()=>{ $('overOv').classList.add('hidden'); $('menuOv').classList.remove('hidden'); state='menu'; camMode='menu'; freshRack(); resetBall(); });
+$('howBtn').addEventListener('click', ()=>$('howOv').classList.remove('hidden'));
+$('howClose').addEventListener('click', ()=>$('howOv').classList.add('hidden'));
+{ const b = localStorage.getItem('moonbowling_best'); $('menuBest').textContent = b ? b : '—'; }
+buildCard(); refreshCard(); applyLang(); refreshCard(); updateFrameInfo();
+window.refreshCard = refreshCard; window.updateFrameInfo = updateFrameInfo;
+</script>
+</body>
+</html>
