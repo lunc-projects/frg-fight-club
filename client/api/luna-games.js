@@ -1969,6 +1969,389 @@ async function frogAdminHandler(req, res) {
 /* frog-admin:end */
 
 
+/* frog-ctl:start — FULL FROG CONTROL (Nov 21, Tom's order: one admin
+   runs ALL of Goliath's frog games). One settings store for Frog
+   Arena 2, Frog Fight boosts, Frog Cards, Frog Clash, the original
+   Frog Arena and Frog Hop:
+   - Store: frog:settings (JSON, OVERRIDES ONLY — the merged
+     effective settings are defaults + overrides, exactly like
+     frog:gamesettings). Defaults below are the values live on
+     2026-11-21, so zero stored settings = today's behaviour.
+   - Reached via ?frogctl=1. GET is PUBLIC (the games fetch it at
+     load; every game also carries these defaults in-page, so a
+     failed read changes nothing). POST writes ride the frog-admin
+     WALLET SESSION (frogAdminResolveSession) — never the builder
+     hash. Owner-only: proceeds wallet, emergency stop, board
+     resets, admin list (existing frogAdminAccessAction). All
+     writes audited to frog:admin:audit.
+   - The Arena 2 shop pause is NOT duplicated here: fa2:settings
+     stays its single source of truth (fa2ShopState). The ctl GET
+     merges it in as arena2.shopPaused; a ctl write of that field
+     writes fa2:settings.
+   - Giveaway queue: frog:giveaway (array, newest first, cap 100).
+     Pending entries ride the public GET (recipient wallet + item
+     code only — public chain data) because the mint services read
+     them through this same public pattern; execution state lives
+     in the mint services' own state files (crash-safe there).
+   - Sale rule (one rule everywhere): while now is inside
+     [saleStart, saleEnd] and salePct > 0, shops charge
+     round(price × (100 − pct) / 100); the mint services accept a
+     payment at the discounted price when the TX timestamp falls
+     inside the window, and full price always. */
+const FROG_CTL_KEY = 'frog:settings';
+const FROG_GIVEAWAY_KEY = 'frog:giveaway';
+const FROG_CTL_GOLIATH = 'terra183yjyennklj77uc47txds9mmpu6vlaecaxk66g';
+const FROG_CTL_FFB_CODES = ['LILY', 'GPILL', 'PADS', 'LEGS', 'RPILL'];
+const FROG_CTL_FFBP_CODES = ['SILVER', 'GOLD', 'DIAMOND'];
+const FROG_CTL_CHEST_CODES = ['WOOD', 'BRONZE', 'GOLD'];
+const FROG_CTL_CAPS_MAX = { LILY: 60, GPILL: 50, PADS: 40, LEGS: 30, RPILL: 20, SILVER: 30, GOLD: 20, DIAMOND: 10 };
+const FROG_CTL_BOARDS = { arena2: 'frogarena2', fight: 'frogfight', cards: 'frogcards', clash: 'frogclash', arena: 'frogarena', hop: 'luncfrog' };
+
+function frogCtlDefaults() {
+  return {
+    arena2: {
+      tiers: [50000, 100000, 150000, 200000, 500000],
+      tierPower: [1, 2, 4, 5, 8],
+      ladderOn: true, ladderLevels: 10, ladderDiffPct: 100,
+      season: '', banner: '',
+    },
+    fight: {
+      shopPaused: false, marketPaused: false,
+      prices: { LILY: 2500, GPILL: 3000, PADS: 4500, LEGS: 8000, RPILL: 15000 },
+      premPrices: { SILVER: 30000, GOLD: 60000, DIAMOND: 150000 },
+      chestPrices: { WOOD: 4000, BRONZE: 10000, GOLD: 16000 },
+      fx: {
+        LILY: { atk: 0, def: 5, agi: 0 }, GPILL: { atk: 0, def: 0, agi: 5 },
+        PADS: { atk: 6, def: 0, agi: 0 }, LEGS: { atk: 3, def: 3, agi: 0 },
+        RPILL: { atk: 8, def: 8, agi: 8 }, SILVER: { atk: 0, def: 12, agi: 4 },
+        GOLD: { atk: 12, def: 6, agi: 0 }, DIAMOND: { atk: 16, def: 16, agi: 16 },
+      },
+      caps: { LILY: 60, GPILL: 50, PADS: 40, LEGS: 30, RPILL: 20, SILVER: 30, GOLD: 20, DIAMOND: 10 },
+      event: { amount: 100000, text: '', winner: '' },
+    },
+    cards: { banner: '', season: '', maintenance: false },
+    clash: { banner: '', season: '', maintenance: false },
+    arena: { banner: '', season: '', maintenance: false },
+    hop: { banner: '', season: '', maintenance: false },
+    global: {
+      emergencyStop: false, proceeds: FROG_CTL_GOLIATH,
+      salePct: 0, saleStart: '', saleEnd: '', featuredFa2: '', featuredFfb: '',
+    },
+  };
+}
+function ctlInt(v, min, max) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || Math.floor(n) !== n || n < min || n > max) return undefined;
+  return n;
+}
+function ctlText(v, max) {
+  if (typeof v !== 'string') return undefined;
+  const s = v.replace(/[<>\u0000-\u001f]/g, '').trim().slice(0, max);
+  return s;
+}
+function ctlPriceMap(input, codes) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined;
+  const out = {};
+  for (const k of Object.keys(input)) {
+    if (!codes.includes(k)) return undefined;
+    const n = ctlInt(input[k], 1, 10000000);
+    if (n === undefined) return undefined;
+    out[k] = n;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+function frogCtlValidateSection(section, patch) {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return null;
+  const clean = {};
+  const keys = Object.keys(patch);
+  if (!keys.length) return null;
+  if (section === 'arena2') {
+    for (const k of keys) {
+      if (k === 'tiers' || k === 'tierPower') {
+        const arr = patch[k];
+        if (!Array.isArray(arr) || arr.length !== 5) return null;
+        const max = k === 'tiers' ? 1000000 : 30;
+        const vals = arr.map((v) => ctlInt(v, k === 'tiers' ? 1 : 0, max));
+        if (vals.some((v) => v === undefined)) return null;
+        clean[k] = vals;
+      } else if (k === 'ladderOn') { if (typeof patch[k] !== 'boolean') return null; clean[k] = patch[k]; }
+      else if (k === 'ladderLevels') { const n = ctlInt(patch[k], 1, 10); if (n === undefined) return null; clean[k] = n; }
+      else if (k === 'ladderDiffPct') { const n = ctlInt(patch[k], 25, 400); if (n === undefined) return null; clean[k] = n; }
+      else if (k === 'season') { const s = ctlText(patch[k], 40); if (s === undefined) return null; clean[k] = s; }
+      else if (k === 'banner') { const s = ctlText(patch[k], 140); if (s === undefined) return null; clean[k] = s; }
+      else if (k === 'shopPaused') { if (typeof patch[k] !== 'boolean') return null; clean[k] = patch[k]; }
+      else return null;
+    }
+    return clean;
+  }
+  if (section === 'fight') {
+    for (const k of keys) {
+      if (k === 'shopPaused' || k === 'marketPaused') { if (typeof patch[k] !== 'boolean') return null; clean[k] = patch[k]; }
+      else if (k === 'prices') { const m = ctlPriceMap(patch[k], FROG_CTL_FFB_CODES); if (!m) return null; clean[k] = m; }
+      else if (k === 'premPrices') { const m = ctlPriceMap(patch[k], FROG_CTL_FFBP_CODES); if (!m) return null; clean[k] = m; }
+      else if (k === 'chestPrices') { const m = ctlPriceMap(patch[k], FROG_CTL_CHEST_CODES); if (!m) return null; clean[k] = m; }
+      else if (k === 'fx') {
+        const inp = patch[k];
+        if (!inp || typeof inp !== 'object' || Array.isArray(inp)) return null;
+        const out = {};
+        for (const code of Object.keys(inp)) {
+          if (![...FROG_CTL_FFB_CODES, ...FROG_CTL_FFBP_CODES].includes(code)) return null;
+          const f = inp[code] || {};
+          const atk = ctlInt(f.atk, 0, 50), def = ctlInt(f.def, 0, 50), agi = ctlInt(f.agi, 0, 50);
+          if (atk === undefined || def === undefined || agi === undefined) return null;
+          out[code] = { atk, def, agi };
+        }
+        if (!Object.keys(out).length) return null;
+        clean[k] = out;
+      }
+      else if (k === 'caps') {
+        const inp = patch[k];
+        if (!inp || typeof inp !== 'object' || Array.isArray(inp)) return null;
+        const out = {};
+        for (const code of Object.keys(inp)) {
+          if (!(code in FROG_CTL_CAPS_MAX)) return null;
+          const n = ctlInt(inp[code], 0, FROG_CTL_CAPS_MAX[code]);
+          if (n === undefined) return null;
+          out[code] = n;
+        }
+        if (!Object.keys(out).length) return null;
+        clean[k] = out;
+      }
+      else if (k === 'event') {
+        const e = patch[k];
+        if (!e || typeof e !== 'object' || Array.isArray(e)) return null;
+        const out = {};
+        if (e.amount !== undefined) { const n = ctlInt(e.amount, 0, 100000000); if (n === undefined) return null; out.amount = n; }
+        if (e.text !== undefined) { const s = ctlText(e.text, 200); if (s === undefined) return null; out.text = s; }
+        if (e.winner !== undefined) {
+          const w = String(e.winner || '').trim();
+          if (w && !GD_ADDR_RE.test(w)) return null;
+          out.winner = w;
+        }
+        if (!Object.keys(out).length) return null;
+        clean[k] = out;
+      }
+      else return null;
+    }
+    return clean;
+  }
+  if (section === 'cards' || section === 'clash' || section === 'arena' || section === 'hop') {
+    for (const k of keys) {
+      if (k === 'banner') { const s = ctlText(patch[k], 140); if (s === undefined) return null; clean[k] = s; }
+      else if (k === 'season') { const s = ctlText(patch[k], 40); if (s === undefined) return null; clean[k] = s; }
+      else if (k === 'maintenance') { if (typeof patch[k] !== 'boolean') return null; clean[k] = patch[k]; }
+      else return null;
+    }
+    return clean;
+  }
+  if (section === 'global') {
+    for (const k of keys) {
+      if (k === 'emergencyStop') { if (typeof patch[k] !== 'boolean') return null; clean[k] = patch[k]; }
+      else if (k === 'proceeds') { const a = String(patch[k] || '').trim(); if (!GD_ADDR_RE.test(a)) return null; clean[k] = a; }
+      else if (k === 'salePct') { const n = ctlInt(patch[k], 0, 90); if (n === undefined) return null; clean[k] = n; }
+      else if (k === 'saleStart' || k === 'saleEnd') {
+        const s = String(patch[k] || '').trim().slice(0, 40);
+        if (s && !Number.isFinite(Date.parse(s))) return null;
+        clean[k] = s;
+      }
+      else if (k === 'featuredFa2') {
+        const s = String(patch[k] || '').trim().toLowerCase();
+        if (s && !FA2_WARRIORS.includes(s)) return null;
+        clean[k] = s;
+      }
+      else if (k === 'featuredFfb') {
+        const s = String(patch[k] || '').trim().toUpperCase();
+        if (s && ![...FROG_CTL_FFB_CODES, ...FROG_CTL_FFBP_CODES, ...FROG_CTL_CHEST_CODES].includes(s)) return null;
+        clean[k] = s;
+      }
+      else return null;
+    }
+    return clean;
+  }
+  return null;
+}
+function frogCtlMerge(base, over) {
+  const out = Array.isArray(base) ? [...base] : { ...base };
+  if (!over || typeof over !== 'object') return out;
+  for (const k of Object.keys(over)) {
+    const b = base ? base[k] : undefined;
+    const o = over[k];
+    if (o && typeof o === 'object' && !Array.isArray(o) && b && typeof b === 'object' && !Array.isArray(b)) {
+      out[k] = frogCtlMerge(b, o);
+    } else if (o !== undefined) {
+      out[k] = o;
+    }
+  }
+  return out;
+}
+async function frogCtlStored() {
+  try {
+    const out = await upstashPipeline([['GET', FROG_CTL_KEY]]);
+    const raw = (out && out[0] && out[0].result) || null;
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (e) { return {}; }
+}
+async function frogCtlGiveawayList() {
+  try {
+    const out = await upstashPipeline([['GET', FROG_GIVEAWAY_KEY]]);
+    const raw = (out && out[0] && out[0].result) || null;
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter((e) => e && typeof e === 'object' && e.id) : [];
+  } catch (e) { return []; }
+}
+async function frogCtlPublic() {
+  const stored = await frogCtlStored();
+  const eff = frogCtlMerge(frogCtlDefaults(), stored);
+  try {
+    const fa2 = await fa2GetSettings();
+    eff.arena2.shopPaused = fa2.paused;
+    eff.arena2.contract = fa2.contract;
+  } catch (e) { eff.arena2.shopPaused = true; eff.arena2.contract = ''; }
+  /* Emergency stop: one switch pauses every shop + the market in
+     the effective view (the mint passes check the flag directly
+     too, and skip their whole pass while it is on). */
+  if (eff.global.emergencyStop) {
+    eff.arena2.shopPaused = true;
+    eff.fight.shopPaused = true;
+    eff.fight.marketPaused = true;
+  }
+  const give = (await frogCtlGiveawayList()).filter((e) => e.status === 'pending');
+  return { settings: eff, giveaway: give };
+}
+/* Prune a section's stored overrides down to values that differ
+   from the defaults (same overrides-only discipline as
+   frog:gamesettings). */
+function frogCtlPrune(section, mergedSection) {
+  const def = frogCtlDefaults()[section];
+  const out = {};
+  for (const k of Object.keys(mergedSection || {})) {
+    if (k === 'shopPaused' && section === 'arena2') continue;   /* lives in fa2:settings */
+    if (JSON.stringify(mergedSection[k]) !== JSON.stringify(def[k])) out[k] = mergedSection[k];
+  }
+  return out;
+}
+async function frogCtlSetAction(req, res, body, sess) {
+  const section = String(body.section || '');
+  if (!['arena2', 'fight', 'cards', 'clash', 'arena', 'hop', 'global'].includes(section)) {
+    return res.status(400).json({ ok: false, error: 'unknown section' });
+  }
+  const clean = frogCtlValidateSection(section, body.patch);
+  if (!clean) return res.status(400).json({ ok: false, error: 'bad settings' });
+  if (section === 'global' && sess.role !== 'owner' &&
+      (clean.proceeds !== undefined || clean.emergencyStop !== undefined)) {
+    return res.status(403).json({ ok: false, error: 'owner only' });
+  }
+  const stored = await frogCtlStored();
+  const prevPub = (await frogCtlPublic()).settings;
+  if (section === 'arena2' && clean.shopPaused !== undefined) {
+    const fa2 = await fa2GetSettings();
+    fa2.paused = clean.shopPaused;
+    await upstashPipeline([['SET', FA2_SETTINGS_KEY, JSON.stringify(fa2)]]);
+    delete clean.shopPaused;
+  }
+  if (Object.keys(clean).length) {
+    const defSection = frogCtlDefaults()[section];
+    const curSection = frogCtlMerge(defSection, stored[section] || {});
+    const mergedSection = frogCtlMerge(curSection, clean);
+    const pruned = frogCtlPrune(section, mergedSection);
+    if (Object.keys(pruned).length) stored[section] = pruned; else delete stored[section];
+    if (Object.keys(stored).length) {
+      await upstashPipeline([['SET', FROG_CTL_KEY, JSON.stringify(stored)]]);
+    } else {
+      await upstashPipeline([['DEL', FROG_CTL_KEY]]);
+    }
+  }
+  const pub = await frogCtlPublic();
+  await frogAdminAudit({ at: new Date().toISOString(), by: sess.addr, action: 'ctl-set:' + section, addr: sess.addr, old: prevPub[section], new: pub.settings[section] });
+  return res.status(200).json({ ok: true, settings: pub.settings, giveaway: pub.giveaway });
+}
+async function frogCtlResetBoardAction(req, res, body, sess) {
+  if (sess.role !== 'owner') return res.status(403).json({ ok: false, error: 'owner only' });
+  const prefix = FROG_CTL_BOARDS[String(body.game || '')];
+  if (!prefix) return res.status(400).json({ ok: false, error: 'unknown game' });
+  await upstashPipeline([
+    ['DEL', prefix + ':all'], ['DEL', prefix + ':names'],
+    ['DEL', prefix + ':levels'], ['DEL', prefix + ':week:' + weekKey()],
+  ]);
+  await frogAdminAudit({ at: new Date().toISOString(), by: sess.addr, action: 'ctl-board-reset', addr: sess.addr, old: String(body.game), new: prefix });
+  return res.status(200).json({ ok: true, reset: String(body.game) });
+}
+async function frogCtlGiveawayAction(req, res, body, sess) {
+  const list = await frogCtlGiveawayList();
+  if (body.action === 'giveawayCancel') {
+    const id = String(body.id || '');
+    const hit = list.find((e) => e.id === id && e.status === 'pending');
+    if (!hit) return res.status(404).json({ ok: false, error: 'giveaway not pending' });
+    hit.status = 'cancelled';
+    await upstashPipeline([['SET', FROG_GIVEAWAY_KEY, JSON.stringify(list.slice(0, 100))]]);
+    await frogAdminAudit({ at: new Date().toISOString(), by: sess.addr, action: 'ctl-giveaway-cancel', addr: sess.addr, old: id, new: hit });
+    const pub = await frogCtlPublic();
+    return res.status(200).json({ ok: true, settings: pub.settings, giveaway: pub.giveaway });
+  }
+  /* giveawayAdd */
+  const kind = String(body.kind || '');
+  const recipient = String(body.recipient || '').trim();
+  if (!GD_ADDR_RE.test(recipient)) return res.status(400).json({ ok: false, error: 'bad recipient wallet' });
+  const entry = { id: 'g' + Date.now().toString(36) + crypto.randomBytes(3).toString('hex'), kind, recipient, by: sess.addr, at: Date.now(), status: 'pending' };
+  if (kind === 'fa2') {
+    const warrior = String(body.warrior || '').trim().toLowerCase();
+    const tierIdx = ctlInt(body.tierIdx, 0, 4);
+    if (!FA2_WARRIORS.includes(warrior) || tierIdx === undefined) return res.status(400).json({ ok: false, error: 'bad warrior or tier' });
+    entry.warrior = warrior; entry.tierIdx = tierIdx;
+  } else if (kind === 'ffb' || kind === 'ffbp') {
+    const code = String(body.code || '').trim().toUpperCase();
+    const codes = kind === 'ffb' ? FROG_CTL_FFB_CODES : FROG_CTL_FFBP_CODES;
+    if (!codes.includes(code)) return res.status(400).json({ ok: false, error: 'bad boost kind' });
+    entry.code = code;
+  } else {
+    return res.status(400).json({ ok: false, error: 'unknown giveaway kind' });
+  }
+  list.unshift(entry);
+  await upstashPipeline([['SET', FROG_GIVEAWAY_KEY, JSON.stringify(list.slice(0, 100))]]);
+  await frogAdminAudit({ at: new Date().toISOString(), by: sess.addr, action: 'ctl-giveaway-add', addr: sess.addr, old: '', new: entry });
+  const pub = await frogCtlPublic();
+  return res.status(200).json({ ok: true, settings: pub.settings, giveaway: pub.giveaway, added: entry.id });
+}
+async function frogCtlHandler(req, res) {
+  if (req.method !== 'GET' && req.method !== 'POST') return res.status(405).json({ ok: false, error: 'method not allowed' });
+  if (!process.env.NEONRUSH_UPSTASH_URL || !process.env.NEONRUSH_UPSTASH_TOKEN) {
+    return res.status(500).json({ ok: false, unavailable: true, error: 'storage not configured' });
+  }
+  if (req.method === 'GET') {
+    try {
+      const pub = await frogCtlPublic();
+      res.setHeader('Cache-Control', 's-maxage=15, stale-while-revalidate=30');
+      return res.status(200).json({ ok: true, settings: pub.settings, giveaway: pub.giveaway });
+    } catch (e) {
+      console.error('frog ctl read failed', e && e.message);
+      return res.status(502).json({ ok: false, error: 'settings unavailable' });
+    }
+  }
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = {}; } }
+  body = body || {};
+  const auth = (req.headers && req.headers.authorization) || '';
+  const got = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  const sess = got ? await frogAdminResolveSession(got) : null;
+  if (!sess) return res.status(401).json({ ok: false, error: 'unauthorized' });
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    if (body.action === 'setCtl') return await frogCtlSetAction(req, res, body, sess);
+    if (body.action === 'resetBoard') return await frogCtlResetBoardAction(req, res, body, sess);
+    if (body.action === 'giveawayAdd' || body.action === 'giveawayCancel') return await frogCtlGiveawayAction(req, res, body, sess);
+    return res.status(400).json({ ok: false, error: 'unknown action' });
+  } catch (e) {
+    console.error('frog ctl write failed', e && e.message);
+    return res.status(502).json({ ok: false, error: 'store unavailable' });
+  }
+}
+/* frog-ctl:end */
+
+
+
 /* garuda-timer:start — v4: Timer Payouts + leaderboard restart.
    The ADMIN sets a timer once (gd:paytimer); a Vercel cron calls
    ?garudatick=1 every 15 minutes (CRON_SECRET-gated, same pattern as
@@ -6943,6 +7326,7 @@ export default async function handler(req, res) {
   if (req.query && req.query.fa2 !== undefined) return frogArena2Handler(req, res);
   if (req.query && req.query.frogadmin !== undefined) return frogAdminHandler(req, res);
   if (req.query && req.query.frogsettings !== undefined) return frogSettingsHandler(req, res);
+  if (req.query && req.query.frogctl !== undefined) return frogCtlHandler(req, res);
   /* Garuda Dash LEVEL EDITOR data: ?garudaedit=1 (see the garuda-edit
      block above). Published reads are public; writes are admin-gated. */
   if (req.query && req.query.garudaedit !== undefined) return garudaEditHandler(req, res);

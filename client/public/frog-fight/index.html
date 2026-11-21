@@ -310,6 +310,8 @@ input[type=text]:focus{outline:none;border-color:var(--emer);box-shadow:0 0 0 3p
     <div class="card" id="ffbShopCard">
       <div class="subTitle" style="margin-bottom:4px">🛒 <span data-i="ffbShopTitle">BOOST SHOP — MINT</span></div>
       <p class="note" data-i="ffbShopNote">Pay LUNC to Goliath's wallet right from here — your boost NFT is minted straight to your wallet (about a minute). Prices set by Goliath.</p>
+      <p class="note hidden" id="ffbShopPausedNote" style="color:#ff9d9d;font-weight:800">⏸ SHOP PAUSED — the owner has the boost shop switched off right now. / TIENDA EN PAUSA — el dueño tiene la tienda apagada por ahora.</p>
+      <p class="note hidden" id="ffbSaleNote" style="color:#8dff9e;font-weight:800"></p>
       <div class="ffbGrid" id="ffbShopGrid"></div>
       <div class="subTitle" style="margin:14px 0 4px">👑 <span data-i="ffbPremTitle">PREMIUM SCALES</span> <span class="propTag" data-i="ffbProposed">PROPOSED PRICE</span></div>
       <div class="ffbGrid" id="ffbPremGrid"></div>
@@ -331,12 +333,14 @@ input[type=text]:focus{outline:none;border-color:var(--emer);box-shadow:0 0 0 3p
         <div>
           <b data-i="ffbPrizeName">1ST PLACE PRIZE — PREMIUM CHEST</b>
           <p class="note" data-i="ffbPrizeTxt" style="margin:4px 0 0">Inside: 1 frog NFT (incl. an Amphibian) + 100,000 LUNC. Funded and awarded by Goliath at events — not for sale.</p>
+          <p class="note hidden" id="ffbPrizeWinner" style="margin:4px 0 0;color:#ffe066;font-weight:800"></p>
         </div>
       </div>
     </div>
 
     <div class="card" id="ffbMarketCard">
       <div class="subTitle" style="margin-bottom:4px">🤝 <span data-i="ffbMarketTitle">P2P MARKET</span></div>
+      <p class="note hidden" id="ffbMarketPausedNote" style="color:#ff9d9d;font-weight:800">⏸ MARKET PAUSED — the owner has the P2P market switched off right now. / MERCADO EN PAUSA — el dueño tiene el mercado apagado por ahora.</p>
       <p class="note" data-i="ffbMarketTxt">How it will work: list a boost → it moves to escrow (Goliath's wallet) → the buyer pays YOU the price → the boost moves to the buyer, all on-chain. Listings switch on once Goliath's one-time escrow approval is set — no listings are live yet.</p>
       <div id="ffbMarketBody"><p class="note" data-i="ffbMarketEmpty">No listings yet.</p></div>
     </div>
@@ -1538,6 +1542,63 @@ let ffbEquipped = new Set();
 let ffbAddr = '';
 let ffbIssued = { ffb: {}, ffbp: {} };
 
+/* ---------- owner control settings (frog:settings via ?frogctl=1) ----------
+   Prices, fx, supply caps, shop/market pauses, the event prize, the
+   sale event, the featured item and the proceeds wallet all come from
+   the admin panel's store. The constants above are the fallback
+   defaults — the shipped values — so a failed read changes nothing. */
+const FFB_CTL_API = 'https://frg-fight-club.vercel.app/api/luna-games?frogctl=1';
+let ffbCtl = null;
+let ffbPayTo = FFB_GOLIATH;
+let ffbShopPaused = false;
+function ffbSalePctNow(){
+  const g = ffbCtl && ffbCtl.global;
+  if (!g || !(+g.salePct > 0) || !g.saleStart || !g.saleEnd) return 0;
+  const now = Date.now(), s = Date.parse(g.saleStart), e = Date.parse(g.saleEnd);
+  return (Number.isFinite(s) && Number.isFinite(e) && now >= s && now <= e) ? +g.salePct : 0;
+}
+function ffbPriceNow(item){
+  const pct = ffbSalePctNow();
+  return pct ? Math.round(item.price * (100 - pct) / 100) : item.price;
+}
+function ffbCapOf(item){
+  const c = ffbCtl && ffbCtl.fight && ffbCtl.fight.caps ? ffbCtl.fight.caps[item.code] : undefined;
+  return c === undefined ? item.count : Math.min(item.count, c);
+}
+function ffbFeaturedFirst(list){
+  const f = ffbCtl && ffbCtl.global ? ffbCtl.global.featuredFfb : '';
+  if (!f) return list;
+  const i = list.findIndex(k => k.code === f);
+  if (i <= 0) return list;
+  const c = [...list]; c.unshift(c.splice(i, 1)[0]); return c;
+}
+async function ffbLoadCtl(){
+  try {
+    const r = await fetch(FFB_CTL_API);
+    const j = await r.json();
+    if (!j || !j.ok || !j.settings) return;
+    ffbCtl = j.settings;
+    const F = j.settings.fight || {}, G = j.settings.global || {};
+    if (G.proceeds) ffbPayTo = G.proceeds;
+    const estop = !!G.emergencyStop;
+    ffbShopPaused = estop || !!F.shopPaused;
+    for (const k of FFB_BASE) { if (F.prices && F.prices[k.code]) k.price = F.prices[k.code]; if (F.fx && F.fx[k.code]) k.fx = { ...F.fx[k.code] }; }
+    for (const k of FFB_PREM) { if (F.premPrices && F.premPrices[k.code]) k.price = F.premPrices[k.code]; if (F.fx && F.fx[k.code]) k.fx = { ...F.fx[k.code] }; }
+    for (const k of FFB_CHESTS) { if (F.chestPrices && F.chestPrices[k.code]) k.price = F.chestPrices[k.code]; }
+    const pn = $('ffbShopPausedNote'); if (pn) pn.classList.toggle('hidden', !ffbShopPaused);
+    const mn = $('ffbMarketPausedNote'); if (mn) mn.classList.toggle('hidden', !(estop || F.marketPaused));
+    const sn = $('ffbSaleNote');
+    if (sn) { const pct = ffbSalePctNow(); sn.classList.toggle('hidden', !pct); if (pct) sn.textContent = '🏷️ SALE — ' + pct + '% OFF everything in the shop! / ¡REBAJA — ' + pct + '% en toda la tienda!'; }
+    const ev = F.event || {};
+    const pt = document.querySelector('[data-i="ffbPrizeTxt"]');
+    if (pt && ev.text) pt.textContent = ev.text;
+    else if (pt && ev.amount !== undefined && ev.amount !== 100000) pt.textContent = pt.textContent.replace(/100,000 LUNC/, Number(ev.amount).toLocaleString('en-US') + ' LUNC');
+    const wn = $('ffbPrizeWinner');
+    if (wn && ev.winner) { wn.classList.remove('hidden'); wn.textContent = '🏆 Winner / Ganador: ' + ev.winner; }
+    ffbRenderShop();
+  } catch (e) { /* defaults stand */ }
+}
+
 function ffbFxLine(fx){ const p = []; if (fx.atk) p.push('ATK +' + fx.atk); if (fx.def) p.push('DEF +' + fx.def); if (fx.agi) p.push('AGI +' + fx.agi); return p.join(' · '); }
 function ffbSaveEquipped(){ try { const all = JSON.parse(localStorage.getItem('ffb_equipped') || '{}'); all[ffbAddr] = [...ffbEquipped]; localStorage.setItem('ffb_equipped', JSON.stringify(all)); } catch (e) {} }
 function ffbLoadEquipped(){ try { const all = JSON.parse(localStorage.getItem('ffb_equipped') || '{}'); ffbEquipped = new Set(all[ffbAddr] || []); } catch (e) { ffbEquipped = new Set(); } }
@@ -1609,38 +1670,43 @@ async function ffbLoadSupply(){
   } catch (e) { /* supply line just stays blank until the chain answers */ }
 }
 function ffbShopCard(item, type, issued){
-  const left = item.count != null ? item.count - (issued || 0) : null;
+  const cap = item.count != null ? ffbCapOf(item) : null;
+  const left = cap != null ? cap - (issued || 0) : null;
   const soldOut = left != null && left <= 0;
   const fxLine = type === 'chest' ? ('🎲 × ' + item.inside) : ffbFxLine(item.fx);
-  return '<div class="ffbItem"><img src="' + item.art + '" alt="" loading="lazy"><b>' + esc(item.name) + '</b>' +
+  const pct = ffbSalePctNow();
+  const featured = ffbCtl && ffbCtl.global && ffbCtl.global.featuredFfb === item.code;
+  return '<div class="ffbItem"><img src="' + item.art + '" alt="" loading="lazy"><b>' + (featured ? '⭐ ' : '') + esc(item.name) + '</b>' +
     '<span class="fx">' + fxLine + '</span>' +
-    '<span class="pr">' + item.price.toLocaleString('en-US') + ' LUNC</span>' +
-    (left != null ? '<span class="left">' + left + ' / ' + item.count + ' ' + t('ffbLeft') + '</span>' : '') +
+    '<span class="pr">' + (pct ? '<s>' + item.price.toLocaleString('en-US') + '</s> ' : '') + ffbPriceNow(item).toLocaleString('en-US') + ' LUNC' + (pct ? ' 🏷️' : '') + '</span>' +
+    (left != null ? '<span class="left">' + left + ' / ' + cap + ' ' + t('ffbLeft') + '</span>' : '') +
     '<button type="button" data-buy="' + type + ':' + item.code + '"' + (soldOut ? ' disabled' : '') + '>' + (soldOut ? t('ffbSoldOut') : t('ffbBuy')) + '</button></div>';
 }
 function ffbRenderShop(){
-  if ($('ffbShopGrid')) $('ffbShopGrid').innerHTML = FFB_BASE.map(k => ffbShopCard(k, 'buy', ffbIssued.ffb[k.code])).join('');
-  if ($('ffbPremGrid')) $('ffbPremGrid').innerHTML = FFB_PREM.map(k => ffbShopCard(k, 'premium', ffbIssued.ffbp[k.code])).join('');
-  if ($('ffbChestGrid')) $('ffbChestGrid').innerHTML = FFB_CHESTS.map(k => ffbShopCard(k, 'chest', null)).join('');
+  if ($('ffbShopGrid')) $('ffbShopGrid').innerHTML = ffbFeaturedFirst(FFB_BASE).map(k => ffbShopCard(k, 'buy', ffbIssued.ffb[k.code])).join('');
+  if ($('ffbPremGrid')) $('ffbPremGrid').innerHTML = ffbFeaturedFirst(FFB_PREM).map(k => ffbShopCard(k, 'premium', ffbIssued.ffbp[k.code])).join('');
+  if ($('ffbChestGrid')) $('ffbChestGrid').innerHTML = ffbFeaturedFirst(FFB_CHESTS).map(k => ffbShopCard(k, 'chest', null)).join('');
   document.querySelectorAll('[data-buy]').forEach(b => { b.onclick = () => { const [ty, cd] = b.dataset.buy.split(':'); ffbBuy(ty, cd); }; });
   ffbUpdateBuyBtns();
 }
 function ffbUpdateBuyBtns(){
   const st = window.__ffwallet ? window.__ffwallet.state() : { connected: false };
-  document.querySelectorAll('[data-buy]').forEach(b => { if (!b.textContent.includes(t('ffbSoldOut'))) b.disabled = !st.connected; });
+  document.querySelectorAll('[data-buy]').forEach(b => { if (!b.textContent.includes(t('ffbSoldOut'))) b.disabled = !st.connected || ffbShopPaused; });
 }
 function ffbOrder(msg){ if ($('ffbOrderLine')) $('ffbOrderLine').innerHTML = msg; }
 async function ffbBuy(type, code){
   const W = window.__ffwallet;
   const st = W ? W.state() : { connected: false };
+  if (ffbShopPaused) { ffbOrder('⏸ The boost shop is paused right now. / La tienda está en pausa.'); return; }
   if (!st.connected) { ffbOrder('🔗 Connect your boost wallet above first — buying needs a wallet that can sign the payment.'); return; }
   const item = type === 'buy' ? FFB_BASE.find(k => k.code === code) : type === 'premium' ? FFB_PREM.find(k => k.code === code) : FFB_CHESTS.find(k => k.code === code);
   if (!item) return;
+  const price = ffbPriceNow(item);
   const ref = 'r' + Math.random().toString(36).slice(2, 10);
   const memo = type === 'buy' ? 'FFB-BUY ' + code + ' ' + ref : type === 'premium' ? 'FFBP-BUY ' + code + ' ' + ref : 'FFB-CHEST ' + code + ' ' + ref;
-  ffbOrder('✍️ Sending ' + item.price.toLocaleString('en-US') + ' LUNC — approve it in your wallet…');
+  ffbOrder('✍️ Sending ' + price.toLocaleString('en-US') + ' LUNC — approve it in your wallet…');
   try {
-    const sent = await W.sendLunc(FFB_GOLIATH, item.price * 1000000, memo);
+    const sent = await W.sendLunc(ffbPayTo, price * 1000000, memo);
     ffbOrder('✅ Paid! Your ' + esc(item.name) + ' is being minted to your wallet — about a minute. Tx: ' +
       '<a target="_blank" rel="noopener" href="https://finder.terraclassic.community/mainnet/tx/' + sent.transactionHash + '">' + sent.transactionHash.slice(0, 16) + '…</a>');
     setTimeout(() => { if (window.__ffwallet) window.__ffwallet.refresh(); ffbLoadSupply(); }, 50000);
@@ -1671,7 +1737,7 @@ function ffbRenderRank(){
   box.innerHTML = rows.map((r, i) => '<div class="rankRow' + (r.you ? ' you' : '') + '"><span>' + (i + 1) + '. ' + esc(r.name) + '</span><span class="sc">' +
     r.f + ' ' + t('ffbFights') + ' · ' + r.w + ' ' + t('ffbWins') + (r.f ? ' · ' + Math.round(r.w / r.f * 100) + '%' : '') + '</span></div>').join('');
 }
-ffbRenderShop(); ffbRenderRank(); ffbRenderSlots(); ffbLoadSupply();
+ffbRenderShop(); ffbRenderRank(); ffbRenderSlots(); ffbLoadSupply(); ffbLoadCtl();
 
 /* ================= leaderboard (shared router, game=frogfight) ================= */
 const API_URL = 'https://frg-fight-club.vercel.app/api/luna-games?game=frogfight';

@@ -3125,9 +3125,58 @@ document.getElementById('rematch').addEventListener('click', () => {
 const FA2_API = 'https://frg-fight-club.vercel.app/api/luna-games?fa2=1';
 const FA2_BOARD_API = 'https://frg-fight-club.vercel.app/api/luna-games?game=frogarena2';
 const FA2_GOLIATH = 'terra183yjyennklj77uc47txds9mmpu6vlaecaxk66g';
-const FA2_TIERS = [50000, 100000, 150000, 200000, 500000];
+let FA2_TIERS = [50000, 100000, 150000, 200000, 500000];
+let FA2_TIER_POWER = [1, 2, 4, 5, 8];
 const FA2_LADDER = ['brawler', 'starknight', 'soldier', 'nightblade', 'princess', 'captain', 'queen', 'shadow', 'ember', 'king'];
-function fa2TierBonus(t) { return t >= 500000 ? 8 : t >= 200000 ? 5 : t >= 150000 ? 4 : t >= 100000 ? 2 : t >= 50000 ? 1 : 0; }
+function fa2TierBonus(t) {
+  const i = FA2_TIERS.indexOf(t);
+  if (i >= 0) return FA2_TIER_POWER[i] || 0;
+  return t >= 500000 ? 8 : t >= 200000 ? 5 : t >= 150000 ? 4 : t >= 100000 ? 2 : t >= 50000 ? 1 : 0;
+}
+/* ---------- owner control settings (frog:settings via ?frogctl=1) ----------
+   Tier prices + power, ladder on/levels/difficulty, season, banner,
+   sale event, featured warrior, proceeds wallet, emergency stop.
+   The values above are the fallback defaults (the shipped values),
+   so a failed read changes nothing. */
+const FA2_CTL_API = 'https://frg-fight-club.vercel.app/api/luna-games?frogctl=1';
+let fa2Ctl = null;
+let fa2PayTo = FA2_GOLIATH;
+let fa2Estop = false;
+let fa2Featured = '';
+let fa2LadderCfg = { on: true, levels: 10, diffPct: 100 };
+function fa2SalePctNow() {
+  const g = fa2Ctl && fa2Ctl.global;
+  if (!g || !(+g.salePct > 0) || !g.saleStart || !g.saleEnd) return 0;
+  const now = Date.now(), s = Date.parse(g.saleStart), e = Date.parse(g.saleEnd);
+  return (Number.isFinite(s) && Number.isFinite(e) && now >= s && now <= e) ? +g.salePct : 0;
+}
+function fa2PriceNow(tier) {
+  const pct = fa2SalePctNow();
+  return pct ? Math.round(tier * (100 - pct) / 100) : tier;
+}
+async function fa2LoadCtl() {
+  try {
+    const r = await fetch(FA2_CTL_API);
+    const j = await r.json();
+    if (!j || !j.ok || !j.settings) return;
+    fa2Ctl = j.settings;
+    const A = j.settings.arena2 || {}, G = j.settings.global || {};
+    if (Array.isArray(A.tiers) && A.tiers.length === 5) FA2_TIERS = A.tiers.map(Number);
+    if (Array.isArray(A.tierPower) && A.tierPower.length === 5) FA2_TIER_POWER = A.tierPower.map(Number);
+    fa2LadderCfg = { on: A.ladderOn !== false, levels: Math.max(1, Math.min(10, A.ladderLevels || 10)), diffPct: A.ladderDiffPct || 100 };
+    if (G.proceeds) fa2PayTo = G.proceeds;
+    fa2Estop = !!G.emergencyStop;
+    fa2Featured = G.featuredFa2 || '';
+    const lb = $('fa2LadderBtn'); if (lb) lb.style.display = fa2LadderCfg.on ? '' : 'none';
+    const bn = $('fa2Banner');
+    if (bn) { bn.textContent = A.banner ? '📣 ' + A.banner : ''; bn.style.display = A.banner ? 'block' : 'none'; }
+    const sl = $('fa2SeasonLine');
+    if (sl) sl.textContent = A.season ? '🏅 ' + A.season : '';
+    fa2BuildShop();
+    fa2ApplyTexts();
+    fa2LoadShopState();
+  } catch (e) { /* defaults stand */ }
+}
 function fa2BasePower(r) { return r.stats.power + r.stats.speed + r.stats.range; }
 async function fa2Api(body) {
   const r = await fetch(FA2_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -3191,6 +3240,7 @@ async function fa2LoadShopState() {
     const s = await fa2Api({ action: 'fa2ShopState' });
     if (s && s.ok) fa2ShopState = { paused: !!s.paused, contract: s.contract || '' };
   } catch (e) { /* unreadable = stays paused (fail closed) */ }
+  if (fa2Estop) fa2ShopState.paused = true;
   const note = $('fa2PausedNote');
   if (note) note.style.display = fa2ShopState.paused ? 'block' : 'none';
   fa2RefreshBuyStates();
@@ -3203,15 +3253,17 @@ function fa2OrderLine(html) { const el = $('fa2OrderStatus'); if (el) el.innerHT
 function fa2BuildShop() {
   const grid = $('fa2ShopGrid'); if (!grid) return;
   grid.innerHTML = '';
-  for (const r of ROSTER) {
-    fa2ShopSel[r.id] = fa2ShopSel[r.id] || 50000;
+  const ordered = [...ROSTER].sort((a, b) => (b.id === fa2Featured ? 1 : 0) - (a.id === fa2Featured ? 1 : 0));
+  for (const r of ordered) {
+    fa2ShopSel[r.id] = fa2ShopSel[r.id] || FA2_TIERS[0];
+    if (!FA2_TIERS.includes(fa2ShopSel[r.id])) fa2ShopSel[r.id] = FA2_TIERS[0];
     const card = document.createElement('div');
     card.className = 'fa2card';
     const chips = FA2_TIERS.map(t =>
       `<button type="button" class="fa2chip${t === fa2ShopSel[r.id] ? ' on' : ''}" data-w="${r.id}" data-t="${t}">${t / 1000}k</button>`).join('');
     card.innerHTML =
       `<img alt="" src="warriors/${r.art}">` +
-      `<div class="fa2cn">${r.name}</div><div class="fa2ct">${r.title}</div>` +
+      `<div class="fa2cn">${r.id === fa2Featured ? '⭐ ' : ''}${r.name}</div><div class="fa2ct">${r.title}</div>` +
       `<div class="fa2chips">${chips}</div>` +
       `<div class="fa2cp" id="fa2cp-${r.id}"></div>` +
       `<button type="button" class="fa2buy" id="fa2buy-${r.id}">🛒 ${FC.t('buyNow')}</button>`;
@@ -3234,7 +3286,8 @@ function fa2BuildShop() {
 function fa2ShopReadout(r) {
   const el = $('fa2cp-' + r.id); if (!el) return;
   const t = fa2ShopSel[r.id];
-  el.textContent = t.toLocaleString('en-US') + ' LUNC · ⚡ ' + FC.t('powerWord') + ' ' + (fa2BasePower(r) + fa2TierBonus(t));
+  const p = fa2PriceNow(t);
+  el.textContent = (p !== t ? t.toLocaleString('en-US') + ' → ' : '') + p.toLocaleString('en-US') + ' LUNC · ⚡ ' + FC.t('powerWord') + ' ' + (fa2BasePower(r) + fa2TierBonus(t));
 }
 async function fa2Buy(r) {
   const W = window.__fa2wallet;
@@ -3242,19 +3295,20 @@ async function fa2Buy(r) {
   if (fa2ShopState.paused) { fa2OrderLine('⏸ ' + FC.t('shopPaused')); return; }
   if (!st || !st.connected) { fa2OrderLine('🔗 ' + FC.t('connectFirst')); return; }
   const tier = fa2ShopSel[r.id];
+  const price = fa2PriceNow(tier);
   const ref = 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
   fa2OrderLine('⏳ ' + FC.t('orderCreating'));
   let order = null;
   try {
-    const res = await fa2Api({ action: 'fa2Order', ref, buyer: st.addr, warrior: r.id, tierLunc: tier });
+    const res = await fa2Api({ action: 'fa2Order', ref, buyer: st.addr, warrior: r.id, tierLunc: price });
     if (!res || !res.ok) throw new Error((res && res.error) || 'order failed');
     order = res.order;
   } catch (e) { fa2OrderLine('⚠ ' + FC.t('orderFailed') + ' — ' + (e.message || e)); return; }
-  fa2Order = { ref, warrior: r.id, tier };
+  fa2Order = { ref, warrior: r.id, tier: price };
   fa2OrderLine('💳 ' + FC.t('orderSending'));
   let txHash = '';
   try {
-    const sent = await W.sendLunc(FA2_GOLIATH, tier * 1000000, 'FA2-BUY ' + ref);
+    const sent = await W.sendLunc(fa2PayTo, price * 1000000, 'FA2-BUY ' + ref);
     txHash = sent.transactionHash;
   } catch (e) {
     fa2OrderLine('⚠ ' + FC.t('orderFailed') + ' — ' + String((e && e.message) || e).slice(0, 120));
@@ -3307,11 +3361,12 @@ let fa2Level = 0, fa2RunScore = 0, fa2RunStart = 0, fa2Handled = false, fa2Poste
 function fa2LadderCpu(idx) {
   const base = ROSTER.find(r => r.id === FA2_LADDER[idx]);
   const L = idx + 1;
+  const diff = fa2LadderCfg.diffPct / 100;
   const c = JSON.parse(JSON.stringify(base));
   c.key = base.id + '#L' + L;
   c.aiMul = base.aiMul * (1.25 - 0.05 * L);
-  c.stats = { power: Math.max(1, Math.min(8, Math.round(base.stats.power * (0.8 + 0.045 * L)))), speed: base.stats.speed, range: base.stats.range };
-  c.maxHp = Math.round(base.maxHp * (0.9 + 0.03 * L));
+  c.stats = { power: Math.max(1, Math.min(8, Math.round(base.stats.power * (0.8 + 0.045 * L) * diff))), speed: base.stats.speed, range: base.stats.range };
+  c.maxHp = Math.round(base.maxHp * (0.9 + 0.03 * L) * diff);
   return c;
 }
 async function fa2StartLevel() {
@@ -3322,9 +3377,10 @@ async function fa2StartLevel() {
   $('rematch').style.display = 'none';
   try { await applySelection(); } catch (e) { console.warn('ladder fighter load failed', e); }
   startMatch();
-  setTimeout(() => { if (fa2Mode === 'ladder' && game.phase === 'intro') showBanner(FC.tf('ladderLevel', fa2Level + 1, 10), cpuFighter.name, 1.1); }, 150);
+  setTimeout(() => { if (fa2Mode === 'ladder' && game.phase === 'intro') showBanner(FC.tf('ladderLevel', fa2Level + 1, fa2LadderCfg.levels), cpuFighter.name, 1.1); }, 150);
 }
 async function fa2StartLadder() {
+  if (!fa2LadderCfg.on) return;
   AudioSys.init(); AudioSys.bell();
   fa2Mode = 'ladder'; fa2Level = 0; fa2RunScore = 0; fa2Posted = false;
   fa2RunStart = performance.now();
@@ -3353,17 +3409,17 @@ setInterval(() => {
   $('rematch').style.display = 'none';
   if (P1.roundsWon >= 2) {
     fa2RunScore += 1000 + 500 * (fa2Level + 1) + Math.min(300, Math.max(0, Math.round(P1.hp)));
-    if (fa2Level >= 9) {
+    if (fa2Level >= fa2LadderCfg.levels - 1) {
       showBanner(FC.t('champion'), FC.t('championSub'), 3.2);
       fa2PostScore();
       $('ladderRetry').textContent = '🏆 ' + FC.t('newRun');
       $('ladderRetry').style.display = 'block';
     } else {
-      showBanner(FC.t('matchWon'), FC.tf('ladderLevel', fa2Level + 2, 10) + ' — ' + ROSTER.find(r => r.id === FA2_LADDER[fa2Level + 1]).name, 2.2);
+      showBanner(FC.t('matchWon'), FC.tf('ladderLevel', fa2Level + 2, fa2LadderCfg.levels) + ' — ' + ROSTER.find(r => r.id === FA2_LADDER[fa2Level + 1]).name, 2.2);
       $('ladderNext').style.display = 'block';
     }
   } else {
-    showBanner(FC.t('defeated'), FC.tf('ladderLevel', fa2Level + 1, 10), 2.4);
+    showBanner(FC.t('defeated'), FC.tf('ladderLevel', fa2Level + 1, fa2LadderCfg.levels), 2.4);
     fa2PostScore();
     $('ladderRetry').textContent = '↻ ' + FC.t('retryLadder');
     $('ladderRetry').style.display = 'block';
@@ -3402,6 +3458,7 @@ document.getElementById('fa2BoardBtn').addEventListener('click', () => {
 fa2BuildShop();
 fa2ApplyTexts();
 fa2LoadShopState();
+fa2LoadCtl();
 
 /* QA hooks (ladder walk): ?qa= runs only — force a match win
    through the real endRound path so the ladder advances. */
