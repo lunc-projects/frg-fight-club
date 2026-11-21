@@ -1787,26 +1787,33 @@ const sndLose = () => { [440, 350, 262].forEach((f, i) => beep(f, 0.25, 'triangl
 
 /* ================= input: floating joystick + brake + keys ================= */
 const input = { steer: 0, brake: false, up: false, down: false, left: false, right: false, nitro: false };
-let stickVec = 0, stickActive = false, stickPointer = null;
+let stickVec = 0, stickVecY = 0, stickActive = false, stickPointer = null;
 const dock = $('stickDock'), knob = $('stickKnob');
 const STICK_R = 40;
 function stickRange() { const b = dock.getBoundingClientRect(); return { cx: b.left + b.width / 2, cy: b.top + b.height / 2 }; }
-function stickSet(dx) {
-  const kx = clamp(dx, -STICK_R, STICK_R);
-  knob.style.transform = 'translate(' + kx + 'px,0px)';
+function stickSet(dx, dy) {
+  let kx = clamp(dx, -STICK_R, STICK_R), ky = clamp(dy, -STICK_R, STICK_R);
+  const m = Math.hypot(kx, ky);
+  if (m > STICK_R) { kx = kx / m * STICK_R; ky = ky / m * STICK_R; }
+  knob.style.transform = 'translate(' + kx + 'px,' + ky + 'px)';
   stickVec = kx / STICK_R;
+  stickVecY = ky / STICK_R;
 }
-function stickHandle(cx) { const r = stickRange(); stickSet(cx - r.cx); }
+function stickHandle(cx, cy) { const r = stickRange(); stickSet(cx - r.cx, cy - r.cy); }
+/* The stick is the throttle too: pushed UP (or pushed sideways to steer) =
+   driving; pushed DOWN = brake (as the how-to says); untouched = no power. */
+function stickGas() { return stickActive && (stickVecY < -0.15 || Math.abs(stickVec) > 0.25); }
+function stickBrake() { return stickActive && stickVecY > 0.35; }
 window.addEventListener('pointerdown', e => {
   if (state !== 'race' && state !== 'count') return;
   if (e.target.closest('button,select,input,.screen')) return;
   if (e.clientX < window.innerWidth * 0.66 && stickPointer === null) {
-    stickPointer = e.pointerId; stickActive = true; stickHandle(e.clientX);
+    stickPointer = e.pointerId; stickActive = true; stickHandle(e.clientX, e.clientY);
   }
 });
-window.addEventListener('pointermove', e => { if (stickActive && e.pointerId === stickPointer) stickHandle(e.clientX); });
+window.addEventListener('pointermove', e => { if (stickActive && e.pointerId === stickPointer) stickHandle(e.clientX, e.clientY); });
 function stickEnd(e) {
-  if (e.pointerId === stickPointer) { stickPointer = null; stickActive = false; stickVec = 0; knob.style.transform = 'translate(0px,0px)'; }
+  if (e.pointerId === stickPointer) { stickPointer = null; stickActive = false; stickVec = 0; stickVecY = 0; knob.style.transform = 'translate(0px,0px)'; }
 }
 window.addEventListener('pointerup', stickEnd);
 window.addEventListener('pointercancel', stickEnd);
@@ -1815,16 +1822,16 @@ window.addEventListener('touchstart', e => {
   if (e.target.closest('button,select,input,.screen')) return;
   for (const t of e.changedTouches) {
     if (t.clientX < window.innerWidth * 0.66 && stickPointer === null) {
-      stickPointer = 't' + t.identifier; stickActive = true; stickHandle(t.clientX);
+      stickPointer = 't' + t.identifier; stickActive = true; stickHandle(t.clientX, t.clientY);
     }
   }
 }, { passive: true });
 window.addEventListener('touchmove', e => {
   if (!stickActive) return;
-  for (const t of e.changedTouches) if (stickPointer === 't' + t.identifier) stickHandle(t.clientX);
+  for (const t of e.changedTouches) if (stickPointer === 't' + t.identifier) stickHandle(t.clientX, t.clientY);
 }, { passive: true });
 window.addEventListener('touchend', e => {
-  for (const t of e.changedTouches) if (stickPointer === 't' + t.identifier) { stickPointer = null; stickActive = false; stickVec = 0; knob.style.transform = 'translate(0px,0px)'; }
+  for (const t of e.changedTouches) if (stickPointer === 't' + t.identifier) { stickPointer = null; stickActive = false; stickVec = 0; stickVecY = 0; knob.style.transform = 'translate(0px,0px)'; }
 });
 const brakeBtn = $('btnBrake');
 const brakeOn = e => { e.preventDefault(); input.brake = true; brakeBtn.classList.add('on'); };
@@ -1901,7 +1908,11 @@ function stepPlayer(dt) {
   P.steer += clamp(steerT - P.steer, -dt * 7, dt * 7);
   P.steerVis += (P.steer - P.steerVis) * Math.min(1, dt * 11);
   if (state === 'count') { P.v = 0; placeCar(playerCar, P.s, P.lat, 0, -P.steerVis * 0.10, 0); spinWheels(playerCar, 0, dt, P.steerVis); return; }
-  const braking = input.brake || input.down || (QA && autoBrake());
+  const braking = input.brake || input.down || stickBrake() || (QA && autoBrake());
+  /* Throttle ONLY while the player is driving: stick pushed (up = gas,
+     sideways = steering push) or Up/W held. Hands off = no power at all.
+     (QA keeps its autopilot: gas is simply on unless it is auto-braking.) */
+  const gas = QA || input.up || stickGas();
   /* nitrous: active only while held with charge in the tank and not braking */
   const wasBoosting = P.boosting;
   P.boosting = !!(input.nitro && P.nitro > 0 && !braking && state === 'race');
@@ -1915,11 +1926,18 @@ function stepPlayer(dt) {
     P.v += NITRO_ACCEL * launchRamp() * (1 - P.v / (dragTop * 1.12)) * dt;
     if (Math.abs(P.lat) > ROAD_HALF) P.v -= 16 * dt;
   }
-  else {
+  else if (gas) {
     const dragTop = TOP_SPEED * (Math.abs(P.lat) > ROAD_HALF ? 0.62 : 1);
     P.v += 34 * launchRamp() * (1 - P.v / (dragTop * 1.12)) * dt;
     if (Math.abs(P.lat) > ROAD_HALF) P.v -= 16 * dt;
     if (!P.air && P.v > TOP_SPEED * 1.06) P.v = Math.max(TOP_SPEED * 1.06, P.v - 60 * dt); /* settle out of a boost without a wall-hit */
+  }
+  else {
+    /* hands off the controls: no throttle — engine braking and drag coast
+       the car down to a stop, and it stays stopped until the player drives */
+    P.v -= (10 + P.v * 0.30) * dt;
+    if (Math.abs(P.lat) > ROAD_HALF) P.v -= 16 * dt;
+    if (P.v < 0) P.v = 0;
   }
   if (Math.abs(P.steer) > 0.72 && P.v > 60) P.v -= 2.0 * dt; /* tyre scrub */
   P.v = clamp(P.v, 0, NITRO_TOP * 1.06);
