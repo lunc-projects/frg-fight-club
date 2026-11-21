@@ -525,9 +525,10 @@ function faceTex(o){ const st=o.faceStyle||'grin';
   const skinC='#'+(o.skin>>>0).toString(16).padStart(6,'0'), hairC='#'+(o.hair||0x2a1a0e).toString(16).padStart(6,'0');
   return cnv(1024,640,(x,w,h)=>{
     /* face lives ONLY in a skin oval at the front-centre of the texture —
-       everything outside the oval is TRANSPARENT (round-3): the texture is
-       carried on a one-sided front decal, so from behind/side angles there
-       is no face surface at all — the head reads as hair, never a wrap */
+       everything outside the oval is TRANSPARENT. Round-4: this canvas is
+       painted into the head sphere's own texture (see makeChibi), so the
+       features lie ON the curved surface — no decal, no patch edge, and
+       the sphere itself occludes them past the limb from any angle */
     x.fillStyle=skinC; x.beginPath(); x.ellipse(512,340,312,264,0,0,7); x.fill();
     x.save(); x.beginPath(); x.ellipse(512,340,312,264,0,0,7); x.clip();
     x.translate(512,330); x.scale(.66,.66); x.translate(-512,-330);
@@ -688,32 +689,30 @@ function makeChibi(o){ const g=new THREE.Group(); const parts={group:g};
   const hg=new THREE.Group(); hg.position.y=.55; tg.add(hg); parts.head=hg;
   hg.scale.setScalar(.72);
   if(crouch) hg.rotation.x=-.30;
-  const head=new THREE.Mesh(new THREE.SphereGeometry(.42,24,18), skin);
+  /* face PAINTED INTO the head sphere's own texture (round-4 fix): the
+     round-3 flat decal floated ~.155 off the surface at its corners, so
+     from a close 3/4 angle both eyes showed on a detached pale slab —
+     "dots in the air". On the sphere there is no slab and no edge: the
+     canvas is continuous skin, the face art is drawn into the front UV
+     band (front +Z = u .25; art spans a 66 deg arc, eyes at +-10.6 deg
+     off-axis, polar 44.7..117.7 deg as the old decal sat), and the
+     sphere occludes every feature past the limb from any viewpoint. */
+  const headTex=cnv(2048,1024,(x,w,h)=>{ const skinC='#'+(o.skin>>>0).toString(16).padStart(6,'0');
+    x.fillStyle=skinC; x.fillRect(0,0,w,h);
+    x.drawImage(faceTex(o).image,324,254,376,416); });
+  headTex.anisotropy=4;
+  const headMat=new THREE.MeshStandardMaterial({map:headTex,roughness:.55});
+  const head=new THREE.Mesh(new THREE.SphereGeometry(.42,24,18), headMat);
   head.position.y=.17; head.castShadow=true; hg.add(head);
   [-1,1].forEach(s=>{ const ear=new THREE.Mesh(new THREE.SphereGeometry(.078,8,8), skin);
-    ear.scale.set(.5,1,.75); ear.position.set(.415*s,.16,0); hg.add(ear); });
-  /* face DECAL (round-3 fix): a plane bent ONLY around the horizontal axis
-     (cylindrical, R = head radius .42, centreline ~.012 proud of the skin),
-     so it hugs the head vertically and tucks under the cap dome. It is
-     one-sided: from any angle >90 deg off the face axis the whole decal is
-     backface-culled, so no face feature can ever wrap onto the side or back
-     of the head — the old curved sphere patch always showed its camera-side
-     sliver (eye at the silhouette) from the behind-catcher gameplay camera. */
-  const faceGeo=new THREE.PlaneGeometry(.64,.535,16,12);
-  { const fp=faceGeo.attributes.position, fdy=.064, fR=.42,
-          fRef=Math.sqrt(fR*fR-fdy*fdy);
-    for(let i=0;i<fp.count;i++){ const fy=fp.getY(i);
-      fp.setZ(i,Math.sqrt(Math.max(.001,fR*fR-(fy+fdy)*(fy+fdy)))-fRef); }
-    faceGeo.computeVertexNormals();
-    var faceDecalZ=fRef+.012; }
-  const face=new THREE.Mesh(faceGeo,
-    new THREE.MeshStandardMaterial({map:faceTex(o),transparent:true,alphaTest:.05,roughness:.55}));
-  face.position.set(0,.234,faceDecalZ); hg.add(face);
+    ear.scale.set(.5,1,.75); ear.position.set(.405*s,.16,-.05); hg.add(ear); });
+  /* (round-4: no face mesh at all — the face is painted into the head
+     sphere's texture above, so it can never float off the surface) */
   /* hair — three original styles, living in the visible band under the cap rim */
   const hairBack=new THREE.Mesh(new THREE.SphereGeometry(.445,16,12), hairM);
   hairBack.scale.set(1.0,.94,.80); hairBack.position.set(0,.20,-.12); hg.add(hairBack);
-  if(o.hairStyle==='tuft'){ [-1,1].forEach(s=>{ [.05,-.12].forEach(z=>{ const spike=new THREE.Mesh(new THREE.ConeGeometry(.055,.16,6), hairM);
-      spike.position.set(.385*s,.30,z); spike.rotation.z=1.05*s; hg.add(spike); });
+  if(o.hairStyle==='tuft'){ [-1,1].forEach(s=>{ [0,-.15].forEach(z=>{ const spike=new THREE.Mesh(new THREE.ConeGeometry(.05,.14,6), hairM);
+      spike.position.set(.365*s,.335,z); spike.rotation.z=.85*s; hg.add(spike); });
       const tail=new THREE.Mesh(new THREE.ConeGeometry(.06,.17,6), hairM);
       tail.position.set(.14*s,.20,-.375); tail.rotation.x=.9; hg.add(tail); }); }
   else if(o.hairStyle==='curly'){ const bumps=[[-.375,.30,.10],[-.39,.22,-.07],[-.355,.165,.20],[.375,.30,.10],[.39,.22,-.07],[.355,.165,.20],[0,.24,-.385],[-.215,.19,-.35],[.215,.19,-.35],[-.13,.32,.34],[.13,.32,.34]];
