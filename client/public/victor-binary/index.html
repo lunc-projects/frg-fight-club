@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<base href="/victor-binary/">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Binary Signal Scanner — 1m / 5m (Test)</title>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#121c2e; --panel2:#0e1626; --line:#22314d;
+    --text:#e8eef7; --muted:#8fa3bf; --green:#16c784; --red:#ea3943;
+    --gold:#f0b90b; --amber:#f5a623; --radius:14px;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+  .wrap{max-width:480px;margin:0 auto;padding:14px 14px 40px}
+  header{display:flex;align-items:center;justify-content:space-between;padding:6px 0 10px}
+  .logo{font-size:19px;font-weight:800;letter-spacing:.3px}
+  .logo span{color:var(--gold)}
+  .badge{font-size:11px;font-weight:700;padding:5px 9px;border-radius:999px;
+    background:#2a2103;color:var(--gold);border:1px solid #57470a;white-space:nowrap}
+  .badge.live{background:#06281b;color:var(--green);border-color:#0d4d33}
+  .badge.closed{background:#2b1215;color:#ff8f96;border-color:#5c2126}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:14px;margin-bottom:12px}
+  .warn{border:1px solid #57470a;background:#1d1804;color:#f5d67a;border-radius:var(--radius);
+    padding:12px 14px;font-size:13px;line-height:1.55;margin-bottom:12px}
+  .err{display:none;border:1px solid #5c2126;background:#220d10;color:#ff8f96;border-radius:var(--radius);
+    padding:12px 14px;font-size:13px;margin-bottom:12px;line-height:1.5}
+  /* TIMEFRAME PICKER */
+  .tfrow{display:flex;gap:10px;margin-bottom:12px}
+  .tfrow button{flex:1;padding:16px 0;font-size:17px;font-weight:900;letter-spacing:.4px;
+    border-radius:var(--radius);border:1px solid var(--line);background:var(--panel);
+    color:var(--muted);cursor:pointer}
+  .tfrow button small{display:block;font-size:11px;font-weight:700;margin-top:3px;letter-spacing:.2px}
+  .tfrow button.on{background:#182540;color:var(--gold);border-color:var(--gold)}
+  /* SIGNAL CARD */
+  .best{text-align:center;padding:20px 14px}
+  .best .kick{color:var(--gold);font-size:13px;font-weight:800;letter-spacing:1.2px}
+  .best .big{font-size:42px;font-weight:900;line-height:1.1;margin:8px 0 2px}
+  .best .big small{display:block;font-size:19px;color:var(--muted);font-weight:700;letter-spacing:.4px}
+  .best.buy{border-color:#0d4d33;background:#0a1f16} .best.buy .big{color:var(--green)}
+  .best.sell{border-color:#5c2126;background:#220d10} .best.sell .big{color:var(--red)}
+  .best.wait .big{color:var(--amber);font-size:27px}
+  .best .sub{color:var(--muted);font-size:13px;margin-top:8px;line-height:1.55}
+  .strength{margin-top:14px;text-align:left}
+  .strength .lbl{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:6px}
+  .bar{height:10px;background:#0a1322;border-radius:99px;overflow:hidden;border:1px solid var(--line)}
+  .bar i{display:block;height:100%;background:linear-gradient(90deg,#38618f,var(--gold));width:0%}
+  .scanline{color:var(--muted);font-size:11px;line-height:1.5;margin-top:10px;text-align:left}
+  /* SCAN LIST */
+  .srow{display:flex;align-items:center;gap:9px;padding:10px 8px;border-bottom:1px solid #1a2740;cursor:pointer;border-radius:8px}
+  .srow:last-child{border-bottom:none}
+  .srow.sel{background:#182540}
+  .srow .nm{font-weight:800;font-size:14px;min-width:74px}
+  .srow .pr{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;min-width:64px}
+  .srow .sbar{flex:1;height:7px;background:#0a1322;border-radius:99px;overflow:hidden;border:1px solid var(--line)}
+  .srow .sbar i{display:block;height:100%;background:var(--gold);width:0%}
+  .srow .sv{font-size:11px;color:var(--muted);min-width:24px;text-align:right;font-variant-numeric:tabular-nums}
+  .tag{font-weight:800;padding:3px 8px;border-radius:6px;font-size:11px;white-space:nowrap}
+  .tag.buy{background:#06281b;color:var(--green)} .tag.sell{background:#2b1215;color:#ff8f96}
+  .tag.wait{background:#1a2740;color:var(--muted)} .tag.unav{background:#241a02;color:var(--amber)}
+  .tag.win{background:#06281b;color:var(--green)} .tag.loss{background:#2b1215;color:#ff8f96}
+  .tag.open{background:#2a2103;color:var(--gold)}
+  /* DETAIL */
+  .price-row{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+  .price{font-size:29px;font-weight:800;font-variant-numeric:tabular-nums}
+  .pair-name{color:var(--muted);font-size:13px;font-weight:600}
+  .count{text-align:right}
+  .count .n{font-size:29px;font-weight:800;color:var(--gold);font-variant-numeric:tabular-nums}
+  .count .l{color:var(--muted);font-size:11px}
+  canvas#spark{width:100%;height:64px;display:block;margin-top:8px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .grid2 .card{margin-bottom:12px}
+  .ind .name{color:var(--muted);font-size:12px;font-weight:700;letter-spacing:.4px}
+  .ind .val{font-size:18px;font-weight:800;margin:4px 0;font-variant-numeric:tabular-nums}
+  .ind .side{font-size:12px;font-weight:700}
+  .bull{color:var(--green)} .bear{color:var(--red)} .flat{color:var(--muted)}
+  /* RECORD */
+  .record-stats{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;text-align:center}
+  .record-stats .v{font-size:19px;font-weight:800;font-variant-numeric:tabular-nums}
+  .record-stats .k{color:var(--muted);font-size:10px;margin-top:2px}
+  table{width:100%;border-collapse:collapse;font-size:12px;margin-top:10px}
+  th{color:var(--muted);text-align:left;padding:6px 4px;border-bottom:1px solid var(--line);font-weight:600}
+  td{padding:6px 4px;border-bottom:1px solid #1a2740;font-variant-numeric:tabular-nums}
+  .note{color:var(--muted);font-size:12px;line-height:1.6}
+  .rowbtns{display:flex;gap:8px;margin-top:10px}
+  .rowbtns button{flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--muted);
+    border-radius:10px;padding:9px 0;font-size:12px;font-weight:700;cursor:pointer}
+  h3{margin:0 0 4px;font-size:15px}
+</style>
+<link rel="icon" href="/dev-studio/favicon.ico" sizes="any"><link rel="icon" type="image/png" sizes="32x32" href="/dev-studio/favicon-32.png"><link rel="apple-touch-icon" href="/dev-studio/apple-touch-icon.png"><meta property="og:image" content="https://frg-fight-club.vercel.app/dev-studio/icon-512.png"><meta name="twitter:image" content="https://frg-fight-club.vercel.app/dev-studio/icon-512.png"></head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">📈 BINARY <span>SIGNAL SCANNER</span></div>
+    <div class="badge" id="mktBadge">TEST VERSION</div>
+  </header>
+
+  <div class="warn">
+    ⚠️ <b>Signals only — not financial advice.</b> No bot can guarantee profits.
+    Binary options are high risk — <b>test on a demo account first.</b>
+  </div>
+
+  <div class="err" id="errBox"></div>
+
+  <h3 style="margin:2px 0 8px">⏱ Pick your trade length</h3>
+  <div class="tfrow">
+    <button id="tf60" class="on">1 MINUTE<small>indicators on 1-minute candles</small></button>
+    <button id="tf300">5 MINUTES<small>indicators on 5-minute candles</small></button>
+  </div>
+
+  <div class="card best wait" id="sigCard">
+    <div class="kick">🎯 SIGNAL — SELECTED PAIR</div>
+    <div class="big" id="sigBig">⏳ SCANNING…</div>
+    <div class="sub" id="sigSub">Checking every pair against MACD (12,26,9) + DeMarker (7)…</div>
+    <div class="strength">
+      <div class="lbl"><span>Signal strength (not a win probability)</span><span id="sigStrVal">—</span></div>
+      <div class="bar"><i id="sigStrBar"></i></div>
+    </div>
+    <div class="scanline" id="scanLine">First scan running…</div>
+  </div>
+
+  <div class="card">
+    <h3>🔍 Market scan — all pairs, strongest first</h3>
+    <div class="note">Tap any pair to see its full signal and indicator read-out.</div>
+    <div id="scanList" style="margin-top:6px"></div>
+  </div>
+
+  <div class="card">
+    <div class="price-row">
+      <div>
+        <div class="pair-name" id="pairName">EUR/GBP · 1-minute candles · real Forex market</div>
+        <div class="price" id="price">—</div>
+      </div>
+      <div class="count">
+        <div class="n" id="countdown">--</div>
+        <div class="l">sec to next candle</div>
+      </div>
+    </div>
+    <canvas id="spark" width="400" height="64"></canvas>
+  </div>
+
+  <div class="grid2">
+    <div class="card ind">
+      <div class="name">MACD (12, 26, 9)</div>
+      <div class="val" id="macdVal">—</div>
+      <div class="side flat" id="macdSide">—</div>
+    </div>
+    <div class="card ind">
+      <div class="name">DeMARKER (7)</div>
+      <div class="val" id="demVal">—</div>
+      <div class="side flat" id="demSide">—</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>📋 Signal record — real results only</h3>
+    <div class="note">Starts at zero. Every signal this page issues (both indicators agreeing,
+      strength 70+) is written down here, then settled against the real price when its
+      trade length runs out. Nothing is backfilled, nothing is hidden.</div>
+    <div class="record-stats" style="margin-top:12px">
+      <div><div class="v" id="stTotal">0</div><div class="k">SIGNALS</div></div>
+      <div><div class="v" id="stSettled">0</div><div class="k">SETTLED</div></div>
+      <div><div class="v" style="color:var(--green)" id="stWins">0</div><div class="k">WINS</div></div>
+      <div><div class="v" style="color:var(--red)" id="stLoss">0</div><div class="k">LOSSES</div></div>
+      <div><div class="v" style="color:var(--gold)" id="stPct">—</div><div class="k">WIN %</div></div>
+    </div>
+    <table>
+      <thead><tr><th>Time</th><th>Pair</th><th>TF</th><th>Signal</th><th>Entry</th><th>Exit</th><th>Result</th></tr></thead>
+      <tbody id="recBody"><tr><td colspan="7" style="color:var(--muted)">No signals yet.</td></tr></tbody>
+    </table>
+    <div class="rowbtns">
+      <button id="refreshBtn">↻ Scan now</button>
+      <button id="clearBtn">Clear record</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>How it works — the honest version</h3>
+    <p class="note">
+      Pick a trade length — <b>1 minute</b> or <b>5 minutes</b> — and the scanner reads the real
+      Forex market for all pairs above, checking two indicators on candles of that length:
+      <b>MACD (12, 26, 9)</b> and <b>DeMarker (7)</b>. A pair only gets a <b>BUY</b> or <b>SELL</b>
+      signal when <b>both</b> indicators point the same way <b>and</b> the signal strength clears
+      <b>70/100</b>. Anything weaker, or any disagreement, is <b>NO TRADE</b>. The strength number
+      is a measure of the indicator reading — it is <b>not</b> a win probability and not a
+      "confidence" score. The 5-minute candles are built from the same real 1-minute market data.<br><br>
+      <b>There is no 5-second button, on purpose.</b> At 5 seconds there is no pattern to read.
+      Apps that sell 5-second signals with a confidence percentage are showing you a spinner
+      and a made-up number.<br><br>
+      <b>Signals are a starting point, not a promise. This method has no proven edge — check
+      the record and decide for yourself.</b><br><br>
+      <b>Short trades are high risk. A signal cannot know the next candle.</b><br><br>
+      This page reads the <b>real market price</b>. Pocket Option OTC prices are generated by
+      Pocket Option and can differ from the real market — your trade settles on their price,
+      not this one.<br><br>
+      <b>KES/USD</b> is listed as unavailable: its real-market feed is too thin
+      (about 20 candles a day) to compute these indicators honestly, so the scanner
+      will not guess on it.<br><br>
+      Signals only — this page never touches any trading account. You place your own trades.
+    </p>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+   BINARY SIGNAL SCANNER — honest version (Victor)
+   Same engine + relay as the Forex Signal Bot page: MACD
+   (12,26,9) + DeMarker (7), signal only when BOTH agree AND
+   strength >= 70, otherwise NO TRADE. NEW: a trade-length
+   picker (1 minute / 5 minutes). The relay serves real
+   1-minute Yahoo candles server-side (/api/luna-games?fxpair=);
+   5-minute candles are aggregated from those real 1-minute
+   candles in the browser. There is NO 5-second mode and the
+   strength number is never presented as a win probability.
+   ============================================================ */
+const YAHOO = p => "https://query1.finance.yahoo.com/v8/finance/chart/" +
+  encodeURIComponent(p + "=X") + "?interval=1m&range=1d";
+const DATA_SOURCES = [
+  { name: "Yahoo Finance (site server)", fx: true,
+    url: p => "/api/luna-games?fxpair=" + encodeURIComponent(p) },
+  { name: "Yahoo Finance via corsfix proxy", url: p => "https://proxy.corsfix.com/?" + YAHOO(p) },
+  { name: "Yahoo Finance (direct)",          url: p => YAHOO(p) },
+  { name: "Yahoo Finance via codetabs proxy",url: p => "https://api.codetabs.com/v1/proxy?quest=" + YAHOO(p) },
+  { name: "Yahoo Finance via allOrigins",    url: p => "https://api.allorigins.win/raw?url=" + encodeURIComponent(YAHOO(p)) },
+];
+/* Pairs Victor trades on Pocket Option (OTC) — scanned here on the real market. */
+const PAIR_ORDER = ["EURGBP","EURUSD","GBPUSD","USDJPY","AUDCAD","AUDCHF","AUDUSD",
+  "CADCHF","CADJPY","CHFJPY","EURTRY","GBPJPY","NZDJPY","KESUSD"];
+const PAIRS = {
+  EURGBP:{label:"EUR/GBP",dec:5}, EURUSD:{label:"EUR/USD",dec:5},
+  GBPUSD:{label:"GBP/USD",dec:5}, USDJPY:{label:"USD/JPY",dec:3},
+  AUDCAD:{label:"AUD/CAD",dec:5}, AUDCHF:{label:"AUD/CHF",dec:5},
+  AUDUSD:{label:"AUD/USD",dec:5}, CADCHF:{label:"CAD/CHF",dec:5},
+  CADJPY:{label:"CAD/JPY",dec:3}, CHFJPY:{label:"CHF/JPY",dec:3},
+  EURTRY:{label:"EUR/TRY",dec:4}, GBPJPY:{label:"GBP/JPY",dec:3},
+  NZDJPY:{label:"NZD/JPY",dec:3}, KESUSD:{label:"KES/USD",dec:6},
+};
+const TF_LABEL = { 60:"1-minute", 300:"5-minute" };
+const TF_SHORT = { 60:"1m", 300:"5m" };
+const MIN_CANDLES = 60;      /* below this the indicators are not honest */
+const MIN_STRENGTH = 70;     /* a signal must clear this bar to be issued + logged */
+const LS_KEY = "vb_paper_v1";
+const FRESH_MS = 180000;     /* a 1m candle older than 3 min = stale / market closed */
+
+let tfSec = 60;              /* selected trade length: 60 or 300 seconds */
+let selectedPair = "EURGBP";
+let userPicked = false;
+let rawByPair = {};          /* pair -> real 1-minute candles from the relay */
+let candlesByPair = {};      /* pair -> candles at the selected timeframe */
+let stateByPair = {};        /* pair -> evaluated state or {unavailable:reason} */
+let scanAt = 0, scanSource = "", firstScanDone = false;
+let marketStale = false;     /* true when every fetched feed is old (market closed) */
+
+/* ---------- indicators (same engine as the Forex Signal Bot page) ---------- */
+function emaSeries(vals, n){
+  const k = 2/(n+1), out = new Array(vals.length); let e = null;
+  for (let i=0;i<vals.length;i++){ e = (e===null) ? vals[i] : vals[i]*k + e*(1-k); out[i]=e; }
+  return out;
+}
+function macdCalc(closes){
+  const e12 = emaSeries(closes,12), e26 = emaSeries(closes,26);
+  const line = closes.map((_,i)=> e12[i]-e26[i]);
+  const sig = emaSeries(line,9);
+  const hist = line.map((v,i)=> v-sig[i]);
+  return { line, sig, hist };
+}
+function demarker(cs, period){
+  period = period || 7;
+  const dmax=[], dmin=[];
+  for (let i=0;i<cs.length;i++){
+    if (i===0){ dmax.push(0); dmin.push(0); continue; }
+    dmax.push(Math.max(cs[i].h - cs[i-1].h, 0));
+    dmin.push(Math.max(cs[i-1].l - cs[i].l, 0));
+  }
+  const sma = (arr,i)=>{ const s = arr.slice(Math.max(0,i-period+1), i+1);
+    return s.reduce((a,b)=>a+b,0)/s.length; };
+  return cs.map((_,i)=>{ const a=sma(dmax,i), b=sma(dmin,i);
+    return (a+b) > 0 ? a/(a+b) : 0.5; });
+}
+
+/* ---------- timeframe aggregation: real 1m candles -> real TF candles ---------- */
+function aggregate(cs, sec){
+  if (sec === 60) return cs;
+  const out = []; let cur = null;
+  for (const c of cs){
+    const b = Math.floor(c.t / sec) * sec;
+    if (!cur || cur.t !== b){ cur = { t:b, o:c.o, h:c.h, l:c.l, c:c.c }; out.push(cur); }
+    else { if (c.h > cur.h) cur.h = c.h; if (c.l < cur.l) cur.l = c.l; cur.c = c.c; }
+  }
+  return out;
+}
+
+/* ---------- signal record (starts at zero, settled at expiry) ---------- */
+function loadRec(){ try { return JSON.parse(localStorage.getItem(LS_KEY)) || []; }
+  catch(e){ return []; } }
+function saveRec(r){ try { localStorage.setItem(LS_KEY, JSON.stringify(r)); } catch(e){} }
+function logSignal(pair, dir, entry, candleT, tf){
+  const rec = loadRec();
+  const id = pair + ":" + tf + ":" + candleT;
+  if (rec.some(r => r.id === id)) return;
+  rec.push({ id, pair, dir, entry, candleT, tf, tLogged: Date.now(), status:"OPEN", exit:null });
+  saveRec(rec);
+}
+function resolveOpen(pair){
+  const raw = rawByPair[pair];
+  if (!raw || !raw.length) return;
+  const rec = loadRec(); let changed = false;
+  const cache = {};
+  rec.forEach(r => {
+    if (r.pair !== pair || r.status !== "OPEN") return;
+    if (!cache[r.tf]){
+      const cs = aggregate(raw, r.tf), byT = {};
+      cs.forEach(c => byT[c.t] = c.c);
+      cache[r.tf] = byT;
+    }
+    const exit = cache[r.tf][r.candleT + r.tf];
+    if (exit === undefined) return;
+    r.exit = exit;
+    r.status = (r.dir === "BUY" ? exit > r.entry : exit < r.entry) ? "WIN" : "LOSS";
+    changed = true;
+  });
+  if (changed) saveRec(rec);
+}
+
+/* ---------- data (same relay + fallbacks as the Forex Signal Bot page) ---------- */
+async function fetchCandles(pair){
+  let err = "";
+  for (const src of DATA_SOURCES){
+    try {
+      const ctl = new AbortController();
+      const to = setTimeout(()=>ctl.abort(), 15000);
+      const res = await fetch(src.url(pair), { signal: ctl.signal });
+      clearTimeout(to);
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      let out = [];
+      if (src.fx){
+        if (!data || data.ok !== true || !Array.isArray(data.candles)) throw new Error("bad payload");
+        out = data.candles
+          .filter(c => c && typeof c.t === "number" && typeof c.c === "number")
+          .map(c => ({ t:c.t, o:c.o ?? c.c, h:c.h ?? c.c, l:c.l ?? c.c, c:c.c }));
+      } else {
+        const r = data && data.chart && data.chart.result && data.chart.result[0];
+        if (!r || !r.timestamp) throw new Error("bad payload");
+        const q = r.indicators.quote[0];
+        for (let i=0;i<r.timestamp.length;i++){
+          const c = q.close[i];
+          if (c === null || c === undefined) continue;
+          out.push({ t:r.timestamp[i], o:q.open[i] ?? c, h:q.high[i] ?? c,
+                     l:q.low[i] ?? c, c });
+        }
+      }
+      if (!out.length) throw new Error("no candles");
+      return { candles: out, source: src.name };
+    } catch(e){ err = src.name + ": " + (e.message || e); }
+  }
+  throw new Error(err || "all sources failed");
+}
+
+/* ---------- signal engine (per pair, at the selected timeframe) ---------- */
+function evaluate(pair, cs, sec){
+  const closes = cs.map(c => c.c);
+  const m = macdCalc(closes), dem = demarker(cs, 7);
+  /* If the last candle is the current in-progress one, judge the
+     last COMPLETED candle instead. */
+  const nowBucket = Math.floor(Date.now()/1000/sec)*sec;
+  let idx = cs.length - 1;
+  if (cs[idx].t >= nowBucket && idx > 0) idx--;
+  const i = idx, cnd = cs[i], price = closes[i];
+  const hist = m.hist[i], demV = dem[i];
+  const macdSide = hist > 0 ? "BULL" : hist < 0 ? "BEAR" : "FLAT";
+  const demSide  = demV > 0.5 ? "BULL" : demV < 0.5 ? "BEAR" : "FLAT";
+  const signal = (macdSide==="BULL" && demSide==="BULL") ? "BUY"
+               : (macdSide==="BEAR" && demSide==="BEAR") ? "SELL" : "NO TRADE";
+  /* Signal strength 0-100: half MACD histogram size (scaled to price),
+     half DeMarker distance from neutral 0.5. NOT a win probability. */
+  const macdScore = Math.min(1, Math.abs(hist) / (price * 0.0005));
+  const demScore  = Math.min(1, Math.abs(demV - 0.5) * 2);
+  const strength  = Math.round(100 * (0.5*macdScore + 0.5*demScore));
+  return { signal, macd:m.line[i], sig:m.sig[i], hist, dem:demV,
+           macdSide, demSide, strength, candleT:cnd.t, entry:price,
+           lastClose:closes[cs.length-1] };
+}
+function evaluateAll(){
+  let freshFeeds = 0;
+  for (const pair of PAIR_ORDER){
+    const raw = rawByPair[pair];
+    if (!raw){
+      if (!stateByPair[pair]) stateByPair[pair] = { unavailable:"waiting for data…" };
+      continue;
+    }
+    if (Date.now() - raw[raw.length-1].t*1000 <= FRESH_MS) freshFeeds++;
+    const cs = aggregate(raw, tfSec);
+    candlesByPair[pair] = cs;
+    if (cs.length < MIN_CANDLES){
+      stateByPair[pair] = { unavailable:
+        "feed too thin (" + cs.length + " " + TF_LABEL[tfSec] + " candles) — not enough to compute the indicators honestly" };
+    } else {
+      stateByPair[pair] = evaluate(pair, cs, tfSec);
+    }
+    resolveOpen(pair);
+  }
+  marketStale = firstScanDone && freshFeeds === 0 &&
+    PAIR_ORDER.some(p => rawByPair[p]);
+  /* Log every issued signal: both agree + strength bar cleared + live
+     candles only. Once per pair + timeframe + candle. */
+  if (!marketStale){
+    for (const pair of PAIR_ORDER){
+      const st = stateByPair[pair];
+      if (st && !st.unavailable &&
+          (st.signal === "BUY" || st.signal === "SELL") &&
+          st.strength >= MIN_STRENGTH){
+        logSignal(pair, st.signal, st.entry, st.candleT, tfSec);
+      }
+    }
+  }
+}
+
+/* ---------- the scan ---------- */
+let scanning = false;
+async function scanAll(){
+  if (scanning) return;
+  scanning = true; renderScanLine();
+  const batch = 4;
+  for (let s=0; s<PAIR_ORDER.length; s+=batch){
+    const group = PAIR_ORDER.slice(s, s+batch);
+    await Promise.all(group.map(async pair => {
+      try {
+        const { candles, source } = await fetchCandles(pair);
+        scanSource = source;
+        rawByPair[pair] = candles;
+      } catch(e){
+        stateByPair[pair] = { unavailable: "data feed error — " + (e.message || e) };
+      }
+    }));
+    evaluateAll(); renderAll(); /* progressive — rows fill in as batches land */
+  }
+  scanAt = Date.now();
+  if (!firstScanDone){
+    firstScanDone = true;
+    if (!userPicked){
+      const top = sortedPairs().find(p => {
+        const st = stateByPair[p];
+        return st && !st.unavailable && (st.signal === "BUY" || st.signal === "SELL");
+      });
+      if (top) selectedPair = top;
+    }
+  }
+  evaluateAll();
+  scanning = false;
+  renderAll();
+}
+function setTf(sec){
+  if (sec === tfSec) return;
+  tfSec = sec;
+  $("tf60").className = sec === 60 ? "on" : "";
+  $("tf300").className = sec === 300 ? "on" : "";
+  evaluateAll();
+  renderAll();
+}
+
+/* ---------- rendering ---------- */
+const $ = id => document.getElementById(id);
+function fmt(pair, v){ return v === null || v === undefined ? "—" : Number(v).toFixed(PAIRS[pair].dec); }
+function fmtMacd(pair, v){
+  if (v === null || v === undefined) return "—";
+  return (PAIRS[pair].dec === 3 || PAIRS[pair].dec === 6) ? v.toFixed(4) : v.toFixed(5);
+}
+function sortedPairs(){
+  const rank = p => {
+    const st = stateByPair[p];
+    if (!st) return [3, 0];
+    if (st.unavailable) return [2, 0];
+    if (st.signal === "BUY" || st.signal === "SELL") return [0, -st.strength];
+    return [1, -st.strength];
+  };
+  return PAIR_ORDER.slice().sort((a,b) => {
+    const ra = rank(a), rb = rank(b);
+    return ra[0] - rb[0] || ra[1] - rb[1];
+  });
+}
+function drawSpark(cs){
+  const cv = $("spark"), ctx = cv.getContext("2d");
+  const W = cv.width, H = cv.height; ctx.clearRect(0,0,W,H);
+  if (!cs || cs.length < 2) return;
+  const data = cs.slice(-90).map(c => c.c);
+  const min = Math.min(...data), max = Math.max(...data), rng = (max-min) || 1;
+  ctx.beginPath();
+  data.forEach((v,i)=>{ const x = i/(data.length-1)*W, y = H-4-((v-min)/rng)*(H-8);
+    i ? ctx.lineTo(x,y) : ctx.moveTo(x,y); });
+  ctx.strokeStyle = "#f0b90b"; ctx.lineWidth = 1.6; ctx.stroke();
+  ctx.lineTo(W,H); ctx.lineTo(0,H); ctx.closePath();
+  ctx.fillStyle = "rgba(240,185,11,.08)"; ctx.fill();
+}
+function renderScanLine(){
+  const el = $("scanLine");
+  if (scanning){ el.textContent = "Scanning " + PAIR_ORDER.length + " pairs on the real Forex market…"; return; }
+  if (!scanAt){ el.textContent = "First scan running…"; return; }
+  const nQ = PAIR_ORDER.filter(p => stateByPair[p] && !stateByPair[p].unavailable &&
+    (stateByPair[p].signal==="BUY" || stateByPair[p].signal==="SELL") &&
+    stateByPair[p].strength >= MIN_STRENGTH).length;
+  el.textContent = "Scanned " + PAIR_ORDER.length + " pairs on " + TF_LABEL[tfSec] + " candles · " +
+    nQ + " trade signal" + (nQ === 1 ? "" : "s") + " issued (both indicators agreeing, strength " +
+    MIN_STRENGTH + "+) · source: " + (scanSource || "—") + " · last scan " +
+    new Date(scanAt).toLocaleTimeString() +
+    (marketStale ? " · market closed — showing the last session, display only, no signals logged." : "");
+}
+function renderSignal(){
+  const card = $("sigCard"), big = $("sigBig"), sub = $("sigSub");
+  const badge = $("mktBadge");
+  const st = stateByPair[selectedPair], meta = PAIRS[selectedPair];
+  if (!firstScanDone){ badge.textContent = "TEST VERSION"; badge.className = "badge"; }
+  else if (marketStale){ badge.textContent = "MARKET CLOSED — LAST SESSION"; badge.className = "badge closed"; }
+  else { badge.textContent = "● LIVE TEST"; badge.className = "badge live"; }
+  const setStr = v => { $("sigStrVal").textContent = v === null ? "—" : v + " / 100";
+    $("sigStrBar").style.width = v === null ? "0%" : v + "%"; };
+  if (!firstScanDone && !st){
+    card.className = "card best wait";
+    big.textContent = "⏳ SCANNING…";
+    sub.textContent = "Checking every pair against MACD (12,26,9) + DeMarker (7)…";
+    setStr(null);
+  } else if (st && st.unavailable){
+    card.className = "card best wait";
+    big.innerHTML = "<small>" + meta.label + "</small>UNAVAILABLE";
+    sub.textContent = st.unavailable;
+    setStr(null);
+  } else if (st && marketStale){
+    card.className = "card best wait";
+    big.textContent = "🌙 MARKET CLOSED — LAST SESSION";
+    sub.textContent = "The market is shut right now. " + meta.label + "'s last-session reading on " +
+      TF_LABEL[tfSec] + " candles was " + st.signal +
+      (st.signal !== "NO TRADE" ? " at " + fmt(selectedPair, st.entry) : "") +
+      " — shown for testing only. No signal is logged from old candles.";
+    setStr(st.strength);
+  } else if (st && (st.signal === "BUY" || st.signal === "SELL")){
+    const strong = st.strength >= MIN_STRENGTH;
+    card.className = "card best " + (strong ? (st.signal === "BUY" ? "buy" : "sell") : "wait");
+    big.innerHTML = "<small>" + meta.label + " · " + TF_LABEL[tfSec] + "</small>" +
+      (st.signal === "BUY" ? "🟢 BUY" : "🔴 SELL");
+    sub.textContent = "On " + meta.label + ", MACD and DeMarker (7) agree " +
+      (st.signal === "BUY" ? "UP" : "DOWN") + " on the last completed " + TF_LABEL[tfSec] +
+      " candle at " + fmt(selectedPair, st.entry) + "." +
+      (strong ? " Strength clears the " + MIN_STRENGTH + " bar — this signal is in the record below."
+              : " But the strength is under the " + MIN_STRENGTH + " trade bar — weak set-ups lose money, so this is shown for information only and is NOT logged as a trade signal.");
+    setStr(st.strength);
+  } else if (st){
+    card.className = "card best wait";
+    big.innerHTML = "<small>" + meta.label + " · " + TF_LABEL[tfSec] + "</small>⏸ NO TRADE";
+    sub.textContent = "On " + meta.label + ", MACD reads " +
+      (st.macdSide === "BULL" ? "UP" : st.macdSide === "BEAR" ? "DOWN" : "FLAT") +
+      " and DeMarker reads " +
+      (st.demSide === "BULL" ? "UP" : st.demSide === "BEAR" ? "DOWN" : "FLAT") +
+      " — they do not agree, so there is no signal. The scanner stays out instead of guessing.";
+    setStr(st.strength);
+  }
+  renderScanLine();
+}
+function renderScanList(){
+  const el = $("scanList");
+  el.innerHTML = sortedPairs().map(p => {
+    const st = stateByPair[p], meta = PAIRS[p];
+    const cs = candlesByPair[p];
+    const price = cs && cs.length ? fmt(p, cs[cs.length-1].c) : "—";
+    let tag, str = 0;
+    if (!st) tag = '<span class="tag wait">…</span>';
+    else if (st.unavailable) tag = '<span class="tag unav">UNAVAILABLE</span>';
+    else if (st.signal === "BUY"){ tag = '<span class="tag buy">BUY</span>'; str = st.strength; }
+    else if (st.signal === "SELL"){ tag = '<span class="tag sell">SELL</span>'; str = st.strength; }
+    else { tag = '<span class="tag wait">NO TRADE</span>'; str = st.strength; }
+    return '<div class="srow' + (p === selectedPair ? " sel" : "") + '" data-pair="' + p + '">' +
+      '<div class="nm">' + meta.label + '</div><div class="pr">' + price + "</div>" + tag +
+      '<div class="sbar"><i style="width:' + str + '%"></i></div>' +
+      '<div class="sv">' + (st && !st.unavailable ? str : "—") + "</div></div>";
+  }).join("");
+}
+function renderDetail(){
+  const st = stateByPair[selectedPair], cs = candlesByPair[selectedPair];
+  $("pairName").textContent = PAIRS[selectedPair].label + " · " + TF_LABEL[tfSec] + " candles · real Forex market";
+  $("price").textContent = cs && cs.length ? fmt(selectedPair, cs[cs.length-1].c) : "—";
+  if (st && !st.unavailable){
+    $("macdVal").textContent = fmtMacd(selectedPair, st.macd) + " / " + fmtMacd(selectedPair, st.sig);
+    $("macdSide").textContent = st.macdSide==="BULL" ? "▲ Bullish (above signal)" :
+      st.macdSide==="BEAR" ? "▼ Bearish (below signal)" : "— Flat";
+    $("macdSide").className = "side " + (st.macdSide==="BULL" ? "bull" : st.macdSide==="BEAR" ? "bear" : "flat");
+    $("demVal").textContent = st.dem.toFixed(3);
+    $("demSide").textContent = st.demSide==="BULL" ? "▲ Bullish (buyers stronger)" :
+      st.demSide==="BEAR" ? "▼ Bearish (sellers stronger)" : "— Neutral (0.500)";
+    $("demSide").className = "side " + (st.demSide==="BULL" ? "bull" : st.demSide==="BEAR" ? "bear" : "flat");
+  } else {
+    $("macdVal").textContent = "—";
+    $("macdSide").textContent = st && st.unavailable ? st.unavailable : "—";
+    $("macdSide").className = "side flat";
+    $("demVal").textContent = "—"; $("demSide").textContent = "—"; $("demSide").className = "side flat";
+  }
+  drawSpark(cs);
+}
+function renderRecord(){
+  const rec = loadRec().slice().sort((a,b)=> b.tLogged - a.tLogged);
+  const wins = rec.filter(r=>r.status==="WIN").length;
+  const loss = rec.filter(r=>r.status==="LOSS").length;
+  const done = wins + loss;
+  $("stTotal").textContent = rec.length;
+  $("stSettled").textContent = done;
+  $("stWins").textContent = wins;
+  $("stLoss").textContent = loss;
+  $("stPct").textContent = done ? Math.round(100*wins/done) + "%" : "—";
+  const body = $("recBody");
+  if (!rec.length){ body.innerHTML = '<tr><td colspan="7" style="color:var(--muted)">No signals yet.</td></tr>'; return; }
+  body.innerHTML = rec.slice(0,12).map(r => {
+    const time = new Date(r.tLogged).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
+    const res = r.status === "OPEN" ? '<span class="tag open">OPEN</span>'
+      : '<span class="tag ' + (r.status==="WIN" ? "win" : "loss") + '">' + r.status + "</span>";
+    return "<tr><td>" + time + "</td><td>" + PAIRS[r.pair].label + "</td>" +
+      "<td>" + (TF_SHORT[r.tf] || "") + "</td>" +
+      '<td><span class="tag ' + (r.dir==="BUY" ? "buy" : "sell") + '">' + r.dir + "</span></td>" +
+      "<td>" + fmt(r.pair, r.entry) + "</td><td>" +
+      (r.exit === null ? "—" : fmt(r.pair, r.exit)) + "</td><td>" + res + "</td></tr>";
+  }).join("");
+}
+function renderAll(){ renderSignal(); renderScanList(); renderDetail(); renderRecord(); }
+
+/* ---------- wiring ---------- */
+$("tf60").addEventListener("click", () => setTf(60));
+$("tf300").addEventListener("click", () => setTf(300));
+$("scanList").addEventListener("click", e => {
+  const row = e.target.closest(".srow"); if (!row) return;
+  selectedPair = row.dataset.pair; userPicked = true;
+  renderScanList(); renderSignal(); renderDetail();
+});
+$("refreshBtn").addEventListener("click", scanAll);
+$("clearBtn").addEventListener("click", () => {
+  if (confirm("Clear the whole signal record and start again from zero?")){ saveRec([]); renderRecord(); }
+});
+setInterval(() => { $("countdown").textContent = tfSec - (Math.floor(Date.now()/1000) % tfSec); }, 250);
+setInterval(scanAll, 30000);
+renderAll(); scanAll();
+
+/* QA hook — used by the automated phone-size checks. */
+window.__vb = { get states(){ return stateByPair; }, get best(){ return null; },
+  get candles(){ return candlesByPair; }, get raw(){ return rawByPair; },
+  get pair(){ return selectedPair; }, get tf(){ return tfSec; },
+  get scanAt(){ return scanAt; }, get marketStale(){ return marketStale; },
+  get record(){ return loadRec(); }, minStrength: MIN_STRENGTH,
+  sources: DATA_SOURCES.map(s => s.name) };
+</script>
+</body>
+</html>
