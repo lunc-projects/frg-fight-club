@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" /><base href="/bonding-curve/">
+<title>Curve Launchpad — LUNC Dev Studio (TEST)</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div id="testBanner" class="banner hidden">🧪 TEST / UNRELEASED — this launchpad ships with the deployment package. Nothing here is live on-chain yet.</div>
+
+<header>
+  <div class="brand">🚀 Curve Launchpad <span class="sub">by LUNC Dev Studio</span></div>
+  <div class="walletBtns">
+    <button id="walletBtn">Connect wallet</button>
+    <button id="wcBtn" class="ghost">WalletConnect</button>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button id="tab-launches" class="active">Launches</button>
+  <button id="tab-create">Create</button>
+  <button id="tab-token">Token</button>
+</nav>
+
+<main>
+  <!-- ============================ LAUNCHES ============================ -->
+  <section id="view-launches">
+    <div class="toolbar">
+      <input id="searchBox" type="search" placeholder="Search name or symbol…" />
+      <select id="sortSel">
+        <option value="newest">Newest</option>
+        <option value="climbing">Fastest climbing</option>
+        <option value="nearest">Nearest graduation</option>
+      </select>
+      <select id="filterType">
+        <option value="">All curves</option>
+        <option value="constant_product">Constant product</option>
+        <option value="sigmoid">Sigmoid</option>
+      </select>
+      <select id="filterPace">
+        <option value="">All paces</option>
+        <option value="slow">Slow</option>
+        <option value="medium">Medium</option>
+        <option value="steep">Steep</option>
+      </select>
+    </div>
+    <div id="launchList" class="grid"></div>
+  </section>
+
+  <!-- ============================= CREATE ============================= -->
+  <section id="view-create" class="hidden">
+    <form id="createForm" class="card" onsubmit="return false">
+      <h2>Create a launch</h2>
+      <label>Token name <input id="cName" maxlength="50" placeholder="My Token" /></label>
+      <label>Symbol <input id="cSymbol" maxlength="12" placeholder="MTK" /></label>
+      <label>Total supply (whole tokens) <input id="cSupply" inputmode="decimal" value="1000000" /></label>
+
+      <fieldset>
+        <legend>Curve type</legend>
+        <label class="radio"><input type="radio" name="ctype" value="constant_product" checked /> Constant product (virtual reserve — steady, pump-style)</label>
+        <label class="radio"><input type="radio" name="ctype" value="sigmoid" checked="checked" /> Sigmoid (BASE-style — slow start, steep middle, flattens at the top)</label>
+      </fieldset>
+
+      <label>Climb pace — drag the bar, watch the curve
+        <input id="cPace" type="range" min="0" max="100" value="50" />
+        <span id="paceLabel" class="note"></span>
+      </label>
+      <div id="createChart"></div>
+      <p class="note">The chart always shows the snapped tier the contract will actually run (Slow / Medium / Steep) — what you see is what gets created.</p>
+
+      <label>Trading fee
+        <select id="cFee">
+          <option value="100">1%</option>
+          <option value="250" selected>2.5%</option>
+          <option value="500">5%</option>
+        </select>
+      </label>
+      <p class="note">Every fee is split openly: half to the platform, a quarter to you as creator, a quarter stays in the reserve backing the price.</p>
+
+      <fieldset>
+        <legend>Graduation</legend>
+        <label class="radio"><input type="radio" name="grad" value="none" checked /> Stay on the curve (like BASE)</label>
+        <label class="radio"><input type="radio" name="grad" value="dex" /> Graduate to a DEX pair at a target reserve</label>
+        <label>Target reserve (LUNC) <input id="cGradTarget" inputmode="decimal" value="10000" /></label>
+      </fieldset>
+
+      <label>Max buy per transaction (LUNC, blank = none) <input id="cMaxBuy" inputmode="decimal" /></label>
+
+      <label>Creator allocation — <span id="allocLabel"></span>
+        <input id="cAlloc" type="range" min="0" max="10" step="0.5" value="0" />
+      </label>
+      <label>Vesting (days, minimum 7 when allocation &gt; 0) <input id="cVesting" type="number" value="30" min="7" /></label>
+      <p class="note">Any creator allocation is locked inside the contract until the vesting time — it cannot be sold early, by anyone, including you.</p>
+
+      <fieldset>
+        <legend>Anti-snipe (opening window)</legend>
+        <label>Window (blocks, blank = platform default) <input id="cSnipeBlocks" type="number" placeholder="e.g. 100" /></label>
+        <label>Per-wallet cap during window (LUNC) <input id="cSnipeCap" inputmode="decimal" placeholder="e.g. 2000" /></label>
+      </fieldset>
+
+      <button id="createBtn" class="primary">Create launch</button>
+      <div id="createResult"></div>
+    </form>
+  </section>
+
+  <!-- ============================= TOKEN ============================== -->
+  <section id="view-token" class="hidden">
+    <div class="card">
+      <h2 id="tTitle">Token</h2>
+      <p><span id="tStatus" class="badge"></span> <span id="tPrice"></span></p>
+      <div class="progress big"><div id="tProgress"></div></div>
+      <p id="tProgressText" class="note"></p>
+      <div id="tChart"></div>
+      <p id="bagQuote" class="bag"></p>
+
+      <div class="sideTabs">
+        <button id="sideBuy" class="active">Buy</button>
+        <button id="sideSell">Sell</button>
+      </div>
+      <label>Amount — <span id="amtReadout"></span> (<span id="amtPct">50%</span>)
+        <input id="amtSlider" type="range" min="0" max="100" value="50" />
+      </label>
+      <div class="chips">
+        <button class="chip" data-pct="10">10%</button>
+        <button class="chip" data-pct="25">25%</button>
+        <button class="chip" data-pct="50">50%</button>
+        <button class="chip" data-pct="75">75%</button>
+        <button class="chip" data-pct="100">Max</button>
+      </div>
+      <div id="quoteBox" class="quote">Connect a wallet and drag the bar for a live quote.</div>
+      <button id="tradeBtn" class="primary">Trade</button>
+      <div id="tradeResult"></div>
+      <p class="note">Quotes come from the curve contract itself. Before your wallet opens, the page re-checks the exact message against what you confirmed (pre-sign guard).</p>
+    </div>
+
+    <div class="card">
+      <h3>Transparency</h3>
+      <p id="tCreatorFees"></p>
+      <p id="tAlloc"></p>
+      <p id="athBox" class="note"></p>
+    </div>
+
+    <div class="card">
+      <h3>Top holders</h3>
+      <div id="holdersBox"></div>
+    </div>
+
+    <div class="card">
+      <h3>Recent trades</h3>
+      <div id="tradesBox"></div>
+    </div>
+
+    <div id="creatorPanel" class="card hidden">
+      <h3>Creator</h3>
+      <button id="claimFeesBtn">Claim creator fees</button>
+      <button id="claimAllocBtn">Claim vested allocation</button>
+    </div>
+
+    <div id="ownerPanel" class="card danger hidden">
+      <h3>🛑 Platform controls (owner)</h3>
+      <p class="note">Emergency Stop &amp; Recall. Recall sweeps the curve's funds to the pre-set safe wallet and shuts the launch down — it cannot touch tokens already in buyers' wallets.</p>
+      <button id="pauseBtn">Pause / unpause this launch</button>
+      <button id="recallBtn" class="dangerBtn">EMERGENCY RECALL this launch</button>
+      <button id="stopAllBtn" class="dangerBtn">FACTORY-WIDE EMERGENCY STOP</button>
+    </div>
+  </section>
+</main>
+
+<footer class="note center">TEST BUILD — not financial advice. Verify every transaction in your wallet before signing.</footer>
+
+<div id="modal" class="modal hidden">
+  <div class="modalCard">
+    <h3>Confirm before signing</h3>
+    <p id="modalSummary"></p>
+    <pre id="modalMsg"></pre>
+    <div class="modalBtns">
+      <button id="modalCancel">Cancel</button>
+      <button id="modalOk" class="primary">Open wallet</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script src="browser.js"></script>
+</body>
+</html>
