@@ -207,7 +207,7 @@ $("createForm").addEventListener("submit", async (ev) => {
   out.textContent = t("creating");
   try {
     const listingFee = await factory().listingFeeSun().call();
-    const tx = await factory().createLaunch(args).send({ callValue: Number(listingFee || 0), feeLimit: 300_000_000 });
+    const tx = await factory().createLaunch(args).send({ callValue: Number(listingFee || 0), feeLimit: 450_000_000 });
     out.textContent = t("createdOk") + " tx: " + tx;
     if (logoDataUrl) {
       setTimeout(async () => {
@@ -340,7 +340,7 @@ function ownerBind(id, fn) {
 ownerBind("pauseBtn", (cc) => cc.pause().send({ feeLimit: 50_000_000 }));
 ownerBind("unpauseBtn", (cc) => cc.unpause().send({ feeLimit: 50_000_000 }));
 ownerBind("claimBtn", (cc) => cc.claimCreatorFees().send({ feeLimit: 50_000_000 }));
-ownerBind("graduateBtn", () => factory().graduate(selected.curve).send({ feeLimit: 300_000_000 }));
+ownerBind("graduateBtn", () => factory().graduate(selected.curve).send({ feeLimit: 450_000_000 }));
 ownerBind("recallBtn", async (cc) => { if (!window.confirm(t("recallConfirm"))) throw new Error("cancelled"); await cc.emergencyRecall().send({ feeLimit: 100_000_000 }); });
 ownerBind("blAddBtn", (cc) => cc.setBlacklist(tronWeb.address.toHex($("blInput").value.trim()), true).send({ feeLimit: 50_000_000 }));
 ownerBind("blRemoveBtn", (cc) => cc.setBlacklist(tronWeb.address.toHex($("blInput").value.trim()), false).send({ feeLimit: 50_000_000 }));
