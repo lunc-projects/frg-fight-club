@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<base href="/blackjack/">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Blackjack 21 — LUNC Arcade</title>
+<meta name="description" content="Blackjack 21 — classic blackjack vs the dealer. Free play chips only, no real money.">
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; padding:0; height:100%; }
+  body {
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    color:#f5eedd; overflow-x:hidden;
+    background: radial-gradient(120% 90% at 50% 0%, #2a1650 0%, #1a0b33 55%, #0d051d 100%);
+    min-height:100dvh;
+  }
+  #app { max-width:520px; margin:0 auto; padding:10px 12px 26px; display:flex; flex-direction:column; min-height:100dvh; }
+
+  /* Header */
+  header { display:flex; align-items:center; gap:8px; }
+  .logo { font-size:26px; filter:drop-shadow(0 2px 6px rgba(0,0,0,.5)); }
+  h1 { font-size:21px; margin:0; letter-spacing:.5px; color:#ffd968; text-shadow:0 2px 10px rgba(255,180,0,.35); font-weight:800; }
+  h1 .c21 { color:#fff; }
+  .spacer { flex:1; }
+  #langSel { font-size:14px; padding:9px 8px; border-radius:11px; border:2px solid #c9a227; background:#241145; color:#ffe9a8; font-weight:700; max-width:150px; }
+  #muteBtn { font-size:19px; padding:7px 10px; border-radius:11px; border:2px solid #c9a227; background:#241145; color:#ffe9a8; cursor:pointer; }
+  .tagline { text-align:center; font-size:12.5px; color:#cbb8ff; margin:6px 0 2px; }
+  #freeLine { text-align:center; font-size:12px; font-weight:800; letter-spacing:.4px; color:#8dffb0; background:rgba(20,90,45,.35); border:1px solid rgba(80,220,130,.5); border-radius:9px; padding:5px 8px; margin:6px 0 10px; }
+
+  /* Felt table */
+  #table {
+    position:relative; border-radius:26px; padding:16px 12px 14px;
+    background:
+      radial-gradient(90% 70% at 50% 38%, #5b21b6 0%, #45207f 52%, #2c1257 100%);
+    border:6px solid #6d4a1f;
+    outline:3px solid #c9a227;
+    box-shadow: 0 18px 40px rgba(0,0,0,.6), inset 0 0 60px rgba(0,0,0,.45);
+  }
+  #table::after { content:""; position:absolute; inset:10px; border:2px solid rgba(255,217,104,.28); border-radius:19px; pointer-events:none; }
+  .handLab { display:flex; justify-content:space-between; align-items:center; font-size:12px; font-weight:800; letter-spacing:1.2px; color:#e7d8ff; text-transform:uppercase; margin:2px 2px 6px; }
+  .total { background:rgba(0,0,0,.45); border:1px solid rgba(255,217,104,.55); color:#ffd968; border-radius:999px; padding:2px 10px; font-size:13px; min-width:34px; text-align:center; }
+  .hand { display:flex; gap:7px; min-height:96px; align-items:flex-start; padding:2px; flex-wrap:wrap; }
+  #tableRule { text-align:center; font-size:11px; color:rgba(255,233,168,.65); letter-spacing:.6px; margin:8px 0; font-style:italic; }
+
+  /* Cards */
+  .card { width:62px; height:88px; border-radius:9px; position:relative; flex:0 0 auto;
+    background:linear-gradient(160deg, #ffffff 0%, #f1ecdf 100%);
+    box-shadow:0 4px 10px rgba(0,0,0,.45), inset 0 0 0 1px #d8d2c0;
+    animation: dealIn .38s cubic-bezier(.2,.9,.3,1.2) both; transform-origin: top right; }
+  @keyframes dealIn { from { transform: translate(46px,-64px) rotate(14deg) scale(.6); opacity:0; } to { transform:none; opacity:1; } }
+  .card .tl { position:absolute; top:4px; left:6px; font-size:16px; font-weight:800; line-height:1; text-align:center; }
+  .card .tl small { display:block; font-size:14px; margin-top:1px; }
+  .card .pip { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:38px; }
+  .card.red { color:#c22430; } .card.black { color:#1d2433; }
+  .card.face .pip { font-size:30px; font-weight:900; width:44px; height:56px; margin:auto; inset:0; border:2px solid currentColor; border-radius:6px; background:rgba(255,215,90,.18); }
+  .cardWrap { perspective:600px; flex:0 0 auto; width:62px; height:88px; }
+  .cardFlip { position:relative; width:100%; height:100%; transform-style:preserve-3d; transition:transform .55s cubic-bezier(.3,.7,.3,1); }
+  .cardFlip.flipped { transform: rotateY(180deg); }
+  .cardFlip .card { animation:none; position:absolute; inset:0; backface-visibility:hidden; -webkit-backface-visibility:hidden; }
+  .cardFlip .front { transform: rotateY(180deg); }
+  .cardBack { background:
+      repeating-linear-gradient(45deg, #7a1420 0 7px, #5e0e18 7px 14px);
+    box-shadow:0 4px 10px rgba(0,0,0,.45), inset 0 0 0 3px #f3e3bb, inset 0 0 0 5px #7a1420; }
+  .cardBack::after { content:"☾"; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#ffd968; font-size:30px; text-shadow:0 0 8px rgba(0,0,0,.6); }
+
+  /* Result banner */
+  #banner { min-height:52px; display:flex; align-items:center; justify-content:center; text-align:center; margin:10px 0 2px; }
+  #banner .inner { font-size:21px; font-weight:900; letter-spacing:.6px; padding:8px 18px; border-radius:14px; display:none; }
+  #banner .inner.show { display:block; animation: pop .35s cubic-bezier(.2,.9,.3,1.4) both; }
+  @keyframes pop { from { transform:scale(.6); opacity:0; } to { transform:scale(1); opacity:1; } }
+  #banner .win { background:linear-gradient(180deg,#1d7a3c,#14532a); border:2px solid #4ade80; color:#d9ffe4; box-shadow:0 0 22px rgba(74,222,128,.45); }
+  #banner .lose { background:linear-gradient(180deg,#7a1d24,#4c1116); border:2px solid #f87171; color:#ffe1e1; }
+  #banner .push { background:linear-gradient(180deg,#5b4a12,#3d320c); border:2px solid #facc15; color:#fff3c4; }
+  #banner .bj { background:linear-gradient(180deg,#a16207,#713f12); border:2px solid #ffd968; color:#fff8dc; box-shadow:0 0 28px rgba(255,217,104,.65); }
+
+  /* Chips + balance */
+  #bankRow { display:flex; gap:8px; margin:12px 0 8px; }
+  .bankBox { flex:1; background:rgba(0,0,0,.35); border:1px solid rgba(255,217,104,.4); border-radius:13px; padding:7px 10px; text-align:center; }
+  .bankBox .lab { font-size:10.5px; letter-spacing:1.1px; color:#cbb8ff; font-weight:800; text-transform:uppercase; }
+  .bankBox .val { font-size:19px; font-weight:900; color:#ffd968; }
+  #betChips { display:flex; justify-content:center; gap:9px; flex-wrap:wrap; margin:8px 0 4px; }
+  .chip { width:56px; height:56px; border-radius:50%; border:4px dashed rgba(255,255,255,.85); font-weight:900; font-size:14px; color:#fff; cursor:pointer; box-shadow:0 4px 9px rgba(0,0,0,.5), inset 0 0 0 3px rgba(0,0,0,.22); transition:transform .08s; }
+  .chip:active { transform:scale(.92); }
+  .chip:disabled { opacity:.32; cursor:default; }
+  .chip.c10 { background:radial-gradient(circle at 35% 30%, #4f83e3, #1d4fa1); }
+  .chip.c25 { background:radial-gradient(circle at 35% 30%, #3fbf72, #177245); }
+  .chip.c50 { background:radial-gradient(circle at 35% 30%, #e3574f, #a11d1d); }
+  .chip.c100 { background:radial-gradient(circle at 35% 30%, #555f73, #141a28); }
+  .chip.cmax { background:radial-gradient(circle at 35% 30%, #e9b949, #8a6410); font-size:11px; }
+  #betStack { display:flex; justify-content:center; align-items:flex-end; gap:3px; min-height:14px; margin-top:2px; }
+  #betStack .stk { width:34px; height:8px; border-radius:4px; border:1px dashed rgba(255,255,255,.5); box-shadow:0 2px 3px rgba(0,0,0,.4); }
+
+  /* Buttons */
+  .btnRow { display:flex; gap:9px; margin-top:10px; }
+  button.act { flex:1; font-size:17px; font-weight:900; letter-spacing:.5px; padding:15px 6px; border-radius:14px; border:none; cursor:pointer; color:#fff; box-shadow:0 5px 14px rgba(0,0,0,.45); transition:transform .07s, filter .15s; }
+  button.act:active { transform:scale(.96); }
+  button.act:disabled { opacity:.35; cursor:default; box-shadow:none; }
+  #dealBtn, #rebetBtn { background:linear-gradient(180deg,#d99a16,#9a6a06); color:#fff8dc; border:2px solid #ffd968; }
+  #hitBtn { background:linear-gradient(180deg,#2f9e57,#176b35); }
+  #standBtn { background:linear-gradient(180deg,#c0392b,#7e211a); }
+  #doubleBtn { background:linear-gradient(180deg,#2f6fd0,#1a4488); }
+  #clearBtn { background:linear-gradient(180deg,#5a5470,#37324a); flex:0 0 92px; font-size:14px; }
+  #newBetBtn { background:linear-gradient(180deg,#5a5470,#37324a); }
+  #refillBtn { width:100%; margin-top:10px; background:linear-gradient(180deg,#1d7a3c,#14532a); border:2px solid #4ade80; font-size:16px; }
+  .hidden { display:none !important; }
+
+  #stats { text-align:center; font-size:12.5px; color:#b7a6e8; margin-top:14px; }
+  #howto { font-size:12.5px; line-height:1.55; color:#a794d8; background:rgba(0,0,0,.25); border-radius:12px; padding:10px 12px; margin-top:10px; }
+  footer { text-align:center; font-size:11px; color:#6f5fa8; margin-top:14px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="logo">🂡</div>
+    <h1>BLACKJACK <span class="c21">21</span></h1>
+    <div class="spacer"></div>
+    <select id="langSel" aria-label="Language"></select>
+    <button id="muteBtn" aria-label="Sound">🔊</button>
+  </header>
+  <div class="tagline" data-i="tagline"></div>
+  <div id="freeLine" data-i="free"></div>
+
+  <div id="table">
+    <div class="handLab"><span data-i="dealer"></span><span class="total" id="dealerTotal">–</span></div>
+    <div class="hand" id="dealerHand"></div>
+    <div id="tableRule" data-i="rule"></div>
+    <div class="handLab"><span data-i="you"></span><span class="total" id="playerTotal">–</span></div>
+    <div class="hand" id="playerHand"></div>
+  </div>
+
+  <div id="banner"><div class="inner" id="bannerInner"></div></div>
+
+  <div id="bankRow">
+    <div class="bankBox"><div class="lab" data-i="balance"></div><div class="val" id="balVal">1,000</div></div>
+    <div class="bankBox"><div class="lab" data-i="bet"></div><div class="val" id="betVal">0</div></div>
+  </div>
+
+  <div id="betChips">
+    <button class="chip c10" data-chip="10">10</button>
+    <button class="chip c25" data-chip="25">25</button>
+    <button class="chip c50" data-chip="50">50</button>
+    <button class="chip c100" data-chip="100">100</button>
+    <button class="chip cmax" data-chip="max">MAX</button>
+  </div>
+  <div id="betStack"></div>
+
+  <div class="btnRow" id="betRow">
+    <button class="act" id="clearBtn" data-i="clear"></button>
+    <button class="act" id="dealBtn" data-i="deal"></button>
+  </div>
+  <div class="btnRow hidden" id="playRow">
+    <button class="act" id="hitBtn" data-i="hit"></button>
+    <button class="act" id="standBtn" data-i="stand"></button>
+    <button class="act" id="doubleBtn" data-i="double"></button>
+  </div>
+  <div class="btnRow hidden" id="againRow">
+    <button class="act" id="newBetBtn" data-i="newbet"></button>
+    <button class="act" id="rebetBtn" data-i="rebet"></button>
+  </div>
+  <button class="act hidden" id="refillBtn" data-i="refill"></button>
+
+  <div id="stats"></div>
+  <div id="howto" data-i="howto"></div>
+  <footer>LUNC DEV STUDIO · LUNC ARCADE</footer>
+</div>
+<script>
+"use strict";
+/* ============ i18n (18 languages, pattern from lunc-vice) ============ */
+const LANGS=[["en","English"],["es","Español"],["pt","Português"],["fr","Français"],["de","Deutsch"],["it","Italiano"],["nl","Nederlands"],["ru","Русский"],["uk","Українська"],["tr","Türkçe"],["ar","العربية"],["hi","हिन्दी"],["id","Bahasa Indonesia"],["vi","Tiếng Việt"],["th","ไทย"],["ko","한국어"],["ja","日本語"],["zh","简体中文"]];
+const I18N={
+en:{tagline:"Beat the dealer to 21.",free:"FREE GAME — play chips only, no real money, no prizes.",dealer:"Dealer",you:"Your hand",rule:"Dealer stands on all 17s · Blackjack pays 3:2",balance:"Balance",bet:"Bet",clear:"CLEAR",deal:"DEAL",hit:"HIT",stand:"STAND",double:"DOUBLE",newbet:"NEW BET",rebet:"REBET & DEAL",refill:"+1,000 FREE REFILL",win:"YOU WIN",lose:"DEALER WINS",push:"PUSH — bet back",blackjack:"BLACKJACK!",bust:"BUST",dealerBust:"DEALER BUSTS",placeBet:"Place your bet, then DEAL",yourTurn:"Your turn — hit, stand or double",dealing:"Dealing…",stats:"Hands {h} · Won {w} · Blackjacks {b}",howto:"HOW TO PLAY: Get closer to 21 than the dealer without going over. Number cards = face value, J/Q/K = 10, Ace = 11 or 1. BLACKJACK (21 with your first 2 cards) pays 3:2. DOUBLE doubles your bet for exactly one more card. The dealer stands on all 17s. Chips are free — tap REFILL when you run out."},
+es:{tagline:"Vence al crupier llegando a 21.",free:"JUEGO GRATIS — solo fichas de juego, sin dinero real, sin premios.",dealer:"Crupier",you:"Tu mano",rule:"El crupier se planta con 17 · El blackjack paga 3:2",balance:"Saldo",bet:"Apuesta",clear:"BORRAR",deal:"REPARTIR",hit:"PEDIR",stand:"PLANTARSE",double:"DOBLAR",newbet:"NUEVA APUESTA",rebet:"REPETIR Y REPARTIR",refill:"+1.000 RECARGA GRATIS",win:"GANASTE",lose:"GANA EL CRUPIER",push:"EMPATE — apuesta devuelta",blackjack:"¡BLACKJACK!",bust:"TE PASASTE",dealerBust:"EL CRUPIER SE PASÓ",placeBet:"Haz tu apuesta y pulsa REPARTIR",yourTurn:"Tu turno — pide, plántate o dobla",dealing:"Repartiendo…",stats:"Manos {h} · Ganadas {w} · Blackjacks {b}",howto:"CÓMO JUGAR: Acércate más a 21 que el crupier sin pasarte. Las cartas numéricas valen su número, J/Q/K = 10, el As = 11 o 1. El BLACKJACK (21 con tus 2 primeras cartas) paga 3:2. DOBLAR duplica tu apuesta por exactamente una carta más. El crupier se planta con cualquier 17. Las fichas son gratis — pulsa RECARGA cuando te quedes sin ellas."},
+pt:{tagline:"Vença o dealer rumo ao 21.",free:"JOGO GRÁTIS — apenas fichas de jogo, sem dinheiro real, sem prêmios.",dealer:"Dealer",you:"Sua mão",rule:"O dealer para em todos os 17 · Blackjack paga 3:2",balance:"Saldo",bet:"Aposta",clear:"LIMPAR",deal:"DISTRIBUIR",hit:"PEDIR",stand:"PARAR",double:"DOBRAR",newbet:"NOVA APOSTA",rebet:"REPETIR E DISTRIBUIR",refill:"+1.000 RECARGA GRÁTIS",win:"VOCÊ VENCEU",lose:"O DEALER VENCEU",push:"EMPATE — aposta devolvida",blackjack:"BLACKJACK!",bust:"ESTOUROU",dealerBust:"O DEALER ESTOUROU",placeBet:"Faça sua aposta e DISTRIBUA",yourTurn:"Sua vez — peça, pare ou dobre",dealing:"Distribuindo…",stats:"Mãos {h} · Vitórias {w} · Blackjacks {b}",howto:"COMO JOGAR: Chegue mais perto de 21 que o dealer sem passar. Cartas numéricas = seu valor, J/Q/K = 10, Ás = 11 ou 1. BLACKJACK (21 com suas 2 primeiras cartas) paga 3:2. DOBRAR dobra sua aposta por exatamente uma carta a mais. O dealer para em qualquer 17. As fichas são grátis — toque em RECARGA quando acabarem."},
+fr:{tagline:"Battez le croupier à 21.",free:"JEU GRATUIT — jetons fictifs uniquement, aucun argent réel, aucun prix.",dealer:"Croupier",you:"Votre main",rule:"Le croupier reste sur tous les 17 · Le blackjack paie 3:2",balance:"Solde",bet:"Mise",clear:"EFFACER",deal:"DISTRIBUER",hit:"TIRER",stand:"RESTER",double:"DOUBLER",newbet:"NOUVELLE MISE",rebet:"REMISE & DISTRIBUER",refill:"+1 000 RECHARGE GRATUITE",win:"VOUS GAGNEZ",lose:"LE CROUPIER GAGNE",push:"ÉGALITÉ — mise rendue",blackjack:"BLACKJACK !",bust:"SAUTÉ",dealerBust:"LE CROUPIER SAUTE",placeBet:"Placez votre mise, puis DISTRIBUEZ",yourTurn:"À vous — tirez, restez ou doublez",dealing:"Distribution…",stats:"Mains {h} · Gagnées {w} · Blackjacks {b}",howto:"COMMENT JOUER : Approchez-vous de 21 plus que le croupier sans dépasser. Les cartes numérotées = leur valeur, J/Q/K = 10, l'As = 11 ou 1. Le BLACKJACK (21 avec vos 2 premières cartes) paie 3:2. DOUBLER double votre mise pour exactement une carte de plus. Le croupier reste sur tous les 17. Les jetons sont gratuits — touchez RECHARGE quand vous n'en avez plus."},
+de:{tagline:"Schlage den Dealer auf dem Weg zur 21.",free:"KOSTENLOSES SPIEL — nur Spielchips, kein echtes Geld, keine Preise.",dealer:"Dealer",you:"Deine Hand",rule:"Dealer steht bei allen 17 · Blackjack zahlt 3:2",balance:"Guthaben",bet:"Einsatz",clear:"LÖSCHEN",deal:"GEBEN",hit:"KARTE",stand:"STEHEN",double:"VERDOPPELN",newbet:"NEUER EINSATZ",rebet:"WIEDERHOLEN & GEBEN",refill:"+1.000 GRATIS AUFFÜLLEN",win:"DU GEWINNST",lose:"DEALER GEWINNT",push:"UNENTSCHIEDEN — Einsatz zurück",blackjack:"BLACKJACK!",bust:"ÜBERKAUFT",dealerBust:"DEALER ÜBERKAUFT",placeBet:"Setze deine Chips und drücke GEBEN",yourTurn:"Du bist dran — Karte, Stehen oder Verdoppeln",dealing:"Geben…",stats:"Hände {h} · Gewonnen {w} · Blackjacks {b}",howto:"SO GEHT'S: Komm näher an 21 als der Dealer, ohne drüber zu gehen. Zahlenkarten = ihr Wert, J/Q/K = 10, Ass = 11 oder 1. BLACKJACK (21 mit deinen ersten 2 Karten) zahlt 3:2. VERDOPPELN verdoppelt deinen Einsatz für genau eine weitere Karte. Der Dealer steht bei allen 17. Chips sind kostenlos — tippe auf AUFFÜLLEN, wenn sie leer sind."},
+it:{tagline:"Batti il banco arrivando a 21.",free:"GIOCO GRATUITO — solo fiche finte, niente soldi veri, niente premi.",dealer:"Banco",you:"La tua mano",rule:"Il banco sta su tutti i 17 · Il blackjack paga 3:2",balance:"Saldo",bet:"Puntata",clear:"AZZERA",deal:"DAI LE CARTE",hit:"CARTA",stand:"STO",double:"RADDOPPIA",newbet:"NUOVA PUNTATA",rebet:"RIPETI E DAI",refill:"+1.000 RICARICA GRATIS",win:"HAI VINTO",lose:"VINCE IL BANCO",push:"PAREGGIO — puntata restituita",blackjack:"BLACKJACK!",bust:"SBALLATO",dealerBust:"IL BANCO SBALLA",placeBet:"Piazza la puntata e DAI LE CARTE",yourTurn:"Tocca a te — carta, sto o raddoppia",dealing:"Distribuzione…",stats:"Mani {h} · Vinte {w} · Blackjack {b}",howto:"COME SI GIOCA: Avvicinati a 21 più del banco senza superarlo. Le carte numeriche valgono il loro numero, J/Q/K = 10, l'Asso = 11 o 1. Il BLACKJACK (21 con le prime 2 carte) paga 3:2. RADDOPPIA raddoppia la puntata per esattamente una carta in più. Il banco sta su tutti i 17. Le fiche sono gratuite — tocca RICARICA quando finiscono."},
+nl:{tagline:"Versla de dealer op weg naar 21.",free:"GRATIS SPEL — alleen speelchips, geen echt geld, geen prijzen.",dealer:"Dealer",you:"Jouw hand",rule:"Dealer past bij elke 17 · Blackjack betaalt 3:2",balance:"Saldo",bet:"Inzet",clear:"WISSEN",deal:"DELEN",hit:"KAART",stand:"PASSEN",double:"VERDUBBELEN",newbet:"NIEUWE INZET",rebet:"HERHAAL & DEEL",refill:"+1.000 GRATIS BIJVULLEN",win:"JE WINT",lose:"DEALER WINT",push:"GELIJK — inzet terug",blackjack:"BLACKJACK!",bust:"DOOD",dealerBust:"DEALER IS DOOD",placeBet:"Plaats je inzet en druk op DELEN",yourTurn:"Jouw beurt — kaart, passen of verdubbelen",dealing:"Delen…",stats:"Handen {h} · Gewonnen {w} · Blackjacks {b}",howto:"ZO SPEEL JE: Kom dichter bij 21 dan de dealer zonder eroverheen te gaan. Nummerkaarten = hun waarde, J/Q/K = 10, Aas = 11 of 1. BLACKJACK (21 met je eerste 2 kaarten) betaalt 3:2. VERDUBBELEN verdubbelt je inzet voor precies één extra kaart. De dealer past bij elke 17. Chips zijn gratis — tik op BIJVULLEN als ze op zijn."},
+ru:{tagline:"Обыграй дилера на пути к 21.",free:"БЕСПЛАТНАЯ ИГРА — только игровые фишки, без настоящих денег и призов.",dealer:"Дилер",you:"Ваша рука",rule:"Дилер стоит на всех 17 · Блэкджек платит 3:2",balance:"Баланс",bet:"Ставка",clear:"СБРОС",deal:"РАЗДАТЬ",hit:"ЕЩЁ",stand:"ХВАТИТ",double:"УДВОИТЬ",newbet:"НОВАЯ СТАВКА",rebet:"ПОВТОРИТЬ И РАЗДАТЬ",refill:"+1 000 БЕСПЛАТНО",win:"ВЫ ВЫИГРАЛИ",lose:"ВЫИГРАЛ ДИЛЕР",push:"НИЧЬЯ — ставка возвращена",blackjack:"БЛЭКДЖЕК!",bust:"ПЕРЕБОР",dealerBust:"У ДИЛЕРА ПЕРЕБОР",placeBet:"Сделайте ставку и нажмите РАЗДАТЬ",yourTurn:"Ваш ход — ещё, хватит или удвоить",dealing:"Раздача…",stats:"Рук {h} · Выиграно {w} · Блэкджеков {b}",howto:"КАК ИГРАТЬ: Наберите ближе к 21, чем дилер, но не больше. Числовые карты = их номинал, J/Q/K = 10, Туз = 11 или 1. БЛЭКДЖЕК (21 с первых 2 карт) платит 3:2. УДВОЕНИЕ удваивает ставку ровно за одну дополнительную карту. Дилер стоит на всех 17. Фишки бесплатны — нажимайте ПОПОЛНИТЬ, когда они закончатся."},
+uk:{tagline:"Обіграй дилера на шляху до 21.",free:"БЕЗКОШТОВНА ГРА — лише ігрові фішки, без справжніх грошей і призів.",dealer:"Дилер",you:"Ваша рука",rule:"Дилер стоїть на всіх 17 · Блекджек платить 3:2",balance:"Баланс",bet:"Ставка",clear:"СКИДАННЯ",deal:"РОЗДАТИ",hit:"ЩЕ",stand:"ДОСИТЬ",double:"ПОДВОЇТИ",newbet:"НОВА СТАВКА",rebet:"ПОВТОРИТИ І РОЗДАТИ",refill:"+1 000 БЕЗКОШТОВНО",win:"ВИ ВИГРАЛИ",lose:"ВИГРАВ ДИЛЕР",push:"НІЧИЯ — ставку повернуто",blackjack:"БЛЕКДЖЕК!",bust:"ПЕРЕБІР",dealerBust:"У ДИЛЕРА ПЕРЕБІР",placeBet:"Зробіть ставку та натисніть РОЗДАТИ",yourTurn:"Ваш хід — ще, досить або подвоїти",dealing:"Роздача…",stats:"Рук {h} · Виграно {w} · Блекджеків {b}",howto:"ЯК ГРАТИ: Наберіть ближче до 21, ніж дилер, але не більше. Числові карти = їхній номінал, J/Q/K = 10, Туз = 11 або 1. БЛЕКДЖЕК (21 з перших 2 карт) платить 3:2. ПОДВОЄННЯ подвоює ставку рівно за одну додаткову карту. Дилер стоїть на всіх 17. Фішки безкоштовні — натискайте ПОПОВНИТИ, коли вони закінчаться."},
+tr:{tagline:"21'e giden yolda krupiyeyi yen.",free:"ÜCRETSİZ OYUN — yalnızca oyun fişleri, gerçek para yok, ödül yok.",dealer:"Krupiye",you:"Elin",rule:"Krupiye tüm 17'lerde durur · Blackjack 3:2 öder",balance:"Bakiye",bet:"Bahis",clear:"TEMİZLE",deal:"DAĞIT",hit:"KART ÇEK",stand:"DUR",double:"KATLA",newbet:"YENİ BAHİS",rebet:"TEKRARLA VE DAĞIT",refill:"+1.000 ÜCRETSİZ DOLDUR",win:"KAZANDIN",lose:"KRUPİYE KAZANDI",push:"BERABERE — bahis iade",blackjack:"BLACKJACK!",bust:"PATLADIN",dealerBust:"KRUPİYE PATLADI",placeBet:"Bahsini koy ve DAĞIT'a bas",yourTurn:"Sıra sende — kart çek, dur veya katla",dealing:"Dağıtılıyor…",stats:"Eller {h} · Kazanılan {w} · Blackjack {b}",howto:"NASIL OYNANIR: Krupiyeden 21'e daha yakın ol ama geçme. Sayı kartları = değerleri, J/Q/K = 10, As = 11 veya 1. BLACKJACK (ilk 2 kartla 21) 3:2 öder. KATLA, bahsini tam bir kart karşılığında ikiye katlar. Krupiye tüm 17'lerde durur. Fişler ücretsizdir — bitince DOLDUR'a dokun."},
+ar:{tagline:"اهزم الموزع في الطريق إلى 21.",free:"لعبة مجانية — رقائق لعب فقط، لا مال حقيقي، لا جوائز.",dealer:"الموزع",you:"يدك",rule:"يقف الموزع عند كل 17 · البلاك جاك يدفع 3:2",balance:"الرصيد",bet:"الرهان",clear:"مسح",deal:"وزّع",hit:"اسحب",stand:"قف",double:"ضاعف",newbet:"رهان جديد",rebet:"كرر ووزّع",refill:"+1,000 تعبئة مجانية",win:"لقد فزت",lose:"فاز الموزع",push:"تعادل — يُعاد الرهان",blackjack:"بلاك جاك!",bust:"تجاوزت",dealerBust:"الموزع تجاوز",placeBet:"ضع رهانك ثم اضغط وزّع",yourTurn:"دورك — اسحب أو قف أو ضاعف",dealing:"جارٍ التوزيع…",stats:"الأيادي {h} · الفوز {w} · بلاك جاك {b}",howto:"طريقة اللعب: اقترب من 21 أكثر من الموزع دون تجاوزها. البطاقات الرقمية = قيمتها، J/Q/K = 10، والآس = 11 أو 1. البلاك جاك (21 بأول بطاقتين) يدفع 3:2. المضاعفة تضاعف رهانك مقابل بطاقة واحدة إضافية بالضبط. يقف الموزع عند كل 17. الرقائق مجانية — اضغط تعبئة عند نفادها."},
+hi:{tagline:"21 की राह पर डीलर को हराओ।",free:"मुफ़्त खेल — केवल खेल चिप्स, कोई असली पैसा नहीं, कोई पुरस्कार नहीं।",dealer:"डीलर",you:"आपका हाथ",rule:"डीलर सभी 17 पर रुकता है · ब्लैकजैक 3:2 देता है",balance:"शेष राशि",bet:"दांव",clear:"साफ़ करें",deal:"बांटें",hit:"कार्ड लें",stand:"रुकें",double:"दोगुना",newbet:"नया दांव",rebet:"दोहराएं और बांटें",refill:"+1,000 मुफ़्त रीफ़िल",win:"आप जीते",lose:"डीलर जीता",push:"बराबर — दांव वापस",blackjack:"ब्लैकजैक!",bust:"बस्ट",dealerBust:"डीलर बस्ट",placeBet:"अपना दांव लगाएं और बांटें दबाएं",yourTurn:"आपकी बारी — कार्ड लें, रुकें या दोगुना करें",dealing:"बांट रहे हैं…",stats:"हाथ {h} · जीते {w} · ब्लैकजैक {b}",howto:"कैसे खेलें: 21 से ऊपर गए बिना डीलर से ज़्यादा करीब पहुँचें। नंबर कार्ड = उनका मान, J/Q/K = 10, इक्का = 11 या 1। ब्लैकजैक (पहले 2 कार्डों से 21) 3:2 देता है। दोगुना करने से ठीक एक और कार्ड के लिए आपका दांव दोगुना हो जाता है। डीलर सभी 17 पर रुकता है। चिप्स मुफ़्त हैं — खत्म होने पर रीफ़िल दबाएं।"},
+id:{tagline:"Kalahkan dealer menuju 21.",free:"GAME GRATIS — hanya chip mainan, tanpa uang asli, tanpa hadiah.",dealer:"Dealer",you:"Kartu Anda",rule:"Dealer berhenti di semua 17 · Blackjack membayar 3:2",balance:"Saldo",bet:"Taruhan",clear:"HAPUS",deal:"BAGIKAN",hit:"AMBIL",stand:"BERHENTI",double:"GANDAKAN",newbet:"TARUHAN BARU",rebet:"ULANGI & BAGIKAN",refill:"+1.000 ISI ULANG GRATIS",win:"ANDA MENANG",lose:"DEALER MENANG",push:"SERI — taruhan kembali",blackjack:"BLACKJACK!",bust:"BUST",dealerBust:"DEALER BUST",placeBet:"Pasang taruhan lalu BAGIKAN",yourTurn:"Giliran Anda — ambil, berhenti, atau gandakan",dealing:"Membagikan…",stats:"Tangan {h} · Menang {w} · Blackjack {b}",howto:"CARA BERMAIN: Dekati 21 lebih dari dealer tanpa melewatinya. Kartu angka = nilainya, J/Q/K = 10, As = 11 atau 1. BLACKJACK (21 dengan 2 kartu pertama) membayar 3:2. GANDAKAN menggandakan taruhan Anda untuk tepat satu kartu lagi. Dealer berhenti di semua 17. Chip gratis — ketuk ISI ULANG saat habis."},
+vi:{tagline:"Đánh bại nhà cái trên đường tới 21.",free:"TRÒ CHƠI MIỄN PHÍ — chỉ chip chơi, không tiền thật, không giải thưởng.",dealer:"Nhà cái",you:"Bài của bạn",rule:"Nhà cái dừng ở mọi 17 · Blackjack trả 3:2",balance:"Số dư",bet:"Cược",clear:"XÓA",deal:"CHIA BÀI",hit:"RÚT",stand:"DỪNG",double:"GẤP ĐÔI",newbet:"CƯỢC MỚI",rebet:"LẶP LẠI & CHIA",refill:"+1.000 NẠP MIỄN PHÍ",win:"BẠN THẮNG",lose:"NHÀ CÁI THẮNG",push:"HÒA — trả lại cược",blackjack:"BLACKJACK!",bust:"QUẮC",dealerBust:"NHÀ CÁI QUẮC",placeBet:"Đặt cược rồi bấm CHIA BÀI",yourTurn:"Lượt của bạn — rút, dừng hoặc gấp đôi",dealing:"Đang chia…",stats:"Ván {h} · Thắng {w} · Blackjack {b}",howto:"CÁCH CHƠI: Đến gần 21 hơn nhà cái mà không vượt quá. Lá số = giá trị của nó, J/Q/K = 10, Át = 11 hoặc 1. BLACKJACK (21 với 2 lá đầu) trả 3:2. GẤP ĐÔI nhân đôi cược của bạn để lấy đúng một lá nữa. Nhà cái dừng ở mọi 17. Chip miễn phí — chạm NẠP khi hết."},
+th:{tagline:"เอาชนะเจ้ามือบนเส้นทางสู่ 21",free:"เกมฟรี — ชิปเล่นเท่านั้น ไม่มีเงินจริง ไม่มีรางวัล",dealer:"เจ้ามือ",you:"มือของคุณ",rule:"เจ้ามือหยุดที่ 17 ทุกแบบ · แบล็คแจ็คจ่าย 3:2",balance:"ยอดคงเหลือ",bet:"เดิมพัน",clear:"ล้าง",deal:"แจกไพ่",hit:"จั่ว",stand:"หยุด",double:"ดับเบิล",newbet:"เดิมพันใหม่",rebet:"ซ้ำและแจก",refill:"+1,000 เติมฟรี",win:"คุณชนะ",lose:"เจ้ามือชนะ",push:"เสมอ — คืนเดิมพัน",blackjack:"แบล็คแจ็ค!",bust:"บัสต์",dealerBust:"เจ้ามือบัสต์",placeBet:"วางเดิมพันแล้วกดแจกไพ่",yourTurn:"ตาของคุณ — จั่ว หยุด หรือดับเบิล",dealing:"กำลังแจก…",stats:"มือ {h} · ชนะ {w} · แบล็คแจ็ค {b}",howto:"วิธีเล่น: เข้าใกล้ 21 มากกว่าเจ้ามือโดยไม่เกิน ไพ่ตัวเลข = ค่าของมัน J/Q/K = 10 เอซ = 11 หรือ 1 แบล็คแจ็ค (21 ด้วย 2 ใบแรก) จ่าย 3:2 ดับเบิลจะเพิ่มเดิมพันเป็นสองเท่าเพื่อไพ่เพิ่มอีกหนึ่งใบพอดี เจ้ามือหยุดที่ 17 ทุกแบบ ชิปฟรี — แตะเติมเมื่อหมด"},
+ko:{tagline:"21로 가는 길에 딜러를 이기세요.",free:"무료 게임 — 플레이 칩 전용, 실제 돈 없음, 상품 없음.",dealer:"딜러",you:"내 패",rule:"딜러는 모든 17에서 스탠드 · 블랙잭은 3:2 지급",balance:"잔액",bet:"베팅",clear:"지우기",deal:"딜",hit:"히트",stand:"스탠드",double:"더블",newbet:"새 베팅",rebet:"리벳 & 딜",refill:"+1,000 무료 충전",win:"승리!",lose:"딜러 승리",push:"푸시 — 베팅 반환",blackjack:"블랙잭!",bust:"버스트",dealerBust:"딜러 버스트",placeBet:"베팅한 뒤 딜을 누르세요",yourTurn:"당신 차례 — 히트, 스탠드 또는 더블",dealing:"딜 중…",stats:"핸드 {h} · 승리 {w} · 블랙잭 {b}",howto:"플레이 방법: 21을 넘지 않으면서 딜러보다 21에 가깝게 만드세요. 숫자 카드 = 그 숫자, J/Q/K = 10, 에이스 = 11 또는 1. 블랙잭(처음 2장으로 21)은 3:2를 지급합니다. 더블은 정확히 한 장을 더 받는 대신 베팅을 두 배로 합니다. 딜러는 모든 17에서 스탠드합니다. 칩은 무료입니다 — 다 쓰면 충전을 누르세요."},
+ja:{tagline:"21への道でディーラーに勝とう。",free:"無料ゲーム — プレイチップのみ、実際のお金なし、賞品なし。",dealer:"ディーラー",you:"あなたの手札",rule:"ディーラーはすべての17でスタンド · ブラックジャックは3:2",balance:"残高",bet:"ベット",clear:"クリア",deal:"配る",hit:"ヒット",stand:"スタンド",double:"ダブル",newbet:"新しいベット",rebet:"リベット＆配る",refill:"+1,000 無料補充",win:"あなたの勝ち",lose:"ディーラーの勝ち",push:"プッシュ — ベット返却",blackjack:"ブラックジャック！",bust:"バスト",dealerBust:"ディーラーがバスト",placeBet:"ベットして「配る」を押してください",yourTurn:"あなたの番 — ヒット、スタンド、ダブル",dealing:"配っています…",stats:"ハンド {h} · 勝利 {w} · ブラックジャック {b}",howto:"遊び方：21を超えずにディーラーより21に近づけてください。数字カード＝その数字、J/Q/K＝10、エース＝11または1。ブラックジャック（最初の2枚で21）は3:2で支払われます。ダブルはベットを2倍にして、ちょうど1枚だけ追加します。ディーラーはすべての17でスタンドします。チップは無料です — なくなったら補充を押してください。"},
+zh:{tagline:"在通往21点的路上击败庄家。",free:"免费游戏 — 仅游戏筹码，无真钱，无奖品。",dealer:"庄家",you:"你的手牌",rule:"庄家在所有17点停牌 · 黑杰克赔付3:2",balance:"余额",bet:"注金",clear:"清除",deal:"发牌",hit:"要牌",stand:"停牌",double:"双倍",newbet:"新下注",rebet:"重复下注并发牌",refill:"+1,000 免费补充",win:"你赢了",lose:"庄家赢",push:"平局 — 退回注金",blackjack:"黑杰克！",bust:"爆牌",dealerBust:"庄家爆牌",placeBet:"下注后点击发牌",yourTurn:"轮到你 — 要牌、停牌或双倍",dealing:"发牌中…",stats:"局数 {h} · 获胜 {w} · 黑杰克 {b}",howto:"玩法：在不超过21点的前提下比庄家更接近21点。数字牌=面值，J/Q/K=10，A=11或1。黑杰克（前两张牌凑成21点）赔付3:2。双倍将注金翻倍，只再发一张牌。庄家在所有17点停牌。筹码免费 — 用完时点击补充。"}
+};
+let lang = localStorage.getItem('bj21Lang') || 'en';
+if (!I18N[lang]) lang = 'en';
+const T = k => (I18N[lang] && I18N[lang][k]) || I18N.en[k] || k;
+const $ = id => document.getElementById(id);
+const langSel = $('langSel');
+LANGS.forEach(([code, label]) => { const o = document.createElement('option'); o.value = code; o.textContent = '🌐 ' + label; langSel.appendChild(o); });
+langSel.value = lang;
+langSel.onchange = () => { lang = langSel.value; localStorage.setItem('bj21Lang', lang); applyLang(); renderStats(); };
+function applyLang(){
+  document.querySelectorAll('[data-i]').forEach(el => { el.textContent = T(el.dataset.i); });
+  document.documentElement.lang = lang;
+  document.body.dir = (lang === 'ar') ? 'rtl' : 'ltr';
+}
+
+/* ============ Sound (WebAudio synth only) ============ */
+let AC = null, muted = localStorage.getItem('bj21Mute') === '1';
+const muteBtn = $('muteBtn');
+function setMuteIcon(){ muteBtn.textContent = muted ? '🔇' : '🔊'; }
+setMuteIcon();
+muteBtn.onclick = () => { muted = !muted; localStorage.setItem('bj21Mute', muted ? '1' : '0'); setMuteIcon(); if (!muted) sndChip(); };
+function ac(){ if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === 'suspended') AC.resume(); return AC; }
+function tone(f, t0, dur, type, vol, slideTo){
+  if (muted) return; const c = ac(), o = c.createOscillator(), g = c.createGain();
+  o.type = type || 'sine'; o.frequency.setValueAtTime(f, c.currentTime + t0);
+  if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, c.currentTime + t0 + dur);
+  g.gain.setValueAtTime(0.0001, c.currentTime + t0);
+  g.gain.exponentialRampToValueAtTime(vol || .12, c.currentTime + t0 + .012);
+  g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + t0 + dur);
+  o.connect(g).connect(c.destination); o.start(c.currentTime + t0); o.stop(c.currentTime + t0 + dur + .05);
+}
+function sndCard(){ if (muted) return; const c = ac(), len = c.sampleRate * .07, buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const s = c.createBufferSource(); s.buffer = buf; const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2600;
+  const g = c.createGain(); g.gain.value = .25; s.connect(f).connect(g).connect(c.destination); s.start(); }
+function sndChip(){ tone(2100, 0, .05, 'square', .06); tone(2900, .045, .06, 'square', .05); }
+function sndWin(){ [523,659,784,1047].forEach((f, i) => tone(f, i * .09, .22, 'triangle', .14)); }
+function sndBigWin(){ [523,659,784,1047,1319,1568].forEach((f, i) => tone(f, i * .1, .3, 'triangle', .15)); }
+function sndLose(){ tone(220, 0, .3, 'sawtooth', .07, 110); }
+
+/* ============ Game state ============ */
+const SUITS = ['♠','♥','♦','♣'], RANKS = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+let store = { bal: 1000, hands: 0, won: 0, bjs: 0 };
+try { const s = JSON.parse(localStorage.getItem('bj21')); if (s && typeof s.bal === 'number') store = Object.assign(store, s); } catch(e){}
+let shoe = [], phase = 'bet', player = [], dealer = [], bet = 0, lastBet = 0, holeDown = true, busy = false;
+function save(){ localStorage.setItem('bj21', JSON.stringify(store)); }
+function newShoe(){
+  shoe = [];
+  for (let d = 0; d < 6; d++) for (const s of SUITS) for (const r of RANKS) shoe.push({ r, s });
+  for (let i = shoe.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [shoe[i], shoe[j]] = [shoe[j], shoe[i]]; }
+}
+newShoe();
+function draw(){ if (shoe.length < 15) newShoe(); return shoe.pop(); }
+function val(hand){
+  let t = 0, aces = 0;
+  for (const c of hand){ if (c.r === 'A'){ t += 11; aces++; } else if ('KQJ'.includes(c.r)) t += 10; else t += +c.r; }
+  while (t > 21 && aces){ t -= 10; aces--; }
+  return { total: t, soft: aces > 0 };
+}
+const isBJ = hand => hand.length === 2 && val(hand).total === 21;
+const fmt = n => n.toLocaleString('en-US');
+
+/* ============ Rendering ============ */
+function cardEl(c, faceDown){
+  if (faceDown){
+    const w = document.createElement('div'); w.className = 'cardWrap';
+    const f = document.createElement('div'); f.className = 'cardFlip'; f.id = 'holeFlip';
+    const back = document.createElement('div'); back.className = 'card cardBack';
+    const front = cardEl(c, false); front.classList.add('front'); front.style.animation = 'none';
+    f.append(back, front); w.appendChild(f); return w;
+  }
+  const el = document.createElement('div');
+  const red = (c.s === '♥' || c.s === '♦');
+  const face = 'JQK'.includes(c.r);
+  el.className = 'card ' + (red ? 'red' : 'black') + (face ? ' face' : '');
+  el.innerHTML = '<div class="tl">' + c.r + '<small>' + c.s + '</small></div><div class="pip">' + (face ? c.r : c.s) + '</div>';
+  return el;
+}
+function renderHands(){
+  const ph = $('playerHand'), dh = $('dealerHand');
+  ph.innerHTML = ''; dh.innerHTML = '';
+  player.forEach(c => ph.appendChild(cardEl(c, false)));
+  dealer.forEach((c, i) => dh.appendChild(cardEl(c, holeDown && i === 1)));
+  $('playerTotal').textContent = player.length ? val(player).total : '–';
+  $('dealerTotal').textContent = !dealer.length ? '–' : (holeDown ? val([dealer[0]]).total : val(dealer).total);
+}
+function renderBank(){
+  $('balVal').textContent = fmt(store.bal);
+  $('betVal').textContent = fmt(bet);
+  const st = $('betStack'); st.innerHTML = '';
+  const layers = Math.min(10, Math.ceil(bet / 25));
+  const cols = ['#1d4fa1','#177245','#a11d1d','#141a28','#8a6410'];
+  for (let i = 0; i < layers; i++){ const d = document.createElement('div'); d.className = 'stk'; d.style.background = cols[i % cols.length]; st.appendChild(d); }
+  document.querySelectorAll('#betChips .chip').forEach(ch => {
+    const v = ch.dataset.chip === 'max' ? store.bal : +ch.dataset.chip;
+    ch.disabled = phase !== 'bet' || store.bal <= 0 || (ch.dataset.chip !== 'max' && v > store.bal) || (ch.dataset.chip === 'max' && store.bal <= 0);
+  });
+  $('dealBtn').disabled = phase !== 'bet' || bet <= 0 || busy;
+  $('clearBtn').disabled = phase !== 'bet' || bet <= 0 || busy;
+  $('refillBtn').classList.toggle('hidden', !(phase === 'bet' && store.bal < 10 && bet === 0));
+}
+function renderStats(){ $('stats').textContent = T('stats').replace('{h}', store.hands).replace('{w}', store.won).replace('{b}', store.bjs); }
+function showBanner(txt, cls){
+  const b = $('bannerInner');
+  if (!txt){ b.className = 'inner'; b.textContent = ''; return; }
+  b.className = 'inner show ' + cls; b.textContent = txt;
+}
+function setPhase(p){
+  phase = p;
+  $('betRow').classList.toggle('hidden', p !== 'bet');
+  $('playRow').classList.toggle('hidden', p !== 'play');
+  $('againRow').classList.toggle('hidden', p !== 'done');
+  $('betChips').style.visibility = p === 'bet' ? 'visible' : 'hidden';
+  if (p === 'play'){
+    $('doubleBtn').disabled = !(player.length === 2 && store.bal >= bet);
+  }
+  renderBank();
+}
+
+/* ============ Flow ============ */
+const wait = ms => new Promise(r => setTimeout(r, ms));
+async function dealCardTo(hand, el){
+  hand.push(draw()); sndCard(); renderHands(); await wait(300);
+}
+async function startHand(){
+  if (bet <= 0 || bet > store.bal || busy) return;
+  busy = true; store.bal -= bet; save(); showBanner('', '');
+  player = []; dealer = []; holeDown = true; renderHands(); renderBank();
+  setPhase('play'); document.querySelectorAll('#playRow .act').forEach(b => b.disabled = true);
+  await dealCardTo(player); await dealCardTo(dealer); await dealCardTo(player); await dealCardTo(dealer);
+  renderHands();
+  const pBJ = isBJ(player), dBJ = isBJ(dealer);
+  if (pBJ || dBJ){
+    holeDown = false; flipHole(); renderHands(); await wait(450);
+    if (pBJ && dBJ) return settle('push');
+    if (pBJ) return settle('blackjack');
+    return settle('lose');
+  }
+  document.querySelectorAll('#playRow .act').forEach(b => b.disabled = false);
+  $('doubleBtn').disabled = !(store.bal >= bet);
+  busy = false;
+}
+function flipHole(){ const f = $('holeFlip'); if (f) f.classList.add('flipped'); }
+async function dealerPlay(){
+  holeDown = false; flipHole(); sndCard(); renderHands(); await wait(550);
+  while (val(dealer).total < 17){ await dealCardTo(dealer); }
+  renderHands();
+}
+function settle(kind, doubled){
+  const amt = bet;
+  store.hands++;
+  let net = 0, txt = '', cls = '';
+  if (kind === 'blackjack'){ net = Math.floor(amt * 1.5); store.bal += amt + net; store.won++; store.bjs++; txt = T('blackjack') + ' +' + fmt(net); cls = 'bj'; sndBigWin(); }
+  else if (kind === 'win'){ net = amt; store.bal += amt * 2; store.won++; txt = T('win') + ' +' + fmt(net); cls = 'win'; sndWin(); }
+  else if (kind === 'dealerBust'){ net = amt; store.bal += amt * 2; store.won++; txt = T('dealerBust') + ' · ' + T('win') + ' +' + fmt(net); cls = 'win'; sndWin(); }
+  else if (kind === 'push'){ store.bal += amt; txt = T('push'); cls = 'push'; sndChip(); }
+  else if (kind === 'bust'){ net = -amt; txt = T('bust') + ' · −' + fmt(amt); cls = 'lose'; sndLose(); }
+  else { net = -amt; txt = T('lose') + ' · −' + fmt(amt); cls = 'lose'; sndLose(); }
+  lastBet = amt; bet = 0; busy = false;
+  save(); renderHands(); renderBank(); renderStats(); showBanner(txt, cls);
+  $('rebetBtn').disabled = store.bal < lastBet;
+  setPhase('done'); renderBank();
+}
+async function finishWithDealer(){
+  document.querySelectorAll('#playRow .act').forEach(b => b.disabled = true);
+  await dealerPlay();
+  const pv = val(player).total, dv = val(dealer).total;
+  if (dv > 21) settle('dealerBust');
+  else if (pv > dv) settle('win');
+  else if (pv < dv) settle('lose');
+  else settle('push');
+}
+
+/* ============ Actions ============ */
+document.querySelectorAll('#betChips .chip').forEach(ch => {
+  ch.onclick = () => {
+    if (phase !== 'bet') return;
+    const add = ch.dataset.chip === 'max' ? store.bal - bet : +ch.dataset.chip;
+    if (add <= 0 || bet + add > store.bal) return;
+    bet += add; sndChip(); renderBank();
+  };
+});
+$('clearBtn').onclick = () => { bet = 0; sndChip(); renderBank(); };
+$('dealBtn').onclick = startHand;
+$('refillBtn').onclick = () => { store.bal += 1000; save(); sndChip(); renderBank(); };
+$('hitBtn').onclick = async () => {
+  if (phase !== 'play' || busy) return; busy = true;
+  $('doubleBtn').disabled = true;
+  await dealCardTo(player); renderHands();
+  if (val(player).total > 21){ busy = false; return settle('bust'); }
+  if (val(player).total === 21){ busy = false; return finishWithDealer(); }
+  busy = false;
+};
+$('standBtn').onclick = () => { if (phase === 'play' && !busy){ busy = true; finishWithDealer().then(() => busy = false); } };
+$('doubleBtn').onclick = async () => {
+  if (phase !== 'play' || busy || player.length !== 2 || store.bal < bet) return;
+  busy = true; store.bal -= bet; bet *= 2; save(); sndChip(); renderBank();
+  document.querySelectorAll('#playRow .act').forEach(b => b.disabled = true);
+  await dealCardTo(player); renderHands();
+  if (val(player).total > 21){ busy = false; return settle('bust'); }
+  busy = false; finishWithDealer();
+};
+$('newBetBtn').onclick = () => { player = []; dealer = []; holeDown = true; renderHands(); showBanner('', ''); setPhase('bet'); };
+$('rebetBtn').onclick = () => { if (store.bal >= lastBet){ bet = lastBet; player = []; dealer = []; renderHands(); showBanner('', ''); startHand(); } };
+
+/* ============ Boot ============ */
+applyLang(); renderHands(); renderStats(); setPhase('bet'); showBanner('', '');
+window.BJ = { get shoe(){ return shoe; }, set shoe(v){ shoe = v; }, get state(){ return { phase, bal: store.bal, bet, player: player.slice(), dealer: dealer.slice(), holeDown }; } };
+</script>
+</body>
+</html>
