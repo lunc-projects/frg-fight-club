@@ -7324,13 +7324,6 @@ export async function dairyHandler(req, res) {
   }
   const action = String(body.action || '');
   try {
-    if (action === 'dairyPing') {
-      const v = 'ping-' + Date.now();
-      const setOut = await dairyPipeline([['SET', 'dairy:ping', v, 'EX', '120']]);
-      const getOut = await dairyPipeline([['GET', 'dairy:ping']]);
-      const qOut = await dairyPipeline([['LPUSH', 'dairy:pingq', v], ['LRANGE', 'dairy:pingq', '0', '2']]);
-      return res.status(200).json({ ok: true, v, setOut, getOut, qOut });
-    }
     if (action === 'dairy-photo-start') {
       const image = String(body.image || '');
       const mime = String(body.mime || 'image/jpeg');
