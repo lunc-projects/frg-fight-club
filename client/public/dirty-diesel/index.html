@@ -730,6 +730,30 @@ function toMenu(){ mode='menu'; show('menu',true); show('garage',false); show('o
 function toGarage(){ mode='garage'; show('menu',false); show('over',false); show('garage',true); show('hud',false); show('controls',false); showroom.visible = true; renderGarage(); resetTruckPose(); }
 function resetTruckPose(){ if(!truck) return; truck.position.set(0,0,0); truck.rotation.set(0,0,0); truckX=0; truckY=0; vy=0; crushY=0; crushPitch=0; crushRoll=0; crushLoad=0; onCars=false; }
 function clearEntities(){ entities.forEach(e=>{ scene.remove(e); }); coinRows.forEach(r=> scene.remove(r)); entities=[]; coinRows=[]; }
+/* --- engine sound (WebAudio synth — no audio files; pitch follows speedMph) --- */
+let engAC = null, engO1 = null, engO2 = null, engG = null, engF = null;
+function engineSound(turbo){
+  try {
+    if(!engAC) engAC = new (window.AudioContext || window.webkitAudioContext)();
+    if(engAC.state === 'suspended') engAC.resume();
+    if(!engO1){
+      engO1 = engAC.createOscillator(); engO1.type = 'sawtooth';
+      engO2 = engAC.createOscillator(); engO2.type = 'square';
+      engF = engAC.createBiquadFilter(); engF.type = 'lowpass'; engF.Q.value = 2; engF.frequency.value = 280;
+      engG = engAC.createGain(); engG.gain.value = 0;
+      engO1.connect(engF); engO2.connect(engF); engF.connect(engG); engG.connect(engAC.destination);
+      engO1.frequency.value = 50; engO2.frequency.value = 27;
+      engO1.start(); engO2.start();
+    }
+    const t = engAC.currentTime;
+    const r = Math.max(0, Math.min(1.15, speedMph/122)) * (turbo ? 1.1 : 1);
+    const f = 50 + r*155;   /* diesel growl: ~50Hz idle -> ~205Hz at the 122mph cap, turbo pushes higher */
+    engO1.frequency.setTargetAtTime(f, t, .06);
+    engO2.frequency.setTargetAtTime(f*.5 + 2, t, .06);
+    engF.frequency.setTargetAtTime(260 + r*820, t, .08);
+    engG.gain.setTargetAtTime(mode === 'race' ? .055 + Math.min(r, 1)*.025 : 0, t, .1);
+  } catch(e){ /* audio unavailable — game continues silently */ }
+}
 function startRace(){
   mode='race'; show('menu',false); show('garage',false); show('over',false); show('howto',false); show('hud',true); show('controls',true);
   showroom.visible = false; clearEntities(); resetTruckPose();
@@ -908,6 +932,7 @@ function animate(){
       score += speedMph*dt*0.55;
     } else { speedMph = Math.max(0, speedMph - 60*dt); }
     const speedMs = speedMph*0.44704;
+    engineSound(turboOn);
 
     /* --- steering / truck pose --- */
     truckX += steer * (6.5 + speedMph*0.085) * dt * (speedMph>1?1:0);
