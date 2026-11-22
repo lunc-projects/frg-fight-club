@@ -69,7 +69,7 @@ export default async function handler(req, res) {
       }
       return out;
     };
-    res.setHeader('Cache-Control', 's-maxage=15, stale-while-revalidate=30');
+    res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600');
     return res.status(200).json({ all: shape(all), week: shape(week) });
   } catch (e) {
     console.error('solitaire board failed', e && e.message);

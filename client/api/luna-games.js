@@ -381,7 +381,21 @@ async function submit(cfg, req, res) {
 
 async function board(cfg, res) {
   const wk = `${cfg.prefix}:week:${weekKey()}`;
+  // Quota guard (Nov 22, 2026): the NEONRUSH store hit its 500k/month free
+  // cap. Board reads now serve a pre-built JSON blob (1 command) instead of
+  // recomputing from the sorted sets (3-4 commands) on every cache miss,
+  // and the edge cache holds a board for 5 minutes instead of 15 seconds.
+  const blobKey = `boardcache:${cfg.prefix}:${wk}`;
   try {
+    const hit = await upstashPipeline([['GET', blobKey]]);
+    const cached = hit[0] && hit[0].result;
+    if (cached) {
+      try {
+        const data = JSON.parse(cached);
+        res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600');
+        return res.status(200).json(data);
+      } catch (e) { /* corrupt blob: fall through and rebuild */ }
+    }
     const out = await upstashPipeline([
       ['ZREVRANGE', `${cfg.prefix}:all`, 0, 49, 'WITHSCORES'],
       ['ZREVRANGE', wk, 0, 49, 'WITHSCORES'],
@@ -419,8 +433,12 @@ async function board(cfg, res) {
       }
       return out;
     };
-    res.setHeader('Cache-Control', 's-maxage=15, stale-while-revalidate=30');
-    return res.status(200).json({ all: shape(all), week: shape(week) });
+    const payload = { all: shape(all), week: shape(week) };
+    // Refresh the blob for the next 4 minutes; a failed write only means
+    // the next miss recomputes, so it never fails the read.
+    try { await upstashPipeline([['SET', blobKey, JSON.stringify(payload), 'EX', '240']]); } catch (e) {}
+    res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600');
+    return res.status(200).json(payload);
   } catch (e) {
     console.error('luna-games board failed', e && e.message);
     return res.status(502).json({ error: 'leaderboard unavailable' });
