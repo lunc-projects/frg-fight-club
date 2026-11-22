@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<base href="/lunc-tower-defense/">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>LUNC Tower Defense</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { background:#050914; color:#e8f1ff; font-family:'Segoe UI',system-ui,Arial,sans-serif; }
+  body { min-height:100vh; background:radial-gradient(1200px 700px at 50% -10%, #12234d 0%, #050914 60%); }
+  #wrap { max-width:980px; margin:0 auto; padding:8px 8px 20px; }
+  header { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:6px 2px 10px; }
+  .logo { width:44px; height:44px; border-radius:50%; background:radial-gradient(circle at 35% 30%, #ffe9a3, #f5b921 55%, #b97e06);
+          display:flex; align-items:center; justify-content:center; font-size:24px; color:#5b3a00; font-weight:900;
+          box-shadow:0 0 18px #f5b92188, inset 0 0 8px #fff8; border:2px solid #ffd95e; }
+  h1 { font-size:22px; letter-spacing:.5px; color:#ffd95e; text-shadow:0 0 12px #f5b92166; }
+  .tag { font-size:12px; color:#9db8e8; width:100%; margin-top:-4px; }
+  #langSel { margin-left:auto; font-size:16px; padding:9px 10px; border-radius:10px; background:#0d1a38; color:#fff;
+             border:2px solid #2c4a8a; min-width:170px; }
+  #hud { display:flex; gap:8px; flex-wrap:wrap; margin:4px 0 10px; }
+  .stat { flex:1 1 100px; background:linear-gradient(180deg,#101f42,#0a142c); border:1px solid #274073; border-radius:12px;
+          padding:7px 10px; text-align:center; box-shadow:inset 0 1px 0 #ffffff14; }
+  .stat .k { font-size:11px; color:#8fb0e8; text-transform:uppercase; letter-spacing:1px; }
+  .stat .v { font-size:20px; font-weight:800; color:#fff; }
+  .stat .v.gold { color:#ffd95e; } .stat .v.hp { color:#7dff9a; } .stat .v.hp.low { color:#ff6b6b; }
+  #cvWrap { position:relative; border-radius:16px; overflow:hidden; border:2px solid #274073; box-shadow:0 10px 40px #000c, 0 0 24px #1b3a7a55; }
+  canvas { display:block; width:100%; height:auto; touch-action:none; background:#0a1122; }
+  #controls { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+  button { font-family:inherit; cursor:pointer; border:none; border-radius:12px; font-weight:800; color:#06122b;
+           background:linear-gradient(180deg,#ffe27a,#f5b921); padding:13px 18px; font-size:16px; box-shadow:0 4px 0 #9a6f04, 0 6px 14px #0008; }
+  button:active { transform:translateY(2px); box-shadow:0 2px 0 #9a6f04; }
+  button:disabled { filter:grayscale(.7) brightness(.6); cursor:not-allowed; }
+  button.ghost { background:linear-gradient(180deg,#22355f,#152544); color:#cfe2ff; box-shadow:0 4px 0 #0a1730, 0 6px 14px #0008; }
+  #msg { min-height:22px; text-align:center; font-size:15px; color:#ffd95e; margin-top:8px; font-weight:700; text-shadow:0 2px 6px #000; }
+  #menu { margin-top:10px; background:linear-gradient(180deg,#101f42,#0a142c); border:1px solid #274073; border-radius:14px; padding:12px; display:none; }
+  #menu.open { display:block; }
+  #menu h3 { font-size:16px; color:#ffd95e; margin-bottom:8px; }
+  .tgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px; }
+  .tcard { background:#0d1a38; border:2px solid #274073; border-radius:12px; padding:10px; text-align:left; color:#e8f1ff; box-shadow:none; }
+  .tcard:active { transform:none; }
+  .tcard .tn { font-size:16px; font-weight:800; }
+  .tcard .td { font-size:12px; color:#9db8e8; font-weight:400; margin:3px 0; }
+  .tcard .tc { font-size:14px; color:#ffd95e; font-weight:800; }
+  .tcard.cant { opacity:.45; }
+  .tcard .ic { font-size:24px; }
+  #selInfo { font-size:14px; color:#cfe2ff; line-height:1.5; }
+  .rowbtns { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+  .rowbtns button { flex:1; }
+  #overlay { position:fixed; inset:0; background:#02040cd9; display:none; align-items:center; justify-content:center; z-index:50; padding:16px; }
+  #overlay.open { display:flex; }
+  .panel { background:linear-gradient(180deg,#12234d,#0a142c); border:2px solid #f5b921; border-radius:20px; padding:28px 24px; text-align:center; max-width:420px; width:100%;
+           box-shadow:0 0 40px #f5b92144; }
+  .panel h2 { font-size:32px; color:#ffd95e; margin-bottom:8px; }
+  .panel p { color:#cfe2ff; margin-bottom:14px; font-size:16px; line-height:1.5; }
+  .free { text-align:center; font-size:12px; color:#7d94c4; margin-top:12px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <header>
+    <div class="logo">🌙</div>
+    <div>
+      <h1 data-i="title">LUNC Tower Defense</h1>
+      <div class="tag" data-i="tagline">Defend the LUNC Vault from the rogue drone swarm</div>
+    </div>
+    <select id="langSel" aria-label="Language"></select>
+  </header>
+
+  <div id="hud">
+    <div class="stat"><div class="k" data-i="credits">Credits</div><div class="v gold" id="hCredits">0</div></div>
+    <div class="stat"><div class="k" data-i="vault">Vault HP</div><div class="v hp" id="hHp">20</div></div>
+    <div class="stat"><div class="k" data-i="wave">Wave</div><div class="v" id="hWave">0 / 15</div></div>
+    <div class="stat"><div class="k" data-i="score">Score</div><div class="v" id="hScore">0</div></div>
+    <div class="stat"><div class="k" data-i="best">Best</div><div class="v" id="hBest">—</div></div>
+  </div>
+
+  <div id="cvWrap"><canvas id="cv" width="960" height="640"></canvas></div>
+  <div id="msg"></div>
+
+  <div id="controls">
+    <button id="btnWave" style="flex:2">▶ <span data-i="startWave">Start Wave</span></button>
+    <button id="btnPause" class="ghost" style="flex:1">⏸ <span data-i="pause">Pause</span></button>
+    <button id="btnSpeed" class="ghost" style="flex:1">⏩ 1×</button>
+    <button id="btnRestart" class="ghost" style="flex:1">↻ <span data-i="restart">Restart</span></button>
+  </div>
+
+  <div id="menu"></div>
+  <div class="free" data-i="free">Free game — no wallet, no real money. Just for fun!</div>
+</div>
+
+<div id="overlay"><div class="panel">
+  <h2 id="ovTitle"></h2>
+  <p id="ovText"></p>
+  <button id="btnAgain" style="width:100%">↻ <span data-i="playAgain">Play Again</span></button>
+</div></div>
+
+<script>
+"use strict";
+/* ================= I18N ================= */
+const LANGS = [
+ ["en","English"],["es","Español"],["pt","Português"],["fr","Français"],["de","Deutsch"],["it","Italiano"],
+ ["nl","Nederlands"],["ru","Русский"],["uk","Українська"],["tr","Türkçe"],["ar","العربية"],["hi","हिन्दी"],
+ ["zh","中文"],["ja","日本語"],["ko","한국어"],["id","Bahasa Indonesia"],["vi","Tiếng Việt"],["pl","Polski"]
+];
+const I = {
+en:{title:"LUNC Tower Defense",tagline:"Defend the LUNC Vault from the rogue drone swarm",credits:"Credits",vault:"Vault HP",wave:"Wave",score:"Score",best:"Best",startWave:"Start Wave",nextWave:"Next Wave",pause:"Pause",resume:"Resume",restart:"Restart",playAgain:"Play Again",free:"Free game — no wallet, no real money. Just for fun!",buildTitle:"Build a Tower",cost:"Cost",damage:"Damage",range:"Range",rate:"Rate",level:"Level",maxLevel:"MAX LEVEL",upgrade:"Upgrade",sell:"Sell",close:"Close",notEnough:"Not enough credits!",tapPad:"Tap a glowing pad to build a tower",waveClear:"Wave cleared! +{b} bonus credits",bossWarn:"⚠ WARNING: BOSS DRONE INCOMING ⚠",victory:"VICTORY!",defeat:"VAULT BREACHED!",victoryText:"The vault is safe. Final score: {s} — Waves survived: {w}/15, Kills: {k}",defeatText:"The drones broke through on wave {w}. Final score: {s} — Kills: {k}",blaster:"Blaster",blasterD:"Fast shots, low damage. Cheap and reliable.",frost:"Frost",frostD:"Chills drones, slowing them down.",cannon:"Cannon",cannonD:"Heavy shells with splash damage.",tesla:"Tesla",teslaD:"Lightning that chains between drones.",selected:"{n} — Level {l}",enemies:"Enemies left: {n}",waveOf:"Wave {w} / 15",sellFor:"Sell for {n}",upCost:"Upgrade: {n}"},
+es:{title:"LUNC Tower Defense",tagline:"Defiende la Bóveda LUNC del enjambre de drones",credits:"Créditos",vault:"PV Bóveda",wave:"Oleada",score:"Puntos",best:"Récord",startWave:"Iniciar oleada",nextWave:"Siguiente oleada",pause:"Pausa",resume:"Seguir",restart:"Reiniciar",playAgain:"Jugar de nuevo",free:"Juego gratis — sin billetera, sin dinero real. ¡Solo diversión!",buildTitle:"Construir una torre",cost:"Costo",damage:"Daño",range:"Alcance",rate:"Cadencia",level:"Nivel",maxLevel:"NIVEL MÁX",upgrade:"Mejorar",sell:"Vender",close:"Cerrar",notEnough:"¡Créditos insuficientes!",tapPad:"Toca una plataforma brillante para construir",waveClear:"¡Oleada superada! +{b} créditos extra",bossWarn:"⚠ ¡ATENCIÓN: LLEGA EL DRON JEFE! ⚠",victory:"¡VICTORIA!",defeat:"¡BÓVEDA DESTRUIDA!",victoryText:"La bóveda está a salvo. Puntos: {s} — Oleadas: {w}/15, Bajas: {k}",defeatText:"Los drones entraron en la oleada {w}. Puntos: {s} — Bajas: {k}",blaster:"Bláster",blasterD:"Disparos rápidos, poco daño. Barato y fiable.",frost:"Escarcha",frostD:"Congela drones y los ralentiza.",cannon:"Cañón",cannonD:"Proyectiles pesados con daño en área.",tesla:"Tesla",teslaD:"Rayos que saltan entre drones.",selected:"{n} — Nivel {l}",enemies:"Enemigos restantes: {n}",waveOf:"Oleada {w} / 15",sellFor:"Vender por {n}",upCost:"Mejora: {n}"},
+pt:{title:"LUNC Tower Defense",tagline:"Defenda o Cofre LUNC do enxame de drones",credits:"Créditos",vault:"PV do Cofre",wave:"Onda",score:"Pontos",best:"Recorde",startWave:"Iniciar onda",nextWave:"Próxima onda",pause:"Pausar",resume:"Continuar",restart:"Reiniciar",playAgain:"Jogar de novo",free:"Jogo grátis — sem carteira, sem dinheiro real. Só diversão!",buildTitle:"Construir uma torre",cost:"Custo",damage:"Dano",range:"Alcance",rate:"Cadência",level:"Nível",maxLevel:"NÍVEL MÁX",upgrade:"Melhorar",sell:"Vender",close:"Fechar",notEnough:"Créditos insuficientes!",tapPad:"Toque numa plataforma brilhante para construir",waveClear:"Onda vencida! +{b} créditos bônus",bossWarn:"⚠ AVISO: DRONE CHEFE A CAMINHO ⚠",victory:"VITÓRIA!",defeat:"COFRE INVADIDO!",victoryText:"O cofre está seguro. Pontos: {s} — Ondas: {w}/15, Abates: {k}",defeatText:"Os drones entraram na onda {w}. Pontos: {s} — Abates: {k}",blaster:"Blaster",blasterD:"Tiros rápidos, dano baixo. Barato e confiável.",frost:"Gelo",frostD:"Congela drones e os deixa lentos.",cannon:"Canhão",cannonD:"Projéteis pesados com dano em área.",tesla:"Tesla",teslaD:"Raios que saltam entre drones.",selected:"{n} — Nível {l}",enemies:"Inimigos restantes: {n}",waveOf:"Onda {w} / 15",sellFor:"Vender por {n}",upCost:"Melhoria: {n}"},
+fr:{title:"LUNC Tower Defense",tagline:"Défendez le Coffre LUNC contre l'essaim de drones",credits:"Crédits",vault:"PV Coffre",wave:"Vague",score:"Score",best:"Record",startWave:"Lancer la vague",nextWave:"Vague suivante",pause:"Pause",resume:"Reprendre",restart:"Recommencer",playAgain:"Rejouer",free:"Jeu gratuit — sans portefeuille, sans argent réel. Juste pour le fun !",buildTitle:"Construire une tour",cost:"Coût",damage:"Dégâts",range:"Portée",rate:"Cadence",level:"Niveau",maxLevel:"NIVEAU MAX",upgrade:"Améliorer",sell:"Vendre",close:"Fermer",notEnough:"Crédits insuffisants !",tapPad:"Touchez une plateforme lumineuse pour construire",waveClear:"Vague terminée ! +{b} crédits bonus",bossWarn:"⚠ ALERTE : DRONE BOSS EN APPROCHE ⚠",victory:"VICTOIRE !",defeat:"COFFRE FORCÉ !",victoryText:"Le coffre est sauf. Score : {s} — Vagues : {w}/15, Éliminations : {k}",defeatText:"Les drones ont percé à la vague {w}. Score : {s} — Éliminations : {k}",blaster:"Blaster",blasterD:"Tirs rapides, faibles dégâts. Pas cher et fiable.",frost:"Givre",frostD:"Gèle les drones et les ralentit.",cannon:"Canon",cannonD:"Obus lourds avec dégâts de zone.",tesla:"Tesla",teslaD:"Foudre qui rebondit entre les drones.",selected:"{n} — Niveau {l}",enemies:"Ennemis restants : {n}",waveOf:"Vague {w} / 15",sellFor:"Vendre pour {n}",upCost:"Amélioration : {n}"},
+de:{title:"LUNC Tower Defense",tagline:"Verteidige den LUNC-Tresor gegen den Drohnenschwarm",credits:"Credits",vault:"Tresor-HP",wave:"Welle",score:"Punkte",best:"Rekord",startWave:"Welle starten",nextWave:"Nächste Welle",pause:"Pause",resume:"Weiter",restart:"Neustart",playAgain:"Nochmal spielen",free:"Kostenloses Spiel — keine Wallet, kein echtes Geld. Nur zum Spaß!",buildTitle:"Turm bauen",cost:"Kosten",damage:"Schaden",range:"Reichweite",rate:"Feuerrate",level:"Stufe",maxLevel:"MAX. STUFE",upgrade:"Aufrüsten",sell:"Verkaufen",close:"Schließen",notEnough:"Nicht genug Credits!",tapPad:"Tippe auf ein leuchtendes Feld, um zu bauen",waveClear:"Welle geschafft! +{b} Bonus-Credits",bossWarn:"⚠ WARNUNG: BOSS-DROHNE IM ANFLUG ⚠",victory:"SIEG!",defeat:"TRESOR GEKNACKT!",victoryText:"Der Tresor ist sicher. Punkte: {s} — Wellen: {w}/15, Abschüsse: {k}",defeatText:"Die Drohnen brachen in Welle {w} durch. Punkte: {s} — Abschüsse: {k}",blaster:"Blaster",blasterD:"Schnelle Schüsse, wenig Schaden. Günstig und zuverlässig.",frost:"Frost",frostD:"Friert Drohnen ein und verlangsamt sie.",cannon:"Kanone",cannonD:"Schwere Granaten mit Flächenschaden.",tesla:"Tesla",teslaD:"Blitze, die zwischen Drohnen springen.",selected:"{n} — Stufe {l}",enemies:"Feinde übrig: {n}",waveOf:"Welle {w} / 15",sellFor:"Verkaufen für {n}",upCost:"Aufrüsten: {n}"},
+it:{title:"LUNC Tower Defense",tagline:"Difendi il Caveau LUNC dallo sciame di droni",credits:"Crediti",vault:"PV Caveau",wave:"Ondata",score:"Punti",best:"Record",startWave:"Avvia ondata",nextWave:"Ondata successiva",pause:"Pausa",resume:"Riprendi",restart:"Ricomincia",playAgain:"Gioca ancora",free:"Gioco gratuito — niente wallet, niente soldi veri. Solo divertimento!",buildTitle:"Costruisci una torre",cost:"Costo",damage:"Danno",range:"Gittata",rate:"Cadenza",level:"Livello",maxLevel:"LIVELLO MAX",upgrade:"Potenzia",sell:"Vendi",close:"Chiudi",notEnough:"Crediti insufficienti!",tapPad:"Tocca una piattaforma luminosa per costruire",waveClear:"Ondata superata! +{b} crediti bonus",bossWarn:"⚠ ATTENZIONE: DRONE BOSS IN ARRIVO ⚠",victory:"VITTORIA!",defeat:"CAVEAU VIOLATO!",victoryText:"Il caveau è salvo. Punti: {s} — Ondate: {w}/15, Uccisioni: {k}",defeatText:"I droni sono entrati all'ondata {w}. Punti: {s} — Uccisioni: {k}",blaster:"Blaster",blasterD:"Colpi rapidi, danno basso. Economico e affidabile.",frost:"Gelo",frostD:"Raffredda i droni e li rallenta.",cannon:"Cannone",cannonD:"Proiettili pesanti con danno ad area.",tesla:"Tesla",teslaD:"Fulmini che rimbalzano tra i droni.",selected:"{n} — Livello {l}",enemies:"Nemici rimasti: {n}",waveOf:"Ondata {w} / 15",sellFor:"Vendi per {n}",upCost:"Potenziamento: {n}"}
+};
+</script>
+<script>
+"use strict";
+Object.assign(I, {
+nl:{title:"LUNC Tower Defense",tagline:"Verdedig de LUNC-kluis tegen de dronenzwerm",credits:"Credits",vault:"Kluis-HP",wave:"Golf",score:"Score",best:"Record",startWave:"Start golf",nextWave:"Volgende golf",pause:"Pauze",resume:"Hervat",restart:"Herstart",playAgain:"Opnieuw spelen",free:"Gratis spel — geen wallet, geen echt geld. Gewoon voor de lol!",buildTitle:"Bouw een toren",cost:"Kosten",damage:"Schade",range:"Bereik",rate:"Vuursnelheid",level:"Niveau",maxLevel:"MAX NIVEAU",upgrade:"Upgraden",sell:"Verkopen",close:"Sluiten",notEnough:"Niet genoeg credits!",tapPad:"Tik op een gloeiend veld om te bouwen",waveClear:"Golf gehaald! +{b} bonuscredits",bossWarn:"⚠ WAARSCHUWING: BAASDRONE NADERT ⚠",victory:"OVERWINNING!",defeat:"KLUIS GEKRAAKT!",victoryText:"De kluis is veilig. Score: {s} — Golven: {w}/15, Kills: {k}",defeatText:"De drones braken door in golf {w}. Score: {s} — Kills: {k}",blaster:"Blaster",blasterD:"Snelle schoten, weinig schade. Goedkoop en betrouwbaar.",frost:"Vorst",frostD:"Koelt drones af en vertraagt ze.",cannon:"Kanon",cannonD:"Zware granaten met spat­schade.",tesla:"Tesla",teslaD:"Bliksem die tussen drones springt.",selected:"{n} — Niveau {l}",enemies:"Vijanden over: {n}",waveOf:"Golf {w} / 15",sellFor:"Verkoop voor {n}",upCost:"Upgrade: {n}"},
+ru:{title:"LUNC Tower Defense",tagline:"Защищайте хранилище LUNC от роя дронов",credits:"Кредиты",vault:"HP хранилища",wave:"Волна",score:"Очки",best:"Рекорд",startWave:"Начать волну",nextWave:"След. волна",pause:"Пауза",resume:"Продолжить",restart:"Заново",playAgain:"Играть снова",free:"Бесплатная игра — без кошелька и реальных денег. Просто для удовольствия!",buildTitle:"Построить башню",cost:"Цена",damage:"Урон",range:"Радиус",rate:"Скорострельность",level:"Уровень",maxLevel:"МАКС. УРОВЕНЬ",upgrade:"Улучшить",sell:"Продать",close:"Закрыть",notEnough:"Не хватает кредитов!",tapPad:"Нажмите на светящуюся площадку, чтобы построить",waveClear:"Волна отбита! +{b} бонусных кредитов",bossWarn:"⚠ ВНИМАНИЕ: ПРИБЛИЖАЕТСЯ ДРОН-БОСС ⚠",victory:"ПОБЕДА!",defeat:"ХРАНИЛИЩЕ ВЗЛОМАНО!",victoryText:"Хранилище в безопасности. Очки: {s} — Волн: {w}/15, Убийств: {k}",defeatText:"Дроны прорвались на волне {w}. Очки: {s} — Убийств: {k}",blaster:"Бластер",blasterD:"Быстрые выстрелы, малый урон. Дёшево и надёжно.",frost:"Мороз",frostD:"Охлаждает дронов и замедляет их.",cannon:"Пушка",cannonD:"Тяжёлые снаряды с уроном по площади.",tesla:"Тесла",teslaD:"Молнии, перескакивающие между дронами.",selected:"{n} — Уровень {l}",enemies:"Врагов осталось: {n}",waveOf:"Волна {w} / 15",sellFor:"Продать за {n}",upCost:"Улучшение: {n}"},
+uk:{title:"LUNC Tower Defense",tagline:"Захищайте сховище LUNC від рою дронів",credits:"Кредити",vault:"HP сховища",wave:"Хвиля",score:"Очки",best:"Рекорд",startWave:"Почати хвилю",nextWave:"Наступна хвиля",pause:"Пауза",resume:"Продовжити",restart:"Спочатку",playAgain:"Грати знову",free:"Безкоштовна гра — без гаманця і справжніх грошей. Просто для розваги!",buildTitle:"Побудувати вежу",cost:"Ціна",damage:"Шкода",range:"Радіус",rate:"Швидкість вогню",level:"Рівень",maxLevel:"МАКС. РІВЕНЬ",upgrade:"Покращити",sell:"Продати",close:"Закрити",notEnough:"Не вистачає кредитів!",tapPad:"Натисніть на сяючий майданчик, щоб будувати",waveClear:"Хвилю відбито! +{b} бонусних кредитів",bossWarn:"⚠ УВАГА: НАБЛИЖАЄТЬСЯ ДРОН-БОС ⚠",victory:"ПЕРЕМОГА!",defeat:"СХОВИЩЕ ЗЛАМАНО!",victoryText:"Сховище в безпеці. Очки: {s} — Хвиль: {w}/15, Вбивств: {k}",defeatText:"Дрони прорвалися на хвилі {w}. Очки: {s} — Вбивств: {k}",blaster:"Бластер",blasterD:"Швидкі постріли, мала шкода. Дешево й надійно.",frost:"Мороз",frostD:"Охолоджує дрони та сповільнює їх.",cannon:"Гармата",cannonD:"Важкі снаряди з шкодою по площі.",tesla:"Тесла",teslaD:"Блискавки, що перескакують між дронами.",selected:"{n} — Рівень {l}",enemies:"Ворогів лишилося: {n}",waveOf:"Хвиля {w} / 15",sellFor:"Продати за {n}",upCost:"Покращення: {n}"},
+tr:{title:"LUNC Tower Defense",tagline:"LUNC Kasasını dron sürüsüne karşı savun",credits:"Kredi",vault:"Kasa HP",wave:"Dalga",score:"Skor",best:"Rekor",startWave:"Dalgayı Başlat",nextWave:"Sonraki Dalga",pause:"Duraklat",resume:"Devam Et",restart:"Yeniden Başlat",playAgain:"Tekrar Oyna",free:"Ücretsiz oyun — cüzdan yok, gerçek para yok. Sadece eğlence!",buildTitle:"Kule İnşa Et",cost:"Maliyet",damage:"Hasar",range:"Menzil",rate:"Atış Hızı",level:"Seviye",maxLevel:"MAKS SEVİYE",upgrade:"Yükselt",sell:"Sat",close:"Kapat",notEnough:"Yeterli kredi yok!",tapPad:"İnşa etmek için parlayan bir alana dokun",waveClear:"Dalga temizlendi! +{b} bonus kredi",bossWarn:"⚠ UYARI: PATRON DRON YAKLAŞIYOR ⚠",victory:"ZAFER!",defeat:"KASA YARILDI!",victoryText:"Kasa güvende. Skor: {s} — Dalgalar: {w}/15, Leş: {k}",defeatText:"Dronlar {w}. dalgada içeri girdi. Skor: {s} — Leş: {k}",blaster:"Blaster",blasterD:"Hızlı atışlar, düşük hasar. Ucuz ve güvenilir.",frost:"Buz",frostD:"Dronları soğutur ve yavaşlatır.",cannon:"Top",cannonD:"Alan hasarlı ağır mermiler.",tesla:"Tesla",teslaD:"Dronlar arasında seken yıldırım.",selected:"{n} — Seviye {l}",enemies:"Kalan düşman: {n}",waveOf:"Dalga {w} / 15",sellFor:"{n} karşılığında sat",upCost:"Yükseltme: {n}"},
+ar:{title:"دفاع برج LUNC",tagline:"دافع عن خزنة LUNC ضد سرب الطائرات المارقة",credits:"الاعتمادات",vault:"نقاط الخزنة",wave:"الموجة",score:"النقاط",best:"الأفضل",startWave:"ابدأ الموجة",nextWave:"الموجة التالية",pause:"إيقاف",resume:"استئناف",restart:"إعادة",playAgain:"العب مجددًا",free:"لعبة مجانية — بدون محفظة وبدون مال حقيقي. للمتعة فقط!",buildTitle:"ابنِ برجًا",cost:"التكلفة",damage:"الضرر",range:"المدى",rate:"المعدل",level:"المستوى",maxLevel:"المستوى الأقصى",upgrade:"ترقية",sell:"بيع",close:"إغلاق",notEnough:"اعتمادات غير كافية!",tapPad:"المس منصة متوهجة للبناء",waveClear:"تم صد الموجة! +{b} اعتمادات إضافية",bossWarn:"⚠ تحذير: طائرة الزعيم قادمة ⚠",victory:"النصر!",defeat:"تم اختراق الخزنة!",victoryText:"الخزنة آمنة. النقاط: {s} — الموجات: {w}/15، القتلى: {k}",defeatText:"اخترقت الطائرات في الموجة {w}. النقاط: {s} — القتلى: {k}",blaster:"القاذف",blasterD:"طلقات سريعة وضرر منخفض. رخيص وموثوق.",frost:"الصقيع",frostD:"يبرد الطائرات ويبطئها.",cannon:"المدفع",cannonD:"قذائف ثقيلة بضرر منطقة.",tesla:"تسلا",teslaD:"برق يتنقل بين الطائرات.",selected:"{n} — المستوى {l}",enemies:"الأعداء المتبقون: {n}",waveOf:"الموجة {w} / 15",sellFor:"بيع مقابل {n}",upCost:"الترقية: {n}"},
+hi:{title:"LUNC टावर डिफेंस",tagline:"दुष्ट ड्रोन झुंड से LUNC वॉल्ट की रक्षा करें",credits:"क्रेडिट",vault:"वॉल्ट HP",wave:"वेव",score:"स्कोर",best:"सर्वश्रेष्ठ",startWave:"वेव शुरू करें",nextWave:"अगली वेव",pause:"रोकें",resume:"जारी रखें",restart:"फिर से शुरू",playAgain:"फिर से खेलें",free:"मुफ़्त गेम — कोई वॉलेट नहीं, कोई असली पैसा नहीं। बस मज़े के लिए!",buildTitle:"टावर बनाएँ",cost:"लागत",damage:"नुकसान",range:"रेंज",rate:"दर",level:"स्तर",maxLevel:"अधिकतम स्तर",upgrade:"अपग्रेड",sell:"बेचें",close:"बंद करें",notEnough:"पर्याप्त क्रेडिट नहीं!",tapPad:"बनाने के लिए चमकते पैड पर टैप करें",waveClear:"वेव साफ़! +{b} बोनस क्रेडिट",bossWarn:"⚠ चेतावनी: बॉस ड्रोन आ रहा है ⚠",victory:"जीत!",defeat:"वॉल्ट टूट गया!",victoryText:"वॉल्ट सुरक्षित है। स्कोर: {s} — वेव: {w}/15, किल: {k}",defeatText:"ड्रोन वेव {w} में घुस आए। स्कोर: {s} — किल: {k}",blaster:"ब्लास्टर",blasterD:"तेज़ शॉट, कम नुकसान। सस्ता और भरोसेमंद।",frost:"फ्रॉस्ट",frostD:"ड्रोन को ठंडा करके धीमा करता है।",cannon:"तोप",cannonD:"क्षेत्र नुकसान वाले भारी गोले।",tesla:"टेस्ला",teslaD:"ड्रोन के बीच उछलती बिजली।",selected:"{n} — स्तर {l}",enemies:"बचे हुए दुश्मन: {n}",waveOf:"वेव {w} / 15",sellFor:"{n} में बेचें",upCost:"अपग्रेड: {n}"},
+zh:{title:"LUNC 塔防",tagline:"保卫 LUNC 金库，抵御无人机群",credits:"信用点",vault:"金库生命",wave:"波次",score:"分数",best:"最佳",startWave:"开始波次",nextWave:"下一波",pause:"暂停",resume:"继续",restart:"重新开始",playAgain:"再玩一次",free:"免费游戏——无需钱包，无真实货币。纯属娱乐！",buildTitle:"建造防御塔",cost:"费用",damage:"伤害",range:"射程",rate:"射速",level:"等级",maxLevel:"满级",upgrade:"升级",sell:"出售",close:"关闭",notEnough:"信用点不足！",tapPad:"点击发光的基座来建造",waveClear:"波次已清除！+{b} 奖励信用点",bossWarn:"⚠ 警告：BOSS 无人机来袭 ⚠",victory:"胜利！",defeat:"金库被攻破！",victoryText:"金库安全。分数：{s} — 波次：{w}/15，击杀：{k}",defeatText:"无人机在第 {w} 波攻入。分数：{s} — 击杀：{k}",blaster:"爆能炮",blasterD:"射速快，伤害低。便宜可靠。",frost:"冰霜塔",frostD:"冻结无人机并减速。",cannon:"加农炮",cannonD:"重型炮弹，溅射伤害。",tesla:"特斯拉塔",teslaD:"在无人机之间跳跃的闪电。",selected:"{n} — 等级 {l}",enemies:"剩余敌人：{n}",waveOf:"波次 {w} / 15",sellFor:"出售得 {n}",upCost:"升级：{n}"},
+ja:{title:"LUNCタワーディフェンス",tagline:"ドローンの群れからLUNC金庫を守れ",credits:"クレジット",vault:"金庫HP",wave:"ウェーブ",score:"スコア",best:"ベスト",startWave:"ウェーブ開始",nextWave:"次のウェーブ",pause:"一時停止",resume:"再開",restart:"リスタート",playAgain:"もう一度プレイ",free:"無料ゲーム — ウォレット不要、本物のお金なし。お楽しみください！",buildTitle:"タワーを建設",cost:"コスト",damage:"ダメージ",range:"射程",rate:"連射",level:"レベル",maxLevel:"最大レベル",upgrade:"アップグレード",sell:"売却",close:"閉じる",notEnough:"クレジットが足りません！",tapPad:"光るパッドをタップして建設",waveClear:"ウェーブクリア！ +{b} ボーナスクレジット",bossWarn:"⚠ 警告：ボスドローン接近中 ⚠",victory:"勝利！",defeat:"金庫が突破された！",victoryText:"金庫は無事です。スコア：{s} — ウェーブ：{w}/15、撃破：{k}",defeatText:"ドローンはウェーブ {w} で侵入しました。スコア：{s} — 撃破：{k}",blaster:"ブラスター",blasterD:"高速射撃、低ダメージ。安くて信頼できる。",frost:"フロスト",frostD:"ドローンを冷やして遅くする。",cannon:"キャノン",cannonD:"範囲ダメージの重砲弾。",tesla:"テスラ",teslaD:"ドローン間を跳ぶ稲妻。",selected:"{n} — レベル {l}",enemies:"残りの敵：{n}",waveOf:"ウェーブ {w} / 15",sellFor:"{n} で売却",upCost:"アップグレード：{n}"},
+ko:{title:"LUNC 타워 디펜스",tagline:"드론 무리로부터 LUNC 금고를 지켜라",credits:"크레딧",vault:"금고 HP",wave:"웨이브",score:"점수",best:"최고 기록",startWave:"웨이브 시작",nextWave:"다음 웨이브",pause:"일시정지",resume:"계속",restart:"다시 시작",playAgain:"다시 플레이",free:"무료 게임 — 지갑 없음, 실제 돈 없음. 재미로만 즐기세요!",buildTitle:"타워 건설",cost:"비용",damage:"피해",range:"사거리",rate:"연사",level:"레벨",maxLevel:"최대 레벨",upgrade:"업그레이드",sell:"판매",close:"닫기",notEnough:"크레딧이 부족합니다!",tapPad:"빛나는 패드를 탭하여 건설하세요",waveClear:"웨이브 클리어! +{b} 보너스 크레딧",bossWarn:"⚠ 경고: 보스 드론 접근 중 ⚠",victory:"승리!",defeat:"금고가 뚫렸습니다!",victoryText:"금고가 안전합니다. 점수: {s} — 웨이브: {w}/15, 처치: {k}",defeatText:"드론이 웨이브 {w}에서 침입했습니다. 점수: {s} — 처치: {k}",blaster:"블래스터",blasterD:"빠른 사격, 낮은 피해. 저렴하고 믿음직합니다.",frost:"프로스트",frostD:"드론을 얼려 느리게 만듭니다.",cannon:"캐논",cannonD:"범위 피해를 주는 중포탄.",tesla:"테슬라",teslaD:"드론 사이를 튀는 번개.",selected:"{n} — 레벨 {l}",enemies:"남은 적: {n}",waveOf:"웨이브 {w} / 15",sellFor:"{n}에 판매",upCost:"업그레이드: {n}"},
+id:{title:"LUNC Tower Defense",tagline:"Lindungi Brankas LUNC dari gerombolan drone",credits:"Kredit",vault:"HP Brankas",wave:"Gelombang",score:"Skor",best:"Terbaik",startWave:"Mulai Gelombang",nextWave:"Gelombang Berikutnya",pause:"Jeda",resume:"Lanjut",restart:"Ulangi",playAgain:"Main Lagi",free:"Game gratis — tanpa dompet, tanpa uang asli. Hanya untuk bersenang-senang!",buildTitle:"Bangun Menara",cost:"Biaya",damage:"Kerusakan",range:"Jangkauan",rate:"Kecepatan",level:"Level",maxLevel:"LEVEL MAKS",upgrade:"Tingkatkan",sell:"Jual",close:"Tutup",notEnough:"Kredit tidak cukup!",tapPad:"Ketuk pad yang menyala untuk membangun",waveClear:"Gelombang bersih! +{b} kredit bonus",bossWarn:"⚠ PERINGATAN: DRONE BOSS MENDEKAT ⚠",victory:"MENANG!",defeat:"BRANKAS DIBOBOL!",victoryText:"Brankas aman. Skor: {s} — Gelombang: {w}/15, Bunuh: {k}",defeatText:"Drone menerobos di gelombang {w}. Skor: {s} — Bunuh: {k}",blaster:"Blaster",blasterD:"Tembakan cepat, kerusakan rendah. Murah dan andal.",frost:"Es",frostD:"Mendinginkan drone dan memperlambatnya.",cannon:"Meriam",cannonD:"Peluru berat dengan kerusakan area.",tesla:"Tesla",teslaD:"Petir yang melompat antar drone.",selected:"{n} — Level {l}",enemies:"Musuh tersisa: {n}",waveOf:"Gelombang {w} / 15",sellFor:"Jual seharga {n}",upCost:"Tingkatkan: {n}"},
+vi:{title:"LUNC Tower Defense",tagline:"Bảo vệ Kho LUNC khỏi bầy drone nổi loạn",credits:"Tín dụng",vault:"HP Kho",wave:"Đợt",score:"Điểm",best:"Kỷ lục",startWave:"Bắt đầu đợt",nextWave:"Đợt tiếp theo",pause:"Tạm dừng",resume:"Tiếp tục",restart:"Chơi lại",playAgain:"Chơi lại",free:"Game miễn phí — không ví, không tiền thật. Chỉ để giải trí!",buildTitle:"Xây tháp",cost:"Chi phí",damage:"Sát thương",range:"Tầm bắn",rate:"Tốc độ bắn",level:"Cấp",maxLevel:"CẤP TỐI ĐA",upgrade:"Nâng cấp",sell:"Bán",close:"Đóng",notEnough:"Không đủ tín dụng!",tapPad:"Chạm vào ô phát sáng để xây",waveClear:"Đã qua đợt! +{b} tín dụng thưởng",bossWarn:"⚠ CẢNH BÁO: DRONE TRÙM ĐANG ĐẾN ⚠",victory:"CHIẾN THẮNG!",defeat:"KHO ĐÃ BỊ PHÁ!",victoryText:"Kho an toàn. Điểm: {s} — Đợt: {w}/15, Hạ: {k}",defeatText:"Drone đột nhập ở đợt {w}. Điểm: {s} — Hạ: {k}",blaster:"Blaster",blasterD:"Bắn nhanh, sát thương thấp. Rẻ và đáng tin.",frost:"Băng",frostD:"Làm lạnh drone và làm chậm chúng.",cannon:"Pháo",cannonD:"Đạn nặng gây sát thương diện rộng.",tesla:"Tesla",teslaD:"Sét nhảy giữa các drone.",selected:"{n} — Cấp {l}",enemies:"Kẻ địch còn lại: {n}",waveOf:"Đợt {w} / 15",sellFor:"Bán với giá {n}",upCost:"Nâng cấp: {n}"},
+pl:{title:"LUNC Tower Defense",tagline:"Broń Skarbca LUNC przed rojem dronów",credits:"Kredyty",vault:"HP Skarbca",wave:"Fala",score:"Wynik",best:"Rekord",startWave:"Start fali",nextWave:"Następna fala",pause:"Pauza",resume:"Wznów",restart:"Od nowa",playAgain:"Zagraj ponownie",free:"Darmowa gra — bez portfela, bez prawdziwych pieniędzy. Tylko dla zabawy!",buildTitle:"Zbuduj wieżę",cost:"Koszt",damage:"Obrażenia",range:"Zasięg",rate:"Szybkostrzelność",level:"Poziom",maxLevel:"POZIOM MAX",upgrade:"Ulepsz",sell:"Sprzedaj",close:"Zamknij",notEnough:"Za mało kredytów!",tapPad:"Dotknij świecącej platformy, aby budować",waveClear:"Fala odparta! +{b} kredytów bonusowych",bossWarn:"⚠ UWAGA: NADCIĄGA DRON-BOSS ⚠",victory:"ZWYCIĘSTWO!",defeat:"SKARBIEC SFORSOWANY!",victoryText:"Skarbiec jest bezpieczny. Wynik: {s} — Fale: {w}/15, Zniszczenia: {k}",defeatText:"Drony wdarły się w fali {w}. Wynik: {s} — Zniszczenia: {k}",blaster:"Blaster",blasterD:"Szybkie strzały, niskie obrażenia. Tani i niezawodny.",frost:"Mróz",frostD:"Chłodzi drony i je spowalnia.",cannon:"Działo",cannonD:"Ciężkie pociski z obrażeniami obszarowymi.",tesla:"Tesla",teslaD:"Błyskawica przeskakująca między dronami.",selected:"{n} — Poziom {l}",enemies:"Pozostałych wrogów: {n}",waveOf:"Fala {w} / 15",sellFor:"Sprzedaj za {n}",upCost:"Ulepszenie: {n}"}
+});
+
+</script>
+<script>
+"use strict";
+/* ================= CORE SETUP ================= */
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const W = 960, H = 640;
+let lang = localStorage.getItem('luncTD_lang') || 'en';
+if (!I[lang]) lang = 'en';
+function t(k, rep) { let s = (I[lang] && I[lang][k]) || I.en[k] || k; if (rep) for (const key in rep) s = s.split('{'+key+'}').join(rep[key]); return s; }
+
+const langSel = document.getElementById('langSel');
+LANGS.forEach(([code, name]) => { const o = document.createElement('option'); o.value = code; o.textContent = name; langSel.appendChild(o); });
+langSel.value = lang;
+langSel.addEventListener('change', () => { lang = langSel.value; localStorage.setItem('luncTD_lang', lang); applyI18n(); renderMenu(); updateHUD(true); });
+function applyI18n() {
+  document.querySelectorAll('[data-i]').forEach(el => { el.textContent = t(el.getAttribute('data-i')); });
+  document.documentElement.lang = lang;
+  document.documentElement.dir = (lang === 'ar') ? 'rtl' : 'ltr';
+  document.title = t('title');
+}
+
+/* ================= AUDIO (WebAudio synth) ================= */
+let AC = null, noiseBuf = null;
+function ac() { if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {} } if (AC && AC.state === 'suspended') AC.resume(); return AC; }
+function tone(f0, f1, dur, type, vol, delay) {
+  const a = ac(); if (!a) return; const t0 = a.currentTime + (delay || 0);
+  const o = a.createOscillator(), g = a.createGain();
+  o.type = type || 'square'; o.frequency.setValueAtTime(f0, t0);
+  o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t0 + dur);
+  g.gain.setValueAtTime(vol || 0.08, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.connect(g).connect(a.destination); o.start(t0); o.stop(t0 + dur + 0.02);
+}
+function noise(dur, vol, freq, delay) {
+  const a = ac(); if (!a) return;
+  if (!noiseBuf) { noiseBuf = a.createBuffer(1, a.sampleRate * 0.5, a.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+  const t0 = a.currentTime + (delay || 0), src = a.createBufferSource(); src.buffer = noiseBuf;
+  const f = a.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = freq || 800;
+  const g = a.createGain(); g.gain.setValueAtTime(vol || 0.15, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  src.connect(f).connect(g).connect(a.destination); src.start(t0); src.stop(t0 + dur + 0.02);
+}
+function sfx(name) {
+  if (!AC) return;
+  switch (name) {
+    case 'shoot': tone(760, 240, 0.06, 'square', 0.035); break;
+    case 'frost': tone(1350, 620, 0.09, 'sine', 0.05); break;
+    case 'cannon': tone(150, 40, 0.22, 'sawtooth', 0.10); noise(0.18, 0.10, 500); break;
+    case 'zap': tone(1500, 180, 0.10, 'sawtooth', 0.06); noise(0.06, 0.05, 3200); break;
+    case 'boom': noise(0.35, 0.20, 420); tone(90, 30, 0.3, 'sine', 0.14); break;
+    case 'die': tone(320, 60, 0.14, 'triangle', 0.06); break;
+    case 'coin': tone(950, 950, 0.05, 'sine', 0.05); tone(1420, 1420, 0.09, 'sine', 0.05, 0.05); break;
+    case 'place': tone(300, 300, 0.06, 'square', 0.07); tone(520, 520, 0.09, 'square', 0.07, 0.06); break;
+    case 'error': tone(160, 110, 0.16, 'square', 0.07); break;
+    case 'leak': tone(220, 55, 0.3, 'sawtooth', 0.12); noise(0.25, 0.12, 300); break;
+    case 'horn': tone(196, 196, 0.18, 'sawtooth', 0.09); tone(147, 147, 0.28, 'sawtooth', 0.09, 0.16); break;
+    case 'win': [523,659,784,1047].forEach((f,i)=>tone(f, f, 0.22, 'triangle', 0.09, i*0.13)); break;
+    case 'lose': [392,330,262,196].forEach((f,i)=>tone(f, Math.round(f*0.94), 0.26, 'triangle', 0.09, i*0.15)); break;
+  }
+}
+
+/* ================= MAP ================= */
+const PATH = [[-40,120],[760,120],[760,360],[200,360],[200,520],[868,520]];
+const VAULT = { x: 912, y: 520, r: 33 };
+const SEGS = []; let PATHLEN = 0;
+for (let i = 0; i < PATH.length - 1; i++) {
+  const x1 = PATH[i][0], y1 = PATH[i][1], x2 = PATH[i+1][0], y2 = PATH[i+1][1];
+  const len = Math.hypot(x2-x1, y2-y1);
+  SEGS.push({ x1, y1, x2, y2, len, start: PATHLEN, ang: Math.atan2(y2-y1, x2-x1) });
+  PATHLEN += len;
+}
+function posAt(d) {
+  d = Math.max(0, Math.min(d, PATHLEN - 0.01));
+  for (const s of SEGS) if (d <= s.start + s.len) { const f = (d - s.start) / s.len; return { x: s.x1 + (s.x2-s.x1)*f, y: s.y1 + (s.y2-s.y1)*f, ang: s.ang }; }
+  const s = SEGS[SEGS.length-1]; return { x: s.x2, y: s.y2, ang: s.ang };
+}
+const PADS = [[120,240],[280,40],[440,240],[600,40],[840,40],[880,240],[880,440],[520,440],[280,440],[120,440],[120,600],[440,600],[680,600],[840,600]];
+const CRATERS = [], DUST = [];
+(function(){ let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < 26; i++) CRATERS.push({ x: rnd()*W, y: rnd()*H, r: 12 + rnd()*36 });
+  for (let i = 0; i < 130; i++) DUST.push({ x: rnd()*W, y: rnd()*H, r: rnd()*1.8 + 0.4, p: rnd()*6.28 });
+})();
+
+/* ================= DEFS ================= */
+const TDEFS = {
+  blaster: { cost:50,  range:138, dmg:9,  rate:4.5,  projSpeed:560, color:'#3fa9ff', icon:'🔫' },
+  frost:   { cost:60,  range:128, dmg:3,  rate:2.4,  projSpeed:480, slow:0.45, slowDur:1.6, color:'#5ff2ff', icon:'❄️' },
+  cannon:  { cost:110, range:158, dmg:34, rate:0.75, projSpeed:360, splash:64, color:'#ff9a3c', icon:'💣' },
+  tesla:   { cost:130, range:148, dmg:15, rate:1.15, chain:3, chainRange:98, color:'#c07bff', icon:'⚡' }
+};
+const EDEFS = {
+  drone:   { hp:26,   speed:54, reward:7,   r:15, leak:1,  color:'#ff5d5d' },
+  scout:   { hp:15,   speed:96, reward:6,   r:12, leak:1,  color:'#ffb84d' },
+  armored: { hp:100,  speed:35, reward:13,  r:18, leak:2,  color:'#b08cff' },
+  boss:    { hp:2800, speed:27, reward:600, r:34, leak:10, color:'#ff2e88' }
+};
+function towerStats(type, level) {
+  const d = TDEFS[type], m = Math.pow(1.55, level - 1);
+  return { dmg: Math.round(d.dmg * m), range: Math.round(d.range * Math.pow(1.08, level - 1)), rate: +(d.rate * Math.pow(1.12, level - 1)).toFixed(2) };
+}
+function upgradeCost(type, level) { return level >= 3 ? null : Math.round(TDEFS[type].cost * (level === 1 ? 0.9 : 1.4)); }
+
+/* ================= STATE ================= */
+let G;
+function resetGame() {
+  G = { credits: 220, hp: 20, wave: 0, score: 0, kills: 0, time: 0,
+        enemies: [], projs: [], fx: [], queue: [], spawnT: 0, spawnInt: 1,
+        pads: PADS.map(p => ({ x: p[0], y: p[1], tw: null })),
+        phase: 'build', paused: false, speed: 1, sel: -1, vaultFlash: 0, over: false };
+  document.getElementById('overlay').classList.remove('open');
+  setMsg(t('tapPad'));
+  updateHUD(true); renderMenu();
+}
+function best() { return { w: +(localStorage.getItem('luncTD_bestWave') || 0), s: +(localStorage.getItem('luncTD_bestScore') || 0) }; }
+function saveBest() {
+  const b = best();
+  if (G.wave > b.w) localStorage.setItem('luncTD_bestWave', G.wave);
+  if (G.score > b.s) localStorage.setItem('luncTD_bestScore', G.score);
+}
+
+/* ================= WAVES ================= */
+function buildWave(w) {
+  const q = [], hpMul = Math.pow(1.21, w - 1), spMul = Math.min(1.35, 1 + (w - 1) * 0.014);
+  const add = (type, n) => { for (let i = 0; i < n; i++) q.push(type); };
+  add('drone', 6 + w * 2);
+  if (w >= 3) add('scout', Math.floor((w - 2) * 1.3));
+  if (w >= 5) add('armored', Math.floor((w - 4) * 0.9));
+  if (w >= 10) add('scout', 4);
+  for (let i = q.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const tmp = q[i]; q[i] = q[j]; q[j] = tmp; }
+  if (w === 15) q.splice(Math.floor(q.length * 0.35), 0, 'boss');
+  G.queue = q.map(type => ({ type, hpMul, spMul }));
+  G.spawnInt = Math.max(0.34, 1.05 - w * 0.045);
+  G.spawnT = 0.4;
+}
+function spawnNext() {
+  const item = G.queue.shift(); if (!item) return;
+  const d = EDEFS[item.type];
+  const hp = Math.round(d.hp * item.hpMul);
+  G.enemies.push({ type: item.type, hp, maxHp: hp, dist: 0, speed: d.speed * item.spMul,
+                   reward: d.reward, r: d.r, leak: d.leak, slowT: 0, slowF: 1, dead: false,
+                   x: -40, y: 120, ang: 0, seed: Math.random() * 10 });
+}
+function startWave() {
+  if (G.phase !== 'build' || G.over) return;
+  ac(); G.wave++; buildWave(G.wave); G.phase = 'wave';
+  if (G.wave === 15) { setMsg(t('bossWarn')); sfx('horn'); } else setMsg('');
+  updateHUD(true); renderMenu();
+}
+
+/* ================= COMBAT ================= */
+function addFx(fx) { G.fx.push(fx); }
+function burst(x, y, color, n, spd) {
+  for (let i = 0; i < n; i++) { const a = Math.random() * 6.283, s = (0.3 + Math.random() * 0.7) * (spd || 90);
+    addFx({ kind:'p', x, y, vx: Math.cos(a)*s, vy: Math.sin(a)*s, ttl: 0.45 + Math.random()*0.3, max: 0.7, color, r: 2 + Math.random()*2.5 }); }
+}
+function damage(e, dmg) {
+  if (e.dead) return;
+  e.hp -= dmg;
+  if (e.hp <= 0) {
+    e.dead = true; G.kills++; G.credits += e.reward; G.score += e.reward * 5 + 10;
+    burst(e.x, e.y, EDEFS[e.type].color, e.type === 'boss' ? 42 : 14, e.type === 'boss' ? 170 : 110);
+    addFx({ kind:'ring', x: e.x, y: e.y, ttl: 0.3, max: 0.3, r: e.r + 4, color: EDEFS[e.type].color });
+    addFx({ kind:'text', x: e.x, y: e.y - e.r - 6, ttl: 0.8, max: 0.8, txt: '+' + e.reward, color: '#ffd95e' });
+    sfx(e.type === 'boss' ? 'boom' : 'die'); if (e.type !== 'boss' && Math.random() < 0.3) sfx('coin');
+    updateHUD();
+  }
+}
+function fire(pad, st, target) {
+  const tw = pad.tw, def = TDEFS[tw.type];
+  tw.angle = Math.atan2(target.y - pad.y, target.x - pad.x);
+  tw.flash = 0.06;
+  if (tw.type === 'tesla') {
+    const pts = [{ x: pad.x, y: pad.y - 14 }]; let cur = target, from = { x: pad.x, y: pad.y - 14 }, hitSet = new Set();
+    for (let i = 0; i < def.chain; i++) {
+      if (!cur || cur.dead) break;
+      pts.push({ x: cur.x, y: cur.y }); damage(cur, Math.round(st.dmg * Math.pow(0.75, i))); hitSet.add(cur); from = cur;
+      let nxt = null, nd = def.chainRange;
+      for (const e of G.enemies) { if (e.dead || hitSet.has(e)) continue; const dd = Math.hypot(e.x - from.x, e.y - from.y); if (dd < nd) { nd = dd; nxt = e; } }
+      cur = nxt;
+    }
+    addFx({ kind:'bolt', pts, ttl: 0.14, max: 0.14 });
+    sfx('zap');
+  } else if (tw.type === 'cannon') {
+    G.projs.push({ kind:'shell', x: pad.x, y: pad.y - 10, tx: target.x, ty: target.y, speed: def.projSpeed, dmg: st.dmg, splash: def.splash });
+    tw.recoil = 1; sfx('cannon');
+  } else {
+    G.projs.push({ kind:'bolt', x: pad.x, y: pad.y - 10, target, speed: def.projSpeed, dmg: st.dmg, type: tw.type });
+    sfx(tw.type === 'frost' ? 'frost' : 'shoot');
+  }
+}
+function update(dt) {
+  G.time += dt;
+  if (G.vaultFlash > 0) G.vaultFlash -= dt;
+  /* spawning */
+  if (G.phase === 'wave' && G.queue.length) {
+    G.spawnT -= dt;
+    if (G.spawnT <= 0) { spawnNext(); G.spawnT = G.spawnInt; }
+  }
+  /* enemies */
+  for (const e of G.enemies) {
+    if (e.dead) continue;
+    if (e.slowT > 0) { e.slowT -= dt; if (e.slowT <= 0) e.slowF = 1; }
+    e.dist += e.speed * e.slowF * dt;
+    const p = posAt(e.dist); e.x = p.x; e.y = p.y; e.ang = p.ang;
+    if (e.dist >= PATHLEN - 1) {
+      e.dead = true; e.leaked = true; G.hp -= e.leak; G.vaultFlash = 0.5;
+      burst(VAULT.x - 20, VAULT.y, '#ff6b6b', 16, 120); sfx('leak'); updateHUD();
+      if (G.hp <= 0) { G.hp = 0; return gameOver(false); }
+    }
+  }
+  G.enemies = G.enemies.filter(e => !e.dead);
+  /* towers */
+  for (const pad of G.pads) {
+    if (!pad.tw) continue;
+    const tw = pad.tw, st = towerStats(tw.type, tw.level), def = TDEFS[tw.type];
+    tw.cool -= dt; if (tw.flash > 0) tw.flash -= dt; if (tw.recoil > 0) tw.recoil = Math.max(0, tw.recoil - dt * 6);
+    let target = null, bd = -1;
+    for (const e of G.enemies) { const dd = Math.hypot(e.x - pad.x, e.y - pad.y); if (dd <= st.range && e.dist > bd) { bd = e.dist; target = e; } }
+    if (target) {
+      const want = Math.atan2(target.y - pad.y, target.x - pad.x);
+      let da = want - tw.angle; while (da > Math.PI) da -= 6.283; while (da < -Math.PI) da += 6.283;
+      tw.angle += da * Math.min(1, dt * 14);
+      if (tw.cool <= 0) { fire(pad, st, target); tw.cool = 1 / st.rate; }
+    }
+  }
+  /* projectiles */
+  for (const pr of G.projs) {
+    if (pr.done) continue;
+    if (pr.kind === 'bolt') {
+      if (!pr.target || pr.target.dead) { pr.done = true; continue; }
+      const dx = pr.target.x - pr.x, dy = pr.target.y - pr.y, dd = Math.hypot(dx, dy), step = pr.speed * dt;
+      if (dd <= step + pr.target.r * 0.5) {
+        if (pr.type === 'frost') { pr.target.slowF = 1 - TDEFS.frost.slow; pr.target.slowT = TDEFS.frost.slowDur; addFx({ kind:'ring', x: pr.target.x, y: pr.target.y, ttl: 0.25, max: 0.25, r: pr.target.r + 5, color: '#5ff2ff' }); }
+        damage(pr.target, pr.dmg); pr.done = true;
+      } else { pr.x += dx / dd * step; pr.y += dy / dd * step; }
+    } else if (pr.kind === 'shell') {
+      const dx = pr.tx - pr.x, dy = pr.ty - pr.y, dd = Math.hypot(dx, dy), step = pr.speed * dt;
+      if (dd <= step + 4) {
+        addFx({ kind:'ring', x: pr.tx, y: pr.ty, ttl: 0.32, max: 0.32, r: pr.splash, color: '#ff9a3c' });
+        burst(pr.tx, pr.ty, '#ffb84d', 18, 150); burst(pr.tx, pr.ty, '#ff5d5d', 8, 90); sfx('boom');
+        for (const e of G.enemies.slice()) { if (Math.hypot(e.x - pr.tx, e.y - pr.ty) <= pr.splash + e.r * 0.4) damage(e, pr.dmg); }
+        pr.done = true;
+      } else { pr.x += dx / dd * step; pr.y += dy / dd * step; }
+    }
+  }
+  G.projs = G.projs.filter(p => !p.done);
+  G.enemies = G.enemies.filter(e => !e.dead);
+  /* fx */
+  for (const f of G.fx) { f.ttl -= dt; if (f.kind === 'p') { f.x += f.vx * dt; f.y += f.vy * dt; f.vx *= 0.92; f.vy *= 0.92; } if (f.kind === 'text') f.y -= 34 * dt; }
+  G.fx = G.fx.filter(f => f.ttl > 0);
+  /* wave end */
+  if (G.phase === 'wave' && !G.queue.length && !G.enemies.length) {
+    const bonus = 20 + G.wave * 5;
+    G.credits += bonus; G.score += 50 * G.wave;
+    if (G.wave >= 15) return gameOver(true);
+    G.phase = 'build'; setMsg(t('waveClear', { b: bonus })); sfx('coin');
+    updateHUD(true); renderMenu();
+  }
+}
+function gameOver(won) {
+  G.phase = 'over'; G.over = true; saveBest(); updateHUD(true);
+  const ov = document.getElementById('overlay');
+  document.getElementById('ovTitle').textContent = t(won ? 'victory' : 'defeat');
+  document.getElementById('ovText').textContent = t(won ? 'victoryText' : 'defeatText', { s: G.score, w: G.wave, k: G.kills });
+  ov.classList.add('open'); sfx(won ? 'win' : 'lose');
+}
+
+/* ================= DRAWING ================= */
+function rr(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+function drawTerrain() {
+  const g = ctx.createRadialGradient(480, 300, 80, 480, 320, 720);
+  g.addColorStop(0, '#16264e'); g.addColorStop(0.55, '#0d1834'); g.addColorStop(1, '#070f22');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  for (const d of DUST) { ctx.globalAlpha = 0.25 + 0.2 * Math.sin(G.time * 1.5 + d.p); ctx.fillStyle = '#a9c4ff'; ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, 6.283); ctx.fill(); }
+  ctx.globalAlpha = 1;
+  for (const c of CRATERS) {
+    ctx.fillStyle = '#0a142c'; ctx.beginPath(); ctx.ellipse(c.x, c.y, c.r, c.r * 0.55, 0, 0, 6.283); ctx.fill();
+    ctx.strokeStyle = '#22355f'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(c.x, c.y - 2, c.r, c.r * 0.55, 0, Math.PI * 1.05, Math.PI * 1.95); ctx.stroke();
+  }
+  /* base grid pads deco */
+  ctx.strokeStyle = 'rgba(70,110,190,0.10)'; ctx.lineWidth = 1;
+  for (let x = 0; x <= W; x += 80) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y <= H; y += 80) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+}
+function drawPath() {
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const trace = w => { ctx.beginPath(); ctx.moveTo(PATH[0][0], PATH[0][1]); for (let i = 1; i < PATH.length; i++) ctx.lineTo(PATH[i][0], PATH[i][1]); ctx.lineWidth = w; ctx.stroke(); };
+  ctx.strokeStyle = '#050a18'; trace(52);
+  ctx.strokeStyle = '#1b2c52'; trace(46);
+  const g = ctx.createLinearGradient(0, 0, W, H); g.addColorStop(0, '#24365f'); g.addColorStop(1, '#2c4476');
+  ctx.strokeStyle = g; trace(38);
+  ctx.strokeStyle = 'rgba(95,242,255,0.55)'; ctx.shadowColor = '#5ff2ff'; ctx.shadowBlur = 12; trace(3);
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(255,217,94,0.8)'; ctx.setLineDash([4, 26]); ctx.lineDashOffset = -G.time * 60; trace(3); ctx.setLineDash([]);
+  /* spawn gate */
+  ctx.fillStyle = '#ff5d5d'; ctx.shadowColor = '#ff5d5d'; ctx.shadowBlur = 14;
+  ctx.beginPath(); ctx.arc(6, 120, 7 + Math.sin(G.time * 4) * 1.6, 0, 6.283); ctx.fill(); ctx.shadowBlur = 0;
+}
+function drawVault() {
+  const v = VAULT, pulse = 1 + Math.sin(G.time * 2.2) * 0.03;
+  ctx.save(); ctx.translate(v.x, v.y);
+  ctx.strokeStyle = G.vaultFlash > 0 ? 'rgba(255,80,80,0.9)' : 'rgba(95,242,255,0.5)';
+  ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(0, 0, (v.r + 12) * pulse, 0, 6.283); ctx.stroke();
+  ctx.fillStyle = '#0d1a38'; ctx.beginPath(); ctx.arc(0, 0, v.r + 7, 0, 6.283); ctx.fill();
+  const g = ctx.createRadialGradient(-10, -12, 4, 0, 0, v.r);
+  g.addColorStop(0, '#fff0b3'); g.addColorStop(0.55, '#f5b921'); g.addColorStop(1, '#c07f04');
+  ctx.fillStyle = g; ctx.shadowColor = '#f5b921'; ctx.shadowBlur = 22;
+  ctx.beginPath(); ctx.arc(0, 0, v.r, 0, 6.283); ctx.fill(); ctx.shadowBlur = 0;
+  ctx.strokeStyle = '#8a5f02'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, v.r - 4, 0, 6.283); ctx.stroke();
+  /* crescent */
+  ctx.fillStyle = '#7a5200'; ctx.beginPath(); ctx.arc(3, -3, 15, 0, 6.283); ctx.fill();
+  ctx.fillStyle = '#f5b921'; ctx.beginPath(); ctx.arc(9, -6, 12.5, 0, 6.283); ctx.fill();
+  ctx.fillStyle = '#5b3a00'; ctx.font = '900 11px Arial'; ctx.textAlign = 'center'; ctx.fillText('LUNC', 0, 24);
+  ctx.restore();
+  if (G.vaultFlash > 0) { ctx.fillStyle = 'rgba(255,60,60,' + (G.vaultFlash * 0.25) + ')'; ctx.fillRect(0, 0, W, H); }
+}
+function drawPads() {
+  for (let i = 0; i < G.pads.length; i++) {
+    const p = G.pads[i];
+    ctx.save(); ctx.translate(p.x, p.y);
+    ctx.fillStyle = '#101f42'; ctx.strokeStyle = i === G.sel ? '#ffd95e' : '#33507f'; ctx.lineWidth = i === G.sel ? 3 : 2;
+    ctx.beginPath(); for (let k = 0; k < 8; k++) { const a = k / 8 * 6.283 + 0.39; const px = Math.cos(a) * 30, py = Math.sin(a) * 30; k ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.closePath(); ctx.fill(); ctx.stroke();
+    if (!p.tw) {
+      const pl = 0.5 + 0.5 * Math.sin(G.time * 2.6 + i);
+      ctx.strokeStyle = 'rgba(95,242,255,' + (0.25 + pl * 0.45) + ')'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, 0, 13 + pl * 3, 0, 6.283); ctx.stroke();
+      ctx.fillStyle = 'rgba(160,220,255,0.9)'; ctx.font = '900 17px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('+', 0, 1);
+    }
+    ctx.restore();
+    if (p.tw) drawTower(p);
+  }
+}
+function drawTower(p) {
+  const tw = p.tw, def = TDEFS[tw.type];
+  ctx.save(); ctx.translate(p.x, p.y);
+  if (G.sel >= 0 && G.pads[G.sel] === p) {
+    const st = towerStats(tw.type, tw.level);
+    ctx.fillStyle = 'rgba(120,200,255,0.10)'; ctx.strokeStyle = 'rgba(120,200,255,0.45)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(0, 0, st.range, 0, 6.283); ctx.fill(); ctx.stroke();
+  }
+  ctx.fillStyle = '#0a142c'; ctx.beginPath(); ctx.arc(0, 0, 21, 0, 6.283); ctx.fill();
+  ctx.strokeStyle = def.color; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 21, 0, 6.283); ctx.stroke();
+  ctx.save(); ctx.rotate(tw.angle);
+  if (tw.type === 'blaster') {
+    ctx.fillStyle = '#274b7a'; rr(-13, -13, 26, 26, 6); ctx.fill();
+    ctx.fillStyle = def.color; ctx.fillRect(4, -8, 20 - tw.recoil * 4, 5); ctx.fillRect(4, 3, 20 - tw.recoil * 4, 5);
+    ctx.fillStyle = '#bfe0ff'; ctx.beginPath(); ctx.arc(0, 0, 6, 0, 6.283); ctx.fill();
+    if (tw.flash > 0) { ctx.fillStyle = 'rgba(255,240,170,0.95)'; ctx.beginPath(); ctx.arc(27, -5.5, 5, 0, 6.283); ctx.arc(27, 5.5, 5, 0, 6.283); ctx.fill(); }
+  } else if (tw.type === 'cannon') {
+    ctx.fillStyle = '#6e4520'; rr(-14, -14, 28, 28, 7); ctx.fill();
+    ctx.fillStyle = def.color; rr(2 - tw.recoil * 6, -7, 26, 14, 5); ctx.fill();
+    ctx.fillStyle = '#2b1a08'; ctx.beginPath(); ctx.arc(26 - tw.recoil * 6, 0, 6, 0, 6.283); ctx.fill();
+    ctx.fillStyle = '#ffd9a3'; ctx.beginPath(); ctx.arc(0, 0, 5.5, 0, 6.283); ctx.fill();
+    if (tw.flash > 0) { ctx.fillStyle = 'rgba(255,190,90,0.95)'; ctx.beginPath(); ctx.arc(33 - tw.recoil * 6, 0, 7, 0, 6.283); ctx.fill(); }
+  } else if (tw.type === 'frost') {
+    ctx.rotate(-tw.angle); /* crystal stays upright, spins slowly instead */
+    ctx.rotate(G.time * 0.7);
+    ctx.fillStyle = 'rgba(95,242,255,0.25)'; ctx.beginPath(); ctx.arc(0, 0, 17 + Math.sin(G.time * 3) * 2, 0, 6.283); ctx.fill();
+    ctx.fillStyle = def.color; ctx.shadowColor = def.color; ctx.shadowBlur = 12;
+    ctx.beginPath(); ctx.moveTo(0, -17); ctx.lineTo(10, 0); ctx.lineTo(0, 17); ctx.lineTo(-10, 0); ctx.closePath(); ctx.fill(); ctx.shadowBlur = 0;
+    ctx.fillStyle = '#eaffff'; ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(5, 0); ctx.lineTo(0, 9); ctx.lineTo(-5, 0); ctx.closePath(); ctx.fill();
+  } else if (tw.type === 'tesla') {
+    ctx.rotate(-tw.angle);
+    ctx.strokeStyle = def.color; ctx.lineWidth = 3;
+    for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.arc(0, 8 - k * 7, 11 - k * 2.2, 0, 6.283); ctx.stroke(); }
+    ctx.fillStyle = '#e9dcff'; ctx.shadowColor = def.color; ctx.shadowBlur = 14;
+    ctx.beginPath(); ctx.arc(0, -14, 6.5 + Math.sin(G.time * 6) * 0.8, 0, 6.283); ctx.fill(); ctx.shadowBlur = 0;
+    if (Math.random() < 0.10) { ctx.strokeStyle = 'rgba(220,180,255,0.8)'; ctx.lineWidth = 1.4; ctx.beginPath(); let ax = 0, ay = -14; ctx.moveTo(ax, ay); for (let k = 0; k < 3; k++) { ax += (Math.random() - 0.5) * 22; ay += (Math.random() - 0.5) * 14; ctx.lineTo(ax, ay); } ctx.stroke(); }
+    if (tw.flash > 0) { ctx.fillStyle = 'rgba(230,200,255,0.9)'; ctx.beginPath(); ctx.arc(0, -14, 10, 0, 6.283); ctx.fill(); }
+  }
+  ctx.restore();
+  /* level pips */
+  for (let k = 0; k < tw.level; k++) { ctx.fillStyle = '#ffd95e'; ctx.beginPath(); ctx.arc(-10 + k * 10, 27, 3, 0, 6.283); ctx.fill(); }
+  ctx.restore();
+}
+function drawEnemy(e) {
+  const def = EDEFS[e.type], bob = Math.sin(G.time * 9 + e.seed * 7) * 1.6;
+  ctx.save(); ctx.translate(e.x, e.y + bob * 0.3); ctx.rotate(e.ang);
+  const r = e.r;
+  /* rotors */
+  ctx.fillStyle = 'rgba(200,220,255,0.5)';
+  const rw = r * (0.9 + 0.25 * Math.sin(G.time * 40 + e.seed));
+  ctx.beginPath(); ctx.ellipse(-r * 0.95, -r * 0.8, rw * 0.55, 2.4, 0, 0, 6.283); ctx.ellipse(-r * 0.95, r * 0.8, rw * 0.55, 2.4, 0, 0, 6.283);
+  if (e.type !== 'scout') { ctx.ellipse(r * 0.95, -r * 0.8, rw * 0.55, 2.4, 0, 0, 6.283); ctx.ellipse(r * 0.95, r * 0.8, rw * 0.55, 2.4, 0, 0, 6.283); }
+  ctx.fill();
+  /* body */
+  const bg = ctx.createLinearGradient(-r, -r, r, r);
+  bg.addColorStop(0, '#3d475e'); bg.addColorStop(1, '#1c2436');
+  ctx.fillStyle = bg; rr(-r, -r * 0.78, r * 2, r * 1.56, r * 0.4); ctx.fill();
+  ctx.strokeStyle = def.color; ctx.lineWidth = 2; ctx.stroke();
+  /* hazard stripes */
+  ctx.fillStyle = def.color; ctx.globalAlpha = 0.75;
+  for (let k = -1; k <= 1; k++) ctx.fillRect(k * r * 0.55 - 2.5, r * 0.52, 5, r * 0.2);
+  ctx.globalAlpha = 1;
+  if (e.type === 'armored') {
+    ctx.fillStyle = '#574a86'; rr(-r * 1.02, -r * 0.5, r * 0.5, r, 4); ctx.fill(); rr(r * 0.52, -r * 0.5, r * 0.5, r, 4); ctx.fill();
+    ctx.fillStyle = '#d9ccff'; ctx.beginPath(); ctx.moveTo(r * 0.4, -r * 0.78); ctx.lineTo(r * 0.75, -r * 1.15); ctx.lineTo(r * 0.85, -r * 0.7); ctx.closePath(); ctx.fill();
+  }
+  if (e.type === 'boss') {
+    ctx.strokeStyle = '#ffd95e'; ctx.lineWidth = 2.5;
+    for (let k = -1; k <= 1; k++) { ctx.beginPath(); ctx.moveTo(k * r * 0.5, -r * 0.8); ctx.lineTo(k * r * 0.6, -r * 1.3); ctx.stroke(); ctx.fillStyle = '#ffd95e'; ctx.beginPath(); ctx.arc(k * r * 0.6, -r * 1.35, 3, 0, 6.283); ctx.fill(); }
+    ctx.fillStyle = 'rgba(255,46,136,0.35)'; ctx.beginPath(); ctx.arc(0, 0, r * 0.62 + Math.sin(G.time * 5) * 2, 0, 6.283); ctx.fill();
+  }
+  /* face: angry eyes */
+  const blink = (Math.sin(G.time * 1.3 + e.seed * 9) > 0.96) ? 0.15 : 1;
+  ctx.fillStyle = '#0a0f1e'; rr(r * 0.05, -r * 0.42, r * 0.8, r * 0.84, r * 0.3); ctx.fill();
+  const eye = (ey) => { ctx.fillStyle = def.color; ctx.shadowColor = def.color; ctx.shadowBlur = 7;
+    ctx.beginPath(); ctx.ellipse(r * 0.45, ey, r * 0.17, r * 0.17 * blink + 0.4, 0, 0, 6.283); ctx.fill(); ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(r * 0.48, ey - 1.5, r * 0.055, 0, 6.283); ctx.fill(); };
+  if (e.type === 'scout' || e.type === 'boss') { eye(-r * 0.2); eye(r * 0.2); } else eye(0);
+  /* angry brows */
+  ctx.strokeStyle = def.color; ctx.lineWidth = 2; ctx.beginPath();
+  ctx.moveTo(r * 0.22, -r * 0.42); ctx.lineTo(r * 0.62, -r * 0.26);
+  if (e.type === 'scout' || e.type === 'boss') { ctx.moveTo(r * 0.22, r * 0.1); ctx.lineTo(r * 0.62, r * 0.26); }
+  ctx.stroke();
+  /* antenna */
+  ctx.strokeStyle = '#8fa5cc'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(-r * 0.5, -r * 0.6); ctx.lineTo(-r * 0.85, -r * 1.05); ctx.stroke();
+  ctx.fillStyle = (Math.sin(G.time * 6 + e.seed * 5) > 0) ? '#ff4040' : '#7a1616';
+  ctx.beginPath(); ctx.arc(-r * 0.85, -r * 1.05, 2.6, 0, 6.283); ctx.fill();
+  if (e.slowT > 0) { ctx.fillStyle = 'rgba(140,235,255,0.4)'; ctx.beginPath(); ctx.arc(0, 0, r * 1.05, 0, 6.283); ctx.fill();
+    ctx.fillStyle = '#dffaff'; ctx.font = '10px Arial'; ctx.textAlign = 'center'; ctx.fillText('❄', -r * 0.5, -r * 0.4); ctx.fillText('❄', r * 0.4, r * 0.6); }
+  ctx.restore();
+  /* hp bar */
+  if (e.hp < e.maxHp) {
+    const w = Math.max(30, e.r * 2), f = Math.max(0, e.hp / e.maxHp);
+    ctx.fillStyle = '#0a0f1e'; ctx.fillRect(e.x - w / 2, e.y - e.r - 13, w, 5.5);
+    ctx.fillStyle = f > 0.5 ? '#7dff9a' : f > 0.25 ? '#ffd95e' : '#ff6b6b';
+    ctx.fillRect(e.x - w / 2 + 0.5, e.y - e.r - 12.5, (w - 1) * f, 4.5);
+  }
+}
+function drawProjectiles() {
+  for (const pr of G.projs) {
+    if (pr.kind === 'bolt') {
+      ctx.fillStyle = pr.type === 'frost' ? '#aef7ff' : '#ffe9a3';
+      ctx.shadowColor = pr.type === 'frost' ? '#5ff2ff' : '#f5b921'; ctx.shadowBlur = 8;
+      ctx.beginPath(); ctx.arc(pr.x, pr.y, pr.type === 'frost' ? 4 : 3.2, 0, 6.283); ctx.fill(); ctx.shadowBlur = 0;
+    } else {
+      ctx.fillStyle = '#ffb84d'; ctx.shadowColor = '#ff9a3c'; ctx.shadowBlur = 10;
+      ctx.beginPath(); ctx.arc(pr.x, pr.y, 6, 0, 6.283); ctx.fill(); ctx.shadowBlur = 0;
+      ctx.fillStyle = '#5b3a1a'; ctx.beginPath(); ctx.arc(pr.x, pr.y, 3, 0, 6.283); ctx.fill();
+    }
+  }
+}
+function drawFx() {
+  for (const f of G.fx) {
+    const a = Math.max(0, f.ttl / f.max);
+    if (f.kind === 'p') { ctx.globalAlpha = a; ctx.fillStyle = f.color; ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, 6.283); ctx.fill(); ctx.globalAlpha = 1; }
+    else if (f.kind === 'ring') { ctx.globalAlpha = a; ctx.strokeStyle = f.color; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(f.x, f.y, f.r + (1 - a) * 14, 0, 6.283); ctx.stroke(); ctx.globalAlpha = 1; }
+    else if (f.kind === 'bolt') { ctx.globalAlpha = a; ctx.strokeStyle = '#e9dcff'; ctx.lineWidth = 2.6; ctx.shadowColor = '#c07bff'; ctx.shadowBlur = 9;
+      ctx.beginPath(); ctx.moveTo(f.pts[0].x, f.pts[0].y);
+      for (let i = 1; i < f.pts.length; i++) { const p = f.pts[i], q = f.pts[i-1]; ctx.lineTo((p.x + q.x) / 2 + (Math.random() - 0.5) * 14, (p.y + q.y) / 2 + (Math.random() - 0.5) * 14); ctx.lineTo(p.x, p.y); }
+      ctx.stroke(); ctx.shadowBlur = 0; ctx.globalAlpha = 1; }
+    else if (f.kind === 'text') { ctx.globalAlpha = a; ctx.fillStyle = f.color; ctx.font = '800 14px Arial'; ctx.textAlign = 'center'; ctx.fillText(f.txt, f.x, f.y); ctx.globalAlpha = 1; }
+  }
+}
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  drawTerrain(); drawPath(); drawVault(); drawPads();
+  for (const e of G.enemies) drawEnemy(e);
+  drawProjectiles(); drawFx();
+}
+
+/* ================= HUD / MENU / INPUT ================= */
+const $ = id => document.getElementById(id);
+const hudCache = {};
+function setMsg(s) { $('msg').textContent = s; }
+function updateHUD(force) {
+  const vals = { hCredits: G.credits, hHp: G.hp, hWave: t('waveOf', { w: G.wave }), hScore: G.score };
+  const b = best(); vals.hBest = 'W' + Math.max(b.w, G.wave) + ' · ' + Math.max(b.s, G.score);
+  for (const id in vals) if (force || hudCache[id] !== vals[id]) { hudCache[id] = vals[id]; $(id).textContent = vals[id]; }
+  $('hHp').classList.toggle('low', G.hp <= 6);
+  const bw = $('btnWave');
+  bw.disabled = G.phase !== 'build' || G.over;
+  bw.innerHTML = G.phase === 'wave' ? '⚔ ' + t('enemies', { n: G.enemies.length + G.queue.length }) : '▶ ' + t(G.wave === 0 ? 'startWave' : 'nextWave');
+  $('btnPause').innerHTML = G.paused ? '▶ ' + t('resume') : '⏸ ' + t('pause');
+}
+function closeMenu() { G.sel = -1; $('menu').classList.remove('open'); $('menu').innerHTML = ''; }
+function renderMenu() {
+  const m = $('menu');
+  if (G.sel < 0) { m.classList.remove('open'); m.innerHTML = ''; return; }
+  const pad = G.pads[G.sel];
+  m.classList.add('open');
+  if (!pad.tw) {
+    let cards = '';
+    for (const type in TDEFS) {
+      const d = TDEFS[type], cant = G.credits < d.cost;
+      cards += '<button class="tcard' + (cant ? ' cant' : '') + '" data-act="build" data-type="' + type + '">' +
+        '<div class="ic">' + d.icon + '</div><div class="tn" style="color:' + d.color + '">' + t(type) + '</div>' +
+        '<div class="td">' + t(type + 'D') + '</div>' +
+        '<div class="td">' + t('damage') + ' ' + d.dmg + ' · ' + t('range') + ' ' + d.range + ' · ' + t('rate') + ' ' + d.rate + '/s</div>' +
+        '<div class="tc">🪙 ' + t('cost') + ': ' + d.cost + '</div></button>';
+    }
+    m.innerHTML = '<h3>' + t('buildTitle') + '</h3><div class="tgrid">' + cards + '</div>' +
+      '<div class="rowbtns"><button class="ghost" data-act="close">' + t('close') + '</button></div>';
+  } else {
+    const tw = pad.tw, st = towerStats(tw.type, tw.level), uc = upgradeCost(tw.type, tw.level);
+    const sellVal = Math.floor(tw.invested * 0.7);
+    m.innerHTML = '<h3>' + t('selected', { n: t(tw.type), l: tw.level }) + '</h3>' +
+      '<div id="selInfo">' + TDEFS[tw.type].icon + ' ' + t('damage') + ': <b>' + st.dmg + '</b> · ' + t('range') + ': <b>' + st.range + '</b> · ' + t('rate') + ': <b>' + st.rate + '/s</b></div>' +
+      '<div class="rowbtns">' +
+      (uc !== null ? '<button data-act="upgrade" ' + (G.credits < uc ? 'disabled' : '') + '>⬆ ' + t('upCost', { n: uc }) + '</button>' : '<button disabled>' + t('maxLevel') + '</button>') +
+      '<button class="ghost" data-act="sell">💰 ' + t('sellFor', { n: sellVal }) + '</button>' +
+      '<button class="ghost" data-act="close">' + t('close') + '</button></div>';
+  }
+}
+function placeTower(i, type) {
+  const pad = G.pads[i], d = TDEFS[type];
+  if (!pad || pad.tw || !d || G.credits < d.cost) return false;
+  G.credits -= d.cost;
+  pad.tw = { type, level: 1, cool: 0, angle: -Math.PI / 2, invested: d.cost, flash: 0, recoil: 0 };
+  burst(pad.x, pad.y, d.color, 10, 70); sfx('place'); updateHUD(); renderMenu();
+  return true;
+}
+$('menu').addEventListener('click', ev => {
+  const btn = ev.target.closest('[data-act]'); if (!btn || G.sel < 0) return;
+  const pad = G.pads[G.sel], act = btn.getAttribute('data-act');
+  if (act === 'close') { closeMenu(); return; }
+  if (act === 'build') {
+    const type = btn.getAttribute('data-type');
+    if (!placeTower(G.sel, type)) { sfx('error'); setMsg(t('notEnough')); }
+  } else if (act === 'upgrade' && pad.tw) {
+    const uc = upgradeCost(pad.tw.type, pad.tw.level);
+    if (uc !== null && G.credits >= uc) { G.credits -= uc; pad.tw.invested += uc; pad.tw.level++; burst(pad.x, pad.y, '#ffd95e', 12, 80); sfx('place'); updateHUD(); renderMenu(); }
+    else { sfx('error'); setMsg(t('notEnough')); }
+  } else if (act === 'sell' && pad.tw) {
+    G.credits += Math.floor(pad.tw.invested * 0.7); burst(pad.x, pad.y, '#ffd95e', 8, 60);
+    pad.tw = null; sfx('coin'); updateHUD(); renderMenu();
+  }
+});
+function canvasPos(ev) {
+  const r = cv.getBoundingClientRect();
+  const cx = (ev.touches ? ev.touches[0].clientX : ev.clientX), cy = (ev.touches ? ev.touches[0].clientY : ev.clientY);
+  return { x: (cx - r.left) / r.width * W, y: (cy - r.top) / r.height * H };
+}
+cv.addEventListener('pointerdown', ev => {
+  ac();
+  const p = canvasPos(ev);
+  let hit = -1, hd = 40;
+  G.pads.forEach((pad, i) => { const dd = Math.hypot(pad.x - p.x, pad.y - p.y); if (dd < hd) { hd = dd; hit = i; } });
+  if (hit >= 0) { G.sel = hit; renderMenu(); } else closeMenu();
+});
+$('btnWave').addEventListener('click', startWave);
+$('btnPause').addEventListener('click', () => { G.paused = !G.paused; updateHUD(true); });
+$('btnSpeed').addEventListener('click', ev => { G.speed = G.speed === 1 ? 2 : 1; ev.currentTarget.textContent = '⏩ ' + G.speed + '×'; });
+$('btnRestart').addEventListener('click', () => { resetGame(); });
+$('btnAgain').addEventListener('click', () => { resetGame(); });
+
+/* ================= LOOP ================= */
+let lastTs = 0;
+function loop(ts) {
+  requestAnimationFrame(loop);
+  const dt = Math.min(0.05, (ts - lastTs) / 1000 || 0); lastTs = ts;
+  if (!G.paused && !G.over) { const steps = G.speed; for (let i = 0; i < steps; i++) update(dt); }
+  else G.time += dt * 0.25;
+  draw();
+  if ((G.time * 10 | 0) !== (loop._p || 0)) { loop._p = G.time * 10 | 0; if (G.phase === 'wave') updateHUD(); }
+}
+applyI18n();
+resetGame();
+requestAnimationFrame(loop);
+
+/* debug / QA hooks */
+window.__td = { get G() { return G; }, startWave, place: placeTower, t };
+</script>
+</body>
+</html>
