@@ -6517,11 +6517,26 @@ const CHATX_CT_MAX = 8192;
 const CHATX_ROOM_RE = /^[A-Za-z0-9_-]{10,64}$/;
 const CHATX_B64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
 
+async function chatxPipeline(cmds) {
+  // Safe Chat lives on the KICKBACK store — the NEONRUSH store hit its
+  // 500K/month cap on 2026-11-21 and silently ate every post and list.
+  const url = process.env.KICKBACK_UPSTASH_URL || process.env.NEONRUSH_UPSTASH_URL;
+  const token = process.env.KICKBACK_UPSTASH_TOKEN || process.env.NEONRUSH_UPSTASH_TOKEN;
+  const r = await fetch(`${url}/pipeline`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(cmds),
+  });
+  if (!r.ok) throw new Error(`upstash ${r.status}`);
+  const out = await r.json();
+  for (const c of out || []) { if (c && c.error) throw new Error('upstash: ' + c.error); }
+  return out;
+}
 export async function chatxHandler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ ok: false, error: 'method not allowed' });
   }
-  if (!process.env.NEONRUSH_UPSTASH_URL || !process.env.NEONRUSH_UPSTASH_TOKEN) {
+  if (!(process.env.KICKBACK_UPSTASH_URL || process.env.NEONRUSH_UPSTASH_URL) || !(process.env.KICKBACK_UPSTASH_TOKEN || process.env.NEONRUSH_UPSTASH_TOKEN)) {
     return res.status(500).json({ ok: false, unavailable: true, error: 'storage not configured' });
   }
   res.setHeader('Cache-Control', 'no-store');
@@ -6535,7 +6550,7 @@ export async function chatxHandler(req, res) {
 
   try {
     if (action === 'chatxList') {
-      const out = await upstashPipeline([['LRANGE', 'chatx:msgs:' + room, 0, CHATX_CAP - 1]]);
+      const out = await chatxPipeline([['LRANGE', 'chatx:msgs:' + room, 0, CHATX_CAP - 1]]);
       const raw = (out[0] && out[0].result) || [];
       const msgs = [];
       for (const s of raw) {
@@ -6559,7 +6574,7 @@ export async function chatxHandler(req, res) {
       try { ivLen = Buffer.from(iv, 'base64').length; } catch (e) { /* stays -1 */ }
       if (ivLen !== 12) return res.status(200).json({ ok: false, error: 'bad message' });
       const row = { ct, iv, ts: Date.now() };
-      await upstashPipeline([
+      await chatxPipeline([
         ['LPUSH', 'chatx:msgs:' + room, JSON.stringify(row)],
         ['LTRIM', 'chatx:msgs:' + room, 0, CHATX_CAP - 1],
       ]);

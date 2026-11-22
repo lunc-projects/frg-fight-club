@@ -139,6 +139,7 @@
       <button class="btn-ghost btn-small" id="soundBtnRoom" type="button" aria-label="Sound">🔊</button>
       <span class="tiny" style="margin:0;align-self:center">🔒 <span data-i18n="Encrypted on this device">Encrypted on this device</span></span>
     </div>
+    <p class="tiny" id="notifStateRoom" style="margin:2px 0 0"></p>
     <div class="notice" id="roomNotice"></div>
     <div id="msgs"></div>
     <div class="composer">
@@ -248,6 +249,7 @@ function renderNotifUI(){
   var b = $('notifBtn'); if (b) b.textContent = label;
   var br = $('notifBtnRoom'); if (br) br.textContent = label;
   var ns = $('notifState'); if (ns) ns.textContent = state;
+  var nsr = $('notifStateRoom'); if (nsr) nsr.textContent = state;
   var s = $('notifSound'); if (s) s.checked = notifSet.sound !== false;
   var t = $('notifText'); if (t) t.checked = !!notifSet.showText;
   var sb = $('soundBtnRoom'); if (sb) sb.textContent = (notifSet.sound === false) ? '🔇' : '🔊';
@@ -274,15 +276,33 @@ function ping(){
     o.start(t0); o.stop(t0 + 0.32);
   } catch(e){}
 }
-function fireNotify(room, sender, text){
-  if (!notifOn()) return;
+function legacyNotify(opts){
   try {
-    var body = String(sender || '?') + ' · ' + room.n;
-    if (notifSet.showText && text) body += ': ' + String(text).slice(0, 90);
-    var n = new Notification('Safe Chat', { body: body, tag: 'sc-' + room.id });
+    var n = new Notification('Safe Chat', opts);
     n.onclick = function(){ try { window.focus(); } catch(e){} try { n.close(); } catch(e){} };
   } catch(e){}
 }
+function showNotify(opts){
+  // Android Chrome: the page Notification constructor is illegal there —
+  // notifications must go through the service worker registration.
+  try {
+    if ('serviceWorker' in navigator && navigator.serviceWorker.ready) {
+      navigator.serviceWorker.ready.then(function(reg){
+        if (reg && reg.showNotification) { try { reg.showNotification('Safe Chat', opts); } catch(e){ legacyNotify(opts); } return; }
+        legacyNotify(opts);
+      });
+      return;
+    }
+  } catch(e){}
+  legacyNotify(opts);
+}
+function fireNotify(room, sender, text){
+  if (!notifOn()) return;
+  var body = String(sender || '?') + ' · ' + room.n;
+  if (notifSet.showText && text) body += ': ' + String(text).slice(0, 90);
+  showNotify({ body: body, tag: 'sc-' + room.id });
+}
+function testNotify(){ showNotify({ body: T('Notifications on') + ' ✓', tag: 'sc-test' }); }
 function alertUser(room, sender, text){ fireNotify(room, sender, text); ping(); }
 
 function stopTitleFlash(){ if (titleTimer) { clearInterval(titleTimer); titleTimer = null; } document.title = baseTitle; }
@@ -630,8 +650,8 @@ async function notifToggle(){
   if (st === 'default'){
     var res = 'denied';
     try { res = await Notification.requestPermission(); } catch(e){}
-    if (res === 'granted') { notifSet.on = true; saveNotif(); ensureAudio(); ping(); }
-  } else if (st === 'granted') { notifSet.on = true; saveNotif(); ensureAudio(); }
+    if (res === 'granted') { notifSet.on = true; saveNotif(); ensureAudio(); ping(); testNotify(); }
+  } else if (st === 'granted') { notifSet.on = true; saveNotif(); ensureAudio(); testNotify(); }
   renderNotifUI();
 }
 $('notifBtn').addEventListener('click', notifToggle);
@@ -645,6 +665,7 @@ window.addEventListener('focus', onLookChange);
 window.addEventListener('blur', updateTitle);
 
 /* ---------- boot ---------- */
+if ('serviceWorker' in navigator) { try { navigator.serviceWorker.register('/safe-chat/sw.js', { scope: '/safe-chat/' }); } catch(e){} }
 if (myName()) { $('myName').value = myName(); }
 applyI18n();
 renderNotifUI();
