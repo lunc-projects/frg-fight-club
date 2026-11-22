@@ -168,6 +168,13 @@
 
     <div id="report">
       <div class="card">
+        <div class="sumgrid">
+          <div class="sumbox"><div class="k" id="t-doOnChain">DO on DO Chain</div><div class="v" id="sumDoChain">—</div></div>
+          <div class="sumbox"><div class="k" id="t-doOnTerra">DO on Luna Classic</div><div class="v" id="sumDoTerra">—</div></div>
+          <div class="sumbox"><div class="k" id="t-doCombined">Combined DO total</div><div class="v" id="sumDoCombined">—</div></div>
+        </div>
+      </div>
+      <div class="card">
         <h2 id="t-holdings">Holdings</h2>
         <div class="sumgrid" id="holdGrid"></div>
       </div>
@@ -175,29 +182,8 @@
         <span class="ylab" id="t-year">Year</span>
         <span id="yearBtns"></span>
       </div>
-      <div class="card">
-        <div class="sumgrid">
-          <div class="sumbox"><div class="k" id="t-totalTxs">Transactions</div><div class="v" id="sumTxs">0</div></div>
-          <div class="sumbox"><div class="k" id="t-buys">Buys</div><div class="v" id="sumBuys">0</div></div>
-          <div class="sumbox"><div class="k" id="t-sells">Sells</div><div class="v" id="sumSells">0</div></div>
-          <div class="sumbox"><div class="k" id="t-doReceived">DO received</div><div class="v" id="sumRecv">—</div></div>
-          <div class="sumbox"><div class="k" id="t-doSent">DO sent</div><div class="v" id="sumSent">—</div></div>
-          <div class="sumbox"><div class="k" id="t-netDO">Net DO</div><div class="v" id="sumNet">—</div></div>
-        </div>
-        <div class="tiny" id="capNote" style="display:none"></div>
-        <div class="tiny" id="fiatNote"></div>
-      </div>
-      <div class="card">
-        <div class="tblwrap">
-          <table class="txtable">
-            <thead><tr>
-              <th id="t-colDate">Date</th><th id="t-colDetails">Details</th><th id="t-colIn">DO In</th>
-              <th id="t-colOut">DO Out</th><th id="t-colBalance">Balance</th>
-            </tr></thead>
-            <tbody id="tbody"></tbody>
-          </table>
-        </div>
-      </div>
+      <div id="chainSections"></div>
+      <div class="tiny" id="fiatNote"></div>
     </div>
   </section>
 
@@ -230,6 +216,17 @@
       </div>
       <button class="dlbtn ghost" id="boardRefresh">↻ <span id="t-boardRefresh">Refresh</span></button>
       <div class="tiny" id="t-boardNote">Tap a wallet to see its full report — trade counts live in each wallet's own report.</div>
+    </div>
+    <div class="card">
+      <h2 id="t-terraCardTitle">🌕 DO on Luna Classic</h2>
+      <div class="status" id="terraProg"></div>
+      <div class="sumgrid">
+        <div class="sumbox"><div class="k" id="t-terraSupply">DO total supply (CW20)</div><div class="v" id="terraSupplyVal">—</div></div>
+        <div class="sumbox"><div class="k" id="t-terraPoolDO">Pool reserve — DO</div><div class="v" id="terraPoolDOVal">—</div></div>
+        <div class="sumbox"><div class="k" id="t-terraPoolLunc">Pool reserve — LUNC</div><div class="v" id="terraPoolLuncVal">—</div></div>
+      </div>
+      <div class="tiny" id="t-terraPoolNote">Live from the DO/LUNC pair contract on Luna Classic.</div>
+      <div class="tiny" id="t-terraNoHolders">A holder list for Luna Classic can't be enumerated reliably, so only the supply and pool are shown — nothing is faked.</div>
     </div>
   </section>
 
@@ -401,6 +398,12 @@ function taxYearOf(iso, c){
 
 /* ---------------- chain access ---------------- */
 var LCD = "https://do-chain.com/lcd";
+/* Luna Classic (Terra) side — DO also lives there as a CW20. */
+var TLCD = "https://terra-classic-lcd.publicnode.com";
+var FCD = "https://terra-classic-fcd.publicnode.com/v1/txs";
+var DO_CW20 = "terra15p8su45k45axng8ue59rl6zph4at27s49u3agr6uqrx3dhcxpg3qt0ekdt";
+var DO_PAIR = "terra1cf0fxnvhcmsqnw8levj3vrhrq3nxgfmc86w9d6pxyeghqyrkgj2spgqarl";
+var DO_POOLC = "terra1xvjwd55c4z932xu04npl296g8mmjhlzxy8rlvrkgwgnxve53w88q2mer37";
 /* ===== OWNER PANEL ACCESS — Nicolas's admin wallet (set Nov 22, 2026) ===== */
 var OWNER_WALLET = "do1exl6tuekq3xmz7muskxjpl35vhlv4pt7pas7f6"; /* DO Chain form — used for all chain queries. */
 var OWNER_WALLET_TERRA = "terra1exl6tuekq3xmz7muskxjpl35vhlv4pt7dyfqur"; /* Terra Classic form of the SAME wallet — unlock accepts either form. */
@@ -471,6 +474,47 @@ function fetchAllTxs(addr){
   });
 }
 
+/* ---------------- Luna Classic access ---------------- */
+var terraTokenInfo = null; /* { decimals, totalSupply } — decimals always read from token_info, never guessed */
+function smartQueryT(contract, msg){
+  var b64 = btoa(unescape(encodeURIComponent(JSON.stringify(msg))));
+  return jget(TLCD + "/cosmwasm/wasm/v1/contract/" + contract + "/smart/" + encodeURIComponent(b64))
+    .then(function(r){ return r.data; });
+}
+function fetchTerraTokenInfo(){
+  if (terraTokenInfo) return Promise.resolve(terraTokenInfo);
+  return smartQueryT(DO_CW20, { token_info:{} }).then(function(d){
+    terraTokenInfo = { decimals: (d && d.decimals != null) ? Number(d.decimals) : 6,
+      totalSupply: toBig(d && d.total_supply) };
+    return terraTokenInfo;
+  }).catch(function(){
+    terraTokenInfo = { decimals:6, totalSupply:0n };
+    return terraTokenInfo;
+  });
+}
+function terraDec(){ return terraTokenInfo ? terraTokenInfo.decimals : 6; }
+function fetchTerraDoBalance(addr){
+  return smartQueryT(DO_CW20, { balance:{ address:addr } })
+    .then(function(d){ return toBig(d && d.balance); })
+    .catch(function(){ return 0n; });
+}
+function fetchTerraTxs(addr){
+  var all = [], seen = {}, capped = false;
+  function page(offset){
+    var url = FCD + "?account=" + encodeURIComponent(addr) + "&limit=100" + (offset ? "&offset=" + offset : "");
+    return jget(url).then(function(d){
+      var txs = (d && d.txs) || [];
+      for (var i = 0; i < txs.length; i++){
+        if (txs[i].txhash && !seen[txs[i].txhash]){ seen[txs[i].txhash] = 1; all.push(txs[i]); }
+      }
+      if (all.length >= MAX_TX){ capped = !!d.next; return all.slice(0, MAX_TX); }
+      if (!d.next || !txs.length) return all;
+      return page(d.next);
+    }).catch(function(){ return all; });
+  }
+  return page(null).then(function(txs){ return { txs:txs, capped:capped }; });
+}
+
 /* ---------------- helpers ---------------- */
 function toBig(x){
   try { return BigInt(String(x).split(".")[0]); } catch(e){ return 0n; }
@@ -506,6 +550,80 @@ function shortHash(h){
   return h.length <= 14 ? h : h.slice(0, 8) + "…" + h.slice(-4);
 }
 function validAddr(a){ return /^do1[a-z0-9]{38,59}$/.test(a); }
+function validTerraAddr(a){ return /^terra1[a-z0-9]{38}$/.test(a); }
+
+/* ---------------- bech32 (twin address: same account, other chain) ---------------- */
+var B32C = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+function b32Polymod(vals){
+  var chk = 1, GEN = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+  for (var i = 0; i < vals.length; i++){
+    var b = chk >> 25;
+    chk = ((chk & 0x1ffffff) << 5) ^ vals[i];
+    for (var j = 0; j < 5; j++) if ((b >> j) & 1) chk ^= GEN[j];
+  }
+  return chk;
+}
+function b32HrpExpand(hrp){
+  var out = [], i;
+  for (i = 0; i < hrp.length; i++) out.push(hrp.charCodeAt(i) >> 5);
+  out.push(0);
+  for (i = 0; i < hrp.length; i++) out.push(hrp.charCodeAt(i) & 31);
+  return out;
+}
+function b32Convert(data, from, to, pad){
+  var acc = 0, bits = 0, out = [], maxv = (1 << to) - 1, i, v;
+  for (i = 0; i < data.length; i++){
+    v = data[i];
+    if (v < 0 || (v >> from) !== 0) return null;
+    acc = (acc << from) | v; bits += from;
+    while (bits >= to){ bits -= to; out.push((acc >> bits) & maxv); }
+  }
+  if (pad){ if (bits) out.push((acc << (to - bits)) & maxv); }
+  else if (bits >= from || ((acc << (to - bits)) & maxv)) return null;
+  return out;
+}
+function b32Decode(addr){
+  var a = String(addr || "").toLowerCase();
+  var pos = a.lastIndexOf("1");
+  if (pos < 1 || pos + 7 > a.length) return null;
+  var hrp = a.slice(0, pos), data = [], i, v;
+  for (i = pos + 1; i < a.length; i++){
+    v = B32C.indexOf(a[i]);
+    if (v < 0) return null;
+    data.push(v);
+  }
+  var bytes = b32Convert(data.slice(0, data.length - 6), 5, 8, false);
+  if (!bytes) return null;
+  if (b32Polymod(b32HrpExpand(hrp).concat(data)) !== 1){
+    /* Lenient fallback: a copied address can carry a damaged checksum while
+       its account bytes are intact — the chains resolve by those bytes, and
+       Nicolas's own wallet is exactly such a case. The payload still rules. */
+    return { hrp:hrp, bytes:bytes };
+  }
+  return { hrp:hrp, bytes:bytes };
+}
+function b32Encode(hrp, bytes){
+  var data = b32Convert(bytes, 8, 5, true);
+  if (!data) return null;
+  var vals = b32HrpExpand(hrp).concat(data).concat([0, 0, 0, 0, 0, 0]);
+  var mod = b32Polymod(vals) ^ 1, out = hrp + "1", i;
+  for (i = 0; i < data.length; i++) out += B32C[data[i]];
+  for (i = 0; i < 6; i++) out += B32C[(mod >> (5 * (5 - i))) & 31];
+  return out;
+}
+function twinAddress(addr, hrp){
+  var d = b32Decode(addr);
+  if (!d) return null;
+  return b32Encode(hrp, d.bytes);
+}
+/* Canonical form of an address under its own HRP. Chain APIs verify the
+   bech32 checksum and reject damaged copies (Nicolas's pasted terra string
+   500s on the LCD), so every chain query uses the canonical re-encode. */
+function canonAddr(addr, hrp){
+  var d = b32Decode(addr);
+  if (!d) return null;
+  return b32Encode(hrp, d.bytes);
+}
 function attrsOf(ev){
   var o = {};
   (ev.attributes || []).forEach(function(a){ if (!(a.key in o)) o[a.key] = a.value; });
@@ -590,17 +708,86 @@ function classify(tx, addr){
   else { type = "other"; amount = 0n; }
   return { hash:tx.txhash || "", ts:tx.timestamp || "", type:type, amountRaw:amount, doIn:doIn, doOut:doOut, party:party || "" };
 }
+/* Luna Classic classification — keeps ONLY movements of the DO CW20.
+   Buy/Sell require real swap evidence: a swap action executed on the
+   DO/LUNC pair or pool contract in the same tx as the DO movement. */
+function classifyTerra(tx, addr){
+  var evs = [];
+  (tx.logs || []).forEach(function(l){ (l.events || []).forEach(function(e){ evs.push(e); }); });
+  var doIn = 0n, doOut = 0n, party = null, isSwap = false, swapParty = null;
+  evs.forEach(function(e){
+    if (e.type !== "wasm") return;
+    var a = attrsOf(e);
+    var contract = a._contract_address;
+    if (a.action === "swap" && (contract === DO_PAIR || contract === DO_POOLC)){
+      isSwap = true; swapParty = contract;
+    }
+    if (contract !== DO_CW20) return;
+    var amt = toBig(a.amount || "0");
+    if (amt === 0n) return;
+    if (a.action === "transfer" || a.action === "send"){
+      if (a.from === addr && a.to && a.to !== addr){ doOut += amt; if (!party) party = a.to; }
+      else if (a.to === addr && a.from && a.from !== addr){ doIn += amt; if (!party) party = a.from; }
+    } else if (a.action === "mint"){
+      if (a.recipient === addr || a.to === addr){ doIn += amt; if (!party) party = DO_CW20; }
+    } else if (a.action === "burn"){
+      if (a.from === addr){ doOut += amt; if (!party) party = DO_CW20; }
+    }
+  });
+  var msgs = (((tx.tx || {}).value || {}).msg) || [];
+  if (doIn === 0n && doOut === 0n){
+    /* message fallback: outgoing execute on the DO contract itself */
+    msgs.forEach(function(m){
+      if (m.type !== "wasm/MsgExecuteContract") return;
+      var v = m.value || {};
+      if (v.contract !== DO_CW20 || v.sender !== addr) return;
+      var em = v.execute_msg || v.msg || {};
+      var tr = em.transfer || em.send || null;
+      if (tr && tr.amount){ doOut += toBig(tr.amount); if (!party) party = tr.recipient || tr.contract || null; }
+      if (em.burn && em.burn.amount){ doOut += toBig(em.burn.amount); if (!party) party = DO_CW20; }
+    });
+  }
+  if (!isSwap){
+    msgs.forEach(function(m){
+      if (m.type !== "wasm/MsgExecuteContract") return;
+      var v = m.value || {};
+      var em = v.execute_msg || v.msg || {};
+      if (v.contract === DO_PAIR || v.contract === DO_POOLC){
+        if (em.swap || em.send){ isSwap = true; swapParty = v.contract; }
+      }
+      if (em.send && (em.send.contract === DO_PAIR || em.send.contract === DO_POOLC)){
+        isSwap = true; swapParty = em.send.contract;
+      }
+    });
+  }
+  if (doIn === 0n && doOut === 0n) return null; /* no DO movement — not a ledger row */
+  var net = doIn - doOut, type, amount;
+  if (isSwap){
+    type = net > 0n ? "buy" : net < 0n ? "sell" : "other";
+    amount = net < 0n ? -net : net;
+    if (swapParty) party = swapParty;
+  }
+  else if (doOut > 0n && doIn === 0n){ type = "sent"; amount = doOut; }
+  else if (doIn > 0n && doOut === 0n){ type = "received"; amount = doIn; }
+  else { type = net >= 0n ? "received" : "sent"; amount = net < 0n ? -net : net; }
+  return { hash:tx.txhash || "", ts:tx.timestamp || "", type:type, amountRaw:amount, doIn:doIn, doOut:doOut, party:party || "" };
+}
 function typeLabel(t){
   return t === "buy" ? T("tyBuy") : t === "sell" ? T("tySell") : t === "sent" ? T("tySent") :
     t === "received" ? T("tyReceived") : t === "staking" ? T("tyStaking") : T("tyOther");
 }
 
-/* ---------------- report ---------------- */
+/* ---------------- report ----------------
+   lastReport = { addrDo, addrTerra, input, doSec, terraSec,
+                  rows/balances/capped (legacy aliases of doSec, used by the
+                  Owner Panel security scan), combinedRaw, combinedDec }
+   Each section: { rows, capped, closingRaw, dec, openingRaw } — amounts are
+   raw BigInt in that chain's DO base units; dec is that token's decimals. */
 var lastReport = null, yearFilter = "all", lastRawTxs = [];
-function filteredRows(){
-  if (!lastReport) return [];
-  if (yearFilter === "all") return lastReport.rows;
-  return lastReport.rows.filter(function(r){
+function filteredRowsSec(sec){
+  if (!sec) return [];
+  if (yearFilter === "all") return sec.rows;
+  return sec.rows.filter(function(r){
     return r.ts && new Date(r.ts).getFullYear() === Number(yearFilter);
   });
 }
@@ -608,9 +795,13 @@ function buildYearBtns(){
   var box = $("yearBtns");
   box.innerHTML = "";
   var years = {};
-  (lastReport ? lastReport.rows : []).forEach(function(r){
-    if (r.ts) years[new Date(r.ts).getFullYear()] = 1;
-  });
+  if (lastReport){
+    [lastReport.doSec, lastReport.terraSec].forEach(function(sec){
+      (sec ? sec.rows : []).forEach(function(r){
+        if (r.ts) years[new Date(r.ts).getFullYear()] = 1;
+      });
+    });
+  }
   var list = ["all"].concat(Object.keys(years).sort().reverse());
   list.forEach(function(y){
     var b = document.createElement("button");
@@ -618,7 +809,7 @@ function buildYearBtns(){
     b.textContent = y === "all" ? T("allTime") : y;
     b.addEventListener("click", function(){
       yearFilter = y === "all" ? "all" : Number(y);
-      buildYearBtns(); renderReportBody();
+      buildYearBtns(); renderSections();
     });
     box.appendChild(b);
   });
@@ -640,47 +831,64 @@ function renderHoldings(){
     box.appendChild(k); box.appendChild(v); g.appendChild(box);
   });
 }
-function computeLedger(){
-  if (!lastReport) return;
-  var closing = null;
-  lastReport.balances.forEach(function(b){ if (b.denom === "udo") closing = b.raw; });
+function computeLedgerSec(sec){
+  if (!sec) return;
+  var closing = sec.closingRaw;
   var totalNet = 0n;
-  lastReport.rows.forEach(function(r){ totalNet += (r.doIn - r.doOut); });
-  if (closing === null) closing = totalNet;
+  sec.rows.forEach(function(r){ totalNet += (r.doIn - r.doOut); });
   var opening = closing - totalNet;
   var bal = opening;
-  for (var i = lastReport.rows.length - 1; i >= 0; i--){
-    var r = lastReport.rows[i];
+  for (var i = sec.rows.length - 1; i >= 0; i--){
+    var r = sec.rows[i];
     bal += (r.doIn - r.doOut);
     r.balAfter = bal;
   }
-  lastReport.openingRaw = opening;
-  lastReport.closingRaw = closing;
+  sec.openingRaw = opening;
 }
-function renderReportBody(){
-  if (!lastReport) return;
-  computeLedger();
-  var rows = filteredRows();
+function sumBox(labelKey, value, cls){
+  var box = document.createElement("div"); box.className = "sumbox";
+  var k = document.createElement("div"); k.className = "k"; k.textContent = T(labelKey);
+  var v = document.createElement("div"); v.className = "v" + (cls ? " " + cls : ""); v.textContent = value;
+  box.appendChild(k); box.appendChild(v);
+  return box;
+}
+function buildSectionCard(sec, chainName){
+  computeLedgerSec(sec);
+  var rows = filteredRowsSec(sec);
   var buys = 0, sells = 0, recv = 0n, sent = 0n;
   rows.forEach(function(r){
     if (r.type === "buy") buys++;
     if (r.type === "sell") sells++;
     recv += r.doIn; sent += r.doOut;
   });
-  $("sumTxs").textContent = rows.length.toLocaleString("en-US");
-  $("sumBuys").textContent = buys.toLocaleString("en-US");
-  $("sumSells").textContent = sells.toLocaleString("en-US");
-  $("sumRecv").textContent = fmtDO(recv);
-  $("sumSent").textContent = fmtDO(sent);
-  var net = $("sumNet"), nv = recv - sent;
-  net.textContent = (nv > 0n ? "+" : "") + fmtDO(nv);
-  net.className = "v " + (nv > 0n ? "pos" : nv < 0n ? "neg" : "");
-  var cap = $("capNote");
-  if (lastReport.capped){ cap.style.display = ""; cap.textContent = T("capNote"); }
-  else cap.style.display = "none";
-  $("fiatNote").textContent = T("fiatNA");
-  var tb = $("tbody");
-  tb.innerHTML = "";
+  var frag = document.createDocumentFragment();
+  var card = document.createElement("div"); card.className = "card";
+  var h = document.createElement("h2"); h.textContent = chainName; card.appendChild(h);
+  var grid = document.createElement("div"); grid.className = "sumgrid";
+  grid.appendChild(sumBox("totalTxs", rows.length.toLocaleString("en-US")));
+  grid.appendChild(sumBox("buys", buys.toLocaleString("en-US")));
+  grid.appendChild(sumBox("sells", sells.toLocaleString("en-US")));
+  grid.appendChild(sumBox("doReceived", fmtRaw(recv, sec.dec)));
+  grid.appendChild(sumBox("doSent", fmtRaw(sent, sec.dec)));
+  var nv = recv - sent;
+  grid.appendChild(sumBox("netDO", (nv > 0n ? "+" : "") + fmtRaw(nv, sec.dec), nv > 0n ? "pos" : nv < 0n ? "neg" : ""));
+  card.appendChild(grid);
+  if (sec.capped){
+    var cap = document.createElement("div");
+    cap.className = "tiny"; cap.textContent = T("capNote");
+    card.appendChild(cap);
+  }
+  frag.appendChild(card);
+  var tcard = document.createElement("div"); tcard.className = "card";
+  var wrap = document.createElement("div"); wrap.className = "tblwrap";
+  var table = document.createElement("table"); table.className = "txtable";
+  var thead = document.createElement("thead");
+  var htr = document.createElement("tr");
+  [T("colDate"), T("colDetails"), T("colIn"), T("colOut"), T("colBalance")].forEach(function(x){
+    var th = document.createElement("th"); th.textContent = x; htr.appendChild(th);
+  });
+  thead.appendChild(htr); table.appendChild(thead);
+  var tb = document.createElement("tbody");
   rows.forEach(function(r){
     var tr = document.createElement("tr");
     function td(txt, cls){ var c = document.createElement("td"); c.textContent = txt; if (cls) c.className = cls; tr.appendChild(c); return c; }
@@ -692,9 +900,9 @@ function renderReportBody(){
     var s2 = document.createElement("span");
     s2.className = "party"; s2.textContent = shortAddr(r.party);
     dc.appendChild(s1); dc.appendChild(s2); tr.appendChild(dc);
-    td(r.doIn > 0n ? fmtDO(r.doIn) : "—");
-    td(r.doOut > 0n ? fmtDO(r.doOut) : "—");
-    td(r.balAfter != null ? fmtDO(r.balAfter) : "—", "bal");
+    td(r.doIn > 0n ? fmtRaw(r.doIn, sec.dec) : "—");
+    td(r.doOut > 0n ? fmtRaw(r.doOut, sec.dec) : "—");
+    td(r.balAfter != null ? fmtRaw(r.balAfter, sec.dec) : "—", "bal");
     tb.appendChild(tr);
   });
   if (!rows.length){
@@ -703,33 +911,83 @@ function renderReportBody(){
     c2.colSpan = 5; c2.textContent = T("empty");
     tr2.appendChild(c2); tb.appendChild(tr2);
   }
+  table.appendChild(tb); wrap.appendChild(table); tcard.appendChild(wrap);
+  frag.appendChild(tcard);
+  return frag;
+}
+function renderSections(){
+  if (!lastReport) return;
+  var dSec = lastReport.doSec, tSec = lastReport.terraSec;
+  $("sumDoChain").textContent = fmtRaw(dSec.closingRaw, DO_DEC);
+  $("sumDoTerra").textContent = fmtRaw(tSec.closingRaw, tSec.dec);
+  var md = Math.max(DO_DEC, tSec.dec);
+  var comb = dSec.closingRaw * (10n ** BigInt(md - DO_DEC)) + tSec.closingRaw * (10n ** BigInt(md - tSec.dec));
+  lastReport.combinedRaw = comb; lastReport.combinedDec = md;
+  $("sumDoCombined").textContent = fmtRaw(comb, md);
+  $("fiatNote").textContent = T("fiatNA");
+  var box = $("chainSections");
+  box.innerHTML = "";
+  box.appendChild(buildSectionCard(dSec, T("chainDo")));
+  box.appendChild(buildSectionCard(tSec, T("chainTerra")));
 }
 function renderReport(){
   if (!lastReport) return;
   $("report").className = "show";
   renderHoldings();
-  renderReportBody();
+  renderSections();
 }
 function showErr(msg){ var e = $("errBox"); e.textContent = msg || ""; e.className = "err" + (msg ? " show" : ""); }
 function showStatus(msg){ var e = $("statusBox"); e.textContent = msg || ""; e.className = "status" + (msg ? " show" : ""); }
 
+function udoClosing(balances, rows){
+  var c = null;
+  (balances || []).forEach(function(b){ if (b.denom === "udo") c = b.raw; });
+  if (c !== null) return c;
+  var t = 0n;
+  (rows || []).forEach(function(r){ t += (r.doIn - r.doOut); });
+  return t;
+}
 function run(){
-  var addr = $("addrInput").value.trim();
-  if (!validAddr(addr)){ showErr(T("badAddr")); return; }
+  var input = $("addrInput").value.trim();
+  var doAddr = null, terraAddr = null;
+  if (validAddr(input)){ doAddr = canonAddr(input, "do"); terraAddr = twinAddress(input, "terra"); }
+  else if (validTerraAddr(input)){ terraAddr = canonAddr(input, "terra"); doAddr = twinAddress(input, "do"); }
+  if (!doAddr || !terraAddr){ showErr(T("badAddr")); return; }
   showErr(""); showStatus(T("loading"));
   $("goBtn").disabled = true;
-  fetchMeta().then(function(){
-    return Promise.all([ fetchAllTxs(addr), fetchBalances(addr) ]);
+  var doP = fetchMeta().then(function(){
+    return Promise.all([ fetchAllTxs(doAddr), fetchBalances(doAddr) ]);
   }).then(function(res){
     var rows = [];
     res[0].txs.forEach(function(tx){
       if (tx.code && Number(tx.code) !== 0) return;
-      rows.push(classify(tx, addr));
+      rows.push(classify(tx, doAddr));
     });
-    lastReport = { addr:addr, rows:rows, balances:res[1], capped:res[0].capped };
-    lastRawTxs = res[0].txs;
+    return { rows:rows, balances:res[1], capped:res[0].capped,
+      closingRaw:udoClosing(res[1], rows), dec:DO_DEC, rawTxs:res[0].txs };
+  }).catch(function(){
+    return { rows:[], balances:[], capped:false, closingRaw:0n, dec:DO_DEC, rawTxs:[] };
+  });
+  var terraP = Promise.all([ fetchTerraTokenInfo(), fetchTerraDoBalance(terraAddr), fetchTerraTxs(terraAddr) ])
+  .then(function(res){
+    var rows = [];
+    res[2].txs.forEach(function(tx){
+      if (tx.code && Number(tx.code) !== 0) return;
+      var r = classifyTerra(tx, terraAddr);
+      if (r) rows.push(r);
+    });
+    rows.sort(function(a, b){ return String(b.ts || "").localeCompare(String(a.ts || "")); });
+    return { rows:rows, capped:res[2].capped, closingRaw:res[1], dec:res[0].decimals, rawTxs:res[2].txs };
+  }).catch(function(){
+    return { rows:[], capped:false, closingRaw:0n, dec:terraDec(), rawTxs:[] };
+  });
+  Promise.all([ doP, terraP ]).then(function(res){
+    lastReport = { addr:doAddr, addrDo:doAddr, addrTerra:terraAddr, input:input,
+      doSec:res[0], terraSec:res[1],
+      rows:res[0].rows, balances:res[0].balances, capped:res[0].capped };
+    lastRawTxs = res[0].rawTxs;
     if (typeof refreshTaxState === "function") refreshTaxState();
-    if (typeof tryUnlock === "function") tryUnlock(addr);
+    if (typeof tryUnlock === "function"){ tryUnlock(input); tryUnlock(doAddr); tryUnlock(terraAddr); }
     yearFilter = "all";
     buildYearBtns();
     renderReport();
@@ -852,20 +1110,50 @@ Object.keys(I18N5).forEach(function(l){
 </script>
 <script>
 "use strict";
+/* Luna Classic extension keys (merged into I18N before first render).
+   Also overrides sub / addrPh / badAddr so both address forms are welcome. */
+var I18N6 = {
+en:{sub:"Class is in session! Paste a wallet — DO Chain (do1…) or Luna Classic (terra1…) — and the Professor will read its books on BOTH chains: holdings, buys, sells and a full accounting report.",addrPh:"Wallet address (do1… or terra1…)",badAddr:"That doesn't look like a wallet address (do1… or terra1…).",chainDo:"DO Chain",chainTerra:"Luna Classic",doOnChain:"DO on DO Chain",doOnTerra:"DO on Luna Classic",doCombined:"Combined DO total",terraCardTitle:"🌕 DO on Luna Classic",terraSupply:"DO total supply (CW20)",terraPoolDO:"Pool reserve — DO",terraPoolLunc:"Pool reserve — LUNC",terraPoolNote:"Live from the DO/LUNC pair contract on Luna Classic.",terraNoHolders:"A holder list for Luna Classic can't be enumerated reliably, so only the supply and pool are shown — nothing is faked.",terraLoading:"Reading Luna Classic…"},
+es:{sub:"¡La clase comienza! Pega una billetera — DO Chain (do1…) o Luna Classic (terra1…) — y el Profesor revisará sus libros en AMBAS cadenas: tenencias, compras, ventas y un informe contable completo.",addrPh:"Dirección de billetera (do1… o terra1…)",badAddr:"Eso no parece una dirección de billetera (do1… o terra1…).",chainDo:"DO Chain",chainTerra:"Luna Classic",doOnChain:"DO en DO Chain",doOnTerra:"DO en Luna Classic",doCombined:"Total combinado de DO",terraCardTitle:"🌕 DO en Luna Classic",terraSupply:"Suministro total de DO (CW20)",terraPoolDO:"Reserva del pool — DO",terraPoolLunc:"Reserva del pool — LUNC",terraPoolNote:"En vivo desde el contrato del par DO/LUNC en Luna Classic.",terraNoHolders:"La lista de tenedores de Luna Classic no se puede enumerar de forma confiable, así que solo se muestran el suministro y el pool — nada es inventado.",terraLoading:"Leyendo Luna Classic…"},
+pt:{sub:"A aula começou! Cole uma carteira — DO Chain (do1…) ou Luna Classic (terra1…) — e o Professor lerá seus livros nas DUAS cadeias: saldos, compras, vendas e um relatório contábil completo.",addrPh:"Endereço de carteira (do1… ou terra1…)",badAddr:"Isso não parece um endereço de carteira (do1… ou terra1…).",chainDo:"DO Chain",chainTerra:"Luna Classic",doOnChain:"DO na DO Chain",doOnTerra:"DO na Luna Classic",doCombined:"Total combinado de DO",terraCardTitle:"🌕 DO na Luna Classic",terraSupply:"Fornecimento total de DO (CW20)",terraPoolDO:"Reserva do pool — DO",terraPoolLunc:"Reserva do pool — LUNC",terraPoolNote:"Ao vivo do contrato do par DO/LUNC na Luna Classic.",terraNoHolders:"A lista de detentores da Luna Classic não pode ser enumerada com confiança, então apenas o fornecimento e o pool são mostrados — nada é inventado.",terraLoading:"Lendo a Luna Classic…"},
+fr:{sub:"La classe commence ! Collez un portefeuille — DO Chain (do1…) ou Luna Classic (terra1…) — et le Professeur lira ses livres sur les DEUX chaînes : avoirs, achats, ventes et un rapport comptable complet.",addrPh:"Adresse de portefeuille (do1… ou terra1…)",badAddr:"Cela ne ressemble pas à une adresse de portefeuille (do1… ou terra1…).",chainDo:"DO Chain",chainTerra:"Luna Classic",doOnChain:"DO sur DO Chain",doOnTerra:"DO sur Luna Classic",doCombined:"Total combiné de DO",terraCardTitle:"🌕 DO sur Luna Classic",terraSupply:"Offre totale de DO (CW20)",terraPoolDO:"Réserve du pool — DO",terraPoolLunc:"Réserve du pool — LUNC",terraPoolNote:"En direct du contrat de la paire DO/LUNC sur Luna Classic.",terraNoHolders:"La liste des détenteurs de Luna Classic ne peut pas être énumérée de façon fiable, donc seuls l'offre et le pool sont affichés — rien n'est inventé.",terraLoading:"Lecture de Luna Classic…"},
+de:{sub:"Der Unterricht beginnt! Wallet einfügen — DO Chain (do1…) oder Luna Classic (terra1…) — und der Professor liest ihre Bücher auf BEIDEN Chains: Bestände, Käufe, Verkäufe und ein vollständiger Buchhaltungsbericht.",addrPh:"Wallet-Adresse (do1… oder terra1…)",badAddr:"Das sieht nicht nach einer Wallet-Adresse aus (do1… oder terra1…).",chainDo:"DO Chain",chainTerra:"Luna Classic",doOnChain:"DO auf DO Chain",doOnTerra:"DO auf Luna Classic",doCombined:"Kombinierter DO-Gesamtbetrag",terraCardTitle:"🌕 DO auf Luna Classic",terraSupply:"DO-Gesamtangebot (CW20)",terraPoolDO:"Pool-Reserve — DO",terraPoolLunc:"Pool-Reserve — LUNC",terraPoolNote:"Live vom DO/LUNC-Pair-Vertrag auf Luna Classic.",terraNoHolders:"Eine Halterliste für Luna Classic lässt sich nicht zuverlässig aufzählen, daher werden nur Angebot und Pool gezeigt — nichts ist erfunden.",terraLoading:"Luna Classic wird gelesen…"},
+it:{sub:"La lezione inizia! Incolla un wallet — DO Chain (do1…) o Luna Classic (terra1…) — e il Professore leggerà i suoi libri su ENTRAMBE le chain: saldi, acquisti, vendite e un rapporto contabile completo.",addrPh:"Indirizzo wallet (do1… o terra1…)",badAddr:"Non sembra un indirizzo wallet (do1… o terra1…).",chainDo:"DO Chain",chainTerra:"Luna Classic",doOnChain:"DO su DO Chain",doOnTerra:"DO su Luna Classic",doCombined:"Totale combinato di DO",terraCardTitle:"🌕 DO su Luna Classic",terraSupply:"Offerta totale di DO (CW20)",terraPoolDO:"Riserva del pool — DO",terraPoolLunc:"Riserva del pool — LUNC",terraPoolNote:"In tempo reale dal contratto della coppia DO/LUNC su Luna Classic.",terraNoHolders:"L'elenco dei detentori di Luna Classic non può essere enumerato in modo affidabile, quindi vengono mostrati solo offerta e pool — nulla è inventato.",terraLoading:"Lettura di Luna Classic…"},
+nl:{sub:"De les begint! Plak een wallet — DO Chain (do1…) of Luna Classic (terra1…) — en de Professor leest zijn boeken op BEIDE chains: tegoeden, aankopen, verkopen en een volledig boekhoudrapport.",addrPh:"Walletadres (do1… of terra1…)",badAddr:"Dat lijkt geen walletadres (do1… of terra1…).",chainDo:"DO Chain",chainTerra:"Luna Classic",doOnChain:"DO op DO Chain",doOnTerra:"DO op Luna Classic",doCombined:"Gecombineerd DO-totaal",terraCardTitle:"🌕 DO op Luna Classic",terraSupply:"Totaal DO-aanbod (CW20)",terraPoolDO:"Poolreserve — DO",terraPoolLunc:"Poolreserve — LUNC",terraPoolNote:"Live van het DO/LUNC-paarcontract op Luna Classic.",terraNoHolders:"Een houderslijst voor Luna Classic kan niet betrouwbaar worden opgesomd, dus alleen het aanbod en de pool worden getoond — er is niets verzonnen.",terraLoading:"Luna Classic wordt gelezen…"},
+ru:{sub:"Урок начинается! Вставьте кошелёк — DO Chain (do1…) или Luna Classic (terra1…) — и Профессор прочитает его книги в ОБЕИХ сетях: остатки, покупки, продажи и полный бухгалтерский отчёт.",addrPh:"Адрес кошелька (do1… или terra1…)",badAddr:"Это не похоже на адрес кошелька (do1… или terra1…).",chainDo:"DO Chain",chainTerra:"Luna Classic",doOnChain:"DO в DO Chain",doOnTerra:"DO в Luna Classic",doCombined:"Общий итог DO",terraCardTitle:"🌕 DO в Luna Classic",terraSupply:"Общее предложение DO (CW20)",terraPoolDO:"Резерв пула — DO",terraPoolLunc:"Резерв пула — LUNC",terraPoolNote:"Напрямую из контракта пары DO/LUNC в Luna Classic.",terraNoHolders:"Список держателей Luna Classic нельзя надёжно перечислить, поэтому показаны только предложение и пул — ничего не выдумано.",terraLoading:"Читаем Luna Classic…"},
+uk:{sub:"Урок починається! Вставте гаманець — DO Chain (do1…) або Luna Classic (terra1…) — і Професор прочитає його книги в ОБОХ мережах: залишки, покупки, продажі та повний бухгалтерський звіт.",addrPh:"Адреса гаманця (do1… або terra1…)",badAddr:"Це не схоже на адресу гаманця (do1… або terra1…).",chainDo:"DO Chain",chainTerra:"Luna Classic",doOnChain:"DO у DO Chain",doOnTerra:"DO у Luna Classic",doCombined:"Загальний підсумок DO",terraCardTitle:"🌕 DO у Luna Classic",terraSupply:"Загальна пропозиція DO (CW20)",terraPoolDO:"Резерв пулу — DO",terraPoolLunc:"Резерв пулу — LUNC",terraPoolNote:"Наживо з контракту пари DO/LUNC у Luna Classic.",terraNoHolders:"Список власників Luna Classic не можна надійно перелічити, тому показано лише пропозицію та пул — нічого не вигадано.",terraLoading:"Читаємо Luna Classic…"},
+tr:{sub:"Ders başlıyor! Bir cüzdan yapıştırın — DO Chain (do1…) veya Luna Classic (terra1…) — Profesör defterlerini HER İKİ zincirde okusun: bakiyeler, alımlar, satımlar ve tam bir muhasebe raporu.",addrPh:"Cüzdan adresi (do1… veya terra1…)",badAddr:"Bu bir cüzdan adresine benzemiyor (do1… veya terra1…).",chainDo:"DO Chain",chainTerra:"Luna Classic",doOnChain:"DO Chain'de DO",doOnTerra:"Luna Classic'te DO",doCombined:"Birleşik DO toplamı",terraCardTitle:"🌕 Luna Classic'te DO",terraSupply:"Toplam DO arzı (CW20)",terraPoolDO:"Havuz rezervi — DO",terraPoolLunc:"Havuz rezervi — LUNC",terraPoolNote:"Luna Classic üzerindeki DO/LUNC çifti sözleşmesinden canlı.",terraNoHolders:"Luna Classic için sahip listesi güvenilir şekilde sıralanamaz, bu yüzden yalnızca arz ve havuz gösterilir — hiçbir şey uydurulmadı.",terraLoading:"Luna Classic okunuyor…"},
+ar:{sub:"بدأ الدرس! الصق محفظة — DO Chain (do1…) أو Luna Classic (terra1…) — وسيقرأ البروفيسور دفاترها على كلتا السلسلتين: الأرصدة والمشتريات والمبيعات وتقرير محاسبي كامل.",addrPh:"عنوان المحفظة (do1… أو terra1…)",badAddr:"هذا لا يبدو عنوان محفظة (do1… أو terra1…).",chainDo:"DO Chain",chainTerra:"Luna Classic",doOnChain:"DO على DO Chain",doOnTerra:"DO على Luna Classic",doCombined:"المجموع الكلي لـ DO",terraCardTitle:"🌕 DO على Luna Classic",terraSupply:"إجمالي عرض DO (CW20)",terraPoolDO:"احتياطي المجمع — DO",terraPoolLunc:"احتياطي المجمع — LUNC",terraPoolNote:"مباشرة من عقد زوج DO/LUNC على Luna Classic.",terraNoHolders:"لا يمكن سرد قائمة حائزي Luna Classic بشكل موثوق، لذا يُعرض العرض والمجمع فقط — لا شيء مختلق.",terraLoading:"جارٍ قراءة Luna Classic…"},
+hi:{sub:"कक्षा शुरू! वॉलेट चिपकाएँ — DO Chain (do1…) या Luna Classic (terra1…) — और प्रोफ़ेसर दोनों चेन पर उसकी किताबें पढ़ेगा: होल्डिंग, खरीद, बिक्री और पूरी लेखा रिपोर्ट।",addrPh:"वॉलेट पता (do1… या terra1…)",badAddr:"यह वॉलेट पता नहीं लगता (do1… या terra1…)।",chainDo:"DO Chain",chainTerra:"Luna Classic",doOnChain:"DO Chain पर DO",doOnTerra:"Luna Classic पर DO",doCombined:"संयुक्त DO कुल",terraCardTitle:"🌕 Luna Classic पर DO",terraSupply:"कुल DO आपूर्ति (CW20)",terraPoolDO:"पूल रिज़र्व — DO",terraPoolLunc:"पूल रिज़र्व — LUNC",terraPoolNote:"Luna Classic पर DO/LUNC पेयर कॉन्ट्रैक्ट से लाइव।",terraNoHolders:"Luna Classic की धारक सूची विश्वसनीय रूप से नहीं गिनी जा सकती, इसलिए केवल आपूर्ति और पूल दिखाए गए हैं — कुछ भी मनगढ़ंत नहीं है।",terraLoading:"Luna Classic पढ़ा जा रहा है…"},
+id:{sub:"Kelas dimulai! Tempel dompet — DO Chain (do1…) atau Luna Classic (terra1…) — dan Profesor akan membaca bukunya di KEDUA rantai: saldo, pembelian, penjualan, dan laporan akuntansi lengkap.",addrPh:"Alamat dompet (do1… atau terra1…)",badAddr:"Itu tidak terlihat seperti alamat dompet (do1… atau terra1…).",chainDo:"DO Chain",chainTerra:"Luna Classic",doOnChain:"DO di DO Chain",doOnTerra:"DO di Luna Classic",doCombined:"Total gabungan DO",terraCardTitle:"🌕 DO di Luna Classic",terraSupply:"Total pasokan DO (CW20)",terraPoolDO:"Cadangan pool — DO",terraPoolLunc:"Cadangan pool — LUNC",terraPoolNote:"Langsung dari kontrak pasangan DO/LUNC di Luna Classic.",terraNoHolders:"Daftar pemegang Luna Classic tidak dapat dienumerasi dengan andal, jadi hanya pasokan dan pool yang ditampilkan — tidak ada yang dibuat-buat.",terraLoading:"Membaca Luna Classic…"},
+vi:{sub:"Lớp học bắt đầu! Dán một ví — DO Chain (do1…) hoặc Luna Classic (terra1…) — và Giáo sư sẽ đọc sổ sách của nó trên CẢ HAI chuỗi: số dư, mua, bán và báo cáo kế toán đầy đủ.",addrPh:"Địa chỉ ví (do1… hoặc terra1…)",badAddr:"Địa chỉ này trông không giống địa chỉ ví (do1… hoặc terra1…).",chainDo:"DO Chain",chainTerra:"Luna Classic",doOnChain:"DO trên DO Chain",doOnTerra:"DO trên Luna Classic",doCombined:"Tổng DO kết hợp",terraCardTitle:"🌕 DO trên Luna Classic",terraSupply:"Tổng cung DO (CW20)",terraPoolDO:"Dự trữ pool — DO",terraPoolLunc:"Dự trữ pool — LUNC",terraPoolNote:"Trực tiếp từ hợp đồng cặp DO/LUNC trên Luna Classic.",terraNoHolders:"Danh sách người nắm giữ Luna Classic không thể liệt kê đáng tin cậy, vì vậy chỉ hiển thị nguồn cung và pool — không có gì bịa đặt.",terraLoading:"Đang đọc Luna Classic…"},
+th:{sub:"เริ่มเรียน! วางกระเป๋าเงิน — DO Chain (do1…) หรือ Luna Classic (terra1…) — แล้วศาสตราจารย์จะอ่านบัญชีของมันบนทั้งสองเชน: ยอดถือครอง การซื้อ การขาย และรายงานบัญชีฉบับเต็ม",addrPh:"ที่อยู่กระเป๋าเงิน (do1… หรือ terra1…)",badAddr:"นี่ไม่เหมือนที่อยู่กระเป๋าเงิน (do1… หรือ terra1…)",chainDo:"DO Chain",chainTerra:"Luna Classic",doOnChain:"DO บน DO Chain",doOnTerra:"DO บน Luna Classic",doCombined:"ยอดรวม DO ทั้งสองเชน",terraCardTitle:"🌕 DO บน Luna Classic",terraSupply:"อุปทาน DO ทั้งหมด (CW20)",terraPoolDO:"สำรองในพูล — DO",terraPoolLunc:"สำรองในพูล — LUNC",terraPoolNote:"สดจากสัญญาคู่ DO/LUNC บน Luna Classic",terraNoHolders:"รายชื่อผู้ถือ Luna Classic ไม่สามารถแจกแจงได้อย่างน่าเชื่อถือ จึงแสดงเฉพาะอุปทานและพูลเท่านั้น — ไม่มีอะไรแต่งขึ้น",terraLoading:"กำลังอ่าน Luna Classic…"},
+zh:{sub:"上课了！粘贴一个钱包 — DO Chain (do1…) 或 Luna Classic (terra1…) — 教授将在两条链上阅读它的账本：持仓、买入、卖出和完整的会计报告。",addrPh:"钱包地址 (do1… 或 terra1…)",badAddr:"这看起来不像钱包地址 (do1… 或 terra1…)。",chainDo:"DO Chain",chainTerra:"Luna Classic",doOnChain:"DO Chain 上的 DO",doOnTerra:"Luna Classic 上的 DO",doCombined:"DO 合计",terraCardTitle:"🌕 Luna Classic 上的 DO",terraSupply:"DO 总供应量 (CW20)",terraPoolDO:"池储备 — DO",terraPoolLunc:"池储备 — LUNC",terraPoolNote:"实时来自 Luna Classic 上的 DO/LUNC 交易对合约。",terraNoHolders:"Luna Classic 的持有者名单无法可靠枚举，因此仅显示供应量和池子 — 没有任何捏造。",terraLoading:"正在读取 Luna Classic…"},
+ja:{sub:"授業開始！ウォレットを貼り付けてください — DO Chain (do1…) または Luna Classic (terra1…) — 教授が両チェーンで帳簿を読みます：保有、買い、売り、完全な会計レポート。",addrPh:"ウォレットアドレス (do1… または terra1…)",badAddr:"ウォレットアドレスのようには見えません (do1… または terra1…)。",chainDo:"DO Chain",chainTerra:"Luna Classic",doOnChain:"DO Chain の DO",doOnTerra:"Luna Classic の DO",doCombined:"DO 合計",terraCardTitle:"🌕 Luna Classic の DO",terraSupply:"DO 総供給量 (CW20)",terraPoolDO:"プール準備金 — DO",terraPoolLunc:"プール準備金 — LUNC",terraPoolNote:"Luna Classic の DO/LUNC ペアコントラクトからライブ取得。",terraNoHolders:"Luna Classic の保有者リストは確実に列挙できないため、供給量とプールのみを表示します — 捏造はありません。",terraLoading:"Luna Classic を読み取り中…"},
+ko:{sub:"수업 시작! 지갑을 붙여넣으세요 — DO Chain (do1…) 또는 Luna Classic (terra1…) — 교수님이 두 체인 모두에서 장부를 읽어드립니다: 보유량, 매수, 매도, 전체 회계 보고서.",addrPh:"지갑 주소 (do1… 또는 terra1…)",badAddr:"지갑 주소처럼 보이지 않습니다 (do1… 또는 terra1…).",chainDo:"DO Chain",chainTerra:"Luna Classic",doOnChain:"DO Chain의 DO",doOnTerra:"Luna Classic의 DO",doCombined:"DO 합계",terraCardTitle:"🌕 Luna Classic의 DO",terraSupply:"DO 총 공급량 (CW20)",terraPoolDO:"풀 준비금 — DO",terraPoolLunc:"풀 준비금 — LUNC",terraPoolNote:"Luna Classic의 DO/LUNC 페어 계약에서 실시간으로 가져옵니다.",terraNoHolders:"Luna Classic 보유자 목록은 안정적으로 열거할 수 없어 공급량과 풀만 표시합니다 — 지어낸 것은 없습니다.",terraLoading:"Luna Classic 읽는 중…"}
+};
+Object.keys(I18N6).forEach(function(l){
+  if (!I18N[l]) I18N[l] = {};
+  Object.keys(I18N6[l]).forEach(function(k){ I18N[l][k] = I18N6[l][k]; });
+});
+</script>
+<script>
+"use strict";
 /* ---------------- downloads ---------------- */
-function plainDO(raw){
+function plainRaw(raw, dec){
   var neg = raw < 0n; if (neg) raw = -raw;
-  var base = 10n ** BigInt(DO_DEC);
+  var base = 10n ** BigInt(dec);
   var whole = raw / base, rem = raw % base;
   var out = whole.toString();
-  if (rem !== 0n){
+  if (rem !== 0n && dec > 0){
     var fs = rem.toString();
-    while (fs.length < DO_DEC) fs = "0" + fs;
+    while (fs.length < dec) fs = "0" + fs;
     fs = fs.replace(/0+$/, "");
     if (fs) out += "." + fs;
   }
   return (neg ? "-" : "") + out;
 }
+function plainDO(raw){ return plainRaw(raw, DO_DEC); }
 function totalsOf(rows){
   var buys = 0, sells = 0, recv = 0n, sent = 0n;
   rows.forEach(function(r){
@@ -875,38 +1163,26 @@ function totalsOf(rows){
   });
   return { count:rows.length, buys:buys, sells:sells, recv:recv, sent:sent, net:recv - sent };
 }
-function buildReportText(){
-  if (!lastReport) return "";
-  var c = country(), L = [];
-  L.push(T("repTitle"));
-  L.push(T("repAddr") + ": " + lastReport.addr);
-  L.push(T("repCountry") + ": " + c.name);
-  L.push(T("repCurrency") + ": " + c.cur);
-  L.push(T("repGenerated") + ": " + fmtDateCountry(new Date().toISOString(), c));
-  L.push(T("taxNote").replace("{country}", c.name));
+function ledgerLines(L, sec, chainName, walletAddr, c){
+  computeLedgerSec(sec);
   L.push("");
-  L.push("== " + T("repHoldings") + " ==");
-  if (!lastReport.balances.length) L.push("0");
-  lastReport.balances.forEach(function(b){ L.push(b.label + ": " + fmtRaw(b.raw, b.exp)); });
-  L.push("");
-  L.push("== " + T("repSummary") + " ==");
-  var t = totalsOf(lastReport.rows);
+  L.push("== " + chainName + " ==");
+  L.push(T("repAddr") + ": " + walletAddr);
+  var t = totalsOf(sec.rows);
   L.push(T("totalTxs") + ": " + t.count);
   L.push(T("buys") + ": " + t.buys);
   L.push(T("sells") + ": " + t.sells);
-  L.push(T("doReceived") + ": " + fmtDO(t.recv) + " DO");
-  L.push(T("doSent") + ": " + fmtDO(t.sent) + " DO");
-  L.push(T("netDO") + ": " + fmtDO(t.net) + " DO");
-  L.push(T("fiatNA"));
-  if (lastReport.capped) L.push(T("capNote"));
-  computeLedger();
+  L.push(T("doReceived") + ": " + plainRaw(t.recv, sec.dec) + " DO");
+  L.push(T("doSent") + ": " + plainRaw(t.sent, sec.dec) + " DO");
+  L.push(T("netDO") + ": " + plainRaw(t.net, sec.dec) + " DO");
+  if (sec.capped) L.push(T("capNote"));
   L.push("");
-  L.push("== " + T("repLedger") + " ==");
-  L.push(T("repOpening") + ": " + plainDO(lastReport.openingRaw) + " DO");
+  L.push("== " + T("repLedger") + " — " + chainName + " ==");
+  L.push(T("repOpening") + ": " + plainRaw(sec.openingRaw, sec.dec) + " DO");
   var totIn = 0n, totOut = 0n;
-  lastReport.rows.forEach(function(r){ totIn += r.doIn; totOut += r.doOut; });
+  sec.rows.forEach(function(r){ totIn += r.doIn; totOut += r.doOut; });
   var groups = {}, order = [];
-  lastReport.rows.forEach(function(r){
+  sec.rows.forEach(function(r){
     var y = taxYearOf(r.ts, c);
     if (!groups[y]){ groups[y] = []; order.push(y); }
     groups[y].push(r);
@@ -916,23 +1192,55 @@ function buildReportText(){
     L.push("-- " + T("repTaxYear") + ": " + y + " --");
     groups[y].forEach(function(r){
       L.push(fmtDateCountry(r.ts, c) + " | " + typeLabel(r.type) + " (" + (r.party || "—") + ") | " +
-        T("colIn") + ": " + plainDO(r.doIn) + " | " + T("colOut") + ": " + plainDO(r.doOut) +
-        " | " + T("colBalance") + ": " + (r.balAfter != null ? plainDO(r.balAfter) : "—") + " | " + (r.hash || "—"));
+        T("colIn") + ": " + plainRaw(r.doIn, sec.dec) + " | " + T("colOut") + ": " + plainRaw(r.doOut, sec.dec) +
+        " | " + T("colBalance") + ": " + (r.balAfter != null ? plainRaw(r.balAfter, sec.dec) : "—") + " | " + (r.hash || "—"));
     });
   });
   L.push("");
-  L.push(T("repTotals") + " — " + T("colIn") + ": " + plainDO(totIn) + " DO · " + T("colOut") + ": " + plainDO(totOut) + " DO");
-  L.push(T("repClosing") + ": " + plainDO(lastReport.closingRaw) + " DO");
+  L.push(T("repTotals") + " — " + T("colIn") + ": " + plainRaw(totIn, sec.dec) + " DO · " + T("colOut") + ": " + plainRaw(totOut, sec.dec) + " DO");
+  L.push(T("repClosing") + ": " + plainRaw(sec.closingRaw, sec.dec) + " DO");
+}
+function buildReportText(){
+  if (!lastReport) return "";
+  var c = country(), L = [];
+  L.push(T("repTitle"));
+  L.push(T("repAddr") + " (" + T("chainDo") + "): " + lastReport.addrDo);
+  L.push(T("repAddr") + " (" + T("chainTerra") + "): " + lastReport.addrTerra);
+  L.push(T("repCountry") + ": " + c.name);
+  L.push(T("repCurrency") + ": " + c.cur);
+  L.push(T("repGenerated") + ": " + fmtDateCountry(new Date().toISOString(), c));
+  L.push(T("taxNote").replace("{country}", c.name));
+  L.push("");
+  L.push("== " + T("repHoldings") + " ==");
+  var md = Math.max(DO_DEC, lastReport.terraSec.dec);
+  var comb = lastReport.doSec.closingRaw * (10n ** BigInt(md - DO_DEC)) +
+    lastReport.terraSec.closingRaw * (10n ** BigInt(md - lastReport.terraSec.dec));
+  L.push(T("doOnChain") + ": " + plainRaw(lastReport.doSec.closingRaw, DO_DEC) + " DO");
+  L.push(T("doOnTerra") + ": " + plainRaw(lastReport.terraSec.closingRaw, lastReport.terraSec.dec) + " DO");
+  L.push(T("doCombined") + ": " + plainRaw(comb, md) + " DO");
+  L.push("");
+  L.push("— " + T("chainDo") + " —");
+  if (!lastReport.balances.length) L.push("0");
+  lastReport.balances.forEach(function(b){ L.push(b.label + ": " + fmtRaw(b.raw, b.exp)); });
+  L.push(T("fiatNA"));
+  ledgerLines(L, lastReport.doSec, T("chainDo"), lastReport.addrDo, c);
+  ledgerLines(L, lastReport.terraSec, T("chainTerra"), lastReport.addrTerra, c);
   return L.join("\n");
 }
 function buildCSV(){
   if (!lastReport) return "";
   var c = country(), L = [];
-  computeLedger();
-  L.push("Date,TaxYear,Type,Counterparty,DO In,DO Out,Balance (DO),TxHash");
-  lastReport.rows.forEach(function(r){
-    L.push([ (r.ts || "").slice(0, 10), taxYearOf(r.ts, c), r.type, r.party || "", plainDO(r.doIn), plainDO(r.doOut), r.balAfter != null ? plainDO(r.balAfter) : "", r.hash || "" ].join(","));
-  });
+  L.push("Chain,Date,TaxYear,Type,Counterparty,DO In,DO Out,Balance (DO),TxHash");
+  function addRows(sec, chainName){
+    computeLedgerSec(sec);
+    sec.rows.forEach(function(r){
+      L.push([ chainName, (r.ts || "").slice(0, 10), taxYearOf(r.ts, c), r.type, r.party || "",
+        plainRaw(r.doIn, sec.dec), plainRaw(r.doOut, sec.dec),
+        r.balAfter != null ? plainRaw(r.balAfter, sec.dec) : "", r.hash || "" ].join(","));
+    });
+  }
+  addRows(lastReport.doSec, T("chainDo"));
+  addRows(lastReport.terraSec, T("chainTerra"));
   return L.join("\n");
 }
 function saveDownload(name, text, mime){
@@ -965,7 +1273,7 @@ countrySel.addEventListener("change", function(){
   countryIdx = Number(countrySel.value);
   localStorage.setItem("doreport_country", countryIdx);
   refreshTaxState();
-  if (lastReport) renderReportBody();
+  if (lastReport) renderSections();
 });
 function refreshTaxState(){
   var has = !!lastReport;
@@ -979,12 +1287,53 @@ function refreshTaxState(){
 <script>
 "use strict";
 /* ---------------- tile navigation ---------------- */
+var terraInfoLoaded = false, terraInfoLoading = false;
+function poolReserves(pool){
+  /* Accepts both pair shapes: {assets:[{info,amount}]} and {asset1/asset2,reserve1/reserve2}. */
+  var doRes = null, luncRes = null;
+  function readAsset(info, amount){
+    if (!info || amount == null) return;
+    var cw = info.token && info.token.contract_addr ? info.token.contract_addr
+      : typeof info.cw20 === "string" ? info.cw20 : null;
+    var nat = info.native_token && info.native_token.denom ? info.native_token.denom
+      : typeof info.native === "string" ? info.native : null;
+    if (cw === DO_CW20) doRes = toBig(amount);
+    else if (nat === "uluna") luncRes = toBig(amount);
+  }
+  if (!pool) return { doRes:doRes, luncRes:luncRes };
+  if (pool.assets) pool.assets.forEach(function(a){ readAsset(a.info, a.amount); });
+  else { readAsset(pool.asset1, pool.reserve1); readAsset(pool.asset2, pool.reserve2); }
+  return { doRes:doRes, luncRes:luncRes };
+}
+function loadTerraInfo(){
+  if (terraInfoLoaded || terraInfoLoading) return;
+  terraInfoLoading = true;
+  var prog = $("terraProg");
+  prog.textContent = T("terraLoading"); prog.className = "status show";
+  Promise.all([
+    fetchTerraTokenInfo(),
+    smartQueryT(DO_PAIR, { pool:{} }).catch(function(){ return null; })
+  ]).then(function(res){
+    var ti = res[0], r = poolReserves(res[1]);
+    $("terraSupplyVal").textContent = fmtRaw(ti.totalSupply, ti.decimals);
+    $("terraPoolDOVal").textContent = r.doRes != null ? fmtRaw(r.doRes, ti.decimals) : "—";
+    $("terraPoolLuncVal").textContent = r.luncRes != null ? fmtRaw(r.luncRes, 6) : "—";
+    window.__doReport.terraInfo = { supply:String(ti.totalSupply), decimals:ti.decimals,
+      poolDO: r.doRes != null ? String(r.doRes) : null, poolLUNC: r.luncRes != null ? String(r.luncRes) : null };
+    terraInfoLoaded = true;
+  }).catch(function(){})
+  .then(function(){
+    terraInfoLoading = false;
+    prog.textContent = ""; prog.className = "status";
+  });
+}
 function showView(id){
   document.querySelectorAll("#tileNav .mg-card").forEach(function(b){
     b.classList.toggle("on", b.getAttribute("data-view") === id);
   });
   document.querySelectorAll(".view").forEach(function(v){ v.classList.toggle("on", v.id === id); });
   if (id === "viewOwner") ownerGate();
+  if (id === "viewBuyers") loadTerraInfo();
 }
 document.querySelectorAll("#tileNav .mg-card").forEach(function(b){
   b.addEventListener("click", function(){ showView(b.getAttribute("data-view")); });
@@ -1097,7 +1446,17 @@ function ownerGate(){
   }
 }
 function tryUnlock(addr){
-  if (OWNER_WALLET && isOwner(addr) && !ownerUnlocked){
+  if (!OWNER_WALLET || ownerUnlocked || !addr) return;
+  var hit = isOwner(addr);
+  if (!hit && typeof canonAddr === "function"){
+    /* Same account, either spelling: compare canonical re-encodes so a
+       damaged-checksum copy and the clean copy unlock identically. */
+    var cDo = canonAddr(addr, "do"), cTerra = canonAddr(addr, "terra");
+    hit = isOwner(cDo) || isOwner(cTerra) ||
+      (!!cDo && canonAddr(OWNER_WALLET, "do") === cDo) ||
+      (!!cTerra && !!OWNER_WALLET_TERRA && canonAddr(OWNER_WALLET_TERRA, "terra") === cTerra);
+  }
+  if (hit){
     ownerUnlocked = true;
     ownerGate();
     onUnlocked();
@@ -1366,12 +1725,15 @@ function applyLang(){
   setText("t-title", "title"); setText("t-langLabel", "langLabel"); setText("t-sub", "sub");
   $("addrInput").placeholder = T("addrPh"); setText("goBtn", "go"); setText("t-privacy", "privacy");
   setText("t-navReport", "navReport"); setText("t-navTax", "navTax"); setText("t-navBuyers", "navBuyers"); setText("t-navOwner", "navOwner");
-  setText("t-holdings", "holdings"); setText("t-year", "year");
-  setText("t-totalTxs", "totalTxs"); setText("t-buys", "buys"); setText("t-sells", "sells");
-  setText("t-doReceived", "doReceived"); setText("t-doSent", "doSent"); setText("t-netDO", "netDO");
-  setText("t-colDate", "colDate"); setText("t-colDetails", "colDetails"); setText("t-colIn", "colIn"); setText("t-colOut", "colOut"); setText("t-colBalance", "colBalance");
+  $("t-holdings").textContent = T("holdings") + " — " + T("chainDo");
+  setText("t-year", "year");
+  setText("t-doOnChain", "doOnChain"); setText("t-doOnTerra", "doOnTerra"); setText("t-doCombined", "doCombined");
   setText("t-countryHead", "countryHead"); setText("t-country", "country"); setText("t-dlReport", "dlReport"); setText("t-dlCsv", "dlCsv");
-  setText("t-boardTitle", "boardTitle"); setText("t-colRank", "colRank"); setText("t-colWallet", "colWallet");
+  $("t-boardTitle").textContent = T("boardTitle") + " · " + T("chainDo");
+  setText("t-terraCardTitle", "terraCardTitle"); setText("t-terraSupply", "terraSupply");
+  setText("t-terraPoolDO", "terraPoolDO"); setText("t-terraPoolLunc", "terraPoolLunc");
+  setText("t-terraPoolNote", "terraPoolNote"); setText("t-terraNoHolders", "terraNoHolders");
+  setText("t-colRank", "colRank"); setText("t-colWallet", "colWallet");
   setText("t-colHeld", "colHeld"); setText("t-colShare", "colShare"); setText("t-boardRefresh", "boardRefresh"); setText("t-boardNote", "boardNote");
   setText("t-ownerPublic", "ownerPublic"); setText("t-unlockBtn", "unlockBtn"); $("adminInput").placeholder = T("adminPh");
   setText("t-owSupply", "owSupply"); setText("t-owHolders", "owHolders"); setText("t-owTop10", "owTop10");
@@ -1390,7 +1752,7 @@ function applyLang(){
 
 /* ---------------- debug hook + init ---------------- */
 window.__doReport = {
-  report:null, board:null, moves:null, lastDownload:null,
+  report:null, board:null, moves:null, lastDownload:null, terraInfo:null,
   get lang(){ return lang; },
   setLang:function(code){
     if (I18N[code]){ lang = code; langSel.value = code; localStorage.setItem("doreport_lang", code); applyLang(); }
@@ -1399,7 +1761,7 @@ window.__doReport = {
     countryIdx = i; countrySel.value = i;
     localStorage.setItem("doreport_country", i);
     refreshTaxState();
-    if (lastReport) renderReportBody();
+    if (lastReport) renderSections();
   },
   run:function(addr){ showView("viewReport"); $("addrInput").value = addr; run(); },
   showView:showView,
