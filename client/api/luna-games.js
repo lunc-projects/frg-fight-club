@@ -7282,12 +7282,26 @@ export async function jsaHandler(req, res) {
 const DAIRY_JOB_TTL = 600;
 const DAIRY_IMAGE_MAX_B64 = 2000100; /* ~1.5 MB decoded */
 
+/* Dairy rides the KICKBACK Upstash store: the NEONRUSH store hit its
+   500k request cap on 2026-11-21 (every command errored, silently). */
+async function dairyPipeline(cmds) {
+  const url = process.env.KICKBACK_UPSTASH_URL || process.env.NEONRUSH_UPSTASH_URL;
+  const token = process.env.KICKBACK_UPSTASH_TOKEN || process.env.NEONRUSH_UPSTASH_TOKEN;
+  const r = await fetch(`${url}/pipeline`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(cmds),
+  });
+  if (!r.ok) throw new Error(`upstash ${r.status}`);
+  return r.json();
+}
+
 async function dairyRunnerOk(bhash) {
   if (!/^[a-f0-9]{64}$/.test(String(bhash || ''))) return false;
-  const out = await upstashPipeline([['GET', 'dairy:runnerhash']]);
+  const out = await dairyPipeline([['GET', 'dairy:runnerhash']]);
   const stored = out && out[0] && out[0].result;
   if (!stored) {
-    await upstashPipeline([['SET', 'dairy:runnerhash', String(bhash)]]);
+    await dairyPipeline([['SET', 'dairy:runnerhash', String(bhash)]]);
     return true;
   }
   return stored === String(bhash);
@@ -7312,9 +7326,9 @@ export async function dairyHandler(req, res) {
   try {
     if (action === 'dairyPing') {
       const v = 'ping-' + Date.now();
-      const setOut = await upstashPipeline([['SET', 'dairy:ping', v, 'EX', '120']]);
-      const getOut = await upstashPipeline([['GET', 'dairy:ping']]);
-      const qOut = await upstashPipeline([['LPUSH', 'dairy:pingq', v], ['LRANGE', 'dairy:pingq', '0', '2']]);
+      const setOut = await dairyPipeline([['SET', 'dairy:ping', v, 'EX', '120']]);
+      const getOut = await dairyPipeline([['GET', 'dairy:ping']]);
+      const qOut = await dairyPipeline([['LPUSH', 'dairy:pingq', v], ['LRANGE', 'dairy:pingq', '0', '2']]);
       return res.status(200).json({ ok: true, v, setOut, getOut, qOut });
     }
     if (action === 'dairy-photo-start') {
@@ -7331,7 +7345,7 @@ export async function dairyHandler(req, res) {
       }
       const id = crypto.randomBytes(8).toString('hex');
       const job = { image, mime, ts: Date.now() };
-      await upstashPipeline([
+      await dairyPipeline([
         ['SET', 'dairy:job:' + id, JSON.stringify(job), 'EX', String(DAIRY_JOB_TTL)],
         ['LPUSH', 'dairy:queue', id],
         ['LTRIM', 'dairy:queue', '0', '49'],
@@ -7341,7 +7355,7 @@ export async function dairyHandler(req, res) {
     if (action === 'dairy-photo-result') {
       const id = String(body.id || (req.query && req.query.id) || '');
       if (!/^[a-f0-9]{16}$/.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
-      const rOut = await upstashPipeline([['GET', 'dairy:result:' + id]]);
+      const rOut = await dairyPipeline([['GET', 'dairy:result:' + id]]);
       const raw = rOut && rOut[0] && rOut[0].result;
       if (raw) {
         let result = null;
@@ -7351,7 +7365,7 @@ export async function dairyHandler(req, res) {
         }
         return res.status(200).json({ ok: true, status: 'done', result: raw });
       }
-      const jOut = await upstashPipeline([['GET', 'dairy:job:' + id]]);
+      const jOut = await dairyPipeline([['GET', 'dairy:job:' + id]]);
       if (jOut && jOut[0] && jOut[0].result) {
         return res.status(200).json({ ok: true, status: 'waiting' });
       }
@@ -7359,17 +7373,17 @@ export async function dairyHandler(req, res) {
     }
     if (action === 'dairyClaim') {
       if (!(await dairyRunnerOk(body.bhash))) return res.status(403).json({ ok: false, error: 'runner not accepted' });
-      const out = await upstashPipeline([['RPOP', 'dairy:queue']]);
+      const out = await dairyPipeline([['RPOP', 'dairy:queue']]);
       const id = out && out[0] && out[0].result;
       if (!id || !/^[a-f0-9]{16}$/.test(String(id))) return res.status(200).json({ ok: true, job: null });
-      const jOut = await upstashPipeline([['GET', 'dairy:job:' + id]]);
+      const jOut = await dairyPipeline([['GET', 'dairy:job:' + id]]);
       const raw = jOut && jOut[0] && jOut[0].result;
       if (!raw) return res.status(200).json({ ok: true, job: null });
       let job = null;
       try { job = JSON.parse(raw); } catch (e) { job = null; }
       if (!job || !job.image) return res.status(200).json({ ok: true, job: null });
       if (Date.now() - Number(job.ts || 0) > DAIRY_JOB_TTL * 1000) {
-        await upstashPipeline([['DEL', 'dairy:job:' + id]]);
+        await dairyPipeline([['DEL', 'dairy:job:' + id]]);
         return res.status(200).json({ ok: true, job: null });
       }
       return res.status(200).json({ ok: true, job: { id: String(id), image: job.image, mime: job.mime || 'image/jpeg', ts: job.ts } });
@@ -7379,7 +7393,7 @@ export async function dairyHandler(req, res) {
       const id = String(body.id || '');
       if (!/^[a-f0-9]{16}$/.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
       if (!body.result || typeof body.result !== 'object') return res.status(400).json({ ok: false, error: 'result missing' });
-      await upstashPipeline([
+      await dairyPipeline([
         ['SET', 'dairy:result:' + id, JSON.stringify(body.result), 'EX', String(DAIRY_JOB_TTL)],
         ['DEL', 'dairy:job:' + id],
       ]);
