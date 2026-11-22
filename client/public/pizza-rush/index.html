@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<base href="/pizza-rush/">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Pizza Rush — LUNC Pizzeria Delivery</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{width:100%;height:100%;overflow:hidden;background:#0b0e1a;font-family:'Segoe UI',system-ui,sans-serif;color:#fff;touch-action:none;user-select:none}
+  #game{position:fixed;inset:0;display:block}
+  /* HUD */
+  #hud{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;padding:8px 10px;pointer-events:none;z-index:5}
+  .hudbox{background:rgba(10,12,28,.72);border:1px solid rgba(255,190,60,.45);border-radius:12px;padding:6px 12px;backdrop-filter:blur(3px)}
+  #scoreBox{font-size:15px;line-height:1.35}
+  #scoreBox b{color:#ffcf4d;font-size:19px}
+  #strikesBox{font-size:17px;letter-spacing:2px}
+  #timerWrap{width:170px}
+  #timerLabel{font-size:12px;text-align:center;margin-bottom:3px;color:#ffd98a}
+  #timerBarOuter{height:12px;background:rgba(255,255,255,.15);border-radius:6px;overflow:hidden;border:1px solid rgba(255,255,255,.35)}
+  #timerBar{height:100%;width:100%;background:linear-gradient(90deg,#ff9d2e,#ffd23e);transition:width .15s linear}
+  #timerBar.low{background:linear-gradient(90deg,#e33224,#ff7a3e)}
+  /* Language selector */
+  #langWrap{position:fixed;top:64px;right:10px;z-index:20;display:flex;align-items:center;gap:6px;background:rgba(10,12,28,.85);border:1px solid #ffbe3c;border-radius:10px;padding:5px 8px}
+  #langWrap span{font-size:15px}
+  #langSel{background:#1a1e38;color:#ffd23e;border:1px solid #ffbe3c;border-radius:7px;font-size:15px;padding:4px 6px;font-weight:700;max-width:150px}
+  /* Minimap */
+  #minimap{position:fixed;top:112px;right:10px;z-index:6;border:2px solid rgba(255,190,60,.6);border-radius:10px;background:rgba(8,10,24,.85)}
+  /* Popups */
+  #popup{position:fixed;top:22%;left:50%;transform:translateX(-50%);font-size:30px;font-weight:900;color:#ffd23e;text-shadow:0 2px 0 #a33c00,0 4px 14px rgba(0,0,0,.7);opacity:0;pointer-events:none;z-index:8;transition:opacity .18s;text-align:center;white-space:nowrap}
+  /* Touch controls */
+  #joyBase{position:fixed;left:22px;bottom:26px;width:128px;height:128px;border-radius:50%;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.35);z-index:9;display:none}
+  #joyKnob{position:absolute;left:50%;top:50%;width:56px;height:56px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffe9a8,#f5a623 70%);transform:translate(-50%,-50%);box-shadow:0 4px 10px rgba(0,0,0,.5)}
+  #gasBtn{position:fixed;right:24px;bottom:30px;width:96px;height:96px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ff8a5c,#d92c12 72%);border:3px solid #ffb59d;color:#fff;font-weight:900;font-size:19px;z-index:9;display:none;box-shadow:0 6px 16px rgba(0,0,0,.55)}
+  #gasBtn.on{filter:brightness(1.35)}
+  body.touch #joyBase,body.touch #gasBtn{display:block}
+  /* Overlays */
+  .overlay{position:fixed;inset:0;background:rgba(5,6,18,.82);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:30;text-align:center;padding:20px}
+  .overlay h1{font-size:44px;color:#ffd23e;text-shadow:0 3px 0 #a33c00,0 6px 22px rgba(0,0,0,.8);letter-spacing:1px}
+  .overlay h2{font-size:17px;color:#ffe9b0;margin:8px 0 4px;font-weight:600}
+  .logoBadge{font-size:64px;filter:drop-shadow(0 6px 12px rgba(0,0,0,.6))}
+  .brandTag{background:#d92c12;border:2px solid #ffd23e;color:#fff;font-weight:900;padding:3px 14px;border-radius:20px;font-size:14px;letter-spacing:2px;margin-top:6px}
+  .bigbtn{margin-top:20px;background:linear-gradient(180deg,#ffb03a,#e05e00);border:2px solid #ffe1a0;color:#fff;font-size:21px;font-weight:900;padding:13px 42px;border-radius:40px;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.5)}
+  .bigbtn:active{transform:scale(.96)}
+  .howto{margin-top:16px;font-size:14px;color:#cfd6ff;line-height:1.65;max-width:430px}
+  #overScreen{display:none}
+  #finalStats{font-size:19px;line-height:1.7;color:#ffe9b0;margin-top:8px}
+  #finalStats b{color:#ffd23e}
+  @media (max-width:560px){ .overlay h1{font-size:33px} #timerWrap{width:118px} #scoreBox{font-size:13px} #minimap{width:96px;height:96px} }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud">
+  <div class="hudbox" id="scoreBox"><span data-i="score">Score</span>: <b id="scoreVal">0</b><br>🍕 <span id="delVal">0</span> &nbsp;💰 <span id="tipVal">0</span></div>
+  <div class="hudbox" id="timerWrap"><div id="timerLabel">⏱ <span data-i="orderTime">Order time</span></div><div id="timerBarOuter"><div id="timerBar"></div></div></div>
+  <div class="hudbox" id="strikesBox" title="strikes">🍕🍕🍕</div>
+</div>
+
+<div id="langWrap"><span>🌐</span><select id="langSel"></select></div>
+<canvas id="minimap" width="130" height="130"></canvas>
+<div id="popup"></div>
+<div id="joyBase"><div id="joyKnob"></div></div>
+<button id="gasBtn"><span data-i="gas">GAS</span></button>
+
+<div class="overlay" id="startScreen">
+  <div class="logoBadge">🛵</div>
+  <h1 data-i="title">PIZZA RUSH</h1>
+  <div class="brandTag">LUNC PIZZERIA</div>
+  <h2 data-i="subtitle">Hot pizzas. Cold moon streets. Beat the clock!</h2>
+  <div class="howto" data-i="howto">Drive to the glowing house before the timer runs out. Fast delivery = big tips! Dodge traffic — near misses earn bonus points. 3 strikes (late or crashed) ends your shift.</div>
+  <button class="bigbtn" id="startBtn"><span data-i="start">▶ START SHIFT</span></button>
+  <div class="howto" style="margin-top:10px">🏆 <span data-i="best">Best shift</span>: <b id="bestStart">0</b></div>
+</div>
+
+<div class="overlay" id="overScreen">
+  <div class="logoBadge">🏁</div>
+  <h1 data-i="gameover">SHIFT OVER!</h1>
+  <div id="finalStats"></div>
+  <button class="bigbtn" id="againBtn"><span data-i="again">↻ NEW SHIFT</span></button>
+</div>
+
+<script>
+"use strict";
+/* ============ I18N ============ */
+const LANGS=[["en","English"],["es","Español"],["pt","Português"],["fr","Français"],["de","Deutsch"],["it","Italiano"],["nl","Nederlands"],["ru","Русский"],["uk","Українська"],["tr","Türkçe"],["ar","العربية"],["hi","हिन्दी"],["zh","中文"],["ja","日本語"],["ko","한국어"],["id","Bahasa Indonesia"],["vi","Tiếng Việt"],["pl","Polski"]];
+const T={
+en:{title:"PIZZA RUSH",subtitle:"Hot pizzas. Cold moon streets. Beat the clock!",howto:"Drive to the glowing house before the timer runs out. Fast delivery = big tips! Dodge traffic — near misses earn bonus points. 3 strikes (late or crashed) ends your shift.",start:"▶ START SHIFT",best:"Best shift",score:"Score",orderTime:"Order time",gas:"GAS",gameover:"SHIFT OVER!",again:"↻ NEW SHIFT",delivered:"DELIVERED!",nearMiss:"NEAR MISS +25",late:"TOO LATE!",crash:"CRASH!",tip:"Tip",deliveries:"Deliveries",finalScore:"Final score",newBest:"NEW BEST!"},
+es:{title:"PIZZA RUSH",subtitle:"Pizzas calientes. Calles lunares frías. ¡Gana al reloj!",howto:"Conduce a la casa brillante antes de que acabe el tiempo. ¡Entrega rápida = grandes propinas! Esquiva el tráfico: casi chocar da puntos extra. 3 fallos (tarde o choque) terminan tu turno.",start:"▶ EMPEZAR TURNO",best:"Mejor turno",score:"Puntos",orderTime:"Tiempo del pedido",gas:"GAS",gameover:"¡TURNO TERMINADO!",again:"↻ NUEVO TURNO",delivered:"¡ENTREGADO!",nearMiss:"¡CASI! +25",late:"¡DEMASIADO TARDE!",crash:"¡CHOQUE!",tip:"Propina",deliveries:"Entregas",finalScore:"Puntuación final",newBest:"¡NUEVO RÉCORD!"},
+pt:{title:"PIZZA RUSH",subtitle:"Pizzas quentes. Ruas lunares frias. Vença o relógio!",howto:"Dirija até a casa brilhante antes que o tempo acabe. Entrega rápida = gorjetas grandes! Desvie do trânsito — quase bater dá pontos bônus. 3 erros (atraso ou batida) encerram seu turno.",start:"▶ INICIAR TURNO",best:"Melhor turno",score:"Pontos",orderTime:"Tempo do pedido",gas:"ACELERAR",gameover:"TURNO ENCERRADO!",again:"↻ NOVO TURNO",delivered:"ENTREGUE!",nearMiss:"QUASE! +25",late:"TARDE DEMAIS!",crash:"BATIDA!",tip:"Gorjeta",deliveries:"Entregas",finalScore:"Pontuação final",newBest:"NOVO RECORDE!"},
+fr:{title:"PIZZA RUSH",subtitle:"Pizzas chaudes. Rues lunaires froides. Battez le chrono !",howto:"Conduisez jusqu'à la maison lumineuse avant la fin du temps. Livraison rapide = gros pourboires ! Évitez la circulation — les frôlements donnent des points bonus. 3 fautes (retard ou accident) terminent votre service.",start:"▶ COMMENCER",best:"Meilleur service",score:"Score",orderTime:"Temps de commande",gas:"GAZ",gameover:"SERVICE TERMINÉ !",again:"↻ NOUVEAU SERVICE",delivered:"LIVRÉ !",nearMiss:"FRÔLEMENT +25",late:"TROP TARD !",crash:"ACCIDENT !",tip:"Pourboire",deliveries:"Livraisons",finalScore:"Score final",newBest:"NOUVEAU RECORD !"},
+de:{title:"PIZZA RUSH",subtitle:"Heiße Pizza. Kalte Mondstraßen. Schlag die Uhr!",howto:"Fahre zum leuchtenden Haus, bevor die Zeit abläuft. Schnelle Lieferung = viel Trinkgeld! Weiche dem Verkehr aus — knappes Vorbeifahren gibt Bonuspunkte. 3 Fehler (zu spät oder Crash) beenden deine Schicht.",start:"▶ SCHICHT STARTEN",best:"Beste Schicht",score:"Punkte",orderTime:"Bestellzeit",gas:"GAS",gameover:"SCHICHT VORBEI!",again:"↻ NEUE SCHICHT",delivered:"GELIEFERT!",nearMiss:"KNAPP! +25",late:"ZU SPÄT!",crash:"CRASH!",tip:"Trinkgeld",deliveries:"Lieferungen",finalScore:"Endpunktzahl",newBest:"NEUER REKORD!"},
+it:{title:"PIZZA RUSH",subtitle:"Pizze calde. Strade lunari fredde. Batti il tempo!",howto:"Guida fino alla casa luminosa prima che scada il tempo. Consegna veloce = mance grandi! Schiva il traffico — i passaggi ravvicinati danno punti bonus. 3 errori (ritardo o incidente) chiudono il turno.",start:"▶ INIZIA TURNO",best:"Miglior turno",score:"Punti",orderTime:"Tempo ordine",gas:"GAS",gameover:"TURNO FINITO!",again:"↻ NUOVO TURNO",delivered:"CONSEGNATO!",nearMiss:"SFILORATO +25",late:"TROPPO TARDI!",crash:"INCIDENTE!",tip:"Mancia",deliveries:"Consegne",finalScore:"Punteggio finale",newBest:"NUOVO RECORD!"},
+nl:{title:"PIZZA RUSH",subtitle:"Hete pizza's. Koude maanstraten. Versla de klok!",howto:"Rijd naar het gloeiende huis voordat de tijd om is. Snelle bezorging = grote fooien! Ontwijk het verkeer — bijna-aanrijdingen geven bonuspunten. 3 fouten (te laat of crash) beëindigen je dienst.",start:"▶ DIENST STARTEN",best:"Beste dienst",score:"Score",orderTime:"Besteltijd",gas:"GAS",gameover:"DIENST VOORBIJ!",again:"↻ NIEUWE DIENST",delivered:"BEZORGD!",nearMiss:"NET MISS +25",late:"TE LAAT!",crash:"CRASH!",tip:"Fooi",deliveries:"Bezorgingen",finalScore:"Eindscore",newBest:"NIEUW RECORD!"},
+ru:{title:"PIZZA RUSH",subtitle:"Горячая пицца. Холодные лунные улицы. Успей вовремя!",howto:"Езжай к светящемуся дому, пока не вышло время. Быстрая доставка = большие чаевые! Уворачивайся от машин — проезд вплотную даёт бонус. 3 ошибки (опоздание или авария) заканчивают смену.",start:"▶ НАЧАТЬ СМЕНУ",best:"Лучшая смена",score:"Очки",orderTime:"Время заказа",gas:"ГАЗ",gameover:"СМЕНА ОКОНЧЕНА!",again:"↻ НОВАЯ СМЕНА",delivered:"ДОСТАВЛЕНО!",nearMiss:"ВПЛОТНУЮ +25",late:"СЛИШКОМ ПОЗДНО!",crash:"АВАРИЯ!",tip:"Чаевые",deliveries:"Доставки",finalScore:"Итоговый счёт",newBest:"НОВЫЙ РЕКОРД!"},
+uk:{title:"PIZZA RUSH",subtitle:"Гаряча піца. Холодні місячні вулиці. Встигни вчасно!",howto:"Їдь до будинку, що світиться, поки не вийшов час. Швидка доставка = великі чайові! Ухиляйся від машин — проїзд впритул дає бонус. 3 помилки (запізнення чи аварія) завершують зміну.",start:"▶ ПОЧАТИ ЗМІНУ",best:"Найкраща зміна",score:"Очки",orderTime:"Час замовлення",gas:"ГАЗ",gameover:"ЗМІНУ ЗАВЕРШЕНО!",again:"↻ НОВА ЗМІНА",delivered:"ДОСТАВЛЕНО!",nearMiss:"ВЩІЛЬНО +25",late:"ЗАНАДТО ПІЗНО!",crash:"АВАРІЯ!",tip:"Чайові",deliveries:"Доставки",finalScore:"Підсумковий рахунок",newBest:"НОВИЙ РЕКОРД!"},
+tr:{title:"PIZZA RUSH",subtitle:"Sıcak pizzalar. Soğuk ay sokakları. Saati yen!",howto:"Süre dolmadan parlayan eve sür. Hızlı teslimat = büyük bahşiş! Trafikten kaç — yakın geçişler bonus puan verir. 3 hata (geç kalma veya kaza) vardiyanı bitirir.",start:"▶ VARDİYAYI BAŞLAT",best:"En iyi vardiya",score:"Skor",orderTime:"Sipariş süresi",gas:"GAZ",gameover:"VARDİYA BİTTİ!",again:"↻ YENİ VARDİYA",delivered:"TESLİM EDİLDİ!",nearMiss:"SIYIRDI +25",late:"ÇOK GEÇ!",crash:"KAZA!",tip:"Bahşiş",deliveries:"Teslimatlar",finalScore:"Final skoru",newBest:"YENİ REKOR!"},
+ar:{title:"PIZZA RUSH",subtitle:"بيتزا ساخنة. شوارع قمرية باردة. اسبق الساعة!",howto:"قد إلى المنزل المضيء قبل انتهاء الوقت. التوصيل السريع = إكراميات كبيرة! تفادَ حركة المرور — المرور القريب يمنح نقاطًا إضافية. 3 أخطاء (تأخير أو حادث) تنهي مناوبتك.",start:"▶ ابدأ المناوبة",best:"أفضل مناوبة",score:"النقاط",orderTime:"وقت الطلب",gas:"بنزين",gameover:"انتهت المناوبة!",again:"↻ مناوبة جديدة",delivered:"تم التوصيل!",nearMiss:"كاد يصطدم +25",late:"فات الأوان!",crash:"حادث!",tip:"إكرامية",deliveries:"التوصيلات",finalScore:"النتيجة النهائية",newBest:"رقم قياسي جديد!"},
+hi:{title:"PIZZA RUSH",subtitle:"गरम पिज़्ज़ा। ठंडी चाँद की सड़कें। घड़ी को हराओ!",howto:"समय खत्म होने से पहले चमकते घर तक गाड़ी चलाओ। तेज़ डिलीवरी = बड़ी टिप! ट्रैफ़िक से बचो — पास से गुज़रने पर बोनस अंक मिलते हैं। 3 गलतियाँ (देरी या टक्कर) आपकी शिफ्ट खत्म कर देती हैं।",start:"▶ शिफ्ट शुरू करें",best:"सर्वश्रेष्ठ शिफ्ट",score:"स्कोर",orderTime:"ऑर्डर समय",gas:"गैस",gameover:"शिफ्ट खत्म!",again:"↻ नई शिफ्ट",delivered:"डिलीवर हो गया!",nearMiss:"बाल-बाल बचे +25",late:"बहुत देर हो गई!",crash:"टक्कर!",tip:"टिप",deliveries:"डिलीवरी",finalScore:"अंतिम स्कोर",newBest:"नया रिकॉर्ड!"},
+zh:{title:"披萨狂飙",subtitle:"热披萨，冷月街，赶在时间到之前！",howto:"在计时结束前开到发光的房子。送得越快，小费越多！躲避车流——擦身而过有奖励分。3次失误（迟到或撞车）班次结束。",start:"▶ 开始班次",best:"最佳班次",score:"分数",orderTime:"订单时间",gas:"油门",gameover:"班次结束！",again:"↻ 新班次",delivered:"已送达！",nearMiss:"擦身而过 +25",late:"太晚了！",crash:"撞车！",tip:"小费",deliveries:"送达次数",finalScore:"最终分数",newBest:"新纪录！"},
+ja:{title:"ピザラッシュ",subtitle:"熱々ピザと冷たい月の街。時計に勝とう！",howto:"タイマーが終わる前に光る家まで運転しよう。速い配達＝大きなチップ！交通を避けて — かすめるように通るとボーナス。3回のミス（遅刻や衝突）でシフト終了。",start:"▶ シフト開始",best:"ベストシフト",score:"スコア",orderTime:"注文タイマー",gas:"アクセル",gameover:"シフト終了！",again:"↻ 新しいシフト",delivered:"配達完了！",nearMiss:"ニアミス +25",late:"遅すぎた！",crash:"衝突！",tip:"チップ",deliveries:"配達数",finalScore:"最終スコア",newBest:"新記録！"},
+ko:{title:"피자 러시",subtitle:"뜨거운 피자, 차가운 달의 거리. 시간을 이겨라!",howto:"타이머가 끝나기 전에 빛나는 집까지 운전하세요. 빠른 배달 = 큰 팁! 교통을 피하세요 — 아슬아슬하게 지나치면 보너스 점수. 3번 실수(지각 또는 충돌)하면 근무 종료.",start:"▶ 근무 시작",best:"최고 근무",score:"점수",orderTime:"주문 시간",gas:"가속",gameover:"근무 종료!",again:"↻ 새 근무",delivered:"배달 완료!",nearMiss:"아슬아슬 +25",late:"너무 늦었다!",crash:"충돌!",tip:"팁",deliveries:"배달 횟수",finalScore:"최종 점수",newBest:"신기록!"},
+id:{title:"PIZZA RUSH",subtitle:"Pizza panas. Jalan bulan yang dingin. Kalahkan waktu!",howto:"Berkendaralah ke rumah yang menyala sebelum waktu habis. Pengantaran cepat = tip besar! Hindari lalu lintas — lewat nyaris menabrak memberi poin bonus. 3 kesalahan (terlambat atau tabrakan) mengakhiri shift-mu.",start:"▶ MULAI SHIFT",best:"Shift terbaik",score:"Skor",orderTime:"Waktu pesanan",gas:"GAS",gameover:"SHIFT SELESAI!",again:"↻ SHIFT BARU",delivered:"TERKIRIM!",nearMiss:"NYARIS +25",late:"TERLAMBAT!",crash:"TABRAKAN!",tip:"Tip",deliveries:"Pengantaran",finalScore:"Skor akhir",newBest:"REKOR BARU!"},
+vi:{title:"PIZZA RUSH",subtitle:"Pizza nóng. Phố trăng lạnh. Đánh bại đồng hồ!",howto:"Lái đến ngôi nhà phát sáng trước khi hết giờ. Giao nhanh = tiền boa lớn! Tránh xe cộ — lướt sát qua được điểm thưởng. 3 lỗi (trễ hoặc va chạm) sẽ kết thúc ca làm.",start:"▶ BẮT ĐẦU CA",best:"Ca tốt nhất",score:"Điểm",orderTime:"Thời gian đơn",gas:"GA",gameover:"HẾT CA!",again:"↻ CA MỚI",delivered:"ĐÃ GIAO!",nearMiss:"SÁT NÚT +25",late:"QUÁ TRỄ!",crash:"VA CHẠM!",tip:"Tiền boa",deliveries:"Lượt giao",finalScore:"Điểm cuối",newBest:"KỶ LỤC MỚI!"},
+pl:{title:"PIZZA RUSH",subtitle:"Gorąca pizza. Zimne księżycowe ulice. Pokonaj zegar!",howto:"Jedź do świecącego domu, zanim skończy się czas. Szybka dostawa = duże napiwki! Omijaj ruch — mijanie o włos daje punkty bonusowe. 3 błędy (spóźnienie lub kraksa) kończą zmianę.",start:"▶ ZACZNIJ ZMIANĘ",best:"Najlepsza zmiana",score:"Wynik",orderTime:"Czas zamówienia",gas:"GAZ",gameover:"ZMIANA SKOŃCZONA!",again:"↻ NOWA ZMIANA",delivered:"DOSTARCZONO!",nearMiss:"O WŁOS +25",late:"ZA PÓŹNO!",crash:"KRAKSA!",tip:"Napiwek",deliveries:"Dostawy",finalScore:"Wynik końcowy",newBest:"NOWY REKORD!"}
+};
+let lang=localStorage.getItem("pizzaRushLang")||"en";
+if(!T[lang])lang="en";
+const t=k=>(T[lang]&&T[lang][k])||T.en[k]||k;
+const langSel=document.getElementById("langSel");
+LANGS.forEach(([c,n])=>{const o=document.createElement("option");o.value=c;o.textContent=n;langSel.appendChild(o);});
+langSel.value=lang;
+function applyLang(){
+  document.querySelectorAll("[data-i]").forEach(el=>{el.textContent=t(el.getAttribute("data-i"));});
+  document.getElementById("bestStart").textContent=best;
+  document.documentElement.lang=lang;
+  document.documentElement.dir=(lang==="ar")?"rtl":"ltr";
+}
+langSel.addEventListener("change",()=>{lang=langSel.value;localStorage.setItem("pizzaRushLang",lang);applyLang();});
+</script>
+<script>
+/* ============ AUDIO (WebAudio synth) ============ */
+let AC=null,engOsc1=null,engOsc2=null,engGain=null,engFilter=null;
+function initAudio(){
+  if(AC)return;
+  try{
+    AC=new (window.AudioContext||window.webkitAudioContext)();
+    engOsc1=AC.createOscillator();engOsc1.type="sawtooth";
+    engOsc2=AC.createOscillator();engOsc2.type="square";
+    engFilter=AC.createBiquadFilter();engFilter.type="lowpass";engFilter.frequency.value=420;engFilter.Q.value=2;
+    engGain=AC.createGain();engGain.gain.value=0;
+    engOsc1.connect(engFilter);engOsc2.connect(engFilter);engFilter.connect(engGain);engGain.connect(AC.destination);
+    engOsc1.start();engOsc2.start();
+  }catch(e){AC=null;}
+}
+function engineSound(speedRatio,running){
+  if(!AC||!engGain)return;
+  const f=55+speedRatio*165;
+  engOsc1.frequency.setTargetAtTime(f,AC.currentTime,0.06);
+  engOsc2.frequency.setTargetAtTime(f*0.5+3,AC.currentTime,0.06);
+  engFilter.frequency.setTargetAtTime(320+speedRatio*900,AC.currentTime,0.08);
+  engGain.gain.setTargetAtTime(running?0.028+speedRatio*0.05:0,AC.currentTime,0.09);
+}
+function beep(freq,dur,type,vol,when){
+  if(!AC)return;
+  const o=AC.createOscillator(),g=AC.createGain();
+  o.type=type||"sine";o.frequency.value=freq;
+  const s=AC.currentTime+(when||0);
+  g.gain.setValueAtTime(vol||0.12,s);g.gain.exponentialRampToValueAtTime(0.001,s+dur);
+  o.connect(g);g.connect(AC.destination);o.start(s);o.stop(s+dur+0.02);
+}
+function chime(){beep(880,0.16,"sine",0.14,0);beep(1318,0.28,"sine",0.14,0.11);}
+function buzz(){beep(140,0.3,"sawtooth",0.16,0);beep(90,0.35,"sawtooth",0.12,0.03);}
+function coinBlip(){beep(1568,0.09,"square",0.06,0);}
+
+/* ============ WORLD ============ */
+const cv=document.getElementById("game"),ctx=cv.getContext("2d");
+let VW=0,VH=0;
+function resize(){VW=cv.width=innerWidth;VH=cv.height=innerHeight;}
+addEventListener("resize",resize);resize();
+
+const WORLD=2640,PITCH=360,ROAD=104,HALF=ROAD/2;
+const isRoadCoord=c=>{const m=((c%PITCH)+PITCH)%PITCH;return m<ROAD;};
+function roadCenter(i){return i*PITCH+HALF;} // center line of i-th road band
+
+/* Buildings: one per block, precomputed lit windows */
+const buildings=[];
+const BCOLORS=["#2b3358","#33305a","#26355a","#3a2f52","#2e3a66","#38355e","#2a2f4c"];
+(function genCity(){
+  const n=Math.floor(WORLD/PITCH);
+  for(let i=0;i<n;i++)for(let j=0;j<n;j++){
+    const x=i*PITCH+ROAD+16,y=j*PITCH+ROAD+16,w=PITCH-ROAD-32,h=PITCH-ROAD-32;
+    const wins=[];const cols=Math.floor(w/34),rows=Math.floor(h/38);
+    for(let a=0;a<cols;a++)for(let b=0;b<rows;b++){
+      if(Math.random()<0.46)wins.push({x:x+14+a*34,y:y+14+b*38,c:Math.random()<0.72?"#ffd98a":"#aee2ff"});
+    }
+    buildings.push({x,y,w,h,c:BCOLORS[(i*7+j*13)%BCOLORS.length],wins,
+      cx:x+w/2,cy:y+h/2});
+  }
+})();
+/* Streetlights at intersections */
+const lights=[];
+(function genLights(){
+  const n=Math.floor(WORLD/PITCH);
+  for(let i=0;i<=n;i++)for(let j=0;j<=n;j++){
+    lights.push({x:i*PITCH+HALF+(Math.random()*30-15),y:j*PITCH+HALF+(Math.random()*30-15)});
+  }
+})();
+
+/* ============ STATE ============ */
+let best=parseInt(localStorage.getItem("pizzaRushBest")||"0",10)||0;
+let state="menu"; // menu | play | over
+let score=0,deliveries=0,tipsTotal=0,strikes=0;
+let player=null,cars=[],order=null,orderTime=0,orderMax=1,invuln=0,shake=0,popupTimer=0;
+const keys={};
+let joyActive=false,joyVec={x:0,y:0},gasHeld=false,autoPath=null;
+function buildPath(tx,ty){
+  const ci=v=>Math.max(0,Math.min(6,Math.round((v-HALF)/PITCH)));
+  const sx=roadCenter(ci(player.x)),sy=roadCenter(ci(player.y));
+  const ex=roadCenter(ci(tx)),ey=roadCenter(ci(ty));
+  const raw=[{x:sx,y:sy},{x:ex,y:sy},{x:ex,y:ey},{x:tx,y:ty}];
+  return raw.filter((p,i)=>i===0||Math.hypot(p.x-raw[i-1].x,p.y-raw[i-1].y)>12);
+}
+
+function newPlayer(){return{x:roadCenter(1),y:roadCenter(1),a:-Math.PI/2,v:0,r:15};}
+function spawnCars(){
+  cars=[];
+  const cols=["#e74c3c","#3498db","#f1c40f","#9b59b6","#1abc9c","#e67e22","#ecf0f1","#fd79a8"];
+  for(let i=0;i<16;i++){
+    const horiz=Math.random()<0.5;
+    const band=Math.floor(Math.random()*7);
+    const laneOff=(Math.random()<0.5?-1:1)*ROAD*0.25;
+    const dir=Math.random()<0.5?1:-1;
+    let x,y,a;
+    if(horiz){y=roadCenter(band)+laneOff*(dir>0?1:-1);x=Math.random()*WORLD;a=dir>0?0:Math.PI;}
+    else{x=roadCenter(band)+laneOff*(dir>0?-1:1);y=Math.random()*WORLD;a=dir>0?Math.PI/2:-Math.PI/2;}
+    cars.push({x,y,a,spd:(95+Math.random()*70)*dir,horiz,r:16,c:cols[i%cols.length],nearCd:0,
+      wob:Math.random()*Math.PI*2});
+  }
+}
+function newOrder(){
+  // pick a building far from player, zone on the road beside it
+  let b,tries=0;
+  do{b=buildings[Math.floor(Math.random()*buildings.length)];tries++;}
+  while(tries<40&&Math.hypot(b.cx-player.x,b.cy-player.y)<620);
+  // zone: nearest road point to building center (snap one axis to road center)
+  let zx,zy;
+  const bi=Math.round((b.cx-HALF)/PITCH),bj=Math.round((b.cy-HALF)/PITCH);
+  if(Math.abs(b.cx-roadCenter(bi))<Math.abs(b.cy-roadCenter(bj))){zx=roadCenter(bi);zy=b.cy;}
+  else{zx=b.cx;zy=roadCenter(bj);}
+  order={x:zx,y:zy,b};
+  const dist=Math.hypot(zx-player.x,zy-player.y);
+  orderMax=orderTime=Math.min(52,Math.max(20,dist/46+9));
+}
+function addStrike(){
+  strikes++;buzz();shake=14;updateHUD();
+  if(strikes>=3){gameOver();}
+}
+function gameOver(){
+  state="over";engineSound(0,false);
+  if(score>best){best=score;localStorage.setItem("pizzaRushBest",String(best));}
+  document.getElementById("finalStats").innerHTML=
+    t("finalScore")+": <b>"+score+"</b>"+(score>=best&&score>0?" 🎉 "+t("newBest"):"")+"<br>"+
+    "🍕 "+t("deliveries")+": <b>"+deliveries+"</b><br>💰 "+t("tip")+": <b>"+tipsTotal+"</b><br>"+
+    "🏆 "+t("best")+": <b>"+best+"</b>";
+  document.getElementById("overScreen").style.display="flex";
+}
+function startGame(){
+  initAudio();if(AC&&AC.state==="suspended")AC.resume();
+  score=0;deliveries=0;tipsTotal=0;strikes=0;invuln=0;
+  player=newPlayer();spawnCars();newOrder();
+  state="play";
+  document.getElementById("startScreen").style.display="none";
+  document.getElementById("overScreen").style.display="none";
+  updateHUD();
+}
+function showPopup(txt,color){
+  const p=document.getElementById("popup");
+  p.textContent=txt;if(color)p.style.color=color;
+  p.style.opacity=1;popupTimer=1.15;
+}
+function updateHUD(){
+  document.getElementById("scoreVal").textContent=score;
+  document.getElementById("delVal").textContent=deliveries;
+  document.getElementById("tipVal").textContent=tipsTotal;
+  document.getElementById("strikesBox").textContent="🍕".repeat(3-strikes)+"🩹".repeat(strikes);
+}
+
+/* ============ INPUT ============ */
+addEventListener("keydown",e=>{keys[e.key.toLowerCase()]=true;if(["arrowup","arrowdown","arrowleft","arrowright"," "].includes(e.key.toLowerCase()))e.preventDefault();});
+addEventListener("keyup",e=>{keys[e.key.toLowerCase()]=false;});
+const joyBase=document.getElementById("joyBase"),joyKnob=document.getElementById("joyKnob"),gasBtn=document.getElementById("gasBtn");
+function isTouchDevice(){return("ontouchstart"in window)||navigator.maxTouchPoints>0;}
+if(isTouchDevice())document.body.classList.add("touch");
+let joyId=null;
+function joySet(cx,cy){
+  const r=joyBase.getBoundingClientRect(),bx=r.left+r.width/2,by=r.top+r.height/2;
+  let dx=cx-bx,dy=cy-by;const d=Math.hypot(dx,dy),max=r.width/2-8;
+  if(d>max){dx*=max/d;dy*=max/d;}
+  joyKnob.style.transform="translate(calc(-50% + "+dx+"px),calc(-50% + "+dy+"px))";
+  const mag=Math.min(1,Math.hypot(dx,dy)/(max*0.82));
+  joyVec={x:dx/(max||1),y:dy/(max||1),mag};
+  joyActive=mag>0.14;
+}
+function joyReset(){joyKnob.style.transform="translate(-50%,-50%)";joyVec={x:0,y:0,mag:0};joyActive=false;}
+joyBase.addEventListener("pointerdown",e=>{joyId=e.pointerId;joyBase.setPointerCapture(joyId);joySet(e.clientX,e.clientY);initAudio();});
+joyBase.addEventListener("pointermove",e=>{if(e.pointerId===joyId)joySet(e.clientX,e.clientY);});
+["pointerup","pointercancel"].forEach(ev=>joyBase.addEventListener(ev,e=>{if(e.pointerId===joyId){joyId=null;joyReset();}}));
+gasBtn.addEventListener("pointerdown",e=>{e.preventDefault();gasHeld=true;gasBtn.classList.add("on");initAudio();});
+["pointerup","pointercancel","pointerleave"].forEach(ev=>gasBtn.addEventListener(ev,()=>{gasHeld=false;gasBtn.classList.remove("on");}));
+document.getElementById("startBtn").addEventListener("click",startGame);
+document.getElementById("againBtn").addEventListener("click",startGame);
+
+/* ============ UPDATE ============ */
+function collideBuildings(nx,ny,r){
+  for(const b of buildings){
+    const cx=Math.max(b.x,Math.min(nx,b.x+b.w));
+    const cy=Math.max(b.y,Math.min(ny,b.y+b.h));
+    const dx=nx-cx,dy=ny-cy;
+    if(dx*dx+dy*dy<r*r)return true;
+  }
+  return false;
+}
+function resolveBuildings(){
+  // safety net: never stay embedded in a building — push out along shortest path
+  for(const b of buildings){
+    const cx=Math.max(b.x,Math.min(player.x,b.x+b.w));
+    const cy=Math.max(b.y,Math.min(player.y,b.y+b.h));
+    let dx=player.x-cx,dy=player.y-cy;
+    const d2=dx*dx+dy*dy;
+    if(d2<player.r*player.r){
+      if(d2===0){
+        const l=player.x-b.x,rgt=b.x+b.w-player.x,tp=player.y-b.y,bt=b.y+b.h-player.y;
+        const m=Math.min(l,rgt,tp,bt);
+        if(m===l)player.x=b.x-player.r;else if(m===rgt)player.x=b.x+b.w+player.r;
+        else if(m===tp)player.y=b.y-player.r;else player.y=b.y+b.h+player.r;
+      }else{
+        const d=Math.sqrt(d2);player.x=cx+dx/d*player.r;player.y=cy+dy/d*player.r;
+      }
+    }
+  }
+}
+function update(dt){
+  if(state!=="play")return;
+  /* --- input → desired heading & throttle --- */
+  let wantA=null,throttle=0;
+  let kx=0,ky=0;
+  if(keys["arrowleft"]||keys["a"])kx-=1;
+  if(keys["arrowright"]||keys["d"])kx+=1;
+  if(keys["arrowup"]||keys["w"])ky-=1;
+  if(keys["arrowdown"]||keys["s"])ky+=1;
+  if(kx||ky){wantA=Math.atan2(ky,kx);throttle=1;}
+  if(joyActive){wantA=Math.atan2(joyVec.y,joyVec.x);throttle=Math.max(throttle,joyVec.mag);}
+  if(gasHeld)throttle=1;
+  if(autoPath&&autoPath.length){ // QA helper: follow road-grid waypoints
+    const wp=autoPath[0];
+    const dx=wp.x-player.x,dy=wp.y-player.y;
+    if(Math.hypot(dx,dy)<38){autoPath.shift();}
+    else{wantA=Math.atan2(dy,dx);throttle=1;}
+  }
+  if(wantA!==null&&throttle>0){
+    let da=((wantA-player.a+Math.PI*3)%(Math.PI*2))-Math.PI;
+    const turn=3.4*dt*(player.v<8?1.7:1);
+    player.a+=Math.max(-turn,Math.min(turn,da));
+  }
+  const MAXV=345;
+  if(throttle>0)player.v+=300*throttle*dt;
+  else player.v-=240*dt;
+  player.v*=Math.pow(0.55,dt); // drag
+  if(player.v<0)player.v=0;
+  if(player.v>MAXV)player.v=MAXV;
+  const nx=player.x+Math.cos(player.a)*player.v*dt;
+  const ny=player.y+Math.sin(player.a)*player.v*dt;
+  if(!collideBuildings(nx,player.y,player.r))player.x=nx;
+  if(!collideBuildings(player.x,ny,player.r))player.y=ny;
+  resolveBuildings();
+  player.x=Math.max(20,Math.min(WORLD-20,player.x));
+  player.y=Math.max(20,Math.min(WORLD-20,player.y));
+
+  /* --- traffic --- */
+  for(const c of cars){
+    c.x+=Math.cos(c.a)*c.spd*dt;c.y+=Math.sin(c.a)*c.spd*dt;
+    if(c.horiz){if(c.x<-70)c.x=WORLD+70;if(c.x>WORLD+70)c.x=-70;}
+    else{if(c.y<-70)c.y=WORLD+70;if(c.y>WORLD+70)c.y=-70;}
+    if(c.nearCd>0)c.nearCd-=dt;
+    const d=Math.hypot(c.x-player.x,c.y-player.y);
+    if(invuln<=0&&d<player.r+c.r-3){
+      // CRASH
+      player.v=0;invuln=2.2;addStrike();showPopup("💥 "+t("crash"),"#ff6b5e");
+      if(strikes>=3)return;
+    }else if(d<64&&d>=player.r+c.r-3&&c.nearCd<=0&&player.v>120){
+      score+=25;c.nearCd=3.5;coinBlip();showPopup("💨 "+t("nearMiss"),"#7CFC98");updateHUD();
+    }
+  }
+  if(invuln>0)invuln-=dt;
+
+  /* --- order timer & delivery --- */
+  if(order){
+    orderTime-=dt;
+    const bar=document.getElementById("timerBar");
+    const pct=Math.max(0,orderTime/orderMax*100);
+    bar.style.width=pct+"%";bar.className=pct<28?"low":"";bar.id="timerBar";
+    if(orderTime<=0){
+      addStrike();showPopup("⏰ "+t("late"),"#ff6b5e");
+      if(strikes>=3)return;
+      newOrder();
+    }else if(Math.hypot(order.x-player.x,order.y-player.y)<44){
+      const tip=Math.round(orderTime*4);
+      score+=100+tip;tipsTotal+=tip;deliveries++;
+      chime();showPopup("🍕 "+t("delivered")+" +"+(100+tip)+(tip>0?" (💰+"+tip+")":""),"#ffd23e");
+      updateHUD();newOrder();
+    }
+  }
+  if(popupTimer>0){popupTimer-=dt;if(popupTimer<=0)document.getElementById("popup").style.opacity=0;}
+  if(shake>0)shake-=dt*30;
+  engineSound(player.v/MAXV,true);
+}
+
+/* ============ DRAW ============ */
+function draw(){
+  ctx.fillStyle="#11142a";ctx.fillRect(0,0,VW,VH);
+  if(!player){requestAnimationFrame(draw);return;}
+  const camX=Math.max(0,Math.min(WORLD-VW,player.x-VW/2));
+  const camY=Math.max(0,Math.min(WORLD-VH,player.y-VH/2));
+  ctx.save();
+  if(shake>0)ctx.translate((Math.random()-0.5)*shake,(Math.random()-0.5)*shake);
+  ctx.translate(-camX,-camY);
+  /* ground / blocks base */
+  ctx.fillStyle="#1d2140";ctx.fillRect(camX-20,camY-20,VW+40,VH+40);
+  /* roads */
+  ctx.fillStyle="#2e3247";
+  const n=Math.ceil(WORLD/PITCH);
+  for(let i=0;i<n;i++){ctx.fillRect(i*PITCH,camY-20,ROAD,VH+40);ctx.fillRect(camX-20,i*PITCH,VW+40,ROAD);}
+  /* lane dashes */
+  ctx.strokeStyle="rgba(255,214,90,.5)";ctx.lineWidth=3;ctx.setLineDash([22,20]);
+  ctx.beginPath();
+  for(let i=0;i<n;i++){
+    ctx.moveTo(i*PITCH+HALF,camY-20);ctx.lineTo(i*PITCH+HALF,camY+VH+20);
+    ctx.moveTo(camX-20,i*PITCH+HALF);ctx.lineTo(camX+VW+20,i*PITCH+HALF);
+  }
+  ctx.stroke();ctx.setLineDash([]);
+  /* sidewalks */
+  ctx.strokeStyle="#454b6e";ctx.lineWidth=5;
+  for(const b of buildings){
+    if(b.x+b.w<camX-40||b.x>camX+VW+40||b.y+b.h<camY-40||b.y>camY+VH+40)continue;
+    ctx.strokeRect(b.x-9,b.y-9,b.w+18,b.h+18);
+  }
+  /* buildings */
+  for(const b of buildings){
+    if(b.x+b.w<camX-40||b.x>camX+VW+40||b.y+b.h<camY-40||b.y>camY+VH+40)continue;
+    const g=ctx.createLinearGradient(b.x,b.y,b.x,b.y+b.h);
+    g.addColorStop(0,b.c);g.addColorStop(1,"#171b33");
+    ctx.fillStyle=g;ctx.fillRect(b.x,b.y,b.w,b.h);
+    ctx.strokeStyle="rgba(140,160,255,.35)";ctx.lineWidth=2;ctx.strokeRect(b.x,b.y,b.w,b.h);
+    for(const w of b.wins){ctx.fillStyle=w.c;ctx.globalAlpha=0.9;ctx.fillRect(w.x,w.y,15,20);}
+    ctx.globalAlpha=1;
+  }
+  /* streetlight glow */
+  for(const L of lights){
+    if(L.x<camX-90||L.x>camX+VW+90||L.y<camY-90||L.y>camY+VH+90)continue;
+    const g=ctx.createRadialGradient(L.x,L.y,2,L.x,L.y,64);
+    g.addColorStop(0,"rgba(255,220,140,.34)");g.addColorStop(1,"rgba(255,220,140,0)");
+    ctx.fillStyle=g;ctx.beginPath();ctx.arc(L.x,L.y,64,0,7);ctx.fill();
+    ctx.fillStyle="#ffe9b0";ctx.beginPath();ctx.arc(L.x,L.y,4,0,7);ctx.fill();
+  }
+  /* delivery zone */
+  if(order&&state==="play"){
+    const pulse=1+Math.sin(performance.now()/220)*0.13;
+    const g=ctx.createRadialGradient(order.x,order.y,4,order.x,order.y,58*pulse);
+    g.addColorStop(0,"rgba(255,210,62,.55)");g.addColorStop(1,"rgba(255,210,62,0)");
+    ctx.fillStyle=g;ctx.beginPath();ctx.arc(order.x,order.y,58*pulse,0,7);ctx.fill();
+    ctx.strokeStyle="#ffd23e";ctx.lineWidth=3.5;
+    ctx.beginPath();ctx.arc(order.x,order.y,34*pulse,0,7);ctx.stroke();
+    ctx.font="30px serif";ctx.textAlign="center";ctx.textBaseline="middle";
+    ctx.fillText("🏠",order.x,order.y-2);
+    /* beacon beam */
+    ctx.fillStyle="rgba(255,210,62,.16)";
+    ctx.beginPath();ctx.moveTo(order.x-13,order.y-26);ctx.lineTo(order.x+13,order.y-26);ctx.lineTo(order.x+30,order.y-190);ctx.lineTo(order.x-30,order.y-190);ctx.closePath();ctx.fill();
+  }
+  /* traffic cars */
+  for(const c of cars)drawCar(c);
+  /* player scooter */
+  drawScooter(player);
+  ctx.restore();
+  /* off-screen target arrow */
+  if(order&&state==="play"){
+    const sx=order.x-camX,sy=order.y-camY;
+    if(sx<-20||sx>VW+20||sy<-20||sy>VH+20){
+      const ang=Math.atan2(sy-VH/2,sx-VW/2);
+      const ax=VW/2+Math.cos(ang)*(Math.min(VW,VH)/2-56),ay=VH/2+Math.sin(ang)*(Math.min(VW,VH)/2-56);
+      ctx.save();ctx.translate(ax,ay);ctx.rotate(ang);
+      ctx.fillStyle="#ffd23e";ctx.beginPath();ctx.moveTo(22,0);ctx.lineTo(-12,-13);ctx.lineTo(-6,0);ctx.lineTo(-12,13);ctx.closePath();ctx.fill();
+      ctx.restore();
+      const dist=Math.round(Math.hypot(order.x-player.x,order.y-player.y)/10);
+      ctx.fillStyle="#ffd23e";ctx.font="bold 14px sans-serif";ctx.textAlign="center";
+      ctx.fillText(dist+"m",ax,ay+30);
+    }
+  }
+  drawMinimap(camX,camY);
+}
+function drawCar(c){
+  ctx.save();ctx.translate(c.x,c.y);ctx.rotate(c.a);
+  /* headlight cones */
+  const g=ctx.createLinearGradient(18,0,86,0);
+  g.addColorStop(0,"rgba(255,244,190,.34)");g.addColorStop(1,"rgba(255,244,190,0)");
+  ctx.fillStyle=g;
+  ctx.beginPath();ctx.moveTo(16,-9);ctx.lineTo(86,-24);ctx.lineTo(86,2);ctx.closePath();ctx.fill();
+  ctx.beginPath();ctx.moveTo(16,9);ctx.lineTo(86,-2);ctx.lineTo(86,24);ctx.closePath();ctx.fill();
+  /* body */
+  ctx.fillStyle="rgba(0,0,0,.35)";roundRect(-19,-13,40,28,7);ctx.fill();
+  ctx.fillStyle=c.c;roundRect(-20,-14,40,28,7);ctx.fill();
+  ctx.fillStyle="rgba(20,26,48,.9)";roundRect(-4,-11,13,22,3);ctx.fill(); // windshield+cabin
+  ctx.fillStyle="rgba(170,220,255,.85)";roundRect(6,-10,4,20,2);ctx.fill();
+  ctx.fillStyle="#fff6bf";ctx.fillRect(18,-10,3,6);ctx.fillRect(18,4,3,6); // headlights
+  ctx.fillStyle="#ff5544";ctx.fillRect(-21,-10,3,6);ctx.fillRect(-21,4,3,6); // taillights
+  ctx.restore();
+}
+function drawScooter(p){
+  ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.a);
+  if(invuln>0&&Math.floor(performance.now()/110)%2===0)ctx.globalAlpha=0.35;
+  /* shadow */
+  ctx.fillStyle="rgba(0,0,0,.4)";ctx.beginPath();ctx.ellipse(1,4,24,13,0,0,7);ctx.fill();
+  /* wheels */
+  ctx.fillStyle="#0c0c12";roundRect(11,-4,11,8,3);ctx.fill();roundRect(-19,-4,10,8,3);ctx.fill();
+  /* scooter body */
+  ctx.fillStyle="#d92c12";roundRect(-16,-8,32,16,7);ctx.fill();
+  ctx.fillStyle="#ff7847";roundRect(2,-6,13,12,5);ctx.fill();
+  /* pizza box stack (behind driver) with branding */
+  ctx.save();ctx.translate(-15,0);ctx.rotate(-0.06);
+  ctx.fillStyle="#f7e3bd";roundRect(-10,-11,19,22,2);ctx.fill();
+  ctx.strokeStyle="#d92c12";ctx.lineWidth=1.6;roundRect(-10,-11,19,22,2);ctx.stroke();
+  ctx.fillStyle="#d92c12";ctx.font="bold 6.5px sans-serif";ctx.textAlign="center";
+  ctx.fillText("LUNC",0,-1.5);ctx.fillText("PIZZA",0,5.5);
+  ctx.restore();
+  /* driver: torso + arms */
+  ctx.fillStyle="#2470c2";roundRect(-9,-10,15,20,6);ctx.fill(); // jacket torso
+  ctx.strokeStyle="#f2c79b";ctx.lineWidth=4;ctx.lineCap="round";
+  ctx.beginPath();ctx.moveTo(2,-8);ctx.lineTo(13,-6);ctx.moveTo(2,8);ctx.lineTo(13,6);ctx.stroke(); // arms to bars
+  /* helmet with face */
+  ctx.fillStyle="#ffd23e";ctx.beginPath();ctx.arc(0,0,9.5,0,7);ctx.fill();
+  ctx.fillStyle="#f2c79b";ctx.beginPath();ctx.arc(4.5,0,6,0,7);ctx.fill(); // face (front of helmet)
+  ctx.fillStyle="#20304a";ctx.fillRect(6.5,-5.5,3.4,11); // visor
+  ctx.fillStyle="#141824";ctx.beginPath();ctx.arc(4,-2.6,1.15,0,7);ctx.arc(4,2.6,1.15,0,7);ctx.fill(); // eyes
+  ctx.fillStyle="#c33";ctx.beginPath();ctx.arc(6.4,0,1,0,7);ctx.fill(); // smile dot/nose
+  ctx.fillStyle="#fff";ctx.font="bold 5px sans-serif";ctx.textAlign="center";ctx.fillText("LUNC",-3.5,1.8); // helmet brand
+  /* headlight */
+  ctx.fillStyle="#fff6bf";ctx.beginPath();ctx.arc(16,0,3,0,7);ctx.fill();
+  ctx.restore();
+}
+function roundRect(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+
+/* ============ MINIMAP ============ */
+const mm=document.getElementById("minimap"),mmx=mm.getContext("2d");
+function drawMinimap(){
+  const S=mm.width/WORLD;
+  mmx.fillStyle="#12152c";mmx.fillRect(0,0,mm.width,mm.height);
+  mmx.fillStyle="#2c3049";
+  const n=Math.ceil(WORLD/PITCH);
+  for(let i=0;i<n;i++){mmx.fillRect(i*PITCH*S,0,ROAD*S,mm.height);mmx.fillRect(0,i*PITCH*S,mm.width,ROAD*S);}
+  if(order){
+    mmx.fillStyle="#ffd23e";
+    mmx.beginPath();mmx.arc(order.x*S,order.y*S,4.5+Math.sin(performance.now()/200)*1.2,0,7);mmx.fill();
+    /* arrow from player toward target — always points to the delivery house */
+    const dx=order.x-player.x,dy=order.y-player.y,d=Math.hypot(dx,dy)||1;
+    const px=player.x*S,py=player.y*S,ux=dx/d,uy=dy/d;
+    mmx.strokeStyle="#ffd23e";mmx.lineWidth=2;
+    mmx.beginPath();mmx.moveTo(px+ux*7,py+uy*7);mmx.lineTo(px+ux*17,py+uy*17);mmx.stroke();
+    mmx.fillStyle="#ffd23e";
+    mmx.beginPath();
+    mmx.moveTo(px+ux*21,py+uy*21);
+    mmx.lineTo(px+ux*13-Math.sign(uy)*0+(-uy)*4,py+uy*13+(ux)*4);
+    mmx.lineTo(px+ux*13+(uy)*4,py+uy*13+(-ux)*4);
+    mmx.closePath();mmx.fill();
+  }
+  /* player dot with heading tick */
+  const px=player.x*S,py=player.y*S;
+  mmx.fillStyle="#fff";mmx.beginPath();mmx.arc(px,py,3.6,0,7);mmx.fill();
+  mmx.strokeStyle="#d92c12";mmx.lineWidth=2;
+  mmx.beginPath();mmx.moveTo(px,py);mmx.lineTo(px+Math.cos(player.a)*8,py+Math.sin(player.a)*8);mmx.stroke();
+  /* cars */
+  mmx.fillStyle="#ff8a7a";
+  for(const c of cars){mmx.fillRect(c.x*S-1.6,c.y*S-1.6,3.2,3.2);}
+}
+
+/* ============ LOOP ============ */
+let lastTs=0;
+function loop(ts){
+  const dt=Math.min(0.05,(ts-lastTs)/1000||0.016);lastTs=ts;
+  update(dt);draw();
+  requestAnimationFrame(loop);
+}
+applyLang();
+updateHUD();
+requestAnimationFrame(loop);
+
+/* QA hooks */
+window.__pizza={get state(){return state;},get score(){return score;},get deliveries(){return deliveries;},
+  get player(){return player;},get order(){return order;},get strikes(){return strikes;},
+  start:startGame,driveTo(x,y){autoPath=buildPath(x,y);},stopDrive(){autoPath=null;}};
+</script>
+</body>
+</html>
