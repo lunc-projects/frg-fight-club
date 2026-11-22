@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<base href="/tank-battle/">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Tank Battle — LUNC Arena</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{width:100%;height:100%;overflow:hidden;background:#0b0e14;font-family:'Segoe UI',system-ui,Arial,sans-serif;color:#e8ecf4;touch-action:none;user-select:none;-webkit-user-select:none}
+  #wrap{position:fixed;inset:0;display:flex;flex-direction:column}
+  /* ---------- top bar ---------- */
+  #topbar{display:flex;align-items:center;gap:8px;padding:6px 10px;background:linear-gradient(180deg,#1a2130,#11161f);border-bottom:2px solid #c9a227;z-index:30;flex-wrap:wrap}
+  #logo{display:flex;align-items:center;gap:8px;font-weight:900;letter-spacing:1px;font-size:18px;color:#ffd94d;text-shadow:0 2px 0 #7a5c00,0 0 14px rgba(255,180,0,.35);white-space:nowrap}
+  #logo .cres{width:26px;height:26px;flex:0 0 auto}
+  #langSel{margin-left:auto;background:#232c3d;color:#ffd94d;border:2px solid #c9a227;border-radius:8px;font-size:16px;font-weight:700;padding:6px 8px;max-width:46vw}
+  .stat{background:#232c3d;border:1px solid #3a465e;border-radius:8px;padding:4px 10px;font-size:14px;font-weight:700;white-space:nowrap}
+  .stat b{color:#ffd94d}
+  /* ---------- game area ---------- */
+  #stage{position:relative;flex:1;overflow:hidden;background:#20261a}
+  canvas#game{position:absolute;inset:0;width:100%;height:100%;display:block}
+  /* HUD */
+  #hud{position:absolute;top:8px;left:8px;right:8px;display:flex;gap:8px;align-items:flex-start;pointer-events:none;z-index:10}
+  #hpWrap{background:rgba(10,14,20,.72);border:1px solid #3a465e;border-radius:10px;padding:6px 10px;min-width:170px}
+  #hpLabel{font-size:12px;font-weight:800;letter-spacing:1px;color:#9fb4d8}
+  #hpBarOuter{height:14px;background:#2a1215;border:1px solid #000;border-radius:7px;overflow:hidden;margin-top:3px}
+  #hpBar{height:100%;width:100%;background:linear-gradient(90deg,#e33,#ff7b4d);transition:width .15s}
+  #shieldTag{display:none;margin-top:4px;font-size:12px;font-weight:800;color:#7fd8ff}
+  #waveTag{margin-left:auto;background:rgba(10,14,20,.72);border:1px solid #c9a227;border-radius:10px;padding:6px 12px;font-size:15px;font-weight:900;color:#ffd94d;text-align:center}
+  #powerTags{position:absolute;top:64px;left:8px;display:flex;flex-direction:column;gap:4px;z-index:10;pointer-events:none}
+  .ptag{background:rgba(10,14,20,.8);border:1px solid #ffd94d;color:#ffd94d;border-radius:8px;padding:3px 9px;font-size:13px;font-weight:800;display:none}
+  /* wave banner */
+  #banner{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:12;opacity:0;transition:opacity .3s}
+  #banner span{font-size:clamp(30px,7vw,64px);font-weight:900;color:#ffd94d;text-shadow:0 0 24px rgba(255,170,0,.8),0 4px 0 #5c4300;letter-spacing:2px;text-align:center;padding:0 12px}
+  /* ---------- touch controls ---------- */
+  #joy{position:absolute;left:18px;bottom:20px;width:128px;height:128px;border-radius:50%;background:radial-gradient(circle at 50% 40%,rgba(70,85,110,.55),rgba(20,26,36,.55));border:2px solid rgba(201,162,39,.7);z-index:20;display:none}
+  #joyKnob{position:absolute;left:50%;top:50%;width:56px;height:56px;border-radius:50%;background:radial-gradient(circle at 40% 32%,#8fa3c4,#46587a 70%);border:2px solid #c9a227;transform:translate(-50%,-50%);box-shadow:0 4px 10px rgba(0,0,0,.5)}
+  #fireBtn{position:absolute;right:22px;bottom:34px;width:96px;height:96px;border-radius:50%;background:radial-gradient(circle at 40% 30%,#ff9a5c,#c22e12 70%);border:3px solid #ffd94d;color:#fff;font-weight:900;font-size:17px;letter-spacing:1px;z-index:20;display:none;box-shadow:0 6px 16px rgba(0,0,0,.55);text-shadow:0 2px 3px rgba(0,0,0,.6)}
+  #fireBtn:active{transform:scale(.93)}
+  body.touch #joy,body.touch #fireBtn{display:block}
+  /* ---------- overlays ---------- */
+  .overlay{position:absolute;inset:0;background:rgba(5,8,13,.82);display:flex;align-items:center;justify-content:center;z-index:40;padding:14px}
+  .panel{background:linear-gradient(180deg,#232c3d,#141a26);border:2px solid #c9a227;border-radius:16px;padding:22px 20px;max-width:520px;width:100%;text-align:center;box-shadow:0 18px 50px rgba(0,0,0,.7);max-height:92%;overflow:auto}
+  .panel h1{font-size:clamp(26px,6vw,40px);color:#ffd94d;letter-spacing:2px;text-shadow:0 3px 0 #7a5c00;margin-bottom:6px}
+  .panel h2{font-size:clamp(22px,5vw,32px);color:#ffd94d;letter-spacing:1px;margin-bottom:8px}
+  .panel p{font-size:15px;line-height:1.45;color:#c7d2e6;margin:6px 0}
+  .bigbtn{display:inline-block;margin-top:14px;background:linear-gradient(180deg,#ffd94d,#d99a06);color:#241a00;border:none;border-radius:12px;font-size:20px;font-weight:900;padding:14px 34px;cursor:pointer;letter-spacing:1px;box-shadow:0 6px 0 #8a6400,0 10px 22px rgba(0,0,0,.5)}
+  .bigbtn:active{transform:translateY(3px);box-shadow:0 3px 0 #8a6400}
+  .recRow{display:flex;gap:10px;justify-content:center;margin-top:12px;flex-wrap:wrap}
+  .rec{background:#10151f;border:1px solid #3a465e;border-radius:10px;padding:8px 14px;font-size:14px;font-weight:700}
+  .rec b{color:#ffd94d;font-size:17px}
+  #howto{text-align:left;font-size:14px}
+  .hidden{display:none!important}
+  #muteBtn{position:absolute;right:10px;top:64px;z-index:25;background:rgba(10,14,20,.75);border:1px solid #3a465e;color:#e8ecf4;border-radius:9px;font-size:17px;padding:6px 10px;cursor:pointer}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="topbar">
+    <div id="logo">
+      <svg class="cres" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="#14213d" stroke="#c9a227" stroke-width="4"/><path d="M66 22a36 36 0 1 0 12 44A28 28 0 0 1 66 22z" fill="#ffd94d"/><circle cx="70" cy="30" r="5" fill="#ff8c1a"/></svg>
+      <span data-i18n="title">TANK BATTLE</span>
+    </div>
+    <div class="stat"><span data-i18n="score">Score</span>: <b id="scoreVal">0</b></div>
+    <div class="stat"><span data-i18n="best">Best</span>: <b id="bestVal">0</b></div>
+    <select id="langSel" aria-label="Language">
+      <option value="en">🇬🇧 English</option>
+      <option value="es">🇪🇸 Español</option>
+      <option value="pt">🇵🇹 Português</option>
+      <option value="fr">🇫🇷 Français</option>
+      <option value="de">🇩🇪 Deutsch</option>
+      <option value="it">🇮🇹 Italiano</option>
+      <option value="nl">🇳🇱 Nederlands</option>
+      <option value="ru">🇷🇺 Русский</option>
+      <option value="uk">🇺🇦 Українська</option>
+      <option value="tr">🇹🇷 Türkçe</option>
+      <option value="ar">🇸🇦 العربية</option>
+      <option value="hi">🇮🇳 हिन्दी</option>
+      <option value="zh">🇨🇳 中文</option>
+      <option value="ja">🇯🇵 日本語</option>
+      <option value="ko">🇰🇷 한국어</option>
+      <option value="id">🇮🇩 Indonesia</option>
+      <option value="vi">🇻🇳 Tiếng Việt</option>
+      <option value="pl">🇵🇱 Polski</option>
+    </select>
+  </div>
+
+  <div id="stage">
+    <canvas id="game"></canvas>
+    <div id="hud">
+      <div id="hpWrap">
+        <div id="hpLabel">❤ <span data-i18n="armor">ARMOR</span></div>
+        <div id="hpBarOuter"><div id="hpBar"></div></div>
+        <div id="shieldTag">🛡 <span data-i18n="shieldOn">SHIELD ACTIVE</span></div>
+      </div>
+      <div id="waveTag"><span data-i18n="wave">WAVE</span> <span id="waveVal">1</span></div>
+    </div>
+    <div id="powerTags">
+      <div class="ptag" id="tagRapid">⚡ <span data-i18n="rapid">RAPID FIRE</span> <span class="pt"></span></div>
+      <div class="ptag" id="tagDouble">💥 <span data-i18n="double">DOUBLE DAMAGE</span> <span class="pt"></span></div>
+    </div>
+    <button id="muteBtn" title="Sound">🔊</button>
+    <div id="banner"><span id="bannerTxt"></span></div>
+
+    <div id="joy"><div id="joyKnob"></div></div>
+    <button id="fireBtn"><span data-i18n="fire">FIRE</span></button>
+
+    <!-- START -->
+    <div class="overlay" id="startScr">
+      <div class="panel">
+        <h1>🪖 <span data-i18n="title">TANK BATTLE</span></h1>
+        <p data-i18n="intro">Command the LUNC tank! Blast enemy waves, grab power-ups and survive as long as you can.</p>
+        <p id="howto">
+          🎮 <span data-i18n="howMove">Move: joystick or WASD / arrow keys</span><br>
+          🔥 <span data-i18n="howFire">Fire: FIRE button, SPACE or mouse click</span><br>
+          🎯 <span data-i18n="howAim">Turret aims at your finger / mouse</span><br>
+          📦 <span data-i18n="howCrate">Crates break — some hide power-ups!</span><br>
+          ⚡ <span data-i18n="puRapid">Rapid Fire</span> · 🛡 <span data-i18n="puShield">Shield</span> · 💥 <span data-i18n="puDouble">Double Damage</span>
+        </p>
+        <div class="recRow">
+          <div class="rec"><span data-i18n="bestScore">Best Score</span><br><b id="bestScoreStart">0</b></div>
+          <div class="rec"><span data-i18n="bestWave">Best Wave</span><br><b id="bestWaveStart">0</b></div>
+        </div>
+        <button class="bigbtn" id="startBtn">▶ <span data-i18n="start">START BATTLE</span></button>
+        <p style="font-size:12px;color:#8fa0bd" data-i18n="freeNote">Free game — no wallet, no real money. Just for fun!</p>
+      </div>
+    </div>
+
+    <!-- GAME OVER -->
+    <div class="overlay hidden" id="overScr">
+      <div class="panel">
+        <h2>💥 <span data-i18n="destroyed">TANK DESTROYED</span></h2>
+        <p><span data-i18n="finalScore">Final Score</span>: <b id="finalScore" style="color:#ffd94d;font-size:22px">0</b></p>
+        <p><span data-i18n="reachedWave">You reached wave</span> <b id="finalWave" style="color:#ffd94d">1</b></p>
+        <div class="recRow">
+          <div class="rec"><span data-i18n="bestScore">Best Score</span><br><b id="bestScoreOver">0</b></div>
+          <div class="rec"><span data-i18n="bestWave">Best Wave</span><br><b id="bestWaveOver">0</b></div>
+        </div>
+        <button class="bigbtn" id="againBtn">↻ <span data-i18n="again">PLAY AGAIN</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+"use strict";
+/* ================= I18N ================= */
+const I18N = {
+en:{title:"TANK BATTLE",score:"Score",best:"Best",armor:"ARMOR",shieldOn:"SHIELD ACTIVE",wave:"WAVE",rapid:"RAPID FIRE",double:"DOUBLE DAMAGE",fire:"FIRE",intro:"Command the LUNC tank! Blast enemy waves, grab power-ups and survive as long as you can.",howMove:"Move: joystick or WASD / arrow keys",howFire:"Fire: FIRE button, SPACE or mouse click",howAim:"Turret aims at your finger / mouse",howCrate:"Crates break — some hide power-ups!",puRapid:"Rapid Fire",puShield:"Shield",puDouble:"Double Damage",bestScore:"Best Score",bestWave:"Best Wave",start:"START BATTLE",freeNote:"Free game — no wallet, no real money. Just for fun!",destroyed:"TANK DESTROYED",finalScore:"Final Score",reachedWave:"You reached wave",again:"PLAY AGAIN",waveN:"WAVE",getReady:"GET READY!",cleared:"WAVE CLEARED!"},
+es:{title:"BATALLA DE TANQUES",score:"Puntos",best:"Récord",armor:"BLINDAJE",shieldOn:"ESCUDO ACTIVO",wave:"OLEADA",rapid:"FUEGO RÁPIDO",double:"DAÑO DOBLE",fire:"¡FUEGO!",intro:"¡Comanda el tanque LUNC! Destruye oleadas enemigas, recoge mejoras y sobrevive todo lo que puedas.",howMove:"Mover: joystick o teclas WASD / flechas",howFire:"Disparar: botón FUEGO, ESPACIO o clic",howAim:"La torreta apunta a tu dedo / ratón",howCrate:"Las cajas se rompen — ¡algunas esconden mejoras!",puRapid:"Fuego Rápido",puShield:"Escudo",puDouble:"Daño Doble",bestScore:"Mejor Puntuación",bestWave:"Mejor Oleada",start:"INICIAR BATALLA",freeNote:"Juego gratis — sin billetera, sin dinero real. ¡Solo por diversión!",destroyed:"TANQUE DESTRUIDO",finalScore:"Puntuación Final",reachedWave:"Llegaste a la oleada",again:"JUGAR OTRA VEZ",waveN:"OLEADA",getReady:"¡PREPÁRATE!",cleared:"¡OLEADA SUPERADA!"},
+pt:{title:"BATALHA DE TANQUES",score:"Pontos",best:"Recorde",armor:"BLINDAGEM",shieldOn:"ESCUDO ATIVO",wave:"ONDA",rapid:"TIRO RÁPIDO",double:"DANO DOBRO",fire:"FOGO!",intro:"Comande o tanque LUNC! Destrua ondas inimigas, pegue power-ups e sobreviva o máximo que puder.",howMove:"Mover: joystick ou WASD / setas",howFire:"Atirar: botão FOGO, ESPAÇO ou clique",howAim:"A torre mira no seu dedo / mouse",howCrate:"Caixas quebram — algumas escondem power-ups!",puRapid:"Tiro Rápido",puShield:"Escudo",puDouble:"Dano Dobro",bestScore:"Melhor Pontuação",bestWave:"Melhor Onda",start:"INICIAR BATALHA",freeNote:"Jogo grátis — sem carteira, sem dinheiro real. Só diversão!",destroyed:"TANQUE DESTRUÍDO",finalScore:"Pontuação Final",reachedWave:"Você chegou à onda",again:"JOGAR DE NOVO",waveN:"ONDA",getReady:"PREPARE-SE!",cleared:"ONDA VENCIDA!"},
+fr:{title:"BATAILLE DE CHARS",score:"Score",best:"Record",armor:"BLINDAGE",shieldOn:"BOUCLIER ACTIF",wave:"VAGUE",rapid:"TIR RAPIDE",double:"DÉGÂTS DOUBLES",fire:"FEU !",intro:"Commandez le char LUNC ! Détruisez les vagues ennemies, ramassez les bonus et survivez le plus longtemps possible.",howMove:"Bouger : joystick ou WASD / flèches",howFire:"Tirer : bouton FEU, ESPACE ou clic",howAim:"La tourelle vise votre doigt / souris",howCrate:"Les caisses se cassent — certaines cachent des bonus !",puRapid:"Tir Rapide",puShield:"Bouclier",puDouble:"Dégâts Doubles",bestScore:"Meilleur Score",bestWave:"Meilleure Vague",start:"LANCER LA BATAILLE",freeNote:"Jeu gratuit — sans portefeuille, sans argent réel. Juste pour le fun !",destroyed:"CHAR DÉTRUIT",finalScore:"Score Final",reachedWave:"Vous avez atteint la vague",again:"REJOUER",waveN:"VAGUE",getReady:"PRÉPAREZ-VOUS !",cleared:"VAGUE TERMINÉE !"},
+de:{title:"PANZERSCHLACHT",score:"Punkte",best:"Rekord",armor:"PANZERUNG",shieldOn:"SCHILD AKTIV",wave:"WELLE",rapid:"SCHNELLFEUER",double:"DOPPELSCHADEN",fire:"FEUER!",intro:"Befehle den LUNC-Panzer! Sprenge feindliche Wellen, sammle Power-ups und überlebe so lange wie möglich.",howMove:"Bewegen: Joystick oder WASD / Pfeiltasten",howFire:"Feuern: FEUER-Knopf, LEERTASTE oder Mausklick",howAim:"Der Turm zielt auf Finger / Maus",howCrate:"Kisten zerbrechen — manche verstecken Power-ups!",puRapid:"Schnellfeuer",puShield:"Schild",puDouble:"Doppelschaden",bestScore:"Beste Punkte",bestWave:"Beste Welle",start:"SCHLACHT STARTEN",freeNote:"Kostenloses Spiel — keine Wallet, kein echtes Geld. Nur zum Spaß!",destroyed:"PANZER ZERSTÖRT",finalScore:"Endpunktzahl",reachedWave:"Du hast Welle erreicht",again:"NOCHMAL SPIELEN",waveN:"WELLE",getReady:"MACH DICH BEREIT!",cleared:"WELLE GESCHAFFT!"},
+it:{title:"BATTAGLIA DI CARRI",score:"Punti",best:"Record",armor:"CORAZZA",shieldOn:"SCUDO ATTIVO",wave:"ONDATA",rapid:"FUOCO RAPIDO",double:"DANNO DOPPIO",fire:"FUOCO!",intro:"Comanda il carro LUNC! Distruggi le ondate nemiche, raccogli potenziamenti e sopravvivi il più a lungo possibile.",howMove:"Muovi: joystick o WASD / frecce",howFire:"Spara: pulsante FUOCO, SPAZIO o clic",howAim:"La torretta mira al dito / mouse",howCrate:"Le casse si rompono — alcune nascondono potenziamenti!",puRapid:"Fuoco Rapido",puShield:"Scudo",puDouble:"Danno Doppio",bestScore:"Miglior Punteggio",bestWave:"Miglior Ondata",start:"INIZIA BATTAGLIA",freeNote:"Gioco gratuito — niente portafoglio, niente soldi veri. Solo divertimento!",destroyed:"CARRO DISTRUTTO",finalScore:"Punteggio Finale",reachedWave:"Hai raggiunto l'ondata",again:"GIOCA ANCORA",waveN:"ONDATA",getReady:"PREPARATI!",cleared:"ONDATA SUPERATA!"},
+nl:{title:"TANKSLAG",score:"Score",best:"Record",armor:"PANTSER",shieldOn:"SCHILD ACTIEF",wave:"GOLF",rapid:"SNEL VUUR",double:"DUBBELE SCHADE",fire:"VUUR!",intro:"Beveel de LUNC-tank! Vernietig vijandelijke golven, pak power-ups en overleef zo lang mogelijk.",howMove:"Bewegen: joystick of WASD / pijltjes",howFire:"Vuren: VUUR-knop, SPATIE of muisklik",howAim:"De koepel richt op je vinger / muis",howCrate:"Kisten breken — sommige verbergen power-ups!",puRapid:"Snel Vuur",puShield:"Schild",puDouble:"Dubbele Schade",bestScore:"Beste Score",bestWave:"Beste Golf",start:"START GEVECHT",freeNote:"Gratis spel — geen wallet, geen echt geld. Gewoon voor de lol!",destroyed:"TANK VERNIETIGD",finalScore:"Eindscore",reachedWave:"Je bereikte golf",again:"OPNIEUW SPELEN",waveN:"GOLF",getReady:"MAAK JE KLAAR!",cleared:"GOLF GEHAALD!"},
+ru:{title:"ТАНКОВЫЙ БОЙ",score:"Очки",best:"Рекорд",armor:"БРОНЯ",shieldOn:"ЩИТ АКТИВЕН",wave:"ВОЛНА",rapid:"СКОРОСТРЕЛЬНОСТЬ",double:"ДВОЙНОЙ УРОН",fire:"ОГОНЬ!",intro:"Командуй танком LUNC! Уничтожай волны врагов, собирай бонусы и продержись как можно дольше.",howMove:"Движение: джойстик или WASD / стрелки",howFire:"Огонь: кнопка ОГОНЬ, ПРОБЕЛ или клик мыши",howAim:"Башня целится за пальцем / мышью",howCrate:"Ящики ломаются — в некоторых бонусы!",puRapid:"Скорострельность",puShield:"Щит",puDouble:"Двойной урон",bestScore:"Лучший счёт",bestWave:"Лучшая волна",start:"В БОЙ",freeNote:"Бесплатная игра — без кошелька и реальных денег. Просто для fun!",destroyed:"ТАНК УНИЧТОЖЕН",finalScore:"Итоговый счёт",reachedWave:"Ты дошёл до волны",again:"ИГРАТЬ СНОВА",waveN:"ВОЛНА",getReady:"ПРИГОТОВЬСЯ!",cleared:"ВОЛНА ПРОЙДЕНА!"},
+uk:{title:"ТАНКОВИЙ БІЙ",score:"Очки",best:"Рекорд",armor:"БРОНЯ",shieldOn:"ЩИТ АКТИВНИЙ",wave:"ХВИЛЯ",rapid:"ШВИДКИЙ ВОГОНЬ",double:"ПОДВІЙНА ШКОДА",fire:"ВОГОНЬ!",intro:"Керуй танком LUNC! Знищуй хвилі ворогів, збирай бонуси та тримайся якомога довше.",howMove:"Рух: джойстик або WASD / стрілки",howFire:"Вогонь: кнопка ВОГОНЬ, ПРОБІЛ або клік миші",howAim:"Башта цілиться за пальцем / мишею",howCrate:"Ящики ламаються — у деяких бонуси!",puRapid:"Швидкий вогонь",puShield:"Щит",puDouble:"Подвійна шкода",bestScore:"Найкращий рахунок",bestWave:"Найкраща хвиля",start:"ДО БОЮ",freeNote:"Безкоштовна гра — без гаманця та реальних грошей. Просто для розваги!",destroyed:"ТАНК ЗНИЩЕНО",finalScore:"Підсумковий рахунок",reachedWave:"Ти дійшов до хвилі",again:"ГРАТИ ЗНОВУ",waveN:"ХВИЛЯ",getReady:"ПРИГОТУЙСЯ!",cleared:"ХВИЛЮ ПРОЙДЕНО!"},
+tr:{title:"TANK SAVAŞI",score:"Skor",best:"Rekor",armor:"ZIRH",shieldOn:"KALKAN AKTİF",wave:"DALGA",rapid:"SERİ ATEŞ",double:"ÇİFTE HASAR",fire:"ATEŞ!",intro:"LUNC tankına komuta et! Düşman dalgalarını patlat, güçlendirmeleri kap ve dayanabildiğin kadar dayan.",howMove:"Hareket: joystick veya WASD / ok tuşları",howFire:"Ateş: ATEŞ düğmesi, BOŞLUK veya fare tıklaması",howAim:"Taret parmağını / fareni izler",howCrate:"Kasalar kırılır — bazıları güçlendirme saklar!",puRapid:"Seri Ateş",puShield:"Kalkan",puDouble:"Çifte Hasar",bestScore:"En İyi Skor",bestWave:"En İyi Dalga",start:"SAVAŞI BAŞLAT",freeNote:"Ücretsiz oyun — cüzdan yok, gerçek para yok. Sadece eğlence!",destroyed:"TANK YOK EDİLDİ",finalScore:"Final Skoru",reachedWave:"Ulaştığın dalga",again:"TEKRAR OYNA",waveN:"DALGA",getReady:"HAZIR OL!",cleared:"DALGA TEMİZLENDİ!"},
+ar:{title:"معركة الدبابات",score:"النقاط",best:"الأفضل",armor:"الدرع",shieldOn:"الدرع الواقي مفعّل",wave:"الموجة",rapid:"إطلاق سريع",double:"ضرر مضاعف",fire:"أطلق!",intro:"قُد دبابة LUNC! دمّر موجات الأعداء، واجمع التعزيزات، واصمد أطول فترة ممكنة.",howMove:"التحرك: عصا التحكم أو WASD / الأسهم",howFire:"الإطلاق: زر الإطلاق أو المسافة أو نقرة الفأرة",howAim:"البرج يصوّب نحو إصبعك / الفأرة",howCrate:"الصناديق تنكسر — بعضها يخفي تعزيزات!",puRapid:"إطلاق سريع",puShield:"درع واقٍ",puDouble:"ضرر مضاعف",bestScore:"أفضل نقاط",bestWave:"أفضل موجة",start:"ابدأ المعركة",freeNote:"لعبة مجانية — بدون محفظة وبدون مال حقيقي. للمتعة فقط!",destroyed:"تم تدمير الدبابة",finalScore:"النقاط النهائية",reachedWave:"وصلت إلى الموجة",again:"العب مجدداً",waveN:"الموجة",getReady:"استعد!",cleared:"تم تطهير الموجة!"},
+hi:{title:"टैंक युद्ध",score:"स्कोर",best:"सर्वश्रेष्ठ",armor:"कवच",shieldOn:"शील्ड सक्रिय",wave:"लहर",rapid:"तेज़ फायर",double:"दोगुना नुकसान",fire:"फायर!",intro:"LUNC टैंक की कमान संभालो! दुश्मन लहरों को उड़ाओ, पावर-अप उठाओ और जितना हो सके टिके रहो।",howMove:"चलना: जॉयस्टिक या WASD / तीर कुंजियाँ",howFire:"फायर: फायर बटन, स्पेस या माउस क्लिक",howAim:"बुर्ज आपकी उंगली / माउस की ओर निशाना लगाता है",howCrate:"बक्से टूटते हैं — कुछ में पावर-अप छिपे होते हैं!",puRapid:"तेज़ फायर",puShield:"शील्ड",puDouble:"दोगुना नुकसान",bestScore:"सर्वश्रेष्ठ स्कोर",bestWave:"सर्वश्रेष्ठ लहर",start:"युद्ध शुरू करो",freeNote:"मुफ़्त गेम — कोई वॉलेट नहीं, कोई असली पैसा नहीं। बस मज़े के लिए!",destroyed:"टैंक नष्ट हो गया",finalScore:"अंतिम स्कोर",reachedWave:"आप लहर तक पहुँचे",again:"फिर से खेलो",waveN:"लहर",getReady:"तैयार हो जाओ!",cleared:"लहर साफ़!"},
+zh:{title:"坦克大战",score:"分数",best:"最高",armor:"装甲",shieldOn:"护盾已激活",wave:"波次",rapid:"快速射击",double:"双倍伤害",fire:"开火！",intro:"指挥 LUNC 坦克！消灭一波波敌人，拾取强化道具，尽可能久地生存下去。",howMove:"移动：摇杆或 WASD / 方向键",howFire:"开火：开火按钮、空格或鼠标点击",howAim:"炮塔瞄准你的手指 / 鼠标",howCrate:"木箱可以打碎——有些藏着强化道具！",puRapid:"快速射击",puShield:"护盾",puDouble:"双倍伤害",bestScore:"最高分数",bestWave:"最高波次",start:"开始战斗",freeNote:"免费游戏——无需钱包，无真实金钱。纯属娱乐！",destroyed:"坦克被摧毁",finalScore:"最终分数",reachedWave:"你到达了第几波",again:"再玩一次",waveN:"第",getReady:"准备！",cleared:"本波已清除！"},
+ja:{title:"タンクバトル",score:"スコア",best:"ベスト",armor:"アーマー",shieldOn:"シールド作動中",wave:"ウェーブ",rapid:"連射",double:"ダブルダメージ",fire:"発射！",intro:"LUNC戦車を指揮せよ！敵の波を撃破し、パワーアップを集めてできるだけ長く生き残れ。",howMove:"移動：ジョイスティックまたはWASD／矢印キー",howFire:"発射：発射ボタン、スペース、またはクリック",howAim:"砲塔は指／マウスを狙います",howCrate:"木箱は壊れる——パワーアップが隠れていることも！",puRapid:"連射",puShield:"シールド",puDouble:"ダブルダメージ",bestScore:"ベストスコア",bestWave:"ベストウェーブ",start:"バトル開始",freeNote:"無料ゲーム——ウォレット不要、リアルマネーなし。楽しむだけ！",destroyed:"戦車が破壊された",finalScore:"最終スコア",reachedWave:"到達ウェーブ",again:"もう一度プレイ",waveN:"ウェーブ",getReady:"準備せよ！",cleared:"ウェーブクリア！"},
+ko:{title:"탱크 배틀",score:"점수",best:"최고",armor:"장갑",shieldOn:"실드 활성화",wave:"웨이브",rapid:"연사",double:"두 배 피해",fire:"발사!",intro:"LUNC 탱크를 지휘하세요! 적의 웨이브를 물리치고 파워업을 모아 최대한 오래 살아남으세요.",howMove:"이동: 조이스틱 또는 WASD / 방향키",howFire:"발사: 발사 버튼, 스페이스 또는 마우스 클릭",howAim:"포탑이 손가락 / 마우스를 조준합니다",howCrate:"상자는 부서집니다 — 파워업이 숨겨진 것도 있어요!",puRapid:"연사",puShield:"실드",puDouble:"두 배 피해",bestScore:"최고 점수",bestWave:"최고 웨이브",start:"전투 시작",freeNote:"무료 게임 — 지갑 없음, 실제 돈 없음. 재미로만 즐기세요!",destroyed:"탱크 파괴됨",finalScore:"최종 점수",reachedWave:"도달한 웨이브",again:"다시 플레이",waveN:"웨이브",getReady:"준비하세요!",cleared:"웨이브 클리어!"},
+id:{title:"PERTEMPURAN TANK",score:"Skor",best:"Terbaik",armor:"ZIRAH",shieldOn:"PERISAI AKTIF",wave:"GELOMBANG",rapid:"TEMBAKAN CEPAT",double:"KERUSAKAN GANDA",fire:"TEMBAK!",intro:"Komandoi tank LUNC! Hancurkan gelombang musuh, ambil power-up dan bertahan selama mungkin.",howMove:"Gerak: joystick atau WASD / tombol panah",howFire:"Tembak: tombol TEMBAK, SPASI atau klik mouse",howAim:"Menara membidik jari / mouse kamu",howCrate:"Peti bisa pecah — sebagian menyembunyikan power-up!",puRapid:"Tembakan Cepat",puShield:"Perisai",puDouble:"Kerusakan Ganda",bestScore:"Skor Terbaik",bestWave:"Gelombang Terbaik",start:"MULAI BERTEMPUR",freeNote:"Game gratis — tanpa dompet, tanpa uang asli. Hanya untuk bersenang-senang!",destroyed:"TANK HANCUR",finalScore:"Skor Akhir",reachedWave:"Kamu mencapai gelombang",again:"MAIN LAGI",waveN:"GELOMBANG",getReady:"BERSIAPLAH!",cleared:"GELOMBANG BERSIH!"},
+vi:{title:"TRẬN CHIẾN XE TĂNG",score:"Điểm",best:"Cao nhất",armor:"GIÁP",shieldOn:"KHIÊN ĐANG BẬT",wave:"ĐỢT",rapid:"BẮN NHANH",double:"SÁT THƯƠNG GẤP ĐÔI",fire:"BẮN!",intro:"Chỉ huy xe tăng LUNC! Tiêu diệt từng đợt địch, nhặt vật phẩm tăng sức mạnh và sống sót càng lâu càng tốt.",howMove:"Di chuyển: cần điều khiển hoặc WASD / phím mũi tên",howFire:"Bắn: nút BẮN, phím CÁCH hoặc nhấp chuột",howAim:"Tháp pháo ngắm theo ngón tay / chuột của bạn",howCrate:"Thùng gỗ vỡ được — một số giấu vật phẩm tăng sức mạnh!",puRapid:"Bắn Nhanh",puShield:"Khiên",puDouble:"Sát Thương Gấp Đôi",bestScore:"Điểm Cao Nhất",bestWave:"Đợt Cao Nhất",start:"BẮT ĐẦU CHIẾN ĐẤU",freeNote:"Game miễn phí — không ví, không tiền thật. Chỉ để giải trí!",destroyed:"XE TĂNG BỊ PHÁ HỦY",finalScore:"Điểm Cuối",reachedWave:"Bạn đã tới đợt",again:"CHƠI LẠI",waveN:"ĐỢT",getReady:"SẴN SÀNG!",cleared:"ĐÃ QUÉT SẠCH ĐỢT!"},
+pl:{title:"BITWA CZOŁGÓW",score:"Wynik",best:"Rekord",armor:"PANCERZ",shieldOn:"TARCZA AKTYWNA",wave:"FALA",rapid:"SZYBKI OSTRZAŁ",double:"PODWÓJNE OBRAŻENIA",fire:"OGNIA!",intro:"Dowódź czołgiem LUNC! Niszcz fale wrogów, zbieraj ulepszenia i przetrwaj jak najdłużej.",howMove:"Ruch: joystick lub WASD / strzałki",howFire:"Ogień: przycisk OGNIA, SPACJA lub klik myszy",howAim:"Wieża celuje za palcem / myszą",howCrate:"Skrzynie się niszczą — niektóre kryją ulepszenia!",puRapid:"Szybki Ostrzał",puShield:"Tarcza",puDouble:"Podwójne Obrażenia",bestScore:"Najlepszy Wynik",bestWave:"Najlepsza Fala",start:"ROZPOCZNIJ BITWĘ",freeNote:"Darmowa gra — bez portfela, bez prawdziwych pieniędzy. Tylko dla zabawy!",destroyed:"CZOŁG ZNISZCZONY",finalScore:"Wynik Końcowy",reachedWave:"Dotarłeś do fali",again:"ZAGRAJ PONOWNIE",waveN:"FALA",getReady:"PRZYGOTUJ SIĘ!",cleared:"FALA WYCZYSZCZONA!"}
+};
+let LANG = localStorage.getItem('tb_lang') || 'en';
+if(!I18N[LANG]) LANG='en';
+function t(k){ return (I18N[LANG] && I18N[LANG][k]) || I18N.en[k] || k; }
+function applyLang(){
+  document.querySelectorAll('[data-i18n]').forEach(el=>{ el.textContent = t(el.getAttribute('data-i18n')); });
+  document.getElementById('langSel').value = LANG;
+  document.documentElement.lang = LANG;
+  document.documentElement.dir = (LANG==='ar') ? 'rtl' : 'ltr';
+}
+</script>
+<script>
+"use strict";
+/* ================= AUDIO (WebAudio synth) ================= */
+let AC=null, muted=false, engOsc=null, engGain=null, engFilter=null;
+function initAudio(){
+  if(AC) { if(AC.state==='suspended') AC.resume(); return; }
+  try{
+    AC = new (window.AudioContext||window.webkitAudioContext)();
+    engOsc = AC.createOscillator(); engOsc.type='sawtooth'; engOsc.frequency.value=42;
+    const o2 = AC.createOscillator(); o2.type='square'; o2.frequency.value=21;
+    engFilter = AC.createBiquadFilter(); engFilter.type='lowpass'; engFilter.frequency.value=220; engFilter.Q.value=2;
+    engGain = AC.createGain(); engGain.gain.value=0;
+    const g2 = AC.createGain(); g2.gain.value=.5;
+    engOsc.connect(engFilter); o2.connect(g2); g2.connect(engFilter);
+    engFilter.connect(engGain); engGain.connect(AC.destination);
+    engOsc.start(); o2.start();
+  }catch(e){ AC=null; }
+}
+function setEngine(speedNorm, running){
+  if(!AC||muted||!engGain) return;
+  const target = running ? 0.05 + speedNorm*0.075 : 0;
+  engGain.gain.setTargetAtTime(target, AC.currentTime, 0.08);
+  engOsc.frequency.setTargetAtTime(42 + speedNorm*68, AC.currentTime, 0.08);
+  engFilter.frequency.setTargetAtTime(220 + speedNorm*480, AC.currentTime, 0.08);
+}
+function blip(freq,dur,type,vol,slide){
+  if(!AC||muted) return;
+  const o=AC.createOscillator(), g=AC.createGain();
+  o.type=type||'square'; o.frequency.value=freq;
+  if(slide) o.frequency.exponentialRampToValueAtTime(Math.max(20,freq+slide), AC.currentTime+dur);
+  g.gain.setValueAtTime(vol||.15, AC.currentTime);
+  g.gain.exponentialRampToValueAtTime(.001, AC.currentTime+dur);
+  o.connect(g); g.connect(AC.destination); o.start(); o.stop(AC.currentTime+dur);
+}
+function noiseBurst(dur,vol,low){
+  if(!AC||muted) return;
+  const len=Math.floor(AC.sampleRate*dur), buf=AC.createBuffer(1,len,AC.sampleRate), d=buf.getChannelData(0);
+  for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*(1-i/len);
+  const src=AC.createBufferSource(); src.buffer=buf;
+  const f=AC.createBiquadFilter(); f.type='lowpass'; f.frequency.value=low||900;
+  const g=AC.createGain(); g.gain.value=vol;
+  src.connect(f); f.connect(g); g.connect(AC.destination); src.start();
+}
+function sfxBoom(){ noiseBurst(.28,.5,700); blip(120,.25,'triangle',.4,-80); }
+function sfxEnemyBoom(){ noiseBurst(.18,.3,1000); blip(180,.15,'square',.18,-100); }
+function sfxExplosion(){ noiseBurst(.7,.8,500); blip(70,.6,'sawtooth',.5,-45); setTimeout(()=>noiseBurst(.4,.4,300),90); }
+function sfxHit(){ blip(320,.06,'square',.12,-140); }
+function sfxCrate(){ noiseBurst(.12,.3,1600); }
+function sfxPower(){ [523,659,784,1046].forEach((f,i)=>setTimeout(()=>blip(f,.12,'square',.16),i*70)); }
+function sfxHurt(){ blip(140,.2,'sawtooth',.3,-70); noiseBurst(.15,.3,600); }
+
+/* ================= CANVAS / WORLD ================= */
+const stage=document.getElementById('stage'), cv=document.getElementById('game'), ctx=cv.getContext('2d');
+let W=0,H=0,DPR=1;
+function resize(){
+  DPR=Math.min(2,window.devicePixelRatio||1);
+  W=stage.clientWidth; H=stage.clientHeight;
+  cv.width=W*DPR; cv.height=H*DPR; ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+window.addEventListener('resize',resize);
+
+/* ground texture (pre-rendered) */
+const ground=document.createElement('canvas'); ground.width=512; ground.height=512;
+(function paintGround(){
+  const g=ground.getContext('2d');
+  const grad=g.createLinearGradient(0,0,512,512);
+  grad.addColorStop(0,'#39432c'); grad.addColorStop(.5,'#333d28'); grad.addColorStop(1,'#2c3524');
+  g.fillStyle=grad; g.fillRect(0,0,512,512);
+  for(let i=0;i<2600;i++){ g.fillStyle=`rgba(${20+Math.random()*40|0},${30+Math.random()*36|0},${14+Math.random()*20|0},${.25+Math.random()*.4})`; g.fillRect(Math.random()*512,Math.random()*512,2+Math.random()*4,1+Math.random()*3); }
+  for(let i=0;i<70;i++){ g.fillStyle=`rgba(120,110,80,${.05+Math.random()*.12})`; g.beginPath(); g.ellipse(Math.random()*512,Math.random()*512,8+Math.random()*30,5+Math.random()*16,Math.random()*3,0,7); g.fill(); }
+  for(let i=0;i<26;i++){ g.strokeStyle=`rgba(15,18,10,${.15+Math.random()*.2})`; g.lineWidth=1+Math.random()*2; g.beginPath(); const x=Math.random()*512,y=Math.random()*512; g.moveTo(x,y); g.lineTo(x+(Math.random()*40-20),y+(Math.random()*40-20)); g.stroke(); }
+  g.strokeStyle='rgba(0,0,0,.18)'; g.lineWidth=2;
+  for(let i=0;i<=4;i++){ g.beginPath(); g.moveTo(i*128,0); g.lineTo(i*128,512); g.stroke(); g.beginPath(); g.moveTo(0,i*128); g.lineTo(512,i*128); g.stroke(); }
+})();
+
+/* ================= STATE ================= */
+const TS=46; // wall block size
+let running=false, gameOver=false, lastTime=0;
+let score=0, wave=0, kills=0;
+let bestScore=+(localStorage.getItem('tb_bestScore')||0);
+let bestWave=+(localStorage.getItem('tb_bestWave')||0);
+let walls=[], crates=[], bullets=[], ebullets=[], enemies=[], parts=[], pickups=[], tracers=[];
+let spawnQueue=0, spawnTimer=0, waveState='idle', bannerTimer=0;
+const player={x:0,y:0,hull:0,turret:0,hp:100,maxhp:100,speed:0,cool:0,rapid:0,dbl:0,shield:0,shieldHp:0,flash:0,alive:true,recoil:0};
+let camShake=0;
+
+function resetGame(){
+  score=0; wave=0; kills=0;
+  bullets=[]; ebullets=[]; enemies=[]; parts=[]; pickups=[]; tracers=[];
+  player.hp=player.maxhp; player.alive=true; player.rapid=0; player.dbl=0; player.shield=0; player.shieldHp=0; player.cool=0;
+  player.x=W/2; player.y=H/2; player.hull=-Math.PI/2; player.turret=-Math.PI/2;
+  buildMap();
+  updateHUD();
+}
+function buildMap(){
+  walls=[]; crates=[];
+  const cx=W/2, cy=H/2;
+  const nW=Math.max(5,Math.round(W*H/150000));
+  let tries=0;
+  while(walls.length<nW && tries<300){
+    tries++;
+    const x=30+Math.random()*(W-60-TS), y=30+Math.random()*(H-60-TS);
+    if(Math.hypot(x+TS/2-cx,y+TS/2-cy)<150) continue;
+    if(walls.some(w=>Math.abs(w.x-x)<TS+8&&Math.abs(w.y-y)<TS+8)) continue;
+    walls.push({x,y,w:TS,h:TS,variant:Math.random()*3|0});
+  }
+  tries=0;
+  const nC=nW+4;
+  while(crates.length<nC && tries<400){
+    tries++;
+    const s=34, x=24+Math.random()*(W-48-s), y=24+Math.random()*(H-48-s);
+    if(Math.hypot(x+s/2-cx,y+s/2-cy)<130) continue;
+    if(walls.some(w=>x<w.x+w.w+6&&x+s>w.x-6&&y<w.y+w.h+6&&y+s>w.y-6)) continue;
+    if(crates.some(c=>Math.abs(c.x-x)<s+8&&Math.abs(c.y-y)<s+8)) continue;
+    crates.push({x,y,w:s,h:s,hp:2,seed:Math.random()*10});
+  }
+}
+function circleRect(cx,cy,r,rc){
+  const nx=Math.max(rc.x,Math.min(cx,rc.x+rc.w)), ny=Math.max(rc.y,Math.min(cy,rc.y+rc.h));
+  return (cx-nx)*(cx-nx)+(cy-ny)*(cy-ny) < r*r;
+}
+function blockedAt(x,y,r){
+  if(x<r||y<r||x>W-r||y>H-r) return true;
+  for(const w of walls) if(circleRect(x,y,r,w)) return true;
+  for(const c of crates) if(circleRect(x,y,r,c)) return true;
+  return false;
+}
+function startWave(n){
+  wave=n; waveState='banner'; bannerTimer=1.6;
+  showBanner(t('waveN')+' '+n);
+  spawnQueue=2+Math.ceil(n*1.4); spawnTimer=1.2;
+  updateHUD();
+}
+function spawnEnemy(){
+  const edge=Math.random()*4|0; let x,y;
+  if(edge===0){x=40+Math.random()*(W-80);y=44;} else if(edge===1){x=40+Math.random()*(W-80);y=H-44;}
+  else if(edge===2){x=44;y=40+Math.random()*(H-80);} else {x=W-44;y=40+Math.random()*(H-80);}
+  if(blockedAt(x,y,26)){ x=W/2+(Math.random()<.5?-1:1)*(W/2-60); y=50; }
+  const tough = wave>=3 && Math.random()<Math.min(.45,.12+wave*.04);
+  enemies.push({x,y,hull:Math.random()*6.28,turret:0,hp:tough?5:3,maxhp:tough?5:3,tough,cool:1+Math.random(),think:0,tx:x,ty:y,coverT:0,flash:0,speed:0,hurt:0});
+  burst(x,y,10,'#ffb347');
+}
+</script>
+<script>
+"use strict";
+/* ================= PARTICLES / FX ================= */
+function burst(x,y,n,color,spd,life,size){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*6.283, s=(spd||120)*(0.3+Math.random()*0.9);
+    parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:(life||.5)*(0.5+Math.random()*0.8),maxlife:life||.5,color,size:(size||4)*(0.5+Math.random()),smoke:false});
+  }
+}
+function smokePuff(x,y,n){
+  for(let i=0;i<(n||1);i++) parts.push({x:x+(Math.random()*14-7),y:y+(Math.random()*14-7),vx:Math.random()*16-8,vy:-18-Math.random()*22,life:1+Math.random()*.8,maxlife:1.6,color:'90,90,95',size:7+Math.random()*7,smoke:true});
+}
+function explosionFX(x,y,big){
+  burst(x,y,big?42:22,'#ffdf6b',big?320:220,.5,5);
+  burst(x,y,big?26:14,'#ff7b2e',big?240:170,.65,6);
+  burst(x,y,big?18:10,'#5a4632',big?130:90,.9,5);
+  smokePuff(x,y,big?8:4);
+  camShake=Math.min(16,camShake+(big?13:6));
+}
+
+/* ================= COMBAT ================= */
+function fireBullet(owner,x,y,ang,dmg,fromPlayer){
+  const sp=560;
+  (fromPlayer?bullets:ebullets).push({x,y,vx:Math.cos(ang)*sp,vy:Math.sin(ang)*sp,dmg,life:1.6,fromPlayer});
+  tracers.push({x1:x,y1:y,x2:x+Math.cos(ang)*26,y2:y+Math.sin(ang)*26,life:.05});
+  burst(x,y,3,'#ffe9a0',90,.18,3);
+}
+function damagePlayer(dmg){
+  if(!player.alive) return;
+  if(player.shield>0 && player.shieldHp>0){
+    player.shieldHp-=dmg; burst(player.x,player.y,6,'#7fd8ff',140,.3,4); sfxHit();
+    if(player.shieldHp<=0) player.shield=0;
+    updateHUD(); return;
+  }
+  player.hp-=dmg; sfxHurt(); camShake=Math.min(12,camShake+5);
+  burst(player.x,player.y,8,'#ff6b4d',160,.4,4);
+  if(player.hp<=0){ player.hp=0; player.alive=false; explosionFX(player.x,player.y,true); sfxExplosion(); setEngine(0,false); endGame(); }
+  updateHUD();
+}
+function damageEnemy(e,dmg){
+  e.hp-=dmg; e.hurt=.12; sfxHit();
+  burst(e.x,e.y,5,'#ffd24d',150,.3,4);
+  if(e.hp<=0){
+    e.dead=true; kills++;
+    const pts=e.tough?250:100;
+    score+=pts; burst(e.x,e.y,4,'#fff',60,.6,3);
+    explosionFX(e.x,e.y,e.tough); sfxExplosion();
+    if(Math.random()<.30) dropPickup(e.x,e.y);
+    updateHUD();
+  }
+}
+function dropPickup(x,y){
+  const kinds=['rapid','shield','double','repair'];
+  const kind=kinds[Math.random()*kinds.length|0];
+  pickups.push({x,y,kind,life:12,bob:Math.random()*6});
+}
+function applyPickup(p){
+  sfxPower();
+  if(p.kind==='rapid'){ player.rapid=8; }
+  else if(p.kind==='double'){ player.dbl=10; }
+  else if(p.kind==='shield'){ player.shield=12; player.shieldHp=3; }
+  else if(p.kind==='repair'){ player.hp=Math.min(player.maxhp,player.hp+30); }
+  burst(p.x,p.y,14,'#aef27f',130,.5,4);
+  updateHUD();
+}
+
+/* ================= UPDATE ================= */
+function moveTank(t,dx,dy,dt,r){
+  const nx=t.x+dx*dt, ny=t.y+dy*dt;
+  if(!blockedAt(nx,t.y,r)) t.x=nx;
+  if(!blockedAt(t.x,ny,r)) t.y=ny;
+}
+function update(dt){
+  /* --- player --- */
+  if(player.alive){
+    let mx=0,my=0;
+    if(keys.w||keys.up)my-=1; if(keys.s||keys.down)my+=1; if(keys.a||keys.left)mx-=1; if(keys.d||keys.right)mx+=1;
+    if(joy.active){ mx+=joy.dx; my+=joy.dy; }
+    const ml=Math.hypot(mx,my);
+    if(ml>0.15){
+      if(ml>1){mx/=ml;my/=ml;}
+      const spd=215;
+      moveTank(player,mx*spd,my*spd,dt,21);
+      const target=Math.atan2(my,mx);
+      let d=target-player.hull; while(d>Math.PI)d-=6.283; while(d<-Math.PI)d+=6.283;
+      player.hull+=d*Math.min(1,dt*10);
+      player.speed=Math.min(1,ml);
+      if(Math.random()<dt*22) parts.push({x:player.x-Math.cos(player.hull)*20,y:player.y-Math.sin(player.hull)*20+8,vx:0,vy:-12,life:.7,maxlife:.7,color:'80,80,84',size:5,smoke:true});
+    } else player.speed*=Math.max(0,1-dt*8);
+    /* aim */
+    let aimAng=null;
+    if(mouse.in){ aimAng=Math.atan2(mouse.y-player.y,mouse.x-player.x); }
+    else if(firingTouch){ let best=null,bd=1e9; for(const e of enemies){ const dd=(e.x-player.x)**2+(e.y-player.y)**2; if(dd<bd){bd=dd;best=e;} } if(best) aimAng=Math.atan2(best.y-player.y,best.x-player.x); }
+    if(aimAng!==null){
+      let d=aimAng-player.turret; while(d>Math.PI)d-=6.283; while(d<-Math.PI)d+=6.283;
+      player.turret+=d*Math.min(1,dt*14);
+    } else player.turret=player.hull;
+    /* fire */
+    player.cool-=dt;
+    if((keys.space||mouse.down||firingTouch) && player.cool<=0){
+      player.cool = player.rapid>0 ? .13 : .34;
+      const gx=player.x+Math.cos(player.turret)*34, gy=player.y+Math.sin(player.turret)*34;
+      fireBullet(player,gx,gy,player.turret,player.dbl>0?2:1,true);
+      player.flash=.06; player.recoil=5; sfxBoom();
+      camShake=Math.min(6,camShake+1.4);
+    }
+    if(player.flash>0)player.flash-=dt;
+    if(player.recoil>0)player.recoil=Math.max(0,player.recoil-dt*30);
+    if(player.rapid>0)player.rapid-=dt;
+    if(player.dbl>0)player.dbl-=dt;
+    if(player.shield>0){ player.shield-=dt; if(player.shield<=0)player.shieldHp=0; if(Math.random()<dt*8) burst(player.x,player.y,1,'#7fd8ff',40,.4,3); }
+    /* pickups */
+    for(const p of pickups){ if(!p.taken && Math.hypot(p.x-player.x,p.y-player.y)<34){ p.taken=true; applyPickup(p); } }
+  }
+  setEngine(player.speed, running&&player.alive);
+
+  /* --- spawning / waves --- */
+  if(waveState==='banner'){ bannerTimer-=dt; if(bannerTimer<=0) waveState='fight'; }
+  else if(waveState==='fight'){
+    if(spawnQueue>0){ spawnTimer-=dt; if(spawnTimer<=0 && enemies.length<7){ spawnEnemy(); spawnQueue--; spawnTimer=.9; } }
+    else if(enemies.length===0){ waveState='clear'; bannerTimer=1.4; showBanner(t('cleared')); }
+  }
+  else if(waveState==='clear'){ bannerTimer-=dt; if(bannerTimer<=0){ startWave(wave+1); } }
+
+  /* --- enemies AI --- */
+  for(const e of enemies){
+    e.think-=dt; e.cool-=dt; if(e.flash>0)e.flash-=dt; if(e.hurt>0)e.hurt-=dt;
+    const dxp=player.x-e.x, dyp=player.y-e.y, distP=Math.hypot(dxp,dyp);
+    const angP=Math.atan2(dyp,dxp);
+    let d=angP-e.turret; while(d>Math.PI)d-=6.283; while(d<-Math.PI)d+=6.283;
+    e.turret+=d*Math.min(1,dt*3.2);
+    if(e.think<=0){
+      e.think=.35+Math.random()*.3;
+      if(e.hp<=Math.ceil(e.maxhp/2) && Math.random()<.65){
+        /* take cover: nearest wall/crate between it and player */
+        let best=null,bs=1e9;
+        for(const w of walls.concat(crates)){
+          const cx=w.x+w.w/2, cy=w.y+w.h/2;
+          const behind={x:cx+Math.cos(angP)*(w.w/2+34), y:cy+Math.sin(angP)*(w.h/2+34)};
+          const s=(behind.x-e.x)**2+(behind.y-e.y)**2;
+          if(s<bs){bs=s;best=behind;}
+        }
+        if(best){ e.tx=best.x; e.ty=best.y; e.coverT=1.4; }
+      }
+      if(e.coverT<=0){
+        if(distP>300){ e.tx=player.x+(Math.random()*90-45); e.ty=player.y+(Math.random()*90-45); }
+        else if(distP<130){ e.tx=e.x-Math.cos(angP)*90; e.ty=e.y-Math.sin(angP)*90; }
+        else { const st=Math.random()<.5?1:-1; e.tx=e.x+Math.cos(angP+st*1.2)*110; e.ty=e.y+Math.sin(angP+st*1.2)*110; }
+      }
+    }
+    if(e.coverT>0)e.coverT-=dt;
+    const dx=e.tx-e.x, dy=e.ty-e.y, dd=Math.hypot(dx,dy);
+    if(dd>14){
+      const spd=e.tough?66:84;
+      const ox=e.x, oy=e.y;
+      moveTank(e,dx/dd*spd,dy/dd*spd,dt,21);
+      e.speed=(Math.hypot(e.x-ox,e.y-oy)/Math.max(dt,.001))/spd;
+      const ta=Math.atan2(e.y-oy,e.x-ox);
+      if(Math.hypot(e.x-ox,e.y-oy)>.1){ let dd2=ta-e.hull; while(dd2>Math.PI)dd2-=6.283; while(dd2<-Math.PI)dd2+=6.283; e.hull+=dd2*Math.min(1,dt*7); }
+      if(Math.random()<dt*10) smokePuff(e.x,e.y,1);
+    } else e.speed=0;
+    /* fire when lined up & in range */
+    if(player.alive && distP<430 && Math.abs(d)<.16 && e.cool<=0){
+      e.cool=(e.tough?1.5:1.9)+Math.random()*.7;
+      const gx=e.x+Math.cos(e.turret)*34, gy=e.y+Math.sin(e.turret)*34;
+      fireBullet(e,gx,gy,e.turret,1,false); e.flash=.06; sfxEnemyBoom();
+    }
+  }
+  enemies=enemies.filter(e=>!e.dead);
+
+  /* --- bullets --- */
+  function stepBullets(arr,isPlayer){
+    for(const b of arr){
+      b.x+=b.vx*dt; b.y+=b.vy*dt; b.life-=dt;
+      tracers.push({x1:b.x-b.vx*.016,y1:b.y-b.vy*.016,x2:b.x,y2:b.y,life:.05,enemy:!isPlayer});
+      let hit=false;
+      if(b.x<4||b.y<4||b.x>W-4||b.y>H-4) hit=true;
+      if(!hit) for(const w of walls){ if(b.x>w.x&&b.x<w.x+w.w&&b.y>w.y&&b.y<w.y+w.h){ hit=true; burst(b.x,b.y,4,'#cfd6de',120,.25,3); break; } }
+      if(!hit) for(const c of crates){ if(b.x>c.x&&b.x<c.x+c.w&&b.y>c.y&&b.y<c.y+c.h){ hit=true; c.hp-=b.dmg; sfxCrate(); burst(b.x,b.y,6,'#c89b5a',140,.35,4); if(c.hp<=0){ c.dead=true; explosionFX(c.x+c.w/2,c.y+c.h/2,false); sfxCrate(); if(Math.random()<.22) dropPickup(c.x+c.w/2,c.y+c.h/2); } break; } }
+      if(!hit && isPlayer) for(const e of enemies){ if(Math.hypot(b.x-e.x,b.y-e.y)<23){ hit=true; damageEnemy(e,b.dmg); break; } }
+      if(!hit && !isPlayer && player.alive){ if(Math.hypot(b.x-player.x,b.y-player.y)<22){ hit=true; damagePlayer(b.dmg*8); } }
+      if(hit) b.life=0;
+    }
+    return arr.filter(b=>b.life>0);
+  }
+  bullets=stepBullets(bullets,true);
+  ebullets=stepBullets(ebullets,false);
+  crates=crates.filter(c=>!c.dead);
+
+  /* --- fx lifetimes --- */
+  for(const p of parts){ p.x+=p.vx*dt; p.y+=p.vy*dt; p.vx*=(1-dt*2); p.vy*=(1-dt*2); p.life-=dt; }
+  parts=parts.filter(p=>p.life>0);
+  for(const tr of tracers) tr.life-=dt;
+  tracers=tracers.filter(tr=>tr.life>0);
+  for(const p of pickups){ p.life-=dt; p.bob+=dt*4; }
+  pickups=pickups.filter(p=>!p.taken&&p.life>0);
+  if(camShake>0)camShake=Math.max(0,camShake-dt*30);
+
+  /* power tags */
+  document.getElementById('tagRapid').style.display = player.rapid>0?'block':'none';
+  document.getElementById('tagDouble').style.display = player.dbl>0?'block':'none';
+  if(player.rapid>0) document.querySelector('#tagRapid .pt').textContent = Math.ceil(player.rapid)+'s';
+  if(player.dbl>0) document.querySelector('#tagDouble .pt').textContent = Math.ceil(player.dbl)+'s';
+  document.getElementById('shieldTag').style.display = (player.shield>0&&player.shieldHp>0)?'block':'none';
+}
+</script>
+<script>
+"use strict";
+/* ================= DRAWING ================= */
+function drawCrescent(x,y,r,color){
+  ctx.save(); ctx.translate(x,y);
+  ctx.beginPath(); ctx.arc(0,0,r,0,6.283); ctx.fillStyle='rgba(20,33,61,.85)'; ctx.fill();
+  ctx.lineWidth=2; ctx.strokeStyle='#c9a227'; ctx.stroke();
+  ctx.beginPath(); ctx.arc(0,0,r*.62,.6,5.7); ctx.arc(r*.34,-r*.1,r*.5,5.4,.9,true); ctx.closePath();
+  ctx.fillStyle=color||'#ffd94d'; ctx.fill();
+  ctx.beginPath(); ctx.arc(r*.42,-r*.42,r*.13,0,6.283); ctx.fillStyle='#ff8c1a'; ctx.fill();
+  ctx.restore();
+}
+function drawTank(t,isPlayer){
+  ctx.save(); ctx.translate(t.x,t.y);
+  /* shadow */
+  ctx.fillStyle='rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(3,6,30,24,0,0,6.283); ctx.fill();
+  /* hull + tracks */
+  ctx.save(); ctx.rotate(t.hull);
+  const body = isPlayer ? '#3f6212' : (t.tough ? '#5b2333' : '#6b3410');
+  const dark = isPlayer ? '#2c470c' : (t.tough ? '#3d1622' : '#472307');
+  for(const s of [-1,1]){
+    ctx.fillStyle='#1c1c20'; roundRect(-24,s*13-7,48,14,5); ctx.fill();
+    ctx.fillStyle='#33343a';
+    for(let i=-2;i<=2;i++){ roundRect(i*9-4,s*13-5,7,10,2); ctx.fill(); }
+    ctx.fillStyle='#4a4c54'; ctx.beginPath(); ctx.arc(-17,s*13,4.4,0,6.283); ctx.arc(17,s*13,4.4,0,6.283); ctx.fill();
+  }
+  const hg=ctx.createLinearGradient(0,-16,0,16);
+  hg.addColorStop(0,isPlayer?'#557f1c':(t.tough?'#7a2f45':'#8a4515')); hg.addColorStop(.5,body); hg.addColorStop(1,dark);
+  ctx.fillStyle=hg; roundRect(-23,-14,46,28,7); ctx.fill();
+  ctx.lineWidth=1.6; ctx.strokeStyle='rgba(0,0,0,.5)'; ctx.stroke();
+  ctx.fillStyle='rgba(255,255,255,.13)'; roundRect(-23,-14,46,9,7); ctx.fill();
+  /* camo blobs */
+  ctx.fillStyle='rgba(0,0,0,.16)';
+  ctx.beginPath(); ctx.ellipse(-9,-5,8,4.4,.5,0,6.283); ctx.ellipse(11,7,7,4,-.4,0,6.283); ctx.ellipse(13,-8,5,3,.2,0,6.283); ctx.fill();
+  /* exhausts + antenna */
+  ctx.fillStyle='#22242a'; roundRect(-26,-11,5,6,2); ctx.fill(); roundRect(-26,5,5,6,2); ctx.fill();
+  ctx.strokeStyle='rgba(10,10,10,.8)'; ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(-18,-12); ctx.lineTo(-27,-22); ctx.stroke();
+  ctx.restore();
+  /* shield bubble */
+  if(isPlayer && t.shield>0 && t.shieldHp>0){
+    ctx.beginPath(); ctx.arc(0,0,36+Math.sin(performance.now()/160)*2,0,6.283);
+    ctx.fillStyle='rgba(110,200,255,.14)'; ctx.fill();
+    ctx.lineWidth=2.4; ctx.strokeStyle='rgba(140,220,255,.85)'; ctx.stroke();
+  }
+  /* turret */
+  ctx.save(); ctx.rotate(t.turret);
+  const rec=t.recoil||0;
+  ctx.fillStyle='#15161a'; roundRect(6-rec,-3.4,30,6.8,3); ctx.fill();
+  ctx.fillStyle='#2c2e33'; roundRect(30-rec,-4.4,8,8.8,2); ctx.fill();
+  if(t.flash>0){
+    const fx=40-rec;
+    const fg=ctx.createRadialGradient(fx,0,1,fx,0,20);
+    fg.addColorStop(0,'rgba(255,255,220,.95)'); fg.addColorStop(.4,'rgba(255,170,40,.8)'); fg.addColorStop(1,'rgba(255,90,0,0)');
+    ctx.fillStyle=fg; ctx.beginPath(); ctx.arc(fx,0,20,0,6.283); ctx.fill();
+    ctx.fillStyle='#fff3b0'; ctx.beginPath(); ctx.moveTo(fx+2,-5); ctx.lineTo(fx+18,0); ctx.lineTo(fx+2,5); ctx.closePath(); ctx.fill();
+  }
+  const tg=ctx.createRadialGradient(-4,-5,2,0,0,17);
+  tg.addColorStop(0,isPlayer?'#6b9c26':(t.tough?'#96455e':'#a5571d')); tg.addColorStop(1,isPlayer?'#33500d':(t.tough?'#471b2a':'#592e0c'));
+  ctx.fillStyle=tg; ctx.beginPath(); ctx.arc(0,0,15.5,0,6.283); ctx.fill();
+  ctx.lineWidth=1.6; ctx.strokeStyle='rgba(0,0,0,.55)'; ctx.stroke();
+  ctx.fillStyle='#20222a'; ctx.beginPath(); ctx.arc(-3,-3,5.4,0,6.283); ctx.fill();
+  ctx.lineWidth=1.2; ctx.strokeStyle='rgba(255,255,255,.25)'; ctx.stroke();
+  ctx.fillStyle=isPlayer?'#ffd94d':'#ff5340'; ctx.fillRect(9,-2,4.4,4);
+  ctx.restore();
+  if(isPlayer) drawCrescent(0,0,8.5);
+  else { ctx.fillStyle=t.tough?'#ffcf3f':'#ff5340'; ctx.beginPath(); ctx.arc(0,0,4.6,0,6.283); ctx.fill(); ctx.lineWidth=1.4; ctx.strokeStyle='rgba(0,0,0,.6)'; ctx.stroke(); }
+  ctx.restore();
+  /* enemy hp bar */
+  if(!isPlayer){
+    const w=42, pct=Math.max(0,t.hp/t.maxhp);
+    ctx.fillStyle='rgba(0,0,0,.6)'; ctx.fillRect(t.x-w/2,t.y-38,w,6);
+    ctx.fillStyle=t.hurt>0?'#ffe27a':(t.tough?'#ff9f2e':'#ff5340'); ctx.fillRect(t.x-w/2,t.y-38,w*pct,6);
+  }
+}
+function roundRect(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function drawWall(w){
+  const g=ctx.createLinearGradient(w.x,w.y,w.x,w.y+w.h);
+  g.addColorStop(0,'#6d6f75'); g.addColorStop(.5,'#54565c'); g.addColorStop(1,'#3e4046');
+  ctx.fillStyle=g; ctx.fillRect(w.x,w.y,w.w,w.h);
+  ctx.strokeStyle='rgba(0,0,0,.55)'; ctx.lineWidth=2; ctx.strokeRect(w.x+1,w.y+1,w.w-2,w.h-2);
+  ctx.strokeStyle='rgba(255,255,255,.14)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(w.x+4,w.y+w.h/2); ctx.lineTo(w.x+w.w-4,w.y+w.h/2); ctx.moveTo(w.x+w.w/2,w.y+4); ctx.lineTo(w.x+w.w/2,w.y+w.h-4); ctx.stroke();
+  ctx.fillStyle='rgba(0,0,0,.25)';
+  const s=w.variant*37%13;
+  ctx.beginPath(); ctx.arc(w.x+10+s,w.y+11,2.2,0,6.283); ctx.arc(w.x+w.w-9,w.y+w.h-10-s,2.2,0,6.283); ctx.fill();
+  ctx.fillStyle='rgba(0,0,0,.3)'; ctx.fillRect(w.x,w.y+w.h-4,w.w,4);
+}
+function drawCrate(c){
+  const dmg=c.hp<=1;
+  const g=ctx.createLinearGradient(c.x,c.y,c.x,c.y+c.h);
+  g.addColorStop(0,'#a97c46'); g.addColorStop(1,'#7d5527');
+  ctx.fillStyle=g; ctx.fillRect(c.x,c.y,c.w,c.h);
+  ctx.lineWidth=3; ctx.strokeStyle='#5d3d18'; ctx.strokeRect(c.x+1.5,c.y+1.5,c.w-3,c.h-3);
+  ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(c.x+3,c.y+3); ctx.lineTo(c.x+c.w-3,c.y+c.h-3); ctx.moveTo(c.x+c.w-3,c.y+3); ctx.lineTo(c.x+3,c.y+c.h-3); ctx.stroke();
+  ctx.fillStyle='rgba(255,235,190,.25)'; ctx.fillRect(c.x+3,c.y+3,c.w-6,4);
+  if(dmg){ ctx.strokeStyle='rgba(30,18,4,.85)'; ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(c.x+6,c.y+4); ctx.lineTo(c.x+15,c.y+16); ctx.lineTo(c.x+11,c.y+26); ctx.moveTo(c.x+c.w-5,c.y+10); ctx.lineTo(c.x+20,c.y+20); ctx.stroke(); }
+}
+const PU_STYLE={rapid:{c:'#ffd94d',i:'⚡'},shield:{c:'#7fd8ff',i:'🛡'},double:{c:'#ff7b4d',i:'💥'},repair:{c:'#7be495',i:'✚'}};
+function drawPickup(p){
+  const st=PU_STYLE[p.kind], bobY=Math.sin(p.bob)*3, blink=p.life<3?(Math.sin(performance.now()/90)>0?1:.25):1;
+  ctx.save(); ctx.globalAlpha=blink; ctx.translate(p.x,p.y+bobY);
+  ctx.shadowColor=st.c; ctx.shadowBlur=14;
+  ctx.beginPath(); ctx.arc(0,0,14,0,6.283);
+  ctx.fillStyle='#141a26'; ctx.fill(); ctx.lineWidth=2.6; ctx.strokeStyle=st.c; ctx.stroke();
+  ctx.shadowBlur=0; ctx.font='15px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(st.i,0,1);
+  ctx.restore();
+}
+function render(){
+  ctx.clearRect(0,0,W,H);
+  ctx.save();
+  if(camShake>0) ctx.translate((Math.random()*2-1)*camShake,(Math.random()*2-1)*camShake);
+  const pat=ctx.createPattern(ground,'repeat');
+  ctx.fillStyle=pat; ctx.fillRect(-20,-20,W+40,H+40);
+  /* scorch marks from particles history are particles themselves */
+  ctx.strokeStyle='rgba(201,162,39,.35)'; ctx.lineWidth=3; ctx.strokeRect(2,2,W-4,H-4);
+  for(const c of crates) drawCrate(c);
+  for(const w of walls) drawWall(w);
+  for(const p of pickups) drawPickup(p);
+  for(const e of enemies) drawTank(e,false);
+  if(player.alive) drawTank(player,true);
+  /* tracers */
+  for(const tr of tracers){
+    ctx.strokeStyle=tr.enemy?'rgba(255,110,80,.85)':'rgba(255,230,150,.9)';
+    ctx.lineWidth=2.4; ctx.beginPath(); ctx.moveTo(tr.x1,tr.y1); ctx.lineTo(tr.x2,tr.y2); ctx.stroke();
+  }
+  /* bullets */
+  for(const b of bullets.concat(ebullets)){
+    ctx.fillStyle=b.fromPlayer?'#ffe9a0':'#ff8a70';
+    ctx.shadowColor=b.fromPlayer?'#ffca3a':'#ff4d2e'; ctx.shadowBlur=8;
+    ctx.beginPath(); ctx.arc(b.x,b.y,3.4,0,6.283); ctx.fill(); ctx.shadowBlur=0;
+  }
+  /* particles */
+  for(const p of parts){
+    const a=Math.max(0,p.life/p.maxlife);
+    if(p.smoke){ ctx.fillStyle=`rgba(${p.color},${a*.4})`; ctx.beginPath(); ctx.arc(p.x,p.y,p.size*(1.6-a*.6),0,6.283); ctx.fill(); }
+    else { ctx.globalAlpha=a; ctx.fillStyle=p.color; ctx.beginPath(); ctx.arc(p.x,p.y,p.size,0,6.283); ctx.fill(); ctx.globalAlpha=1; }
+  }
+  ctx.restore();
+}
+function loop(ts){
+  requestAnimationFrame(loop);
+  const dt=Math.min(.033,(ts-lastTime)/1000||0); lastTime=ts;
+  if(running&&!gameOver){ update(dt); }
+  render();
+}
+
+/* ================= HUD / FLOW ================= */
+const $=id=>document.getElementById(id);
+function updateHUD(){
+  $('scoreVal').textContent=score; $('bestVal').textContent=Math.max(bestScore,score);
+  $('waveVal').textContent=Math.max(1,wave);
+  $('hpBar').style.width=Math.max(0,player.hp/player.maxhp*100)+'%';
+  $('bestScoreStart').textContent=bestScore; $('bestWaveStart').textContent=bestWave;
+}
+let bannerTO=null;
+function showBanner(txt){
+  $('bannerTxt').textContent=txt;
+  $('banner').style.opacity=1;
+  clearTimeout(bannerTO);
+  bannerTO=setTimeout(()=>{$('banner').style.opacity=0;},1300);
+}
+function startGame(){
+  initAudio();
+  $('startScr').classList.add('hidden'); $('overScr').classList.add('hidden');
+  running=true; gameOver=false;
+  resetGame();
+  startWave(1);
+}
+function endGame(){
+  gameOver=true;
+  setTimeout(()=>{
+    bestScore=Math.max(bestScore,score); bestWave=Math.max(bestWave,wave);
+    localStorage.setItem('tb_bestScore',bestScore); localStorage.setItem('tb_bestWave',bestWave);
+    $('finalScore').textContent=score; $('finalWave').textContent=wave;
+    $('bestScoreOver').textContent=bestScore; $('bestWaveOver').textContent=bestWave;
+    updateHUD();
+    $('overScr').classList.remove('hidden');
+  },1200);
+}
+
+/* ================= INPUT ================= */
+const keys={}; const mouse={x:0,y:0,down:false,in:false};
+let firingTouch=false;
+const joy={active:false,dx:0,dy:0,id:null};
+window.addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  if(k==='w')keys.w=1; if(k==='s')keys.s=1; if(k==='a')keys.a=1; if(k==='d')keys.d=1;
+  if(k==='arrowup'){keys.up=1;e.preventDefault();} if(k==='arrowdown'){keys.down=1;e.preventDefault();}
+  if(k==='arrowleft'){keys.left=1;e.preventDefault();} if(k==='arrowright'){keys.right=1;e.preventDefault();}
+  if(k===' ') { keys.space=1; e.preventDefault(); }
+});
+window.addEventListener('keyup',e=>{
+  const k=e.key.toLowerCase();
+  if(k==='w')keys.w=0; if(k==='s')keys.s=0; if(k==='a')keys.a=0; if(k==='d')keys.d=0;
+  if(k==='arrowup')keys.up=0; if(k==='arrowdown')keys.down=0;
+  if(k==='arrowleft')keys.left=0; if(k==='arrowright')keys.right=0;
+  if(k===' ') keys.space=0;
+});
+function stagePos(e){ const r=stage.getBoundingClientRect(); return {x:e.clientX-r.left, y:e.clientY-r.top}; }
+stage.addEventListener('mousemove',e=>{ const p=stagePos(e); mouse.x=p.x; mouse.y=p.y; mouse.in=true; });
+stage.addEventListener('mousedown',e=>{ if(e.target.closest('#joy,#fireBtn,#muteBtn,.overlay,#topbar'))return; mouse.down=true; initAudio(); });
+window.addEventListener('mouseup',()=>mouse.down=false);
+stage.addEventListener('mouseleave',()=>{ mouse.in=false; mouse.down=false; });
+/* touch: joystick zone + aim/fire */
+const joyEl=$('joy'), knob=$('joyKnob');
+function isTouchUI(){ return ('ontouchstart' in window)||navigator.maxTouchPoints>0; }
+if(isTouchUI()) document.body.classList.add('touch');
+stage.addEventListener('touchstart',e=>{
+  initAudio();
+  for(const tch of e.changedTouches){
+    const p=stagePos(tch);
+    if(p.x<W*0.45&&p.y>H*0.45&&joy.id===null){ joy.id=tch.identifier; joy.active=true; moveJoy(tch); }
+    else { mouse.x=p.x; mouse.y=p.y; mouse.in=true; }
+  }
+  if(e.target===cv) e.preventDefault();
+},{passive:false});
+stage.addEventListener('touchmove',e=>{
+  for(const tch of e.changedTouches){
+    if(tch.identifier===joy.id) moveJoy(tch);
+    else { const p=stagePos(tch); mouse.x=p.x; mouse.y=p.y; mouse.in=true; }
+  }
+  if(e.target===cv) e.preventDefault();
+},{passive:false});
+stage.addEventListener('touchend',e=>{
+  for(const tch of e.changedTouches){
+    if(tch.identifier===joy.id){ joy.id=null; joy.active=false; joy.dx=0; joy.dy=0; knob.style.transform='translate(-50%,-50%)'; }
+  }
+});
+function moveJoy(tch){
+  const r=joyEl.getBoundingClientRect(), cx=r.left+r.width/2, cy=r.top+r.height/2;
+  let dx=tch.clientX-cx, dy=tch.clientY-cy;
+  const d=Math.hypot(dx,dy), max=44;
+  if(d>max){ dx*=max/d; dy*=max/d; }
+  knob.style.transform=`translate(calc(-50% + ${dx}px),calc(-50% + ${dy}px))`;
+  joy.dx=dx/max; joy.dy=dy/max;
+}
+const fireBtn=$('fireBtn');
+fireBtn.addEventListener('touchstart',e=>{ firingTouch=true; initAudio(); e.preventDefault(); },{passive:false});
+fireBtn.addEventListener('touchend',()=>firingTouch=false);
+fireBtn.addEventListener('mousedown',()=>{ firingTouch=true; initAudio(); });
+fireBtn.addEventListener('mouseup',()=>firingTouch=false);
+$('muteBtn').addEventListener('click',()=>{ muted=!muted; $('muteBtn').textContent=muted?'🔇':'🔊'; if(muted&&engGain)engGain.gain.value=0; });
+$('startBtn').addEventListener('click',startGame);
+$('againBtn').addEventListener('click',startGame);
+$('langSel').addEventListener('change',e=>{ LANG=e.target.value; localStorage.setItem('tb_lang',LANG); applyLang(); });
+
+/* ================= BOOT ================= */
+resize(); applyLang(); updateHUD();
+requestAnimationFrame(loop);
+/* QA/debug hook */
+window.__tb={player,enemies:()=>enemies,start:startGame,state:()=>({score,wave,running,gameOver,kills})};
+</script>
+</body>
+</html>
