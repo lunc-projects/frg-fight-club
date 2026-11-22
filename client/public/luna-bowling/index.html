@@ -43,7 +43,7 @@
   #phaseLab b{color:#ffd23e}
   #powerWrap{width:min(430px,88vw);height:20px;margin:0 auto 10px;border:2px solid rgba(160,190,255,.65);border-radius:999px;background:rgba(10,14,34,.85);overflow:hidden;position:relative}
   #powerBar{height:100%;width:0%;background:linear-gradient(90deg,#37e08b,#ffd23e 62%,#ff5340);border-radius:999px}
-  #powerSweet{position:absolute;top:0;bottom:0;left:74%;width:16%;background:rgba(255,255,255,.16);border-left:1px dashed rgba(255,255,255,.5);border-right:1px dashed rgba(255,255,255,.5)}
+  #powerSweet{position:absolute;top:0;bottom:0;left:80%;width:10%;background:rgba(255,255,255,.16);border-left:1px dashed rgba(255,255,255,.5);border-right:1px dashed rgba(255,255,255,.5)}
   #throwBtn{display:block;width:min(330px,86vw);margin:0 auto;padding:16px 18px;border:none;border-radius:16px;font-size:21px;font-weight:900;letter-spacing:1.5px;cursor:pointer;color:#231300;background:linear-gradient(180deg,#ffd23e,#ff9a1f);box-shadow:0 5px 0 #9c4d00,0 12px 24px rgba(0,0,0,.55)}
   #throwBtn:active{transform:translateY(3px);box-shadow:0 2px 0 #9c4d00}
   #throwBtn:disabled{filter:grayscale(.6) brightness(.6);box-shadow:0 5px 0 #444}
@@ -365,7 +365,7 @@ aimArrow.rotation.x = -Math.PI / 2; aimArrow.position.set(0, .06, FOUL_Z - 1.2);
 let phase = 'menu';           // menu | aim | power | roll | between | over
 let rolls = [], frameIdx = 0, ballInFrame = 0;   // frameIdx 0..9, ballInFrame 1..
 let standingStart = 10, rackPrev = 0;            // pins up at ball start / knocked by prev ball in same rack
-let aimX = 0, hook = 0, powerT = 0, powerDir = 1, powerVal = 0;
+let aimX = 0, hook = 0, powerT = 0, powerDir = 1, powerVal = 0, swayX = 0;
 let ballState = null, settleT = 0, betweenT = 0, lastActionT = 0, msgT = 0, camShake = 0;
 const clock = new THREE.Clock();
 
@@ -517,7 +517,13 @@ function doThrow(power, hk){
   phase = 'roll'; aimArrow.visible = false;
   $('powerWrap').classList.add('hidden'); $('throwBtn').disabled = true; $('hookLab').textContent = '';
   const speed = 7.5 + (power / 100) * 9.5;
-  ballState = { x: aimX, z: FOUL_Z, vx: hk * .5, vz: -speed, hook: hk, gutter: false, done: false, deckT: 0 };
+  /* difficulty: release jitter + power character — the same input no longer repeats the same throw */
+  const jx = (Math.random() * 2 - 1) * .085;
+  const jv = (Math.random() * 2 - 1) * .16;
+  const over = Math.max(0, power - 92) / 8;        /* 0..1: skids + deflects off the rack */
+  const under = Math.max(0, 58 - power) / 58;      /* 0..1: hooks early, arrives light */
+  const launchX = THREE.MathUtils.clamp(aimX + swayX + jx, -1.6, 1.6);
+  ballState = { x: launchX, z: FOUL_Z, vx: hk * .5 + jv, vz: -speed, hook: hk, power, over, under, gutter: false, done: false, deckT: 0 };
   settleT = 0; lastActionT = 0; sndThrow(); startRumble();
 }
 function finishBall(){
@@ -563,6 +569,7 @@ function advance(){
 let quietT = 0;
 function pinFall(p, dx, dz, speed){
   const len = Math.hypot(dx, dz) || 1; dx /= len; dz /= len;
+  speed *= .74 + Math.random() * .48;   /* pin-action variance: identical hits scatter differently every throw */
   if (p.falling){ p.vx += dx * speed * .35; p.vz += dz * speed * .35; return; }
   p.falling = true; p.fallT = 0;
   p.vx = dx * speed; p.vz = dz * speed;
@@ -578,7 +585,7 @@ function stepPins(dt){
       const k = Math.min(1, p.fallT / .45), e = k * k * (3 - 2 * k);
       p.grp.quaternion.setFromAxisAngle(p.axis, e * 1.62);
       p.x += p.vx * dt; p.z += p.vz * dt;
-      const damp = Math.max(0, 1 - 2.6 * dt); p.vx *= damp; p.vz *= damp;
+      const damp = Math.max(0, 1 - 3.9 * dt); p.vx *= damp; p.vz *= damp;
       p.grp.position.set(p.x, 0, p.z);
       if (k >= 1) p.down = true;
       else quietT = 0;
@@ -593,14 +600,14 @@ function stepPins(dt){
   /* pin -> pin chain hits */
   for (const a of pins){
     if (!a.falling || !a.grp.visible) continue;
-    const as = Math.hypot(a.vx, a.vz); if (as < .4) continue;
+    const as = Math.hypot(a.vx, a.vz); if (as < 1.1) continue;
     for (const b of pins){
       if (b === a || b.down || b.falling || !b.grp.visible) continue;
       const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz);
       if (d < PIN_R * 2 + .03 && d > .001){
-        const imp = as * .82;
-        if (imp > 1.05) pinFall(b, dx / d, dz / d, imp);
-        else b.wob = 1;
+        const imp = as * .52;   /* chains bleed energy now — a flying pin no longer guarantees the next pin */
+        if (imp > 2.7 + Math.random() * 2.1) pinFall(b, dx / d, dz / d, imp);
+        else if (imp > .9) b.wob = 1;
         quietT = 0;
       }
     }
@@ -609,7 +616,9 @@ function stepPins(dt){
 function stepBall(dt){
   const bs = ballState; if (!bs) return;
   if (!bs.gutter){
-    if (bs.z < .5) bs.vx += bs.hook * 3.4 * dt;          /* hook bites late on the lane */
+    const biteZ = bs.under > 0 ? 4.5 : .5;               /* underpowered: hook bites early + hard, ball wanders light */
+    const bite = 3.4 * (1 + (bs.under || 0) * 1.2) * (1 - (bs.over || 0) * .55); /* overpowered: ball skids, hook can't bite */
+    if (bs.z < biteZ) bs.vx += bs.hook * bite * dt;
     bs.x += bs.vx * dt; bs.z += bs.vz * dt;
     if (Math.abs(bs.x) > LANE_HALF - .02){ bs.gutter = true; bs.vx = 0; noiseBurst(.12, .2, 320); }
   } else {
@@ -629,8 +638,10 @@ function stepBall(dt){
         const d = Math.sqrt(dx * dx + dz * dz) || .01, nx = dx / d, nz = dz / d;
         const spd = Math.hypot(bs.vx, bs.vz);
         p.x = bs.x + nx * rr; p.z = bs.z + nz * rr;
-        pinFall(p, nx, nz, spd * .8 + .7);
-        bs.vx += nx * .3; bs.vz *= .94; hits++;
+        const pwrF = bs.over ? .92 : 1 - (bs.under || 0) * .3;   /* light arrivals scatter weakly */
+        pinFall(p, nx, nz, Math.min((spd * .8 + .7) * pwrF, 7.2));
+        bs.vx += nx * (.3 + (bs.over || 0) * .6);              /* overpowered ball deflects off the rack instead of driving through */
+        bs.vz *= bs.over ? .86 : .94; hits++;
       }
     }
     if (hits){ sndCrash(hits); camShake = Math.min(.45, .12 + hits * .08); quietT = 0; }
@@ -687,7 +698,11 @@ function animate(){
     powerT += dt * 1.35;
     const cyc = powerT % 2; powerVal = (cyc < 1 ? cyc : 2 - cyc) * 100;
     $('powerBar').style.width = powerVal + '%';
-  }
+    /* aim sway: the aim point trembles while charging, worse the longer you hold — release timing matters */
+    const amp = Math.min(.055, .012 + powerT * .022);
+    swayX = Math.sin(t * 37) * amp + Math.sin(t * 13.7) * amp * .6;
+    ball.position.x = aimX + swayX; aimArrow.position.x = aimX + swayX;
+  } else swayX = 0;
   if (phase === 'roll' && ballState) stepBall(dt);
   if (phase === 'roll' || phase === 'between') stepPins(dt);
   if (phase === 'between'){ betweenT -= dt; if (betweenT <= 0) advance(); }
