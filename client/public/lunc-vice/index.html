@@ -1114,6 +1114,38 @@ function startRadio(){
 function stopRadio(){ if (radioNodes){ clearInterval(radioNodes.timer); radioNodes.master.disconnect(); radioNodes = null; } }
 $('radioBtn').onclick = () => { initAudio(); radioOn = !radioOn; $('radioBtn').style.opacity = radioOn ? 1 : 0.55; if (radioOn) startRadio(); else stopRadio(); };
 $('radioBtn').style.opacity = 0.55;
+
+/* ================= engine sound (continuous synth) =================
+   Tom, Nov 21: "Vice City too" — same vehicle-sound pass as the other
+   drivers. Two detuned oscillators through a lowpass; pitch follows the
+   forward speed (cap 47, boost 78). Only while driving (state 'play');
+   fades out in menu / pause / game over. Sits under the radio if it's on. */
+let engV = null, engVF = 0;
+function engineBuildV(){
+  if (engV) return;
+  initAudio(); if (!AC) return;
+  try {
+    const o1 = AC.createOscillator(), o2 = AC.createOscillator();
+    o1.type = 'sawtooth'; o2.type = 'square';
+    const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 400; f.Q.value = 2;
+    const g = AC.createGain(); g.gain.value = 0;
+    o1.connect(f); o2.connect(f); f.connect(g); g.connect(AC.destination);
+    o1.start(); o2.start();
+    engV = { o1, o2, f, g };
+  } catch (e) {}
+}
+function engineUpdateV(){
+  if (state !== 'play'){ if (engV && AC) engV.g.gain.setTargetAtTime(0, AC.currentTime, 0.09); return; }
+  engineBuildV(); if (!engV) return;
+  if (AC.state === 'suspended') AC.resume();
+  const r = Math.max(0, Math.min(1, Math.abs(engVF) / 47));
+  const fq = 50 + r * 155 + (boosting ? 20 : 0);
+  const t = AC.currentTime;
+  engV.o1.frequency.setTargetAtTime(fq, t, 0.06);
+  engV.o2.frequency.setTargetAtTime(fq * 0.5 + 2, t, 0.06);
+  engV.f.frequency.setTargetAtTime(300 + r * 850, t, 0.08);
+  engV.g.gain.setTargetAtTime(0.05 + r * 0.028, t, 0.09);
+}
 /* ================= leaderboard (house pattern) ================= */
 const API_URL = 'https://frg-fight-club.vercel.app/api/luna-games?game=luncvice';
 function prefillName(){
@@ -1183,6 +1215,7 @@ function animate(){
   const t = clock.elapsedTime;
   if (state === 'play'){
     const { vF } = stepPlayer(dt);
+    engVF = vF;
     stepTraffic(dt); stepCops(dt); if (state === 'play') stepModes(dt);
     if (state === 'play') updateHUD(vF);
     /* chase / hood camera */
@@ -1205,6 +1238,7 @@ function animate(){
     if (camera.fov !== 58){ camera.fov = 58; camera.updateProjectionMatrix(); }
     stepTraffic(dt);
   }
+  engineUpdateV();
   renderer.render(scene, camera);
   if (mirrorR && state === 'play' && (frameNo++ % 2 === 0)) renderMirror();   // every 2nd frame keeps the mirror live at half cost
 }
