@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<base href="/rodeo-bull/">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Rodeo Bull — LUNC Arcade</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#160b04; font-family:'Trebuchet MS','Segoe UI',Verdana,sans-serif; }
+  #wrap { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+          background:radial-gradient(1200px 700px at 50% 30%, #3a1c07 0%, #1c0d03 60%, #0d0501 100%); }
+  #stage { position:relative; width:min(96vw, 900px); }
+  canvas { display:block; width:100%; height:auto; border-radius:14px;
+           box-shadow:0 18px 50px rgba(0,0,0,.75), 0 0 0 3px #6b4420, 0 0 42px rgba(255,166,0,.22); touch-action:none; }
+  #langbar { position:absolute; top:8px; right:8px; z-index:30; display:flex; align-items:center; gap:6px;
+             background:rgba(20,10,2,.82); border:2px solid #ffb300; border-radius:10px; padding:5px 8px; }
+  #langbar span { font-size:17px; }
+  #langSel { font-size:17px; font-weight:700; padding:5px 6px; border-radius:7px; border:2px solid #ffb300;
+             background:#fff8e1; color:#4e2600; cursor:pointer; max-width:46vw; }
+  .overlay { position:absolute; inset:0; z-index:20; display:flex; flex-direction:column; align-items:center; justify-content:center;
+             text-align:center; background:rgba(16,7,1,.72); border-radius:14px; padding:14px; }
+  .hidden { display:none !important; }
+  .bigtitle { font-size:clamp(30px,7vw,58px); font-weight:900; letter-spacing:2px; color:#ffd54f;
+              text-shadow:0 3px 0 #b25f00, 0 6px 18px rgba(0,0,0,.8); }
+  .subtitle { margin-top:6px; font-size:clamp(14px,3.4vw,21px); font-weight:700; color:#ffe9c4; text-shadow:0 2px 6px #000; }
+  .howto { margin-top:12px; max-width:560px; font-size:clamp(12px,3vw,16px); line-height:1.45; color:#ffdfae;
+           background:rgba(0,0,0,.45); border:1px solid #8d5a1d; border-radius:10px; padding:9px 13px; }
+  .bestline { margin-top:10px; font-size:clamp(13px,3.2vw,18px); font-weight:800; color:#9be15d; text-shadow:0 2px 5px #000; }
+  .bigbtn { margin-top:16px; font-size:clamp(18px,4.6vw,26px); font-weight:900; letter-spacing:1px; cursor:pointer;
+            color:#3a1c00; background:linear-gradient(180deg,#ffe082,#ffb300 55%,#f57c00); border:3px solid #fff3e0;
+            border-radius:14px; padding:13px 34px; box-shadow:0 6px 0 #8d4e00, 0 12px 24px rgba(0,0,0,.6); }
+  .bigbtn:active { transform:translateY(4px); box-shadow:0 2px 0 #8d4e00; }
+  #endTitle { font-size:clamp(26px,6.4vw,50px); }
+  #endDetail { margin-top:8px; font-size:clamp(14px,3.6vw,21px); font-weight:700; color:#ffe9c4; line-height:1.5; text-shadow:0 2px 6px #000; }
+  #newBest { margin-top:6px; font-size:clamp(15px,4vw,23px); font-weight:900; color:#69f0ae; text-shadow:0 2px 8px #000; }
+  #controls { width:min(96vw,900px); display:flex; gap:10px; margin-top:10px; }
+  .cbtn { flex:1; user-select:none; -webkit-user-select:none; touch-action:none; cursor:pointer; text-align:center;
+          font-weight:900; letter-spacing:.5px; color:#fff8e1; border-radius:14px; padding:16px 4px;
+          font-size:clamp(15px,4vw,22px); border:3px solid rgba(255,255,255,.35);
+          box-shadow:0 5px 0 rgba(0,0,0,.55), 0 10px 20px rgba(0,0,0,.5); }
+  .cbtn:active, .cbtn.on { transform:translateY(3px); filter:brightness(1.3); }
+  #btnLeft  { background:linear-gradient(180deg,#42a5f5,#1565c0); }
+  #btnRight { background:linear-gradient(180deg,#42a5f5,#1565c0); }
+  #btnWave  { background:linear-gradient(180deg,#ab47bc,#6a1b9a); flex:.8; }
+  #foot { margin-top:8px; color:#c99a5b; font-size:12px; font-weight:700; letter-spacing:1px; text-align:center; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="cv" width="900" height="600"></canvas>
+    <div id="langbar"><span>🌐</span><select id="langSel" aria-label="Language"></select></div>
+
+    <div class="overlay" id="startOv">
+      <div class="bigtitle">🤠 RODEO BULL</div>
+      <div class="subtitle" id="tSub"></div>
+      <div class="howto" id="tHow"></div>
+      <div class="bestline" id="tBestStart"></div>
+      <button class="bigbtn" id="btnStart"></button>
+    </div>
+
+    <div class="overlay hidden" id="endOv">
+      <div class="bigtitle" id="endTitle"></div>
+      <div id="endDetail"></div>
+      <div id="newBest" class="hidden"></div>
+      <button class="bigbtn" id="btnAgain"></button>
+    </div>
+  </div>
+
+  <div id="controls">
+    <div class="cbtn" id="btnLeft"></div>
+    <div class="cbtn" id="btnWave"></div>
+    <div class="cbtn" id="btnRight"></div>
+  </div>
+  <div id="foot">LUNC ARCADE • FREE GAME • NO WALLET • NO REAL MONEY</div>
+</div>
+
+<script>
+"use strict";
+/* ================= I18N ================= */
+const LANGS = [
+ ["en","English"],["es","Español"],["pt","Português"],["fr","Français"],["de","Deutsch"],["it","Italiano"],
+ ["nl","Nederlands"],["ru","Русский"],["uk","Українська"],["tr","Türkçe"],["ar","العربية"],["hi","हिन्दी"],
+ ["zh","中文"],["ja","日本語"],["ko","한국어"],["id","Bahasa Indonesia"],["vi","Tiếng Việt"],["pl","Polski"]
+];
+const T = {
+en:{sub:"Stay on the bull — beat 8 seconds to score!",how:"Hold LEAN LEFT / LEAN RIGHT (or ◀ ▶ arrow keys) to keep the needle centered. The bull bucks and spins faster and faster. Press WAVE only when the needle is near the center — style points! Waves in the danger zone shake you loose.",start:"START RIDE",again:"RIDE AGAIN",left:"◀ LEAN",right:"LEAN ▶",wave:"WAVE ✋",time:"TIME",best:"BEST",style:"STYLE",score:"SCORE",danger:"DANGER!",qual:"QUALIFIED RIDE! 🎉",thrown:"THROWN OFF!",noScore:"NO SCORE — under 8 seconds",yourScore:"Your score",rideTime:"Ride time",newBest:"★ NEW BEST! ★",toQual:"8s to qualify"},
+es:{sub:"¡Quédate en el toro — supera los 8 segundos para puntuar!",how:"Mantén INCLINAR IZQUIERDA / DERECHA (o las flechas ◀ ▶) para centrar la aguja. El toro corcovea y gira cada vez más rápido. Pulsa SALUDAR solo cuando la aguja esté cerca del centro: ¡puntos de estilo! Saludar en la zona de peligro te desestabiliza.",start:"MONTAR",again:"MONTAR OTRA VEZ",left:"◀ INCLINAR",right:"INCLINAR ▶",wave:"SALUDAR ✋",time:"TIEMPO",best:"RÉCORD",style:"ESTILO",score:"PUNTOS",danger:"¡PELIGRO!",qual:"¡MONTA CLASIFICADA! 🎉",thrown:"¡TE TIRÓ!",noScore:"SIN PUNTOS — menos de 8 segundos",yourScore:"Tu puntuación",rideTime:"Tiempo de monta",newBest:"★ ¡NUEVO RÉCORD! ★",toQual:"8s para clasificar"},
+pt:{sub:"Fique no touro — passe de 8 segundos para pontuar!",how:"Segure INCLINAR ESQUERDA / DIREITA (ou as setas ◀ ▶) para manter a agulha no centro. O touro pula e gira cada vez mais rápido. Aperte ACENAR só quando a agulha estiver perto do centro — pontos de estilo! Acenar na zona de perigo te desequilibra.",start:"MONTAR",again:"MONTAR DE NOVO",left:"◀ INCLINAR",right:"INCLINAR ▶",wave:"ACENAR ✋",time:"TEMPO",best:"RECORDE",style:"ESTILO",score:"PONTOS",danger:"PERIGO!",qual:"MONTARIA CLASSIFICADA! 🎉",thrown:"VOCÊ CAIU!",noScore:"SEM PONTOS — menos de 8 segundos",yourScore:"Sua pontuação",rideTime:"Tempo de montaria",newBest:"★ NOVO RECORDE! ★",toQual:"8s para classificar"},
+fr:{sub:"Tiens-toi sur le taureau — dépasse 8 secondes pour marquer !",how:"Maintiens PENCHER GAUCHE / DROITE (ou les flèches ◀ ▶) pour garder l'aiguille au centre. Le taureau rue et tourne de plus en plus vite. Appuie sur SALUER seulement quand l'aiguille est près du centre — points de style ! Saluer en zone de danger te déstabilise.",start:"MONTER",again:"REMONTER",left:"◀ PENCHER",right:"PENCHER ▶",wave:"SALUER ✋",time:"TEMPS",best:"RECORD",style:"STYLE",score:"SCORE",danger:"DANGER !",qual:"MONTE QUALIFIÉE ! 🎉",thrown:"ÉJECTÉ !",noScore:"AUCUN SCORE — moins de 8 secondes",yourScore:"Ton score",rideTime:"Temps de monte",newBest:"★ NOUVEAU RECORD ! ★",toQual:"8s pour se qualifier"},
+de:{sub:"Bleib auf dem Bullen — schaffe 8 Sekunden für Punkte!",how:"Halte LINKS / RECHTS LEHNEN (oder die Pfeiltasten ◀ ▶), um die Nadel in der Mitte zu halten. Der Bulle bockt und dreht sich immer schneller. Drücke WINKEN nur, wenn die Nadel nahe der Mitte ist — Stilpunkte! Winken in der Gefahrenzone bringt dich ins Wanken.",start:"RITT STARTEN",again:"NOCHMAL REITEN",left:"◀ LEHNEN",right:"LEHNEN ▶",wave:"WINKEN ✋",time:"ZEIT",best:"REKORD",style:"STIL",score:"PUNKTE",danger:"GEFAHR!",qual:"QUALIFIZIERTER RITT! 🎉",thrown:"ABGEWORFEN!",noScore:"KEINE PUNKTE — unter 8 Sekunden",yourScore:"Deine Punkte",rideTime:"Rittzeit",newBest:"★ NEUER REKORD! ★",toQual:"8s zum Qualifizieren"},
+it:{sub:"Resta sul toro — supera gli 8 secondi per fare punti!",how:"Tieni premuto INCLINA SINISTRA / DESTRA (o le frecce ◀ ▶) per tenere l'ago al centro. Il toro sgroppa e gira sempre più veloce. Premi SALUTA solo quando l'ago è vicino al centro — punti stile! Salutare nella zona di pericolo ti sbilancia.",start:"CAVALCA",again:"CAVALCA ANCORA",left:"◀ INCLINA",right:"INCLINA ▶",wave:"SALUTA ✋",time:"TEMPO",best:"RECORD",style:"STILE",score:"PUNTI",danger:"PERICOLO!",qual:"CAVALCATA QUALIFICATA! 🎉",thrown:"DISARCIONATO!",noScore:"NESSUN PUNTO — sotto gli 8 secondi",yourScore:"Il tuo punteggio",rideTime:"Tempo di monta",newBest:"★ NUOVO RECORD! ★",toQual:"8s per qualificarsi"},
+nl:{sub:"Blijf op de stier — haal 8 seconden om te scoren!",how:"Houd LINKS / RECHTS LEUNEN (of de pijltjes ◀ ▶) ingedrukt om de naald in het midden te houden. De stier bokt en draait steeds sneller. Druk op ZWAAIEN alleen als de naald bij het midden is — stijlpunten! Zwaaien in de gevarenzone maakt je instabiel.",start:"START RIT",again:"NOG EEN RIT",left:"◀ LEUNEN",right:"LEUNEN ▶",wave:"ZWAAIEN ✋",time:"TIJD",best:"RECORD",style:"STIJL",score:"SCORE",danger:"GEVAAR!",qual:"GEKWALIFICEERDE RIT! 🎉",thrown:"AFGEWORPEN!",noScore:"GEEN SCORE — onder 8 seconden",yourScore:"Jouw score",rideTime:"Rittijd",newBest:"★ NIEUW RECORD! ★",toQual:"8s om te kwalificeren"},
+ru:{sub:"Удержись на быке — продержись 8 секунд, чтобы получить очки!",how:"Удерживай НАКЛОН ВЛЕВО / ВПРАВО (или стрелки ◀ ▶), чтобы держать стрелку по центру. Бык брыкается и крутится всё быстрее. Нажимай МАХАТЬ только когда стрелка у центра — очки стиля! Махание в опасной зоне раскачивает тебя.",start:"ПОЕХАЛИ",again:"ЕЩЁ РАЗ",left:"◀ ВЛЕВО",right:"ВПРАВО ▶",wave:"МАХАТЬ ✋",time:"ВРЕМЯ",best:"РЕКОРД",style:"СТИЛЬ",score:"ОЧКИ",danger:"ОПАСНО!",qual:"ЗАСЧИТАННАЯ ПОЕЗДКА! 🎉",thrown:"СБРОСИЛ!",noScore:"БЕЗ ОЧКОВ — меньше 8 секунд",yourScore:"Твой счёт",rideTime:"Время поездки",newBest:"★ НОВЫЙ РЕКОРД! ★",toQual:"8с для зачёта"},
+uk:{sub:"Втримайся на бику — протримайся 8 секунд, щоб заробити очки!",how:"Утримуй НАХИЛ ВЛІВО / ВПРАВО (або стрілки ◀ ▶), щоб тримати стрілку по центру. Бик брикається і крутиться дедалі швидше. Натискай МАХАТИ лише коли стрілка біля центру — очки стилю! Махання в небезпечній зоні розхитує тебе.",start:"ПОЇХАЛИ",again:"ЩЕ РАЗ",left:"◀ ВЛІВО",right:"ВПРАВО ▶",wave:"МАХАТИ ✋",time:"ЧАС",best:"РЕКОРД",style:"СТИЛЬ",score:"ОЧКИ",danger:"НЕБЕЗПЕКА!",qual:"ЗАРАХОВАНА ПОЇЗДКА! 🎉",thrown:"СКИНУВ!",noScore:"БЕЗ ОЧКІВ — менше 8 секунд",yourScore:"Твій рахунок",rideTime:"Час поїздки",newBest:"★ НОВИЙ РЕКОРД! ★",toQual:"8с для зарахування"},
+tr:{sub:"Boğanın üstünde kal — puan için 8 saniyeyi geç!",how:"İğneyi ortada tutmak için SOLA / SAĞA YASLAN'ı (veya ◀ ▶ ok tuşlarını) basılı tut. Boğa giderek daha hızlı tepinip dönüyor. EL SALLA'ya yalnızca iğne merkeze yakınken bas — stil puanı! Tehlike bölgesinde el sallamak dengesini bozar.",start:"BİNİŞE BAŞLA",again:"TEKRAR BİN",left:"◀ YASLAN",right:"YASLAN ▶",wave:"EL SALLA ✋",time:"SÜRE",best:"REKOR",style:"STİL",score:"PUAN",danger:"TEHLİKE!",qual:"GEÇERLİ BİNİŞ! 🎉",thrown:"ATTIN ÜSTÜNDEN!",noScore:"PUAN YOK — 8 saniyenin altında",yourScore:"Puanın",rideTime:"Biniş süresi",newBest:"★ YENİ REKOR! ★",toQual:"Geçmek için 8sn"},
+ar:{sub:"ابقَ على الثور — تجاوز 8 ثوانٍ لتسجيل النقاط!",how:"اضغط باستمرار على الانحناء يسارًا / يمينًا (أو الأسهم ◀ ▶) لإبقاء الإبرة في المنتصف. الثور يرفس ويدور أسرع فأسرع. اضغط التلويح فقط عندما تكون الإبرة قرب المنتصف — نقاط أسلوب! التلويح في منطقة الخطر يهزّ توازنك.",start:"ابدأ الركوب",again:"اركب مجددًا",left:"◀ انحنِ",right:"انحنِ ▶",wave:"لوّح ✋",time:"الوقت",best:"الأفضل",style:"الأسلوب",score:"النقاط",danger:"خطر!",qual:"ركوب مؤهَّل! 🎉",thrown:"سقطت!",noScore:"لا نقاط — أقل من 8 ثوانٍ",yourScore:"نقاطك",rideTime:"زمن الركوب",newBest:"★ رقم قياسي جديد! ★",toQual:"8 ثوانٍ للتأهل"},
+hi:{sub:"बैल पर टिके रहो — स्कोर के लिए 8 सेकंड पार करो!",how:"सुई को बीच में रखने के लिए बाएँ / दाएँ झुकें दबाकर रखें (या ◀ ▶ तीर कुंजियाँ)। बैल तेज़ और तेज़ उछलता-घूमता है। WAVE तभी दबाएँ जब सुई बीच के पास हो — स्टाइल अंक! ख़तरे वाले क्षेत्र में हाथ हिलाने से संतुलन बिगड़ता है।",start:"सवारी शुरू",again:"फिर सवारी",left:"◀ झुकें",right:"झुकें ▶",wave:"हाथ हिलाएँ ✋",time:"समय",best:"सर्वश्रेष्ठ",style:"स्टाइल",score:"स्कोर",danger:"ख़तरा!",qual:"योग्य सवारी! 🎉",thrown:"गिर गए!",noScore:"कोई स्कोर नहीं — 8 सेकंड से कम",yourScore:"आपका स्कोर",rideTime:"सवारी का समय",newBest:"★ नया रिकॉर्ड! ★",toQual:"योग्यता हेतु 8 सेकंड"},
+zh:{sub:"骑稳公牛——坚持超过8秒就能得分！",how:"按住向左/向右倾斜（或 ◀ ▶ 方向键）让指针保持在中间。公牛会越跳越快、越转越猛。只有指针靠近中间时才按挥手——得风格分！在危险区挥手会让你更晃。",start:"开始骑牛",again:"再来一次",left:"◀ 左倾",right:"右倾 ▶",wave:"挥手 ✋",time:"时间",best:"最佳",style:"风格",score:"得分",danger:"危险！",qual:"合格骑乘！🎉",thrown:"被甩下来了！",noScore:"无得分——不足8秒",yourScore:"你的得分",rideTime:"骑乘时间",newBest:"★ 新纪录！★",toQual:"8秒合格"},
+ja:{sub:"ブルにしがみつけ——8秒を超えればスコア獲得！",how:"左／右に傾くボタン（または ◀ ▶ キー）を押し続けて針を中央に保とう。ブルはどんどん速く暴れて回転する。手を振るのは針が中央付近のときだけ——スタイルポイント！危険ゾーンで手を振ると大きく揺れる。",start:"ライド開始",again:"もう一度",left:"◀ 左へ",right:"右へ ▶",wave:"手を振る ✋",time:"タイム",best:"ベスト",style:"スタイル",score:"スコア",danger:"危険！",qual:"認定ライド！🎉",thrown:"振り落とされた！",noScore:"ノースコア——8秒未満",yourScore:"あなたのスコア",rideTime:"ライド時間",newBest:"★ 新記録！★",toQual:"認定まで8秒"},
+ko:{sub:"황소 위에 버텨라 — 8초를 넘기면 점수 획득!",how:"왼쪽/오른쪽 기울이기(또는 ◀ ▶ 방향키)를 눌러 바늘을 가운데에 유지하세요. 황소는 점점 더 빠르게 뛰고 회전합니다. 손 흔들기는 바늘이 가운데 근처일 때만 — 스타일 점수! 위험 구간에서 흔들면 더 크게 흔들립니다.",start:"라이딩 시작",again:"다시 타기",left:"◀ 기울이기",right:"기울이기 ▶",wave:"손 흔들기 ✋",time:"시간",best:"최고 기록",style:"스타일",score:"점수",danger:"위험!",qual:"인정 라이딩! 🎉",thrown:"떨어졌다!",noScore:"점수 없음 — 8초 미만",yourScore:"내 점수",rideTime:"라이딩 시간",newBest:"★ 새 기록! ★",toQual:"인정까지 8초"},
+id:{sub:"Bertahanlah di atas banteng — lewati 8 detik untuk dapat skor!",how:"Tahan CONDONG KIRI / KANAN (atau tombol panah ◀ ▶) agar jarum tetap di tengah. Banteng menendang dan berputar makin cepat. Tekan LAMBai hanya saat jarum dekat tengah — poin gaya! Melambai di zona bahaya membuatmu goyah.",start:"MULAI MENUNGGANG",again:"TUNGGANG LAGI",left:"◀ CONDONG",right:"CONDONG ▶",wave:"LAMBAI ✋",time:"WAKTU",best:"TERBAIK",style:"GAYA",score:"SKOR",danger:"BAHAYA!",qual:"TUNGGANGAN SAH! 🎉",thrown:"TERLEMPAR!",noScore:"TANPA SKOR — di bawah 8 detik",yourScore:"Skormu",rideTime:"Waktu menunggang",newBest:"★ REKOR BARU! ★",toQual:"8dtk untuk lolos"},
+vi:{sub:"Bám chặt trên lưng bò — vượt 8 giây để ghi điểm!",how:"Giữ NGHIÊNG TRÁI / PHẢI (hoặc phím ◀ ▶) để giữ kim ở giữa. Con bò húc và xoay ngày càng nhanh. Chỉ nhấn VẪY TAY khi kim gần giữa — điểm phong cách! Vẫy tay ở vùng nguy hiểm sẽ làm bạn chao đảo.",start:"BẮT ĐẦU CƯỠI",again:"CƯỠI LẠI",left:"◀ NGHIÊNG",right:"NGHIÊNG ▶",wave:"VẪY TAY ✋",time:"THỜI GIAN",best:"TỐT NHẤT",style:"PHONG CÁCH",score:"ĐIỂM",danger:"NGUY HIỂM!",qual:"MÀN CƯỠI ĐẠT CHUẨN! 🎉",thrown:"BỊ HẤT XUỐNG!",noScore:"KHÔNG ĐIỂM — dưới 8 giây",yourScore:"Điểm của bạn",rideTime:"Thời gian cưỡi",newBest:"★ KỶ LỤC MỚI! ★",toQual:"8 giây để đạt chuẩn"},
+pl:{sub:"Utrzymaj się na byku — przetrwaj 8 sekund, by zdobyć punkty!",how:"Przytrzymaj POCHYL W LEWO / W PRAWO (lub strzałki ◀ ▶), aby utrzymać wskazówkę na środku. Byk wierzgnie i obraca się coraz szybciej. Machaj tylko, gdy wskazówka jest blisko środka — punkty stylu! Machanie w strefie zagrożenia tobą zachwieje.",start:"START JAZDY",again:"JEDŹ PONOWNIE",left:"◀ POCHYL",right:"POCHYL ▶",wave:"MACHAJ ✋",time:"CZAS",best:"REKORD",style:"STYL",score:"PUNKTY",danger:"NIEBEZPIECZEŃSTWO!",qual:"JAZDA ZALICZONA! 🎉",thrown:"ZRZUCIŁ CIĘ!",noScore:"BRAK PUNKTÓW — poniżej 8 sekund",yourScore:"Twój wynik",rideTime:"Czas jazdy",newBest:"★ NOWY REKORD! ★",toQual:"8s do zaliczenia"}
+};
+let lang = localStorage.getItem("rodeo_lang") || "en";
+if (!T[lang]) lang = "en";
+const t = () => T[lang];
+const $ = id => document.getElementById(id);
+const langSel = $("langSel");
+LANGS.forEach(([c,n]) => { const o=document.createElement("option"); o.value=c; o.textContent=n; langSel.appendChild(o); });
+langSel.value = lang;
+langSel.addEventListener("change", () => { lang = langSel.value; localStorage.setItem("rodeo_lang", lang); applyLang(); });
+
+let bestTime = parseFloat(localStorage.getItem("rodeo_best_time") || "0");
+let bestScore = parseInt(localStorage.getItem("rodeo_best_score") || "0", 10);
+
+function applyLang() {
+  const L = t();
+  document.documentElement.lang = lang;
+  $("tSub").textContent = L.sub;
+  $("tHow").textContent = L.how;
+  $("btnStart").textContent = L.start;
+  $("btnAgain").textContent = L.again;
+  $("btnLeft").textContent = L.left;
+  $("btnRight").textContent = L.right;
+  $("btnWave").textContent = L.wave;
+  $("tBestStart").textContent = bestTime > 0 ? ("🏆 " + L.best + ": " + bestTime.toFixed(1) + "s • " + L.score + ": " + bestScore) : "";
+}
+</script>
+<script>
+"use strict";
+/* ================= AUDIO (WebAudio synth, no files) ================= */
+let AC = null, crowdGain = null, crowdSrc = null;
+function initAudio() {
+  if (AC) { if (AC.state === "suspended") AC.resume(); return; }
+  try {
+    AC = new (window.AudioContext || window.webkitAudioContext)();
+    // crowd: looped filtered noise
+    const len = AC.sampleRate * 2, buf = AC.createBuffer(1, len, AC.sampleRate), d = buf.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < len; i++) { const w = Math.random() * 2 - 1; last = (last + 0.03 * w) / 1.03; d[i] = last * 3.2; }
+    crowdSrc = AC.createBufferSource(); crowdSrc.buffer = buf; crowdSrc.loop = true;
+    const f = AC.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 420;
+    crowdGain = AC.createGain(); crowdGain.gain.value = 0.0;
+    crowdSrc.connect(f); f.connect(crowdGain); crowdGain.connect(AC.destination); crowdSrc.start();
+  } catch (e) { AC = null; }
+}
+function crowdLevel(v, tsec) { if (AC && crowdGain) crowdGain.gain.linearRampToValueAtTime(v, AC.currentTime + (tsec || 0.4)); }
+function blip(freq, dur, type, vol, slideTo) {
+  if (!AC) return;
+  const o = AC.createOscillator(), g = AC.createGain(), now = AC.currentTime;
+  o.type = type || "sine"; o.frequency.setValueAtTime(freq, now);
+  if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, now + dur);
+  g.gain.setValueAtTime(vol || 0.2, now); g.gain.exponentialRampToValueAtTime(0.001, now + dur);
+  o.connect(g); g.connect(AC.destination); o.start(now); o.stop(now + dur + 0.02);
+}
+function thud(vol) { blip(68, 0.16, "sine", vol || 0.5, 38); }
+function gasp() { // crowd gasp: quick breathy noise burst, pitch-up voices
+  if (!AC) return;
+  const now = AC.currentTime, dur = 0.32, len = AC.sampleRate * dur, buf = AC.createBuffer(1, len, AC.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (i / len) * (1 - i / len);
+  const s = AC.createBufferSource(); s.buffer = buf;
+  const f = AC.createBiquadFilter(); f.type = "bandpass"; f.frequency.setValueAtTime(700, now);
+  f.frequency.exponentialRampToValueAtTime(1500, now + dur); f.Q.value = 1.1;
+  const g = AC.createGain(); g.gain.value = 0.5;
+  s.connect(f); f.connect(g); g.connect(AC.destination); s.start(now);
+  blip(520, 0.28, "triangle", 0.06, 880);
+}
+function buzzer() { // classic rodeo 8-second buzzer
+  if (!AC) return;
+  const now = AC.currentTime;
+  [0, 0.28].forEach(off => {
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = "square"; o.frequency.value = 185;
+    g.gain.setValueAtTime(0.0001, now + off);
+    g.gain.exponentialRampToValueAtTime(0.22, now + off + 0.02);
+    g.gain.setValueAtTime(0.22, now + off + 0.2);
+    g.gain.exponentialRampToValueAtTime(0.001, now + off + 0.26);
+    o.connect(g); g.connect(AC.destination); o.start(now + off); o.stop(now + off + 0.3);
+  });
+}
+function cheer() { crowdLevel(0.5, 0.15); setTimeout(() => crowdLevel(0.16, 1.4), 900); blip(660, .18, "triangle", .12); setTimeout(() => blip(880, .25, "triangle", .12), 130); }
+
+/* ================= GAME STATE ================= */
+const cv = $("cv"), ctx = cv.getContext("2d");
+const W = 900, H = 600;
+let mode = "idle";            // idle | riding | thrown | done
+let rideT = 0, balance = 0, balVel = 0, style = 0, score = 0;
+let input = { left: false, right: false, drag: 0 };
+let waveT = -9, waveCooldown = 0, buzzed = false, wasDanger = false, gaspAt = 0;
+let nextKick = 1.2, buckPhase = 0, lastThudPhase = 0, spin = 0, spinVel = 0.6;
+let fallT = 0, fallDir = 1, shake = 0, qualified = false;
+let dust = [], confetti = [];
+const crowd = [];
+for (let r = 0; r < 4; r++) for (let i = 0; i < 26; i++)
+  crowd.push({ x: 28 + i * 33 + (r % 2) * 15 + Math.random() * 6, y: 66 + r * 30, r: 10.5 + Math.random() * 2.5,
+               c: ["#37474f","#4e342e","#263238","#5d4037","#455a64","#3e2723"][Math.floor(Math.random()*6)],
+               skin: ["#ffccbc","#d7a184","#a1663f","#8d5524","#f1c27d"][Math.floor(Math.random()*5)],
+               ph: Math.random() * 6.28, sign: Math.random() < 0.14 });
+
+function resetRide() {
+  rideT = 0; balance = 0; balVel = 0; style = 0; score = 0;
+  waveT = -9; waveCooldown = 0; buzzed = false; wasDanger = false; gaspAt = 0;
+  nextKick = 1.1; spin = 0; fallT = 0; shake = 0; qualified = false; dust = []; confetti = [];
+}
+function startRide() {
+  initAudio(); resetRide(); mode = "riding";
+  $("startOv").classList.add("hidden"); $("endOv").classList.add("hidden");
+  crowdLevel(0.16, 0.5); thud(0.4);
+}
+function doWave() {
+  if (mode !== "riding" || waveCooldown > 0) return;
+  waveCooldown = 0.9; waveT = rideT;
+  if (Math.abs(balance) < 35) { style += 5; blip(740, 0.12, "triangle", 0.14, 990); }
+  else { balVel += Math.sign(balance) * 26; shake = Math.max(shake, 5); gasp(); }
+}
+function endRide() {
+  mode = "thrown"; fallT = 0; fallDir = balance >= 0 ? 1 : -1; shake = 12;
+  thud(0.7); crowdLevel(0.42, 0.1); setTimeout(() => crowdLevel(0.1, 1.2), 1100);
+  qualified = rideT >= 8;
+  score = qualified ? Math.round(rideT * 10) + style * 2 : 0;
+  setTimeout(showEnd, 1250);
+}
+function showEnd() {
+  if (mode !== "thrown") return;
+  mode = "done";
+  const L = t(), isBest = rideT > bestTime;
+  if (isBest) { bestTime = rideT; localStorage.setItem("rodeo_best_time", String(bestTime)); }
+  if (score > bestScore) { bestScore = score; localStorage.setItem("rodeo_best_score", String(bestScore)); }
+  $("endTitle").textContent = qualified ? L.qual : L.thrown;
+  $("endTitle").style.color = qualified ? "#69f0ae" : "#ef9a9a";
+  $("endDetail").innerHTML =
+    L.rideTime + ": <b>" + rideT.toFixed(1) + "s</b><br>" +
+    L.style + ": <b>" + style + "</b><br>" +
+    (qualified ? L.yourScore + ": <b>" + score + "</b>" : "<b>" + L.noScore + "</b>") + "<br>" +
+    "🏆 " + L.best + ": " + bestTime.toFixed(1) + "s • " + L.score + ": " + bestScore;
+  const nb = $("newBest");
+  if (isBest && rideT > 1) { nb.textContent = L.newBest; nb.classList.remove("hidden"); } else nb.classList.add("hidden");
+  $("endOv").classList.remove("hidden");
+  applyLang();
+}
+
+/* ================= UPDATE ================= */
+function update(dt) {
+  if (mode === "riding") {
+    rideT += dt;
+    if (waveCooldown > 0) waveCooldown -= dt;
+    // bull torque: layered patterns, speed & strength ramp with time
+    const ramp = 1 + rideT * 0.075, fq = 1 + rideT * 0.045;
+    let torque = Math.sin(rideT * 1.55 * fq) * 26 + Math.sin(rideT * 2.85 * fq + 1.3) * 17 + Math.sin(rideT * 0.62 * fq + 4.0) * 11;
+    torque *= ramp;
+    // spin reversals add sideways shove
+    spinVel = Math.sin(rideT * 0.45) * (0.7 + rideT * 0.03);
+    spin += spinVel * dt;
+    torque += Math.cos(rideT * 0.45) * 9 * ramp * Math.sign(spinVel || 1);
+    // random kicks
+    nextKick -= dt;
+    if (nextKick <= 0) {
+      const dir = Math.random() < 0.5 ? -1 : 1;
+      balVel += dir * (17 + Math.random() * 13) * Math.min(ramp, 2.4);
+      nextKick = Math.max(0.55, 1.7 - rideT * 0.05) + Math.random() * 0.8;
+      for (let i = 0; i < 10; i++) spawnDust();
+      thud(0.35);
+    }
+    // player lean
+    let lean = 0;
+    if (input.left) lean -= 1;
+    if (input.right) lean += 1;
+    lean += input.drag;
+    balVel += lean * 300 * dt;
+    balVel += torque * dt;
+    balVel *= Math.exp(-1.5 * dt);
+    balance += balVel * dt;
+    // bucking visuals + thud on each buck peak
+    buckPhase = rideT * (5.2 + rideT * 0.16);
+    const ph = Math.floor(buckPhase / Math.PI);
+    if (ph !== lastThudPhase) { lastThudPhase = ph; if (ph % 2 === 0) { thud(0.22); if (Math.random() < .6) spawnDust(); } }
+    // 8-second buzzer
+    if (!buzzed && rideT >= 8) { buzzed = true; buzzer(); cheer(); for (let i = 0; i < 40; i++) spawnConfetti(); }
+    // danger zone
+    const danger = Math.abs(balance) > 72;
+    if (danger) {
+      shake = Math.max(shake, 4 + (Math.abs(balance) - 72) * 0.22);
+      if (!wasDanger && rideT - gaspAt > 1.1) { gasp(); gaspAt = rideT; }
+    }
+    wasDanger = danger;
+    if (Math.abs(balance) >= 100) { balance = Math.sign(balance) * 100; endRide(); }
+  } else if (mode === "thrown") {
+    fallT += dt;
+  }
+  if (shake > 0) shake = Math.max(0, shake - dt * 26);
+  // particles
+  for (let i = dust.length - 1; i >= 0; i--) { const p = dust[i]; p.x += p.vx * dt; p.y += p.vy * dt; p.vy -= 12 * dt; p.life -= dt; if (p.life <= 0) dust.splice(i, 1); }
+  for (let i = confetti.length - 1; i >= 0; i--) { const p = confetti[i]; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 60 * dt; p.rot += p.vr * dt; p.life -= dt; if (p.life <= 0 || p.y > H) confetti.splice(i, 1); }
+}
+function spawnDust() {
+  dust.push({ x: 450 + (Math.random() - .5) * 190, y: 492 + Math.random() * 14, vx: (Math.random() - .5) * 65, vy: -12 - Math.random() * 32,
+              r: 5 + Math.random() * 11, life: 0.7 + Math.random() * 0.7 });
+}
+function spawnConfetti() {
+  confetti.push({ x: 450 + (Math.random() - .5) * 520, y: 120 + Math.random() * 60, vx: (Math.random() - .5) * 40, vy: 12 + Math.random() * 30,
+                  rot: Math.random() * 6.28, vr: (Math.random() - .5) * 7, life: 2.2 + Math.random(),
+                  c: ["#ffd54f","#ff7043","#4fc3f7","#81c784","#f06292"][Math.floor(Math.random() * 5)] });
+}
+/* ================= RENDER ================= */
+function crescent(x, y, r, col) {
+  ctx.save(); ctx.translate(x, y); ctx.fillStyle = col || "#ffd54f";
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.29); ctx.fill();
+  ctx.globalCompositeOperation = "destination-out";
+  ctx.beginPath(); ctx.arc(r * 0.42, -r * 0.28, r * 0.82, 0, 6.29); ctx.fill();
+  ctx.restore();
+}
+function drawScene(now) {
+  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  if (shake > 0) ctx.translate((Math.random() - .5) * shake, (Math.random() - .5) * shake);
+  // night sky / arena glow
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, "#241005"); sky.addColorStop(0.45, "#4a2408"); sky.addColorStop(1, "#6d3a10");
+  ctx.fillStyle = sky; ctx.fillRect(-20, -20, W + 40, H + 40);
+  // floodlights
+  [[90, 26], [330, 14], [570, 14], [810, 26]].forEach(([lx, ly]) => {
+    const g = ctx.createRadialGradient(lx, ly, 4, lx, ly, 190);
+    g.addColorStop(0, "rgba(255,236,170,.85)"); g.addColorStop(0.25, "rgba(255,200,90,.28)"); g.addColorStop(1, "rgba(255,190,80,0)");
+    ctx.fillStyle = g; ctx.fillRect(lx - 200, ly - 40, 400, 320);
+    ctx.fillStyle = "#ffe9a8"; ctx.beginPath(); ctx.arc(lx, ly, 9, 0, 6.29); ctx.fill();
+    ctx.fillStyle = "#2b1606"; ctx.fillRect(lx - 3, ly + 6, 6, 26);
+  });
+  // crowd stands
+  ctx.fillStyle = "#311806"; ctx.fillRect(0, 40, W, 118);
+  const cheerAmp = (mode === "thrown" || buzzed) ? 5 : 2;
+  crowd.forEach(p => {
+    const bob = Math.sin(now * 2.4 + p.ph) * cheerAmp;
+    ctx.fillStyle = p.c; ctx.beginPath(); ctx.arc(p.x, p.y + 13 + bob, p.r + 2.5, 3.4, 6.02); ctx.fill(); // shoulders
+    ctx.fillStyle = p.skin; ctx.beginPath(); ctx.arc(p.x, p.y + bob, p.r, 0, 6.29); ctx.fill();       // head
+    ctx.fillStyle = "#201105";                                                                // eyes
+    ctx.beginPath(); ctx.arc(p.x - p.r * .36, p.y - 1 + bob, 1.4, 0, 6.29); ctx.arc(p.x + p.r * .36, p.y - 1 + bob, 1.4, 0, 6.29); ctx.fill();
+    ctx.strokeStyle = "#201105"; ctx.lineWidth = 1.2; ctx.beginPath();                                     // smile
+    ctx.arc(p.x, p.y + 2 + bob, p.r * .42, 0.35, 2.79); ctx.stroke();
+    if (p.sign) { ctx.fillStyle = "#f5e9c9"; ctx.fillRect(p.x - 13, p.y - 34 + bob, 26, 15);
+                  ctx.fillStyle = "#b71c1c"; ctx.font = "900 10px Trebuchet MS"; ctx.textAlign = "center"; ctx.fillText("LUNC", p.x, p.y - 23 + bob); }
+  });
+  // arena boards with LUNC branding
+  ctx.fillStyle = "#7a1f1f"; ctx.fillRect(0, 158, W, 46);
+  ctx.fillStyle = "#a52a1a"; ctx.fillRect(0, 158, W, 7);
+  ctx.fillStyle = "#ffd54f"; ctx.font = "900 25px Trebuchet MS"; ctx.textAlign = "center";
+  for (let i = 0; i < 4; i++) { const bx = 118 + i * 225; crescent(bx - 62, 181, 11); ctx.fillText("LUNC RODEO", bx + 22, 190); }
+  ctx.fillStyle = "#3d2005"; ctx.font = "700 11px Trebuchet MS";
+  for (let i = 0; i < 4; i++) ctx.fillText("★ LUNA CLASSIC ★", 118 + i * 225 + 22, 200);
+  // dirt floor
+  const dirt = ctx.createLinearGradient(0, 204, 0, H);
+  dirt.addColorStop(0, "#9c6633"); dirt.addColorStop(1, "#6f421c");
+  ctx.fillStyle = dirt; ctx.fillRect(0, 204, W, H - 204);
+  ctx.fillStyle = "rgba(60,32,8,.35)";
+  for (let i = 0; i < 60; i++) { const dx = (i * 149) % W, dy = 230 + (i * 83) % 340; ctx.beginPath(); ctx.ellipse(dx, dy, 9 + (i % 5) * 3, 2.6, 0, 0, 6.29); ctx.fill(); }
+  // arena ring shadow
+  ctx.fillStyle = "rgba(40,20,4,.4)"; ctx.beginPath(); ctx.ellipse(450, 505, 215, 30, 0, 0, 6.29); ctx.fill();
+
+  drawBullAndRider(now);
+  // dust
+  dust.forEach(p => { ctx.fillStyle = "rgba(214,178,130," + Math.max(0, p.life * 0.5) + ")"; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.29); ctx.fill(); });
+  // confetti
+  confetti.forEach(p => { ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillStyle = p.c; ctx.fillRect(-4, -2.4, 8, 4.8); ctx.restore(); });
+  ctx.restore();
+  drawHUD(now);
+}
+function drawBullAndRider(now) {
+  const riding = mode === "riding" || mode === "idle";
+  const buckY = riding ? Math.abs(Math.sin(buckPhase)) * -26 * (mode === "riding" ? 1 : 0.35) : 0;
+  const pitch = riding ? Math.sin(buckPhase * 0.5) * 0.13 * (mode === "riding" ? 1 : 0.4) : 0;
+  const sway = Math.sin(spin) * 26;
+  const cx = 450 + sway, cy = 428 + buckY;
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(pitch + Math.sin(spin) * 0.05);
+  // ---- bull ----
+  ctx.fillStyle = "#5d3a1e"; // rear legs
+  ctx.fillRect(-72, 38, 17, 46); ctx.fillRect(52, 38, 17, 46);
+  ctx.fillStyle = "#40260f"; ctx.fillRect(-74, 80, 21, 8); ctx.fillRect(50, 80, 21, 8); // hooves
+  const bg = ctx.createLinearGradient(0, -60, 0, 55); bg.addColorStop(0, "#8a5a2b"); bg.addColorStop(1, "#5f3a17");
+  ctx.fillStyle = bg; ctx.beginPath(); ctx.ellipse(0, 0, 98, 56, 0, 0, 6.29); ctx.fill();      // body
+  ctx.fillStyle = "#6f451f"; ctx.beginPath(); ctx.ellipse(-6, -52, 40, 20, 0, 0, 6.29); ctx.fill(); // hump
+  ctx.strokeStyle = "#4a2c10"; ctx.lineWidth = 6; ctx.beginPath();                                    // tail
+  const tw = Math.sin(now * 7) * 14;
+  ctx.moveTo(-96, -18); ctx.quadraticCurveTo(-122, 8, -112 + tw, 42); ctx.stroke();
+  ctx.fillStyle = "#2e1a08"; ctx.beginPath(); ctx.arc(-112 + tw, 46, 6, 0, 6.29); ctx.fill();
+  // head (right side, lowered, angry)
+  ctx.save(); ctx.translate(96, 6); ctx.rotate(0.35 + Math.sin(buckPhase) * 0.06);
+  ctx.fillStyle = "#7a4c22"; ctx.beginPath(); ctx.ellipse(0, 0, 34, 27, 0, 0, 6.29); ctx.fill();
+  ctx.fillStyle = "#96602c"; ctx.beginPath(); ctx.ellipse(14, 12, 19, 13, 0, 0, 6.29); ctx.fill(); // muzzle
+  ctx.fillStyle = "#2e1a08"; ctx.beginPath(); ctx.arc(9, 10, 3, 0, 6.29); ctx.arc(22, 13, 3, 0, 6.29); ctx.fill(); // nostrils
+  ctx.strokeStyle = "#d9c9a8"; ctx.lineWidth = 6; ctx.lineCap = "round";                                  // horns
+  ctx.beginPath(); ctx.moveTo(-16, -20); ctx.quadraticCurveTo(-30, -38, -44, -34); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(12, -24); ctx.quadraticCurveTo(14, -44, 26, -48); ctx.stroke();
+  ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(-4, -6, 6.4, 0, 6.29); ctx.fill();                     // eye
+  ctx.fillStyle = "#160b02"; ctx.beginPath(); ctx.arc(-3, -6, 3.1, 0, 6.29); ctx.fill();
+  ctx.strokeStyle = "#160b02"; ctx.lineWidth = 2.4; ctx.beginPath(); ctx.moveTo(-12, -15); ctx.lineTo(3, -11); ctx.stroke(); // angry brow
+  ctx.fillStyle = "#6f451f"; ctx.beginPath(); ctx.ellipse(-24, 2, 9, 5.4, -0.6, 0, 6.29); ctx.fill();     // ear
+  ctx.restore();
+  // flank strap + rope
+  ctx.strokeStyle = "#c62828"; ctx.lineWidth = 9; ctx.beginPath(); ctx.moveTo(-52, -50); ctx.quadraticCurveTo(-58, 0, -50, 50); ctx.stroke();
+  ctx.strokeStyle = "#d7a184"; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(6, -48); ctx.lineTo(26, -66); ctx.stroke();
+  // LUNC brand patch on bull side
+  ctx.fillStyle = "rgba(20,10,2,.55)"; ctx.beginPath(); ctx.ellipse(-16, 2, 30, 19, 0, 0, 6.29); ctx.fill();
+  crescent(-26, 2, 8.5); ctx.fillStyle = "#ffd54f"; ctx.font = "900 12px Trebuchet MS"; ctx.textAlign = "left"; ctx.fillText("LUNC", -14, 6);
+
+  // ---- rider ----
+  const thrown = mode === "thrown" || mode === "done";
+  let rx = 4, ry = -58, rRot = balance * 0.0062, fly = 0;
+  if (thrown) {
+    fly = Math.min(fallT * 1.15, 1);
+    rx += fallDir * fly * 235; ry += -Math.sin(fly * Math.PI) * 120 + fly * fly * 165;
+    rRot = fallDir * fly * 2.4;
+  }
+  ctx.save(); ctx.translate(rx, ry); ctx.rotate(rRot);
+  const waving = riding && (rideT - waveT) < 0.85;
+  const legSwing = riding ? Math.sin(buckPhase) * 5 : 0;
+  ctx.strokeStyle = "#274b8f"; ctx.lineWidth = 11; ctx.lineCap = "round";   // jeans legs gripping
+  ctx.beginPath(); ctx.moveTo(-4, 6); ctx.lineTo(-34, 30 + legSwing); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(8, 6); ctx.lineTo(36, 30 - legSwing); ctx.stroke();
+  ctx.fillStyle = "#4a2c10"; ctx.fillRect(-44, 26 + legSwing, 15, 7); ctx.fillRect(30, 26 - legSwing, 15, 7); // boots
+  const tg = ctx.createLinearGradient(0, -58, 0, 8); tg.addColorStop(0, "#d32f2f"); tg.addColorStop(1, "#8e1414");
+  ctx.fillStyle = tg; ctx.beginPath(); ctx.ellipse(0, -26, 17.5, 30, 0, 0, 6.29); ctx.fill();  // torso (plaid shirt)
+  ctx.strokeStyle = "rgba(255,255,255,.35)"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(-16, -44); ctx.lineTo(16, -44); ctx.moveTo(-17, -26); ctx.lineTo(17, -26); ctx.stroke();
+  crescent(0, -34, 5.5, "#ffe082");                                                              // LUNC crescent on shirt
+  ctx.strokeStyle = "#c62828"; ctx.lineWidth = 9;                                                        // grip arm (down to rope)
+  ctx.beginPath(); ctx.moveTo(10, -44); ctx.quadraticCurveTo(24, -26, 22, -8); ctx.stroke();
+  ctx.fillStyle = "#f1c27d"; ctx.beginPath(); ctx.arc(22, -6, 5.4, 0, 6.29); ctx.fill();
+  // free arm — up! waves when WAVE pressed
+  const armA = waving ? -2.5 + Math.sin(now * 26) * 0.5 : -2.35;
+  ctx.strokeStyle = "#c62828"; ctx.lineWidth = 9;
+  ctx.beginPath(); ctx.moveTo(-10, -46); ctx.lineTo(-10 + Math.cos(armA) * 30, -46 + Math.sin(armA) * 30); ctx.stroke();
+  ctx.fillStyle = "#f1c27d"; ctx.beginPath(); ctx.arc(-10 + Math.cos(armA) * 33, -46 + Math.sin(armA) * 33, 5.6, 0, 6.29); ctx.fill();
+  // head + face
+  ctx.fillStyle = "#f1c27d"; ctx.beginPath(); ctx.arc(0, -68, 13.5, 0, 6.29); ctx.fill();
+  ctx.fillStyle = "#201105"; ctx.beginPath(); ctx.arc(-4.6, -70, 1.8, 0, 6.29); ctx.arc(4.6, -70, 1.8, 0, 6.29); ctx.fill();
+  ctx.strokeStyle = "#201105"; ctx.lineWidth = 1.7;
+  ctx.beginPath();
+  if (Math.abs(balance) > 72 && riding) ctx.arc(0, -58.5, 4, 0, 6.29);            // "O" mouth in danger
+  else ctx.arc(0, -66, 6, 0.4, 2.74);                                              // grin
+  ctx.stroke();
+  // cowboy hat
+  ctx.fillStyle = "#8d5a1d"; ctx.beginPath(); ctx.ellipse(0, -79, 21, 5.6, 0, 0, 6.29); ctx.fill();
+  ctx.fillStyle = "#a06a24"; ctx.beginPath(); ctx.ellipse(0, -84, 11.5, 7.5, 0, 0, 6.29); ctx.fill();
+  ctx.fillStyle = "#ffd54f"; ctx.fillRect(-11.5, -82.5, 23, 3.4);
+  ctx.restore(); // rider
+  ctx.restore(); // bull group
+}
+function drawHUD(now) {
+  const L = t();
+  // big central timer
+  ctx.textAlign = "center";
+  ctx.font = "900 54px Trebuchet MS";
+  ctx.lineWidth = 9; ctx.strokeStyle = "rgba(20,8,0,.85)";
+  const tstr = rideT.toFixed(1);
+  ctx.strokeText(tstr, 450, 66); ctx.fillStyle = buzzed ? "#69f0ae" : "#fff3e0"; ctx.fillText(tstr, 450, 66);
+  ctx.font = "800 15px Trebuchet MS"; ctx.fillStyle = "#ffdfae";
+  ctx.fillText(L.time + " • " + L.toQual, 450, 88);
+  // style + best chips
+  ctx.font = "800 16px Trebuchet MS"; ctx.textAlign = "left";
+  ctx.fillStyle = "rgba(20,10,2,.72)"; ctx.fillRect(12, 12, 168, 30);
+  ctx.fillStyle = "#ce93d8"; ctx.fillText("✋ " + L.style + ": " + style, 22, 33);
+  if (bestTime > 0) {
+    ctx.fillStyle = "rgba(20,10,2,.72)"; ctx.fillRect(12, 46, 184, 30);
+    ctx.fillStyle = "#9be15d"; ctx.textAlign = "left"; ctx.fillText("🏆 " + L.best + ": " + bestTime.toFixed(1) + "s", 22, 67);
+  }
+  // balance gauge
+  const gx = 450, gy = 556, gw = 460, gh = 22;
+  const grd = ctx.createLinearGradient(gx - gw / 2, 0, gx + gw / 2, 0);
+  grd.addColorStop(0, "#c62828"); grd.addColorStop(0.28, "#f9a825"); grd.addColorStop(0.5, "#43a047"); grd.addColorStop(0.72, "#f9a825"); grd.addColorStop(1, "#c62828");
+  ctx.fillStyle = "rgba(15,7,1,.8)"; ctx.fillRect(gx - gw / 2 - 8, gy - 24, gw + 16, gh + 34);
+  ctx.fillStyle = grd; ctx.fillRect(gx - gw / 2, gy, gw, gh);
+  ctx.fillStyle = "rgba(255,255,255,.9)"; ctx.fillRect(gx - gw * 0.175, gy, gw * 0.35, gh); // safe zone sheen
+  ctx.fillStyle = "#fff"; ctx.fillRect(gx - 1.5, gy - 4, 3, gh + 8);                        // center tick
+  const nx = gx + (balance / 100) * (gw / 2);
+  ctx.fillStyle = "#fff"; ctx.strokeStyle = "#160b02"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(nx, gy - 9); ctx.lineTo(nx - 8, gy - 21); ctx.lineTo(nx + 8, gy - 21); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = "#160b02"; ctx.fillRect(nx - 2, gy - 3, 4, gh + 6);
+  if (mode === "riding" && Math.abs(balance) > 72 && Math.floor(now * 5) % 2 === 0) {
+    ctx.font = "900 27px Trebuchet MS"; ctx.textAlign = "center";
+    ctx.lineWidth = 6; ctx.strokeStyle = "#000"; ctx.strokeText(L.danger, 450, 140);
+    ctx.fillStyle = "#ff5252"; ctx.fillText(L.danger, 450, 140);
+  }
+  if (mode === "riding" && (rideT - waveT) < 0.85) {
+    ctx.font = "900 22px Trebuchet MS"; ctx.textAlign = "center"; ctx.fillStyle = "#ce93d8";
+    ctx.fillText("+5 " + L.style, 450 + Math.sin(spin) * 26, 300 - (rideT - waveT) * 42);
+  }
+}
+
+/* ================= INPUT ================= */
+function bindHold(el, on, off) {
+  const start = e => { e.preventDefault(); el.classList.add("on"); on(); };
+  const end = e => { if (e) e.preventDefault(); el.classList.remove("on"); off(); };
+  el.addEventListener("pointerdown", start);
+  el.addEventListener("pointerup", end); el.addEventListener("pointerleave", end); el.addEventListener("pointercancel", end);
+  el.addEventListener("contextmenu", e => e.preventDefault());
+}
+bindHold($("btnLeft"), () => input.left = true, () => input.left = false);
+bindHold($("btnRight"), () => input.right = true, () => input.right = false);
+$("btnWave").addEventListener("pointerdown", e => { e.preventDefault(); initAudio(); doWave(); });
+window.addEventListener("keydown", e => {
+  if (e.repeat) return;
+  if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") input.left = true;
+  if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") input.right = true;
+  if (e.key === " " || e.key === "w" || e.key === "W") { initAudio(); doWave(); e.preventDefault(); }
+});
+window.addEventListener("keyup", e => {
+  if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") input.left = false;
+  if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") input.right = false;
+});
+// drag on canvas = analog lean
+let dragId = null, dragX0 = 0;
+cv.addEventListener("pointerdown", e => { dragId = e.pointerId; dragX0 = e.clientX; });
+cv.addEventListener("pointermove", e => { if (e.pointerId === dragId) input.drag = Math.max(-1, Math.min(1, (e.clientX - dragX0) / 90)); });
+const dragEnd = e => { if (e.pointerId === dragId) { dragId = null; input.drag = 0; } };
+cv.addEventListener("pointerup", dragEnd); cv.addEventListener("pointercancel", dragEnd);
+$("btnStart").addEventListener("click", startRide);
+$("btnAgain").addEventListener("click", startRide);
+
+/* ================= LOOP ================= */
+let lastMs = 0;
+function frame(ms) {
+  const now = ms / 1000;
+  let dt = Math.min(0.033, lastMs ? now - lastMs : 0.016);
+  lastMs = now;
+  update(dt);
+  drawScene(now);
+  requestAnimationFrame(frame);
+}
+applyLang();
+requestAnimationFrame(frame);
+
+/* QA / debug hook */
+window.__rodeo = {
+  start: startRide, wave: doWave,
+  setLean: v => { input.left = v < 0; input.right = v > 0; input.drag = (typeof v === "number" && Math.abs(v) <= 1 && v !== 0 && !input.left && !input.right) ? v : input.drag; },
+  lean: v => { input.drag = Math.max(-1, Math.min(1, v)); },
+  state: () => mode, balance: () => balance, time: () => rideT,
+  style: () => style, score: () => score
+};
+</script>
+</body>
+</html>
