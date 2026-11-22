@@ -1786,6 +1786,41 @@ const sndNitro = () => { beep(160, 0.28, 'sawtooth', 0.045); beep(320, 0.3, 'saw
 const sndWin = () => { [660, 880, 1100, 1320].forEach((f, i) => beep(f, 0.22, 'triangle', 0.07, i * 0.11)); };
 const sndLose = () => { [440, 350, 262].forEach((f, i) => beep(f, 0.25, 'triangle', 0.06, i * 0.13)); };
 
+/* ================= engine sound (continuous synth) =================
+   Tom, Nov 21: "It's missing the vehicle sound." Two detuned oscillators
+   through a lowpass filter; pitch follows the car's speed (P.v). Idles at
+   the start line during the countdown, rises with speed, extra growl on
+   nitro. Silent in menus, pause and race-over; obeys the sound toggle. */
+let eng = null;
+function engineBuild() {
+  if (eng || !soundOn) return;
+  try {
+    if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+    if (AC.state === 'suspended') AC.resume();
+    const o1 = AC.createOscillator(), o2 = AC.createOscillator();
+    o1.type = 'sawtooth'; o2.type = 'square';
+    const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 420; f.Q.value = 2;
+    const g = AC.createGain(); g.gain.value = 0;
+    o1.connect(f); o2.connect(f); f.connect(g); g.connect(AC.destination);
+    o1.start(); o2.start();
+    eng = { o1, o2, f, g };
+  } catch (e) {}
+}
+function engineUpdate() {
+  const driving = soundOn && (state === 'race' || state === 'count');
+  if (!driving) { if (eng && AC) eng.g.gain.setTargetAtTime(0, AC.currentTime, 0.09); return; }
+  engineBuild(); if (!eng) return;
+  if (AC.state === 'suspended') AC.resume();
+  const r = Math.max(0, Math.min(1, P.v / TOP_SPEED));
+  const wob = Math.sin(performance.now() * 0.03) * (state === 'count' ? 3 : 1.2);
+  const fq = 52 + r * 150 + (P.boosting ? 22 : 0) + wob;
+  const t = AC.currentTime;
+  eng.o1.frequency.setTargetAtTime(fq, t, 0.06);
+  eng.o2.frequency.setTargetAtTime(fq * 0.5 + 2, t, 0.06);
+  eng.f.frequency.setTargetAtTime(320 + r * 900, t, 0.08);
+  eng.g.gain.setTargetAtTime(0.055 + r * 0.03, t, 0.09);
+}
+
 /* ================= input: floating joystick + brake + keys ================= */
 const input = { steer: 0, brake: false, up: false, down: false, left: false, right: false, nitro: false };
 let stickVec = 0, stickVecY = 0, stickActive = false, stickPointer = null;
@@ -2313,6 +2348,7 @@ function animate() {
   }
   updateNitroFlames(dt);
   stepCamera(dt, t);
+  engineUpdate();
   renderer.render(scene, camera);
 }
 applyLang();
