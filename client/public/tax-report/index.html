@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<base href="/tax-report/">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Profit &amp; Tax Report — Terra Classic</title>
+<style>
+  :root{
+    --bg:#0b1220; --card:#131e33; --card2:#0f1930; --ink:#e8eefc; --muted:#93a5c9;
+    --line:#24365c; --accent:#f5b301; --accent-ink:#1a1400;
+    --green:#37d67a; --red:#ff6b6b; --chip:#1b2a4a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+  .wrap{max-width:640px;margin:0 auto;padding:14px 14px 44px}
+  header{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:6px}
+  header h1{font-size:23px;margin:0;flex:1 1 auto}
+  .langbox{display:flex;align-items:center;gap:8px;font-size:15px}
+  .langbox select{font-size:17px;padding:10px;border-radius:10px;border:2px solid var(--accent);background:var(--card);color:var(--ink);min-height:48px}
+  .sub{color:var(--muted);font-size:15.5px;margin:0 0 14px;line-height:1.45}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:14px}
+  .row{display:flex;gap:8px}
+  .row input{flex:1;font-size:16px;padding:13px;border:2px solid var(--line);border-radius:10px;min-width:0;background:var(--card2);color:var(--ink)}
+  .row button{font-size:18px;font-weight:800;padding:13px 22px;border:0;border-radius:10px;background:var(--accent);color:var(--accent-ink);cursor:pointer;min-height:52px}
+  .row button:disabled{opacity:.55}
+  .note{color:var(--muted);font-size:13.5px;margin-top:10px;line-height:1.5}
+  .err{color:var(--red);font-size:15px;margin-top:10px;display:none}
+  .err.show{display:block}
+  .status{color:var(--muted);font-size:15px;margin-top:10px;display:none}
+  .status.show{display:block}
+  #report{display:none}
+  #report.show{display:block}
+  .sumgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .sumbox{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:12px}
+  .sumbox .k{color:var(--muted);font-size:12.5px;text-transform:uppercase;letter-spacing:.4px}
+  .sumbox .v{font-size:21px;font-weight:800;margin-top:3px;word-break:break-word}
+  .pos{color:var(--green)} .neg{color:var(--red)}
+  .yearrow{display:flex;align-items:center;gap:8px;margin:2px 0 12px;flex-wrap:wrap}
+  .yearrow .ylab{color:var(--muted);font-size:14px}
+  .ybtn{font-size:15px;padding:9px 14px;border-radius:999px;border:1px solid var(--line);background:var(--chip);color:var(--ink);cursor:pointer}
+  .ybtn.on{background:var(--accent);color:var(--accent-ink);font-weight:800;border-color:var(--accent)}
+  .tblwrap{overflow-x:auto;margin:0 -4px;padding:0 4px}
+  table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:560px}
+  th,td{padding:8px 7px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.3px}
+  th:first-child,td:first-child{text-align:left}
+  td.sym{font-weight:800}
+  .dlbtn{display:block;width:100%;font-size:18px;font-weight:800;padding:15px;border:0;border-radius:12px;background:var(--accent);color:var(--accent-ink);cursor:pointer;margin-top:14px;min-height:56px}
+  .tiny{font-size:12.5px;color:var(--muted);line-height:1.5;margin-top:10px}
+  .unk{color:#ffc46b}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 id="t-title">💰 Profit &amp; Tax Report</h1>
+    <label class="langbox"><span id="t-langLabel">Language</span>
+      <select id="langSel" aria-label="Language"></select>
+    </label>
+  </header>
+  <p class="sub" id="t-sub">Paste a Terra Classic wallet and get its buys, sells and profit — per token, per year.</p>
+
+  <div class="card">
+    <div class="row">
+      <input id="addrInput" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="terra1…">
+      <button id="goBtn">GO</button>
+    </div>
+    <div class="status" id="statusBox"></div>
+    <div class="err" id="errBox"></div>
+    <div class="note" id="t-privacy">Paste-only — no wallet connect. Your address is only read from the public chain — nothing is stored or sent anywhere else.</div>
+  </div>
+
+  <div id="report">
+    <div class="yearrow">
+      <span class="ylab" id="t-year">Year</span>
+      <button class="ybtn on" data-year="all" id="t-allTime">All time</button>
+      <button class="ybtn" data-year="2026">2026</button>
+      <button class="ybtn" data-year="2025">2025</button>
+    </div>
+    <div class="card">
+      <div class="sumgrid">
+        <div class="sumbox"><div class="k" id="t-realized">Realized profit / loss</div><div class="v" id="sumPL">—</div></div>
+        <div class="sumbox"><div class="k" id="t-buys">Total buys (value)</div><div class="v" id="sumBuys">—</div></div>
+        <div class="sumbox"><div class="k" id="t-sells">Total sells (value)</div><div class="v" id="sumSells">—</div></div>
+        <div class="sumbox"><div class="k" id="t-scanned">Transactions scanned</div><div class="v" id="sumTxs">0</div></div>
+      </div>
+      <div class="tiny" id="capNote" style="display:none"></div>
+      <div class="tiny unk" id="unkNote" style="display:none"></div>
+    </div>
+    <div class="card">
+      <div class="tblwrap">
+        <table>
+          <thead><tr>
+            <th id="t-colToken">Token</th><th id="t-colBought">Bought</th><th id="t-colSold">Sold</th>
+            <th id="t-colAvg">Avg buy price</th><th id="t-colPL">Realized P/L</th>
+            <th id="t-colHold">Holding now</th><th id="t-colValue">Value now</th>
+          </tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+      <button class="dlbtn" id="csvBtn">⬇ <span id="t-download">Download CSV</span></button>
+      <div class="tiny" id="t-method">Realized P/L uses the average-cost method, estimate. Values converted at today's prices.</div>
+      <div class="tiny" id="t-disclaimer">Estimates from on-chain history. Not tax advice.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+var LANG_NAMES = {
+  en:"English", es:"Español", pt:"Português", fr:"Français", de:"Deutsch",
+  it:"Italiano", nl:"Nederlands", ru:"Русский", uk:"Українська", tr:"Türkçe",
+  ar:"العربية", hi:"हिन्दी", id:"Bahasa Indonesia", vi:"Tiếng Việt",
+  th:"ไทย", zh:"中文", ja:"日本語", ko:"한국어"
+};
+</script>
+<script>
+"use strict";
+var I18N = {
+en:{title:"💰 Profit & Tax Report",langLabel:"Language",sub:"Paste a Terra Classic wallet and get its buys, sells and profit — per token, per year.",go:"GO",addrPh:"Terra Classic wallet address (terra1…)",privacy:"Paste-only — no wallet connect. Your address is only read from the public chain — nothing is stored or sent anywhere else.",loading:"Reading the chain… this can take a moment.",capNote:"Showing your last 500 transactions.",year:"Year",allTime:"All time",realized:"Realized profit / loss",buys:"Total buys (value)",sells:"Total sells (value)",scanned:"Transactions scanned",colToken:"Token",colBought:"Bought",colSold:"Sold",colAvg:"Avg buy price",colPL:"Realized P/L",colHold:"Holding now",colValue:"Value now",method:"Realized P/L uses the average-cost method, estimate. Values converted at today's prices.",disclaimer:"Estimates from on-chain history. Not tax advice.",unkNote:"{n} sold with unknown cost — left out of profit/loss.",badAddr:"That doesn't look like a Terra Classic address.",errNet:"Couldn't read the chain. Check your connection and try again.",empty:"No transactions found for this wallet.",download:"Download CSV"},
+es:{title:"💰 Informe de Ganancias e Impuestos",langLabel:"Idioma",sub:"Pega una billetera de Terra Classic y obtén sus compras, ventas y ganancias — por token y por año.",go:"IR",addrPh:"Dirección de billetera Terra Classic (terra1…)",privacy:"Solo pegar — sin conectar billetera. Tu dirección solo se lee de la cadena pública: nada se guarda ni se envía a ningún otro sitio.",loading:"Leyendo la cadena… puede tardar un momento.",capNote:"Mostrando tus últimas 500 transacciones.",year:"Año",allTime:"Todo el tiempo",realized:"Ganancia / pérdida realizada",buys:"Compras totales (valor)",sells:"Ventas totales (valor)",scanned:"Transacciones revisadas",colToken:"Token",colBought:"Comprado",colSold:"Vendido",colAvg:"Precio medio de compra",colPL:"G/P realizada",colHold:"Tenencia actual",colValue:"Valor actual",method:"La G/P realizada usa el método de costo medio, estimación. Valores convertidos a precios de hoy.",disclaimer:"Estimaciones del historial en cadena. No es asesoría fiscal.",unkNote:"{n} vendido con costo desconocido — fuera de ganancias/pérdidas.",badAddr:"Eso no parece una dirección de Terra Classic.",errNet:"No se pudo leer la cadena. Revisa tu conexión e inténtalo de nuevo.",empty:"No se encontraron transacciones para esta billetera.",download:"Descargar CSV"},
+pt:{title:"💰 Relatório de Lucros e Impostos",langLabel:"Idioma",sub:"Cole uma carteira Terra Classic e veja compras, vendas e lucro — por token e por ano.",go:"IR",addrPh:"Endereço de carteira Terra Classic (terra1…)",privacy:"Somente colar — sem conectar carteira. Seu endereço é lido apenas da cadeia pública — nada é guardado nem enviado a outro lugar.",loading:"Lendo a cadeia… pode demorar um momento.",capNote:"Mostrando suas últimas 500 transações.",year:"Ano",allTime:"Todo o período",realized:"Lucro / prejuízo realizado",buys:"Compras totais (valor)",sells:"Vendas totais (valor)",scanned:"Transações verificadas",colToken:"Token",colBought:"Comprado",colSold:"Vendido",colAvg:"Preço médio de compra",colPL:"L/P realizado",colHold:"Saldo atual",colValue:"Valor atual",method:"O L/P realizado usa o método de custo médio, estimativa. Valores convertidos aos preços de hoje.",disclaimer:"Estimativas do histórico na cadeia. Não é consultoria fiscal.",unkNote:"{n} vendido com custo desconhecido — fora do lucro/prejuízo.",badAddr:"Isso não parece um endereço Terra Classic.",errNet:"Não foi possível ler a cadeia. Verifique sua conexão e tente novamente.",empty:"Nenhuma transação encontrada para esta carteira.",download:"Baixar CSV"},
+fr:{title:"💰 Rapport Profits et Impôts",langLabel:"Langue",sub:"Collez un portefeuille Terra Classic et obtenez ses achats, ventes et profits — par jeton et par année.",go:"GO",addrPh:"Adresse de portefeuille Terra Classic (terra1…)",privacy:"Coller uniquement — aucune connexion de portefeuille. Votre adresse est seulement lue sur la chaîne publique — rien n'est stocké ni envoyé ailleurs.",loading:"Lecture de la chaîne… cela peut prendre un moment.",capNote:"Affichage de vos 500 dernières transactions.",year:"Année",allTime:"Tout",realized:"Profit / perte réalisé",buys:"Achats totaux (valeur)",sells:"Ventes totales (valeur)",scanned:"Transactions analysées",colToken:"Jeton",colBought:"Acheté",colSold:"Vendu",colAvg:"Prix d'achat moyen",colPL:"P/P réalisé",colHold:"Détenu",colValue:"Valeur actuelle",method:"Le P/P réalisé utilise la méthode du coût moyen, estimation. Valeurs converties aux prix du jour.",disclaimer:"Estimations d'après l'historique sur la chaîne. Pas un conseil fiscal.",unkNote:"{n} vendu à coût inconnu — exclu du profit/perte.",badAddr:"Cela ne ressemble pas à une adresse Terra Classic.",errNet:"Impossible de lire la chaîne. Vérifiez votre connexion et réessayez.",empty:"Aucune transaction trouvée pour ce portefeuille.",download:"Télécharger le CSV"},
+de:{title:"💰 Gewinn- & Steuerbericht",langLabel:"Sprache",sub:"Terra-Classic-Wallet einfügen und Käufe, Verkäufe und Gewinn sehen — pro Token und Jahr.",go:"LOS",addrPh:"Terra-Classic-Wallet-Adresse (terra1…)",privacy:"Nur einfügen — keine Wallet-Verbindung. Ihre Adresse wird nur von der öffentlichen Chain gelesen — nichts wird gespeichert oder anderswohin gesendet.",loading:"Chain wird gelesen… das kann einen Moment dauern.",capNote:"Anzeige Ihrer letzten 500 Transaktionen.",year:"Jahr",allTime:"Gesamt",realized:"Realisierter Gewinn / Verlust",buys:"Käufe gesamt (Wert)",sells:"Verkäufe gesamt (Wert)",scanned:"Transaktionen geprüft",colToken:"Token",colBought:"Gekauft",colSold:"Verkauft",colAvg:"Ø Kaufpreis",colPL:"Realisierte G/V",colHold:"Bestand jetzt",colValue:"Wert jetzt",method:"Realisierte G/V nach Durchschnittskosten-Methode, Schätzung. Werte zu heutigen Preisen umgerechnet.",disclaimer:"Schätzungen aus der On-Chain-Historie. Keine Steuerberatung.",unkNote:"{n} mit unbekannten Kosten verkauft — nicht in Gewinn/Verlust enthalten.",badAddr:"Das sieht nicht nach einer Terra-Classic-Adresse aus.",errNet:"Chain konnte nicht gelesen werden. Verbindung prüfen und erneut versuchen.",empty:"Keine Transaktionen für diese Wallet gefunden.",download:"CSV herunterladen"},
+it:{title:"💰 Rapporto Profitti e Tasse",langLabel:"Lingua",sub:"Incolla un wallet Terra Classic e vedi acquisti, vendite e profitto — per token e per anno.",go:"VAI",addrPh:"Indirizzo wallet Terra Classic (terra1…)",privacy:"Solo incolla — nessuna connessione wallet. Il tuo indirizzo viene solo letto dalla chain pubblica — nulla viene salvato o inviato altrove.",loading:"Lettura della chain… potrebbe volerci un momento.",capNote:"Visualizzate le tue ultime 500 transazioni.",year:"Anno",allTime:"Sempre",realized:"Profitto / perdita realizzato",buys:"Acquisti totali (valore)",sells:"Vendite totali (valore)",scanned:"Transazioni analizzate",colToken:"Token",colBought:"Comprato",colSold:"Venduto",colAvg:"Prezzo medio di acquisto",colPL:"P/P realizzato",colHold:"Detenuto ora",colValue:"Valore ora",method:"Il P/P realizzato usa il metodo del costo medio, stima. Valori convertiti ai prezzi di oggi.",disclaimer:"Stime dalla cronologia on-chain. Non è consulenza fiscale.",unkNote:"{n} venduto con costo sconosciuto — escluso da profitti/perdite.",badAddr:"Non sembra un indirizzo Terra Classic.",errNet:"Impossibile leggere la chain. Controlla la connessione e riprova.",empty:"Nessuna transazione trovata per questo wallet.",download:"Scarica CSV"},
+nl:{title:"💰 Winst- & Belastingrapport",langLabel:"Taal",sub:"Plak een Terra Classic-wallet en zie aankopen, verkopen en winst — per token en per jaar.",go:"GO",addrPh:"Terra Classic-walletadres (terra1…)",privacy:"Alleen plakken — geen wallet koppelen. Je adres wordt alleen van de openbare chain gelezen — er wordt niets opgeslagen of ergens anders heen gestuurd.",loading:"Chain wordt gelezen… dit kan even duren.",capNote:"Je laatste 500 transacties worden getoond.",year:"Jaar",allTime:"Altijd",realized:"Gerealiseerde winst / verlies",buys:"Aankopen totaal (waarde)",sells:"Verkopen totaal (waarde)",scanned:"Transacties gescand",colToken:"Token",colBought:"Gekocht",colSold:"Verkocht",colAvg:"Gem. koopprijs",colPL:"Gerealiseerde W/V",colHold:"Nu in bezit",colValue:"Waarde nu",method:"Gerealiseerde W/V gebruikt de gemiddelde-kostenmethode, schatting. Waarden omgerekend tegen prijzen van vandaag.",disclaimer:"Schattingen uit de on-chain historie. Geen belastingadvies.",unkNote:"{n} verkocht met onbekende kosten — niet in winst/verlies.",badAddr:"Dat lijkt geen Terra Classic-adres.",errNet:"Kon de chain niet lezen. Controleer je verbinding en probeer opnieuw.",empty:"Geen transacties gevonden voor deze wallet.",download:"CSV downloaden"},
+ru:{title:"💰 Отчёт о прибыли и налогах",langLabel:"Язык",sub:"Вставьте кошелёк Terra Classic и получите покупки, продажи и прибыль — по токенам и годам.",go:"GO",addrPh:"Адрес кошелька Terra Classic (terra1…)",privacy:"Только вставка — без подключения кошелька. Ваш адрес только читается из публичной сети — ничего не хранится и никуда не отправляется.",loading:"Читаем сеть… это может занять время.",capNote:"Показаны ваши последние 500 транзакций.",year:"Год",allTime:"За всё время",realized:"Реализованная прибыль / убыток",buys:"Покупки всего (стоимость)",sells:"Продажи всего (стоимость)",scanned:"Транзакций проверено",colToken:"Токен",colBought:"Куплено",colSold:"Продано",colAvg:"Средняя цена покупки",colPL:"Реализ. П/У",colHold:"Сейчас на балансе",colValue:"Стоимость сейчас",method:"Реализованные П/У — метод средней стоимости, оценка. Значения пересчитаны по сегодняшним ценам.",disclaimer:"Оценки по истории в сети. Не налоговая консультация.",unkNote:"{n} продано с неизвестной стоимостью — не входит в прибыль/убыток.",badAddr:"Это не похоже на адрес Terra Classic.",errNet:"Не удалось прочитать сеть. Проверьте соединение и попробуйте снова.",empty:"Транзакций для этого кошелька не найдено.",download:"Скачать CSV"},
+uk:{title:"💰 Звіт про прибуток і податки",langLabel:"Мова",sub:"Вставте гаманець Terra Classic і отримайте покупки, продажі та прибуток — за токенами та роками.",go:"GO",addrPh:"Адреса гаманця Terra Classic (terra1…)",privacy:"Лише вставка — без підключення гаманця. Ваша адреса лише читається з публічної мережі — нічого не зберігається і нікуди не надсилається.",loading:"Читаємо мережу… це може зайняти час.",capNote:"Показано ваші останні 500 транзакцій.",year:"Рік",allTime:"За весь час",realized:"Реалізований прибуток / збиток",buys:"Покупки всього (вартість)",sells:"Продажі всього (вартість)",scanned:"Транзакцій перевірено",colToken:"Токен",colBought:"Куплено",colSold:"Продано",colAvg:"Середня ціна купівлі",colPL:"Реаліз. П/З",colHold:"Зараз на балансі",colValue:"Вартість зараз",method:"Реалізовані П/З — метод середньої вартості, оцінка. Значення перераховано за сьогоднішніми цінами.",disclaimer:"Оцінки за історією в мережі. Не податкова консультація.",unkNote:"{n} продано з невідомою вартістю — не входить у прибуток/збиток.",badAddr:"Це не схоже на адресу Terra Classic.",errNet:"Не вдалося прочитати мережу. Перевірте з'єднання та спробуйте знову.",empty:"Транзакцій для цього гаманця не знайдено.",download:"Завантажити CSV"},
+tr:{title:"💰 Kâr ve Vergi Raporu",langLabel:"Dil",sub:"Bir Terra Classic cüzdanı yapıştırın; alımlarını, satımlarını ve kârını görün — token ve yıl bazında.",go:"GO",addrPh:"Terra Classic cüzdan adresi (terra1…)",privacy:"Yalnızca yapıştırın — cüzdan bağlama yok. Adresiniz yalnızca herkese açık zincirden okunur — hiçbir şey saklanmaz veya başka bir yere gönderilmez.",loading:"Zincir okunuyor… biraz sürebilir.",capNote:"Son 500 işleminiz gösteriliyor.",year:"Yıl",allTime:"Tüm zamanlar",realized:"Gerçekleşen kâr / zarar",buys:"Toplam alımlar (değer)",sells:"Toplam satımlar (değer)",scanned:"Taranan işlemler",colToken:"Token",colBought:"Alınan",colSold:"Satılan",colAvg:"Ort. alış fiyatı",colPL:"Gerçekleşen K/Z",colHold:"Şu an elde",colValue:"Şu anki değer",method:"Gerçekleşen K/Z ortalama maliyet yöntemiyle hesaplanır, tahmindir. Değerler bugünkü fiyatlarla çevrilmiştir.",disclaimer:"Zincir geçmişinden tahminler. Vergi danışmanlığı değildir.",unkNote:"{n} maliyeti bilinmeden satıldı — kâr/zarara dahil değil.",badAddr:"Bu bir Terra Classic adresine benzemiyor.",errNet:"Zincir okunamadı. Bağlantınızı kontrol edip tekrar deneyin.",empty:"Bu cüzdan için işlem bulunamadı.",download:"CSV indir"},
+ar:{title:"💰 تقرير الأرباح والضرائب",langLabel:"اللغة",sub:"الصق محفظة Terra Classic واحصل على مشترياتها ومبيعاتها وأرباحها — حسب الرمز والسنة.",go:"ابدأ",addrPh:"عنوان محفظة Terra Classic (terra1…)",privacy:"لصق فقط — بدون ربط محفظة. يتم قراءة عنوانك فقط من السلسلة العامة — لا يتم حفظ أي شيء أو إرساله إلى أي مكان آخر.",loading:"جارٍ قراءة السلسلة… قد يستغرق ذلك لحظة.",capNote:"يتم عرض آخر 500 معاملة لك.",year:"السنة",allTime:"كل الوقت",realized:"الربح / الخسارة المحقق",buys:"إجمالي المشتريات (القيمة)",sells:"إجمالي المبيعات (القيمة)",scanned:"المعاملات المفحوصة",colToken:"الرمز",colBought:"تم شراؤه",colSold:"تم بيعه",colAvg:"متوسط سعر الشراء",colPL:"الربح/الخسارة المحقق",colHold:"المحتفظ به الآن",colValue:"القيمة الآن",method:"يستخدم الربح/الخسارة المحقق طريقة متوسط التكلفة، وهو تقدير. القيم محولة بأسعار اليوم.",disclaimer:"تقديرات من سجل السلسلة. ليست نصيحة ضريبية.",unkNote:"تم بيع {n} بتكلفة غير معروفة — مستبعد من الربح/الخسارة.",badAddr:"هذا لا يبدو عنوان Terra Classic.",errNet:"تعذر قراءة السلسلة. تحقق من اتصالك وحاول مرة أخرى.",empty:"لم يتم العثور على معاملات لهذه المحفظة.",download:"تنزيل CSV"},
+hi:{title:"💰 लाभ और कर रिपोर्ट",langLabel:"भाषा",sub:"Terra Classic वॉलेट चिपकाएँ और उसकी खरीद, बिक्री और लाभ देखें — प्रति टोकन, प्रति वर्ष।",go:"GO",addrPh:"Terra Classic वॉलेट पता (terra1…)",privacy:"केवल चिपकाएँ — कोई वॉलेट कनेक्ट नहीं। आपका पता केवल सार्वजनिक चेन से पढ़ा जाता है — कुछ भी संग्रहीत या कहीं और नहीं भेजा जाता।",loading:"चेन पढ़ा जा रहा है… इसमें थोड़ा समय लग सकता है।",capNote:"आपके अंतिम 500 लेनदेन दिखाए जा रहे हैं।",year:"वर्ष",allTime:"सभी समय",realized:"वास्तविक लाभ / हानि",buys:"कुल खरीद (मूल्य)",sells:"कुल बिक्री (मूल्य)",scanned:"स्कैन किए गए लेनदेन",colToken:"टोकन",colBought:"खरीदा",colSold:"बेचा",colAvg:"औसत खरीद मूल्य",colPL:"वास्तविक लाभ/हानि",colHold:"अभी रखा है",colValue:"अभी का मूल्य",method:"वास्तविक लाभ/हानि औसत-लागत विधि से है, अनुमान। मूल्य आज की कीमतों पर बदले गए हैं।",disclaimer:"ऑन-चेन इतिहास से अनुमान। कर सलाह नहीं।",unkNote:"{n} अज्ञात लागत पर बेचा गया — लाभ/हानि से बाहर।",badAddr:"यह Terra Classic पता नहीं लगता।",errNet:"चेन नहीं पढ़ सका। अपना कनेक्शन जांचें और फिर कोशिश करें।",empty:"इस वॉलेट के लिए कोई लेनदेन नहीं मिला।",download:"CSV डाउनलोड करें"},
+id:{title:"💰 Laporan Laba & Pajak",langLabel:"Bahasa",sub:"Tempel dompet Terra Classic dan lihat pembelian, penjualan, dan labanya — per token, per tahun.",go:"GO",addrPh:"Alamat dompet Terra Classic (terra1…)",privacy:"Hanya tempel — tanpa menghubungkan dompet. Alamat Anda hanya dibaca dari rantai publik — tidak ada yang disimpan atau dikirim ke tempat lain.",loading:"Membaca rantai… ini bisa memakan waktu sebentar.",capNote:"Menampilkan 500 transaksi terakhir Anda.",year:"Tahun",allTime:"Semua waktu",realized:"Laba / rugi terealisasi",buys:"Total pembelian (nilai)",sells:"Total penjualan (nilai)",scanned:"Transaksi dipindai",colToken:"Token",colBought:"Dibeli",colSold:"Dijual",colAvg:"Harga beli rata-rata",colPL:"L/R terealisasi",colHold:"Dimiliki sekarang",colValue:"Nilai sekarang",method:"L/R terealisasi memakai metode biaya rata-rata, perkiraan. Nilai dikonversi dengan harga hari ini.",disclaimer:"Perkiraan dari riwayat on-chain. Bukan saran pajak.",unkNote:"{n} terjual dengan biaya tidak diketahui — di luar laba/rugi.",badAddr:"Itu tidak terlihat seperti alamat Terra Classic.",errNet:"Tidak dapat membaca rantai. Periksa koneksi Anda dan coba lagi.",empty:"Tidak ada transaksi ditemukan untuk dompet ini.",download:"Unduh CSV"},
+vi:{title:"💰 Báo cáo Lãi & Thuế",langLabel:"Ngôn ngữ",sub:"Dán ví Terra Classic và xem các giao dịch mua, bán và lợi nhuận — theo token, theo năm.",go:"GO",addrPh:"Địa chỉ ví Terra Classic (terra1…)",privacy:"Chỉ dán — không kết nối ví. Địa chỉ của bạn chỉ được đọc từ chuỗi công khai — không lưu trữ hay gửi đi nơi khác.",loading:"Đang đọc chuỗi… có thể mất một lúc.",capNote:"Hiển thị 500 giao dịch gần nhất của bạn.",year:"Năm",allTime:"Tất cả",realized:"Lãi / lỗ đã thực hiện",buys:"Tổng mua (giá trị)",sells:"Tổng bán (giá trị)",scanned:"Giao dịch đã quét",colToken:"Token",colBought:"Đã mua",colSold:"Đã bán",colAvg:"Giá mua trung bình",colPL:"Lãi/lỗ đã thực hiện",colHold:"Đang giữ",colValue:"Giá trị hiện tại",method:"Lãi/lỗ đã thực hiện dùng phương pháp chi phí trung bình, ước tính. Giá trị quy đổi theo giá hôm nay.",disclaimer:"Ước tính từ lịch sử on-chain. Không phải tư vấn thuế.",unkNote:"{n} đã bán với chi phí không rõ — không tính vào lãi/lỗ.",badAddr:"Địa chỉ này không giống địa chỉ Terra Classic.",errNet:"Không đọc được chuỗi. Kiểm tra kết nối và thử lại.",empty:"Không tìm thấy giao dịch cho ví này.",download:"Tải CSV"},
+th:{title:"💰 รายงานกำไรและภาษี",langLabel:"ภาษา",sub:"วางกระเป๋า Terra Classic แล้วดูการซื้อ ขาย และกำไร — แยกตามโทเคนและปี",go:"ไป",addrPh:"ที่อยู่กระเป๋า Terra Classic (terra1…)",privacy:"วางเท่านั้น — ไม่ต้องเชื่อมต่อกระเป๋า ที่อยู่ของคุณถูกอ่านจากเชนสาธารณะเท่านั้น — ไม่มีการจัดเก็บหรือส่งไปที่อื่น",loading:"กำลังอ่านเชน… อาจใช้เวลาสักครู่",capNote:"แสดง 500 ธุรกรรมล่าสุดของคุณ",year:"ปี",allTime:"ทั้งหมด",realized:"กำไร / ขาดทุนที่เกิดขึ้นจริง",buys:"ซื้อทั้งหมด (มูลค่า)",sells:"ขายทั้งหมด (มูลค่า)",scanned:"ธุรกรรมที่สแกน",colToken:"โทเคน",colBought:"ซื้อ",colSold:"ขาย",colAvg:"ราคาซื้อเฉลี่ย",colPL:"กำไร/ขาดทุนจริง",colHold:"ถืออยู่ตอนนี้",colValue:"มูลค่าตอนนี้",method:"กำไร/ขาดทุนจริงใช้วิธีต้นทุนเฉลี่ย เป็นการประมาณการ มูลค่าแปลงตามราคาวันนี้",disclaimer:"ประมาณการจากประวัติ on-chain ไม่ใช่คำแนะนำด้านภาษี",unkNote:"ขาย {n} โดยไม่ทราบต้นทุน — ไม่รวมในกำไร/ขาดทุน",badAddr:"ที่อยู่นี้ไม่เหมือนที่อยู่ Terra Classic",errNet:"อ่านเชนไม่ได้ ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง",empty:"ไม่พบธุรกรรมสำหรับกระเป๋านี้",download:"ดาวน์โหลด CSV"},
+zh:{title:"💰 利润与税务报告",langLabel:"语言",sub:"粘贴 Terra Classic 钱包，即可查看其买入、卖出和利润 — 按代币、按年份。",go:"查询",addrPh:"Terra Classic 钱包地址 (terra1…)",privacy:"仅粘贴 — 无需连接钱包。您的地址仅从公共链读取 — 不存储、不发送到任何其他地方。",loading:"正在读取链上数据…可能需要一点时间。",capNote:"显示您最近的 500 笔交易。",year:"年份",allTime:"全部时间",realized:"已实现利润 / 亏损",buys:"总买入（价值）",sells:"总卖出（价值）",scanned:"已扫描交易",colToken:"代币",colBought:"买入",colSold:"卖出",colAvg:"平均买入价",colPL:"已实现盈亏",colHold:"当前持有",colValue:"当前价值",method:"已实现盈亏采用平均成本法，属估算。价值按今日价格换算。",disclaimer:"基于链上历史的估算。非税务建议。",unkNote:"有 {n} 笔卖出成本未知 — 未计入盈亏。",badAddr:"这不像是 Terra Classic 地址。",errNet:"无法读取链上数据。请检查网络后重试。",empty:"未找到此钱包的交易。",download:"下载 CSV"},
+ja:{title:"💰 利益・税金レポート",langLabel:"言語",sub:"Terra Classic ウォレットを貼り付けると、購入・売却・利益をトークン別・年別に表示します。",go:"GO",addrPh:"Terra Classic ウォレットアドレス (terra1…)",privacy:"貼り付けのみ — ウォレット接続なし。アドレスは公開チェーンから読み取るだけです — 保存も送信もされません。",loading:"チェーンを読み取り中…少々お待ちください。",capNote:"直近500件の取引を表示しています。",year:"年",allTime:"全期間",realized:"実現損益",buys:"購入合計（金額）",sells:"売却合計（金額）",scanned:"スキャンした取引",colToken:"トークン",colBought:"購入",colSold:"売却",colAvg:"平均購入価格",colPL:"実現損益",colHold:"現在の保有",colValue:"現在の価値",method:"実現損益は平均コスト法による見積もりです。金額は本日の価格で換算しています。",disclaimer:"オンチェーン履歴に基づく見積もりです。税務アドバイスではありません。",unkNote:"コスト不明の売却が {n} 件 — 損益には含まれません。",badAddr:"Terra Classic のアドレスではないようです。",errNet:"チェーンを読み取れませんでした。接続を確認して再試行してください。",empty:"このウォレットの取引は見つかりませんでした。",download:"CSVをダウンロード"},
+ko:{title:"💰 수익 및 세금 보고서",langLabel:"언어",sub:"Terra Classic 지갑을 붙여넣으면 매수, 매도, 수익을 토큰별·연도별로 보여줍니다.",go:"GO",addrPh:"Terra Classic 지갑 주소 (terra1…)",privacy:"붙여넣기만 — 지갑 연결 없음. 주소는 공개 체인에서만 읽으며, 아무것도 저장되거나 다른 곳으로 전송되지 않습니다.",loading:"체인을 읽는 중… 잠시 걸릴 수 있습니다.",capNote:"최근 500건의 거래를 표시합니다.",year:"연도",allTime:"전체 기간",realized:"실현 손익",buys:"총 매수 (금액)",sells:"총 매도 (금액)",scanned:"스캔한 거래",colToken:"토큰",colBought:"매수",colSold:"매도",colAvg:"평균 매수가",colPL:"실현 손익",colHold:"현재 보유",colValue:"현재 가치",method:"실현 손익은 평균 원가법으로 계산한 추정치입니다. 금액은 오늘 가격으로 환산했습니다.",disclaimer:"온체인 기록 기반 추정치입니다. 세무 조언이 아닙니다.",unkNote:"원가를 알 수 없는 매도 {n}건 — 손익에서 제외됩니다.",badAddr:"Terra Classic 주소가 아닌 것 같습니다.",errNet:"체인을 읽을 수 없습니다. 연결을 확인하고 다시 시도하세요.",empty:"이 지갑의 거래를 찾을 수 없습니다.",download:"CSV 다운로드"}
+};
+</script>
+<script>
+"use strict";
+var $ = function(id){ return document.getElementById(id); };
+var lang = localStorage.getItem("taxreport_lang") || "en";
+if (!I18N[lang]) lang = "en";
+function T(k){ return (I18N[lang] && I18N[lang][k]) || I18N.en[k] || k; }
+
+var langSel = $("langSel");
+Object.keys(LANG_NAMES).forEach(function(code){
+  var o = document.createElement("option");
+  o.value = code; o.textContent = LANG_NAMES[code];
+  langSel.appendChild(o);
+});
+langSel.value = lang;
+langSel.addEventListener("change", function(){
+  lang = langSel.value;
+  localStorage.setItem("taxreport_lang", lang);
+  applyLang();
+  if (lastReport) render();
+});
+function applyLang(){
+  document.documentElement.lang = lang;
+  document.documentElement.dir = (lang === "ar") ? "rtl" : "ltr";
+  $("t-title").textContent = T("title");
+  $("t-langLabel").textContent = T("langLabel");
+  $("t-sub").textContent = T("sub");
+  $("addrInput").placeholder = T("addrPh");
+  $("goBtn").textContent = T("go");
+  $("t-privacy").textContent = T("privacy");
+  $("t-year").textContent = T("year");
+  $("t-allTime").textContent = T("allTime");
+  $("t-realized").textContent = T("realized");
+  $("t-buys").textContent = T("buys");
+  $("t-sells").textContent = T("sells");
+  $("t-scanned").textContent = T("scanned");
+  $("t-colToken").textContent = T("colToken");
+  $("t-colBought").textContent = T("colBought");
+  $("t-colSold").textContent = T("colSold");
+  $("t-colAvg").textContent = T("colAvg");
+  $("t-colPL").textContent = T("colPL");
+  $("t-colHold").textContent = T("colHold");
+  $("t-colValue").textContent = T("colValue");
+  $("t-download").textContent = T("download");
+  $("t-method").textContent = T("method");
+  $("t-disclaimer").textContent = T("disclaimer");
+}
+
+/* ---------------- chain access ---------------- */
+var FCD = "https://terra-classic-fcd.publicnode.com/v1/txs";
+var LCD = "https://terra-classic-lcd.publicnode.com";
+var FACTORY = "terra1jkndu9w5attpz09ut02sgey5dd3e8sq5watzm0";
+var FEE_COLLECTOR = "terra17xpfvakm2amg962yls6f84z3kell8c5lkaeqfa";
+var MAX_TX = 500, MAX_CW20_PRICE = 15, MAX_CW20_BAL = 30;
+var QUOTES = { uluna:"LUNC", uusd:"USTC" };
+
+function jget(url){ return fetch(url).then(function(r){ if (!r.ok) throw new Error("http " + r.status); return r.json(); }); }
+function smartQuery(contract, msg){
+  var b64 = btoa(unescape(encodeURIComponent(JSON.stringify(msg))));
+  return jget(LCD + "/cosmwasm/wasm/v1/contract/" + contract + "/smart/" + encodeURIComponent(b64))
+    .then(function(r){ return r.data; });
+}
+function fetchPrices(){
+  var p = { LUNC:null, USTC:null };
+  function tick(id){ return jget("https://api.coinpaprika.com/v1/tickers/" + id).then(function(d){ return d && d.quotes && d.quotes.USD ? d.quotes.USD.price : null; }); }
+  return Promise.all([
+    tick("lunc-terra-classic").catch(function(){ return null; }),
+    tick("ustc-terra-classic").catch(function(){ return tick("ust-terrausd"); }).catch(function(){ return null; })
+  ]).then(function(v){ p.LUNC = v[0]; p.USTC = v[1]; return p; });
+}
+function fetchTxs(addr){
+  var all = [], seen = {};
+  function page(offset){
+    var url = FCD + "?account=" + encodeURIComponent(addr) + "&limit=100" + (offset ? "&offset=" + offset : "");
+    return jget(url).then(function(d){
+      var txs = (d && d.txs) || [];
+      for (var i = 0; i < txs.length; i++){
+        if (txs[i].txhash && !seen[txs[i].txhash]){ seen[txs[i].txhash] = 1; all.push(txs[i]); }
+      }
+      if (all.length >= MAX_TX || !d.next || !txs.length) return all.slice(0, MAX_TX);
+      return page(d.next);
+    });
+  }
+  return page(null);
+}
+function fetchNativeBalances(addr){
+  return jget(LCD + "/cosmos/bank/v1beta1/balances/" + addr)
+    .then(function(d){
+      var out = {};
+      ((d && d.balances) || []).forEach(function(b){ out[b.denom] = Number(b.amount); });
+      return out;
+    }).catch(function(){ return {}; });
+}
+
+/* ---------------- parsing helpers ---------------- */
+function attrsOf(ev){
+  var o = {};
+  (ev.attributes || []).forEach(function(a){ if (!(a.key in o)) o[a.key] = a.value; });
+  return o;
+}
+function parseCoins(s){
+  var out = [];
+  String(s || "").split(",").forEach(function(part){
+    var m = part.trim().match(/^(\d+)([a-zA-Z][a-zA-Z0-9]*)$/);
+    if (m) out.push({ denom:m[2], amount:Number(m[1]) });
+  });
+  return out;
+}
+function parseAssetInfo(s){
+  try {
+    var o = JSON.parse(s);
+    if (o.token && o.token.contract_addr) return { kind:"cw20", id:o.token.contract_addr };
+    if (o.native_token && o.native_token.denom) return { kind:"native", id:o.native_token.denom };
+    if (typeof o.cw20 === "string") return { kind:"cw20", id:o.cw20 };
+    if (typeof o.native === "string") return { kind:"native", id:o.native };
+  } catch(e){}
+  return null;
+}
+function assetKey(a){ return a.kind + ":" + a.id; }
+function isQuote(a){ return a.kind === "native" && !!QUOTES[a.id]; }
+
+/* ---------------- ledger ---------------- */
+function newAsset(a){
+  return { key:assetKey(a), kind:a.kind, id:a.id, symbol:null, decimals:6,
+    boughtQty:0, soldQty:0, pricedBuyQty:0, pricedBuyCostUSD:0, buyValueUSD:0, sellValueUSD:0,
+    realizedPL:0, unknownCostSoldQty:0, transfersInQty:0, transfersOutQty:0,
+    knownQty:0, knownCostUSD:0, unknownQty:0, holding:null, priceUSD:null, valueUSD:null };
+}
+function getAsset(map, a){
+  var k = assetKey(a);
+  if (!map[k]) map[k] = newAsset(a);
+  return map[k];
+}
+function regBuy(map, a, qty, costUSD){
+  var e = getAsset(map, a);
+  e.boughtQty += qty; e.pricedBuyQty += qty; e.pricedBuyCostUSD += costUSD; e.buyValueUSD += costUSD;
+  e.knownQty += qty; e.knownCostUSD += costUSD;
+}
+function regSell(map, a, qty, proceedsUSD){
+  var e = getAsset(map, a);
+  e.soldQty += qty; e.sellValueUSD += proceedsUSD;
+  var total = e.knownQty + e.unknownQty;
+  if (total <= 0){ e.unknownCostSoldQty += qty; return; }
+  if (qty >= total){
+    var knownPart = e.knownQty;
+    if (knownPart > 0 && qty > 0){
+      e.realizedPL += proceedsUSD * (knownPart / qty) - e.knownCostUSD;
+    }
+    e.unknownCostSoldQty += (qty - knownPart);
+    e.knownQty = 0; e.knownCostUSD = 0; e.unknownQty = 0;
+    return;
+  }
+  var fromKnown = qty * (e.knownQty / total);
+  var fromUnknown = qty - fromKnown;
+  var costRemoved = e.knownQty > 0 ? e.knownCostUSD * (fromKnown / e.knownQty) : 0;
+  e.realizedPL += (qty > 0 ? proceedsUSD * (fromKnown / qty) : 0) - costRemoved;
+  e.unknownCostSoldQty += fromUnknown;
+  e.knownQty -= fromKnown; e.knownCostUSD -= costRemoved; e.unknownQty -= fromUnknown;
+}
+function regTransferIn(map, a, qty){
+  var e = getAsset(map, a);
+  e.transfersInQty += qty; e.unknownQty += qty;
+}
+function regTransferOut(map, a, qty){
+  var e = getAsset(map, a);
+  e.transfersOutQty += qty;
+  var total = e.knownQty + e.unknownQty;
+  if (total <= 0) return;
+  var r = Math.min(qty, total);
+  var kPart = r * (e.knownQty / total), uPart = r - kPart;
+  if (e.knownQty > 0) e.knownCostUSD -= e.knownCostUSD * (kPart / e.knownQty);
+  e.knownQty -= kPart; e.unknownQty -= uPart;
+}
+function human(raw, dec){ return raw / Math.pow(10, dec); }
+
+function buildReport(txs, addr, tokenInfo, prices, yearFilter){
+  var map = {};
+  function decOf(a){
+    if (a.kind === "native") return 6;
+    var ti = tokenInfo[a.id];
+    return ti && ti.decimals != null ? ti.decimals : 6;
+  }
+  function usdRate(a){ return a.id === "uluna" ? prices.LUNC : a.id === "uusd" ? prices.USTC : null; }
+  var scanned = 0;
+  var sorted = txs.slice().sort(function(x, y){
+    var hx = Number(x.height || 0), hy = Number(y.height || 0);
+    return hx - hy;
+  });
+  sorted.forEach(function(tx){
+    if (tx.code && Number(tx.code) !== 0) return;
+    var yr = tx.timestamp ? new Date(tx.timestamp).getFullYear() : null;
+    if (yearFilter !== "all" && yr !== Number(yearFilter)) return;
+    scanned++;
+    var events = [];
+    (tx.logs || []).forEach(function(l){ (l.events || []).forEach(function(ev){ events.push(ev); }); });
+    var swaps = [];
+    events.forEach(function(ev){
+      if (ev.type !== "wasm") return;
+      var at = attrsOf(ev);
+      if (at.action !== "swap") return;
+      if (at.sender && at.sender !== addr) return;
+      var offer = parseAssetInfo(at.offer_asset_info || at.offer_asset);
+      var ret = parseAssetInfo(at.return_asset_info || at.ask_asset_info || at.return_asset);
+      var offerAmt = Number(at.offer_amount || 0);
+      var retAmt = Number(at.return_amount || at.ask_amount || 0);
+      if (offer && ret && offerAmt > 0 && retAmt > 0) swaps.push({ offer:offer, ret:ret, offerAmt:offerAmt, retAmt:retAmt });
+    });
+    if (swaps.length){
+      swaps.forEach(function(sw){
+        var oQ = isQuote(sw.offer), rQ = isQuote(sw.ret);
+        var oQty = human(sw.offerAmt, decOf(sw.offer)), rQty = human(sw.retAmt, decOf(sw.ret));
+        if (rQ && !oQ){
+          var rate = usdRate(sw.ret);
+          if (rate != null) regSell(map, sw.offer, oQty, rQty * rate);
+          else { regTransferOut(map, sw.offer, oQty); }
+        } else if (oQ && !rQ){
+          var rate2 = usdRate(sw.offer);
+          if (rate2 != null) regBuy(map, sw.ret, rQty, oQty * rate2);
+          else { regTransferIn(map, sw.ret, rQty); }
+        } else if (oQ && rQ){
+          var rate3 = usdRate(sw.ret), rate4 = usdRate(sw.offer);
+          if (rate3 != null) regSell(map, sw.offer, oQty, rQty * rate3);
+          if (rate3 != null) regBuy(map, sw.ret, rQty, rQty * rate3);
+          else if (rate4 != null) regBuy(map, sw.ret, rQty, oQty * rate4);
+        } else {
+          regTransferOut(map, sw.offer, oQty);
+          regTransferIn(map, sw.ret, rQty);
+        }
+      });
+      return;
+    }
+    events.forEach(function(ev){
+      var at = attrsOf(ev);
+      if (ev.type === "transfer"){
+        parseCoins(at.amount).forEach(function(c){
+          var a = { kind:"native", id:c.denom };
+          var qty = human(c.amount, 6);
+          if (at.sender === addr && at.recipient && at.recipient !== addr && at.recipient !== FEE_COLLECTOR) regTransferOut(map, a, qty);
+          else if (at.recipient === addr && at.sender !== addr) regTransferIn(map, a, qty);
+        });
+      } else if (ev.type === "wasm"){
+        var contract = at._contract_address;
+        if (!contract) return;
+        var a2 = { kind:"cw20", id:contract };
+        var amt = Number(at.amount || 0);
+        if (!amt) return;
+        var qty2 = human(amt, decOf(a2));
+        if (at.action === "transfer" || at.action === "send"){
+          if (at.from === addr && at.to !== addr) regTransferOut(map, a2, qty2);
+          else if (at.to === addr && at.from !== addr) regTransferIn(map, a2, qty2);
+        } else if (at.action === "mint"){
+          if (at.recipient === addr || at.to === addr) regTransferIn(map, a2, qty2);
+        } else if (at.action === "burn"){
+          if (at.from === addr) regTransferOut(map, a2, qty2);
+        }
+      }
+    });
+  });
+  var rows = Object.keys(map).map(function(k){ return map[k]; });
+  rows.forEach(function(e){
+    if (e.kind === "native"){
+      e.symbol = QUOTES[e.id] || e.id;
+      e.decimals = 6;
+    } else {
+      var ti = tokenInfo[e.id];
+      e.symbol = (ti && ti.symbol) || (e.id.slice(0, 10) + "…");
+      e.decimals = ti && ti.decimals != null ? ti.decimals : 6;
+    }
+    e.avgBuyUSD = e.pricedBuyQty > 0 ? e.pricedBuyCostUSD / e.pricedBuyQty : null;
+  });
+  rows.sort(function(a, b){ return (b.buyValueUSD + b.sellValueUSD) - (a.buyValueUSD + a.sellValueUSD); });
+  var totPL = 0, totBuys = 0, totSells = 0, totUnknown = 0;
+  rows.forEach(function(e){ totPL += e.realizedPL; totBuys += e.buyValueUSD; totSells += e.sellValueUSD; totUnknown += e.unknownCostSoldQty; });
+  return { address:addr, year:yearFilter, txsScanned:scanned, capped:txs.length >= MAX_TX,
+    totalRealizedPL:totPL, totalBuysUSD:totBuys, totalSellsUSD:totSells,
+    unknownCostSoldQty:totUnknown, rows:rows, prices:prices };
+}
+
+/* ---------------- CW20 info / holdings / prices ---------------- */
+function collectContracts(txs){
+  var set = {};
+  txs.forEach(function(tx){
+    (tx.logs || []).forEach(function(l){
+      (l.events || []).forEach(function(ev){
+        if (ev.type !== "wasm") return;
+        var at = attrsOf(ev);
+        if (at._contract_address) set[at._contract_address] = 1;
+        ["offer_asset_info", "return_asset_info", "ask_asset_info", "offer_asset", "return_asset"].forEach(function(k){
+          var a = parseAssetInfo(at[k]);
+          if (a && a.kind === "cw20") set[a.id] = 1;
+        });
+      });
+    });
+  });
+  return Object.keys(set);
+}
+function fetchTokenInfos(contracts){
+  var info = {};
+  var list = contracts.slice(0, 60);
+  return Promise.all(list.map(function(c){
+    return smartQuery(c, { token_info:{} }).then(function(d){
+      if (d && d.symbol) info[c] = { symbol:d.symbol, decimals:d.decimals, name:d.name };
+    }).catch(function(){});
+  })).then(function(){ return info; });
+}
+function fetchCw20Balances(addr, contracts){
+  var out = {};
+  var list = contracts.slice(0, MAX_CW20_BAL);
+  return Promise.all(list.map(function(c){
+    return smartQuery(c, { balance:{ address:addr } }).then(function(d){
+      if (d && d.balance != null) out[c] = Number(d.balance);
+    }).catch(function(){});
+  })).then(function(){ return out; });
+}
+function cw20PriceUSD(contract, tokenInfo, prices){
+  if (prices.LUNC == null) return Promise.resolve(null);
+  var dec = tokenInfo[contract] && tokenInfo[contract].decimals != null ? tokenInfo[contract].decimals : 6;
+  return smartQuery(FACTORY, { pair:{ asset_infos:[ { token:{ contract_addr:contract } }, { native_token:{ denom:"uluna" } } ] } })
+    .then(function(pair){
+      if (!pair || !pair.contract_addr) return null;
+      return smartQuery(pair.contract_addr, { pool:{} }).then(function(pool){
+        var assets = (pool && pool.assets) || [];
+        var tokAmt = null, lunaAmt = null;
+        assets.forEach(function(x){
+          if (x.info && x.info.token && x.info.token.contract_addr === contract) tokAmt = Number(x.amount);
+          if (x.info && x.info.native_token && x.info.native_token.denom === "uluna") lunaAmt = Number(x.amount);
+        });
+        if (!tokAmt || !lunaAmt) return null;
+        var priceLuncPerToken = (lunaAmt / 1e6) / (tokAmt / Math.pow(10, dec));
+        return priceLuncPerToken * prices.LUNC;
+      });
+    }).catch(function(){ return null; });
+}
+
+/* ---------------- formatting / render ---------------- */
+function fmtQty(n){
+  if (n == null || !isFinite(n)) return "—";
+  if (n !== 0 && Math.abs(n) < 0.0001) return n.toExponential(2);
+  return n.toLocaleString("en-US", { maximumFractionDigits: n >= 1000 ? 2 : 4 });
+}
+function fmtUSD(n){
+  if (n == null || !isFinite(n)) return "—";
+  var s = Math.abs(n) >= 0.01 || n === 0 ? n.toFixed(2) : n.toPrecision(2);
+  return (n < 0 ? "-$" : "$") + Math.abs(Number(s)).toLocaleString("en-US", { minimumFractionDigits:2, maximumFractionDigits:2 });
+}
+function fmtPrice(n){
+  if (n == null || !isFinite(n)) return "—";
+  if (n >= 0.01) return "$" + n.toLocaleString("en-US", { maximumFractionDigits:4 });
+  return "$" + n.toPrecision(3);
+}
+var lastReport = null, lastCtx = null, yearFilter = "all";
+
+function render(){
+  var r = lastReport;
+  if (!r) return;
+  $("report").className = "show";
+  var pl = $("sumPL");
+  pl.textContent = fmtUSD(r.totalRealizedPL);
+  pl.className = "v " + (r.totalRealizedPL > 0 ? "pos" : r.totalRealizedPL < 0 ? "neg" : "");
+  $("sumBuys").textContent = fmtUSD(r.totalBuysUSD);
+  $("sumSells").textContent = fmtUSD(r.totalSellsUSD);
+  $("sumTxs").textContent = r.txsScanned.toLocaleString("en-US");
+  var cap = $("capNote");
+  if (r.capped){ cap.style.display = ""; cap.textContent = T("capNote"); } else cap.style.display = "none";
+  var unk = $("unkNote");
+  if (r.unknownCostSoldQty > 0){ unk.style.display = ""; unk.textContent = T("unkNote").replace("{n}", fmtQty(r.unknownCostSoldQty)); }
+  else unk.style.display = "none";
+  var tb = $("tbody");
+  tb.innerHTML = "";
+  r.rows.forEach(function(e){
+    var tr = document.createElement("tr");
+    function td(txt, cls){ var c = document.createElement("td"); c.textContent = txt; if (cls) c.className = cls; tr.appendChild(c); return c; }
+    td(e.symbol, "sym");
+    td(fmtQty(e.boughtQty));
+    td(fmtQty(e.soldQty));
+    td(fmtPrice(e.avgBuyUSD));
+    var plc = td(fmtUSD(e.realizedPL));
+    if (e.realizedPL > 0) plc.className = "pos"; else if (e.realizedPL < 0) plc.className = "neg";
+    td(e.holding != null ? fmtQty(e.holding) : "—");
+    td(e.valueUSD != null ? fmtUSD(e.valueUSD) : "—");
+    tb.appendChild(tr);
+  });
+  if (!r.rows.length){
+    var tr2 = document.createElement("tr");
+    var c2 = document.createElement("td");
+    c2.colSpan = 7; c2.textContent = T("empty");
+    tr2.appendChild(c2); tb.appendChild(tr2);
+  }
+  window.__tax = r;
+}
+
+function computeAndRender(){
+  if (!lastCtx) return;
+  lastReport = buildReport(lastCtx.txs, lastCtx.addr, lastCtx.tokenInfo, lastCtx.prices, yearFilter);
+  /* holdings are current (not year-scoped) */
+  lastReport.rows.forEach(function(e){
+    if (e.kind === "native"){
+      var raw = lastCtx.nativeBal[e.id];
+      e.holding = raw != null ? raw / 1e6 : null;
+      e.priceUSD = e.id === "uluna" ? lastCtx.prices.LUNC : e.id === "uusd" ? lastCtx.prices.USTC : null;
+    } else {
+      var rawB = lastCtx.cw20Bal[e.id];
+      e.holding = rawB != null ? rawB / Math.pow(10, e.decimals) : null;
+      e.priceUSD = lastCtx.cw20Prices[e.id] != null ? lastCtx.cw20Prices[e.id] : null;
+    }
+    e.valueUSD = (e.holding != null && e.priceUSD != null) ? e.holding * e.priceUSD : null;
+  });
+  render();
+}
+
+/* ---------------- main flow ---------------- */
+function showErr(msg){ var e = $("errBox"); e.textContent = msg || ""; e.className = "err" + (msg ? " show" : ""); }
+function showStatus(msg){ var e = $("statusBox"); e.textContent = msg || ""; e.className = "status" + (msg ? " show" : ""); }
+
+function run(){
+  var addr = $("addrInput").value.trim();
+  if (!/^terra1[a-z0-9]{38}([a-z0-9]{20})?$/.test(addr)){ showErr(T("badAddr")); return; }
+  showErr(""); showStatus(T("loading"));
+  $("goBtn").disabled = true;
+  Promise.all([ fetchTxs(addr), fetchPrices(), fetchNativeBalances(addr) ])
+    .then(function(res){
+      var txs = res[0], prices = res[1], nativeBal = res[2];
+      var contracts = collectContracts(txs);
+      return fetchTokenInfos(contracts).then(function(tokenInfo){
+        return fetchCw20Balances(addr, contracts).then(function(cw20Bal){
+          lastCtx = { addr:addr, txs:txs, prices:prices, nativeBal:nativeBal, tokenInfo:tokenInfo, cw20Bal:cw20Bal, cw20Prices:{} };
+          computeAndRender();
+          showStatus("");
+          /* spot prices for held CW20s, best-effort, then re-render */
+          var held = lastReport.rows.filter(function(e){ return e.kind === "cw20" && e.holding > 0; }).slice(0, MAX_CW20_PRICE);
+          if (held.length){
+            Promise.all(held.map(function(e){
+              return cw20PriceUSD(e.id, tokenInfo, prices).then(function(p){ if (p != null) lastCtx.cw20Prices[e.id] = p; });
+            })).then(function(){ computeAndRender(); });
+          }
+        });
+      });
+    })
+    .catch(function(){ showErr(T("errNet")); showStatus(""); })
+    .then(function(){ $("goBtn").disabled = false; });
+}
+$("goBtn").addEventListener("click", run);
+$("addrInput").addEventListener("keydown", function(e){ if (e.key === "Enter") run(); });
+document.querySelectorAll(".ybtn").forEach(function(b){
+  b.addEventListener("click", function(){
+    document.querySelectorAll(".ybtn").forEach(function(x){ x.classList.remove("on"); });
+    b.classList.add("on");
+    yearFilter = b.getAttribute("data-year");
+    computeAndRender();
+  });
+});
+$("csvBtn").addEventListener("click", function(){
+  var r = lastReport;
+  if (!r) return;
+  function q(s){ return '"' + String(s == null ? "" : s).replace(/"/g, '""') + '"'; }
+  var lines = [];
+  lines.push(q("Profit & Tax Report — Terra Classic"));
+  lines.push(q("Address") + "," + q(r.address));
+  lines.push(q("Year") + "," + q(r.year));
+  lines.push(q("Transactions scanned") + "," + r.txsScanned);
+  lines.push(q("Realized P/L (USD, average-cost method, estimate)") + "," + r.totalRealizedPL.toFixed(2));
+  lines.push(q("Total buys value (USD)") + "," + r.totalBuysUSD.toFixed(2));
+  lines.push(q("Total sells value (USD)") + "," + r.totalSellsUSD.toFixed(2));
+  lines.push(q("Sold with unknown cost (qty, excluded from P/L)") + "," + r.unknownCostSoldQty);
+  lines.push("");
+  lines.push(["Token","Type","ID","Bought","Sold","Avg buy price (USD)","Realized P/L (USD)","Holding now","Price now (USD)","Value now (USD)","Sold with unknown cost (qty)"].join(","));
+  r.rows.forEach(function(e){
+    lines.push([ q(e.symbol), q(e.kind), q(e.id),
+      e.boughtQty, e.soldQty,
+      e.avgBuyUSD != null ? e.avgBuyUSD : "",
+      e.realizedPL.toFixed(2),
+      e.holding != null ? e.holding : "",
+      e.priceUSD != null ? e.priceUSD : "",
+      e.valueUSD != null ? e.valueUSD.toFixed(2) : "",
+      e.unknownCostSoldQty ].join(","));
+  });
+  lines.push("");
+  lines.push(q("Estimates from on-chain history. Not tax advice."));
+  var blob = new Blob([lines.join("\n")], { type:"text/csv" });
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "tax-report-" + r.address.slice(0, 12) + "-" + r.year + ".csv";
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 500);
+});
+
+applyLang();
+window.__tax = null;
+</script>
+</body>
+</html>
