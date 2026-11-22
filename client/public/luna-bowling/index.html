@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<base href="/luna-bowling/">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Luna Bowling — LUNC Dev Studio</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{width:100%;height:100%;overflow:hidden;background:#05060f;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;color:#eaf2ff;touch-action:none;user-select:none;-webkit-user-select:none}
+  #game{position:fixed;inset:0}
+  canvas{display:block}
+  .hidden{display:none !important}
+
+  /* ---------- language selector ---------- */
+  #langWrap{position:fixed;top:calc(6px + env(safe-area-inset-top));right:8px;z-index:90;display:flex;align-items:center;gap:6px;background:rgba(8,12,30,.88);border:1px solid #ffd23e;border-radius:999px;padding:6px 11px;box-shadow:0 0 14px rgba(255,210,62,.35)}
+  #langWrap span{font-size:18px}
+  #langSel{background:transparent;border:none;color:#ffd23e;font-size:15px;font-weight:700;outline:none;max-width:132px}
+  #langSel option{background:#0b1030;color:#fff}
+
+  /* ---------- score sheet ---------- */
+  #sheet{position:fixed;top:calc(48px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);z-index:60;display:flex;gap:2px;background:rgba(6,9,24,.82);border:1px solid rgba(140,180,255,.4);border-radius:8px;padding:3px;max-width:97vw}
+  .fr{flex:0 0 auto;width:32px;text-align:center;border-radius:4px;background:rgba(20,30,60,.55);padding:2px 0 3px}
+  .fr.cur{outline:2px solid #ffd23e;background:rgba(80,60,0,.5)}
+  .fr .fn{font-size:8.5px;font-weight:800;color:#9db8e8;letter-spacing:.5px}
+  .fr .fm{font-size:11.5px;font-weight:800;color:#fff;min-height:14px;letter-spacing:1px;white-space:nowrap}
+  .fr .ft{font-size:12.5px;font-weight:900;color:#ffd23e;min-height:15px}
+  .fr.w10{width:44px}
+  @media (max-width:420px){ .fr{width:29px} .fr.w10{width:40px} }
+
+  /* ---------- HUD ---------- */
+  #hud{position:fixed;top:calc(108px + env(safe-area-inset-top));left:8px;z-index:55;background:rgba(6,9,24,.78);border:1px solid rgba(140,180,255,.4);border-radius:12px;padding:6px 12px;pointer-events:none}
+  #hud .lab{font-size:9.5px;font-weight:800;letter-spacing:1.5px;color:#9db8e8}
+  #hud .val{font-size:23px;font-weight:900;color:#fff;line-height:1.05}
+  #hudTotal{color:#ffd23e}
+  #msg{position:fixed;top:26%;left:0;right:0;z-index:70;text-align:center;font-size:clamp(30px,9vw,52px);font-weight:900;font-style:italic;letter-spacing:1px;color:#ffd23e;text-shadow:0 0 24px rgba(255,180,0,.85),0 3px 0 #7a4a00;opacity:0;transition:opacity .18s;pointer-events:none}
+  #msg.show{opacity:1}
+  #msg small{display:block;font-size:clamp(14px,4.4vw,20px);color:#cfe2ff;font-style:normal;letter-spacing:2px;text-shadow:0 2px 8px #000}
+
+  /* ---------- controls ---------- */
+  #ctrl{position:fixed;left:0;right:0;bottom:0;z-index:65;padding:10px 14px calc(12px + env(safe-area-inset-bottom));background:linear-gradient(180deg,rgba(5,6,15,0),rgba(5,6,15,.88) 38%);text-align:center}
+  #phaseLab{font-size:13px;font-weight:800;letter-spacing:2px;color:#cfe2ff;text-shadow:0 1px 5px #000;margin-bottom:7px}
+  #phaseLab b{color:#ffd23e}
+  #powerWrap{width:min(430px,88vw);height:20px;margin:0 auto 10px;border:2px solid rgba(160,190,255,.65);border-radius:999px;background:rgba(10,14,34,.85);overflow:hidden;position:relative}
+  #powerBar{height:100%;width:0%;background:linear-gradient(90deg,#37e08b,#ffd23e 62%,#ff5340);border-radius:999px}
+  #powerSweet{position:absolute;top:0;bottom:0;left:74%;width:16%;background:rgba(255,255,255,.16);border-left:1px dashed rgba(255,255,255,.5);border-right:1px dashed rgba(255,255,255,.5)}
+  #throwBtn{display:block;width:min(330px,86vw);margin:0 auto;padding:16px 18px;border:none;border-radius:16px;font-size:21px;font-weight:900;letter-spacing:1.5px;cursor:pointer;color:#231300;background:linear-gradient(180deg,#ffd23e,#ff9a1f);box-shadow:0 5px 0 #9c4d00,0 12px 24px rgba(0,0,0,.55)}
+  #throwBtn:active{transform:translateY(3px);box-shadow:0 2px 0 #9c4d00}
+  #throwBtn:disabled{filter:grayscale(.6) brightness(.6);box-shadow:0 5px 0 #444}
+  #hookLab{margin-top:7px;font-size:12px;font-weight:700;color:#9db8e8;letter-spacing:1px;min-height:15px}
+
+  /* ---------- overlays ---------- */
+  .screen{position:fixed;inset:0;z-index:80;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;background:radial-gradient(ellipse at 50% 118%,rgba(40,90,255,.30),rgba(3,4,12,.62) 62%);text-align:center}
+  .titleArt{font-size:clamp(42px,12.5vw,80px);font-weight:900;font-style:italic;letter-spacing:1px;line-height:.95;color:#fff;text-shadow:0 0 26px rgba(90,160,255,.9),0 3px 0 #1c3f7c,0 6px 0 rgba(0,0,0,.5);transform:skewX(-6deg)}
+  .titleArt .gold{color:#ffd23e;text-shadow:0 0 26px rgba(255,180,0,.8),0 3px 0 #8a5a00,0 6px 0 rgba(0,0,0,.5)}
+  .tagline{margin-top:10px;font-size:clamp(14px,4.4vw,20px);font-weight:800;letter-spacing:3px;color:#cfe2ff;text-shadow:0 2px 8px #000}
+  .btn{display:block;width:min(320px,84vw);margin:12px auto 0;padding:15px 18px;border:none;border-radius:14px;font-size:20px;font-weight:900;letter-spacing:1px;cursor:pointer;color:#231300;background:linear-gradient(180deg,#ffd23e,#ff9a1f);box-shadow:0 5px 0 #9c4d00,0 10px 22px rgba(0,0,0,.5)}
+  .btn:active{transform:translateY(3px);box-shadow:0 2px 0 #9c4d00}
+  .btn.dark{color:#dbe9ff;background:linear-gradient(180deg,#22335e,#111a33);box-shadow:0 5px 0 #05080f,0 10px 22px rgba(0,0,0,.5);border:1px solid #7fa8ff}
+  .bestLine{margin-top:14px;font-size:15px;font-weight:700;color:#ffd23e;text-shadow:0 1px 4px #000}
+  .howCard{margin-top:16px;background:rgba(8,12,30,.9);border:1px solid rgba(140,180,255,.45);border-radius:14px;padding:12px 16px;max-width:min(430px,92vw);font-size:14.5px;line-height:1.5;color:#dbe9ff}
+  #finalScore{font-size:clamp(52px,16vw,84px);font-weight:900;color:#ffd23e;text-shadow:0 0 30px rgba(255,180,0,.75);line-height:1}
+  #newBest{font-size:17px;font-weight:900;color:#37e08b;letter-spacing:1px;margin-top:6px;min-height:20px}
+  #muteBtn{position:fixed;top:calc(6px + env(safe-area-inset-top));left:8px;z-index:90;width:42px;height:42px;border-radius:50%;border:1px solid rgba(140,180,255,.55);background:rgba(8,12,30,.88);color:#fff;font-size:19px;cursor:pointer}
+</style>
+<script type="importmap">{"imports":{"three":"./lib/three.module.js"}}</script>
+</head>
+<body>
+<div id="game"></div>
+
+<button id="muteBtn" aria-label="Sound">🔊</button>
+<div id="langWrap"><span>🌐</span><select id="langSel" aria-label="Language"></select></div>
+
+<!-- compact score sheet -->
+<div id="sheet" class="hidden"></div>
+
+<!-- HUD -->
+<div id="hud" class="hidden">
+  <div class="lab" data-i18n="frame">FRAME</div><div class="val" id="hudFrame">1</div>
+  <div class="lab" data-i18n="total">TOTAL</div><div class="val" id="hudTotal">0</div>
+</div>
+<div id="msg"></div>
+
+<!-- controls -->
+<div id="ctrl" class="hidden">
+  <div id="phaseLab"></div>
+  <div id="powerWrap" class="hidden"><div id="powerSweet"></div><div id="powerBar"></div></div>
+  <button id="throwBtn" data-i18n="throw">THROW</button>
+  <div id="hookLab"></div>
+</div>
+
+<!-- menu -->
+<div id="menu" class="screen">
+  <div class="titleArt">LUNA <span class="gold">BOWLING</span></div>
+  <div class="tagline" id="tagline">Ten pins. One moon. No gravity excuses.</div>
+  <button class="btn" id="playBtn" data-i18n="play">▶ PLAY</button>
+  <div class="bestLine" id="bestLine"></div>
+  <div class="howCard" id="howto">Drag to aim ◀ ▶ · hold THROW for power · drag sideways for curve · release to bowl!</div>
+</div>
+
+<!-- game over -->
+<div id="over" class="screen hidden">
+  <div class="titleArt" style="font-size:clamp(32px,9vw,54px)" data-i18n="gameOver">GAME OVER</div>
+  <div class="tagline" data-i18n="yourScore">YOUR SCORE</div>
+  <div id="finalScore">0</div>
+  <div id="newBest"></div>
+  <button class="btn" id="againBtn" data-i18n="newGame">NEW GAME</button>
+  <button class="btn dark" id="menuBtn" data-i18n="menu">MAIN MENU</button>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+const $ = id => document.getElementById(id);
+
+/* ================= i18n (house 18-language gate) ================= */
+const LANGS=[["en","English"],["es","Español"],["pt","Português"],["fr","Français"],["de","Deutsch"],["it","Italiano"],["nl","Nederlands"],["ru","Русский"],["uk","Українська"],["tr","Türkçe"],["ar","العربية"],["hi","हिन्दी"],["id","Bahasa Indonesia"],["vi","Tiếng Việt"],["th","ไทย"],["ko","한국어"],["ja","日本語"],["zh","简体中文"]];
+const I18N={
+en:{tagline:"Ten pins. One moon. No gravity excuses.",howto:"Drag to aim ◀ ▶ · hold THROW for power · drag sideways for curve · release to bowl!",play:"▶ PLAY",frame:"FRAME",ball:"BALL",total:"TOTAL",throw:"🎳 THROW",aimPhase:"Drag on the lane to <b>AIM</b>",powerPhase:"Drag sideways for <b>CURVE</b> — release to throw!",strike:"STRIKE!",spare:"SPARE!",gutter:"GUTTER BALL",pins:"PINS",gameOver:"GAME OVER",yourScore:"YOUR SCORE",newGame:"NEW GAME",menu:"MAIN MENU",best:"BEST",newBest:"★ NEW BEST!"},
+es:{tagline:"Diez bolos. Una luna. Sin excusas de gravedad.",howto:"Arrastra para apuntar ◀ ▶ · mantén LANZAR para potencia · arrastra de lado para efecto · ¡suelta para jugar!",play:"▶ JUGAR",frame:"TURNO",ball:"BOLA",total:"TOTAL",throw:"🎳 LANZAR",aimPhase:"Arrastra en la pista para <b>APUNTAR</b>",powerPhase:"Arrastra de lado para <b>EFECTO</b> — ¡suelta para lanzar!",strike:"¡PLENO!",spare:"¡SEMI PLENO!",gutter:"BOLA AL CANAL",pins:"BOLOS",gameOver:"FIN DEL JUEGO",yourScore:"TU PUNTUACIÓN",newGame:"NUEVA PARTIDA",menu:"MENÚ PRINCIPAL",best:"RÉCORD",newBest:"★ ¡NUEVO RÉCORD!"},
+pt:{tagline:"Dez pinos. Uma lua. Sem desculpas de gravidade.",howto:"Arraste para mirar ◀ ▶ · segure LANÇAR para força · arraste de lado para curva · solte para jogar!",play:"▶ JOGAR",frame:"QUADRO",ball:"BOLA",total:"TOTAL",throw:"🎳 LANÇAR",aimPhase:"Arraste na pista para <b>MIRAR</b>",powerPhase:"Arraste de lado para <b>CURVA</b> — solte para lançar!",strike:"STRIKE!",spare:"SPARE!",gutter:"BOLA NA CANALETA",pins:"PINOS",gameOver:"FIM DE JOGO",yourScore:"SUA PONTUAÇÃO",newGame:"NOVO JOGO",menu:"MENU PRINCIPAL",best:"RECORDE",newBest:"★ NOVO RECORDE!"},
+fr:{tagline:"Dix quilles. Une lune. Aucune excuse de gravité.",howto:"Glissez pour viser ◀ ▶ · maintenez LANCER pour la puissance · glissez de côté pour l'effet · relâchez pour jouer !",play:"▶ JOUER",frame:"MANCHE",ball:"BOULE",total:"TOTAL",throw:"🎳 LANCER",aimPhase:"Glissez sur la piste pour <b>VISER</b>",powerPhase:"Glissez de côté pour l'<b>EFFET</b> — relâchez pour lancer !",strike:"STRIKE !",spare:"SPARE !",gutter:"BOULE DANS LE DALOT",pins:"QUILLES",gameOver:"PARTIE TERMINÉE",yourScore:"VOTRE SCORE",newGame:"NOUVELLE PARTIE",menu:"MENU PRINCIPAL",best:"RECORD",newBest:"★ NOUVEAU RECORD !"},
+de:{tagline:"Zehn Pins. Ein Mond. Keine Schwerkraft-Ausreden.",howto:"Ziehen zum Zielen ◀ ▶ · WERFEN halten für Power · seitwärts ziehen für Drall · loslassen zum Werfen!",play:"▶ SPIELEN",frame:"FRAME",ball:"BALL",total:"GESAMT",throw:"🎳 WERFEN",aimPhase:"Auf der Bahn ziehen zum <b>ZIELEN</b>",powerPhase:"Seitwärts ziehen für <b>DRALL</b> — loslassen zum Werfen!",strike:"STRIKE!",spare:"SPARE!",gutter:"RINNENBALL",pins:"PINS",gameOver:"SPIEL VORBEI",yourScore:"DEIN ERGEBNIS",newGame:"NEUES SPIEL",menu:"HAUPTMENÜ",best:"REKORD",newBest:"★ NEUER REKORD!"},
+it:{tagline:"Dieci birilli. Una luna. Niente scuse di gravità.",howto:"Trascina per mirare ◀ ▶ · tieni LANCIA per la potenza · trascina di lato per l'effetto · rilascia per giocare!",play:"▶ GIOCA",frame:"FRAME",ball:"PALLA",total:"TOTALE",throw:"🎳 LANCIA",aimPhase:"Trascina sulla pista per <b>MIRARE</b>",powerPhase:"Trascina di lato per l'<b>EFFETTO</b> — rilascia per lanciare!",strike:"STRIKE!",spare:"SPARE!",gutter:"PALLA IN CANALINA",pins:"BIRILLI",gameOver:"PARTITA FINITA",yourScore:"IL TUO PUNTEGGIO",newGame:"NUOVA PARTITA",menu:"MENU PRINCIPALE",best:"RECORD",newBest:"★ NUOVO RECORD!"},
+nl:{tagline:"Tien pins. Eén maan. Geen zwaartekracht-excuses.",howto:"Sleep om te richten ◀ ▶ · houd WERPEN vast voor kracht · sleep zijwaarts voor curve · loslaten om te gooien!",play:"▶ SPELEN",frame:"FRAME",ball:"BAL",total:"TOTAAL",throw:"🎳 WERPEN",aimPhase:"Sleep op de baan om te <b>RICHTEN</b>",powerPhase:"Sleep zijwaarts voor <b>CURVE</b> — loslaten om te werpen!",strike:"STRIKE!",spare:"SPARE!",gutter:"GOOTBAL",pins:"PINS",gameOver:"SPEL VOORBIJ",yourScore:"JOUW SCORE",newGame:"NIEUW SPEL",menu:"HOOFDMENU",best:"RECORD",newBest:"★ NIEUW RECORD!"},
+ru:{tagline:"Десять кеглей. Одна луна. Никаких оправданий гравитацией.",howto:"Тяни, чтобы прицелиться ◀ ▶ · держи БРОСОК для силы · тяни вбок для подкрутки · отпусти, чтобы бросить!",play:"▶ ИГРАТЬ",frame:"ФРЕЙМ",ball:"ШАР",total:"ИТОГО",throw:"🎳 БРОСОК",aimPhase:"Тяни по дорожке, чтобы <b>ПРИЦЕЛИТЬСЯ</b>",powerPhase:"Тяни вбок для <b>ПОДКРУТКИ</b> — отпусти для броска!",strike:"СТРАЙК!",spare:"СПЭА!",gutter:"ШАР В ЖЕЛОБЕ",pins:"КЕГЛЕЙ",gameOver:"ИГРА ОКОНЧЕНА",yourScore:"ТВОЙ СЧЁТ",newGame:"НОВАЯ ИГРА",menu:"ГЛАВНОЕ МЕНЮ",best:"РЕКОРД",newBest:"★ НОВЫЙ РЕКОРД!"},
+uk:{tagline:"Десять кегель. Один місяць. Жодних виправдань гравітацією.",howto:"Тягни, щоб прицілитися ◀ ▶ · тримай КИДОК для сили · тягни вбік для підкрутки · відпусти, щоб кинути!",play:"▶ ГРАТИ",frame:"ФРЕЙМ",ball:"КУЛЯ",total:"РАЗОМ",throw:"🎳 КИДОК",aimPhase:"Тягни по доріжці, щоб <b>ПРИЦІЛИТИСЯ</b>",powerPhase:"Тягни вбік для <b>ПІДКРУТКИ</b> — відпусти для кидка!",strike:"СТРАЙК!",spare:"СПЕА!",gutter:"КУЛЯ В ЖОЛОБІ",pins:"КЕГЕЛЬ",gameOver:"ГРУ ЗАВЕРШЕНО",yourScore:"ТВІЙ РАХУНОК",newGame:"НОВА ГРА",menu:"ГОЛОВНЕ МЕНЮ",best:"РЕКОРД",newBest:"★ НОВИЙ РЕКОРД!"},
+tr:{tagline:"On labut. Bir ay. Yerçekimi bahanesi yok.",howto:"Nişan için sürükle ◀ ▶ · güç için AT basılı tut · eğri için yana sürükle · bırak ve fırlat!",play:"▶ OYNA",frame:"FRAME",ball:"TOP",total:"TOPLAM",throw:"🎳 AT",aimPhase:"<b>NİŞAN</b> için parkurda sürükle",powerPhase:"<b>EĞRİ</b> için yana sürükle — bırak ve at!",strike:"STRIKE!",spare:"SPARE!",gutter:"OLUK TOPU",pins:"LABUT",gameOver:"OYUN BİTTİ",yourScore:"SKORUN",newGame:"YENİ OYUN",menu:"ANA MENÜ",best:"REKOR",newBest:"★ YENİ REKOR!"},
+ar:{tagline:"عشرة قوارير. قمر واحد. لا أعذار للجاذبية.",howto:"اسحب للتصويب ◀ ▶ · اضغط مطولاً على ارمِ للقوة · اسحب جانبياً للانحناء · أفلت للرمي!",play:"▶ العب",frame:"الجولة",ball:"الكرة",total:"المجموع",throw:"🎳 ارمِ",aimPhase:"اسحب على المسار <b>للتصويب</b>",powerPhase:"اسحب جانبياً <b>للانحناء</b> — أفلت للرمي!",strike:"سترايك!",spare:"سبير!",gutter:"كرة في المجرى",pins:"قوارير",gameOver:"انتهت اللعبة",yourScore:"نتيجتك",newGame:"لعبة جديدة",menu:"القائمة الرئيسية",best:"الأفضل",newBest:"★ رقم قياسي جديد!"},
+hi:{tagline:"दस पिन। एक चाँद। गुरुत्वाकर्षण का कोई बहाना नहीं।",howto:"निशाने के लिए खींचो ◀ ▶ · शक्ति के लिए फेंको दबाए रखो · मोड़ के लिए बग़ल में खींचो · छोड़ो और गेंदबाज़ी करो!",play:"▶ खेलो",frame:"फ़्रेम",ball:"गेंद",total:"कुल",throw:"🎳 फेंको",aimPhase:"<b>निशाना</b> लगाने के लिए लेन पर खींचो",powerPhase:"<b>मोड़</b> के लिए बग़ल में खींचो — छोड़कर फेंको!",strike:"स्ट्राइक!",spare:"स्पेयर!",gutter:"गटर बॉल",pins:"पिन",gameOver:"खेल खत्म",yourScore:"तुम्हारा स्कोर",newGame:"नया खेल",menu:"मुख्य मेनू",best:"सर्वश्रेष्ठ",newBest:"★ नया रिकॉर्ड!"},
+id:{tagline:"Sepuluh pin. Satu bulan. Tanpa alasan gravitasi.",howto:"Geser untuk membidik ◀ ▶ · tahan LEMPAR untuk kekuatan · geser menyamping untuk lengkungan · lepas untuk melempar!",play:"▶ MAIN",frame:"FRAME",ball:"BOLA",total:"TOTAL",throw:"🎳 LEMPAR",aimPhase:"Geser di jalur untuk <b>MEMBIDIK</b>",powerPhase:"Geser menyamping untuk <b>LENGKUNGAN</b> — lepas untuk melempar!",strike:"STRIKE!",spare:"SPARE!",gutter:"BOLA KE SELOKAN",pins:"PIN",gameOver:"PERMAINAN SELESAI",yourScore:"SKORMU",newGame:"PERMAINAN BARU",menu:"MENU UTAMA",best:"TERBAIK",newBest:"★ REKOR BARU!"},
+vi:{tagline:"Mười ky. Một mặt trăng. Không viện cớ trọng lực.",howto:"Kéo để ngắm ◀ ▶ · giữ NÉM để lấy lực · kéo ngang để xoáy · thả ra để ném!",play:"▶ CHƠI",frame:"LƯỢT",ball:"BÓNG",total:"TỔNG",throw:"🎳 NÉM",aimPhase:"Kéo trên làn để <b>NGẮM</b>",powerPhase:"Kéo ngang để <b>XOÁY</b> — thả ra để ném!",strike:"STRIKE!",spare:"SPARE!",gutter:"BÓNG XUỐNG RÃNH",pins:"KY",gameOver:"KẾT THÚC",yourScore:"ĐIỂM CỦA BẠN",newGame:"VÁN MỚI",menu:"MENU CHÍNH",best:"KỶ LỤC",newBest:"★ KỶ LỤC MỚI!"},
+th:{tagline:"สิบพิน หนึ่งดวงจันทร์ ไม่มีข้ออ้างเรื่องแรงโน้มถ่วง",howto:"ลากเพื่อเล็ง ◀ ▶ · กด โยน ค้างไว้เพื่อพลัง · ลากด้านข้างเพื่อโค้ง · ปล่อยเพื่อโยน!",play:"▶ เล่น",frame:"เฟรม",ball:"ลูก",total:"รวม",throw:"🎳 โยน",aimPhase:"ลากบนเลนเพื่อ <b>เล็ง</b>",powerPhase:"ลากด้านข้างเพื่อ <b>โค้ง</b> — ปล่อยเพื่อโยน!",strike:"สไตรก์!",spare:"สแปร์!",gutter:"ลูกลงราง",pins:"พิน",gameOver:"จบเกม",yourScore:"คะแนนของคุณ",newGame:"เกมใหม่",menu:"เมนูหลัก",best:"สถิติ",newBest:"★ สถิติใหม่!"},
+ko:{tagline:"핀 열 개. 달 하나. 중력 핑계는 없다.",howto:"드래그로 조준 ◀ ▶ · 던지기 길게 눌러 파워 · 옆으로 드래그해 커브 · 놓으면 볼링!",play:"▶ 플레이",frame:"프레임",ball:"볼",total:"합계",throw:"🎳 던지기",aimPhase:"레인에서 드래그해 <b>조준</b>",powerPhase:"옆으로 드래그해 <b>커브</b> — 놓으면 던지기!",strike:"스트라이크!",spare:"스페어!",gutter:"거터 볼",pins:"핀",gameOver:"게임 종료",yourScore:"내 점수",newGame:"새 게임",menu:"메인 메뉴",best:"최고 기록",newBest:"★ 신기록!"},
+ja:{tagline:"ピン10本。月ひとつ。重力の言い訳なし。",howto:"ドラッグで狙う ◀ ▶ · 投げるを長押しでパワー · 横ドラッグでカーブ · 離して投球！",play:"▶ プレイ",frame:"フレーム",ball:"ボール",total:"合計",throw:"🎳 投げる",aimPhase:"レーンをドラッグして <b>狙う</b>",powerPhase:"横ドラッグで <b>カーブ</b> — 離して投球！",strike:"ストライク！",spare:"スペア！",gutter:"ガター",pins:"ピン",gameOver:"ゲーム終了",yourScore:"あなたのスコア",newGame:"新しいゲーム",menu:"メインメニュー",best:"ベスト",newBest:"★ 新記録！"},
+zh:{tagline:"十个球瓶。一个 月亮。没有重力借口。",howto:"拖动瞄准 ◀ ▶ · 按住投球蓄力 · 横向拖动加旋转 · 松手投球！",play:"▶ 开始",frame:"轮次",ball:"球",total:"总分",throw:"🎳 投球",aimPhase:"在球道上拖动<b>瞄准</b>",powerPhase:"横向拖动加<b>旋转</b> — 松手投球！",strike:"全中！",spare:"补中！",gutter:"洗沟球",pins:"球瓶",gameOver:"游戏结束",yourScore:"你的分数",newGame:"新游戏",menu:"主菜单",best:"最佳",newBest:"★ 新纪录！"}
+};
+let lang = localStorage.getItem('lunaBowlLang') || 'en';
+if (!I18N[lang]) lang = 'en';
+const T = k => (I18N[lang] && I18N[lang][k]) || I18N.en[k] || k;
+const langSel = $('langSel');
+LANGS.forEach(([code,label]) => { const o=document.createElement('option'); o.value=code; o.textContent='🌐 '+label; langSel.appendChild(o); });
+langSel.value = lang;
+function applyLang(){
+  document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = T(el.getAttribute('data-i18n')); });
+  $('tagline').textContent = T('tagline');
+  $('howto').textContent = T('howto');
+  document.documentElement.lang = lang;
+  document.documentElement.dir = (lang === 'ar') ? 'rtl' : 'ltr';
+  updateBestLine(); updateHUD(); updatePhase();
+}
+langSel.onchange = () => { lang = langSel.value; localStorage.setItem('lunaBowlLang', lang); applyLang(); };
+
+/* ================= audio (WebAudio synth only) ================= */
+let AC = null, muted = localStorage.getItem('lunaBowlMute') === '1';
+function ac(){ if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === 'suspended') AC.resume(); return AC; }
+$('muteBtn').textContent = muted ? '🔇' : '🔊';
+$('muteBtn').onclick = () => { muted = !muted; localStorage.setItem('lunaBowlMute', muted ? '1' : '0'); $('muteBtn').textContent = muted ? '🔇' : '🔊'; if (muted) stopRumble(); };
+function tone(freq, dur, type, vol, when=0, slideTo=null){
+  if (muted) return; const c = ac(), t = c.currentTime + when;
+  const o = c.createOscillator(), g = c.createGain();
+  o.type = type || 'sine'; o.frequency.setValueAtTime(freq, t);
+  if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+  g.gain.setValueAtTime(vol || .18, t); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+  o.connect(g).connect(c.destination); o.start(t); o.stop(t + dur + .02);
+}
+function noiseBurst(dur, vol, freq, when=0){
+  if (muted) return; const c = ac(), t = c.currentTime + when;
+  const len = Math.max(1, (dur * c.sampleRate) | 0), buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const src = c.createBufferSource(); src.buffer = buf;
+  const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = .8;
+  const g = c.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+  src.connect(f).connect(g).connect(c.destination); src.start(t);
+}
+let rumble = null;
+function startRumble(){
+  if (muted || rumble) return; const c = ac();
+  const len = c.sampleRate, buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  const src = c.createBufferSource(); src.buffer = buf; src.loop = true;
+  const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 160;
+  const g = c.createGain(); g.gain.value = 0;
+  src.connect(f).connect(g).connect(c.destination); src.start();
+  rumble = { src, g };
+}
+function setRumble(v){ if (rumble) rumble.g.gain.setTargetAtTime(Math.min(.22, v), ac().currentTime, .06); }
+function stopRumble(){ if (rumble){ try { rumble.src.stop(); } catch(e){} rumble = null; } }
+function sndCrash(n){
+  noiseBurst(.28, .5, 1800); noiseBurst(.2, .35, 900, .02);
+  for (let i = 0; i < Math.min(6, n + 2); i++) tone(1400 + Math.random() * 1600, .07, 'triangle', .12, i * .03);
+}
+function sndStrike(){ [523,659,784,1047,1319].forEach((f,i) => tone(f, .22, 'triangle', .16, i * .07)); noiseBurst(.4, .3, 2400, .05); }
+function sndSpare(){ [523,659,784,1047].forEach((f,i) => tone(f, .2, 'triangle', .15, i * .07)); }
+function sndGutter(){ tone(300, .5, 'sawtooth', .08, 0, 90); }
+function sndThrow(){ noiseBurst(.16, .18, 500); }
+
+/* ================= three scene ================= */
+const LANE_HALF = 1.7, DECK_Z = -13.2, FOUL_Z = 6.4, BALL_R = .30, PIN_R = .21;
+const renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+$('game').appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x04050d);
+scene.fog = new THREE.Fog(0x04050d, 34, 95);
+const camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, .1, 300);
+camera.position.set(0, 3.1, 13.5); camera.lookAt(0, .6, -8);
+
+scene.add(new THREE.AmbientLight(0x8899ff, .55));
+const moonLight = new THREE.DirectionalLight(0xcfe0ff, 1.15);
+moonLight.position.set(-14, 22, 6); moonLight.castShadow = true;
+moonLight.shadow.mapSize.set(1024, 1024);
+moonLight.shadow.camera.left = -8; moonLight.shadow.camera.right = 8;
+moonLight.shadow.camera.top = 10; moonLight.shadow.camera.bottom = -22;
+moonLight.shadow.camera.far = 70; moonLight.target.position.set(0, 0, -6);
+scene.add(moonLight, moonLight.target);
+const laneGlow = new THREE.PointLight(0x66aaff, .9, 30); laneGlow.position.set(0, 5.5, -4); scene.add(laneGlow);
+const pinGlow = new THREE.PointLight(0xffd23e, .8, 14); pinGlow.position.set(0, 3.4, DECK_Z - 1); scene.add(pinGlow);
+
+/* --- canvas texture helpers --- */
+function cnv(w, h, fn){ const c = document.createElement('canvas'); c.width = w; c.height = h; fn(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.anisotropy = 4; return t; }
+function drawCrescent(x, cx, cy, r, col){
+  x.save(); x.fillStyle = col; x.beginPath(); x.arc(cx, cy, r, 0, Math.PI * 2); x.fill();
+  x.globalCompositeOperation = 'destination-out';
+  x.beginPath(); x.arc(cx + r * .42, cy - r * .22, r * .82, 0, Math.PI * 2); x.fill();
+  x.restore(); x.globalCompositeOperation = 'source-over';
+}
+
+/* --- sky: stars, Earth, crescent moon --- */
+{
+  const n = 900, pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++){
+    const a = Math.random() * Math.PI * 2, e = Math.random() * Math.PI * .55 + .06, r = 130;
+    pos[i*3] = Math.cos(a) * Math.cos(e) * r; pos[i*3+1] = Math.sin(e) * r; pos[i*3+2] = Math.sin(a) * Math.cos(e) * r - 20;
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color:0xdceaff, size:.55, sizeAttenuation:true, fog:false })));
+}
+const earthTex = cnv(512, 256, (x, w, h) => {
+  const grad = x.createLinearGradient(0, 0, 0, h); grad.addColorStop(0, '#3d7bdb'); grad.addColorStop(.5, '#2b5cb8'); grad.addColorStop(1, '#1c3f85');
+  x.fillStyle = grad; x.fillRect(0, 0, w, h);
+  x.fillStyle = '#3f9e58';
+  const blob = (bx, by, s) => { for (let i = 0; i < 7; i++){ x.beginPath(); x.ellipse(bx + (Math.random()-.5)*s, by + (Math.random()-.5)*s*.5, s*(.25+Math.random()*.3), s*(.15+Math.random()*.2), Math.random()*3, 0, Math.PI*2); x.fill(); } };
+  blob(120, 90, 90); blob(300, 140, 110); blob(420, 70, 70); blob(200, 190, 60); blob(60, 170, 50);
+  x.fillStyle = 'rgba(255,255,255,.75)';
+  for (let i = 0; i < 46; i++){ x.beginPath(); x.ellipse(Math.random()*w, Math.random()*h, 14 + Math.random()*30, 4 + Math.random()*7, (Math.random()-.5)*.5, 0, Math.PI*2); x.fill(); }
+  x.fillStyle = 'rgba(255,255,255,.9)'; x.fillRect(0, 0, w, 12); x.fillRect(0, h - 16, w, 16);
+});
+const earth = new THREE.Mesh(new THREE.SphereGeometry(17, 40, 28), new THREE.MeshPhongMaterial({ map:earthTex, shininess:18, specular:0x335577, fog:false }));
+earth.position.set(30, 26, -95); scene.add(earth);
+const moonSpr = new THREE.Sprite(new THREE.SpriteMaterial({ map: cnv(256, 256, (x) => { x.clearRect(0,0,256,256); drawCrescent(x, 128, 128, 95, '#ffd23e'); }), fog:false, transparent:true }));
+moonSpr.scale.set(13, 13, 1); moonSpr.position.set(-34, 30, -90); scene.add(moonSpr);
+
+/* --- moon ground + rocks --- */
+const groundTex = cnv(256, 256, (x, w, h) => {
+  x.fillStyle = '#565a66'; x.fillRect(0, 0, w, h);
+  for (let i = 0; i < 2600; i++){ x.fillStyle = `rgba(${Math.random()<.5?0:255},${Math.random()<.5?0:255},255,${Math.random()*.05})`; x.fillStyle = Math.random() < .5 ? 'rgba(0,0,0,.14)' : 'rgba(255,255,255,.08)'; x.fillRect(Math.random()*w, Math.random()*h, 2, 2); }
+  for (let i = 0; i < 8; i++){ x.strokeStyle = 'rgba(0,0,0,.25)'; x.lineWidth = 3; x.beginPath(); x.arc(Math.random()*w, Math.random()*h, 8 + Math.random()*22, 0, Math.PI*2); x.stroke(); }
+});
+groundTex.wrapS = groundTex.wrapT = THREE.RepeatWrapping; groundTex.repeat.set(18, 18);
+const ground = new THREE.Mesh(new THREE.CircleGeometry(120, 40), new THREE.MeshLambertMaterial({ map:groundTex }));
+ground.rotation.x = -Math.PI / 2; ground.position.y = -.32; ground.receiveShadow = true; scene.add(ground);
+const rockMat = new THREE.MeshStandardMaterial({ color:0x6a6e7a, roughness:.95, flatShading:true });
+for (let i = 0; i < 26; i++){
+  const s = .3 + Math.random() * 1.1, rock = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), rockMat);
+  const side = Math.random() < .5 ? -1 : 1;
+  rock.position.set(side * (6 + Math.random() * 26), -.2, 10 - Math.random() * 46);
+  rock.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3); rock.castShadow = true; scene.add(rock);
+}
+
+/* --- the alley --- */
+const laneTex = cnv(512, 2048, (x, w, h) => {
+  const boards = 14, bw = w / boards;
+  for (let i = 0; i < boards; i++){
+    const sh = 196 + ((i * 37) % 26) - 8;
+    x.fillStyle = `rgb(${sh},${(sh * .72)|0},${(sh * .38)|0})`; x.fillRect(i * bw, 0, bw, h);
+    x.fillStyle = 'rgba(90,50,10,.55)'; x.fillRect(i * bw, 0, 2, h);
+    for (let s = 0; s < 26; s++){ x.fillStyle = `rgba(120,70,20,${Math.random() * .13})`; x.fillRect(i * bw + Math.random() * bw, Math.random() * h, 1.6, 22 + Math.random() * 60); }
+  }
+  x.fillStyle = 'rgba(60,30,5,.75)'; /* range arrows */
+  const arrows = [[.5,.30],[.32,.345],[.68,.345],[.16,.40],[.84,.40]];
+  arrows.forEach(([ax, ay]) => { x.save(); x.translate(ax * w, ay * h); x.beginPath(); x.moveTo(0, -52); x.lineTo(11, 26); x.lineTo(-11, 26); x.closePath(); x.fill(); x.restore(); });
+  x.fillStyle = 'rgba(255,210,62,.92)'; /* LUNC branding near foul line (bottom of texture = near player) */
+  x.font = '900 92px Arial'; x.textAlign = 'center';
+  x.fillText('L U N C', w / 2, h - 120);
+  drawCrescent(x, w / 2, h - 250, 52, 'rgba(255,210,62,.92)');
+  x.fillStyle = 'rgba(30,60,140,.5)';
+  for (let i = 0; i < 7; i++){ x.beginPath(); x.arc(w * (0.14 + i * .12), h * .55, 7, 0, Math.PI * 2); x.fill(); }
+});
+const lane = new THREE.Mesh(new THREE.BoxGeometry(LANE_HALF * 2, .3, 30), new THREE.MeshPhongMaterial({ map:laneTex, shininess:90, specular:0x99bbff }));
+lane.position.set(0, -.15, -4); lane.receiveShadow = true; scene.add(lane);
+const deck = new THREE.Mesh(new THREE.BoxGeometry(LANE_HALF * 2 + .8, .3, 6.4), new THREE.MeshPhongMaterial({ color:0x8a5a28, shininess:70, specular:0x8899bb }));
+deck.position.set(0, -.151, DECK_Z - 1.4); deck.receiveShadow = true; scene.add(deck);
+const gutMat = new THREE.MeshPhongMaterial({ color:0x141824, shininess:40 });
+[-1, 1].forEach(s => {
+  const gut = new THREE.Mesh(new THREE.BoxGeometry(.55, .18, 30), gutMat);
+  gut.position.set(s * (LANE_HALF + .28), -.06, -4); scene.add(gut);
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(.16, .5, 30), new THREE.MeshStandardMaterial({ color:0x1a2138, roughness:.4, metalness:.6 }));
+  rail.position.set(s * (LANE_HALF + .62), .1, -4); rail.castShadow = true; scene.add(rail);
+  const neon = new THREE.Mesh(new THREE.BoxGeometry(.07, .07, 30), new THREE.MeshBasicMaterial({ color: s < 0 ? 0x00e5ff : 0xff3df0 }));
+  neon.position.set(s * (LANE_HALF + .62), .4, -4); scene.add(neon);
+});
+const backTex = cnv(1024, 256, (x, w, h) => {
+  const g = x.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#0a1030'); g.addColorStop(1, '#131c48');
+  x.fillStyle = g; x.fillRect(0, 0, w, h);
+  x.strokeStyle = '#ffd23e'; x.lineWidth = 5; x.strokeRect(10, 10, w - 20, h - 20);
+  drawCrescent(x, 130, h / 2, 62, '#ffd23e'); drawCrescent(x, w - 130, h / 2, 62, '#ffd23e');
+  x.fillStyle = '#fff'; x.font = '900 96px Arial'; x.textAlign = 'center';
+  x.fillText('LUNA BOWLING', w / 2, h / 2 + 6);
+  x.fillStyle = '#ffd23e'; x.font = '800 44px Arial';
+  x.fillText('☾ LUNC DEV STUDIO ☽', w / 2, h / 2 + 66);
+});
+const backWall = new THREE.Mesh(new THREE.BoxGeometry(11, 3.4, .4), new THREE.MeshPhongMaterial({ map:backTex }));
+backWall.position.set(0, 1.55, DECK_Z - 5.2); scene.add(backWall);
+const pit = new THREE.Mesh(new THREE.BoxGeometry(6.4, 2.2, .3), new THREE.MeshBasicMaterial({ color:0x02030a }));
+pit.position.set(0, .8, DECK_Z - 4.6); scene.add(pit);
+
+/* --- pins --- */
+const pinTex = cnv(128, 256, (x, w, h) => {
+  x.fillStyle = '#f7f9ff'; x.fillRect(0, 0, w, h);
+  x.fillStyle = '#e8232a'; x.fillRect(0, h * .30, w, h * .075); x.fillRect(0, h * .415, w, h * .075);
+  drawCrescent(x, w / 2, h * .68, 26, '#d9a400');
+  const sh = x.createLinearGradient(0, 0, w, 0);
+  sh.addColorStop(0, 'rgba(0,0,40,.20)'); sh.addColorStop(.5, 'rgba(255,255,255,0)'); sh.addColorStop(1, 'rgba(0,0,40,.20)');
+  x.fillStyle = sh; x.fillRect(0, 0, w, h);
+});
+const pinProfile = [[0,0],[.155,0],[.185,.03],[.20,.10],[.205,.22],[.19,.36],[.145,.52],[.105,.64],[.095,.72],[.105,.82],[.135,.92],[.14,1.0],[.115,1.08],[0,1.12]]
+  .map(p => new THREE.Vector2(p[0], p[1]));
+const pinGeo = new THREE.LatheGeometry(pinProfile, 22);
+const pinMat = new THREE.MeshPhongMaterial({ map:pinTex, shininess:65, specular:0xaabbdd });
+const PIN_SPOTS = [];
+{ const dx = .55, dz = .48;
+  PIN_SPOTS.push([0, 0]);
+  PIN_SPOTS.push([-dx/2, -dz], [dx/2, -dz]);
+  PIN_SPOTS.push([-dx, -2*dz], [0, -2*dz], [dx, -2*dz]);
+  PIN_SPOTS.push([-1.5*dx, -3*dz], [-dx/2, -3*dz], [dx/2, -3*dz], [1.5*dx, -3*dz]);
+}
+const pins = [];
+for (let i = 0; i < 10; i++){
+  const grp = new THREE.Group();
+  const m = new THREE.Mesh(pinGeo, pinMat); m.castShadow = true; grp.add(m);
+  grp.position.set(PIN_SPOTS[i][0], 0, DECK_Z + PIN_SPOTS[i][1]);
+  scene.add(grp);
+  pins.push({ grp, x:PIN_SPOTS[i][0], z:DECK_Z + PIN_SPOTS[i][1], hx:PIN_SPOTS[i][0], hz:DECK_Z + PIN_SPOTS[i][1],
+    vx:0, vz:0, standing:true, falling:false, down:false, fallT:0, axis:new THREE.Vector3(1,0,0), wob:0 });
+}
+
+/* --- ball --- */
+const ballTex = cnv(512, 256, (x, w, h) => {
+  const g = x.createRadialGradient(w*.35, h*.35, 20, w*.5, h*.5, w*.62);
+  g.addColorStop(0, '#5b2ea6'); g.addColorStop(.55, '#33186b'); g.addColorStop(1, '#170a38');
+  x.fillStyle = g; x.fillRect(0, 0, w, h);
+  x.fillStyle = 'rgba(255,255,255,.85)';
+  for (let i = 0; i < 60; i++){ x.beginPath(); x.arc(Math.random()*w, Math.random()*h, Math.random()*1.8 + .4, 0, Math.PI*2); x.fill(); }
+  drawCrescent(x, w / 2, h / 2, 62, '#ffd23e');
+  x.fillStyle = '#ffd23e'; x.font = '900 44px Arial'; x.textAlign = 'center'; x.fillText('LUNC', w / 2, h - 34);
+});
+const ball = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 30, 22), new THREE.MeshPhongMaterial({ map:ballTex, shininess:95, specular:0xccddff }));
+ball.castShadow = true; scene.add(ball);
+const aimArrow = new THREE.Mesh(new THREE.ConeGeometry(.16, .8, 4), new THREE.MeshBasicMaterial({ color:0xffd23e, transparent:true, opacity:.85 }));
+aimArrow.rotation.x = -Math.PI / 2; aimArrow.position.set(0, .06, FOUL_Z - 1.2); scene.add(aimArrow);
+
+/* ================= game state + scoring ================= */
+let phase = 'menu';           // menu | aim | power | roll | between | over
+let rolls = [], frameIdx = 0, ballInFrame = 0;   // frameIdx 0..9, ballInFrame 1..
+let standingStart = 10, rackPrev = 0;            // pins up at ball start / knocked by prev ball in same rack
+let aimX = 0, hook = 0, powerT = 0, powerDir = 1, powerVal = 0;
+let ballState = null, settleT = 0, betweenT = 0, lastActionT = 0, msgT = 0, camShake = 0;
+const clock = new THREE.Clock();
+
+function computeScores(){
+  const fs = new Array(10).fill(null); let ri = 0, total = 0;
+  for (let f = 0; f < 10; f++){
+    if (f < 9){
+      if (rolls[ri] === undefined) break;
+      if (rolls[ri] === 10){
+        if (rolls[ri+1] === undefined || rolls[ri+2] === undefined) break;
+        total += 10 + rolls[ri+1] + rolls[ri+2]; ri += 1;
+      } else {
+        if (rolls[ri+1] === undefined) break;
+        if (rolls[ri] + rolls[ri+1] === 10){
+          if (rolls[ri+2] === undefined) break;
+          total += 10 + rolls[ri+2];
+        } else total += rolls[ri] + rolls[ri+1];
+        ri += 2;
+      }
+      fs[f] = total;
+    } else {
+      const r = rolls.slice(ri);
+      if (r.length < 2) break;
+      const need = (r[0] === 10 || r[0] + r[1] === 10) ? 3 : 2;
+      if (r.length < need) break;
+      total += r[0] + r[1] + (r[2] || 0); fs[f] = total;
+    }
+  }
+  return { fs, total };
+}
+function markFor(knocked, standingBefore, prevInRack){
+  if (knocked === 0) return '–';
+  if (standingBefore === 10 && knocked === 10) return 'X';
+  if (prevInRack > 0 && prevInRack + knocked === 10) return '/';
+  if (standingBefore < 10 && knocked === standingBefore && prevInRack > 0) return '/';
+  return String(knocked);
+}
+function frameMarks(){
+  const marks = Array.from({ length:10 }, () => []); let ri = 0;
+  for (let f = 0; f < 10; f++){
+    if (f < 9){
+      if (rolls[ri] === undefined) break;
+      if (rolls[ri] === 10){ marks[f] = ['X']; ri += 1; }
+      else {
+        marks[f].push(markFor(rolls[ri], 10, 0));
+        if (rolls[ri+1] !== undefined) marks[f].push(markFor(rolls[ri+1], 10 - rolls[ri], rolls[ri]));
+        ri += 2;
+      }
+    } else {
+      let standing = 10, prev = 0;
+      for (let b = 0; b < 3 && rolls[ri] !== undefined; b++){
+        const k = rolls[ri]; marks[f].push(markFor(k, standing, prev)); ri++;
+        if (b === 0){ if (k === 10){ standing = 10; prev = 0; } else { standing = 10 - k; prev = k; } }
+        else if (b === 1){
+          const b1 = rolls[ri - 2];
+          if (b1 === 10){ if (k === 10){ standing = 10; prev = 0; } else { standing = 10 - k; prev = k; } }
+          else standing = 10; /* spare or strike path: fresh rack for ball 3 (open frame never reaches ball 3) */
+          if (b1 !== 10) prev = 0;
+        }
+      }
+    }
+  }
+  return marks;
+}
+function buildSheet(){
+  const sh = $('sheet'); sh.innerHTML = '';
+  for (let f = 0; f < 10; f++){
+    const d = document.createElement('div'); d.className = 'fr' + (f === 9 ? ' w10' : '');
+    d.innerHTML = `<div class="fn">${f + 1}</div><div class="fm" id="fm${f}"></div><div class="ft" id="ft${f}"></div>`;
+    sh.appendChild(d);
+  }
+}
+function renderSheet(){
+  const { fs } = computeScores(), marks = frameMarks();
+  for (let f = 0; f < 10; f++){
+    $('fm' + f).textContent = marks[f].join(' ');
+    $('ft' + f).textContent = fs[f] === null ? '' : fs[f];
+    document.querySelectorAll('.fr')[f].classList.toggle('cur', phase !== 'over' && f === frameIdx);
+  }
+}
+function updateHUD(){
+  const { total } = computeScores();
+  $('hudFrame').textContent = Math.min(frameIdx + 1, 10) + ' · ' + T('ball') + ' ' + Math.max(1, ballInFrame);
+  $('hudTotal').textContent = total;
+}
+function updateBestLine(){
+  const best = +(localStorage.getItem('lunaBowlBest') || 0);
+  $('bestLine').textContent = best > 0 ? T('best') + ': ' + best : '';
+}
+function showMsg(big, sub){
+  const m = $('msg');
+  m.innerHTML = big + (sub ? `<small>${sub}</small>` : '');
+  m.classList.add('show'); msgT = 1.6;
+}
+function standingCount(){ return pins.filter(p => !p.down).length; }
+
+function resetPin(p, fresh){
+  p.vx = 0; p.vz = 0; p.falling = false; p.down = false; p.fallT = 0; p.wob = 0; p.sweep = 0;
+  if (fresh){ p.x = p.hx; p.z = p.hz; }
+  p.grp.visible = true;
+  p.grp.position.set(p.x, 0, p.z);
+  p.grp.rotation.set(0, 0, 0);
+}
+function setupRack(fresh){
+  pins.forEach(p => {
+    if (fresh) resetPin(p, true);
+    else if (p.down){ p.grp.visible = false; p.vx = 0; p.vz = 0; p.falling = false; }  /* swept into the pit */
+    else { p.grp.rotation.set(0,0,0); p.wob = 0; p.vx = 0; p.vz = 0; p.grp.position.set(p.x, 0, p.z); }
+  });
+  standingStart = standingCount();
+  if (fresh) rackPrev = 0;
+}
+function resetBall(){
+  ballState = null; stopRumble();
+  ball.position.set(aimX, BALL_R, FOUL_Z);
+  ball.rotation.set(0, 0, 0);
+  aimArrow.visible = true;
+}
+function newGame(){
+  rolls = []; frameIdx = 0; ballInFrame = 1; aimX = 0; hook = 0;
+  setupRack(true); resetBall();
+  phase = 'aim';
+  $('menu').classList.add('hidden'); $('over').classList.add('hidden');
+  $('sheet').classList.remove('hidden'); $('hud').classList.remove('hidden'); $('ctrl').classList.remove('hidden');
+  renderSheet(); updateHUD(); updatePhase();
+}
+function gameOver(){
+  phase = 'over';
+  const { total } = computeScores();
+  $('finalScore').textContent = total;
+  const best = +(localStorage.getItem('lunaBowlBest') || 0);
+  if (total > best){ localStorage.setItem('lunaBowlBest', total); $('newBest').textContent = T('newBest'); }
+  else $('newBest').textContent = T('best') + ': ' + best;
+  $('over').classList.remove('hidden'); $('ctrl').classList.add('hidden');
+  updateBestLine(); renderSheet();
+}
+function updatePhase(){
+  const pl = $('phaseLab');
+  if (phase === 'aim'){ pl.innerHTML = T('aimPhase'); $('powerWrap').classList.add('hidden'); $('throwBtn').disabled = false; $('hookLab').textContent = ''; }
+  else if (phase === 'power'){ pl.innerHTML = T('powerPhase'); $('powerWrap').classList.remove('hidden'); }
+}
+$('playBtn').onclick = () => { ac(); newGame(); };
+$('againBtn').onclick = () => { ac(); newGame(); };
+$('menuBtn').onclick = () => { phase = 'menu'; $('over').classList.add('hidden'); $('sheet').classList.add('hidden'); $('hud').classList.add('hidden'); $('ctrl').classList.add('hidden'); $('menu').classList.remove('hidden'); setupRack(true); aimX = 0; resetBall(); };
+
+/* ---- ball / frame flow ---- */
+function doThrow(power, hk){
+  if (phase !== 'aim' && phase !== 'power') return;
+  phase = 'roll'; aimArrow.visible = false;
+  $('powerWrap').classList.add('hidden'); $('throwBtn').disabled = true; $('hookLab').textContent = '';
+  const speed = 7.5 + (power / 100) * 9.5;
+  ballState = { x: aimX, z: FOUL_Z, vx: hk * .5, vz: -speed, hook: hk, gutter: false, done: false, deckT: 0 };
+  settleT = 0; lastActionT = 0; sndThrow(); startRumble();
+}
+function finishBall(){
+  const knocked = standingStart - standingCount();
+  rolls.push(knocked);
+  const isStrike = knocked === 10 && standingStart === 10;
+  const isSpare = !isStrike && rackPrev > 0 && rackPrev + knocked === 10;
+  if (ballState && ballState.gutter && knocked === 0){ showMsg(T('gutter'), ''); sndGutter(); }
+  else if (isStrike){ showMsg(T('strike'), knocked + ' ' + T('pins')); sndStrike(); }
+  else if (isSpare){ showMsg(T('spare'), knocked + ' ' + T('pins')); sndSpare(); }
+  else showMsg(knocked + '', T('pins'));
+  camShake = Math.min(.5, knocked * .05);
+  renderSheet(); updateHUD();
+  phase = 'between'; betweenT = 1.15;
+}
+function advance(){
+  const knocked = rolls[rolls.length - 1];
+  if (frameIdx < 9){
+    if (ballInFrame === 1 && knocked < 10){ ballInFrame = 2; setupRack(false); rackPrev = knocked; }
+    else { frameIdx++; ballInFrame = 1; setupRack(true); }
+  } else {
+    /* 10th frame */
+    if (ballInFrame === 1){
+      ballInFrame = 2;
+      if (knocked === 10) setupRack(true); else { setupRack(false); rackPrev = knocked; }
+    } else if (ballInFrame === 2){
+      const b1 = rolls[rolls.length - 2], b2 = knocked;
+      if (b1 === 10){
+        ballInFrame = 3;
+        if (b2 === 10) setupRack(true);
+        else if (standingCount() === 0) setupRack(true);
+        else { setupRack(false); rackPrev = b2; }
+      } else if (b1 + b2 === 10){ ballInFrame = 3; setupRack(true); }
+      else { gameOver(); return; }
+    } else { gameOver(); return; }
+  }
+  if (frameIdx > 9){ gameOver(); return; }
+  resetBall(); phase = 'aim';
+  renderSheet(); updateHUD(); updatePhase();
+}
+
+/* ================= physics ================= */
+let quietT = 0;
+function pinFall(p, dx, dz, speed){
+  const len = Math.hypot(dx, dz) || 1; dx /= len; dz /= len;
+  if (p.falling){ p.vx += dx * speed * .35; p.vz += dz * speed * .35; return; }
+  p.falling = true; p.fallT = 0;
+  p.vx = dx * speed; p.vz = dz * speed;
+  p.axis.set(dz, 0, -dx);
+  if (p.axis.lengthSq() < .01) p.axis.set(1, 0, 0); p.axis.normalize();
+  quietT = 0;
+}
+function stepPins(dt){
+  for (const p of pins){
+    if (!p.grp.visible) continue;
+    if (p.falling){
+      p.fallT += dt;
+      const k = Math.min(1, p.fallT / .45), e = k * k * (3 - 2 * k);
+      p.grp.quaternion.setFromAxisAngle(p.axis, e * 1.62);
+      p.x += p.vx * dt; p.z += p.vz * dt;
+      const damp = Math.max(0, 1 - 2.6 * dt); p.vx *= damp; p.vz *= damp;
+      p.grp.position.set(p.x, 0, p.z);
+      if (k >= 1) p.down = true;
+      else quietT = 0;
+      if (!p.down && (p.z < DECK_Z - 4.2 || Math.abs(p.x) > 3.6)) p.down = true;
+    } else if (!p.down && p.wob > 0){
+      p.wob = Math.max(0, p.wob - dt * 1.3);
+      const a = Math.sin(p.wob * 22) * .13 * p.wob;
+      p.grp.rotation.set(a, 0, a * .6);
+      if (p.wob === 0) p.grp.rotation.set(0, 0, 0);
+    }
+  }
+  /* pin -> pin chain hits */
+  for (const a of pins){
+    if (!a.falling || !a.grp.visible) continue;
+    const as = Math.hypot(a.vx, a.vz); if (as < .4) continue;
+    for (const b of pins){
+      if (b === a || b.down || b.falling || !b.grp.visible) continue;
+      const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz);
+      if (d < PIN_R * 2 + .03 && d > .001){
+        const imp = as * .82;
+        if (imp > 1.05) pinFall(b, dx / d, dz / d, imp);
+        else b.wob = 1;
+        quietT = 0;
+      }
+    }
+  }
+}
+function stepBall(dt){
+  const bs = ballState; if (!bs) return;
+  if (!bs.gutter){
+    if (bs.z < .5) bs.vx += bs.hook * 3.4 * dt;          /* hook bites late on the lane */
+    bs.x += bs.vx * dt; bs.z += bs.vz * dt;
+    if (Math.abs(bs.x) > LANE_HALF - .02){ bs.gutter = true; bs.vx = 0; noiseBurst(.12, .2, 320); }
+  } else {
+    bs.x = Math.sign(bs.x) * (LANE_HALF + .28); bs.z += bs.vz * dt;
+  }
+  ball.position.set(bs.x, bs.gutter ? .21 : BALL_R, bs.z);
+  ball.rotation.x += (bs.vz / BALL_R) * dt;
+  ball.rotation.z -= (bs.vx / BALL_R) * dt * .6;
+  setRumble(Math.abs(bs.vz) / 17 * (bs.gutter ? .5 : 1));
+  /* ball -> pin collisions */
+  if (!bs.gutter && bs.z < DECK_Z + 1.2){
+    let hits = 0;
+    for (const p of pins){
+      if (p.down || !p.grp.visible) continue;
+      const dx = p.x - bs.x, dz = p.z - bs.z, rr = BALL_R + PIN_R;
+      if (dx * dx + dz * dz < rr * rr){
+        const d = Math.sqrt(dx * dx + dz * dz) || .01, nx = dx / d, nz = dz / d;
+        const spd = Math.hypot(bs.vx, bs.vz);
+        p.x = bs.x + nx * rr; p.z = bs.z + nz * rr;
+        pinFall(p, nx, nz, spd * .8 + .7);
+        bs.vx += nx * .3; bs.vz *= .94; hits++;
+      }
+    }
+    if (hits){ sndCrash(hits); camShake = Math.min(.45, .12 + hits * .08); quietT = 0; }
+  }
+  if (bs.z < DECK_Z + 1.5) bs.deckT += dt;
+  if (bs.z < DECK_Z - 4.4 || (bs.deckT > .2 && Math.abs(bs.vz) < .35)){ bs.done = true; bs.vz = 0; stopRumble(); }
+  if (!bs.done && bs.z > DECK_Z - 4.4) quietT = 0;
+  if (bs.done || bs.deckT > .3){
+    quietT += dt;
+    if ((bs.done && quietT > .75) || bs.deckT > 4.2){ finishBall(); }
+  }
+}
+
+/* ================= input ================= */
+let dragAim = null, holdX = 0;
+const cvs = renderer.domElement;
+cvs.addEventListener('pointerdown', e => {
+  ac();
+  if (phase === 'aim'){ dragAim = { sx: e.clientX, bx: aimX }; }
+});
+addEventListener('pointermove', e => {
+  if (dragAim && phase === 'aim'){
+    aimX = THREE.MathUtils.clamp(dragAim.bx + (e.clientX - dragAim.sx) * .0075, -1.25, 1.25);
+    ball.position.x = aimX; aimArrow.position.x = aimX;
+  } else if (phase === 'power'){
+    hook = THREE.MathUtils.clamp((e.clientX - holdX) * .006, -1, 1);
+    $('hookLab').textContent = Math.abs(hook) < .12 ? '' : (hook < 0 ? '◀'.repeat(Math.min(5, Math.ceil(-hook * 5))) + ' CURVE' : 'CURVE ' + '▶'.repeat(Math.min(5, Math.ceil(hook * 5))));
+  }
+});
+addEventListener('pointerup', () => { dragAim = null; });
+const tb = $('throwBtn');
+tb.addEventListener('pointerdown', e => {
+  ac();
+  if (phase !== 'aim') return;
+  phase = 'power'; powerT = 0; powerDir = 1; powerVal = 0; hook = 0; holdX = e.clientX;
+  updatePhase(); e.preventDefault();
+});
+tb.addEventListener('pointerup', () => { if (phase === 'power') doThrow(powerVal, hook); });
+tb.addEventListener('pointercancel', () => { if (phase === 'power'){ phase = 'aim'; updatePhase(); } });
+addEventListener('keydown', e => {
+  if (e.code === 'ArrowLeft' && phase === 'aim'){ aimX = Math.max(-1.25, aimX - .12); ball.position.x = aimX; aimArrow.position.x = aimX; }
+  if (e.code === 'ArrowRight' && phase === 'aim'){ aimX = Math.min(1.25, aimX + .12); ball.position.x = aimX; aimArrow.position.x = aimX; }
+  if (e.code === 'Space' && phase === 'aim'){ phase = 'power'; powerT = 0; powerDir = 1; hook = 0; holdX = innerWidth / 2; updatePhase(); e.preventDefault(); }
+});
+addEventListener('keyup', e => { if (e.code === 'Space' && phase === 'power') doThrow(powerVal, hook); });
+
+/* ================= main loop ================= */
+const camPos = new THREE.Vector3(0, 2.8, 13), camTgt = new THREE.Vector3(0, .6, -8);
+function animate(){
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), .033), t = clock.elapsedTime;
+  earth.rotation.y = t * .008;
+  if (phase === 'power'){
+    powerT += dt * 1.35;
+    const cyc = powerT % 2; powerVal = (cyc < 1 ? cyc : 2 - cyc) * 100;
+    $('powerBar').style.width = powerVal + '%';
+  }
+  if (phase === 'roll' && ballState) stepBall(dt);
+  if (phase === 'roll' || phase === 'between') stepPins(dt);
+  if (phase === 'between'){ betweenT -= dt; if (betweenT <= 0) advance(); }
+  if (msgT > 0){ msgT -= dt; if (msgT <= 0) $('msg').classList.remove('show'); }
+  /* camera */
+  const P = new THREE.Vector3(), L = new THREE.Vector3();
+  if (phase === 'menu' || phase === 'over'){ P.set(Math.sin(t * .1) * 1.2, 2.7, 12.6); L.set(0, .7, -10); }
+  else if (phase === 'aim' || phase === 'power'){ P.set(aimX * .55, 3.1, 13.2); L.set(aimX * .3, .3, -9); }
+  else if (phase === 'roll' && ballState){ P.set(ballState.x * .6, 3.0, Math.max(ballState.z + 7.6, -5.4)); L.set(ballState.x * .8, .2, ballState.z - 7); }
+  else { P.set(0, 3.6, DECK_Z + 9.6); L.set(0, .4, DECK_Z - .5); }
+  const k = 1 - Math.exp(-dt * 3.6);
+  camPos.lerp(P, k); camTgt.lerp(L, k);
+  camera.position.copy(camPos);
+  if (camShake > 0){ camShake = Math.max(0, camShake - dt * 1.4); camera.position.x += (Math.random() - .5) * camShake * .3; camera.position.y += (Math.random() - .5) * camShake * .3; }
+  camera.lookAt(camTgt);
+  aimArrow.material.opacity = .55 + Math.sin(t * 5) * .3;
+  renderer.render(scene, camera);
+}
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+/* ================= boot + QA hooks ================= */
+buildSheet();
+setupRack(true); resetBall();
+applyLang();
+animate();
+window.__bowl = {
+  state: () => ({ phase, frame: frameIdx + 1, ball: ballInFrame, rolls: rolls.slice(), scores: computeScores(), standing: standingCount() }),
+  start: () => newGame(),
+  setAim: x => { aimX = THREE.MathUtils.clamp(x, -1.25, 1.25); ball.position.x = aimX; aimArrow.position.x = aimX; },
+  throwBall: (p = 90, h = 0) => doThrow(p, h),
+  setRolls: r => { rolls = r.slice(); renderSheet(); updateHUD(); },
+  pins: () => pins.map(p => ({ x:+p.x.toFixed(2), z:+p.z.toFixed(2), down:p.down, falling:p.falling }))
+};
+</script>
+</body>
+</html>
