@@ -56,6 +56,8 @@
   .pedal{border:2px solid rgba(255,179,71,.6);color:#ffe9c9;font-weight:900;letter-spacing:1px;border-radius:14px;background:rgba(24,10,26,.72);display:flex;align-items:center;justify-content:center;text-align:center;cursor:pointer}
   .pedal.on{background:rgba(255,150,30,.55);border-color:#ffd23e}
   #btnTurbo{width:74px;height:74px;border-radius:50%;font-size:13px;background:radial-gradient(circle at 35% 30%,#5a5a66,#23232c);border-color:#cfd6dd;color:#fff}
+  #btnView{width:66px;height:66px;border-radius:50%;font-size:11px;flex-direction:column;gap:2px;line-height:1.1;background:rgba(24,10,26,.78)}
+  #btnView #viewName{color:#ffd23e;font-size:12px;font-weight:900}
   #btnTurbo.on{background:radial-gradient(circle at 35% 30%,#ff9a3c,#c22e00);border-color:#ffd23e}
   #btnBrake{width:64px;height:88px;font-size:13px}
   #btnGas{width:64px;height:118px;font-size:14px;background:rgba(46,20,8,.78)}
@@ -103,6 +105,7 @@
 <div id="controls" class="hidden">
   <div id="joy"><div id="joyKnob"></div></div>
   <div id="pedals">
+    <div class="pedal" id="btnView">VIEW<span id="viewName">CHASE</span></div>
     <div class="pedal" id="btnTurbo">🔥<br><span data-i18n="turbo">TURBO</span></div>
     <div class="pedal" id="btnBrake"><span data-i18n="brake">BRAKE</span></div>
     <div class="pedal" id="btnGas"><span data-i18n="gas">GAS</span></div>
@@ -681,6 +684,15 @@ function hold(el, prop){ const on = e=>{ e.preventDefault(); input[prop] = true;
   el.addEventListener('pointerdown', on); el.addEventListener('pointerup', off); el.addEventListener('pointerleave', off); el.addEventListener('pointercancel', off); }
 hold($('btnGas'), 'gas'); hold($('btnBrake'), 'brake'); hold($('btnTurbo'), 'turbo');
 
+/* camera views (Tom, Nov 21: "give a different views") — same set as Luna
+   Racer: CHASE (the shipped framing) / FAR / HOOD / TOP. The choice survives
+   restarts; V key cycles too. */
+const VIEW_NAMES_D = ['CHASE', 'FAR', 'HOOD', 'TOP'];
+let viewModeD = 0;
+function cycleViewD(){ viewModeD = (viewModeD + 1) % VIEW_NAMES_D.length; $('viewName').textContent = VIEW_NAMES_D[viewModeD]; }
+$('btnView').addEventListener('click', cycleViewD);
+addEventListener('keydown', e => { if (e.code === 'KeyV') cycleViewD(); });
+
 /* garage camera drag-rotate */
 let garAngle = 0.7, garDragId = null, garLastX = 0, garIdleT = 0;
 renderer.domElement.addEventListener('pointerdown', e=>{ if(mode==='garage'){ garDragId = e.pointerId; garLastX = e.clientX; garIdleT = 0; } });
@@ -1055,8 +1067,20 @@ function animate(){
     shakeT = Math.max(0, shakeT - dt);
     const shx = shakeT>0 ? (Math.random()-0.5)*shakeT*0.5 : 0;
     const shy = shakeT>0 ? (Math.random()-0.5)*shakeT*0.4 : 0;
-    camera.position.set(truckX*0.55 + shx, 4.7 + (truckY+crushY)*0.55 + shy, 10.6);
-    camera.lookAt(truckX*0.82, 1.7 + (truckY+crushY)*0.4, -9);
+    const bounceY = truckY + crushY;   /* NOT "vy" — that's the truck's jump velocity (module scope); naming this vy threw a TDZ error every frame */
+    if (viewModeD === 1) {          /* FAR — pulled back, more road + desert */
+      camera.position.set(truckX*0.5 + shx, 8.4 + bounceY*0.5 + shy, 17.5);
+      camera.lookAt(truckX*0.85, 1.4 + bounceY*0.35, -14);
+    } else if (viewModeD === 2) {   /* HOOD — on the nose, pure road ahead */
+      camera.position.set(truckX*0.98 + shx*0.3, 2.7 + bounceY + shy*0.3, -3.6);
+      camera.lookAt(truckX*0.98, 1.5 + bounceY*0.7, -30);
+    } else if (viewModeD === 3) {   /* TOP — high behind, crush-row view */
+      camera.position.set(truckX*0.65 + shx, 13.5 + bounceY*0.4 + shy, 7.0);
+      camera.lookAt(truckX*0.9, 0.8, -13);
+    } else {                        /* CHASE — the shipped framing */
+      camera.position.set(truckX*0.55 + shx, 4.7 + bounceY*0.55 + shy, 10.6);
+      camera.lookAt(truckX*0.82, 1.7 + bounceY*0.4, -9);
+    }
     updateHUD(false);
   }
 
