@@ -60,6 +60,13 @@
   .hv.contains{color:var(--red)} .hv.may{color:var(--amber)} .hv.none{color:var(--green)} .hv.unknown{color:var(--grey)}
   .err{color:var(--red);font-size:15px;margin-top:10px;display:none}
   .err.show{display:block}
+  .snapbtn{display:block;width:100%;font-size:19px;font-weight:700;padding:16px;border:2px dashed var(--accent);border-radius:14px;background:#eaf2fb;color:var(--accent);cursor:pointer;margin-top:14px;min-height:58px}
+  .snapbtn:active{transform:scale(.99)}
+  .ingbox{margin-top:12px;background:#fbf9f4;border:1px solid var(--line);border-radius:12px;padding:12px}
+  .ingbox h3{margin:0 0 6px;font-size:15px}
+  .ingbox .ingtext{font-size:15px;line-height:1.55;word-break:break-word}
+  .ingbox .hl{background:#ffd54f;border-radius:3px;padding:0 2px}
+  .containsline{margin-top:10px;font-size:16px;font-weight:700}
 </style>
 </head>
 <body>
@@ -86,6 +93,10 @@
       <button id="checkBtn"><span id="t-check">Check</span></button>
     </div>
     <div class="err" id="errBox"></div>
+    <button class="snapbtn" id="snapBtn">📷 <span id="t-snap">Snap the ingredients label</span></button>
+    <input type="file" id="photoInput" accept="image/*" capture="environment" style="display:none">
+    <div class="note" id="readingNote" style="display:none"></div>
+    <div class="note" id="t-privacy">Your photo stays on your phone — it's read right here and never uploaded.</div>
   </div>
 
   <div class="card" id="result">
@@ -99,6 +110,15 @@
     </div>
     <div class="why" id="whyBox"></div>
     <div class="why" id="allergenBox" style="font-size:14.5px"></div>
+    <div class="ingbox" id="ingBox" style="display:none">
+      <h3 id="ingTitle"></h3>
+      <div class="ingtext" id="ingText"></div>
+      <div class="containsline" id="containsLine" style="display:none"></div>
+    </div>
+    <div id="snapOffer" style="display:none">
+      <div class="small" id="t-snapHint">Not in the database? Snap the ingredients label instead.</div>
+      <button class="snapbtn" id="snapBtn2">📷 <span id="t-snap2">Snap the ingredients label</span></button>
+    </div>
     <div class="small" id="unknownLine" style="display:none"></div>
     <div class="small" id="t-honest">Data from Open Food Facts. Labels can change — always check the package.</div>
   </div>
@@ -191,6 +211,90 @@ function dairyVerdict(product){
   if (hasData) return {level:"none", reason:{kind:"clean"}};
   return {level:"unknown", reason:{kind:"nodata"}};
 }
+
+/* ---------- photo-of-the-label (OCR text) logic ---------- */
+function _allDairyHits(text){
+  var clean = _stripSafe(text);
+  var hits = [];
+  for (var i=0;i<DAIRY_WORDS.length;i++){
+    var re = new RegExp("(^|[^a-z])" + DAIRY_WORDS[i] + "([^a-z]|$)");
+    if (re.test(clean) && hits.indexOf(DAIRY_WORDS[i]) === -1) hits.push(DAIRY_WORDS[i]);
+  }
+  return hits;
+}
+/* Find the "Contains: …" allergen statement (skipping "may contain:"). Returns the statement text or null. */
+function _findContains(text){
+  var re = /contains?\s*[:\-–]\s*([^\n]+)/gi;
+  var m;
+  while ((m = re.exec(text)) !== null){
+    var before = text.slice(Math.max(0, m.index - 5), m.index).toLowerCase();
+    if (/may\s*$/.test(before)) continue;
+    var line = m[1].trim().split(/\s+(manufactured|distributed|best before|net wt|nutrition)/i)[0].trim();
+    if (line.length > 140) line = line.slice(0, 140).trim();
+    return line || null;
+  }
+  return null;
+}
+/* Pull the ingredient list out of label text: from "Ingredients:" to the Contains statement (shown separately). */
+function _extractIngredients(text, containsLine){
+  var clean = text.replace(/\s+/g, " ").trim();
+  var m = clean.match(/ingredients?\s*[:\-–]?\s*/i);
+  var ing = m ? clean.slice(m.index + m[0].length) : clean;
+  if (containsLine){
+    var ci = ing.toLowerCase().indexOf("contains");
+    if (ci !== -1) ing = ing.slice(0, ci).trim();
+  }
+  ing = ing.replace(/[\s.;]+$/, "").trim();
+  return ing || clean;
+}
+/* Verdict from OCR text of a label photo.
+   Returns {level, reason, matched[], containsLine, ingredients}. */
+function labelVerdict(rawText){
+  var text = (rawText || "").replace(/\s+/g, " ").trim();
+  var containsLine = _findContains(text);
+  var ingredients = _extractIngredients(text, containsLine);
+  var words = text.split(/\s+/).filter(function(w){ return /[a-z]{2,}/i.test(w); });
+  if (text.length < 20 || words.length < 4){
+    return {level:"unknown", reason:{kind:"garbled"}, matched:[], containsLine:containsLine, ingredients:ingredients};
+  }
+  var mayClause = "";
+  var mainText = text;
+  var mayMatch = text.match(/may contain[^.;]*/i);
+  if (mayMatch){
+    mayClause = mayMatch[0];
+    mainText = text.replace(mayMatch[0], " ");
+  }
+  var hits = _allDairyHits(mainText);
+  if (hits.length) return {level:"contains", reason:{kind:"photoingredient", value:hits.join(", ")}, matched:hits, containsLine:containsLine, ingredients:ingredients};
+  if (mayClause && _dairyWordHit(mayClause)) return {level:"may", reason:{kind:"photomay"}, matched:[], containsLine:containsLine, ingredients:ingredients};
+  if (containsLine) return {level:"none", reason:{kind:"photoclean"}, matched:[], containsLine:containsLine, ingredients:ingredients};
+  return {level:"unknown", reason:{kind:"nocontains"}, matched:[], containsLine:null, ingredients:ingredients};
+}
+/* Escape text and wrap dairy words in <b class="hl"> (plant phrases like "coconut milk" are not highlighted). */
+function highlightDairy(text){
+  function esc(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+  var padded = " " + (text || "") + " ";
+  var lower = padded.toLowerCase();
+  var safe = [];
+  for (var i=0;i<SAFE_PHRASES.length;i++){
+    var idx = lower.indexOf(SAFE_PHRASES[i]);
+    while (idx !== -1){ safe.push([idx, idx + SAFE_PHRASES[i].length]); idx = lower.indexOf(SAFE_PHRASES[i], idx + 1); }
+  }
+  var re = new RegExp("(^|[^a-z])(" + DAIRY_WORDS.join("|") + ")([^a-z]|$)", "gi");
+  var out = "", last = 0, m;
+  while ((m = re.exec(padded)) !== null){
+    var start = m.index + m[1].length;
+    var end = start + m[2].length;
+    var inSafe = false;
+    for (var j=0;j<safe.length;j++){ if (start >= safe[j][0] && end <= safe[j][1]){ inSafe = true; break; } }
+    if (inSafe) continue;
+    out += esc(padded.slice(last, start)) + '<b class="hl">' + esc(padded.slice(start, end)) + "</b>";
+    last = end;
+    re.lastIndex = end;
+  }
+  out += esc(padded.slice(last));
+  return out.trim();
+}
 </script>
 
 <script>
@@ -202,26 +306,26 @@ var LANG_NAMES = {
   th:"ไทย", zh:"中文", ja:"日本語", ko:"한국어"
 };
 var I18N = {
-en:{title:"🥛 Dairy Checker",langLabel:"Language",sub:"Scan a product barcode and find out if it contains dairy.",scan:"Scan barcode",stop:"Stop camera",point:"Point the camera at the barcode…",camFail:"Camera scanning isn't available on this browser. Type the barcode number instead.",or:"— or type the number —",codePh:"Barcode number",check:"Check",checking:"Checking…",vContains:"🔴 CONTAINS DAIRY",vMay:"🟡 MAY CONTAIN DAIRY",vNone:"🟢 No dairy found",vUnknown:"⚪ DON'T KNOW",whyAllergen:"Why: Milk is listed as an allergen.",whyTraces:"Why: The label lists traces of milk.",whyIngredient:"Why: Ingredient found: {w}.",whyMayText:"Why: The label warns it may contain milk.",whyClean:"Why: No milk in the allergens, traces or ingredients.",allergensLabel:"Allergens:",noneListed:"none listed",honest:"Data from Open Food Facts. Labels can change — always check the package.",unknownLine:"We couldn't find enough data on this product. Check the ingredient label on the package.",history:"Checked this trip",clear:"Clear",errNet:"Couldn't reach the product database. Check your connection and try again.",emptyCode:"Enter a barcode number first.",sContains:"Dairy",sMay:"May contain",sNone:"No dairy",sUnknown:"Unknown",noName:"Unknown product"},
-es:{title:"🥛 Detector de Lácteos",langLabel:"Idioma",sub:"Escanea el código de barras de un producto y descubre si contiene lácteos.",scan:"Escanear código",stop:"Detener cámara",point:"Apunta la cámara al código de barras…",camFail:"El escaneo con cámara no está disponible en este navegador. Escribe el número del código.",or:"— o escribe el número —",codePh:"Número de código",check:"Comprobar",checking:"Comprobando…",vContains:"🔴 CONTIENE LÁCTEOS",vMay:"🟡 PUEDE CONTENER LÁCTEOS",vNone:"🟢 Sin lácteos encontrados",vUnknown:"⚪ NO SE SABE",whyAllergen:"Por qué: la leche figura como alérgeno.",whyTraces:"Por qué: la etiqueta indica trazas de leche.",whyIngredient:"Por qué: ingrediente encontrado: {w}.",whyMayText:"Por qué: la etiqueta advierte que puede contener leche.",whyClean:"Por qué: no hay leche en alérgenos, trazas ni ingredientes.",allergensLabel:"Alérgenos:",noneListed:"ninguno indicado",honest:"Datos de Open Food Facts. Las etiquetas pueden cambiar: revisa siempre el envase.",unknownLine:"No encontramos datos suficientes de este producto. Revisa la etiqueta de ingredientes del envase.",history:"Revisados en esta compra",clear:"Borrar",errNet:"No se pudo contactar la base de datos. Revisa tu conexión e inténtalo de nuevo.",emptyCode:"Primero escribe un número de código.",sContains:"Lácteos",sMay:"Puede contener",sNone:"Sin lácteos",sUnknown:"Desconocido",noName:"Producto desconocido"},
-pt:{title:"🥛 Verificador de Laticínios",langLabel:"Idioma",sub:"Escaneie o código de barras de um produto e descubra se ele contém laticínios.",scan:"Escanear código",stop:"Parar câmera",point:"Aponte a câmera para o código de barras…",camFail:"A leitura pela câmera não está disponível neste navegador. Digite o número do código.",or:"— ou digite o número —",codePh:"Número do código",check:"Verificar",checking:"Verificando…",vContains:"🔴 CONTÉM LATICÍNIOS",vMay:"🟡 PODE CONTER LATICÍNIOS",vNone:"🟢 Nenhum laticínio encontrado",vUnknown:"⚪ NÃO SE SABE",whyAllergen:"Por quê: o leite está listado como alérgeno.",whyTraces:"Por quê: o rótulo indica traços de leite.",whyIngredient:"Por quê: ingrediente encontrado: {w}.",whyMayText:"Por quê: o rótulo avisa que pode conter leite.",whyClean:"Por quê: sem leite nos alérgenos, traços ou ingredientes.",allergensLabel:"Alérgenos:",noneListed:"nenhum listado",honest:"Dados do Open Food Facts. Os rótulos podem mudar — verifique sempre a embalagem.",unknownLine:"Não encontramos dados suficientes sobre este produto. Verifique o rótulo de ingredientes da embalagem.",history:"Verificados nesta compra",clear:"Limpar",errNet:"Não foi possível acessar o banco de dados. Verifique sua conexão e tente novamente.",emptyCode:"Digite primeiro um número de código.",sContains:"Laticínios",sMay:"Pode conter",sNone:"Sem laticínios",sUnknown:"Desconhecido",noName:"Produto desconhecido"},
-fr:{title:"🥛 Détecteur de Produits Laitiers",langLabel:"Langue",sub:"Scannez le code-barres d'un produit pour savoir s'il contient des produits laitiers.",scan:"Scanner le code",stop:"Arrêter la caméra",point:"Pointez la caméra vers le code-barres…",camFail:"Le scan par caméra n'est pas disponible sur ce navigateur. Tapez le numéro du code.",or:"— ou tapez le numéro —",codePh:"Numéro de code-barres",check:"Vérifier",checking:"Vérification…",vContains:"🔴 CONTIENT DES PRODUITS LAITIERS",vMay:"🟡 PEUT CONTENIR DES PRODUITS LAITIERS",vNone:"🟢 Aucun produit laitier trouvé",vUnknown:"⚪ INCONNU",whyAllergen:"Pourquoi : le lait est listé comme allergène.",whyTraces:"Pourquoi : l'étiquette indique des traces de lait.",whyIngredient:"Pourquoi : ingrédient trouvé : {w}.",whyMayText:"Pourquoi : l'étiquette avertit qu'il peut contenir du lait.",whyClean:"Pourquoi : pas de lait dans les allergènes, traces ou ingrédients.",allergensLabel:"Allergènes :",noneListed:"aucun indiqué",honest:"Données d'Open Food Facts. Les étiquettes peuvent changer — vérifiez toujours l'emballage.",unknownLine:"Données insuffisantes pour ce produit. Vérifiez la liste des ingrédients sur l'emballage.",history:"Vérifiés pendant ces courses",clear:"Effacer",errNet:"Base de données injoignable. Vérifiez votre connexion et réessayez.",emptyCode:"Entrez d'abord un numéro de code-barres.",sContains:"Laitier",sMay:"Peut contenir",sNone:"Sans laitier",sUnknown:"Inconnu",noName:"Produit inconnu"},
-de:{title:"🥛 Milchprodukt-Checker",langLabel:"Sprache",sub:"Scannen Sie den Barcode eines Produkts und erfahren Sie, ob es Milchprodukte enthält.",scan:"Barcode scannen",stop:"Kamera stoppen",point:"Richten Sie die Kamera auf den Barcode…",camFail:"Kamera-Scan ist in diesem Browser nicht verfügbar. Tippen Sie die Barcode-Nummer ein.",or:"— oder Nummer eintippen —",codePh:"Barcode-Nummer",check:"Prüfen",checking:"Prüfe…",vContains:"🔴 ENTHÄLT MILCHPRODUKTE",vMay:"🟡 KANN MILCHPRODUKTE ENTHALTEN",vNone:"🟢 Keine Milchprodukte gefunden",vUnknown:"⚪ UNBEKANNT",whyAllergen:"Warum: Milch ist als Allergen aufgeführt.",whyTraces:"Warum: Das Etikett nennt Spuren von Milch.",whyIngredient:"Warum: Zutat gefunden: {w}.",whyMayText:"Warum: Das Etikett warnt, dass Milch enthalten sein kann.",whyClean:"Warum: Keine Milch in Allergenen, Spuren oder Zutaten.",allergensLabel:"Allergene:",noneListed:"keine aufgeführt",honest:"Daten von Open Food Facts. Etiketten können sich ändern — prüfen Sie immer die Packung.",unknownLine:"Nicht genug Daten zu diesem Produkt. Prüfen Sie die Zutatenliste auf der Packung.",history:"Bei diesem Einkauf geprüft",clear:"Leeren",errNet:"Datenbank nicht erreichbar. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",emptyCode:"Geben Sie zuerst eine Barcode-Nummer ein.",sContains:"Milchprodukt",sMay:"Kann enthalten",sNone:"Ohne Milch",sUnknown:"Unbekannt",noName:"Unbekanntes Produkt"},
-it:{title:"🥛 Controllo Latticini",langLabel:"Lingua",sub:"Scansiona il codice a barre di un prodotto e scopri se contiene latticini.",scan:"Scansiona codice",stop:"Ferma fotocamera",point:"Punta la fotocamera sul codice a barre…",camFail:"La scansione con fotocamera non è disponibile in questo browser. Digita il numero del codice.",or:"— oppure digita il numero —",codePh:"Numero codice a barre",check:"Controlla",checking:"Controllo…",vContains:"🔴 CONTIENE LATTICINI",vMay:"🟡 PUÒ CONTENERE LATTICINI",vNone:"🟢 Nessun latticino trovato",vUnknown:"⚪ NON SI SA",whyAllergen:"Perché: il latte è elencato come allergene.",whyTraces:"Perché: l'etichetta indica tracce di latte.",whyIngredient:"Perché: ingrediente trovato: {w}.",whyMayText:"Perché: l'etichetta avverte che può contenere latte.",whyClean:"Perché: niente latte in allergeni, tracce o ingredienti.",allergensLabel:"Allergeni:",noneListed:"nessuno elencato",honest:"Dati da Open Food Facts. Le etichette possono cambiare: controlla sempre la confezione.",unknownLine:"Dati insufficienti su questo prodotto. Controlla l'etichetta degli ingredienti sulla confezione.",history:"Controllati in questa spesa",clear:"Cancella",errNet:"Database non raggiungibile. Controlla la connessione e riprova.",emptyCode:"Inserisci prima un numero di codice a barre.",sContains:"Latticini",sMay:"Può contenere",sNone:"Senza latticini",sUnknown:"Sconosciuto",noName:"Prodotto sconosciuto"},
+en:{title:"🥛 Dairy Checker",langLabel:"Language",sub:"Scan a product barcode and find out if it contains dairy.",scan:"Scan barcode",stop:"Stop camera",point:"Point the camera at the barcode…",camFail:"Camera scanning isn't available on this browser. Type the barcode number instead.",or:"— or type the number —",codePh:"Barcode number",check:"Check",checking:"Checking…",vContains:"🔴 CONTAINS DAIRY",vMay:"🟡 MAY CONTAIN DAIRY",vNone:"🟢 No dairy found",vUnknown:"⚪ DON'T KNOW",whyAllergen:"Why: Milk is listed as an allergen.",whyTraces:"Why: The label lists traces of milk.",whyIngredient:"Why: Ingredient found: {w}.",whyMayText:"Why: The label warns it may contain milk.",whyClean:"Why: No milk in the allergens, traces or ingredients.",allergensLabel:"Allergens:",noneListed:"none listed",honest:"Data from Open Food Facts. Labels can change — always check the package.",unknownLine:"We couldn't find enough data on this product. Check the ingredient label on the package.",history:"Checked this trip",clear:"Clear",errNet:"Couldn't reach the product database. Check your connection and try again.",emptyCode:"Enter a barcode number first.",sContains:"Dairy",sMay:"May contain",sNone:"No dairy",sUnknown:"Unknown",noName:"Unknown product",snapBtn:"📷 Snap the ingredients label",snapHint:"Not in the database? Snap the ingredients label instead.",reading:"Reading the label… (the first time can take a little while)",privacy:"Your photo stays on your phone — it's read right here and never uploaded.",whyPhotoContains:"Read from your photo of the label. Dairy found: {w}.",whyPhotoMay:"Read from your photo of the label. The label warns it may contain milk.",whyPhotoClean:"Read from your photo of the label. The Contains statement lists no milk, and no dairy words were found.",photoGarbled:"We couldn't read that photo well enough to judge. Try again in good light, with the label flat.",photoNoContains:"We read the label but found no clear Contains statement, so we can't be sure. Check the package.",ingFromPhoto:"Ingredients (from your photo)",ingLabel:"Ingredients",containsLabel:"Contains:",foundNoData:"We found this product, but neither database has its ingredients, so we can't tell about dairy. Check the label — or snap a photo of it.",photoTag:"📷 Photo",photoName:"Label photo"},
+es:{title:"🥛 Detector de Lácteos",langLabel:"Idioma",sub:"Escanea el código de barras de un producto y descubre si contiene lácteos.",scan:"Escanear código",stop:"Detener cámara",point:"Apunta la cámara al código de barras…",camFail:"El escaneo con cámara no está disponible en este navegador. Escribe el número del código.",or:"— o escribe el número —",codePh:"Número de código",check:"Comprobar",checking:"Comprobando…",vContains:"🔴 CONTIENE LÁCTEOS",vMay:"🟡 PUEDE CONTENER LÁCTEOS",vNone:"🟢 Sin lácteos encontrados",vUnknown:"⚪ NO SE SABE",whyAllergen:"Por qué: la leche figura como alérgeno.",whyTraces:"Por qué: la etiqueta indica trazas de leche.",whyIngredient:"Por qué: ingrediente encontrado: {w}.",whyMayText:"Por qué: la etiqueta advierte que puede contener leche.",whyClean:"Por qué: no hay leche en alérgenos, trazas ni ingredientes.",allergensLabel:"Alérgenos:",noneListed:"ninguno indicado",honest:"Datos de Open Food Facts. Las etiquetas pueden cambiar: revisa siempre el envase.",unknownLine:"No encontramos datos suficientes de este producto. Revisa la etiqueta de ingredientes del envase.",history:"Revisados en esta compra",clear:"Borrar",errNet:"No se pudo contactar la base de datos. Revisa tu conexión e inténtalo de nuevo.",emptyCode:"Primero escribe un número de código.",sContains:"Lácteos",sMay:"Puede contener",sNone:"Sin lácteos",sUnknown:"Desconocido",noName:"Producto desconocido",snapBtn:"📷 Foto de la etiqueta de ingredientes",snapHint:"¿No está en la base de datos? Haz una foto de la etiqueta de ingredientes.",reading:"Leyendo la etiqueta… (la primera vez puede tardar un poco)",privacy:"Tu foto se queda en tu teléfono: se lee aquí mismo y nunca se sube.",whyPhotoContains:"Leído de tu foto de la etiqueta. Lácteos encontrados: {w}.",whyPhotoMay:"Leído de tu foto de la etiqueta. La etiqueta advierte que puede contener leche.",whyPhotoClean:"Leído de tu foto de la etiqueta. La declaración «Contiene» no lista leche y no se encontraron palabras de lácteos.",photoGarbled:"No pudimos leer bien esa foto. Inténtalo de nuevo con buena luz y la etiqueta plana.",photoNoContains:"Leímos la etiqueta pero no encontramos una declaración «Contiene» clara, así que no podemos estar seguros. Revisa el envase.",ingFromPhoto:"Ingredientes (de tu foto)",ingLabel:"Ingredientes",containsLabel:"Contiene:",foundNoData:"Encontramos este producto, pero ninguna base de datos tiene sus ingredientes, así que no podemos saber si tiene lácteos. Revisa la etiqueta o hazle una foto.",photoTag:"📷 Foto",photoName:"Foto de la etiqueta"},
+pt:{title:"🥛 Verificador de Laticínios",langLabel:"Idioma",sub:"Escaneie o código de barras de um produto e descubra se ele contém laticínios.",scan:"Escanear código",stop:"Parar câmera",point:"Aponte a câmera para o código de barras…",camFail:"A leitura pela câmera não está disponível neste navegador. Digite o número do código.",or:"— ou digite o número —",codePh:"Número do código",check:"Verificar",checking:"Verificando…",vContains:"🔴 CONTÉM LATICÍNIOS",vMay:"🟡 PODE CONTER LATICÍNIOS",vNone:"🟢 Nenhum laticínio encontrado",vUnknown:"⚪ NÃO SE SABE",whyAllergen:"Por quê: o leite está listado como alérgeno.",whyTraces:"Por quê: o rótulo indica traços de leite.",whyIngredient:"Por quê: ingrediente encontrado: {w}.",whyMayText:"Por quê: o rótulo avisa que pode conter leite.",whyClean:"Por quê: sem leite nos alérgenos, traços ou ingredientes.",allergensLabel:"Alérgenos:",noneListed:"nenhum listado",honest:"Dados do Open Food Facts. Os rótulos podem mudar — verifique sempre a embalagem.",unknownLine:"Não encontramos dados suficientes sobre este produto. Verifique o rótulo de ingredientes da embalagem.",history:"Verificados nesta compra",clear:"Limpar",errNet:"Não foi possível acessar o banco de dados. Verifique sua conexão e tente novamente.",emptyCode:"Digite primeiro um número de código.",sContains:"Laticínios",sMay:"Pode conter",sNone:"Sem laticínios",sUnknown:"Desconhecido",noName:"Produto desconhecido",snapBtn:"📷 Fotografar o rótulo de ingredientes",snapHint:"Não está no banco de dados? Fotografe o rótulo de ingredientes.",reading:"Lendo o rótulo… (na primeira vez pode demorar um pouco)",privacy:"Sua foto fica no seu telefone — é lida aqui mesmo e nunca enviada.",whyPhotoContains:"Lido da sua foto do rótulo. Laticínios encontrados: {w}.",whyPhotoMay:"Lido da sua foto do rótulo. O rótulo avisa que pode conter leite.",whyPhotoClean:"Lido da sua foto do rótulo. A declaração «Contém» não lista leite e nenhuma palavra de laticínios foi encontrada.",photoGarbled:"Não conseguimos ler bem essa foto. Tente de novo com boa luz e o rótulo plano.",photoNoContains:"Lemos o rótulo, mas não há uma declaração «Contém» clara, então não temos certeza. Verifique a embalagem.",ingFromPhoto:"Ingredientes (da sua foto)",ingLabel:"Ingredientes",containsLabel:"Contém:",foundNoData:"Encontramos este produto, mas nenhum banco de dados tem seus ingredientes, então não dá para saber sobre laticínios. Verifique o rótulo — ou fotografe-o.",photoTag:"📷 Foto",photoName:"Foto do rótulo"},
+fr:{title:"🥛 Détecteur de Produits Laitiers",langLabel:"Langue",sub:"Scannez le code-barres d'un produit pour savoir s'il contient des produits laitiers.",scan:"Scanner le code",stop:"Arrêter la caméra",point:"Pointez la caméra vers le code-barres…",camFail:"Le scan par caméra n'est pas disponible sur ce navigateur. Tapez le numéro du code.",or:"— ou tapez le numéro —",codePh:"Numéro de code-barres",check:"Vérifier",checking:"Vérification…",vContains:"🔴 CONTIENT DES PRODUITS LAITIERS",vMay:"🟡 PEUT CONTENIR DES PRODUITS LAITIERS",vNone:"🟢 Aucun produit laitier trouvé",vUnknown:"⚪ INCONNU",whyAllergen:"Pourquoi : le lait est listé comme allergène.",whyTraces:"Pourquoi : l'étiquette indique des traces de lait.",whyIngredient:"Pourquoi : ingrédient trouvé : {w}.",whyMayText:"Pourquoi : l'étiquette avertit qu'il peut contenir du lait.",whyClean:"Pourquoi : pas de lait dans les allergènes, traces ou ingrédients.",allergensLabel:"Allergènes :",noneListed:"aucun indiqué",honest:"Données d'Open Food Facts. Les étiquettes peuvent changer — vérifiez toujours l'emballage.",unknownLine:"Données insuffisantes pour ce produit. Vérifiez la liste des ingrédients sur l'emballage.",history:"Vérifiés pendant ces courses",clear:"Effacer",errNet:"Base de données injoignable. Vérifiez votre connexion et réessayez.",emptyCode:"Entrez d'abord un numéro de code-barres.",sContains:"Laitier",sMay:"Peut contenir",sNone:"Sans laitier",sUnknown:"Inconnu",noName:"Produit inconnu",snapBtn:"📷 Photographier l'étiquette des ingrédients",snapHint:"Absent de la base de données ? Photographiez plutôt l'étiquette des ingrédients.",reading:"Lecture de l'étiquette… (la première fois peut prendre un moment)",privacy:"Votre photo reste sur votre téléphone — elle est lue ici même et jamais envoyée.",whyPhotoContains:"Lu sur votre photo de l'étiquette. Produits laitiers trouvés : {w}.",whyPhotoMay:"Lu sur votre photo de l'étiquette. L'étiquette avertit qu'il peut contenir du lait.",whyPhotoClean:"Lu sur votre photo de l'étiquette. La mention « Contient » ne liste pas de lait et aucun mot laitier n'a été trouvé.",photoGarbled:"Nous n'avons pas pu lire cette photo assez bien. Réessayez avec une bonne lumière, étiquette à plat.",photoNoContains:"Nous avons lu l'étiquette mais trouvé aucune mention « Contient » claire, donc nous ne pouvons pas être sûrs. Vérifiez l'emballage.",ingFromPhoto:"Ingrédients (de votre photo)",ingLabel:"Ingrédients",containsLabel:"Contient :",foundNoData:"Nous avons trouvé ce produit, mais aucune base de données n'a ses ingrédients, donc impossible de savoir pour les produits laitiers. Vérifiez l'étiquette — ou photographiez-la.",photoTag:"📷 Photo",photoName:"Photo de l'étiquette"},
+de:{title:"🥛 Milchprodukt-Checker",langLabel:"Sprache",sub:"Scannen Sie den Barcode eines Produkts und erfahren Sie, ob es Milchprodukte enthält.",scan:"Barcode scannen",stop:"Kamera stoppen",point:"Richten Sie die Kamera auf den Barcode…",camFail:"Kamera-Scan ist in diesem Browser nicht verfügbar. Tippen Sie die Barcode-Nummer ein.",or:"— oder Nummer eintippen —",codePh:"Barcode-Nummer",check:"Prüfen",checking:"Prüfe…",vContains:"🔴 ENTHÄLT MILCHPRODUKTE",vMay:"🟡 KANN MILCHPRODUKTE ENTHALTEN",vNone:"🟢 Keine Milchprodukte gefunden",vUnknown:"⚪ UNBEKANNT",whyAllergen:"Warum: Milch ist als Allergen aufgeführt.",whyTraces:"Warum: Das Etikett nennt Spuren von Milch.",whyIngredient:"Warum: Zutat gefunden: {w}.",whyMayText:"Warum: Das Etikett warnt, dass Milch enthalten sein kann.",whyClean:"Warum: Keine Milch in Allergenen, Spuren oder Zutaten.",allergensLabel:"Allergene:",noneListed:"keine aufgeführt",honest:"Daten von Open Food Facts. Etiketten können sich ändern — prüfen Sie immer die Packung.",unknownLine:"Nicht genug Daten zu diesem Produkt. Prüfen Sie die Zutatenliste auf der Packung.",history:"Bei diesem Einkauf geprüft",clear:"Leeren",errNet:"Datenbank nicht erreichbar. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",emptyCode:"Geben Sie zuerst eine Barcode-Nummer ein.",sContains:"Milchprodukt",sMay:"Kann enthalten",sNone:"Ohne Milch",sUnknown:"Unbekannt",noName:"Unbekanntes Produkt",snapBtn:"📷 Zutatenetikett fotografieren",snapHint:"Nicht in der Datenbank? Fotografieren Sie stattdessen das Zutatenetikett.",reading:"Etikett wird gelesen… (beim ersten Mal kann es etwas dauern)",privacy:"Ihr Foto bleibt auf Ihrem Telefon — es wird hier gelesen und nie hochgeladen.",whyPhotoContains:"Von Ihrem Etikettfoto gelesen. Gefunden: {w}.",whyPhotoMay:"Von Ihrem Etikettfoto gelesen. Das Etikett warnt, dass Milch enthalten sein kann.",whyPhotoClean:"Von Ihrem Etikettfoto gelesen. Die «Enthält»-Angabe listet keine Milch, und es wurden keine Milchwörter gefunden.",photoGarbled:"Wir konnten das Foto nicht gut genug lesen. Versuchen Sie es erneut bei gutem Licht mit flachem Etikett.",photoNoContains:"Wir haben das Etikett gelesen, aber keine klare «Enthält»-Angabe gefunden — wir können nicht sicher sein. Prüfen Sie die Packung.",ingFromPhoto:"Zutaten (von Ihrem Foto)",ingLabel:"Zutaten",containsLabel:"Enthält:",foundNoData:"Wir haben dieses Produkt gefunden, aber keine Datenbank hat seine Zutaten — zu Milchprodukten können wir nichts sagen. Prüfen Sie das Etikett oder fotografieren Sie es.",photoTag:"📷 Foto",photoName:"Etikettfoto"},
+it:{title:"🥛 Controllo Latticini",langLabel:"Lingua",sub:"Scansiona il codice a barre di un prodotto e scopri se contiene latticini.",scan:"Scansiona codice",stop:"Ferma fotocamera",point:"Punta la fotocamera sul codice a barre…",camFail:"La scansione con fotocamera non è disponibile in questo browser. Digita il numero del codice.",or:"— oppure digita il numero —",codePh:"Numero codice a barre",check:"Controlla",checking:"Controllo…",vContains:"🔴 CONTIENE LATTICINI",vMay:"🟡 PUÒ CONTENERE LATTICINI",vNone:"🟢 Nessun latticino trovato",vUnknown:"⚪ NON SI SA",whyAllergen:"Perché: il latte è elencato come allergene.",whyTraces:"Perché: l'etichetta indica tracce di latte.",whyIngredient:"Perché: ingrediente trovato: {w}.",whyMayText:"Perché: l'etichetta avverte che può contenere latte.",whyClean:"Perché: niente latte in allergeni, tracce o ingredienti.",allergensLabel:"Allergeni:",noneListed:"nessuno elencato",honest:"Dati da Open Food Facts. Le etichette possono cambiare: controlla sempre la confezione.",unknownLine:"Dati insufficienti su questo prodotto. Controlla l'etichetta degli ingredienti sulla confezione.",history:"Controllati in questa spesa",clear:"Cancella",errNet:"Database non raggiungibile. Controlla la connessione e riprova.",emptyCode:"Inserisci prima un numero di codice a barre.",sContains:"Latticini",sMay:"Può contenere",sNone:"Senza latticini",sUnknown:"Sconosciuto",noName:"Prodotto sconosciuto",snapBtn:"📷 Fotografa l'etichetta degli ingredienti",snapHint:"Non è nel database? Fotografa invece l'etichetta degli ingredienti.",reading:"Lettura dell'etichetta… (la prima volta può richiedere un po')",privacy:"La foto resta sul tuo telefono: viene letta qui e mai caricata.",whyPhotoContains:"Letto dalla foto dell'etichetta. Latticini trovati: {w}.",whyPhotoMay:"Letto dalla foto dell'etichetta. L'etichetta avverte che può contenere latte.",whyPhotoClean:"Letto dalla foto dell'etichetta. La dicitura «Contiene» non elenca latte e non sono state trovate parole di latticini.",photoGarbled:"Non siamo riusciti a leggere bene la foto. Riprova con buona luce e l'etichetta piatta.",photoNoContains:"Abbiamo letto l'etichetta ma non c'è una dicitura «Contiene» chiara, quindi non possiamo essere sicuri. Controlla la confezione.",ingFromPhoto:"Ingredienti (dalla tua foto)",ingLabel:"Ingredienti",containsLabel:"Contiene:",foundNoData:"Abbiamo trovato questo prodotto, ma nessun database ha i suoi ingredienti, quindi non possiamo dire nulla sui latticini. Controlla l'etichetta — o fotografala.",photoTag:"📷 Foto",photoName:"Foto dell'etichetta"},
 
-nl:{title:"🥛 Zuivelchecker",langLabel:"Taal",sub:"Scan de barcode van een product en ontdek of het zuivel bevat.",scan:"Barcode scannen",stop:"Camera stoppen",point:"Richt de camera op de barcode…",camFail:"Camera scannen is niet beschikbaar in deze browser. Typ het barcodenummer.",or:"— of typ het nummer —",codePh:"Barcodenummer",check:"Controleren",checking:"Controleren…",vContains:"🔴 BEVAT ZUIVEL",vMay:"🟡 KAN ZUIVEL BEVATTEN",vNone:"🟢 Geen zuivel gevonden",vUnknown:"⚪ ONBEKEND",whyAllergen:"Waarom: melk staat vermeld als allergeen.",whyTraces:"Waarom: het etiket vermeldt sporen van melk.",whyIngredient:"Waarom: ingrediënt gevonden: {w}.",whyMayText:"Waarom: het etiket waarschuwt dat het melk kan bevatten.",whyClean:"Waarom: geen melk in allergenen, sporen of ingrediënten.",allergensLabel:"Allergenen:",noneListed:"geen vermeld",honest:"Gegevens van Open Food Facts. Etiketten kunnen veranderen — controleer altijd de verpakking.",unknownLine:"Niet genoeg gegevens over dit product. Controleer het ingrediëntenetiket op de verpakking.",history:"Gecontroleerd tijdens deze boodschappen",clear:"Wissen",errNet:"Database niet bereikbaar. Controleer je verbinding en probeer opnieuw.",emptyCode:"Voer eerst een barcodenummer in.",sContains:"Zuivel",sMay:"Kan bevatten",sNone:"Geen zuivel",sUnknown:"Onbekend",noName:"Onbekend product"},
-ru:{title:"🥛 Проверка молочных продуктов",langLabel:"Язык",sub:"Отсканируйте штрихкод продукта и узнайте, содержит ли он молочные продукты.",scan:"Сканировать код",stop:"Остановить камеру",point:"Наведите камеру на штрихкод…",camFail:"Сканирование камерой недоступно в этом браузере. Введите номер штрихкода.",or:"— или введите номер —",codePh:"Номер штрихкода",check:"Проверить",checking:"Проверка…",vContains:"🔴 СОДЕРЖИТ МОЛОЧНЫЕ ПРОДУКТЫ",vMay:"🟡 МОЖЕТ СОДЕРЖАТЬ МОЛОЧНЫЕ ПРОДУКТЫ",vNone:"🟢 Молочных продуктов не найдено",vUnknown:"⚪ НЕИЗВЕСТНО",whyAllergen:"Почему: молоко указано как аллерген.",whyTraces:"Почему: на этикетке указаны следы молока.",whyIngredient:"Почему: найден ингредиент: {w}.",whyMayText:"Почему: этикетка предупреждает, что может содержать молоко.",whyClean:"Почему: нет молока в аллергенах, следах или составе.",allergensLabel:"Аллергены:",noneListed:"не указаны",honest:"Данные Open Food Facts. Этикетки могут меняться — всегда проверяйте упаковку.",unknownLine:"Недостаточно данных об этом продукте. Проверьте состав на упаковке.",history:"Проверено в этой поездке",clear:"Очистить",errNet:"Не удалось связаться с базой данных. Проверьте соединение и попробуйте снова.",emptyCode:"Сначала введите номер штрихкода.",sContains:"Есть молочное",sMay:"Может содержать",sNone:"Без молочного",sUnknown:"Неизвестно",noName:"Неизвестный продукт"},
-uk:{title:"🥛 Перевірка молочних продуктів",langLabel:"Мова",sub:"Відскануйте штрихкод продукту та дізнайтеся, чи містить він молочні продукти.",scan:"Сканувати код",stop:"Зупинити камеру",point:"Наведіть камеру на штрихкод…",camFail:"Сканування камерою недоступне в цьому браузері. Введіть номер штрихкоду.",or:"— або введіть номер —",codePh:"Номер штрихкоду",check:"Перевірити",checking:"Перевірка…",vContains:"🔴 МІСТИТЬ МОЛОЧНІ ПРОДУКТИ",vMay:"🟡 МОЖЕ МІСТИТИ МОЛОЧНІ ПРОДУКТИ",vNone:"🟢 Молочних продуктів не знайдено",vUnknown:"⚪ НЕВІДОМО",whyAllergen:"Чому: молоко зазначено як алерген.",whyTraces:"Чому: на етикетці зазначено сліди молока.",whyIngredient:"Чому: знайдено інгредієнт: {w}.",whyMayText:"Чому: етикетка попереджає, що може містити молоко.",whyClean:"Чому: немає молока в алергенах, слідах чи складі.",allergensLabel:"Алергени:",noneListed:"не зазначено",honest:"Дані Open Food Facts. Етикетки можуть змінюватися — завжди перевіряйте упаковку.",unknownLine:"Недостатньо даних про цей продукт. Перевірте склад на упаковці.",history:"Перевірено під час цієї покупки",clear:"Очистити",errNet:"Не вдалося зв'язатися з базою даних. Перевірте з'єднання та спробуйте знову.",emptyCode:"Спочатку введіть номер штрихкоду.",sContains:"Є молочне",sMay:"Може містити",sNone:"Без молочного",sUnknown:"Невідомо",noName:"Невідомий продукт"},
-tr:{title:"🥛 Süt Ürünü Denetimi",langLabel:"Dil",sub:"Bir ürünün barkodunu tarayın ve süt ürünü içerip içermediğini öğrenin.",scan:"Barkodu tara",stop:"Kamerayı durdur",point:"Kamerayı barkoda doğrultun…",camFail:"Bu tarayıcıda kamera ile tarama kullanılamıyor. Barkod numarasını yazın.",or:"— veya numarayı yazın —",codePh:"Barkod numarası",check:"Kontrol et",checking:"Kontrol ediliyor…",vContains:"🔴 SÜT ÜRÜNÜ İÇERİR",vMay:"🟡 SÜT ÜRÜNÜ İÇEREBİLİR",vNone:"🟢 Süt ürünü bulunamadı",vUnknown:"⚪ BİLİNMİYOR",whyAllergen:"Neden: süt bir alerjen olarak listelenmiş.",whyTraces:"Neden: etikette süt izleri belirtilmiş.",whyIngredient:"Neden: bulunan içerik: {w}.",whyMayText:"Neden: etiket süt içerebileceği konusunda uyarıyor.",whyClean:"Neden: alerjenlerde, izlerde veya içeriklerde süt yok.",allergensLabel:"Alerjenler:",noneListed:"listelenmemiş",honest:"Veriler Open Food Facts'tan. Etiketler değişebilir — her zaman ambalajı kontrol edin.",unknownLine:"Bu ürün hakkında yeterli veri bulunamadı. Ambalajdaki içerik etiketini kontrol edin.",history:"Bu alışverişte kontrol edilenler",clear:"Temizle",errNet:"Veritabanına ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.",emptyCode:"Önce bir barkod numarası girin.",sContains:"Süt ürünü var",sMay:"İçerebilir",sNone:"Süt ürünü yok",sUnknown:"Bilinmiyor",noName:"Bilinmeyen ürün"},
-ar:{title:"🥛 فاحص منتجات الألبان",langLabel:"اللغة",sub:"امسح الرمز الشريطي للمنتج واعرف ما إذا كان يحتوي على منتجات ألبان.",scan:"مسح الرمز الشريطي",stop:"إيقاف الكاميرا",point:"وجّه الكاميرا نحو الرمز الشريطي…",camFail:"المسح بالكاميرا غير متاح في هذا المتصفح. اكتب رقم الرمز الشريطي.",or:"— أو اكتب الرقم —",codePh:"رقم الرمز الشريطي",check:"فحص",checking:"جارٍ الفحص…",vContains:"🔴 يحتوي على منتجات ألبان",vMay:"🟡 قد يحتوي على منتجات ألبان",vNone:"🟢 لم يتم العثور على منتجات ألبان",vUnknown:"⚪ غير معروف",whyAllergen:"السبب: الحليب مدرج كمسبب للحساسية.",whyTraces:"السبب: الملصق يذكر آثارًا من الحليب.",whyIngredient:"السبب: تم العثور على مكوّن: {w}.",whyMayText:"السبب: الملصق يحذّر من أنه قد يحتوي على الحليب.",whyClean:"السبب: لا يوجد حليب في مسببات الحساسية أو الآثار أو المكونات.",allergensLabel:"مسببات الحساسية:",noneListed:"لا شيء مدرج",honest:"البيانات من Open Food Facts. قد تتغير الملصقات — تحقق دائمًا من العبوة.",unknownLine:"لم نجد بيانات كافية عن هذا المنتج. تحقق من ملصق المكونات على العبوة.",history:"تم فحصها في هذه الرحلة",clear:"مسح",errNet:"تعذّر الوصول إلى قاعدة البيانات. تحقق من اتصالك وحاول مرة أخرى.",emptyCode:"أدخل رقم الرمز الشريطي أولًا.",sContains:"يحتوي ألبان",sMay:"قد يحتوي",sNone:"بدون ألبان",sUnknown:"غير معروف",noName:"منتج غير معروف"},
-hi:{title:"🥛 डेयरी जांच",langLabel:"भाषा",sub:"किसी उत्पाद का बारकोड स्कैन करें और जानें कि उसमें डेयरी है या नहीं।",scan:"बारकोड स्कैन करें",stop:"कैमरा बंद करें",point:"कैमरे को बारकोड की ओर करें…",camFail:"इस ब्राउज़र में कैमरा स्कैन उपलब्ध नहीं है। बारकोड नंबर लिखें।",or:"— या नंबर लिखें —",codePh:"बारकोड नंबर",check:"जांचें",checking:"जांच हो रही है…",vContains:"🔴 इसमें डेयरी है",vMay:"🟡 इसमें डेयरी हो सकती है",vNone:"🟢 कोई डेयरी नहीं मिली",vUnknown:"⚪ पता नहीं",whyAllergen:"क्यों: दूध एलर्जी कारक के रूप में सूचीबद्ध है।",whyTraces:"क्यों: लेबल पर दूध के अंश बताए गए हैं।",whyIngredient:"क्यों: मिली सामग्री: {w}।",whyMayText:"क्यों: लेबल चेतावनी देता है कि इसमें दूध हो सकता है।",whyClean:"क्यों: एलर्जी कारकों, अंशों या सामग्री में दूध नहीं है।",allergensLabel:"एलर्जी कारक:",noneListed:"कोई सूचीबद्ध नहीं",honest:"डेटा Open Food Facts से। लेबल बदल सकते हैं — हमेशा पैकेज जांचें।",unknownLine:"इस उत्पाद के बारे में पर्याप्त डेटा नहीं मिला। पैकेज पर सामग्री लेबल जांचें।",history:"इस खरीदारी में जांचे गए",clear:"साफ़ करें",errNet:"डेटाबेस से संपर्क नहीं हो सका। अपना कनेक्शन जांचकर फिर कोशिश करें।",emptyCode:"पहले बारकोड नंबर डालें।",sContains:"डेयरी है",sMay:"हो सकती है",sNone:"डेयरी नहीं",sUnknown:"अज्ञात",noName:"अज्ञात उत्पाद"},
+nl:{title:"🥛 Zuivelchecker",langLabel:"Taal",sub:"Scan de barcode van een product en ontdek of het zuivel bevat.",scan:"Barcode scannen",stop:"Camera stoppen",point:"Richt de camera op de barcode…",camFail:"Camera scannen is niet beschikbaar in deze browser. Typ het barcodenummer.",or:"— of typ het nummer —",codePh:"Barcodenummer",check:"Controleren",checking:"Controleren…",vContains:"🔴 BEVAT ZUIVEL",vMay:"🟡 KAN ZUIVEL BEVATTEN",vNone:"🟢 Geen zuivel gevonden",vUnknown:"⚪ ONBEKEND",whyAllergen:"Waarom: melk staat vermeld als allergeen.",whyTraces:"Waarom: het etiket vermeldt sporen van melk.",whyIngredient:"Waarom: ingrediënt gevonden: {w}.",whyMayText:"Waarom: het etiket waarschuwt dat het melk kan bevatten.",whyClean:"Waarom: geen melk in allergenen, sporen of ingrediënten.",allergensLabel:"Allergenen:",noneListed:"geen vermeld",honest:"Gegevens van Open Food Facts. Etiketten kunnen veranderen — controleer altijd de verpakking.",unknownLine:"Niet genoeg gegevens over dit product. Controleer het ingrediëntenetiket op de verpakking.",history:"Gecontroleerd tijdens deze boodschappen",clear:"Wissen",errNet:"Database niet bereikbaar. Controleer je verbinding en probeer opnieuw.",emptyCode:"Voer eerst een barcodenummer in.",sContains:"Zuivel",sMay:"Kan bevatten",sNone:"Geen zuivel",sUnknown:"Onbekend",noName:"Onbekend product",snapBtn:"📷 Fotografeer het ingrediëntenetiket",snapHint:"Niet in de database? Fotografeer in plaats daarvan het ingrediëntenetiket.",reading:"Etiket wordt gelezen… (de eerste keer kan even duren)",privacy:"Je foto blijft op je telefoon — hij wordt hier gelezen en nooit geüpload.",whyPhotoContains:"Gelezen van je etikettfoto. Zuivel gevonden: {w}.",whyPhotoMay:"Gelezen van je etikettfoto. Het etiket waarschuwt dat het melk kan bevatten.",whyPhotoClean:"Gelezen van je etikettfoto. De «Bevat»-vermelding noemt geen melk en er zijn geen zuivelwoorden gevonden.",photoGarbled:"We konden die foto niet goed genoeg lezen. Probeer opnieuw bij goed licht met het etiket vlak.",photoNoContains:"We hebben het etiket gelezen maar geen duidelijke «Bevat»-vermelding gevonden, dus we weten het niet zeker. Controleer de verpakking.",ingFromPhoto:"Ingrediënten (van je foto)",ingLabel:"Ingrediënten",containsLabel:"Bevat:",foundNoData:"We hebben dit product gevonden, maar geen enkele database heeft de ingrediënten, dus over zuivel kunnen we niets zeggen. Controleer het etiket — of fotografeer het.",photoTag:"📷 Foto",photoName:"Etiketfoto"},
+ru:{title:"🥛 Проверка молочных продуктов",langLabel:"Язык",sub:"Отсканируйте штрихкод продукта и узнайте, содержит ли он молочные продукты.",scan:"Сканировать код",stop:"Остановить камеру",point:"Наведите камеру на штрихкод…",camFail:"Сканирование камерой недоступно в этом браузере. Введите номер штрихкода.",or:"— или введите номер —",codePh:"Номер штрихкода",check:"Проверить",checking:"Проверка…",vContains:"🔴 СОДЕРЖИТ МОЛОЧНЫЕ ПРОДУКТЫ",vMay:"🟡 МОЖЕТ СОДЕРЖАТЬ МОЛОЧНЫЕ ПРОДУКТЫ",vNone:"🟢 Молочных продуктов не найдено",vUnknown:"⚪ НЕИЗВЕСТНО",whyAllergen:"Почему: молоко указано как аллерген.",whyTraces:"Почему: на этикетке указаны следы молока.",whyIngredient:"Почему: найден ингредиент: {w}.",whyMayText:"Почему: этикетка предупреждает, что может содержать молоко.",whyClean:"Почему: нет молока в аллергенах, следах или составе.",allergensLabel:"Аллергены:",noneListed:"не указаны",honest:"Данные Open Food Facts. Этикетки могут меняться — всегда проверяйте упаковку.",unknownLine:"Недостаточно данных об этом продукте. Проверьте состав на упаковке.",history:"Проверено в этой поездке",clear:"Очистить",errNet:"Не удалось связаться с базой данных. Проверьте соединение и попробуйте снова.",emptyCode:"Сначала введите номер штрихкода.",sContains:"Есть молочное",sMay:"Может содержать",sNone:"Без молочного",sUnknown:"Неизвестно",noName:"Неизвестный продукт",snapBtn:"📷 Сфотографировать этикетку с составом",snapHint:"Нет в базе данных? Сфотографируйте этикетку с составом.",reading:"Читаем этикетку… (в первый раз может занять немного времени)",privacy:"Ваше фото остаётся на телефоне — оно читается прямо здесь и никуда не отправляется.",whyPhotoContains:"Прочитано с вашего фото этикетки. Найдено молочное: {w}.",whyPhotoMay:"Прочитано с вашего фото этикетки. Этикетка предупреждает, что может содержать молоко.",whyPhotoClean:"Прочитано с вашего фото этикетки. В строке «Содержит» молоко не указано, и молочных слов не найдено.",photoGarbled:"Не удалось прочитать это фото достаточно хорошо. Попробуйте снова при хорошем свете, этикетка ровно.",photoNoContains:"Мы прочитали этикетку, но не нашли чёткой строки «Содержит», поэтому не можем быть уверены. Проверьте упаковку.",ingFromPhoto:"Состав (с вашего фото)",ingLabel:"Состав",containsLabel:"Содержит:",foundNoData:"Мы нашли этот продукт, но ни в одной базе нет его состава, поэтому о молочных продуктах сказать нельзя. Проверьте этикетку — или сфотографируйте её.",photoTag:"📷 Фото",photoName:"Фото этикетки"},
+uk:{title:"🥛 Перевірка молочних продуктів",langLabel:"Мова",sub:"Відскануйте штрихкод продукту та дізнайтеся, чи містить він молочні продукти.",scan:"Сканувати код",stop:"Зупинити камеру",point:"Наведіть камеру на штрихкод…",camFail:"Сканування камерою недоступне в цьому браузері. Введіть номер штрихкоду.",or:"— або введіть номер —",codePh:"Номер штрихкоду",check:"Перевірити",checking:"Перевірка…",vContains:"🔴 МІСТИТЬ МОЛОЧНІ ПРОДУКТИ",vMay:"🟡 МОЖЕ МІСТИТИ МОЛОЧНІ ПРОДУКТИ",vNone:"🟢 Молочних продуктів не знайдено",vUnknown:"⚪ НЕВІДОМО",whyAllergen:"Чому: молоко зазначено як алерген.",whyTraces:"Чому: на етикетці зазначено сліди молока.",whyIngredient:"Чому: знайдено інгредієнт: {w}.",whyMayText:"Чому: етикетка попереджає, що може містити молоко.",whyClean:"Чому: немає молока в алергенах, слідах чи складі.",allergensLabel:"Алергени:",noneListed:"не зазначено",honest:"Дані Open Food Facts. Етикетки можуть змінюватися — завжди перевіряйте упаковку.",unknownLine:"Недостатньо даних про цей продукт. Перевірте склад на упаковці.",history:"Перевірено під час цієї покупки",clear:"Очистити",errNet:"Не вдалося зв'язатися з базою даних. Перевірте з'єднання та спробуйте знову.",emptyCode:"Спочатку введіть номер штрихкоду.",sContains:"Є молочне",sMay:"Може містити",sNone:"Без молочного",sUnknown:"Невідомо",noName:"Невідомий продукт",snapBtn:"📷 Сфотографувати етикетку зі складом",snapHint:"Немає в базі даних? Сфотографуйте етикетку зі складом.",reading:"Читаємо етикетку… (вперше це може зайняти трохи часу)",privacy:"Ваше фото залишається на телефоні — воно читається прямо тут і нікуди не надсилається.",whyPhotoContains:"Прочитано з вашого фото етикетки. Знайдено молочне: {w}.",whyPhotoMay:"Прочитано з вашого фото етикетки. Етикетка попереджає, що може містити молоко.",whyPhotoClean:"Прочитано з вашого фото етикетки. У рядку «Містить» молоко не зазначено, і молочних слів не знайдено.",photoGarbled:"Не вдалося прочитати це фото достатньо добре. Спробуйте ще раз за гарного світла, етикетка рівно.",photoNoContains:"Ми прочитали етикетку, але не знайшли чіткого рядка «Містить», тому не можемо бути впевнені. Перевірте упаковку.",ingFromPhoto:"Склад (з вашого фото)",ingLabel:"Склад",containsLabel:"Містить:",foundNoData:"Ми знайшли цей продукт, але жодна база не має його складу, тож про молочні продукти сказати не можна. Перевірте етикетку — або сфотографуйте її.",photoTag:"📷 Фото",photoName:"Фото етикетки"},
+tr:{title:"🥛 Süt Ürünü Denetimi",langLabel:"Dil",sub:"Bir ürünün barkodunu tarayın ve süt ürünü içerip içermediğini öğrenin.",scan:"Barkodu tara",stop:"Kamerayı durdur",point:"Kamerayı barkoda doğrultun…",camFail:"Bu tarayıcıda kamera ile tarama kullanılamıyor. Barkod numarasını yazın.",or:"— veya numarayı yazın —",codePh:"Barkod numarası",check:"Kontrol et",checking:"Kontrol ediliyor…",vContains:"🔴 SÜT ÜRÜNÜ İÇERİR",vMay:"🟡 SÜT ÜRÜNÜ İÇEREBİLİR",vNone:"🟢 Süt ürünü bulunamadı",vUnknown:"⚪ BİLİNMİYOR",whyAllergen:"Neden: süt bir alerjen olarak listelenmiş.",whyTraces:"Neden: etikette süt izleri belirtilmiş.",whyIngredient:"Neden: bulunan içerik: {w}.",whyMayText:"Neden: etiket süt içerebileceği konusunda uyarıyor.",whyClean:"Neden: alerjenlerde, izlerde veya içeriklerde süt yok.",allergensLabel:"Alerjenler:",noneListed:"listelenmemiş",honest:"Veriler Open Food Facts'tan. Etiketler değişebilir — her zaman ambalajı kontrol edin.",unknownLine:"Bu ürün hakkında yeterli veri bulunamadı. Ambalajdaki içerik etiketini kontrol edin.",history:"Bu alışverişte kontrol edilenler",clear:"Temizle",errNet:"Veritabanına ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.",emptyCode:"Önce bir barkod numarası girin.",sContains:"Süt ürünü var",sMay:"İçerebilir",sNone:"Süt ürünü yok",sUnknown:"Bilinmiyor",noName:"Bilinmeyen ürün",snapBtn:"📷 İçerik etiketini fotoğrafla",snapHint:"Veritabanında yok mu? Bunun yerine içerik etiketini fotoğraflayın.",reading:"Etiket okunuyor… (ilk seferde biraz sürebilir)",privacy:"Fotoğrafınız telefonunuzda kalır — burada okunur ve asla yüklenmez.",whyPhotoContains:"Etiket fotoğrafınızdan okundu. Bulunan süt ürünleri: {w}.",whyPhotoMay:"Etiket fotoğrafınızdan okundu. Etiket süt içerebileceği konusunda uyarıyor.",whyPhotoClean:"Etiket fotoğrafınızdan okundu. «İçerir» ifadesi süt listelemiyor ve hiç süt kelimesi bulunamadı.",photoGarbled:"O fotoğrafı yeterince iyi okuyamadık. İyi ışıkta, etiket düzken tekrar deneyin.",photoNoContains:"Etiketi okuduk ama net bir «İçerir» ifadesi bulamadık, bu yüzden emin olamıyoruz. Ambalajı kontrol edin.",ingFromPhoto:"İçerikler (fotoğrafınızdan)",ingLabel:"İçerikler",containsLabel:"İçerir:",foundNoData:"Bu ürünü bulduk, ancak hiçbir veritabanında içerikleri yok, bu yüzden süt ürünleri hakkında bir şey söyleyemiyoruz. Etiketi kontrol edin — veya fotoğrafını çekin.",photoTag:"📷 Fotoğraf",photoName:"Etiket fotoğrafı"},
+ar:{title:"🥛 فاحص منتجات الألبان",langLabel:"اللغة",sub:"امسح الرمز الشريطي للمنتج واعرف ما إذا كان يحتوي على منتجات ألبان.",scan:"مسح الرمز الشريطي",stop:"إيقاف الكاميرا",point:"وجّه الكاميرا نحو الرمز الشريطي…",camFail:"المسح بالكاميرا غير متاح في هذا المتصفح. اكتب رقم الرمز الشريطي.",or:"— أو اكتب الرقم —",codePh:"رقم الرمز الشريطي",check:"فحص",checking:"جارٍ الفحص…",vContains:"🔴 يحتوي على منتجات ألبان",vMay:"🟡 قد يحتوي على منتجات ألبان",vNone:"🟢 لم يتم العثور على منتجات ألبان",vUnknown:"⚪ غير معروف",whyAllergen:"السبب: الحليب مدرج كمسبب للحساسية.",whyTraces:"السبب: الملصق يذكر آثارًا من الحليب.",whyIngredient:"السبب: تم العثور على مكوّن: {w}.",whyMayText:"السبب: الملصق يحذّر من أنه قد يحتوي على الحليب.",whyClean:"السبب: لا يوجد حليب في مسببات الحساسية أو الآثار أو المكونات.",allergensLabel:"مسببات الحساسية:",noneListed:"لا شيء مدرج",honest:"البيانات من Open Food Facts. قد تتغير الملصقات — تحقق دائمًا من العبوة.",unknownLine:"لم نجد بيانات كافية عن هذا المنتج. تحقق من ملصق المكونات على العبوة.",history:"تم فحصها في هذه الرحلة",clear:"مسح",errNet:"تعذّر الوصول إلى قاعدة البيانات. تحقق من اتصالك وحاول مرة أخرى.",emptyCode:"أدخل رقم الرمز الشريطي أولًا.",sContains:"يحتوي ألبان",sMay:"قد يحتوي",sNone:"بدون ألبان",sUnknown:"غير معروف",noName:"منتج غير معروف",snapBtn:"📷 صوّر ملصق المكونات",snapHint:"غير موجود في قاعدة البيانات؟ صوّر ملصق المكونات بدلًا من ذلك.",reading:"جارٍ قراءة الملصق… (قد تستغرق المرة الأولى بعض الوقت)",privacy:"تبقى صورتك على هاتفك — تُقرأ هنا مباشرة ولا تُرفع أبدًا.",whyPhotoContains:"تمت قراءته من صورة الملصق. منتجات ألبان وُجدت: {w}.",whyPhotoMay:"تمت قراءته من صورة الملصق. الملصق يحذّر من أنه قد يحتوي على الحليب.",whyPhotoClean:"تمت قراءته من صورة الملصق. عبارة «يحتوي على» لا تذكر الحليب ولم يتم العثور على كلمات ألبان.",photoGarbled:"لم نتمكن من قراءة تلك الصورة جيدًا بما يكفي. حاول مرة أخرى في إضاءة جيدة والملصق مسطح.",photoNoContains:"قرأنا الملصق لكن لم نجد عبارة «يحتوي على» واضحة، لذا لا يمكننا التأكد. تحقق من العبوة.",ingFromPhoto:"المكونات (من صورتك)",ingLabel:"المكونات",containsLabel:"يحتوي على:",foundNoData:"وجدنا هذا المنتج، لكن لا توجد مكوناته في أي قاعدة بيانات، لذا لا يمكننا معرفة منتجات الألبان. تحقق من الملصق — أو صوّره.",photoTag:"📷 صورة",photoName:"صورة الملصق"},
+hi:{title:"🥛 डेयरी जांच",langLabel:"भाषा",sub:"किसी उत्पाद का बारकोड स्कैन करें और जानें कि उसमें डेयरी है या नहीं।",scan:"बारकोड स्कैन करें",stop:"कैमरा बंद करें",point:"कैमरे को बारकोड की ओर करें…",camFail:"इस ब्राउज़र में कैमरा स्कैन उपलब्ध नहीं है। बारकोड नंबर लिखें।",or:"— या नंबर लिखें —",codePh:"बारकोड नंबर",check:"जांचें",checking:"जांच हो रही है…",vContains:"🔴 इसमें डेयरी है",vMay:"🟡 इसमें डेयरी हो सकती है",vNone:"🟢 कोई डेयरी नहीं मिली",vUnknown:"⚪ पता नहीं",whyAllergen:"क्यों: दूध एलर्जी कारक के रूप में सूचीबद्ध है।",whyTraces:"क्यों: लेबल पर दूध के अंश बताए गए हैं।",whyIngredient:"क्यों: मिली सामग्री: {w}।",whyMayText:"क्यों: लेबल चेतावनी देता है कि इसमें दूध हो सकता है।",whyClean:"क्यों: एलर्जी कारकों, अंशों या सामग्री में दूध नहीं है।",allergensLabel:"एलर्जी कारक:",noneListed:"कोई सूचीबद्ध नहीं",honest:"डेटा Open Food Facts से। लेबल बदल सकते हैं — हमेशा पैकेज जांचें।",unknownLine:"इस उत्पाद के बारे में पर्याप्त डेटा नहीं मिला। पैकेज पर सामग्री लेबल जांचें।",history:"इस खरीदारी में जांचे गए",clear:"साफ़ करें",errNet:"डेटाबेस से संपर्क नहीं हो सका। अपना कनेक्शन जांचकर फिर कोशिश करें।",emptyCode:"पहले बारकोड नंबर डालें।",sContains:"डेयरी है",sMay:"हो सकती है",sNone:"डेयरी नहीं",sUnknown:"अज्ञात",noName:"अज्ञात उत्पाद",snapBtn:"📷 सामग्री लेबल की फ़ोटो लें",snapHint:"डेटाबेस में नहीं है? इसके बजाय सामग्री लेबल की फ़ोटो लें।",reading:"लेबल पढ़ा जा रहा है… (पहली बार थोड़ा समय लग सकता है)",privacy:"आपकी फ़ोटो आपके फ़ोन पर ही रहती है — यहीं पढ़ी जाती है, कभी अपलोड नहीं होती।",whyPhotoContains:"आपके लेबल फ़ोटो से पढ़ा गया। डेयरी मिली: {w}।",whyPhotoMay:"आपके लेबल फ़ोटो से पढ़ा गया। लेबल चेतावनी देता है कि इसमें दूध हो सकता है।",whyPhotoClean:"आपके लेबल फ़ोटो से पढ़ा गया। «Contains» कथन में दूध सूचीबद्ध नहीं है और कोई डेयरी शब्द नहीं मिला।",photoGarbled:"हम उस फ़ोटो को ठीक से नहीं पढ़ पाए। अच्छी रोशनी में, लेबल सीधा रखकर फिर कोशिश करें।",photoNoContains:"हमने लेबल पढ़ा लेकिन कोई स्पष्ट «Contains» कथन नहीं मिला, इसलिए हम निश्चित नहीं हो सकते। पैकेज जांचें।",ingFromPhoto:"सामग्री (आपकी फ़ोटो से)",ingLabel:"सामग्री",containsLabel:"शामिल है:",foundNoData:"हमें यह उत्पाद मिला, लेकिन किसी भी डेटाबेस में इसकी सामग्री नहीं है, इसलिए डेयरी के बारे में नहीं बता सकते। लेबल जांचें — या उसकी फ़ोटो लें।",photoTag:"📷 फ़ोटो",photoName:"लेबल फ़ोटो"},
 
-id:{title:"🥛 Pemeriksa Susu",langLabel:"Bahasa",sub:"Pindai kode batang produk dan ketahui apakah mengandung susu.",scan:"Pindai kode batang",stop:"Hentikan kamera",point:"Arahkan kamera ke kode batang…",camFail:"Pemindaian kamera tidak tersedia di browser ini. Ketik nomor kode batang.",or:"— atau ketik nomornya —",codePh:"Nomor kode batang",check:"Periksa",checking:"Memeriksa…",vContains:"🔴 MENGANDUNG SUSU",vMay:"🟡 MUNGKIN MENGANDUNG SUSU",vNone:"🟢 Tidak ditemukan susu",vUnknown:"⚪ TIDAK TAHU",whyAllergen:"Alasan: susu tercantum sebagai alergen.",whyTraces:"Alasan: label mencantumkan jejak susu.",whyIngredient:"Alasan: bahan ditemukan: {w}.",whyMayText:"Alasan: label memperingatkan mungkin mengandung susu.",whyClean:"Alasan: tidak ada susu di alergen, jejak, atau bahan.",allergensLabel:"Alergen:",noneListed:"tidak ada yang tercantum",honest:"Data dari Open Food Facts. Label dapat berubah — selalu periksa kemasan.",unknownLine:"Data produk ini tidak cukup. Periksa label bahan pada kemasan.",history:"Diperiksa pada belanja ini",clear:"Hapus",errNet:"Tidak dapat menghubungi basis data. Periksa koneksi Anda dan coba lagi.",emptyCode:"Masukkan nomor kode batang dulu.",sContains:"Ada susu",sMay:"Mungkin ada",sNone:"Tanpa susu",sUnknown:"Tidak tahu",noName:"Produk tidak dikenal"},
-vi:{title:"🥛 Kiểm Tra Sữa",langLabel:"Ngôn ngữ",sub:"Quét mã vạch sản phẩm để biết có chứa sữa hay không.",scan:"Quét mã vạch",stop:"Dừng camera",point:"Hướng camera vào mã vạch…",camFail:"Quét bằng camera không khả dụng trên trình duyệt này. Hãy nhập số mã vạch.",or:"— hoặc nhập số —",codePh:"Số mã vạch",check:"Kiểm tra",checking:"Đang kiểm tra…",vContains:"🔴 CÓ CHỨA SỮA",vMay:"🟡 CÓ THỂ CHỨA SỮA",vNone:"🟢 Không tìm thấy sữa",vUnknown:"⚪ KHÔNG RÕ",whyAllergen:"Lý do: sữa được liệt kê là chất gây dị ứng.",whyTraces:"Lý do: nhãn ghi có vết sữa.",whyIngredient:"Lý do: thành phần tìm thấy: {w}.",whyMayText:"Lý do: nhãn cảnh báo có thể chứa sữa.",whyClean:"Lý do: không có sữa trong chất gây dị ứng, vết hay thành phần.",allergensLabel:"Chất gây dị ứng:",noneListed:"không có",honest:"Dữ liệu từ Open Food Facts. Nhãn có thể thay đổi — luôn kiểm tra bao bì.",unknownLine:"Không đủ dữ liệu về sản phẩm này. Hãy kiểm tra nhãn thành phần trên bao bì.",history:"Đã kiểm tra trong chuyến này",clear:"Xóa",errNet:"Không kết nối được cơ sở dữ liệu. Kiểm tra kết nối và thử lại.",emptyCode:"Nhập số mã vạch trước.",sContains:"Có sữa",sMay:"Có thể chứa",sNone:"Không sữa",sUnknown:"Không rõ",noName:"Sản phẩm không rõ"},
-th:{title:"🥛 เครื่องตรวจนม",langLabel:"ภาษา",sub:"สแกนบาร์โค้ดสินค้าเพื่อดูว่ามีนมเป็นส่วนประกอบหรือไม่",scan:"สแกนบาร์โค้ด",stop:"หยุดกล้อง",point:"หันกล้องไปที่บาร์โค้ด…",camFail:"การสแกนด้วยกล้องใช้ไม่ได้ในเบราว์เซอร์นี้ พิมพ์หมายเลขบาร์โค้ดแทน",or:"— หรือพิมพ์หมายเลข —",codePh:"หมายเลขบาร์โค้ด",check:"ตรวจสอบ",checking:"กำลังตรวจสอบ…",vContains:"🔴 มีนมเป็นส่วนประกอบ",vMay:"🟡 อาจมีนมเป็นส่วนประกอบ",vNone:"🟢 ไม่พบนม",vUnknown:"⚪ ไม่ทราบ",whyAllergen:"เหตุผล: นมถูกระบุเป็นสารก่อภูมิแพ้",whyTraces:"เหตุผล: ฉลากระบุร่องรอยของนม",whyIngredient:"เหตุผล: พบส่วนประกอบ: {w}",whyMayText:"เหตุผล: ฉลากเตือนว่าอาจมีนม",whyClean:"เหตุผล: ไม่มีนมในสารก่อภูมิแพ้ ร่องรอย หรือส่วนประกอบ",allergensLabel:"สารก่อภูมิแพ้:",noneListed:"ไม่มีระบุ",honest:"ข้อมูลจาก Open Food Facts ฉลากอาจเปลี่ยนแปลง — ตรวจสอบบรรจุภัณฑ์เสมอ",unknownLine:"ข้อมูลสินค้านี้ไม่เพียงพอ โปรดตรวจสอบฉลากส่วนประกอบบนบรรจุภัณฑ์",history:"ตรวจสอบในรอบนี้",clear:"ล้าง",errNet:"ติดต่อฐานข้อมูลไม่ได้ ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง",emptyCode:"กรอกหมายเลขบาร์โค้ดก่อน",sContains:"มีนม",sMay:"อาจมี",sNone:"ไม่มีนม",sUnknown:"ไม่ทราบ",noName:"สินค้าไม่ทราบชื่อ"},
-zh:{title:"🥛 乳制品检查",langLabel:"语言",sub:"扫描产品条形码，查明是否含有乳制品。",scan:"扫描条形码",stop:"停止相机",point:"将相机对准条形码…",camFail:"此浏览器不支持相机扫描。请输入条形码号码。",or:"— 或输入号码 —",codePh:"条形码号码",check:"检查",checking:"检查中…",vContains:"🔴 含有乳制品",vMay:"🟡 可能含有乳制品",vNone:"🟢 未发现乳制品",vUnknown:"⚪ 无法确定",whyAllergen:"原因：牛奶被列为过敏原。",whyTraces:"原因：标签注明含有微量牛奶。",whyIngredient:"原因：发现成分：{w}。",whyMayText:"原因：标签警告可能含有牛奶。",whyClean:"原因：过敏原、微量成分和配料中均无牛奶。",allergensLabel:"过敏原：",noneListed:"未列出",honest:"数据来自 Open Food Facts。标签可能变更——请始终查看包装。",unknownLine:"该产品数据不足。请查看包装上的配料标签。",history:"本次已检查",clear:"清除",errNet:"无法连接产品数据库。请检查网络后重试。",emptyCode:"请先输入条形码号码。",sContains:"含乳制品",sMay:"可能含有",sNone:"无乳制品",sUnknown:"未知",noName:"未知产品"},
-ja:{title:"🥛 乳製品チェッカー",langLabel:"言語",sub:"商品のバーコードをスキャンして、乳製品が含まれているか確認できます。",scan:"バーコードをスキャン",stop:"カメラを停止",point:"カメラをバーコードに向けてください…",camFail:"このブラウザではカメラスキャンが使えません。バーコード番号を入力してください。",or:"— または番号を入力 —",codePh:"バーコード番号",check:"チェック",checking:"チェック中…",vContains:"🔴 乳製品を含みます",vMay:"🟡 乳製品を含む可能性があります",vNone:"🟢 乳製品は見つかりませんでした",vUnknown:"⚪ 不明",whyAllergen:"理由：牛乳がアレルゲンとして記載されています。",whyTraces:"理由：ラベルに牛乳の痕跡が記載されています。",whyIngredient:"理由：見つかった原材料：{w}。",whyMayText:"理由：ラベルに牛乳を含む可能性があると警告されています。",whyClean:"理由：アレルゲン・痕跡・原材料のいずれにも牛乳はありません。",allergensLabel:"アレルゲン：",noneListed:"記載なし",honest:"データはOpen Food Facts提供。ラベルは変更されることがあります——必ずパッケージを確認してください。",unknownLine:"この商品のデータが不足しています。パッケージの原材料ラベルを確認してください。",history:"今回チェックした商品",clear:"クリア",errNet:"データベースに接続できませんでした。接続を確認して再試行してください。",emptyCode:"まずバーコード番号を入力してください。",sContains:"乳製品あり",sMay:"含む可能性",sNone:"乳製品なし",sUnknown:"不明",noName:"不明な商品"},
-ko:{title:"🥛 유제품 체커",langLabel:"언어",sub:"제품 바코드를 스캔하면 유제품이 들어 있는지 알 수 있습니다.",scan:"바코드 스캔",stop:"카메라 중지",point:"카메라를 바코드에 맞추세요…",camFail:"이 브라우저에서는 카메라 스캔을 사용할 수 없습니다. 바코드 번호를 입력하세요.",or:"— 또는 번호 입력 —",codePh:"바코드 번호",check:"확인",checking:"확인 중…",vContains:"🔴 유제품 포함",vMay:"🟡 유제품이 포함될 수 있음",vNone:"🟢 유제품이 발견되지 않음",vUnknown:"⚪ 알 수 없음",whyAllergen:"이유: 우유가 알레르기 유발 물질로 표시되어 있습니다.",whyTraces:"이유: 라벨에 우유 흔적이 표시되어 있습니다.",whyIngredient:"이유: 발견된 성분: {w}.",whyMayText:"이유: 라벨에 우유가 포함될 수 있다고 경고되어 있습니다.",whyClean:"이유: 알레르기 유발 물질, 흔적, 성분 어디에도 우유가 없습니다.",allergensLabel:"알레르기 유발 물질:",noneListed:"표시 없음",honest:"데이터 출처: Open Food Facts. 라벨은 바뀔 수 있으니 항상 포장을 확인하세요.",unknownLine:"이 제품에 대한 데이터가 부족합니다. 포장의 성분 라벨을 확인하세요.",history:"이번에 확인한 항목",clear:"지우기",errNet:"데이터베이스에 연결할 수 없습니다. 연결을 확인하고 다시 시도하세요.",emptyCode:"먼저 바코드 번호를 입력하세요.",sContains:"유제품 있음",sMay:"포함 가능",sNone:"유제품 없음",sUnknown:"알 수 없음",noName:"알 수 없는 제품"}
+id:{title:"🥛 Pemeriksa Susu",langLabel:"Bahasa",sub:"Pindai kode batang produk dan ketahui apakah mengandung susu.",scan:"Pindai kode batang",stop:"Hentikan kamera",point:"Arahkan kamera ke kode batang…",camFail:"Pemindaian kamera tidak tersedia di browser ini. Ketik nomor kode batang.",or:"— atau ketik nomornya —",codePh:"Nomor kode batang",check:"Periksa",checking:"Memeriksa…",vContains:"🔴 MENGANDUNG SUSU",vMay:"🟡 MUNGKIN MENGANDUNG SUSU",vNone:"🟢 Tidak ditemukan susu",vUnknown:"⚪ TIDAK TAHU",whyAllergen:"Alasan: susu tercantum sebagai alergen.",whyTraces:"Alasan: label mencantumkan jejak susu.",whyIngredient:"Alasan: bahan ditemukan: {w}.",whyMayText:"Alasan: label memperingatkan mungkin mengandung susu.",whyClean:"Alasan: tidak ada susu di alergen, jejak, atau bahan.",allergensLabel:"Alergen:",noneListed:"tidak ada yang tercantum",honest:"Data dari Open Food Facts. Label dapat berubah — selalu periksa kemasan.",unknownLine:"Data produk ini tidak cukup. Periksa label bahan pada kemasan.",history:"Diperiksa pada belanja ini",clear:"Hapus",errNet:"Tidak dapat menghubungi basis data. Periksa koneksi Anda dan coba lagi.",emptyCode:"Masukkan nomor kode batang dulu.",sContains:"Ada susu",sMay:"Mungkin ada",sNone:"Tanpa susu",sUnknown:"Tidak tahu",noName:"Produk tidak dikenal",snapBtn:"📷 Foto label bahan",snapHint:"Tidak ada di basis data? Foto label bahannya saja.",reading:"Membaca label… (pertama kali mungkin butuh waktu)",privacy:"Foto Anda tetap di ponsel Anda — dibaca di sini dan tidak pernah diunggah.",whyPhotoContains:"Dibaca dari foto label Anda. Susu ditemukan: {w}.",whyPhotoMay:"Dibaca dari foto label Anda. Label memperingatkan mungkin mengandung susu.",whyPhotoClean:"Dibaca dari foto label Anda. Pernyataan «Mengandung» tidak mencantumkan susu dan tidak ditemukan kata susu.",photoGarbled:"Kami tidak dapat membaca foto itu dengan cukup baik. Coba lagi dengan cahaya yang baik dan label rata.",photoNoContains:"Kami membaca labelnya tetapi tidak menemukan pernyataan «Mengandung» yang jelas, jadi kami tidak bisa memastikan. Periksa kemasan.",ingFromPhoto:"Bahan (dari foto Anda)",ingLabel:"Bahan",containsLabel:"Mengandung:",foundNoData:"Kami menemukan produk ini, tetapi tidak ada basis data yang memiliki bahannya, jadi kami tidak bisa memastikan tentang susu. Periksa label — atau foto labelnya.",photoTag:"📷 Foto",photoName:"Foto label"},
+vi:{title:"🥛 Kiểm Tra Sữa",langLabel:"Ngôn ngữ",sub:"Quét mã vạch sản phẩm để biết có chứa sữa hay không.",scan:"Quét mã vạch",stop:"Dừng camera",point:"Hướng camera vào mã vạch…",camFail:"Quét bằng camera không khả dụng trên trình duyệt này. Hãy nhập số mã vạch.",or:"— hoặc nhập số —",codePh:"Số mã vạch",check:"Kiểm tra",checking:"Đang kiểm tra…",vContains:"🔴 CÓ CHỨA SỮA",vMay:"🟡 CÓ THỂ CHỨA SỮA",vNone:"🟢 Không tìm thấy sữa",vUnknown:"⚪ KHÔNG RÕ",whyAllergen:"Lý do: sữa được liệt kê là chất gây dị ứng.",whyTraces:"Lý do: nhãn ghi có vết sữa.",whyIngredient:"Lý do: thành phần tìm thấy: {w}.",whyMayText:"Lý do: nhãn cảnh báo có thể chứa sữa.",whyClean:"Lý do: không có sữa trong chất gây dị ứng, vết hay thành phần.",allergensLabel:"Chất gây dị ứng:",noneListed:"không có",honest:"Dữ liệu từ Open Food Facts. Nhãn có thể thay đổi — luôn kiểm tra bao bì.",unknownLine:"Không đủ dữ liệu về sản phẩm này. Hãy kiểm tra nhãn thành phần trên bao bì.",history:"Đã kiểm tra trong chuyến này",clear:"Xóa",errNet:"Không kết nối được cơ sở dữ liệu. Kiểm tra kết nối và thử lại.",emptyCode:"Nhập số mã vạch trước.",sContains:"Có sữa",sMay:"Có thể chứa",sNone:"Không sữa",sUnknown:"Không rõ",noName:"Sản phẩm không rõ",snapBtn:"📷 Chụp nhãn thành phần",snapHint:"Không có trong cơ sở dữ liệu? Hãy chụp nhãn thành phần thay thế.",reading:"Đang đọc nhãn… (lần đầu có thể mất một lúc)",privacy:"Ảnh của bạn ở lại trên điện thoại — được đọc ngay tại đây và không bao giờ tải lên.",whyPhotoContains:"Đọc từ ảnh nhãn của bạn. Tìm thấy sữa: {w}.",whyPhotoMay:"Đọc từ ảnh nhãn của bạn. Nhãn cảnh báo có thể chứa sữa.",whyPhotoClean:"Đọc từ ảnh nhãn của bạn. Dòng «Chứa» không liệt kê sữa và không tìm thấy từ nào về sữa.",photoGarbled:"Chúng tôi không đọc được ảnh đó đủ rõ. Hãy thử lại với ánh sáng tốt, nhãn phẳng.",photoNoContains:"Chúng tôi đã đọc nhãn nhưng không thấy dòng «Chứa» rõ ràng, nên không thể chắc chắn. Hãy kiểm tra bao bì.",ingFromPhoto:"Thành phần (từ ảnh của bạn)",ingLabel:"Thành phần",containsLabel:"Chứa:",foundNoData:"Chúng tôi tìm thấy sản phẩm này, nhưng không cơ sở dữ liệu nào có thành phần của nó, nên không thể biết về sữa. Hãy kiểm tra nhãn — hoặc chụp ảnh nhãn.",photoTag:"📷 Ảnh",photoName:"Ảnh nhãn"},
+th:{title:"🥛 เครื่องตรวจนม",langLabel:"ภาษา",sub:"สแกนบาร์โค้ดสินค้าเพื่อดูว่ามีนมเป็นส่วนประกอบหรือไม่",scan:"สแกนบาร์โค้ด",stop:"หยุดกล้อง",point:"หันกล้องไปที่บาร์โค้ด…",camFail:"การสแกนด้วยกล้องใช้ไม่ได้ในเบราว์เซอร์นี้ พิมพ์หมายเลขบาร์โค้ดแทน",or:"— หรือพิมพ์หมายเลข —",codePh:"หมายเลขบาร์โค้ด",check:"ตรวจสอบ",checking:"กำลังตรวจสอบ…",vContains:"🔴 มีนมเป็นส่วนประกอบ",vMay:"🟡 อาจมีนมเป็นส่วนประกอบ",vNone:"🟢 ไม่พบนม",vUnknown:"⚪ ไม่ทราบ",whyAllergen:"เหตุผล: นมถูกระบุเป็นสารก่อภูมิแพ้",whyTraces:"เหตุผล: ฉลากระบุร่องรอยของนม",whyIngredient:"เหตุผล: พบส่วนประกอบ: {w}",whyMayText:"เหตุผล: ฉลากเตือนว่าอาจมีนม",whyClean:"เหตุผล: ไม่มีนมในสารก่อภูมิแพ้ ร่องรอย หรือส่วนประกอบ",allergensLabel:"สารก่อภูมิแพ้:",noneListed:"ไม่มีระบุ",honest:"ข้อมูลจาก Open Food Facts ฉลากอาจเปลี่ยนแปลง — ตรวจสอบบรรจุภัณฑ์เสมอ",unknownLine:"ข้อมูลสินค้านี้ไม่เพียงพอ โปรดตรวจสอบฉลากส่วนประกอบบนบรรจุภัณฑ์",history:"ตรวจสอบในรอบนี้",clear:"ล้าง",errNet:"ติดต่อฐานข้อมูลไม่ได้ ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง",emptyCode:"กรอกหมายเลขบาร์โค้ดก่อน",sContains:"มีนม",sMay:"อาจมี",sNone:"ไม่มีนม",sUnknown:"ไม่ทราบ",noName:"สินค้าไม่ทราบชื่อ",snapBtn:"📷 ถ่ายรูปฉลากส่วนประกอบ",snapHint:"ไม่มีในฐานข้อมูล? ถ่ายรูปฉลากส่วนประกอบแทน",reading:"กำลังอ่านฉลาก… (ครั้งแรกอาจใช้เวลาสักครู่)",privacy:"รูปของคุณอยู่บนโทรศัพท์ของคุณ — อ่านที่นี่และไม่เคยอัปโหลด",whyPhotoContains:"อ่านจากรูปฉลากของคุณ พบนม: {w}",whyPhotoMay:"อ่านจากรูปฉลากของคุณ ฉลากเตือนว่าอาจมีนม",whyPhotoClean:"อ่านจากรูปฉลากของคุณ ข้อความ «ประกอบด้วย» ไม่ระบุนม และไม่พบคำเกี่ยวกับนม",photoGarbled:"เราอ่านรูปนั้นได้ไม่ดีพอ ลองอีกครั้งในแสงดี ๆ โดยวางฉลากให้แบน",photoNoContains:"เราอ่านฉลากแล้วแต่ไม่พบข้อความ «ประกอบด้วย» ที่ชัดเจน จึงไม่แน่ใจ โปรดตรวจสอบบรรจุภัณฑ์",ingFromPhoto:"ส่วนประกอบ (จากรูปของคุณ)",ingLabel:"ส่วนประกอบ",containsLabel:"ประกอบด้วย:",foundNoData:"เราพบสินค้านี้ แต่ไม่มีฐานข้อมูลใดมีส่วนประกอบของมัน จึงบอกเรื่องนมไม่ได้ โปรดตรวจสอบบรรจุภัณฑ์ — หรือถ่ายรูปฉลาก",photoTag:"📷 รูป",photoName:"รูปฉลาก"},
+zh:{title:"🥛 乳制品检查",langLabel:"语言",sub:"扫描产品条形码，查明是否含有乳制品。",scan:"扫描条形码",stop:"停止相机",point:"将相机对准条形码…",camFail:"此浏览器不支持相机扫描。请输入条形码号码。",or:"— 或输入号码 —",codePh:"条形码号码",check:"检查",checking:"检查中…",vContains:"🔴 含有乳制品",vMay:"🟡 可能含有乳制品",vNone:"🟢 未发现乳制品",vUnknown:"⚪ 无法确定",whyAllergen:"原因：牛奶被列为过敏原。",whyTraces:"原因：标签注明含有微量牛奶。",whyIngredient:"原因：发现成分：{w}。",whyMayText:"原因：标签警告可能含有牛奶。",whyClean:"原因：过敏原、微量成分和配料中均无牛奶。",allergensLabel:"过敏原：",noneListed:"未列出",honest:"数据来自 Open Food Facts。标签可能变更——请始终查看包装。",unknownLine:"该产品数据不足。请查看包装上的配料标签。",history:"本次已检查",clear:"清除",errNet:"无法连接产品数据库。请检查网络后重试。",emptyCode:"请先输入条形码号码。",sContains:"含乳制品",sMay:"可能含有",sNone:"无乳制品",sUnknown:"未知",noName:"未知产品",snapBtn:"📷 拍下配料标签",snapHint:"数据库里没有？改为拍下配料标签。",reading:"正在读取标签…（第一次可能需要一点时间）",privacy:"您的照片只留在您的手机上——就在这里读取，绝不上传。",whyPhotoContains:"从您的标签照片读取。发现乳制品：{w}。",whyPhotoMay:"从您的标签照片读取。标签警告可能含有牛奶。",whyPhotoClean:"从您的标签照片读取。“含有”声明中没有列出牛奶，也未发现乳制品词汇。",photoGarbled:"我们无法足够清楚地读取这张照片。请在光线充足、标签平整时重试。",photoNoContains:"我们读取了标签，但没有找到明确的“含有”声明，因此无法确定。请查看包装。",ingFromPhoto:"配料（来自您的照片）",ingLabel:"配料",containsLabel:"含有：",foundNoData:"我们找到了这个产品，但任何数据库都没有它的配料，因此无法判断乳制品。请查看标签——或拍下标签。",photoTag:"📷 照片",photoName:"标签照片"},
+ja:{title:"🥛 乳製品チェッカー",langLabel:"言語",sub:"商品のバーコードをスキャンして、乳製品が含まれているか確認できます。",scan:"バーコードをスキャン",stop:"カメラを停止",point:"カメラをバーコードに向けてください…",camFail:"このブラウザではカメラスキャンが使えません。バーコード番号を入力してください。",or:"— または番号を入力 —",codePh:"バーコード番号",check:"チェック",checking:"チェック中…",vContains:"🔴 乳製品を含みます",vMay:"🟡 乳製品を含む可能性があります",vNone:"🟢 乳製品は見つかりませんでした",vUnknown:"⚪ 不明",whyAllergen:"理由：牛乳がアレルゲンとして記載されています。",whyTraces:"理由：ラベルに牛乳の痕跡が記載されています。",whyIngredient:"理由：見つかった原材料：{w}。",whyMayText:"理由：ラベルに牛乳を含む可能性があると警告されています。",whyClean:"理由：アレルゲン・痕跡・原材料のいずれにも牛乳はありません。",allergensLabel:"アレルゲン：",noneListed:"記載なし",honest:"データはOpen Food Facts提供。ラベルは変更されることがあります——必ずパッケージを確認してください。",unknownLine:"この商品のデータが不足しています。パッケージの原材料ラベルを確認してください。",history:"今回チェックした商品",clear:"クリア",errNet:"データベースに接続できませんでした。接続を確認して再試行してください。",emptyCode:"まずバーコード番号を入力してください。",sContains:"乳製品あり",sMay:"含む可能性",sNone:"乳製品なし",sUnknown:"不明",noName:"不明な商品",snapBtn:"📷 原材料ラベルを撮影",snapHint:"データベースにありませんか？代わりに原材料ラベルを撮影してください。",reading:"ラベルを読み取り中…（初回は少し時間がかかる場合があります）",privacy:"写真はあなたの電話に残ります——ここで読み取られ、アップロードされることはありません。",whyPhotoContains:"ラベルの写真から読み取りました。見つかった乳製品：{w}。",whyPhotoMay:"ラベルの写真から読み取りました。ラベルには牛乳を含む可能性があると警告されています。",whyPhotoClean:"ラベルの写真から読み取りました。「含む」表示に牛乳はなく、乳製品の単語も見つかりませんでした。",photoGarbled:"その写真を十分に読み取れませんでした。明るい場所でラベルを平らにして再試行してください。",photoNoContains:"ラベルは読み取りましたが、明確な「含む」表示が見つからず、確信できません。パッケージを確認してください。",ingFromPhoto:"原材料（あなたの写真から）",ingLabel:"原材料",containsLabel:"含む：",foundNoData:"この商品は見つかりましたが、どのデータベースにも原材料がなく、乳製品については分かりません。ラベルを確認するか、撮影してください。",photoTag:"📷 写真",photoName:"ラベルの写真"},
+ko:{title:"🥛 유제품 체커",langLabel:"언어",sub:"제품 바코드를 스캔하면 유제품이 들어 있는지 알 수 있습니다.",scan:"바코드 스캔",stop:"카메라 중지",point:"카메라를 바코드에 맞추세요…",camFail:"이 브라우저에서는 카메라 스캔을 사용할 수 없습니다. 바코드 번호를 입력하세요.",or:"— 또는 번호 입력 —",codePh:"바코드 번호",check:"확인",checking:"확인 중…",vContains:"🔴 유제품 포함",vMay:"🟡 유제품이 포함될 수 있음",vNone:"🟢 유제품이 발견되지 않음",vUnknown:"⚪ 알 수 없음",whyAllergen:"이유: 우유가 알레르기 유발 물질로 표시되어 있습니다.",whyTraces:"이유: 라벨에 우유 흔적이 표시되어 있습니다.",whyIngredient:"이유: 발견된 성분: {w}.",whyMayText:"이유: 라벨에 우유가 포함될 수 있다고 경고되어 있습니다.",whyClean:"이유: 알레르기 유발 물질, 흔적, 성분 어디에도 우유가 없습니다.",allergensLabel:"알레르기 유발 물질:",noneListed:"표시 없음",honest:"데이터 출처: Open Food Facts. 라벨은 바뀔 수 있으니 항상 포장을 확인하세요.",unknownLine:"이 제품에 대한 데이터가 부족합니다. 포장의 성분 라벨을 확인하세요.",history:"이번에 확인한 항목",clear:"지우기",errNet:"데이터베이스에 연결할 수 없습니다. 연결을 확인하고 다시 시도하세요.",emptyCode:"먼저 바코드 번호를 입력하세요.",sContains:"유제품 있음",sMay:"포함 가능",sNone:"유제품 없음",sUnknown:"알 수 없음",noName:"알 수 없는 제품",snapBtn:"📷 성분 라벨 사진 찍기",snapHint:"데이터베이스에 없나요? 대신 성분 라벨을 사진으로 찍어 보세요.",reading:"라벨 읽는 중… (처음에는 시간이 조금 걸릴 수 있습니다)",privacy:"사진은 휴대폰에만 남습니다 — 여기서 읽히며 절대 업로드되지 않습니다.",whyPhotoContains:"라벨 사진에서 읽었습니다. 발견된 유제품: {w}.",whyPhotoMay:"라벨 사진에서 읽었습니다. 라벨에 우유가 포함될 수 있다고 경고되어 있습니다.",whyPhotoClean:"라벨 사진에서 읽었습니다. '함유' 표시에는 우유가 없고 유제품 단어도 발견되지 않았습니다.",photoGarbled:"그 사진을 충분히 잘 읽지 못했습니다. 밝은 곳에서 라벨을 평평하게 펴고 다시 시도하세요.",photoNoContains:"라벨을 읽었지만 명확한 '함유' 표시를 찾지 못해 확신할 수 없습니다. 포장을 확인하세요.",ingFromPhoto:"성분 (사진에서)",ingLabel:"성분",containsLabel:"함유:",foundNoData:"이 제품을 찾았지만 어떤 데이터베이스에도 성분이 없어 유제품 여부를 알 수 없습니다. 라벨을 확인하거나 사진을 찍어 보세요.",photoTag:"📷 사진",photoName:"라벨 사진"}
 };
 </script>
 
@@ -261,7 +365,11 @@ function applyLang(){
   $("t-honest").textContent = T("honest");
   $("t-history").textContent = T("history");
   $("t-clear").textContent = T("clear");
-  if (lastResult) showResult(lastResult.code, lastResult.data, lastResult.verdict);
+  $("t-snap").textContent = T("snapBtn");
+  $("t-snap2").textContent = T("snapBtn");
+  $("t-snapHint").textContent = T("snapHint");
+  $("t-privacy").textContent = T("privacy");
+  if (lastResult) showResult();
 }
 
 function showErr(msg){
@@ -273,7 +381,16 @@ function showErr(msg){
 var lastResult = null;
 function cleanTag(t){ return t.replace(/^[a-z]{2}:/,"").replace(/-/g," "); }
 
-function showResult(code, data, verdict){
+function showContainsLine(line){
+  var cl = $("containsLine");
+  if (line){ cl.style.display = ""; cl.textContent = T("containsLabel") + " " + line; }
+  else cl.style.display = "none";
+}
+
+function showResult(){
+  var r0 = lastResult;
+  if (!r0) return;
+  var verdict = r0.verdict;
   var box = $("result");
   box.className = "card show";
   var vb = $("verdictBox");
@@ -281,14 +398,24 @@ function showResult(code, data, verdict){
   vb.textContent = T(verdict.level === "contains" ? "vContains" :
                      verdict.level === "may" ? "vMay" :
                      verdict.level === "none" ? "vNone" : "vUnknown");
-  var p = data && data.product;
+  var p = r0.data && r0.data.product;
   if (p){
     $("prodBox").style.display = "flex";
     $("prodName").textContent = p.product_name_en || p.product_name || T("noName");
-    $("prodCode").textContent = code;
+    $("prodCode").textContent = r0.code;
     var img = $("prodImg");
     if (p.image_small_url || p.image_url){ img.src = p.image_small_url || p.image_url; img.style.display = ""; }
     else img.style.display = "none";
+  } else if (r0.source === "upc" && r0.upcName){
+    $("prodBox").style.display = "flex";
+    $("prodName").textContent = r0.upcName;
+    $("prodCode").textContent = r0.code;
+    $("prodImg").style.display = "none";
+  } else if (r0.source === "photo"){
+    $("prodBox").style.display = "flex";
+    $("prodName").textContent = T("photoName");
+    $("prodCode").textContent = r0.code || "";
+    $("prodImg").style.display = "none";
   } else {
     $("prodBox").style.display = "none";
   }
@@ -299,6 +426,12 @@ function showResult(code, data, verdict){
   else if (r.kind === "ingredient") why = T("whyIngredient").replace("{w}", r.value);
   else if (r.kind === "maytext") why = T("whyMayText");
   else if (r.kind === "clean") why = T("whyClean");
+  else if (r.kind === "photoingredient") why = T("whyPhotoContains").replace("{w}", r.value);
+  else if (r.kind === "photomay") why = T("whyPhotoMay");
+  else if (r.kind === "photoclean") why = T("whyPhotoClean");
+  else if (r.kind === "garbled") why = T("photoGarbled");
+  else if (r.kind === "nocontains") why = T("photoNoContains");
+  else if (r.kind === "foundnodata") why = T("foundNoData");
   $("whyBox").innerHTML = "";
   $("whyBox").appendChild(document.createTextNode(why));
   var al = (p && p.allergens_tags) || [];
@@ -306,8 +439,28 @@ function showResult(code, data, verdict){
   var parts = al.map(cleanTag);
   tr.forEach(function(t){ parts.push(cleanTag(t) + " (traces)"); });
   $("allergenBox").textContent = p ? (T("allergensLabel") + " " + (parts.length ? parts.join(", ") : T("noneListed"))) : "";
-  $("unknownLine").style.display = (verdict.level === "unknown") ? "" : "none";
+  /* ingredients card: photo OCR text, or the database product's full ingredient list */
+  var ingBox = $("ingBox");
+  if (r0.source === "photo" && r0.photo){
+    ingBox.style.display = "";
+    $("ingTitle").textContent = T("ingFromPhoto");
+    $("ingText").innerHTML = highlightDairy(r0.photo.ingredients || "");
+    showContainsLine(r0.photo.containsLine);
+  } else if (p && (p.ingredients_text_en || p.ingredients_text)){
+    var ingText = p.ingredients_text_en || p.ingredients_text;
+    ingBox.style.display = "";
+    $("ingTitle").textContent = T("ingLabel");
+    $("ingText").innerHTML = highlightDairy(ingText);
+    showContainsLine(_findContains(ingText));
+  } else {
+    ingBox.style.display = "none";
+    showContainsLine(null);
+  }
+  /* unknown verdicts offer the photo route right on the result */
+  $("snapOffer").style.display = (verdict.level === "unknown" && r0.source !== "photo") ? "" : "none";
+  $("unknownLine").style.display = (verdict.level === "unknown" && r0.source === "off") ? "" : "none";
   $("unknownLine").textContent = T("unknownLine");
+  $("t-honest").textContent = (r0.source === "photo") ? T("privacy") : T("honest");
 }
 
 /* ---------- history ---------- */
@@ -316,9 +469,9 @@ function getHistory(){
   catch(e){ return []; }
 }
 function saveHistory(h){ localStorage.setItem("dairycheck_history", JSON.stringify(h.slice(0,30))); }
-function addHistory(code, name, level){
+function addHistory(code, name, level, source){
   var h = getHistory().filter(function(x){ return x.code !== code; });
-  h.unshift({code:code, name:name, level:level});
+  h.unshift({code:code, name:name, level:level, source:source || "off"});
   saveHistory(h);
   renderHistory();
 }
@@ -333,9 +486,11 @@ function renderHistory(){
     var short = item.level === "contains" ? T("sContains") : item.level === "may" ? T("sMay") :
                 item.level === "none" ? T("sNone") : T("sUnknown");
     d.innerHTML = '<span class="dot ' + item.level + '"></span><span class="hn"></span><span class="hv ' + item.level + '"></span>';
-    d.querySelector(".hn").textContent = item.name || item.code;
+    d.querySelector(".hn").textContent = (item.source === "photo" ? T("photoTag") + " " : "") + (item.name || item.code);
     d.querySelector(".hv").textContent = short;
-    d.addEventListener("click", function(){ $("codeInput").value = item.code; lookup(item.code); });
+    if (/^\d+$/.test(item.code || "")){
+      d.addEventListener("click", function(){ $("codeInput").value = item.code; lookup(item.code); });
+    }
     list.appendChild(d);
   });
 }
@@ -343,6 +498,20 @@ $("clearHist").addEventListener("click", function(){ saveHistory([]); renderHist
 
 /* ---------- lookup ---------- */
 var busy = false;
+var OFF_FIELDS = "product_name,product_name_en,image_small_url,image_url,allergens_tags,traces_tags,ingredients_text,ingredients_text_en,ingredients,ingredients_analysis_tags";
+function offFetch(code){
+  return fetch("https://world.openfoodfacts.org/api/v2/product/" + encodeURIComponent(code) + ".json?fields=" + OFF_FIELDS, {
+    headers: { "Accept": "application/json" }
+  })
+  .then(function(res){ return res.json(); })
+  .catch(function(){ return null; });
+}
+/* 12-digit UPC <-> 13-digit EAN with a leading 0 */
+function altCode(code){
+  if (/^\d{12}$/.test(code)) return "0" + code;
+  if (/^\d{13}$/.test(code) && code.charAt(0) === "0") return code.slice(1);
+  return null;
+}
 function lookup(code){
   code = (code || "").replace(/\D/g,"");
   if (!code){ showErr(T("emptyCode")); return; }
@@ -350,23 +519,46 @@ function lookup(code){
   busy = true;
   showErr("");
   $("t-check").textContent = T("checking");
-  fetch("https://world.openfoodfacts.org/api/v2/product/" + encodeURIComponent(code) + ".json?fields=product_name,product_name_en,image_small_url,image_url,allergens_tags,traces_tags,ingredients_text,ingredients_text_en,ingredients,ingredients_analysis_tags", {
-    headers: { "Accept": "application/json" }
-  })
-  .then(function(res){ return res.json(); })
+  offFetch(code)
   .then(function(data){
-    var verdict;
-    if (!data || data.status !== 1 || !data.product){
-      verdict = { level:"unknown", reason:{kind:"nodata"} };
-      lastResult = { code:code, data:null, verdict:verdict };
-      showResult(code, null, verdict);
-      addHistory(code, code, "unknown");
-    } else {
-      verdict = dairyVerdict(data.product);
-      lastResult = { code:code, data:data, verdict:verdict };
-      showResult(code, data, verdict);
-      addHistory(code, data.product.product_name_en || data.product.product_name || code, verdict.level);
+    if (data && data.status === 1 && data.product) return data;
+    var alt = altCode(code);
+    if (!alt) return null;
+    return offFetch(alt).then(function(d2){
+      return (d2 && d2.status === 1 && d2.product) ? d2 : null;
+    });
+  })
+  .then(function(data){
+    if (data){
+      var verdict = dairyVerdict(data.product);
+      lastResult = { code:code, data:data, verdict:verdict, source:"off" };
+      showResult();
+      addHistory(code, data.product.product_name_en || data.product.product_name || code, verdict.level, "off");
+      return null;
     }
+    /* Second database (UPCitemdb trial): identification only — a name, never a dairy verdict. */
+    return fetch("https://api.upcitemdb.com/prod/trial/lookup?upc=" + encodeURIComponent(code))
+    .then(function(res){ return res.json(); })
+    .then(function(u){
+      var item = u && u.items && u.items[0];
+      var name = item ? (item.title || "") : "";
+      var brand = item ? (item.brand || "") : "";
+      if (name){
+        var display = (brand && name.toLowerCase().indexOf(brand.toLowerCase()) !== 0) ? brand + " " + name : name;
+        lastResult = { code:code, data:null, verdict:{ level:"unknown", reason:{kind:"foundnodata"} }, source:"upc", upcName:display };
+        showResult();
+        addHistory(code, display, "unknown", "upc");
+      } else {
+        lastResult = { code:code, data:null, verdict:{ level:"unknown", reason:{kind:"nodata"} }, source:"off" };
+        showResult();
+        addHistory(code, code, "unknown", "off");
+      }
+    })
+    .catch(function(){
+      lastResult = { code:code, data:null, verdict:{ level:"unknown", reason:{kind:"nodata"} }, source:"off" };
+      showResult();
+      addHistory(code, code, "unknown", "off");
+    });
   })
   .catch(function(){ showErr(T("errNet")); })
   .finally(function(){
@@ -420,6 +612,48 @@ $("scanBtn").addEventListener("click", function(){
     }, 350);
   })
   .catch(function(){ stopScan(); fail(); });
+});
+
+/* ---------- photo of the ingredients label (on-device OCR) ---------- */
+var tesseractLoading = null;
+function loadTesseract(){
+  if (window.Tesseract) return Promise.resolve();
+  if (tesseractLoading) return tesseractLoading;
+  tesseractLoading = new Promise(function(resolve, reject){
+    var s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+  return tesseractLoading;
+}
+function onSnap(){ $("photoInput").click(); }
+$("snapBtn").addEventListener("click", onSnap);
+$("snapBtn2").addEventListener("click", onSnap);
+$("photoInput").addEventListener("change", function(){
+  var f = this.files && this.files[0];
+  this.value = "";
+  if (!f) return;
+  var note = $("readingNote");
+  note.style.display = "";
+  note.textContent = T("reading");
+  loadTesseract()
+  .then(function(){ return Tesseract.recognize(f, "eng"); })
+  .then(function(res){
+    note.style.display = "none";
+    var v = labelVerdict(res.data.text);
+    var ctxCode = $("codeInput").value.replace(/\D/g,"");
+    lastResult = { code:ctxCode, data:null, verdict:v, source:"photo",
+                   photo:{ ingredients:v.ingredients, containsLine:v.containsLine } };
+    showResult();
+    addHistory(ctxCode || ("photo:" + Date.now()), ctxCode || T("photoName"), v.level, "photo");
+    $("result").scrollIntoView({ behavior:"smooth", block:"start" });
+  })
+  .catch(function(){
+    note.style.display = "none";
+    showErr(T("photoGarbled"));
+  });
 });
 
 applyLang();
