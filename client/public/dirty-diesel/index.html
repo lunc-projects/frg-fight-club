@@ -56,6 +56,7 @@
   .pedal{border:2px solid rgba(255,179,71,.6);color:#ffe9c9;font-weight:900;letter-spacing:1px;border-radius:14px;background:rgba(24,10,26,.72);display:flex;align-items:center;justify-content:center;text-align:center;cursor:pointer}
   .pedal.on{background:rgba(255,150,30,.55);border-color:#ffd23e}
   #btnTurbo{width:74px;height:74px;border-radius:50%;font-size:13px;background:radial-gradient(circle at 35% 30%,#5a5a66,#23232c);border-color:#cfd6dd;color:#fff}
+  #btnView,#btnTurbo,#btnBrake{display:none} /* Nov 21 (Tom): GAS + steering only — the other three buttons are gone */
   #btnView{width:66px;height:66px;border-radius:50%;font-size:11px;flex-direction:column;gap:2px;line-height:1.1;background:rgba(24,10,26,.78)}
   #btnView #viewName{color:#ffd23e;font-size:12px;font-weight:900}
   #btnTurbo.on{background:radial-gradient(circle at 35% 30%,#ff9a3c,#c22e00);border-color:#ffd23e}
@@ -769,7 +770,7 @@ function engineSound(turbo){
       engO1.start(); engO2.start();
     }
     const t = engAC.currentTime;
-    const r = Math.max(0, Math.min(1.15, speedMph/122)) * (turbo ? 1.1 : 1);
+    const r = Math.max(0, Math.min(1.15, speedMph/172));
     const f = 50 + r*155;   /* diesel growl: ~50Hz idle -> ~205Hz at the 122mph cap, turbo pushes higher */
     engO1.frequency.setTargetAtTime(f, t, .06);
     engO2.frequency.setTargetAtTime(f*.5 + 2, t, .06);
@@ -942,13 +943,16 @@ function animate(){
 
     /* --- speed --- */
     if(racing){
-      const capBase = 92 + Math.min(30, distMi*7);
-      const cap = turboOn ? capBase + 40 : capBase;
-      if(gasOn) speedMph += (turboOn? 30:16)*dt;
-      else if(turboOn && speedMph>4) speedMph += 22*dt;
+      /* Nov 21 (Tom: "just gas and steering... but make the truck go fast"):
+         TURBO/BRAKE/VIEW buttons are gone — the truck is simply FAST now.
+         Hard launch, 150 mph from the start, up to ~175 as distance builds.
+         Lifting off the gas is the brake (strong coast-down). */
+      const cap = 150 + Math.min(25, distMi*6);
+      if(gasOn) speedMph += 34*dt;
+      else if(turboOn && speedMph>4) speedMph += 22*dt;   /* keyboard Space still works */
       if(brakeOn) speedMph -= 36*dt;
       if(crushLoad>0.05) speedMph -= 30*crushLoad*dt;   /* bog down while climbing over cars */
-      if(!gasOn && !turboOn) speedMph -= 3.2*dt;
+      if(!gasOn && !turboOn) speedMph -= 14*dt;
       if(speedMph > cap) speedMph = Math.max(cap, speedMph - 26*dt);
       speedMph = Math.max(0, speedMph);
       distMi += speedMph*dt/3600;
@@ -1051,7 +1055,7 @@ function animate(){
     }
 
     /* --- turbo smoke (roll coal!) --- */
-    if(turboOn && speedMph>10){
+    if((turboOn || (gasOn && speedMph>55)) && speedMph>10){   /* rolling coal at speed on the gas */
       smokeAcc += dt*80;
       while(smokeAcc>1){ smokeAcc--; const tip = truckParts.stackTips[Math.random()<0.5?0:1]; puff(truckX+tip.x, truckY+tip.y, tip.z, 0.14, 3.4, 1.5, 2.5); }
       if(Math.random()<0.5) puff(truckX, 0.3, 2.4, 1.4, 0.8, 0.8, 3);
@@ -1061,7 +1065,7 @@ function animate(){
     }
 
     /* --- camera --- */
-    const targetFov = turboOn ? 75 : 62;
+    const targetFov = 62 + 13 * Math.min(1, speedMph/170);   /* FOV stretches with speed now that TURBO is gone */
     fovCur += (targetFov - fovCur)*Math.min(1, dt*5);
     if(Math.abs(camera.fov - fovCur) > 0.1){ camera.fov = fovCur; camera.updateProjectionMatrix(); }
     shakeT = Math.max(0, shakeT - dt);
