@@ -7260,6 +7260,132 @@ export async function jsaHandler(req, res) {
 }
 /* jobsite-analyzer:end */
 
+/* =====================================================================
+   DAIRY CHECKER — AI-eyes label reader: /api/luna-games?dairy=1
+   The Dairy Checker page's on-device OCR turned real curved labels
+   into gibberish, so the photo path now goes to a real vision model.
+   The page POSTs a downscaled label photo (action dairy-photo-start);
+   it is stored as a job in Upstash (dairy:job:<id>, 600s TTL) and the
+   id is pushed onto dairy:queue. The VM runner (the local machine
+   that holds the Groq credential route — same pattern as the Job
+   Site Analyzer runner) claims the job via dairyClaim, reads the
+   photo with the vision model (qwen/qwen3.8-27b), and posts the
+   structured result back via dairyAnswer, which stores it under
+   dairy:result:<id> (600s TTL) and DELETES the job — the photo is
+   never kept. The page polls dairy-photo-result. The runner proves
+   itself with the SHA-256 of its file-only secret; only the hash
+   ever leaves that machine, and the first claim registers it while
+   the slot is unset (same pattern as the tda/jsa runners).
+   ===================================================================== */
+
+/* dairy-photo:start */
+const DAIRY_JOB_TTL = 600;
+const DAIRY_IMAGE_MAX_B64 = 2000100; /* ~1.5 MB decoded */
+
+async function dairyRunnerOk(bhash) {
+  if (!/^[a-f0-9]{64}$/.test(String(bhash || ''))) return false;
+  const out = await upstashPipeline([['GET', 'dairy:runnerhash']]);
+  const stored = out && out[0] && out[0].result;
+  if (!stored) {
+    await upstashPipeline([['SET', 'dairy:runnerhash', String(bhash)]]);
+    return true;
+  }
+  return stored === String(bhash);
+}
+
+export async function dairyHandler(req, res) {
+  if (req.method !== 'GET' && req.method !== 'POST') {
+    return res.status(405).json({ ok: false, error: 'method not allowed' });
+  }
+  if (!process.env.NEONRUSH_UPSTASH_URL || !process.env.NEONRUSH_UPSTASH_TOKEN) {
+    return res.status(500).json({ ok: false, unavailable: true, error: 'storage not configured' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }
+  if (!body || typeof body !== 'object') {
+    /* dairy-photo-result may ride a GET with ?id= */
+    if (req.method === 'GET' && req.query && req.query.id) body = { action: 'dairy-photo-result', id: req.query.id };
+    else return res.status(400).json({ ok: false, error: 'bad request' });
+  }
+  const action = String(body.action || '');
+  try {
+    if (action === 'dairy-photo-start') {
+      const image = String(body.image || '');
+      const mime = String(body.mime || 'image/jpeg');
+      if (mime !== 'image/jpeg' && mime !== 'image/png') {
+        return res.status(400).json({ ok: false, error: 'bad image type' });
+      }
+      if (!image || image.length > DAIRY_IMAGE_MAX_B64 || !/^[A-Za-z0-9+/=]+$/.test(image)) {
+        return res.status(400).json({ ok: false, error: 'photo missing or too big' });
+      }
+      if (Buffer.from(image, 'base64').length > 1572864) {
+        return res.status(400).json({ ok: false, error: 'photo too big' });
+      }
+      const id = crypto.randomBytes(8).toString('hex');
+      const job = { image, mime, ts: Date.now() };
+      await upstashPipeline([
+        ['SET', 'dairy:job:' + id, JSON.stringify(job), 'EX', String(DAIRY_JOB_TTL)],
+        ['LPUSH', 'dairy:queue', id],
+        ['LTRIM', 'dairy:queue', '0', '49'],
+      ]);
+      return res.status(200).json({ ok: true, id });
+    }
+    if (action === 'dairy-photo-result') {
+      const id = String(body.id || (req.query && req.query.id) || '');
+      if (!/^[a-f0-9]{16}$/.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const rOut = await upstashPipeline([['GET', 'dairy:result:' + id]]);
+      const raw = rOut && rOut[0] && rOut[0].result;
+      if (raw) {
+        let result = null;
+        try { result = JSON.parse(raw); } catch (e) { result = null; }
+        if (result && typeof result === 'object') {
+          return res.status(200).json({ ok: true, status: 'done', ...result });
+        }
+        return res.status(200).json({ ok: true, status: 'done', result: raw });
+      }
+      const jOut = await upstashPipeline([['GET', 'dairy:job:' + id]]);
+      if (jOut && jOut[0] && jOut[0].result) {
+        return res.status(200).json({ ok: true, status: 'waiting' });
+      }
+      return res.status(200).json({ ok: true, status: 'expired' });
+    }
+    if (action === 'dairyClaim') {
+      if (!(await dairyRunnerOk(body.bhash))) return res.status(403).json({ ok: false, error: 'runner not accepted' });
+      const out = await upstashPipeline([['RPOP', 'dairy:queue']]);
+      const id = out && out[0] && out[0].result;
+      if (!id || !/^[a-f0-9]{16}$/.test(String(id))) return res.status(200).json({ ok: true, job: null });
+      const jOut = await upstashPipeline([['GET', 'dairy:job:' + id]]);
+      const raw = jOut && jOut[0] && jOut[0].result;
+      if (!raw) return res.status(200).json({ ok: true, job: null });
+      let job = null;
+      try { job = JSON.parse(raw); } catch (e) { job = null; }
+      if (!job || !job.image) return res.status(200).json({ ok: true, job: null });
+      if (Date.now() - Number(job.ts || 0) > DAIRY_JOB_TTL * 1000) {
+        await upstashPipeline([['DEL', 'dairy:job:' + id]]);
+        return res.status(200).json({ ok: true, job: null });
+      }
+      return res.status(200).json({ ok: true, job: { id: String(id), image: job.image, mime: job.mime || 'image/jpeg', ts: job.ts } });
+    }
+    if (action === 'dairyAnswer') {
+      if (!(await dairyRunnerOk(body.bhash))) return res.status(403).json({ ok: false, error: 'runner not accepted' });
+      const id = String(body.id || '');
+      if (!/^[a-f0-9]{16}$/.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      if (!body.result || typeof body.result !== 'object') return res.status(400).json({ ok: false, error: 'result missing' });
+      await upstashPipeline([
+        ['SET', 'dairy:result:' + id, JSON.stringify(body.result), 'EX', String(DAIRY_JOB_TTL)],
+        ['DEL', 'dairy:job:' + id],
+      ]);
+      return res.status(200).json({ ok: true });
+    }
+    return res.status(400).json({ ok: false, error: 'unknown action' });
+  } catch (e) {
+    console.error('dairy action failed', action, e && e.message);
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+}
+/* dairy-photo:end */
+
 export default async function handler(req, res) {
   /* Wallet Scope counter: /api/scope-count is rewritten to
      /api/luna-games?scope=1 (see the wallet-scope block above). Runs
@@ -7339,6 +7465,11 @@ export default async function handler(req, res) {
      Runs before game dispatch; game requests never carry ?hsig. */
   if (req.query && req.query.hsig !== undefined) return hsPairHandler(req, res);
   if (req.query && req.query.jsa !== undefined) return jsaHandler(req, res);
+  /* Dairy Checker AI-eyes label reader: the page calls
+     /api/luna-games?dairy=1 directly (see the dairy-photo block
+     above). Photo jobs in Upstash; the VM runner reads them with
+     the Groq vision model and posts the result back. */
+  if (req.query && req.query.dairy !== undefined) return dairyHandler(req, res);
   const game = String((req.query && req.query.game) || '');
   let cfg = GAMES[game];
   if (!cfg) return res.status(400).json({ error: 'unknown game' });
