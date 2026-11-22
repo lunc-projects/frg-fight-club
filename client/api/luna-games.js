@@ -7433,6 +7433,181 @@ export async function dairyHandler(req, res) {
 }
 /* dairy-photo:end */
 
+/* lunc-pack:start — FROG FIGHT LUNC PACKS (client/public/frog-fight/ — the
+   "Buy LUNC packs" panel in the shop area).
+   Goliath's pack sales: players who don't know exchanges connect MetaMask /
+   Trust Wallet on BNB Chain, pay USDT (BEP20) to GOLIATH's BNB wallet, and
+   receive a pack of 10,000 NATIVE LUNC (Terra Classic) in the Terra wallet
+   they pasted. The USDT goes to Goliath; the LUNC stock wallet is
+   Goliath-funded; the Studio takes nothing. Same proven pattern as the
+   boost minter: this router only RECORDS orders; the VM pack runner
+   (~/workspace/tda-v2-work/builder-runner/lunc-pack/) verifies the BSC
+   payment from the chain itself and sends the LUNC.
+   Orders live in the KICKBACK Upstash store (packPipeline below — same
+   target + throw-on-error discipline as chatxPipeline; the NEONRUSH store
+   is over its free request cap, see the chatx block). Keys:
+   pack:order:<bscTxHashLower> (JSON, 30-day TTL), pack:orders (recent
+   hash list), pack:runnerhash (runner gate — dairyRunnerOk pattern:
+   sha256 of a file-only secret, self-registers on first use).
+   THREAT MODEL: packOrder is public BY DESIGN and grants NOTHING — it
+   records a payment CLAIM keyed by the BSC tx hash (one order per hash,
+   ever; a conflicting reuse is refused). The runner trusts only the
+   chain: the BSC tx must be a confirmed USDT transfer from the claimed
+   wallet TO Goliath's BNB wallet for at least the quoted amount, and
+   its hash is single-use in the runner's own state file too. A fake
+   claim can therefore never produce LUNC — it sits at paid-claimed
+   until the runner fails it. The terra address is validated with the
+   STRICT bech32 checksum (tdaTerraAddrStrict) because real money lands
+   there. Runner actions are gated by packRunnerOk like the dairy/fa2
+   blocks. Statuses: paid-claimed -> sent (terraTx set) | failed (error
+   set) | waiting (low LUNC stock; the runner retries on later passes). */
+const PACK_ORDER_TTL_SEC = 30 * 24 * 3600;
+const PACK_MAX_PACKS_PER_ORDER = 20;
+
+async function packPipeline(cmds) {
+  const url = process.env.KICKBACK_UPSTASH_URL || process.env.NEONRUSH_UPSTASH_URL;
+  const tok = process.env.KICKBACK_UPSTASH_TOKEN || process.env.NEONRUSH_UPSTASH_TOKEN;
+  if (!url || !tok) throw new Error('store not configured');
+  const r = await fetch(url.replace(/\/$/, '') + '/pipeline', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+    body: JSON.stringify(cmds),
+  });
+  if (!r.ok) throw new Error('store http ' + r.status);
+  const out = await r.json();
+  if (!Array.isArray(out)) throw new Error('store bad reply');
+  for (const item of out) {
+    if (item && item.error) throw new Error('store cmd failed: ' + item.error);
+  }
+  return out;
+}
+
+async function packRunnerOk(bhash) {
+  if (!/^[a-f0-9]{64}$/.test(String(bhash || ''))) return false;
+  const out = await packPipeline([['GET', 'pack:runnerhash']]);
+  const stored = out && out[0] && out[0].result;
+  if (!stored) {
+    await packPipeline([['SET', 'pack:runnerhash', String(bhash)]]);
+    return true;
+  }
+  return stored === String(bhash);
+}
+
+async function packGetOrder(hash) {
+  const out = await packPipeline([['GET', 'pack:order:' + hash]]);
+  const raw = out && out[0] && out[0].result;
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+
+async function packSaveOrder(o) {
+  await packPipeline([
+    ['SET', 'pack:order:' + o.bscTxHash, JSON.stringify(o), 'EX', String(PACK_ORDER_TTL_SEC)],
+  ]);
+  return o;
+}
+
+function packPublicOrder(o) {
+  return {
+    bscTxHash: o.bscTxHash, status: o.status, terraAddress: o.terraAddress,
+    fromWallet: o.fromWallet, packCount: o.packCount, usdtQuoted: o.usdtQuoted,
+    terraTx: o.terraTx || '', error: o.error || '', created: o.created || 0,
+  };
+}
+
+export async function packHandler(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' });
+  if (!((process.env.KICKBACK_UPSTASH_URL && process.env.KICKBACK_UPSTASH_TOKEN) ||
+        (process.env.NEONRUSH_UPSTASH_URL && process.env.NEONRUSH_UPSTASH_TOKEN))) {
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }
+  if (!body || typeof body !== 'object') return res.status(400).json({ ok: false, error: 'bad body' });
+  const action = String(body.action || '');
+  const hashOf = (v) => {
+    const h = String(v || '').trim().toLowerCase();
+    return /^0x[0-9a-f]{64}$/.test(h) ? h : '';
+  };
+  try {
+    if (action === 'packOrder') {
+      const bscTxHash = hashOf(body.bscTxHash);
+      if (!bscTxHash) return res.status(400).json({ ok: false, error: 'bad bsc tx hash' });
+      const terraAddress = String(body.terraAddress || '').trim().toLowerCase();
+      if (!tdaTerraAddrStrict(terraAddress)) return res.status(400).json({ ok: false, error: 'bad terra address' });
+      const fromWallet = String(body.fromWallet || '').trim().toLowerCase();
+      if (!/^0x[0-9a-f]{40}$/.test(fromWallet)) return res.status(400).json({ ok: false, error: 'bad wallet' });
+      const packCount = Number(body.packCount);
+      if (!Number.isInteger(packCount) || packCount < 1 || packCount > PACK_MAX_PACKS_PER_ORDER) {
+        return res.status(400).json({ ok: false, error: 'bad pack count' });
+      }
+      const qn = Number(body.usdtQuoted);
+      if (!Number.isFinite(qn) || qn <= 0 || qn > 100000) return res.status(400).json({ ok: false, error: 'bad quote' });
+      const usdtQuoted = qn.toFixed(4);
+      const existing = await packGetOrder(bscTxHash);
+      if (existing) {
+        if (existing.terraAddress === terraAddress && existing.fromWallet === fromWallet && existing.packCount === packCount) {
+          return res.status(200).json({ ok: true, order: packPublicOrder(existing) });
+        }
+        return res.status(409).json({ ok: false, error: 'this BSC payment is already registered to a different order' });
+      }
+      const o = {
+        bscTxHash, terraAddress, fromWallet, packCount, usdtQuoted,
+        status: 'paid-claimed', terraTx: '', error: '', created: Date.now(),
+      };
+      await packPipeline([
+        ['SET', 'pack:order:' + bscTxHash, JSON.stringify(o), 'EX', String(PACK_ORDER_TTL_SEC)],
+        ['LPUSH', 'pack:orders', bscTxHash],
+        ['LTRIM', 'pack:orders', '0', '499'],
+      ]);
+      return res.status(200).json({ ok: true, order: packPublicOrder(o) });
+    }
+    if (action === 'packOrderStatus') {
+      const bscTxHash = hashOf(body.bscTxHash);
+      if (!bscTxHash) return res.status(400).json({ ok: false, error: 'bad bsc tx hash' });
+      const o = await packGetOrder(bscTxHash);
+      if (!o) return res.status(404).json({ ok: false, error: 'order not found' });
+      return res.status(200).json({ ok: true, order: packPublicOrder(o) });
+    }
+    if (action === 'packOrders' || action === 'packOrderDone' || action === 'packOrderFail' || action === 'packOrderWait') {
+      if (!(await packRunnerOk(body.bhash))) return res.status(403).json({ ok: false, error: 'runner not authorized' });
+      if (action === 'packOrders') {
+        const out = await packPipeline([['LRANGE', 'pack:orders', '0', '199']]);
+        const hashes = (out && out[0] && out[0].result) || [];
+        const orders = [];
+        for (const h of hashes) {
+          const o = await packGetOrder(h);
+          if (o && (o.status === 'paid-claimed' || o.status === 'waiting')) orders.push(packPublicOrder(o));
+        }
+        return res.status(200).json({ ok: true, orders });
+      }
+      const bscTxHash = hashOf(body.bscTxHash);
+      if (!bscTxHash) return res.status(400).json({ ok: false, error: 'bad bsc tx hash' });
+      const o = await packGetOrder(bscTxHash);
+      if (!o) return res.status(404).json({ ok: false, error: 'order not found' });
+      if (action === 'packOrderDone') {
+        const terraTx = String(body.terraTx || '').trim().toUpperCase();
+        if (!/^[0-9A-F]{64}$/.test(terraTx)) return res.status(400).json({ ok: false, error: 'bad terra tx' });
+        o.status = 'sent'; o.terraTx = terraTx; o.error = ''; o.doneAt = Date.now();
+      } else if (action === 'packOrderFail') {
+        if (o.status === 'sent') return res.status(200).json({ ok: true, order: packPublicOrder(o) });
+        o.status = 'failed'; o.error = String(body.error || 'payment could not be verified').slice(0, 140);
+      } else {
+        if (o.status === 'sent') return res.status(200).json({ ok: true, order: packPublicOrder(o) });
+        o.status = 'waiting'; o.error = String(body.error || 'waiting for LUNC stock').slice(0, 140);
+      }
+      await packSaveOrder(o);
+      return res.status(200).json({ ok: true, order: packPublicOrder(o) });
+    }
+    return res.status(400).json({ ok: false, error: 'unknown action' });
+  } catch (e) {
+    console.error('pack action failed', action, e && e.message);
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+}
+/* lunc-pack:end */
+
 export default async function handler(req, res) {
   /* Wallet Scope counter: /api/scope-count is rewritten to
      /api/luna-games?scope=1 (see the wallet-scope block above). Runs
@@ -7517,6 +7692,11 @@ export default async function handler(req, res) {
      above). Photo jobs in Upstash; the VM runner reads them with
      the Groq vision model and posts the result back. */
   if (req.query && req.query.dairy !== undefined) return dairyHandler(req, res);
+  /* Frog Fight LUNC packs: the game page calls /api/luna-games?pack=1
+     directly (see the lunc-pack block above). Orders in the KICKBACK
+     Upstash store; the VM pack runner verifies BSC payments and sends
+     the LUNC. */
+  if (req.query && req.query.pack !== undefined) return packHandler(req, res);
   const game = String((req.query && req.query.game) || '');
   let cfg = GAMES[game];
   if (!cfg) return res.status(400).json({ error: 'unknown game' });
