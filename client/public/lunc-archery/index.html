@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<base href="/lunc-archery/">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>LUNC Archery — LUNC Dev Studio</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{width:100%;height:100%;overflow:hidden;background:#140a20;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;color:#fff4e0;touch-action:none;user-select:none;-webkit-user-select:none}
+  #game{position:fixed;inset:0}
+  canvas{display:block}
+
+  /* ---------- language selector (house pattern) ---------- */
+  #langWrap{position:fixed;top:calc(6px + env(safe-area-inset-top));right:8px;z-index:80;display:flex;align-items:center;gap:6px;background:rgba(24,10,26,.85);border:1px solid #ffb347;border-radius:999px;padding:5px 10px;box-shadow:0 0 14px rgba(255,150,50,.3)}
+  #langWrap span{font-size:17px}
+  #langSel{background:transparent;border:none;color:#ffb347;font-size:15px;font-weight:700;outline:none;max-width:128px}
+  #langSel option{background:#1c0d22;color:#fff}
+  #muteBtn{position:fixed;top:calc(6px + env(safe-area-inset-top));left:8px;z-index:80;background:rgba(24,10,26,.85);border:1px solid #ffb347;border-radius:999px;padding:5px 12px;font-size:16px;color:#ffb347;cursor:pointer}
+
+  /* ---------- HUD ---------- */
+  #hud{position:fixed;inset:0;z-index:40;pointer-events:none}
+  #topBar{position:absolute;top:calc(52px + env(safe-area-inset-top));left:0;right:0;display:flex;flex-direction:column;align-items:center;gap:6px}
+  #roundLine{font-size:15px;font-weight:800;letter-spacing:2px;color:#ffe9c9;text-shadow:0 2px 6px #000}
+  #roundLine b{color:#ffd23e}
+  #strip{display:flex;gap:6px}
+  .chip{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:900;color:#1a0d00;background:rgba(20,8,24,.75);border:2px solid rgba(255,255,255,.35);text-shadow:none}
+  .chip.gold{background:radial-gradient(circle at 35% 35%,#ffe98a,#f5b921);border-color:#fff2b0}
+  .chip.red{background:radial-gradient(circle at 35% 35%,#ff9a8a,#d92b1f);color:#fff;border-color:#ffc4b8}
+  .chip.blue{background:radial-gradient(circle at 35% 35%,#7ec3ff,#1256c9);color:#fff;border-color:#bfe0ff}
+  .chip.black{background:radial-gradient(circle at 35% 35%,#5a5a66,#101014);color:#fff;border-color:#9a9aa6}
+  .chip.white{background:radial-gradient(circle at 35% 35%,#ffffff,#c9c9d4);color:#222;border-color:#fff}
+  .chip.miss{background:rgba(20,8,24,.75);color:#ff7b6b;border-color:#ff7b6b}
+  #windBox{position:absolute;top:calc(52px + env(safe-area-inset-top));left:10px;background:rgba(20,8,24,.78);border:1px solid rgba(255,179,71,.7);border-radius:12px;padding:6px 10px;text-align:center;min-width:74px}
+  #windBox .wl{font-size:10px;font-weight:800;letter-spacing:2px;color:#ffcf99}
+  #windVal{font-size:19px;font-weight:900;color:#fff}
+  #windVal .arr{display:inline-block;color:#ffd23e}
+  #scoreBox{position:absolute;top:calc(52px + env(safe-area-inset-top));right:10px;background:rgba(20,8,24,.78);border:1px solid rgba(255,179,71,.7);border-radius:12px;padding:6px 12px;text-align:center;min-width:74px}
+  #scoreBox .wl{font-size:10px;font-weight:800;letter-spacing:2px;color:#ffcf99}
+  #scoreVal{font-size:19px;font-weight:900;color:#ffd23e}
+  #hint{position:absolute;left:0;right:0;bottom:calc(108px + env(safe-area-inset-bottom));text-align:center;font-size:15px;font-weight:700;color:#ffe9c9;text-shadow:0 2px 6px #000;padding:0 20px}
+  #powerWrap{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(64px + env(safe-area-inset-bottom));width:min(240px,60vw);height:14px;border-radius:999px;background:rgba(10,4,16,.7);border:1px solid rgba(255,255,255,.4);overflow:hidden;opacity:0;transition:opacity .15s}
+  #powerFill{height:100%;width:0%;border-radius:999px;background:linear-gradient(90deg,#57d95e,#ffd23e,#ff5f2e)}
+  #cross{position:absolute;width:54px;height:54px;margin:-27px 0 0 -27px;pointer-events:none;opacity:.95}
+  #cross:before,#cross:after{content:"";position:absolute;background:rgba(255,235,180,.9);box-shadow:0 0 4px #000}
+  #cross:before{left:50%;top:0;width:2px;height:100%;margin-left:-1px}
+  #cross:after{top:50%;left:0;height:2px;width:100%;margin-top:-1px}
+  #crossDot{position:absolute;left:50%;top:50%;width:7px;height:7px;margin:-3.5px 0 0 -3.5px;border-radius:50%;background:#ffd23e;box-shadow:0 0 6px #ffb347,0 0 2px #000}
+  #popup{position:absolute;left:0;right:0;top:34%;text-align:center;font-size:clamp(30px,9vw,52px);font-weight:900;letter-spacing:1px;color:#ffd23e;text-shadow:0 0 22px rgba(255,160,0,.8),0 3px 0 #8a3c00,0 5px 10px rgba(0,0,0,.6);opacity:0;transform:scale(.7);transition:opacity .18s,transform .18s}
+  #popup.show{opacity:1;transform:scale(1)}
+  #popup small{display:block;font-size:clamp(15px,4.4vw,21px);color:#fff;letter-spacing:2px;text-shadow:0 2px 6px #000}
+
+  /* ---------- screens ---------- */
+  .screen{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:18px;background:radial-gradient(ellipse at 50% 115%,rgba(255,110,30,.25),rgba(10,4,16,.45) 60%);text-align:center}
+  .hidden{display:none !important}
+  .titleArt{font-size:clamp(40px,12vw,76px);font-weight:900;letter-spacing:1px;line-height:.95;color:#ffd23e;text-shadow:0 0 26px rgba(255,140,0,.75),0 3px 0 #8a3c00,0 6px 0 rgba(0,0,0,.45)}
+  .titleArt .d2{color:#ff7b24}
+  .tagline{margin-top:10px;font-size:clamp(14px,4.4vw,20px);font-weight:800;letter-spacing:2px;color:#ffe9c9;text-shadow:0 2px 8px #000}
+  .crescent{color:#ffd23e}
+  .btn{display:block;width:min(320px,84vw);margin:12px auto 0;padding:15px 18px;border:none;border-radius:14px;font-size:20px;font-weight:900;letter-spacing:1px;cursor:pointer;color:#2a1400;background:linear-gradient(180deg,#ffd23e,#ff8b1f);box-shadow:0 5px 0 #9c4d00,0 10px 22px rgba(0,0,0,.5)}
+  .btn:active{transform:translateY(3px);box-shadow:0 2px 0 #9c4d00}
+  .btn.dark{color:#ffe9c9;background:linear-gradient(180deg,#4a2358,#2a1236);box-shadow:0 5px 0 #17081f,0 10px 22px rgba(0,0,0,.5);border:1px solid #ffb347}
+  .bestLine{margin-top:14px;font-size:15px;font-weight:700;color:#ffcf99;text-shadow:0 1px 4px #000}
+  .howto{margin-top:16px;max-width:min(430px,92vw);font-size:15px;line-height:1.55;color:#ffe9c9;text-shadow:0 1px 4px #000;background:rgba(20,8,24,.55);border:1px solid rgba(255,179,71,.4);border-radius:14px;padding:12px 16px}
+  .card{background:rgba(20,8,24,.93);border:1px solid #ffb347;border-radius:18px;padding:22px 20px;max-width:min(430px,94vw);box-shadow:0 14px 40px rgba(0,0,0,.6)}
+  .card h2{color:#ffd23e;letter-spacing:1px;margin-bottom:10px;font-size:clamp(24px,7vw,32px)}
+  .card p{font-size:16px;line-height:1.6;color:#ffe9c9;margin-bottom:6px}
+  .card p b{color:#ffd23e}
+  [dir="rtl"] .card p{text-align:right}
+</style>
+</head>
+<body>
+<div id="game"></div>
+
+<div id="langWrap"><span>🌐</span><select id="langSel" aria-label="Language"></select></div>
+<button id="muteBtn" aria-label="Sound">🔊</button>
+
+<div id="hud" class="hidden">
+  <div id="windBox"><div class="wl" id="windLab">WIND</div><div id="windVal">→ 0</div></div>
+  <div id="scoreBox"><div class="wl" id="scoreLab">SCORE</div><div id="scoreVal">0</div></div>
+  <div id="topBar">
+    <div id="roundLine">ROUND <b>1</b> · 20m</div>
+    <div id="strip"></div>
+  </div>
+  <div id="cross"><div id="crossDot"></div></div>
+  <div id="popup"></div>
+  <div id="hint"></div>
+  <div id="powerWrap"><div id="powerFill"></div></div>
+</div>
+
+<div id="menuScr" class="screen">
+  <div class="titleArt">LUNC <span class="d2">ARCHERY</span> <span class="crescent">☾</span></div>
+  <div class="tagline" id="tagline">Bullseyes under the Earthlight</div>
+  <div class="howto" id="howtoTxt"></div>
+  <button class="btn" id="playBtn">🏹 SHOOT</button>
+  <div class="bestLine" id="bestLine"></div>
+</div>
+
+<div id="roundScr" class="screen hidden">
+  <div class="card">
+    <h2 id="roundTitle">ROUND 1</h2>
+    <p id="roundScoreLine"></p>
+    <p id="roundBestLine"></p>
+    <button class="btn" id="contBtn">CONTINUE</button>
+  </div>
+</div>
+
+<div id="finalScr" class="screen hidden">
+  <div class="card">
+    <h2 id="finalTitle">MATCH COMPLETE</h2>
+    <p id="finalLines"></p>
+    <p id="finalBest"></p>
+    <button class="btn" id="againBtn">SHOOT AGAIN</button>
+    <button class="btn dark" id="menuBtn">MENU</button>
+  </div>
+</div>
+
+<script type="importmap">{"imports":{"three":"./lib/three.module.js"}}</script>
+<script>
+/* ================= i18n (house 18-language gate) ================= */
+const LANGS=[["en","English"],["es","Español"],["pt","Português"],["fr","Français"],["de","Deutsch"],["it","Italiano"],["nl","Nederlands"],["ru","Русский"],["uk","Українська"],["tr","Türkçe"],["ar","العربية"],["hi","हिन्दी"],["id","Bahasa Indonesia"],["vi","Tiếng Việt"],["th","ไทย"],["ko","한국어"],["ja","日本語"],["zh","简体中文"]];
+const I18N={
+en:{tagline:"Bullseyes under the Earthlight",howto:"Drag to aim · hold to draw · release to loose. Mind the wind — the flags show its strength. 6 arrows per round, 3 rounds: 20m, 35m, 50m. Gold center scores 10!",play:"🏹 SHOOT",bestTotal:"Best total",bestRound:"Best round",round:"ROUND",wind:"WIND",score:"SCORE",hint:"Drag to aim — hold to draw — release!",bullseye:"BULLSEYE!",miss:"MISS",total:"TOTAL",roundScore:"Round score",final:"MATCH COMPLETE",newBest:"★ NEW BEST!",again:"SHOOT AGAIN",menu:"MENU",cont:"CONTINUE"},
+es:{tagline:"Dianas bajo la luz de la Tierra",howto:"Arrastra para apuntar · mantén para tensar · suelta para disparar. Cuidado con el viento: las banderas muestran su fuerza. 6 flechas por ronda, 3 rondas: 20m, 35m, 50m. ¡El centro dorado vale 10!",play:"🏹 DISPARAR",bestTotal:"Mejor total",bestRound:"Mejor ronda",round:"RONDA",wind:"VIENTO",score:"PUNTOS",hint:"Arrastra para apuntar — mantén para tensar — ¡suelta!",bullseye:"¡DIANA!",miss:"FALLO",total:"TOTAL",roundScore:"Puntos de la ronda",final:"PARTIDA COMPLETA",newBest:"★ ¡NUEVO RÉCORD!",again:"DISPARAR OTRA VEZ",menu:"MENÚ",cont:"CONTINUAR"},
+pt:{tagline:"Alvos sob a luz da Terra",howto:"Arraste para mirar · segure para puxar · solte para atirar. Cuidado com o vento — as bandeiras mostram a força. 6 flechas por rodada, 3 rodadas: 20m, 35m, 50m. O centro dourado vale 10!",play:"🏹 ATIRAR",bestTotal:"Melhor total",bestRound:"Melhor rodada",round:"RODADA",wind:"VENTO",score:"PONTOS",hint:"Arraste para mirar — segure para puxar — solte!",bullseye:"NA MOSCA!",miss:"ERROU",total:"TOTAL",roundScore:"Pontos da rodada",final:"PARTIDA COMPLETA",newBest:"★ NOVO RECORDE!",again:"ATIRAR DE NOVO",menu:"MENU",cont:"CONTINUAR"},
+fr:{tagline:"Dans le mille sous la lumière de la Terre",howto:"Glissez pour viser · maintenez pour bander · relâchez pour tirer. Attention au vent — les drapeaux montrent sa force. 6 flèches par manche, 3 manches : 20m, 35m, 50m. Le centre doré vaut 10 !",play:"🏹 TIRER",bestTotal:"Meilleur total",bestRound:"Meilleure manche",round:"MANCHE",wind:"VENT",score:"SCORE",hint:"Glissez pour viser — maintenez pour bander — relâchez !",bullseye:"EN PLEIN CENTRE !",miss:"MANQUÉ",total:"TOTAL",roundScore:"Score de la manche",final:"MATCH TERMINÉ",newBest:"★ NOUVEAU RECORD !",again:"RETIRER",menu:"MENU",cont:"CONTINUER"},
+de:{tagline:"Treffer ins Schwarze unter dem Erdlicht",howto:"Ziehen zum Zielen · halten zum Spannen · loslassen zum Schießen. Achte auf den Wind — die Fahnen zeigen seine Stärke. 6 Pfeile pro Runde, 3 Runden: 20m, 35m, 50m. Die goldene Mitte gibt 10!",play:"🏹 SCHIESSEN",bestTotal:"Bestes Ergebnis",bestRound:"Beste Runde",round:"RUNDE",wind:"WIND",score:"PUNKTE",hint:"Ziehen zum Zielen — halten zum Spannen — loslassen!",bullseye:"VOLLTREFFER!",miss:"DANEBEN",total:"GESAMT",roundScore:"Rundenpunkte",final:"MATCH BEENDET",newBest:"★ NEUER REKORD!",again:"NOCHMAL SCHIESSEN",menu:"MENÜ",cont:"WEITER"},
+it:{tagline:"Centri sotto la luce della Terra",howto:"Trascina per mirare · tieni premuto per tendere · rilascia per scoccare. Attento al vento — le bandiere mostrano la sua forza. 6 frecce per round, 3 round: 20m, 35m, 50m. Il centro dorato vale 10!",play:"🏹 TIRA",bestTotal:"Miglior totale",bestRound:"Miglior round",round:"ROUND",wind:"VENTO",score:"PUNTI",hint:"Trascina per mirare — tieni per tendere — rilascia!",bullseye:"CENTRO PIENO!",miss:"MANCATO",total:"TOTALE",roundScore:"Punti del round",final:"PARTITA COMPLETA",newBest:"★ NUOVO RECORD!",again:"TIRA ANCORA",menu:"MENU",cont:"CONTINUA"},
+nl:{tagline:"Rozen onder het aardlicht",howto:"Sleep om te richten · houd vast om te spannen · laat los om te schieten. Let op de wind — de vlaggen tonen zijn kracht. 6 pijlen per ronde, 3 rondes: 20m, 35m, 50m. Het gouden midden is 10 waard!",play:"🏹 SCHIET",bestTotal:"Beste totaal",bestRound:"Beste ronde",round:"RONDE",wind:"WIND",score:"SCORE",hint:"Sleep om te richten — houd vast om te spannen — laat los!",bullseye:"VOLTREFFER!",miss:"MIS",total:"TOTAAL",roundScore:"Rondescore",final:"WEDSTRIJD KLAAR",newBest:"★ NIEUW RECORD!",again:"OPNIEUW SCHIETEN",menu:"MENU",cont:"DOORGAAN"},
+ru:{tagline:"Попадания в яблочко под светом Земли",howto:"Тяни, чтобы целиться · держи, чтобы натянуть · отпусти, чтобы выстрелить. Следи за ветром — флаги показывают его силу. 6 стрел в раунде, 3 раунда: 20м, 35м, 50м. Золотой центр — 10 очков!",play:"🏹 СТРЕЛЯТЬ",bestTotal:"Лучший итог",bestRound:"Лучший раунд",round:"РАУНД",wind:"ВЕТЕР",score:"СЧЁТ",hint:"Тяни для прицела — держи для натяжения — отпусти!",bullseye:"В ЯБЛОЧКО!",miss:"МИМО",total:"ИТОГО",roundScore:"Очки раунда",final:"МАТЧ ЗАВЕРШЁН",newBest:"★ НОВЫЙ РЕКОРД!",again:"СТРЕЛЯТЬ СНОВА",menu:"МЕНЮ",cont:"ДАЛЕЕ"},
+uk:{tagline:"Влучання в яблучко під світлом Землі",howto:"Тягни, щоб цілитися · тримай, щоб натягнути · відпусти, щоб вистрілити. Стеж за вітром — прапори показують його силу. 6 стріл у раунді, 3 раунди: 20м, 35м, 50м. Золотий центр — 10 очок!",play:"🏹 СТРІЛЯТИ",bestTotal:"Найкращий підсумок",bestRound:"Найкращий раунд",round:"РАУНД",wind:"ВІТЕР",score:"РАХУНОК",hint:"Тягни для прицілу — тримай для натягу — відпусти!",bullseye:"В ЯБЛУЧКО!",miss:"МИМО",total:"ПІДСУМОК",roundScore:"Очки раунду",final:"МАТЧ ЗАВЕРШЕНО",newBest:"★ НОВИЙ РЕКОРД!",again:"СТРІЛЯТИ ЗНОВУ",menu:"МЕНЮ",cont:"ДАЛІ"},
+tr:{tagline:"Dünya ışığında tam isabetler",howto:"Nişan almak için sürükle · germek için basılı tut · atmak için bırak. Rüzgâra dikkat et — bayraklar gücünü gösterir. Tur başına 6 ok, 3 tur: 20m, 35m, 50m. Altın merkez 10 puan!",play:"🏹 AT",bestTotal:"En iyi toplam",bestRound:"En iyi tur",round:"TUR",wind:"RÜZGÂR",score:"SKOR",hint:"Nişan için sürükle — germek için tut — bırak!",bullseye:"TAM İSABET!",miss:"ISKALADI",total:"TOPLAM",roundScore:"Tur skoru",final:"MAÇ BİTTİ",newBest:"★ YENİ REKOR!",again:"TEKRAR AT",menu:"MENÜ",cont:"DEVAM ET"},
+ar:{tagline:"إصابات دقيقة تحت ضوء الأرض",howto:"اسحب للتصويب · اضغط مطولاً للشد · اترك للإطلاق. انتبه للرياح — الأعلام تُظهر قوتها. 6 أسهم في كل جولة، 3 جولات: 20م، 35م، 50م. المركز الذهبي يساوي 10!",play:"🏹 أطلق",bestTotal:"أفضل مجموع",bestRound:"أفضل جولة",round:"الجولة",wind:"الرياح",score:"النقاط",hint:"اسحب للتصويب — اضغط للشد — اترك!",bullseye:"إصابة كاملة!",miss:"أخطأت",total:"المجموع",roundScore:"نقاط الجولة",final:"انتهت المباراة",newBest:"★ رقم قياسي جديد!",again:"أطلق مجدداً",menu:"القائمة",cont:"متابعة"},
+hi:{tagline:"पृथ्वी की रोशनी में सटीक निशाने",howto:"निशाना लगाने के लिए खींचें · तानने के लिए दबाए रखें · छोड़ने पर तीर चलेगा। हवा का ध्यान रखें — झंडे उसकी ताकत दिखाते हैं। हर राउंड में 6 तीर, 3 राउंड: 20मी, 35मी, 50मी। सुनहरा केंद्र = 10 अंक!",play:"🏹 चलाओ",bestTotal:"सर्वश्रेष्ठ कुल",bestRound:"सर्वश्रेष्ठ राउंड",round:"राउंड",wind:"हवा",score:"स्कोर",hint:"निशाना लगाने के लिए खींचें — तानने के लिए दबाएँ — छोड़ें!",bullseye:"एकदम निशाना!",miss:"चूक गए",total:"कुल",roundScore:"राउंड का स्कोर",final:"मैच पूरा",newBest:"★ नया रिकॉर्ड!",again:"फिर से चलाओ",menu:"मेनू",cont:"जारी रखें"},
+id:{tagline:"Tepat sasaran di bawah cahaya Bumi",howto:"Seret untuk membidik · tahan untuk menarik · lepas untuk menembak. Perhatikan angin — bendera menunjukkan kekuatannya. 6 panah per ronde, 3 ronde: 20m, 35m, 50m. Pusat emas bernilai 10!",play:"🏹 TEMBAK",bestTotal:"Total terbaik",bestRound:"Ronde terbaik",round:"RONDE",wind:"ANGIN",score:"SKOR",hint:"Seret untuk membidik — tahan untuk menarik — lepas!",bullseye:"TEPAT SASARAN!",miss:"MELESET",total:"TOTAL",roundScore:"Skor ronde",final:"PERTANDINGAN SELESAI",newBest:"★ REKOR BARU!",again:"TEMBAK LAGI",menu:"MENU",cont:"LANJUT"},
+vi:{tagline:"Trúng hồng tâm dưới ánh sáng Trái Đất",howto:"Kéo để ngắm · giữ để giương cung · thả để bắn. Chú ý gió — cờ cho thấy sức gió. 6 mũi tên mỗi vòng, 3 vòng: 20m, 35m, 50m. Tâm vàng được 10 điểm!",play:"🏹 BẮN",bestTotal:"Tổng tốt nhất",bestRound:"Vòng tốt nhất",round:"VÒNG",wind:"GIÓ",score:"ĐIỂM",hint:"Kéo để ngắm — giữ để giương — thả ra!",bullseye:"TRÚNG HỒNG TÂM!",miss:"TRƯỢT",total:"TỔNG",roundScore:"Điểm vòng",final:"TRẬN ĐẤU KẾT THÚC",newBest:"★ KỶ LỤC MỚI!",again:"BẮN LẠI",menu:"MENU",cont:"TIẾP TỤC"},
+th:{tagline:"ยิงเข้าเป้าภายใต้แสงของโลก",howto:"ลากเพื่อเล็ง · กดค้างเพื่อดึงสาย · ปล่อยเพื่อยิง ระวังลม — ธงแสดงความแรงของลม 6 ลูกต่อรอบ 3 รอบ: 20ม. 35ม. 50ม. วงทองตรงกลางได้ 10 คะแนน!",play:"🏹 ยิง",bestTotal:"คะแนนรวมดีที่สุด",bestRound:"รอบดีที่สุด",round:"รอบ",wind:"ลม",score:"คะแนน",hint:"ลากเพื่อเล็ง — กดค้างเพื่อดึง — ปล่อย!",bullseye:"เข้าเป้าเต็ม ๆ!",miss:"พลาด",total:"รวม",roundScore:"คะแนนรอบนี้",final:"จบการแข่งขัน",newBest:"★ สถิติใหม่!",again:"ยิงอีกครั้ง",menu:"เมนู",cont:"ต่อไป"},
+ko:{tagline:"지구빛 아래에서 명중",howto:"드래그로 조준 · 길게 눌러 당기기 · 놓으면 발사. 바람을 조심하세요 — 깃발이 세기를 보여줍니다. 라운드당 화살 6개, 3라운드: 20m, 35m, 50m. 황금 중심은 10점!",play:"🏹 쏘기",bestTotal:"최고 총점",bestRound:"최고 라운드",round:"라운드",wind:"바람",score:"점수",hint:"드래그로 조준 — 길게 눌러 당기기 — 놓으세요!",bullseye:"명중!",miss:"빗나감",total:"합계",roundScore:"라운드 점수",final:"경기 종료",newBest:"★ 신기록!",again:"다시 쏘기",menu:"메뉴",cont:"계속"},
+ja:{tagline:"地球の光の下で的を射る",howto:"ドラッグで狙い・長押しで引き・離して放つ。風に注意 — 旗が強さを示します。1ラウンド6本、3ラウンド：20m、35m、50m。金の中心は10点！",play:"🏹 射る",bestTotal:"ベスト合計",bestRound:"ベストラウンド",round:"ラウンド",wind:"風",score:"スコア",hint:"ドラッグで狙う — 長押しで引く — 離す！",bullseye:"ど真ん中！",miss:"外れ",total:"合計",roundScore:"ラウンドスコア",final:"試合終了",newBest:"★ 新記録！",again:"もう一度射る",menu:"メニュー",cont:"続ける"},
+zh:{tagline:"在地球光辉下正中靶心",howto:"拖动瞄准 · 按住拉弓 · 松手放箭。注意风向——旗帜会显示风力。每轮6支箭，共3轮：20米、35米、50米。金色靶心10分！",play:"🏹 射箭",bestTotal:"最佳总分",bestRound:"最佳轮次",round:"轮次",wind:"风",score:"分数",hint:"拖动瞄准 — 按住拉弓 — 松手！",bullseye:"正中靶心！",miss:"脱靶",total:"总分",roundScore:"本轮分数",final:"比赛结束",newBest:"★ 新纪录！",again:"再射一轮",menu:"菜单",cont:"继续"}
+};
+let lang = localStorage.getItem('luncArcheryLang') || 'en';
+if (!I18N[lang]) lang = 'en';
+const T = k => (I18N[lang] && I18N[lang][k]) || I18N.en[k] || k;
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+const $ = id => document.getElementById(id);
+
+/* ---------- language wiring ---------- */
+const langSel = $('langSel');
+LANGS.forEach(([code, label]) => { const o = document.createElement('option'); o.value = code; o.textContent = label; langSel.appendChild(o); });
+langSel.value = lang;
+function applyLang(){
+  document.documentElement.lang = lang;
+  document.documentElement.dir = (lang === 'ar') ? 'rtl' : 'ltr';
+  $('tagline').textContent = T('tagline');
+  $('howtoTxt').textContent = T('howto');
+  $('playBtn').textContent = T('play');
+  $('hint').textContent = T('hint');
+  $('windLab').textContent = T('wind');
+  $('scoreLab').textContent = T('score');
+  $('contBtn').textContent = T('cont');
+  $('againBtn').textContent = T('again');
+  $('menuBtn').textContent = T('menu');
+  $('finalTitle').textContent = T('final');
+  updateBestLine(); updateRoundLine();
+}
+langSel.onchange = () => { lang = langSel.value; localStorage.setItem('luncArcheryLang', lang); applyLang(); };
+
+/* ---------- sound (WebAudio synth only) ---------- */
+let muted = localStorage.getItem('luncArchery_mute') === '1';
+let AC = null;
+function audio(){ if(!AC){ try{ AC = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } if(AC && AC.state==='suspended') AC.resume(); return AC; }
+function tone(f0, f1, dur, type, vol, when){
+  if(muted) return; const ac = audio(); if(!ac) return;
+  const t = ac.currentTime + (when||0);
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = type||'sine'; o.frequency.setValueAtTime(f0, t);
+  if(f1) o.frequency.exponentialRampToValueAtTime(Math.max(f1,1), t+dur);
+  g.gain.setValueAtTime(vol||0.15, t); g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+  o.connect(g).connect(ac.destination); o.start(t); o.stop(t+dur+0.05);
+}
+function noiseBurst(dur, freq, vol, when){
+  if(muted) return; const ac = audio(); if(!ac) return;
+  const t = ac.currentTime + (when||0);
+  const len = Math.max(1, (dur*ac.sampleRate)|0), buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+  for(let i=0;i<len;i++) d[i] = (Math.random()*2-1) * (1 - i/len);
+  const src = ac.createBufferSource(); src.buffer = buf;
+  const f = ac.createBiquadFilter(); f.type='lowpass'; f.frequency.value = freq||800;
+  const g = ac.createGain(); g.gain.value = vol||0.2;
+  src.connect(f).connect(g).connect(ac.destination); src.start(t);
+}
+const sClick = () => tone(660, 440, 0.07, 'triangle', 0.12);
+const sDraw = () => { tone(70, 48, 0.5, 'sawtooth', 0.05); noiseBurst(0.4, 300, 0.04); };
+const sRelease = () => { noiseBurst(0.12, 1800, 0.25); tone(320, 70, 0.16, 'sine', 0.22); };
+const sThud = () => { noiseBurst(0.14, 500, 0.3); tone(85, 45, 0.18, 'sine', 0.3); };
+const sGround = () => { noiseBurst(0.1, 350, 0.15); };
+const sBullseye = () => { [523,659,784,1047].forEach((f,i)=>tone(f, f, 0.16, 'triangle', 0.16, i*0.09)); };
+let whistleNodes = null;
+function whistleStart(){
+  if(muted) return; const ac = audio(); if(!ac) return;
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type='sine'; o.frequency.setValueAtTime(2100, ac.currentTime);
+  o.frequency.exponentialRampToValueAtTime(1300, ac.currentTime+0.7);
+  g.gain.setValueAtTime(0.0001, ac.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.045, ac.currentTime+0.08);
+  o.connect(g).connect(ac.destination); o.start(); whistleNodes = {o, g};
+}
+function whistleStop(){
+  if(!whistleNodes) return; try{ const ac = AC, t = ac.currentTime;
+    whistleNodes.g.gain.exponentialRampToValueAtTime(0.0001, t+0.06);
+    whistleNodes.o.stop(t+0.08); }catch(e){} whistleNodes = null;
+}
+$('muteBtn').textContent = muted ? '🔇' : '🔊';
+$('muteBtn').onclick = () => { muted = !muted; localStorage.setItem('luncArchery_mute', muted?'1':'0'); $('muteBtn').textContent = muted ? '🔇' : '🔊'; if(!muted) sClick(); };
+
+/* ---------- renderer / scene ---------- */
+const renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 1.75));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.25;
+$('game').appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x4a2340, 60, 420);
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
+camera.position.set(0, 1.62, 0);
+scene.add(camera);
+
+scene.add(new THREE.HemisphereLight(0x9a7bd0, 0x2a1a20, 0.95));
+const sunLight = new THREE.DirectionalLight(0xffa050, 1.4); sunLight.position.set(-50, 26, -90); scene.add(sunLight);
+scene.add(new THREE.AmbientLight(0x604a80, 0.5));
+
+/* dusk sky dome (canvas gradient, sun glow low over the range) */
+function makeSkyTexture(){
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 512;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0,0,0,512);
+  grad.addColorStop(0.00,'#1c0e3e'); grad.addColorStop(0.24,'#4a2060');
+  grad.addColorStop(0.40,'#93365e'); grad.addColorStop(0.47,'#e06432');
+  grad.addColorStop(0.505,'#ffb347'); grad.addColorStop(0.53,'#7a4630');
+  grad.addColorStop(1.00,'#241428');
+  g.fillStyle = grad; g.fillRect(0,0,1024,512);
+  for (const sx of [0, 512, 1024]) {
+    const sun = g.createRadialGradient(sx,252,8,sx,252,210);
+    sun.addColorStop(0,'rgba(255,232,175,0.95)'); sun.addColorStop(0.3,'rgba(255,180,80,0.5)'); sun.addColorStop(1,'rgba(255,150,50,0)');
+    g.fillStyle = sun; g.fillRect(0,0,1024,512);
+    g.fillStyle = '#ffedb5'; g.beginPath(); g.arc(sx,252,24,0,7); g.fill();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+scene.background = makeSkyTexture();
+
+/* stars */
+{
+  const n = 900, pos = new Float32Array(n*3);
+  for(let i=0;i<n;i++){
+    const th = Math.random()*Math.PI*2, ph = Math.random()*Math.PI*0.42;
+    const r = 430;
+    pos[i*3] = r*Math.sin(ph)*Math.cos(th); pos[i*3+1] = r*Math.cos(ph)+5; pos[i*3+2] = r*Math.sin(ph)*Math.sin(th);
+  }
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  scene.add(new THREE.Points(geo, new THREE.PointsMaterial({ color:0xcdd8ff, size:1.6, sizeAttenuation:false, transparent:true, opacity:0.85, fog:false })));
+}
+
+/* Earth in the sky */
+function makeEarthTexture(){
+  const c = document.createElement('canvas'); c.width = 256; c.height = 128;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0,0,0,128);
+  grad.addColorStop(0,'#7db4e8'); grad.addColorStop(0.5,'#2a6fc4'); grad.addColorStop(1,'#174a8a');
+  g.fillStyle = grad; g.fillRect(0,0,256,128);
+  g.fillStyle = '#3f9e4d';
+  const blob = (x,y,r)=>{ for(let i=0;i<7;i++){ g.beginPath(); g.arc(x+(Math.random()-0.5)*r*1.6, y+(Math.random()-0.5)*r, r*(0.35+Math.random()*0.5), 0, 7); g.fill(); } };
+  blob(50,45,16); blob(95,80,13); blob(150,38,18); blob(200,75,12); blob(228,30,9);
+  g.fillStyle = '#e8d9a0'; blob(120,95,8);
+  g.fillStyle = 'rgba(255,255,255,0.95)'; g.fillRect(0,0,256,9); g.fillRect(0,119,256,9);
+  g.fillStyle = 'rgba(255,255,255,0.55)';
+  for(let i=0;i<26;i++){ g.beginPath(); g.ellipse(Math.random()*256, 14+Math.random()*100, 12+Math.random()*22, 2.5+Math.random()*3.5, 0, 0, 7); g.fill(); }
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; return tex;
+}
+const earth = new THREE.Mesh(new THREE.SphereGeometry(46, 40, 28), new THREE.MeshBasicMaterial({ map: makeEarthTexture(), fog:false }));
+earth.position.set(-58, 74, -260); earth.rotation.z = 0.35;
+scene.add(earth);
+{ /* soft atmosphere glow */
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const rg = g.createRadialGradient(64,64,30,64,64,64);
+  rg.addColorStop(0,'rgba(120,180,255,0)'); rg.addColorStop(0.72,'rgba(120,180,255,0.35)'); rg.addColorStop(1,'rgba(120,180,255,0)');
+  g.fillStyle = rg; g.fillRect(0,0,128,128);
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map:new THREE.CanvasTexture(c), transparent:true, depthWrite:false, fog:false }));
+  spr.scale.set(150,150,1); spr.position.copy(earth.position); scene.add(spr);
+}
+
+/* moon hills — two silhouette rings */
+function hillRing(count, rMin, rMax, hMin, hMax, color){
+  const mat = new THREE.MeshStandardMaterial({ color, roughness:1, flatShading:true });
+  for(let i=0;i<count;i++){
+    const a = (i/count)*Math.PI*2 + Math.random()*0.3;
+    const r = rMin + Math.random()*(rMax-rMin);
+    const h = hMin + Math.random()*(hMax-hMin);
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(h*0.9, h, 5), mat);
+    cone.position.set(Math.cos(a)*r, h/2 - 2, Math.sin(a)*r - 40);
+    cone.rotation.y = Math.random()*3;
+    scene.add(cone);
+  }
+}
+hillRing(16, 300, 390, 40, 85, 0x241233);
+hillRing(12, 165, 230, 18, 42, 0x38204c);
+
+/* ground — dark regolith + range lane */
+function makeGroundTexture(){
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#2b1a38'; g.fillRect(0,0,256,256);
+  for(let i=0;i<2600;i++){
+    g.fillStyle = Math.random()<0.5 ? 'rgba(255,210,160,0.06)' : 'rgba(0,0,0,0.16)';
+    g.fillRect(Math.random()*256, Math.random()*256, 1.6, 1.6);
+  }
+  for(let i=0;i<14;i++){ g.fillStyle='rgba(0,0,0,0.10)'; g.beginPath(); g.arc(Math.random()*256, Math.random()*256, 4+Math.random()*13, 0, 7); g.fill(); }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(24,24);
+  tex.colorSpace = THREE.SRGBColorSpace; return tex;
+}
+const ground = new THREE.Mesh(new THREE.CircleGeometry(430, 40), new THREE.MeshStandardMaterial({ map: makeGroundTexture(), roughness:1 }));
+ground.rotation.x = -Math.PI/2; scene.add(ground);
+const lane = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 62), new THREE.MeshStandardMaterial({ color:0x453064, roughness:1 }));
+lane.rotation.x = -Math.PI/2; lane.position.set(0, 0.02, -29); scene.add(lane);
+const shootLine = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 0.3), new THREE.MeshBasicMaterial({ color:0xffd23e }));
+shootLine.rotation.x = -Math.PI/2; shootLine.position.set(0, 0.03, 0.6); scene.add(shootLine);
+
+/* ---------- target ---------- */
+const TARGET_R = 0.8, TARGET_Y = 1.35;
+function makeTargetTexture(){
+  const c = document.createElement('canvas'); c.width = c.height = 512;
+  const g = c.getContext('2d'), cx = 256, cy = 256;
+  const ring = (r, col) => { g.fillStyle = col; g.beginPath(); g.arc(cx, cy, r, 0, 7); g.fill(); };
+  ring(256, '#e8e8ee');            /* white 1-2 */
+  ring(256*0.8, '#17171c');        /* black 3-4 */
+  ring(256*0.6, '#1c5fd6');        /* blue 5-6 */
+  ring(256*0.4, '#e03428');        /* red 7-8 */
+  ring(256*0.2, '#f7bc1e');        /* gold 9-10 */
+  g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 2;
+  [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9].forEach(f => { g.beginPath(); g.arc(cx, cy, 256*f, 0, 7); g.stroke(); });
+  g.strokeStyle = 'rgba(255,255,255,0.5)';
+  g.beginPath(); g.moveTo(cx-256, cy); g.lineTo(cx+256, cy); g.stroke();
+  g.beginPath(); g.moveTo(cx, cy-256); g.lineTo(cx, cy+256); g.stroke();
+  /* LUNC crescent in the gold */
+  g.fillStyle = '#c47b12';
+  g.beginPath(); g.arc(cx, cy, 30, 0, 7); g.fill();
+  g.fillStyle = '#f7bc1e';
+  g.beginPath(); g.arc(cx+13, cy-7, 25, 0, 7); g.fill();
+  g.fillStyle = '#8a5200'; g.beginPath(); g.arc(cx, cy, 4.5, 0, 7); g.fill();
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4; return tex;
+}
+const targetGroup = new THREE.Group(); scene.add(targetGroup);
+{
+  const wood = new THREE.MeshStandardMaterial({ color:0x5a4028, roughness:0.9 });
+  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.09, 1.7, 0.09), wood);
+  legL.position.set(-0.55, 0.75, -0.25); legL.rotation.x = 0.3; targetGroup.add(legL);
+  const legR = legL.clone(); legR.position.x = 0.55; targetGroup.add(legR);
+  const legB = new THREE.Mesh(new THREE.BoxGeometry(0.09, 1.7, 0.09), wood);
+  legB.position.set(0, 0.75, -0.55); legB.rotation.x = -0.35; targetGroup.add(legB);
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.09, 0.09), wood);
+  bar.position.set(0, 1.28, -0.12); targetGroup.add(bar);
+  const butt = new THREE.Mesh(new THREE.CylinderGeometry(TARGET_R+0.07, TARGET_R+0.07, 0.1, 40),
+    new THREE.MeshStandardMaterial({ color:0x77603a, roughness:1 }));
+  butt.rotation.x = Math.PI/2; butt.position.set(0, TARGET_Y, -0.06); targetGroup.add(butt);
+  const face = new THREE.Mesh(new THREE.CircleGeometry(TARGET_R, 48),
+    new THREE.MeshStandardMaterial({ map: makeTargetTexture(), roughness:0.85 }));
+  face.position.set(0, TARGET_Y, 0.0); targetGroup.add(face);
+  targetGroup.userData.faceZ = 0.0;
+}
+/* distance sign (moves with the target) */
+const signCanvas = document.createElement('canvas'); signCanvas.width = 256; signCanvas.height = 128;
+const signTex = new THREE.CanvasTexture(signCanvas); signTex.colorSpace = THREE.SRGBColorSpace;
+{
+  const board = new THREE.Mesh(new THREE.PlaneGeometry(1.15, 0.58),
+    new THREE.MeshStandardMaterial({ map: signTex, roughness:0.9 }));
+  board.position.set(1.75, 0.62, 0.4); board.rotation.y = -0.25; targetGroup.add(board);
+  const post = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.65, 0.07),
+    new THREE.MeshStandardMaterial({ color:0x5a4028, roughness:0.9 }));
+  post.position.set(1.75, 0.3, 0.38); targetGroup.add(post);
+}
+function drawSign(dist){
+  const g = signCanvas.getContext('2d');
+  g.fillStyle = '#1c0d22'; g.fillRect(0,0,256,128);
+  g.strokeStyle = '#ffb347'; g.lineWidth = 6; g.strokeRect(5,5,246,118);
+  g.fillStyle = '#ffd23e'; g.font = '900 64px system-ui, sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(dist + 'm', 128, 68);
+  signTex.needsUpdate = true;
+}
+targetGroup.position.z = -20;   /* DISTANCES[0]; the const lives in the gameplay section below */
+drawSign(20);
+
+/* ---------- wind flags ---------- */
+const flags = [];
+function makeFlag(x, z){
+  const grp = new THREE.Group(); grp.position.set(x, 0, z);
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 3.1, 8),
+    new THREE.MeshStandardMaterial({ color:0x8a8f9a, roughness:0.5, metalness:0.6 }));
+  pole.position.y = 1.55; grp.add(pole);
+  const geo = new THREE.PlaneGeometry(0.95, 0.5, 6, 1);
+  geo.translate(0.475, 0, 0);
+  const flag = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color:0xff7b24, roughness:0.8, side:THREE.DoubleSide, emissive:0x441d00 }));
+  flag.position.y = 2.78; grp.add(flag);
+  scene.add(grp);
+  flags.push({ grp, flag, base: geo.attributes.position.array.slice(), phase: Math.random()*7 });
+  return grp;
+}
+makeFlag(3.4, -7); makeFlag(-3.4, -18); makeFlag(3.4, -32);
+
+/* ---------- first-person bow (attached to camera) ---------- */
+const bowGroup = new THREE.Group();
+bowGroup.position.set(0.10, -0.36, -0.66);
+bowGroup.scale.setScalar(0.62);
+camera.add(bowGroup);
+let stringLine, nockArrow;
+const BOW = { tipTop: new THREE.Vector3(0, 0.55, -0.17), tipBot: new THREE.Vector3(0, -0.55, -0.17), restZ: 0.03 };
+{
+  const limbMat = new THREE.MeshStandardMaterial({ color:0x6e4520, roughness:0.55 });
+  const riserMat = new THREE.MeshStandardMaterial({ color:0x2e1a3e, roughness:0.4, metalness:0.25 });
+  const seg = (a, b, r, mat) => {
+    const d = new THREE.Vector3().subVectors(b, a), len = d.length();
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r*1.15, len, 8), mat);
+    m.position.copy(a).addScaledVector(d, 0.5);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), d.clone().normalize());
+    bowGroup.add(m); return m;
+  };
+  seg(new THREE.Vector3(0,-0.15,-0.02), new THREE.Vector3(0,0.15,-0.02), 0.030, riserMat);           /* riser */
+  seg(new THREE.Vector3(0,0.13,-0.02), new THREE.Vector3(0,0.36,-0.09), 0.020, limbMat);            /* upper limb 1 */
+  seg(new THREE.Vector3(0,0.36,-0.09), BOW.tipTop, 0.015, limbMat);                                  /* upper limb 2 */
+  seg(new THREE.Vector3(0,-0.13,-0.02), new THREE.Vector3(0,-0.36,-0.09), 0.020, limbMat);          /* lower limb 1 */
+  seg(new THREE.Vector3(0,-0.36,-0.09), BOW.tipBot, 0.015, limbMat);                                 /* lower limb 2 */
+  const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.036, 0.13, 10),
+    new THREE.MeshStandardMaterial({ color:0xd9a520, roughness:0.35, metalness:0.5 }));
+  grip.position.set(0, 0, -0.01); bowGroup.add(grip);
+  /* gold crescent emblem on the riser */
+  const cc = document.createElement('canvas'); cc.width = cc.height = 64;
+  const cg = cc.getContext('2d');
+  cg.fillStyle = '#ffd23e'; cg.beginPath(); cg.arc(32,32,24,0,7); cg.fill();
+  cg.fillStyle = '#2e1a3e'; cg.beginPath(); cg.arc(41,26,20,0,7); cg.fill();
+  const ctex = new THREE.CanvasTexture(cc); ctex.colorSpace = THREE.SRGBColorSpace;
+  const emblem = new THREE.Mesh(new THREE.CircleGeometry(0.045, 24),
+    new THREE.MeshBasicMaterial({ map: ctex, transparent: true }));
+  emblem.position.set(0, 0.09, 0.016); emblem.rotation.y = Math.PI; bowGroup.add(emblem);
+  /* string */
+  const sgeo = new THREE.BufferGeometry().setFromPoints([BOW.tipTop, new THREE.Vector3(0,0,BOW.restZ), BOW.tipBot]);
+  stringLine = new THREE.Line(sgeo, new THREE.LineBasicMaterial({ color:0xf3e9d2 }));
+  bowGroup.add(stringLine);
+}
+function makeArrowMesh(){
+  const grp = new THREE.Group();
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.72, 8),
+    new THREE.MeshStandardMaterial({ color:0xc9a86a, roughness:0.6 }));
+  shaft.rotation.x = Math.PI/2; grp.add(shaft);
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.07, 10),
+    new THREE.MeshStandardMaterial({ color:0xb9c1cc, roughness:0.3, metalness:0.8 }));
+  tip.rotation.x = -Math.PI/2; tip.position.z = -0.39; grp.add(tip);
+  const fmat = new THREE.MeshStandardMaterial({ color:0xff5f2e, roughness:0.7, side:THREE.DoubleSide });
+  for(let i=0;i<3;i++){
+    const fgeo = new THREE.PlaneGeometry(0.12, 0.055);
+    fgeo.rotateY(Math.PI/2);            /* length now along Z (the shaft) */
+    fgeo.translate(0, 0.030, 0.29);     /* out from shaft, near the back */
+    const fin = new THREE.Mesh(fgeo, fmat);
+    fin.rotation.z = i * Math.PI*2/3;
+    grp.add(fin);
+  }
+  return grp;
+}
+nockArrow = makeArrowMesh();
+nockArrow.position.set(0, 0, 0.02);
+bowGroup.add(nockArrow);
+function setStringPull(power){
+  const pos = stringLine.geometry.attributes.position;
+  pos.setXYZ(1, 0, 0, BOW.restZ + power*0.24);
+  pos.needsUpdate = true;
+  nockArrow.position.z = 0.02 + power*0.24;
+  nockArrow.visible = (state === 'aim' || state === 'draw');
+}
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* ---------- game state ---------- */
+const DISTANCES = [20, 35, 50];
+let state = 'menu'; /* menu | aim | draw | fly | score | roundEnd | over */
+let round = 0, arrowIdx = 0;
+let roundScores = [], totalScore = 0, roundTotals = [];
+let bestTotal = parseInt(localStorage.getItem('luncArchery_bestTotal')||'0', 10) || 0;
+let bestRound = parseInt(localStorage.getItem('luncArchery_bestRound')||'0', 10) || 0;
+let wind = 0;                 /* sideways accel, m/s^2 */
+let aimYaw = 0, aimPitch = 0.03;
+let power = 0, holdTime = 0, swayT = Math.random()*100, scoreTimer = 0;
+let flying = null;
+let stuckArrows = [];
+let lastHitInfo = null;
+const keys = {};
+
+function newWind(){
+  wind = (Math.random()*2 - 1) * (1.1 + round*0.55);
+  const arrow = wind >= 0 ? '→' : '←';
+  $('windVal').innerHTML = '<span class="arr">' + arrow + '</span> ' + (Math.abs(wind)*2).toFixed(1);
+  flags.forEach(f => { f.flag.rotation.y = wind >= 0 ? 0 : Math.PI; });
+}
+function updateRoundLine(){
+  $('roundLine').innerHTML = T('round') + ' <b>' + (round+1) + '</b> · ' + DISTANCES[round] + 'm';
+}
+function updateBestLine(){
+  $('bestLine').textContent = bestTotal > 0 ? (T('bestTotal') + ': ' + bestTotal + '  ·  ' + T('bestRound') + ': ' + bestRound) : '';
+}
+function ringClass(s){ return s >= 9 ? 'gold' : s >= 7 ? 'red' : s >= 5 ? 'blue' : s >= 3 ? 'black' : s >= 1 ? 'white' : 'miss'; }
+function renderStrip(){
+  const strip = $('strip'); strip.innerHTML = '';
+  for(let i=0;i<6;i++){
+    const d = document.createElement('div');
+    if(i < roundScores.length){ const s = roundScores[i]; d.className = 'chip ' + ringClass(s); d.textContent = s > 0 ? s : '✕'; }
+    else { d.className = 'chip'; d.textContent = '·'; }
+    strip.appendChild(d);
+  }
+}
+function clearStuck(){
+  stuckArrows.forEach(m => scene.remove(m)); stuckArrows = [];
+}
+function startMatch(){
+  round = 0; totalScore = 0; roundTotals = [];
+  $('scoreVal').textContent = '0';
+  startRound();
+}
+function startRound(){
+  roundScores = []; arrowIdx = 0;
+  clearStuck();
+  targetGroup.position.z = -DISTANCES[round];
+  drawSign(DISTANCES[round]);
+  updateRoundLine(); renderStrip(); newWind();
+  aimYaw = 0; aimPitch = 0.03; power = 0; setStringPull(0);
+  $('menuScr').classList.add('hidden');
+  $('roundScr').classList.add('hidden');
+  $('finalScr').classList.add('hidden');
+  $('hud').classList.remove('hidden');
+  state = 'aim';
+}
+function endRound(){
+  const rs = roundScores.reduce((a,b)=>a+b, 0);
+  roundTotals.push(rs);
+  let newBestFlag = false;
+  if(rs > bestRound){ bestRound = rs; localStorage.setItem('luncArchery_bestRound', String(bestRound)); }
+  if(round >= 2){
+    if(totalScore > bestTotal){ bestTotal = totalScore; localStorage.setItem('luncArchery_bestTotal', String(bestTotal)); newBestFlag = true; }
+    state = 'over';
+    $('finalLines').innerHTML =
+      roundTotals.map((v,i)=> T('round') + ' ' + (i+1) + ' (' + DISTANCES[i] + 'm): <b>' + v + '</b>').join('<br>') +
+      '<br>' + T('total') + ': <b>' + totalScore + '</b>';
+    $('finalBest').innerHTML = newBestFlag ? T('newBest') : (T('bestTotal') + ': ' + bestTotal);
+    $('finalScr').classList.remove('hidden');
+  } else {
+    state = 'roundEnd';
+    $('roundTitle').textContent = T('round') + ' ' + (round+1);
+    $('roundScoreLine').innerHTML = T('roundScore') + ': <b>' + rs + '</b>';
+    $('roundBestLine').innerHTML = T('total') + ': <b>' + totalScore + '</b>  ·  ' + T('bestRound') + ': ' + bestRound;
+    $('roundScr').classList.remove('hidden');
+  }
+  updateBestLine();
+}
+function nextArrow(){
+  arrowIdx++;
+  if(arrowIdx >= 6){ endRound(); return; }
+  newWind(); power = 0; holdTime = 0; setStringPull(0);
+  state = 'aim';
+}
+function showPopup(main, sub){
+  const p = $('popup');
+  p.innerHTML = main + (sub ? '<small>' + sub + '</small>' : '');
+  p.classList.add('show');
+  setTimeout(()=> p.classList.remove('show'), 1000);
+}
+
+/* ---------- aiming / sway ---------- */
+function effAim(){
+  const distF = 1 + round*0.35;
+  let amp = (0.0016 + Math.min(holdTime, 2.5)*0.0016) * distF * (state === 'draw' ? (0.5 + power*0.9) : 0.35);
+  let y = (Math.sin(swayT*1.7)*0.6 + Math.sin(swayT*2.9 + 1.3)*0.4) * amp;
+  let p = (Math.sin(swayT*2.3 + 0.7)*0.6 + Math.sin(swayT*3.7 + 2.1)*0.4) * amp;
+  if(state === 'draw' && holdTime > 2.4){ const j = (holdTime - 2.4)*0.004; y += (Math.random()-0.5)*j; p += (Math.random()-0.5)*j; }
+  return { yaw: aimYaw + y, pitch: aimPitch + p };
+}
+
+/* ---------- shooting ---------- */
+function loose(){
+  const a = effAim();
+  const dir = new THREE.Vector3(
+    Math.sin(a.yaw)*Math.cos(a.pitch),
+    Math.sin(a.pitch),
+    -Math.cos(a.yaw)*Math.cos(a.pitch));
+  const speed = 20 + power*22;
+  const mesh = makeArrowMesh();
+  const spawn = new THREE.Vector3(0.13, 1.24, -0.55);
+  mesh.position.copy(spawn);
+  scene.add(mesh);
+  flying = { mesh, vel: dir.multiplyScalar(speed), t: 0, prevZ: spawn.z };
+  state = 'fly'; power = 0; holdTime = 0; setStringPull(0);
+  sRelease(); whistleStart();
+}
+function scoreForRadius(r){
+  const f = r / TARGET_R;
+  if(f <= 0.1) return 10; if(f <= 0.2) return 9; if(f <= 0.3) return 8;
+  if(f <= 0.4) return 7; if(f <= 0.5) return 6; if(f <= 0.6) return 5;
+  if(f <= 0.7) return 4; if(f <= 0.8) return 3; if(f <= 0.9) return 2;
+  if(f <= 1.0) return 1; return 0;
+}
+function resolveShot(score, stuckMesh){
+  whistleStop();
+  if(stuckMesh) stuckArrows.push(stuckMesh);
+  roundScores.push(score); totalScore += score;
+  $('scoreVal').textContent = String(totalScore);
+  renderStrip();
+  if(score === 10){ sBullseye(); showPopup(T('bullseye'), '+10'); }
+  else if(score > 0){ showPopup('+' + score, ''); }
+  else { showPopup(T('miss'), ''); }
+  state = 'score'; scoreTimer = 1.15;
+}
+function updateFlight(dt){
+  if(!flying) return;
+  const f = flying; f.t += dt;
+  f.vel.y -= 4.5*dt;
+  f.vel.x += wind*dt;
+  const prev = f.mesh.position.clone();
+  f.mesh.position.addScaledVector(f.vel, dt);
+  const p = f.mesh.position;
+  const ahead = p.clone().add(f.vel);
+  f.mesh.lookAt(ahead);
+  const faceZ = -DISTANCES[round];
+  if(prev.z > faceZ && p.z <= faceZ){
+    const frac = (prev.z - faceZ) / (prev.z - p.z);
+    const hit = prev.clone().lerp(p, frac);
+    const r = Math.hypot(hit.x, hit.y - TARGET_Y);
+    if(r <= TARGET_R){
+      const score = scoreForRadius(r);
+      lastHitInfo = { x: hit.x, y: hit.y, score };
+      p.copy(hit); p.z = faceZ - 0.04;
+      flying = null; sThud();
+      resolveShot(score, f.mesh);
+      return;
+    }
+  }
+  if(p.y <= 0.03 && f.vel.y < 0){
+    p.y = 0.03; flying = null; sGround();
+    resolveShot(0, f.mesh);
+    return;
+  }
+  if(p.z < faceZ - 30 || f.t > 5){
+    scene.remove(f.mesh); flying = null;
+    resolveShot(0, null);
+  }
+}
+
+/* ---------- input ---------- */
+let dragStart = null, aimStart = null;
+function onDown(e){
+  audio();
+  if(state !== 'aim') return;
+  if(e.target.closest && e.target.closest('#langWrap, #muteBtn, .screen, button, select')) return;
+  state = 'draw'; holdTime = 0; power = 0;
+  dragStart = { x: e.clientX, y: e.clientY };
+  aimStart = { yaw: aimYaw, pitch: aimPitch };
+  sDraw();
+}
+function onMove(e){
+  if(state !== 'draw' || !dragStart) return;
+  aimYaw = THREE.MathUtils.clamp(aimStart.yaw + (e.clientX - dragStart.x)*0.0035, -0.14, 0.14);
+  aimPitch = THREE.MathUtils.clamp(aimStart.pitch - (e.clientY - dragStart.y)*0.0035, -0.05, 0.22);
+}
+function onUp(){
+  if(state !== 'draw') return;
+  dragStart = null;
+  loose();
+}
+window.addEventListener('pointerdown', onDown);
+window.addEventListener('pointermove', onMove);
+window.addEventListener('pointerup', onUp);
+window.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if(e.code === 'Space' && state === 'aim'){ e.preventDefault(); state = 'draw'; holdTime = 0; power = 0; dragStart = null; sDraw(); }
+});
+window.addEventListener('keyup', e => {
+  keys[e.code] = false;
+  if(e.code === 'Space' && state === 'draw'){ e.preventDefault(); loose(); }
+});
+
+/* ---------- buttons ---------- */
+$('playBtn').onclick = () => { audio(); sClick(); startMatch(); };
+$('contBtn').onclick = () => { sClick(); round++; startRound(); };
+$('againBtn').onclick = () => { sClick(); startMatch(); };
+$('menuBtn').onclick = () => { sClick(); state = 'menu'; $('finalScr').classList.add('hidden'); $('hud').classList.add('hidden'); $('menuScr').classList.remove('hidden'); updateBestLine(); };
+
+/* ---------- main loop ---------- */
+const clock = new THREE.Clock();
+function animate(){
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const t = clock.elapsedTime;
+  swayT += dt;
+  earth.rotation.y += dt*0.004;
+
+  /* flags wave with the wind */
+  const wStr = Math.min(Math.abs(wind), 2.4)/2.4;
+  for(const fl of flags){
+    const pos = fl.flag.geometry.attributes.position, base = fl.base;
+    for(let i=0;i<pos.count;i++){
+      const bx = base[i*3];
+      pos.setZ(i, Math.sin(bx*5 - t*(4 + Math.abs(wind)*3) + fl.phase) * 0.07 * (0.35 + wStr) * (bx/0.95));
+    }
+    pos.needsUpdate = true;
+  }
+
+  if(state === 'draw'){
+    holdTime += dt;
+    power = Math.min(1, holdTime/1.15);
+    setStringPull(power);
+    if(keys['ArrowLeft']) aimYaw = Math.max(-0.14, aimYaw - dt*0.25);
+    if(keys['ArrowRight']) aimYaw = Math.min(0.14, aimYaw + dt*0.25);
+    if(keys['ArrowUp']) aimPitch = Math.min(0.22, aimPitch + dt*0.25);
+    if(keys['ArrowDown']) aimPitch = Math.max(-0.05, aimPitch - dt*0.25);
+  }
+  if(state === 'fly') updateFlight(dt);
+  if(state === 'score'){ scoreTimer -= dt; if(scoreTimer <= 0) nextArrow(); }
+
+  /* crosshair + bow follow the (swaying) aim */
+  const a = effAim();
+  const inGame = (state === 'aim' || state === 'draw');
+  const cross = $('cross');
+  cross.style.opacity = inGame ? '0.95' : '0';
+  if(inGame){
+    const pxPerRad = (window.innerHeight/2) / Math.tan(THREE.MathUtils.degToRad(camera.fov/2));
+    cross.style.left = (window.innerWidth/2 + a.yaw*pxPerRad) + 'px';
+    cross.style.top = (window.innerHeight/2 - a.pitch*pxPerRad) + 'px';
+  }
+  $('hint').style.opacity = state === 'aim' ? '1' : '0';
+  $('powerWrap').style.opacity = state === 'draw' ? '1' : '0';
+  $('powerFill').style.width = (power*100).toFixed(0) + '%';
+  bowGroup.rotation.y = a.yaw*0.7;
+  bowGroup.rotation.x = -a.pitch*0.7;
+  camera.rotation.y = a.yaw*0.35;
+  camera.rotation.x = a.pitch*0.35;
+  const targetFov = state === 'draw' ? 60 - power*6 : 60;
+  if(Math.abs(camera.fov - targetFov) > 0.1){ camera.fov += (targetFov - camera.fov)*0.2; camera.updateProjectionMatrix(); }
+
+  renderer.render(scene, camera);
+}
+applyLang();
+updateBestLine();
+setStringPull(0);
+animate();
+
+/* QA / debug hook */
+window.__archery = {
+  get state(){ return state; },
+  get total(){ return totalScore; },
+  get roundScores(){ return roundScores.slice(); },
+  get round(){ return round; },
+  get wind(){ return wind; },
+  get arrowIdx(){ return arrowIdx; },
+  get lastHit(){ return lastHitInfo; },
+  setWind(v){ wind = v; },
+  skipWait(){ if(state === 'score') scoreTimer = 0; },
+  start(){ startMatch(); },
+  solvePitch(pw){
+    const dist = DISTANCES[round], speed = 20 + pw*22;
+    const tt = dist/speed, drop = 0.5*4.5*tt*tt;
+    return Math.atan2((TARGET_Y - 1.24) + drop, dist);
+  },
+  fire(yaw, pitch, pw){
+    if(state !== 'aim' && state !== 'draw') return false;
+    aimYaw = yaw; aimPitch = pitch; power = pw; state = 'draw';
+    loose(); return true;
+  }
+};
+</script>
+</body>
+</html>
