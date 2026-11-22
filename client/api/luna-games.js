@@ -7463,6 +7463,14 @@ export async function dairyHandler(req, res) {
    set) | waiting (low LUNC stock; the runner retries on later passes). */
 const PACK_ORDER_TTL_SEC = 30 * 24 * 3600;
 const PACK_MAX_PACKS_PER_ORDER = 20;
+/* Fees cushion (Tom's rule, Nov 22, 2026: "always purchase extra for
+   processing fees"): the page offers +10% of a pack on top (1,000 LUNC
+   on a 10,000 pack) so the buyer still has fee money after Luna
+   Classic's 1.5% burn tax eats into their in-game spends. The order
+   carries it as extraUlunc; this bound is only a sanity cap (25% of a
+   pack) — the runner enforces the exact offer (page PACK_CUSHION_PCT,
+   runner config cushionPct) before sending. */
+const PACK_MAX_CUSHION_ULUNA_PER_PACK = 2500 * 1000000;
 
 async function packPipeline(cmds) {
   const url = process.env.KICKBACK_UPSTASH_URL || process.env.NEONRUSH_UPSTASH_URL;
@@ -7510,7 +7518,7 @@ async function packSaveOrder(o) {
 function packPublicOrder(o) {
   return {
     bscTxHash: o.bscTxHash, status: o.status, terraAddress: o.terraAddress,
-    fromWallet: o.fromWallet, packCount: o.packCount, usdtQuoted: o.usdtQuoted,
+    fromWallet: o.fromWallet, packCount: o.packCount, extraUlunc: Number(o.extraUlunc || 0), usdtQuoted: o.usdtQuoted,
     terraTx: o.terraTx || '', error: o.error || '', created: o.created || 0,
   };
 }
@@ -7542,18 +7550,23 @@ export async function packHandler(req, res) {
       if (!Number.isInteger(packCount) || packCount < 1 || packCount > PACK_MAX_PACKS_PER_ORDER) {
         return res.status(400).json({ ok: false, error: 'bad pack count' });
       }
+      const extraN = body.extraUlunc === undefined || body.extraUlunc === null ? 0 : Number(body.extraUlunc);
+      if (!Number.isInteger(extraN) || extraN < 0 || extraN > packCount * PACK_MAX_CUSHION_ULUNA_PER_PACK) {
+        return res.status(400).json({ ok: false, error: 'bad cushion amount' });
+      }
+      const extraUlunc = extraN;
       const qn = Number(body.usdtQuoted);
       if (!Number.isFinite(qn) || qn <= 0 || qn > 100000) return res.status(400).json({ ok: false, error: 'bad quote' });
       const usdtQuoted = qn.toFixed(4);
       const existing = await packGetOrder(bscTxHash);
       if (existing) {
-        if (existing.terraAddress === terraAddress && existing.fromWallet === fromWallet && existing.packCount === packCount) {
+        if (existing.terraAddress === terraAddress && existing.fromWallet === fromWallet && existing.packCount === packCount && Number(existing.extraUlunc || 0) === extraUlunc) {
           return res.status(200).json({ ok: true, order: packPublicOrder(existing) });
         }
         return res.status(409).json({ ok: false, error: 'this BSC payment is already registered to a different order' });
       }
       const o = {
-        bscTxHash, terraAddress, fromWallet, packCount, usdtQuoted,
+        bscTxHash, terraAddress, fromWallet, packCount, extraUlunc, usdtQuoted,
         status: 'paid-claimed', terraTx: '', error: '', created: Date.now(),
       };
       await packPipeline([
