@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<base href="/heli-rescue/">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Heli Rescue — LUNC Arcade</title>
+<style>
+  * { box-sizing: border-box; margin:0; padding:0; -webkit-tap-highlight-color: transparent; }
+  html,body { height:100%; background:#050914; overflow:hidden; font-family:'Segoe UI', system-ui, sans-serif; color:#eaf2ff; }
+  #wrap { position:fixed; inset:0; display:flex; flex-direction:column; }
+  #topbar { display:flex; align-items:center; gap:8px; padding:6px 10px; background:linear-gradient(180deg,#0d1b3a,#081226); border-bottom:2px solid #f5b301; z-index:5; flex-wrap:wrap; }
+  #logo { font-weight:900; font-size:19px; letter-spacing:.5px; color:#ffd94d; text-shadow:0 2px 0 #7a4d00, 0 0 14px rgba(245,179,1,.45); white-space:nowrap; }
+  #logo .moon { color:#7fd0ff; }
+  .hud { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .chip { background:#12234d; border:1px solid #2c4a8a; border-radius:9px; padding:3px 9px; font-size:13px; font-weight:700; white-space:nowrap; }
+  .chip b { color:#ffd94d; }
+  .barwrap { width:74px; height:9px; background:#1a2c55; border-radius:5px; overflow:hidden; display:inline-block; vertical-align:middle; margin-left:4px; border:1px solid #2c4a8a;}
+  .barfill { height:100%; border-radius:5px; transition:width .15s; }
+  #fuelFill { background:linear-gradient(90deg,#ff9d2e,#ffd94d); }
+  #hullFill { background:linear-gradient(90deg,#38d977,#a6f2c0); }
+  #langSel { margin-left:auto; font-size:16px; font-weight:700; padding:6px 8px; border-radius:9px; background:#12234d; color:#ffd94d; border:2px solid #f5b301; min-height:40px; }
+  #stage { position:relative; flex:1; }
+  canvas { position:absolute; inset:0; width:100%; height:100%; display:block; touch-action:none; }
+  #msg { position:absolute; left:50%; top:16%; transform:translateX(-50%); text-align:center; pointer-events:none; z-index:4; width:92%; }
+  #msgBig { font-size:clamp(24px,5.5vw,44px); font-weight:900; color:#ffd94d; text-shadow:0 3px 0 #7a4d00,0 0 22px rgba(245,179,1,.6); }
+  #msgSub { font-size:clamp(14px,2.6vw,20px); font-weight:700; color:#cfe4ff; text-shadow:0 2px 6px #000; margin-top:4px; }
+  #toast { position:absolute; left:50%; top:64%; transform:translateX(-50%); font-size:clamp(15px,3vw,22px); font-weight:900; color:#8dffb0; text-shadow:0 2px 8px #000; pointer-events:none; opacity:0; transition:opacity .25s; z-index:4; text-align:center; width:94%;}
+  .ctl { position:absolute; bottom:14px; z-index:6; display:flex; gap:10px; }
+  #ctlL { left:12px; }
+  #ctlR { right:12px; flex-direction:column; align-items:flex-end; }
+  .cbtn { width:68px; height:68px; border-radius:50%; border:3px solid #f5b301; background:radial-gradient(circle at 35% 30%, #2a4a8f, #12234d 70%); color:#ffd94d; font-size:26px; font-weight:900; display:flex; align-items:center; justify-content:center; user-select:none; touch-action:none; box-shadow:0 4px 10px rgba(0,0,0,.55), inset 0 2px 6px rgba(255,255,255,.25); }
+  .cbtn:active, .cbtn.on { background:radial-gradient(circle at 35% 30%, #ffd94d, #b97e00 75%); color:#12234d; }
+  .cbtn small { font-size:9px; display:block; line-height:1; }
+  #btnWinch { width:76px; height:76px; font-size:15px; flex-direction:column; border-color:#7fd0ff; color:#bfe6ff; }
+  #btnWinch:active, #btnWinch.on { background:radial-gradient(circle at 35% 30%, #bfe6ff, #2a6db9 75%); color:#081226; }
+  #btnStart { position:absolute; left:50%; bottom:110px; transform:translateX(-50%); z-index:7; padding:14px 34px; font-size:21px; font-weight:900; border-radius:14px; border:3px solid #f5b301; background:linear-gradient(180deg,#ffd94d,#e09c00); color:#231600; box-shadow:0 6px 18px rgba(0,0,0,.6); cursor:pointer; }
+  #windChip { position:absolute; top:8px; right:10px; z-index:4; }
+  @media (max-width:560px){ .cbtn{width:60px;height:60px;font-size:22px;} #btnWinch{width:68px;height:68px;} #logo{font-size:16px;} .chip{font-size:11px;padding:2px 6px;} }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="topbar">
+    <div id="logo">🚁 <span data-i="title">HELI RESCUE</span> <span class="moon">☾ LUNC</span></div>
+    <div class="hud">
+      <span class="chip"><span data-i="score">Score</span>: <b id="hScore">0</b></span>
+      <span class="chip"><span data-i="rescued">Rescued</span>: <b id="hResc">0</b></span>
+      <span class="chip"><span data-i="wave">Wave</span>: <b id="hWave">1</b></span>
+      <span class="chip"><span data-i="fuel">Fuel</span><span class="barwrap"><span class="barfill" id="fuelFill" style="width:100%"></span></span></span>
+      <span class="chip"><span data-i="hull">Hull</span><span class="barwrap"><span class="barfill" id="hullFill" style="width:100%"></span></span></span>
+      <span class="chip"><span data-i="best">Best</span>: <b id="hBest">0</b></span>
+    </div>
+    <select id="langSel" aria-label="Language">
+      <option value="en">🇬🇧 English</option><option value="es">🇪🇸 Español</option><option value="pt">🇵🇹 Português</option>
+      <option value="fr">🇫🇷 Français</option><option value="de">🇩🇪 Deutsch</option><option value="it">🇮🇹 Italiano</option>
+      <option value="nl">🇳🇱 Nederlands</option><option value="ru">🇷🇺 Русский</option><option value="uk">🇺🇦 Українська</option>
+      <option value="tr">🇹🇷 Türkçe</option><option value="ar">🇸🇦 العربية</option><option value="hi">🇮🇳 हिन्दी</option>
+      <option value="zh">🇨🇳 中文</option><option value="ja">🇯🇵 日本語</option><option value="ko">🇰🇷 한국어</option>
+      <option value="id">🇮🇩 Indonesia</option><option value="vi">🇻🇳 Tiếng Việt</option><option value="pl">🇵🇱 Polski</option>
+    </select>
+  </div>
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div class="chip" id="windChip"><span data-i="wind">Wind</span>: <b id="hWind">→ 0</b></div>
+    <div id="msg"><div id="msgBig"></div><div id="msgSub"></div></div>
+    <div id="toast"></div>
+    <button id="btnStart"></button>
+    <div class="ctl" id="ctlL">
+      <div class="cbtn" id="btnLeft">◀</div>
+      <div class="cbtn" id="btnRight">▶</div>
+    </div>
+    <div class="ctl" id="ctlR">
+      <div class="cbtn" id="btnWinch">⚓<small data-i="winch">WINCH</small></div>
+      <div class="cbtn" id="btnLift">▲</div>
+    </div>
+  </div>
+</div>
+<script>
+"use strict";
+/* ================= I18N ================= */
+const I = {
+en:{title:"HELI RESCUE",score:"Score",rescued:"Rescued",wave:"Wave",fuel:"Fuel",hull:"Hull",best:"Best",wind:"Wind",winch:"WINCH",start:"▶ START RESCUE",again:"▶ FLY AGAIN",ready:"Rescue the stranded astronauts!",how:"Hold ▲ to climb · ◀ ▶ to fly · hover low & slow, press ⚓ WINCH over an astronaut, carry them home",waveT:"WAVE {n}",waveSub:"{n} astronauts stranded — wind picking up!",saved:"RESCUED! +{n}",allSaved:"ALL RESCUED!",bonus:"Time bonus +{n}",crash:"CRASHED!",over:"Mission over — tap FLY AGAIN",lowfuel:"LOW FUEL — return to base!",refuel:"Refuelled & repaired",hardhit:"Hard landing! Hull damaged",deliver:"Lower them onto the base pad!",pickup:"Hold steady… winching!",carry:"Got one! Back to base →",out:"OUT OF FUEL!",landed:"Touchdown — gentle!"},
+es:{title:"RESCATE EN HELICÓPTERO",score:"Puntos",rescued:"Rescatados",wave:"Oleada",fuel:"Combustible",hull:"Casco",best:"Récord",wind:"Viento",winch:"CABRESTANTE",start:"▶ INICIAR RESCATE",again:"▶ VOLAR DE NUEVO",ready:"¡Rescata a los astronautas varados!",how:"Mantén ▲ para subir · ◀ ▶ para volar · vuela bajo y lento, pulsa ⚓ sobre un astronauta y llévalo a la base",waveT:"OLEADA {n}",waveSub:"{n} astronautas varados — ¡el viento arrecia!",saved:"¡RESCATADO! +{n}",allSaved:"¡TODOS RESCATADOS!",bonus:"Bono de tiempo +{n}",crash:"¡ESTRELLADO!",over:"Misión terminada — toca VOLAR DE NUEVO",lowfuel:"¡POCO COMBUSTIBLE — vuelve a la base!",refuel:"Repostado y reparado",hardhit:"¡Aterrizaje duro! Casco dañado",deliver:"¡Déjalo en la plataforma de la base!",pickup:"Mantén la posición… ¡subiendo!",carry:"¡Lo tengo! De vuelta a la base →",out:"¡SIN COMBUSTIBLE!",landed:"Aterrizaje suave"},
+pt:{title:"RESGATE DE HELICÓPTERO",score:"Pontos",rescued:"Resgatados",wave:"Onda",fuel:"Combustível",hull:"Casco",best:"Recorde",wind:"Vento",winch:"GUINCHO",start:"▶ INICIAR RESGATE",again:"▶ VOAR DE NOVO",ready:"Resgate os astronautas perdidos!",how:"Segure ▲ para subir · ◀ ▶ para voar · paire baixo e devagar, toque ⚓ sobre um astronauta e leve-o à base",waveT:"ONDA {n}",waveSub:"{n} astronautas perdidos — vento aumentando!",saved:"RESGATADO! +{n}",allSaved:"TODOS RESGATADOS!",bonus:"Bônus de tempo +{n}",crash:"CABOU!",over:"Missão encerrada — toque VOAR DE NOVO",lowfuel:"POUCO COMBUSTÍVEL — volte à base!",refuel:"Abastecido e reparado",hardhit:"Pouso duro! Casco danificado",deliver:"Desça-o na plataforma da base!",pickup:"Segure firme… içando!",carry:"Peguei um! De volta à base →",out:"SEM COMBUSTÍVEL!",landed:"Pouso suave!"},
+fr:{title:"SAUVETAGE HÉLICO",score:"Score",rescued:"Sauvés",wave:"Vague",fuel:"Carburant",hull:"Coque",best:"Record",wind:"Vent",winch:"TREUIL",start:"▶ COMMENCER",again:"▶ REVOLER",ready:"Sauvez les astronautes perdus !",how:"Maintenez ▲ pour monter · ◀ ▶ pour voler · volez bas et lentement, appuyez ⚓ au-dessus d'un astronaute et ramenez-le à la base",waveT:"VAGUE {n}",waveSub:"{n} astronautes perdus — le vent se lève !",saved:"SAUVÉ ! +{n}",allSaved:"TOUS SAUVÉS !",bonus:"Bonus temps +{n}",crash:"CRASH !",over:"Mission terminée — touchez REVOLER",lowfuel:"PEU DE CARBURANT — retour à la base !",refuel:"Ravitailé et réparé",hardhit:"Atterrissage dur ! Coque endommagée",deliver:"Déposez-le sur la plateforme !",pickup:"Tenez bon… treuillage !",carry:"J'en ai un ! Retour à la base →",out:"PLUS DE CARBURANT !",landed:"Atterrissage en douceur"},
+de:{title:"HUBSCHRAUBER-RETTUNG",score:"Punkte",rescued:"Gerettet",wave:"Welle",fuel:"Treibstoff",hull:"Rumpf",best:"Rekord",wind:"Wind",winch:"WINDE",start:"▶ RETTUNG STARTEN",again:"▶ NOCHMAL FLIEGEN",ready:"Rette die gestrandeten Astronauten!",how:"▲ halten zum Steigen · ◀ ▶ zum Fliegen · tief & langsam schweben, ⚓ über einem Astronauten drücken und zur Basis bringen",waveT:"WELLE {n}",waveSub:"{n} Astronauten gestrandet — Wind nimmt zu!",saved:"GERETTET! +{n}",allSaved:"ALLE GERETTET!",bonus:"Zeitbonus +{n}",crash:"ABSTURZ!",over:"Mission vorbei — tippe NOCHMAL FLIEGEN",lowfuel:"WENIG TREIBSTOFF — zurück zur Basis!",refuel:"Betankt & repariert",hardhit:"Harte Landung! Rumpf beschädigt",deliver:"Auf dem Basispad absetzen!",pickup:"Stabil halten… Winde läuft!",carry:"Hab einen! Zurück zur Basis →",out:"TREIBSTOFF LEER!",landed:"Sanfte Landung!"},
+it:{title:"SOCCORSO IN ELICOTTERO",score:"Punti",rescued:"Salvati",wave:"Ondata",fuel:"Carburante",hull:"Scafo",best:"Record",wind:"Vento",winch:"VERRICELLO",start:"▶ INIZIA SOCCORSO",again:"▶ VOLA ANCORA",ready:"Salva gli astronauti dispersi!",how:"Tieni ▲ per salire · ◀ ▶ per volare · resta basso e lento, premi ⚓ sopra un astronauta e portalo alla base",waveT:"ONDATA {n}",waveSub:"{n} astronauti dispersi — vento in aumento!",saved:"SALVATO! +{n}",allSaved:"TUTTI SALVATI!",bonus:"Bonus tempo +{n}",crash:"SCHIANTATO!",over:"Missione finita — tocca VOLA ANCORA",lowfuel:"POCO CARBURANTE — torna alla base!",refuel:"Rifornito e riparato",hardhit:"Atterraggio duro! Scafo danneggiato",deliver:"Posalo sulla piattaforma della base!",pickup:"Tieni fermo… sollevamento!",carry:"Preso! Torna alla base →",out:"CARBURANTE FINITO!",landed:"Atterraggio morbido"},
+nl:{title:"HELIKOPTER REDDING",score:"Score",rescued:"Gered",wave:"Golf",fuel:"Brandstof",hull:"Romp",best:"Record",wind:"Wind",winch:"LIER",start:"▶ START REDDING",again:"▶ VLIEG OPNIEUW",ready:"Red de gestrande astronauten!",how:"Houd ▲ ingedrukt om te stijgen · ◀ ▶ om te vliegen · zweef laag & langzaam, druk ⚓ boven een astronaut en breng hem naar de basis",waveT:"GOLF {n}",waveSub:"{n} astronauten gestrand — wind neemt toe!",saved:"GERED! +{n}",allSaved:"IEDEREEN GERED!",bonus:"Tijdbonus +{n}",crash:"GECRASHT!",over:"Missie voorbij — tik VLIEG OPNIEUW",lowfuel:"WEINIG BRANDSTOF — terug naar de basis!",refuel:"Bijgetankt & gerepareerd",hardhit:"Harde landing! Romp beschadigd",deliver:"Zet hem neer op het basisplatform!",pickup:"Blijf hangen… lier werkt!",carry:"Heb er een! Terug naar de basis →",out:"BRANDSTOF OP!",landed:"Zachte landing!"},
+ru:{title:"СПАСЕНИЕ НА ВЕРТОЛЁТЕ",score:"Очки",rescued:"Спасено",wave:"Волна",fuel:"Топливо",hull:"Корпус",best:"Рекорд",wind:"Ветер",winch:"ЛЕБЁДКА",start:"▶ НАЧАТЬ СПАСЕНИЕ",again:"▶ ЛЕТЕТЬ СНОВА",ready:"Спасите застрявших астронавтов!",how:"Держите ▲ для подъёма · ◀ ▶ для полёта · висите низко и медленно, жмите ⚓ над астронавтом и везите на базу",waveT:"ВОЛНА {n}",waveSub:"{n} астронавтов застряло — ветер усиливается!",saved:"СПАСЁН! +{n}",allSaved:"ВСЕ СПАСЕНЫ!",bonus:"Бонус времени +{n}",crash:"КРУШЕНИЕ!",over:"Миссия окончена — нажмите ЛЕТЕТЬ СНОВА",lowfuel:"МАЛО ТОПЛИВА — возвращайтесь на базу!",refuel:"Заправлено и отремонтировано",hardhit:"Жёсткая посадка! Корпус повреждён",deliver:"Опустите его на площадку базы!",pickup:"Держитесь ровно… подъём!",carry:"Есть один! Назад на базу →",out:"ТОПЛИВО ЗАКОНЧИЛОСЬ!",landed:"Мягкая посадка!"},
+uk:{title:"РЯТУВАННЯ ГЕЛІКОПТЕРОМ",score:"Очки",rescued:"Врятовано",wave:"Хвиля",fuel:"Паливо",hull:"Корпус",best:"Рекорд",wind:"Вітер",winch:"ЛЕБІДКА",start:"▶ ПОЧАТИ РЯТУВАННЯ",again:"▶ ЛЕТІТИ ЗНОВУ",ready:"Врятуйте астронавтів, що застрягли!",how:"Тримайте ▲ для підйому · ◀ ▶ для польоту · висіть низько й повільно, тисніть ⚓ над астронавтом і везіть на базу",waveT:"ХВИЛЯ {n}",waveSub:"{n} астронавтів застрягло — вітер посилюється!",saved:"ВРЯТОВАНО! +{n}",allSaved:"ВСІ ВРЯТОВАНІ!",bonus:"Бонус часу +{n}",crash:"АВАРІЯ!",over:"Місія завершена — натисніть ЛЕТІТИ ЗНОВУ",lowfuel:"МАЛО ПАЛИВА — повертайтеся на базу!",refuel:"Заправлено й відремонтовано",hardhit:"Жорстка посадка! Корпус пошкоджено",deliver:"Опустіть його на майданчик бази!",pickup:"Тримайтеся рівно… підйом!",carry:"Є один! Назад на базу →",out:"ПАЛИВО ЗАКІНЧИЛОСЯ!",landed:"М'яка посадка!"},
+tr:{title:"HELİKOPTER KURTARMA",score:"Puan",rescued:"Kurtarılan",wave:"Dalga",fuel:"Yakıt",hull:"Gövde",best:"Rekor",wind:"Rüzgar",winch:"VİNÇ",start:"▶ KURTARMAYI BAŞLAT",again:"▶ TEKRAR UÇ",ready:"Mahsur kalan astronotları kurtar!",how:"Tırmanmak için ▲ basılı tut · uçmak için ◀ ▶ · alçak ve yavaş süzül, astronotun üzerinde ⚓'ye bas ve üsse taşı",waveT:"DALGA {n}",waveSub:"{n} astronot mahsur — rüzgar artıyor!",saved:"KURTARILDI! +{n}",allSaved:"HEPSİ KURTARILDI!",bonus:"Zaman bonusu +{n}",crash:"DÜŞTÜ!",over:"Görev bitti — TEKRAR UÇ'a dokun",lowfuel:"YAKIT AZ — üsse dön!",refuel:"Yakıt doldu ve onarıldı",hardhit:"Sert iniş! Gövde hasar gördü",deliver:"Onu üs platformuna indir!",pickup:"Sabit kal… vinç çalışıyor!",carry:"Birini aldım! Üsse dön →",out:"YAKIT BİTTİ!",landed:"Yumuşak iniş!"},
+ar:{title:"إنقاذ بالمروحية",score:"النقاط",rescued:"تم إنقاذهم",wave:"الموجة",fuel:"الوقود",hull:"الهيكل",best:"الأفضل",wind:"الرياح",winch:"الونش",start:"▶ ابدأ الإنقاذ",again:"▶ حلّق مجددًا",ready:"أنقذ رواد الفضاء العالقين!",how:"اضغط ▲ للصعود · ◀ ▶ للطيران · حلّق منخفضًا وببطء، اضغط ⚓ فوق رائد الفضاء واحمله إلى القاعدة",waveT:"الموجة {n}",waveSub:"{n} رواد عالقون — الرياح تشتد!",saved:"تم الإنقاذ! +{n}",allSaved:"تم إنقاذ الجميع!",bonus:"مكافأة الوقت +{n}",crash:"تحطمت!",over:"انتهت المهمة — اضغط حلّق مجددًا",lowfuel:"وقود منخفض — عد إلى القاعدة!",refuel:"تم التزود بالوقود والإصلاح",hardhit:"هبوط قاس! تضرر الهيكل",deliver:"أنزله على منصة القاعدة!",pickup:"اثبت… الونش يعمل!",carry:"أمسكت بواحد! عد إلى القاعدة →",out:"نفد الوقود!",landed:"هبوط ناعم!"},
+hi:{title:"हेलीकॉप्टर बचाव",score:"स्कोर",rescued:"बचाए गए",wave:"वेव",fuel:"ईंधन",hull:"ढांचा",best:"सर्वश्रेष्ठ",wind:"हवा",winch:"विंच",start:"▶ बचाव शुरू करें",again:"▶ फिर उड़ें",ready:"फंसे अंतरिक्ष यात्रियों को बचाओ!",how:"चढ़ने के लिए ▲ दबाए रखें · उड़ने के लिए ◀ ▶ · नीचे और धीरे मंडराएं, अंतरिक्ष यात्री के ऊपर ⚓ दबाएं और बेस ले जाएं",waveT:"वेव {n}",waveSub:"{n} अंतरिक्ष यात्री फंसे — हवा तेज़ हो रही है!",saved:"बचा लिया! +{n}",allSaved:"सभी बच गए!",bonus:"समय बोनस +{n}",crash:"दुर्घटना!",over:"मिशन समाप्त — फिर उड़ें दबाएं",lowfuel:"ईंधन कम — बेस लौटें!",refuel:"ईंधन भरा और मरम्मत हुई",hardhit:"कठोर लैंडिंग! ढांचा क्षतिग्रस्त",deliver:"उसे बेस पैड पर उतारें!",pickup:"स्थिर रहें… विंच चल रहा है!",carry:"एक मिल गया! बेस वापस →",out:"ईंधन खत्म!",landed:"नरम लैंडिंग!"},
+zh:{title:"直升机救援",score:"分数",rescued:"已救援",wave:"波次",fuel:"燃料",hull:"机身",best:"最佳",wind:"风",winch:"绞车",start:"▶ 开始救援",again:"▶ 再次起飞",ready:"营救被困的宇航员！",how:"按住 ▲ 上升 · ◀ ▶ 飞行 · 低空慢速悬停，在宇航员上方按 ⚓ 绞车，把他带回基地",waveT:"第 {n} 波",waveSub:"{n} 名宇航员被困——风越来越大！",saved:"救援成功！+{n}",allSaved:"全部获救！",bonus:"时间奖励 +{n}",crash:"坠毁了！",over:"任务结束——点再次起飞",lowfuel:"燃料不足——返回基地！",refuel:"已加油并修复",hardhit:"重着陆！机身受损",deliver:"把他放到基地停机坪上！",pickup:"保持稳定…绞车运作中！",carry:"救到一个！返回基地 →",out:"燃料耗尽！",landed:"平稳着陆！"},
+ja:{title:"ヘリレスキュー",score:"スコア",rescued:"救助数",wave:"ウェーブ",fuel:"燃料",hull:"機体",best:"ベスト",wind:"風",winch:"ウインチ",start:"▶ レスキュー開始",again:"▶ もう一度飛ぶ",ready:"取り残された宇宙飛行士を救え！",how:"▲長押しで上昇 · ◀ ▶で飛行 · 低くゆっくりホバリングし、宇宙飛行士の上で⚓を押して基地へ運ぼう",waveT:"ウェーブ {n}",waveSub:"{n}人が取り残された — 風が強くなる！",saved:"救助成功！+{n}",allSaved:"全員救助！",bonus:"タイムボーナス +{n}",crash:"墜落！",over:"ミッション終了 — もう一度飛ぶをタップ",lowfuel:"燃料わずか — 基地へ戻れ！",refuel:"給油・修理完了",hardhit:"ハードランディング！機体損傷",deliver:"基地パッドに降ろそう！",pickup:"そのまま…ウインチ作動中！",carry:"1人確保！基地へ戻れ →",out:"燃料切れ！",landed:"ソフトランディング！"},
+ko:{title:"헬기 구조",score:"점수",rescued:"구조",wave:"웨이브",fuel:"연료",hull:"기체",best:"최고",wind:"바람",winch:"윈치",start:"▶ 구조 시작",again:"▶ 다시 날기",ready:"고립된 우주비행사를 구하세요!",how:"▲를 눌러 상승 · ◀ ▶로 비행 · 낮고 천천히 호버링하며 우주비행사 위에서 ⚓를 눌러 기지로 운반하세요",waveT:"웨이브 {n}",waveSub:"우주비행사 {n}명 고립 — 바람이 강해진다!",saved:"구조 성공! +{n}",allSaved:"전원 구조!",bonus:"시간 보너스 +{n}",crash:"추락!",over:"미션 종료 — 다시 날기를 누르세요",lowfuel:"연료 부족 — 기지로 복귀!",refuel:"급유 및 수리 완료",hardhit:"거친 착륙! 기체 손상",deliver:"기지 패드에 내려놓으세요!",pickup:"유지하세요… 윈치 작동 중!",carry:"한 명 확보! 기지로 복귀 →",out:"연료 소진!",landed:"부드러운 착륙!"},
+id:{title:"PENYELAMATAN HELI",score:"Skor",rescued:"Diselamatkan",wave:"Gelombang",fuel:"Bahan Bakar",hull:"Badan",best:"Terbaik",wind:"Angin",winch:"DEREK",start:"▶ MULAI PENYELAMATAN",again:"▶ TERBANG LAGI",ready:"Selamatkan astronaut yang terdampar!",how:"Tahan ▲ untuk naik · ◀ ▶ untuk terbang · melayang rendah & pelan, tekan ⚓ di atas astronaut dan bawa ke pangkalan",waveT:"GELOMBANG {n}",waveSub:"{n} astronaut terdampar — angin menguat!",saved:"DISELAMATKAN! +{n}",allSaved:"SEMUA DISELAMATKAN!",bonus:"Bonus waktu +{n}",crash:"JATUH!",over:"Misi selesai — ketuk TERBANG LAGI",lowfuel:"BAHAN BAKAR MENIPIS — kembali ke pangkalan!",refuel:"Diisi ulang & diperbaiki",hardhit:"Pendaratan keras! Badan rusak",deliver:"Turunkan dia di landasan pangkalan!",pickup:"Tahan posisi… derek bekerja!",carry:"Dapat satu! Kembali ke pangkalan →",out:"BAHAN BAKAR HABIS!",landed:"Pendaratan lembut!"},
+vi:{title:"GIẢI CỨU BẰNG TRỰC THĂNG",score:"Điểm",rescued:"Đã cứu",wave:"Đợt",fuel:"Nhiên liệu",hull:"Thân máy",best:"Kỷ lục",wind:"Gió",winch:"TỜI",start:"▶ BẮT ĐẦU GIẢI CỨU",again:"▶ BAY LẠI",ready:"Giải cứu các phi hành gia mắc kẹt!",how:"Giữ ▲ để bay lên · ◀ ▶ để bay · bay thấp & chậm, nhấn ⚓ trên phi hành gia và đưa về căn cứ",waveT:"ĐỢT {n}",waveSub:"{n} phi hành gia mắc kẹt — gió mạnh dần!",saved:"ĐÃ CỨU! +{n}",allSaved:"ĐÃ CỨU TẤT CẢ!",bonus:"Thưởng thời gian +{n}",crash:"RƠI RỒI!",over:"Nhiệm vụ kết thúc — chạm BAY LẠI",lowfuel:"SẮP HẾT NHIÊN LIỆU — về căn cứ!",refuel:"Đã nạp nhiên liệu & sửa chữa",hardhit:"Hạ cánh mạnh! Thân máy hư hỏng",deliver:"Hạ anh ấy xuống bãi đáp căn cứ!",pickup:"Giữ yên… tời đang chạy!",carry:"Được một người! Về căn cứ →",out:"HẾT NHIÊN LIỆU!",landed:"Hạ cánh nhẹ nhàng!"},
+pl:{title:"RATUNEK HELIKOPTEREM",score:"Punkty",rescued:"Uratowani",wave:"Fala",fuel:"Paliwo",hull:"Kadłub",best:"Rekord",wind:"Wiatr",winch:"WYCIĄGARKA",start:"▶ ROZPOCZNIJ RATUNEK",again:"▶ LEĆ PONOWNIE",ready:"Uratuj uwięzionych astronautów!",how:"Przytrzymaj ▲ aby się wznosić · ◀ ▶ aby lecieć · zawisaj nisko i powoli, naciśnij ⚓ nad astronautą i zawieź go do bazy",waveT:"FALA {n}",waveSub:"{n} astronautów uwięzionych — wiatr się wzmaga!",saved:"URATOWANY! +{n}",allSaved:"WSZYSCY URATOWANI!",bonus:"Bonus czasu +{n}",crash:"KATATROFA!",over:"Misja zakończona — dotknij LEĆ PONOWNIE",lowfuel:"MAŁO PALIWA — wracaj do bazy!",refuel:"Zatankowano i naprawiono",hardhit:"Twarde lądowanie! Kadłub uszkodzony",deliver:"Opuść go na lądowisko bazy!",pickup:"Trzymaj pozycję… wyciągarka działa!",carry:"Mam jednego! Wracaj do bazy →",out:"BRAK PALIWA!",landed:"Miękkie lądowanie!"}
+};
+let lang = localStorage.getItem('heli_lang') || 'en';
+if(!I[lang]) lang='en';
+const T = k => (I[lang] && I[lang][k]) || I.en[k] || k;
+const Tf = (k,o) => T(k).replace('{n}', o);
+function applyLang(){
+  document.querySelectorAll('[data-i]').forEach(el=>{ el.textContent = T(el.getAttribute('data-i')); });
+  document.getElementById('btnStart').textContent = state==='play' ? '' : (startedOnce ? T('again') : T('start'));
+  document.documentElement.lang = lang;
+  updateHUD();
+}
+const langSel = document.getElementById('langSel');
+langSel.value = lang;
+langSel.addEventListener('change', ()=>{ lang = langSel.value; localStorage.setItem('heli_lang', lang); applyLang(); });
+
+/* ================= AUDIO ================= */
+let AC=null, rotorOsc=null, rotorGain=null, chopLFO=null, chopGain=null;
+function initAudio(){
+  if(AC) { if(AC.state==='suspended') AC.resume(); return; }
+  try{
+    AC = new (window.AudioContext||window.webkitAudioContext)();
+    rotorOsc = AC.createOscillator(); rotorOsc.type='sawtooth'; rotorOsc.frequency.value=55;
+    const lp = AC.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=420;
+    rotorGain = AC.createGain(); rotorGain.gain.value=0;
+    chopLFO = AC.createOscillator(); chopLFO.type='square'; chopLFO.frequency.value=11;
+    chopGain = AC.createGain(); chopGain.gain.value=0.0;
+    chopLFO.connect(chopGain); chopGain.connect(rotorGain.gain);
+    rotorOsc.connect(lp); lp.connect(rotorGain); rotorGain.connect(AC.destination);
+    rotorOsc.start(); chopLFO.start();
+  }catch(e){ AC=null; }
+}
+function setRotor(on, lift){
+  if(!AC||!rotorGain) return;
+  const t=AC.currentTime;
+  if(on){ rotorGain.gain.setTargetAtTime(0.05+lift*0.05, t, 0.1); chopGain.gain.setTargetAtTime(0.035+lift*0.03, t, 0.1);
+    rotorOsc.frequency.setTargetAtTime(48+lift*38, t, 0.15); chopLFO.frequency.setTargetAtTime(9+lift*7, t, 0.15); }
+  else { rotorGain.gain.setTargetAtTime(0, t, 0.2); chopGain.gain.setTargetAtTime(0, t, 0.2); }
+}
+function beep(f0,f1,dur,type,vol){
+  if(!AC) return; const t=AC.currentTime;
+  const o=AC.createOscillator(), g=AC.createGain();
+  o.type=type||'sine'; o.frequency.setValueAtTime(f0,t); o.frequency.exponentialRampToValueAtTime(Math.max(f1,1),t+dur);
+  g.gain.setValueAtTime(vol||0.16,t); g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+  o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t+dur);
+}
+const sfxWinch = ()=>{ beep(300,640,0.22,'triangle',0.14); };
+const sfxSaved = ()=>{ beep(523,523,0.12,'square',0.12); setTimeout(()=>beep(659,659,0.12,'square',0.12),110); setTimeout(()=>beep(784,1046,0.3,'square',0.14),230); };
+const sfxHurt  = ()=>{ beep(220,60,0.35,'sawtooth',0.2); };
+const sfxGood  = ()=>{ beep(440,880,0.18,'triangle',0.12); };
+
+/* ================= WORLD ================= */
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+let W=0,H=0,DPR=1;
+function resize(){ DPR=Math.min(window.devicePixelRatio||1,2); W=cv.clientWidth; H=cv.clientHeight; cv.width=W*DPR; cv.height=H*DPR; ctx.setTransform(DPR,0,0,DPR,0,0); }
+window.addEventListener('resize', resize);
+const WORLD_W = 4200, PAD_X = 210, PAD_W = 190;
+const peaks=[]; for(let i=0;i<26;i++) peaks.push({x:i*170+((i*137)%90), h:60+((i*89)%130)});
+function groundY(x){
+  if(x < PAD_X+PAD_W+30) return H-92;                 // flat base apron
+  let y = H-70;
+  for(const p of peaks){ const d=Math.abs(x-p.x); if(d<170) y = Math.min(y, H-40-p.h*(1-d/170)); }
+  return y;
+}
+const stars=[]; for(let i=0;i<170;i++) stars.push({x:Math.random()*WORLD_W, y:Math.random()*0.55, r:Math.random()*1.6+0.4, tw:Math.random()*6.28});
+const craters=[]; for(let i=0;i<14;i++) craters.push({x:500+i*270+((i*61)%120), w:50+((i*37)%50)});
+
+/* ================= STATE ================= */
+let state='menu', startedOnce=false;
+let heli, astronauts=[], score=0, rescuedTotal=0, wave=1, waveRescued=0, waveStart=0, camX=0, wind=0, windGust=0, gustT=0, shake=0, carrying=null, winch={mode:'idle', len:0, target:null}, msgT=0, lowFuelWarned=false;
+let best = parseInt(localStorage.getItem('heli_best')||'0',10);
+let bestResc = parseInt(localStorage.getItem('heli_bestResc')||'0',10);
+const keys={lift:false,left:false,right:false,winch:false};
+
+function spawnAstronauts(n){
+  astronauts=[];
+  const spots=[900,1300,1750,2150,2600,3050,3450,3850,1100,2350,3250,1600];
+  for(let i=0;i<n;i++){ const x=spots[(i*3+wave)%spots.length]+((i*53)%80); astronauts.push({x, y:groundY(x), state:'wait', waveOff:Math.random()*6.28}); }
+}
+function newGame(){
+  score=0; rescuedTotal=0; wave=1; startedOnce=true;
+  heli={x:PAD_X+PAD_W/2, y:groundY(PAD_X+PAD_W/2)-26, vx:0, vy:0, fuel:100, hull:100, rotor:0, tilt:0, landed:true};
+  carrying=null; winch={mode:'idle',len:0,target:null};
+  startWave();
+  state='play'; document.getElementById('btnStart').style.display='none';
+  showMsg(T('ready'), T('how'), 3400);
+}
+function startWave(){
+  waveRescued=0; waveStart=performance.now(); lowFuelWarned=false;
+  spawnAstronauts(Math.min(1+wave, 8));
+  if(wave>1) showMsg(Tf('waveT',wave), Tf('waveSub',astronauts.length), 2600);
+  updateHUD();
+}
+function showMsg(big, sub, ms){ const b=document.getElementById('msgBig'), s=document.getElementById('msgSub'); b.textContent=big||''; s.textContent=sub||''; msgT=performance.now()+(ms||2000); }
+let toastTO=null;
+function toast(txt){ const el=document.getElementById('toast'); el.textContent=txt; el.style.opacity=1; clearTimeout(toastTO); toastTO=setTimeout(()=>el.style.opacity=0,2100); }
+function updateHUD(){
+  document.getElementById('hScore').textContent=score;
+  document.getElementById('hResc').textContent=rescuedTotal;
+  document.getElementById('hWave').textContent=wave;
+  document.getElementById('hBest').textContent=best;
+  if(heli){ document.getElementById('fuelFill').style.width=Math.max(0,heli.fuel)+'%';
+    document.getElementById('hullFill').style.width=Math.max(0,heli.hull)+'%';
+    document.getElementById('fuelFill').style.background = heli.fuel<25 ? '#ff5252' : ''; }
+  const dir = wind>=0 ? '→' : '←';
+  document.getElementById('hWind').textContent = dir+' '+Math.abs(Math.round(wind*10));
+}
+
+/* ================= PHYSICS / LOGIC ================= */
+const GRAV=300, THRUST=640, SIDE=240, MAXV=250;
+function damage(amount, why){
+  heli.hull-=amount; shake=Math.min(14, 6+amount*0.3); sfxHurt(); toast(T('hardhit'));
+  if(heli.hull<=0){ gameOver(T('crash')); }
+}
+function gameOver(why){
+  state='over'; setRotor(false,0);
+  showMsg(why, T('over'), 999999);
+  if(score>best){ best=score; localStorage.setItem('heli_best',''+best); }
+  if(rescuedTotal>bestResc){ bestResc=rescuedTotal; localStorage.setItem('heli_bestResc',''+bestResc); }
+  const b=document.getElementById('btnStart'); b.style.display='block'; b.textContent=T('again');
+  updateHUD();
+}
+function step(dt){
+  if(state!=='play') { if(heli) heli.rotor+=dt*4; return; }
+  gustT-=dt; if(gustT<=0){ gustT=1.6+Math.random()*2.6; windGust=(Math.random()*2-1)*(14+wave*7); }
+  wind += (windGust-wind)*dt*0.7;
+  const h=heli;
+  const lift = keys.lift && h.fuel>0;
+  if(lift){ h.vy -= THRUST*dt; h.fuel -= dt*4.4; }
+  h.vy += GRAV*dt;
+  if(keys.left) h.vx -= SIDE*dt;
+  if(keys.right) h.vx += SIDE*dt;
+  h.vx += wind*dt*3.2;
+  h.vx *= Math.pow(0.55, dt); h.vy *= Math.pow(0.72, dt);
+  h.vx=Math.max(-MAXV,Math.min(MAXV,h.vx)); h.vy=Math.max(-190,Math.min(300,h.vy));
+  const prevVy=h.vy, prevY=h.y;
+  h.x += h.vx*dt; h.y += h.vy*dt;
+  h.tilt += (((keys.right?0.16:0)+(keys.left?-0.16:0))-h.tilt)*dt*6;
+  h.rotor += dt*(lift?26:14);
+  h.x=Math.max(30,Math.min(WORLD_W-30,h.x));
+  if(h.y<34){ h.y=34; h.vy=Math.max(h.vy,0); }
+  const gy = groundY(h.x)-24;
+  h.landed=false;
+  if(h.y>=gy){
+    h.y=gy;
+    if(prevVy>135){ damage(Math.round((prevVy-135)*0.28)+8); h.vy=0; }
+    else if(prevVy>40){ h.vy=0; }
+    else h.vy=0;
+    h.vx *= Math.pow(0.2,dt);
+    h.landed=true;
+    const onPad = h.x>PAD_X-6 && h.x<PAD_X+PAD_W+6;
+    if(onPad && h.fuel<99.5){ h.fuel=Math.min(100,h.fuel+dt*26); if(h.hull<100) h.hull=Math.min(100,h.hull+dt*7); if(Math.random()<dt*0.8) toast(T('refuel')); }
+    if(onPad && carrying){ deliver(); }
+  }
+  if(h.fuel<=0){ h.fuel=0; if(h.y<groundY(h.x)-26) { /* glide down */ } else gameOver(T('out')); if(h.landed) gameOver(T('out')); }
+  if(h.fuel<25 && !lowFuelWarned){ lowFuelWarned=true; toast(T('lowfuel')); }
+  setRotor(true, lift?1:0.45);
+  updateWinch(dt);
+  camX += ((h.x - W*0.42) - camX)*Math.min(1,dt*4);
+  camX=Math.max(0,Math.min(WORLD_W-W, camX));
+  if(shake>0) shake=Math.max(0,shake-dt*22);
+  if(performance.now()>msgT){ document.getElementById('msgBig').textContent=''; document.getElementById('msgSub').textContent=''; }
+  updateHUD();
+}
+function updateWinch(dt){
+  const h=heli;
+  if(carrying){ carrying.x=h.x; carrying.y=h.y+34; return; }
+  if(winch.mode==='idle'){
+    if(keys.winch && h.landed===false){
+      let bestA=null,bd=1e9;
+      for(const a of astronauts){ if(a.state!=='wait') continue; const d=Math.abs(a.x-h.x); if(d<bd){bd=d;bestA=a;} }
+      if(bestA && bd<46 && (groundY(bestA.x)-h.y)<190 && Math.abs(h.vx)<42 && Math.abs(h.vy)<42){ winch={mode:'down', len:10, target:bestA}; sfxWinch(); toast(T('pickup')); }
+    }
+  } else if(winch.mode==='down'){
+    const a=winch.target; if(!a || a.state!=='wait'){ winch={mode:'idle',len:0,target:null}; return; }
+    winch.len += dt*95;
+    const need = (a.y-14) - (h.y+16);
+    if(winch.len>=need){
+      a.state='rising'; winch.mode='up';
+    }
+    if(!keys.winch && winch.len>need*0.6){ /* keep going once committed */ }
+  } else if(winch.mode==='up'){
+    const a=winch.target; winch.len -= dt*110;
+    a.x=h.x; a.y=h.y+16+winch.len;
+    if(winch.len<=12){ a.state='aboard'; carrying=a; winch={mode:'idle',len:0,target:null}; toast(T('carry')); sfxGood(); }
+  }
+}
+function deliver(){
+  const a=carrying; carrying=null;
+  const idx=astronauts.indexOf(a); if(idx>=0) astronauts.splice(idx,1);
+  rescuedTotal++; waveRescued++;
+  const secs=(performance.now()-waveStart)/1000;
+  const bonus=Math.max(0, Math.round(300 - secs*2));
+  const pts=500+bonus; score+=pts;
+  sfxSaved(); toast(Tf('saved',pts)+(bonus>0?' · '+Tf('bonus',bonus):''));
+  if(waveRescued>= (Math.min(1+wave,8)) ){ wave++; heli.fuel=Math.min(100,heli.fuel+30); startWave(); showMsg(T('allSaved'), Tf('waveT',wave), 2400); }
+  updateHUD();
+}
+
+/* ================= DRAW ================= */
+function drawAstronaut(a, t){
+  const x=a.x-camX, y=a.y; if(x<-40||x>W+40) return;
+  const wv = a.state==='wait' ? Math.sin(t*6+a.waveOff) : 0;
+  ctx.save(); ctx.translate(x,y);
+  // legs + suit
+  ctx.strokeStyle='#e8eef7'; ctx.lineWidth=4; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(-2,-10); ctx.lineTo(-3,0); ctx.moveTo(2,-10); ctx.lineTo(4,0); ctx.stroke();
+  const suit=ctx.createLinearGradient(0,-26,0,-8); suit.addColorStop(0,'#ffffff'); suit.addColorStop(1,'#c9d6ea');
+  ctx.fillStyle=suit; roundRect(-6,-26,12,17,5); ctx.fill();
+  ctx.fillStyle='#ff8c1a'; ctx.fillRect(-6,-19,12,3.4);              // chest stripe
+  ctx.fillStyle='#ffd94d'; roundRect(3,-25,6,8,2); ctx.fill();      // backpack
+  // waving arm
+  ctx.strokeStyle='#e8eef7'; ctx.lineWidth=3.6;
+  ctx.beginPath(); ctx.moveTo(-5,-22); ctx.lineTo(-11,-27+wv*3); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(6,-22); ctx.lineTo(10,-17); ctx.stroke();
+  // helmet + face
+  ctx.fillStyle='#dff2ff'; ctx.beginPath(); ctx.arc(0,-31,7.4,0,6.29); ctx.fill();
+  ctx.fillStyle='#ffe3c2'; ctx.beginPath(); ctx.arc(0,-30.4,4.6,0,6.29); ctx.fill();
+  ctx.fillStyle='#20304d'; ctx.beginPath(); ctx.arc(-1.6,-31,0.8,0,6.29); ctx.arc(1.6,-31,0.8,0,6.29); ctx.fill();
+  ctx.strokeStyle='#20304d'; ctx.lineWidth=0.9; ctx.beginPath(); ctx.arc(0,-29.6,2.2,0.3,2.8); ctx.stroke();
+  ctx.strokeStyle='#7fd0ff'; ctx.lineWidth=1.6; ctx.beginPath(); ctx.arc(0,-31,7.4,0,6.29); ctx.stroke();
+  // SOS light blink
+  if(a.state==='wait' && Math.sin(t*4+a.waveOff)>0.2){ ctx.fillStyle='#ff5252'; ctx.beginPath(); ctx.arc(0,-41,2.4,0,6.29); ctx.fill(); ctx.strokeStyle='#ff5252'; ctx.beginPath(); ctx.moveTo(0,-38.6); ctx.lineTo(0,-40); ctx.stroke(); }
+  ctx.restore();
+}
+function roundRect(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function drawHeli(t){
+  const h=heli, x=h.x-camX, y=h.y;
+  ctx.save(); ctx.translate(x,y); ctx.rotate(h.tilt);
+  // searchlight cone
+  const grd=ctx.createLinearGradient(0,10,0,150); grd.addColorStop(0,'rgba(255,246,190,0.30)'); grd.addColorStop(1,'rgba(255,246,190,0)');
+  ctx.fillStyle=grd; ctx.beginPath(); ctx.moveTo(2,12); ctx.lineTo(-26,150); ctx.lineTo(34,150); ctx.closePath(); ctx.fill();
+  // tail
+  const body=ctx.createLinearGradient(0,-14,0,14); body.addColorStop(0,'#ffb52e'); body.addColorStop(0.55,'#f08c00'); body.addColorStop(1,'#c96a00');
+  ctx.fillStyle=body; ctx.beginPath(); ctx.moveTo(-14,-4); ctx.lineTo(-52,-9); ctx.lineTo(-52,1); ctx.lineTo(-14,5); ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#d97c06'; roundRect(-58,-15,7,18,3); ctx.fill();
+  ctx.fillStyle='#20304d'; ctx.fillRect(-57,-3+Math.sin(h.rotor*3)*2,3,5); // tail rotor blur
+  // body
+  ctx.fillStyle=body; roundRect(-24,-15,50,27,12); ctx.fill();
+  ctx.fillStyle='#12234d'; ctx.font='900 9px sans-serif'; ctx.textAlign='center'; ctx.fillText('LUNC',-8,7);
+  ctx.fillStyle='#ffd94d'; ctx.beginPath(); ctx.arc(14,3,3,0,6.29); ctx.fill(); ctx.fillStyle='#12234d'; ctx.beginPath(); ctx.arc(15.2,2,2.2,0,6.29); ctx.fill();
+  // cockpit + pilot face
+  const glass=ctx.createLinearGradient(0,-14,0,4); glass.addColorStop(0,'#bfe6ff'); glass.addColorStop(1,'#4a90c9');
+  ctx.fillStyle=glass; roundRect(6,-14,19,17,7); ctx.fill();
+  ctx.fillStyle='#ffe3c2'; ctx.beginPath(); ctx.arc(16,-6,4.4,0,6.29); ctx.fill();       // face
+  ctx.fillStyle='#f5b301'; ctx.beginPath(); ctx.arc(16,-8.6,4.6,3.4,6.1); ctx.fill();      // helmet cap
+  ctx.fillStyle='#20304d'; ctx.beginPath(); ctx.arc(14.6,-6.2,0.75,0,6.29); ctx.arc(17.8,-6.2,0.75,0,6.29); ctx.fill();
+  ctx.strokeStyle='#20304d'; ctx.lineWidth=0.8; ctx.beginPath(); ctx.arc(16.2,-4.6,1.9,0.4,2.7); ctx.stroke();
+  // skids
+  ctx.strokeStyle='#26324d'; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(-16,12); ctx.lineTo(-13,20); ctx.moveTo(14,12); ctx.lineTo(11,20); ctx.moveTo(-22,21); ctx.lineTo(20,21); ctx.stroke();
+  // mast + spinning rotor
+  ctx.fillStyle='#26324d'; ctx.fillRect(-2,-19,4,5);
+  const rl=46, a=h.rotor;
+  ctx.strokeStyle='rgba(220,235,255,0.9)'; ctx.lineWidth=3.4;
+  ctx.beginPath(); ctx.moveTo(-Math.cos(a)*rl,-19-Math.sin(a)*3.4); ctx.lineTo(Math.cos(a)*rl,-19+Math.sin(a)*3.4); ctx.stroke();
+  ctx.strokeStyle='rgba(220,235,255,0.28)'; ctx.lineWidth=7;
+  ctx.beginPath(); ctx.moveTo(-rl,-19); ctx.lineTo(rl,-19); ctx.stroke();
+  // winch cable
+  if(winch.mode!=='idle'){ ctx.strokeStyle='#dfe9f5'; ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(0,14); ctx.lineTo(0,14+winch.len); ctx.stroke(); ctx.fillStyle='#ffd94d'; ctx.fillRect(-3,12+winch.len,6,5); }
+  ctx.restore();
+  if(carrying){ const a=carrying; a.x=h.x; a.y=h.y+52; drawAstronautAt(a.x-camX, a.y+26, t); }
+}
+function drawAstronautAt(x,y,t){ const save={x:0}; ctx.save(); ctx.translate(-camX,0); const tmp={x:x+camX,y:y,state:'aboard',waveOff:0}; ctx.restore(); drawAstronaut(tmp,t); }
+function draw(t){
+  ctx.clearRect(0,0,W,H);
+  const sx=(Math.random()*2-1)*shake, sy=(Math.random()*2-1)*shake;
+  ctx.save(); ctx.translate(sx,sy);
+  // sky
+  const sky=ctx.createLinearGradient(0,0,0,H); sky.addColorStop(0,'#04060f'); sky.addColorStop(0.55,'#0a1430'); sky.addColorStop(1,'#1a2440');
+  ctx.fillStyle=sky; ctx.fillRect(-20,-20,W+40,H+40);
+  // stars
+  for(const s of stars){ const x=s.x-camX*0.25; if(x<-4||x>W+4) continue; ctx.globalAlpha=0.5+0.5*Math.sin(t*2+s.tw); ctx.fillStyle='#cfe4ff'; ctx.beginPath(); ctx.arc(x,s.y*H,s.r,0,6.29); ctx.fill(); }
+  ctx.globalAlpha=1;
+  // earth in sky
+  ctx.fillStyle='#7fb7e8'; ctx.beginPath(); ctx.arc(W-110-camX*0.05,64,25,0,6.29); ctx.fill();
+  ctx.fillStyle='#5b93cc'; ctx.beginPath(); ctx.arc(W-120-camX*0.05,56,7,0,6.29); ctx.arc(W-98-camX*0.05,74,5,0,6.29); ctx.fill();
+  // far ridge
+  ctx.fillStyle='#101d3d'; ctx.beginPath(); ctx.moveTo(-20,H);
+  for(let x=-20;x<=W+20;x+=26){ const wx=x+camX*0.55; ctx.lineTo(x, H-120-Math.sin(wx*0.006)*36-Math.sin(wx*0.017)*14); }
+  ctx.lineTo(W+20,H); ctx.closePath(); ctx.fill();
+  // ground / canyon
+  const gg=ctx.createLinearGradient(0,H-160,0,H); gg.addColorStop(0,'#4b4238'); gg.addColorStop(0.25,'#6e5a44'); gg.addColorStop(1,'#3a2f24');
+  ctx.fillStyle=gg; ctx.beginPath(); ctx.moveTo(-20,H+20);
+  for(let x=-20;x<=W+20;x+=14){ ctx.lineTo(x, groundY(x+camX)); }
+  ctx.lineTo(W+20,H+20); ctx.closePath(); ctx.fill();
+  ctx.fillStyle='rgba(0,0,0,0.18)';
+  for(const c of craters){ const x=c.x-camX; if(x<-80||x>W+80) continue; ctx.beginPath(); ctx.ellipse(x,groundY(c.x)+4,c.w,6,0,0,6.29); ctx.fill(); }
+  ctx.fillStyle='rgba(255,255,255,0.10)'; ctx.fillRect(-20,groundY(camX)-2,W+40,2);
+  // base pad
+  const px=PAD_X-camX;
+  ctx.fillStyle='#26324d'; ctx.fillRect(px-8,H-96,PAD_W+16,10);
+  ctx.fillStyle='#f5b301'; ctx.fillRect(px-8,H-96,PAD_W+16,3);
+  ctx.fillStyle='#ffd94d'; ctx.font='900 21px sans-serif'; ctx.textAlign='center'; ctx.fillText('H', px+PAD_W/2, H-100);
+  ctx.fillStyle='#0d1b3a'; roundRect(px+18,H-142,86,38,6); ctx.fill();
+  ctx.strokeStyle='#f5b301'; ctx.lineWidth=2; roundRect(px+18,H-142,86,38,6); ctx.stroke();
+  ctx.fillStyle='#ffd94d'; ctx.font='900 12px sans-serif'; ctx.fillText('LUNC BASE', px+61, H-126);
+  ctx.fillStyle='#7fd0ff'; ctx.font='900 8px sans-serif'; ctx.fillText('☾ MOON RESCUE ☾', px+61, H-114);
+  const bl=Math.sin(t*3)>0; ctx.fillStyle=bl?'#ff5252':'#5c1a1a'; ctx.beginPath(); ctx.arc(px-8,H-100,3.4,0,6.29); ctx.arc(px+PAD_W+8,H-100,3.4,0,6.29); ctx.fill();
+  // astronauts
+  for(const a of astronauts){ if(a.state==='wait') drawAstronaut(a,t); else if(a.state==='rising'||a.state==='aboard') drawAstronaut(a,t); }
+  // heli
+  if(heli) drawHeli(t);
+  ctx.restore();
+}
+/* ================= INPUT ================= */
+function bindBtn(id, key){
+  const el=document.getElementById(id);
+  const on=e=>{ e.preventDefault(); initAudio(); keys[key]=true; el.classList.add('on'); };
+  const off=e=>{ e.preventDefault(); keys[key]=false; el.classList.remove('on'); };
+  el.addEventListener('pointerdown',on); el.addEventListener('pointerup',off); el.addEventListener('pointerleave',off); el.addEventListener('pointercancel',off);
+  el.addEventListener('contextmenu',e=>e.preventDefault());
+}
+bindBtn('btnLift','lift'); bindBtn('btnLeft','left'); bindBtn('btnRight','right'); bindBtn('btnWinch','winch');
+const KEYMAP={ArrowUp:'lift',KeyW:'lift',ArrowLeft:'left',KeyA:'left',ArrowRight:'right',KeyD:'right',Space:'winch',ArrowDown:'winch',KeyS:'winch'};
+window.addEventListener('keydown',e=>{ const k=KEYMAP[e.code]; if(k){ keys[k]=true; initAudio(); e.preventDefault(); }});
+window.addEventListener('keyup',e=>{ const k=KEYMAP[e.code]; if(k){ keys[k]=false; e.preventDefault(); }});
+document.getElementById('btnStart').addEventListener('click',()=>{ initAudio(); newGame(); });
+/* ================= LOOP ================= */
+resize();
+heli={x:PAD_X+PAD_W/2, y:groundY(PAD_X+PAD_W/2)-26, vx:0, vy:0, fuel:100, hull:100, rotor:0, tilt:0, landed:true};
+spawnAstronauts(2);
+showMsg(T('ready'), T('how'), 999999);
+applyLang();
+let lastT=performance.now();
+function frame(now){
+  const dt=Math.min(0.033,(now-lastT)/1000); lastT=now;
+  step(dt); draw(now/1000);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+/* QA hooks */
+window.__heli={ get state(){return state;}, get score(){return score;}, get rescued(){return rescuedTotal;}, get heli(){return heli;}, get astronauts(){return astronauts;}, get carrying(){return carrying;}, get winch(){return winch;}, groundY, keys, start:newGame };
+</script>
+</body>
+</html>
