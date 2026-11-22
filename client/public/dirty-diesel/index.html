@@ -229,11 +229,11 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 1.75));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.12;
+renderer.toneMappingExposure = 1.3;
 $('game').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0x3a1830, 55, 340);
+scene.fog = new THREE.Fog(0x7a4038, 70, 460); /* warm sunset haze (was 0x3a1830 plum, 55-340, Nov 21 look pass) */
 const camera = new THREE.PerspectiveCamera(62, window.innerWidth/window.innerHeight, 0.1, 900);
 
 /* dusk sky gradient — also used as the environment map so CHROME actually shines */
@@ -242,21 +242,32 @@ function makeSkyTexture(env){
   const g = c.getContext('2d');
   const grad = g.createLinearGradient(0,0,0,512);
   if(env){ /* muted silvery palette — this is what CHROME reflects */
-    grad.addColorStop(0.00,'#232030'); grad.addColorStop(0.30,'#4c4453');
-    grad.addColorStop(0.52,'#8a6f74'); grad.addColorStop(0.66,'#c99a68');
-    grad.addColorStop(0.74,'#e8cf9e'); grad.addColorStop(0.80,'#6e5138');
-    grad.addColorStop(1.00,'#241a16');
+    grad.addColorStop(0.00,'#35304a'); grad.addColorStop(0.30,'#655a6b');
+    grad.addColorStop(0.48,'#a3807c'); grad.addColorStop(0.60,'#d8ab74');
+    grad.addColorStop(0.68,'#f2dcae'); grad.addColorStop(0.76,'#7d5c40');
+    grad.addColorStop(1.00,'#2e201b');
   } else {
-  grad.addColorStop(0.00,'#1b0f38'); grad.addColorStop(0.30,'#4a1e56');
-  grad.addColorStop(0.52,'#a03a54'); grad.addColorStop(0.66,'#e86a2e');
-  grad.addColorStop(0.74,'#ffb347'); grad.addColorStop(0.80,'#7a4526');
-  grad.addColorStop(1.00,'#241118');
+  /* Nov 21 look pass (Tom: "make it look better"): the sunset band used to sit
+     at 0.66-0.74 of the texture — below the visible sky in the chase view, so
+     the whole sky read as one flat purple lid. The glow now sits at 0.52-0.64,
+     in view, and the top is a brighter dusk violet instead of near-black. */
+  grad.addColorStop(0.00,'#241257'); grad.addColorStop(0.22,'#5e2470');
+  grad.addColorStop(0.36,'#b83a5e'); grad.addColorStop(0.44,'#f0762e');
+  grad.addColorStop(0.50,'#ffb347'); grad.addColorStop(0.58,'#8a4e28');
+  grad.addColorStop(1.00,'#2a141c');
   }
   g.fillStyle = grad; g.fillRect(0,0,1024,512);
-  const sun = g.createRadialGradient(512,392,10,512,392,190);
-  sun.addColorStop(0,'rgba(255,230,170,0.95)'); sun.addColorStop(0.25,'rgba(255,180,80,0.55)'); sun.addColorStop(1,'rgba(255,150,50,0)');
-  g.fillStyle = sun; g.fillRect(0,0,1024,512);
-  g.fillStyle = '#ffe9b0'; g.beginPath(); g.arc(512,392,26,0,7); g.fill();
+  /* The sun must sit ABOVE the texture equator (canvas y=256 = the horizon):
+     at the old y=392 (and even y=318) the disc was BELOW the horizon and
+     never visible — only its glow spilled up, leaving a flat sky. Disc now at
+     y=238, drawn at x=0/512/1024 so one copy is dead ahead whichever way the
+     road faces (the others land behind / out of frame). */
+  for (const sx of [0, 512, 1024]) {
+    const sun = g.createRadialGradient(sx,238,10,sx,238,240);
+    sun.addColorStop(0,'rgba(255,230,170,0.95)'); sun.addColorStop(0.25,'rgba(255,180,80,0.55)'); sun.addColorStop(1,'rgba(255,150,50,0)');
+    g.fillStyle = sun; g.fillRect(0,0,1024,512);
+    g.fillStyle = '#ffe9b0'; g.beginPath(); g.arc(sx,238,30,0,7); g.fill();
+  }
   const tex = new THREE.CanvasTexture(c);
   tex.mapping = THREE.EquirectangularReflectionMapping;
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -266,9 +277,9 @@ const skyTex = makeSkyTexture(false);
 scene.background = skyTex;
 scene.environment = makeSkyTexture(true);   /* <- chrome reflections come from this (muted twin) */
 
-const hemi = new THREE.HemisphereLight(0x8a5aa8, 0x3a2015, 0.85); scene.add(hemi);
-const sunLight = new THREE.DirectionalLight(0xff9a40, 1.5); sunLight.position.set(-30, 18, -60); scene.add(sunLight);
-const fill = new THREE.DirectionalLight(0x6a7aff, 0.35); fill.position.set(20, 30, 40); scene.add(fill);
+const hemi = new THREE.HemisphereLight(0xc09ad8, 0x54341e, 1.25); scene.add(hemi);
+const sunLight = new THREE.DirectionalLight(0xffa04e, 2.0); sunLight.position.set(-30, 18, -60); scene.add(sunLight);
+const fill = new THREE.DirectionalLight(0x6a7aff, 0.5); fill.position.set(20, 30, 40); scene.add(fill);
 
 /* ---------- canvas texture helpers ---------- */
 function cnv(w,h,fn){ const c=document.createElement('canvas'); c.width=w; c.height=h; fn(c.getContext('2d'),w,h); const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; t.anisotropy=4; return t; }
@@ -464,7 +475,7 @@ const roadTex = asphaltTex.clone(); roadTex.needsUpdate = true; roadTex.repeat.s
 const road = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_HALF*2, 460), new THREE.MeshStandardMaterial({ map:roadTex, roughness:0.94, metalness:0 }));
 road.rotation.x = -Math.PI/2; road.position.set(0, 0, -190); world.add(road);
 /* desert ground */
-const desertTex = cnv(256,256,(g,w,h)=>{ g.fillStyle='#5e3a22'; g.fillRect(0,0,w,h); for(let i=0;i<2600;i++){ g.fillStyle=Math.random()<0.5?'rgba(255,190,120,0.07)':'rgba(0,0,0,0.12)'; g.fillRect(Math.random()*w,Math.random()*h,3,3); } });
+const desertTex = cnv(256,256,(g,w,h)=>{ g.fillStyle='#7c4c28'; g.fillRect(0,0,w,h); for(let i=0;i<2600;i++){ g.fillStyle=Math.random()<0.5?'rgba(255,200,130,0.10)':'rgba(0,0,0,0.12)'; g.fillRect(Math.random()*w,Math.random()*h,3,3); } });
 desertTex.wrapS = desertTex.wrapT = THREE.RepeatWrapping; desertTex.repeat.set(30,30);
 const desert = new THREE.Mesh(new THREE.PlaneGeometry(900, 700), new THREE.MeshStandardMaterial({ map:desertTex, roughness:1 }));
 desert.rotation.x = -Math.PI/2; desert.position.set(0, -0.05, -190); world.add(desert);
