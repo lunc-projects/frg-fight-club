@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<base href="/lunc-fishing/">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>LUNC Fishing — Moon Lake</title>
+<meta name="description" content="A relaxing night-fishing game on a moonlit lake. Cast, wait for the bite, and reel in LUNC fish.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎣</text></svg>">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { height:100%; overflow:hidden; background:#070d24; }
+  body { font-family:'Segoe UI', system-ui, -apple-system, sans-serif; color:#eaf2ff; user-select:none; -webkit-user-select:none; touch-action:none; }
+  #wrap { position:fixed; inset:0; }
+  canvas#game { position:absolute; inset:0; width:100%; height:100%; display:block; }
+
+  /* top HUD */
+  #hud { position:absolute; top:0; left:0; right:0; padding:10px 12px; display:flex; align-items:flex-start; gap:8px; pointer-events:none; z-index:5; }
+  #titleBox { pointer-events:none; }
+  #titleBox h1 { font-size:21px; letter-spacing:1px; color:#ffe9a8; text-shadow:0 2px 10px rgba(0,0,0,.7); font-weight:800; }
+  #titleBox p { font-size:11.5px; color:#bcd3ff; text-shadow:0 1px 6px rgba(0,0,0,.8); margin-top:1px; }
+  .spacer { flex:1; }
+  .chip { background:rgba(8,16,40,.72); border:1px solid rgba(150,180,255,.35); border-radius:12px; padding:6px 10px; font-size:12px; line-height:1.25; text-align:center; backdrop-filter:blur(3px); }
+  .chip b { display:block; font-size:15px; color:#ffe9a8; }
+  .chip span { color:#9fb6e8; font-size:10px; letter-spacing:.6px; }
+  #topBtns { display:flex; flex-direction:column; gap:6px; pointer-events:auto; }
+  #langSel { font-size:15px; padding:8px 6px; border-radius:12px; border:1px solid rgba(150,180,255,.45); background:rgba(8,16,40,.85); color:#eaf2ff; max-width:148px; }
+  .iconBtn { font-size:17px; padding:7px 0; border-radius:12px; border:1px solid rgba(150,180,255,.45); background:rgba(8,16,40,.85); color:#eaf2ff; cursor:pointer; text-align:center; }
+
+  /* message line */
+  #msg { position:absolute; left:50%; transform:translateX(-50%); top:19%; width:92%; text-align:center; font-size:19px; font-weight:700; color:#fff; text-shadow:0 2px 12px rgba(0,0,0,.85); z-index:4; pointer-events:none; min-height:26px; }
+  #msg.bite { color:#ffd94d; font-size:24px; animation:pulse .35s infinite alternate; }
+  @keyframes pulse { from{ transform:translateX(-50%) scale(1);} to{ transform:translateX(-50%) scale(1.09);} }
+
+  /* power + tension bars */
+  .barWrap { position:absolute; left:50%; transform:translateX(-50%); width:min(78vw,340px); z-index:4; display:none; }
+  .barLab { font-size:11px; letter-spacing:1px; color:#cfe0ff; text-shadow:0 1px 5px #000; margin-bottom:3px; text-align:center; }
+  .bar { height:16px; border-radius:9px; background:rgba(5,10,28,.75); border:1px solid rgba(160,190,255,.5); overflow:hidden; position:relative; }
+  .barFill { height:100%; width:0%; border-radius:9px; }
+  #powerWrap { bottom:196px; }
+  #powerFill { background:linear-gradient(90deg,#3ec6ff,#7dff8a,#ffe94d,#ff7847); }
+  #fightWrap { bottom:196px; }
+  #tensionBar { overflow:visible; }
+  #tensionZone { position:absolute; top:0; bottom:0; background:rgba(80,255,140,.30); border-left:1px solid rgba(140,255,180,.8); border-right:1px solid rgba(140,255,180,.8); }
+  #tensionFill { background:linear-gradient(90deg,#57b6ff,#ffd94d,#ff5147); position:relative; z-index:1; }
+  #progWrap { margin-top:7px; }
+  #progFill { background:linear-gradient(90deg,#57b6ff,#8affd1); }
+
+  /* big action button */
+  #actionBtn { position:absolute; left:50%; transform:translateX(-50%); bottom:104px; z-index:6; min-width:196px; padding:17px 34px; font-size:23px; font-weight:800; letter-spacing:2px; color:#08203a; background:linear-gradient(180deg,#ffe97a,#ffb52e); border:none; border-radius:999px; box-shadow:0 6px 24px rgba(255,180,40,.45), 0 3px 0 #b97b12; cursor:pointer; }
+  #actionBtn:active { transform:translateX(-50%) translateY(2px); box-shadow:0 2px 10px rgba(255,180,40,.4), 0 1px 0 #b97b12; }
+  #actionBtn.reel { background:linear-gradient(180deg,#8affd1,#2ed3a6); box-shadow:0 6px 24px rgba(46,211,166,.45), 0 3px 0 #157a5e; color:#04352a; }
+  #actionBtn.hold { background:linear-gradient(180deg,#7ec8ff,#2e7fd3); box-shadow:0 6px 24px rgba(46,127,211,.5), 0 3px 0 #174f7a; color:#eaf6ff; }
+  #actionBtn.dim { opacity:.55; }
+
+  /* bottom bar: how-to + log */
+  #bottomBar { position:absolute; left:0; right:0; bottom:0; padding:10px 12px calc(10px + env(safe-area-inset-bottom)); display:flex; gap:8px; align-items:stretch; z-index:5; }
+  #howto { flex:1; font-size:11.5px; line-height:1.45; color:#c4d6ff; background:rgba(8,16,40,.66); border:1px solid rgba(150,180,255,.25); border-radius:12px; padding:8px 10px; backdrop-filter:blur(3px); }
+  #logBtn { pointer-events:auto; font-size:14px; font-weight:700; padding:0 16px; border-radius:12px; border:1px solid rgba(150,180,255,.45); background:rgba(8,16,40,.85); color:#ffe9a8; cursor:pointer; }
+
+  /* catch log panel */
+  #logPanel { position:absolute; left:50%; transform:translateX(-50%); bottom:110px; width:min(92vw,380px); max-height:46vh; overflow-y:auto; background:rgba(6,12,32,.94); border:1px solid rgba(150,180,255,.4); border-radius:16px; padding:14px; z-index:8; display:none; }
+  #logPanel h2 { font-size:16px; color:#ffe9a8; margin-bottom:8px; }
+  #logPanel .row { display:flex; justify-content:space-between; gap:8px; font-size:13.5px; padding:6px 2px; border-bottom:1px solid rgba(150,180,255,.14); }
+  #logPanel .row .w { color:#9fd8ff; white-space:nowrap; }
+  #logPanel .empty { font-size:13.5px; color:#9fb6e8; padding:6px 2px; }
+  .rar-common{color:#cfd8ea}.rar-uncommon{color:#7dff8a}.rar-rare{color:#57b6ff}.rar-legendary{color:#ffd94d}
+
+  /* catch card */
+  #catchCard { position:absolute; left:50%; top:44%; transform:translate(-50%,-50%) scale(.9); width:min(86vw,320px); background:linear-gradient(180deg,rgba(16,30,66,.97),rgba(8,16,40,.97)); border:1.5px solid rgba(255,217,77,.65); border-radius:20px; padding:18px 16px 14px; text-align:center; z-index:9; display:none; box-shadow:0 18px 50px rgba(0,0,0,.6); }
+  #catchCard.show { display:block; animation:pop .28s forwards; }
+  @keyframes pop { to { transform:translate(-50%,-50%) scale(1); } }
+  #catchCard h2 { font-size:21px; color:#8affd1; margin-bottom:2px; }
+  #catchCard .newBest { color:#ffd94d; font-size:13px; font-weight:800; min-height:17px; }
+  #catchFish { margin:8px auto 4px; display:block; }
+  #catchName { font-size:20px; font-weight:800; }
+  #catchRar { font-size:12px; letter-spacing:1.5px; margin-top:1px; }
+  #catchStats { font-size:15px; color:#cfe0ff; margin-top:7px; line-height:1.5; }
+  #catchStats b { color:#ffe9a8; }
+  #catchClose { margin-top:12px; font-size:16px; font-weight:700; padding:10px 28px; border-radius:999px; border:none; background:linear-gradient(180deg,#ffe97a,#ffb52e); color:#08203a; cursor:pointer; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game"></canvas>
+
+  <div id="hud">
+    <div id="titleBox">
+      <h1>🎣 LUNC Fishing</h1>
+      <p id="tagline"></p>
+    </div>
+    <div class="spacer"></div>
+    <div class="chip"><span id="scoreLab"></span><b id="scoreVal">0</b></div>
+    <div class="chip"><span id="bestLab"></span><b id="bestVal">—</b></div>
+    <div id="topBtns">
+      <select id="langSel" aria-label="Language"></select>
+      <button class="iconBtn" id="soundBtn" aria-label="Sound">🔊</button>
+    </div>
+  </div>
+
+  <div id="msg"></div>
+
+  <div class="barWrap" id="powerWrap"><div class="barLab" id="powerLab">POWER</div><div class="bar"><div class="barFill" id="powerFill"></div></div></div>
+
+  <div class="barWrap" id="fightWrap">
+    <div class="barLab" id="tensionLab">TENSION</div>
+    <div class="bar" id="tensionBar"><div id="tensionZone"></div><div class="barFill" id="tensionFill"></div></div>
+    <div id="progWrap"><div class="barLab" id="progLab">REEL IN</div><div class="bar"><div class="barFill" id="progFill"></div></div></div>
+  </div>
+
+  <button id="actionBtn">CAST</button>
+
+  <div id="bottomBar">
+    <div id="howto"></div>
+    <button id="logBtn">🐟</button>
+  </div>
+
+  <div id="logPanel"><h2 id="logTitle"></h2><div id="logRows"></div></div>
+
+  <div id="catchCard">
+    <h2 id="caughtLab"></h2>
+    <div class="newBest" id="newBestLab"></div>
+    <canvas id="catchFish" width="220" height="110"></canvas>
+    <div id="catchName"></div>
+    <div id="catchRar"></div>
+    <div id="catchStats"></div>
+    <button id="catchClose"></button>
+  </div>
+</div>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+
+/* ================= i18n (house 18-language gate) ================= */
+const LANGS=[["en","English"],["es","Español"],["pt","Português"],["fr","Français"],["de","Deutsch"],["it","Italiano"],["nl","Nederlands"],["ru","Русский"],["uk","Українська"],["tr","Türkçe"],["ar","العربية"],["hi","हिन्दी"],["id","Bahasa Indonesia"],["vi","Tiếng Việt"],["th","ไทย"],["ko","한국어"],["ja","日本語"],["zh","简体中文"]];
+const I18N={
+en:{tag:"A quiet night on the moon lake.",cast:"CAST",reel:"REEL",hold:"HOLD",score:"SCORE",best:"BEST",caught:"Caught!",gotAway:"It got away…",snapped:"The line snapped!",tooSoon:"Nothing there — cast again.",waitMsg:"Waiting for a bite…",biteMsg:"BITE! Hit REEL!",fightMsg:"Hold to reel — keep the tension in the green!",aimMsg:"Tap again to cast!",howto:"Tap CAST, then tap again to set your distance. When the bobber dips, tap REEL fast! Then hold to reel in — keep the tension bar in the green. Far casts reach rarer fish.",logT:"🐟 Catch log",empty:"No catches yet. Tight lines!",newBest:"★ NEW BEST FISH!",close:"Keep fishing",power:"POWER",tension:"TENSION",reelIn:"REEL IN",rC:"COMMON",rU:"UNCOMMON",rR:"RARE",rL:"LEGENDARY",pts:"pts"},
+es:{tag:"Una noche tranquila en el lago lunar.",cast:"LANZAR",reel:"RECOGER",hold:"MANTÉN",score:"PUNTOS",best:"RÉCORD",caught:"¡Pescado!",gotAway:"Se escapó…",snapped:"¡La línea se rompió!",tooSoon:"Nada ahí — lanza de nuevo.",waitMsg:"Esperando una picada…",biteMsg:"¡PICÓ! ¡RECOGE!",fightMsg:"Mantén para recoger — ¡tensión en verde!",aimMsg:"¡Toca de nuevo para lanzar!",howto:"Toca LANZAR y otra vez para fijar la distancia. Cuando la boya se hunda, ¡toca RECOGER rápido! Luego mantén pulsado para recoger, con la tensión en verde. Los lances largos llegan a peces raros.",logT:"🐟 Registro",empty:"Aún sin capturas. ¡Buena pesca!",newBest:"★ ¡NUEVO RÉCORD!",close:"Seguir pescando",power:"FUERZA",tension:"TENSIÓN",reelIn:"RECOGER",rC:"COMÚN",rU:"POCO COMÚN",rR:"RARO",rL:"LEGENDARIO",pts:"pts"},
+pt:{tag:"Uma noite calma no lago da lua.",cast:"LANÇAR",reel:"RECOLHER",hold:"SEGURE",score:"PONTOS",best:"RECORDE",caught:"Pegou!",gotAway:"Escapou…",snapped:"A linha arrebentou!",tooSoon:"Nada ali — lance de novo.",waitMsg:"Esperando uma fisgada…",biteMsg:"FISGOU! RECOLHA!",fightMsg:"Segure para recolher — tensão no verde!",aimMsg:"Toque de novo para lançar!",howto:"Toque em LANÇAR e de novo para definir a distância. Quando a boia afundar, toque em RECOLHER rápido! Depois segure para recolher, mantendo a tensão no verde. Lances longos alcançam peixes raros.",logT:"🐟 Registro",empty:"Nenhuma captura ainda. Boa pesca!",newBest:"★ NOVO RECORDE!",close:"Continuar pescando",power:"FORÇA",tension:"TENSÃO",reelIn:"RECOLHER",rC:"COMUM",rU:"INCOMUM",rR:"RARO",rL:"LENDÁRIO",pts:"pts"},
+fr:{tag:"Une nuit calme sur le lac de lune.",cast:"LANCER",reel:"MOULINER",hold:"TIENS",score:"SCORE",best:"RECORD",caught:"Pris !",gotAway:"Il s'est échappé…",snapped:"La ligne a cassé !",tooSoon:"Rien là — relance.",waitMsg:"En attente d'une touche…",biteMsg:"TOUCHE ! MOULINE !",fightMsg:"Tiens pour mouliner — tension dans le vert !",aimMsg:"Touche encore pour lancer !",howto:"Touche LANCER, puis encore pour régler la distance. Quand le bouchon plonge, touche MOULINER vite ! Puis tiens pour ramener, tension dans le vert. Les lancers lointains attirent les poissons rares.",logT:"🐟 Journal",empty:"Aucune prise. Bonne pêche !",newBest:"★ NOUVEAU RECORD !",close:"Continuer à pêcher",power:"PUISSANCE",tension:"TENSION",reelIn:"RAMENER",rC:"COMMUN",rU:"PEU COMMUN",rR:"RARE",rL:"LÉGENDAIRE",pts:"pts"},
+de:{tag:"Eine ruhige Nacht am Mondsee.",cast:"WERFEN",reel:"EINHOLEN",hold:"HALTEN",score:"PUNKTE",best:"REKORD",caught:"Gefangen!",gotAway:"Er ist entwischt…",snapped:"Die Schnur ist gerissen!",tooSoon:"Nichts da — wirf erneut.",waitMsg:"Warte auf einen Biss…",biteMsg:"BISS! EINHOLEN!",fightMsg:"Halten zum Einholen — Spannung im Grünen!",aimMsg:"Nochmal tippen zum Werfen!",howto:"Tippe WERFEN, dann nochmal für die Weite. Wenn der Schwimmer taucht, tippe schnell EINHOLEN! Dann halten zum Einholen — Spannung im grünen Bereich halten. Weite Würfe erreichen seltene Fische.",logT:"🐟 Fangbuch",empty:"Noch keine Fänge. Petri Heil!",newBest:"★ NEUER REKORD!",close:"Weiter angeln",power:"KRAFT",tension:"SPANNUNG",reelIn:"EINHOLEN",rC:"HÄUFIG",rU:"UNGEWÖHNLICH",rR:"SELTEN",rL:"LEGENDÄR",pts:"Pkt"},
+it:{tag:"Una notte calma sul lago lunare.",cast:"LANCIA",reel:"RECUPERA",hold:"TIENI",score:"PUNTI",best:"RECORD",caught:"Preso!",gotAway:"È scappato…",snapped:"La lenza si è spezzata!",tooSoon:"Niente lì — rilancia.",waitMsg:"In attesa di un morso…",biteMsg:"HA ABBOCCATO! RECUPERA!",fightMsg:"Tieni per recuperare — tensione nel verde!",aimMsg:"Tocca ancora per lanciare!",howto:"Tocca LANCIA, poi ancora per la distanza. Quando il galleggiante affonda, tocca RECUPERA in fretta! Poi tieni premuto per recuperare, tensione nel verde. I lanci lunghi raggiungono pesci rari.",logT:"🐟 Registro",empty:"Ancora nessuna cattura. Buona pesca!",newBest:"★ NUOVO RECORD!",close:"Continua a pescare",power:"FORZA",tension:"TENSIONE",reelIn:"RECUPERA",rC:"COMUNE",rU:"NON COMUNE",rR:"RARO",rL:"LEGGENDARIO",pts:"pt"},
+nl:{tag:"Een rustige nacht aan het maanmeer.",cast:"WERP",reel:"INHALEN",hold:"HOUD VAST",score:"SCORE",best:"RECORD",caught:"Gevangen!",gotAway:"Hij is ontsnapt…",snapped:"De lijn is geknapt!",tooSoon:"Niets daar — werp opnieuw.",waitMsg:"Wachten op een beet…",biteMsg:"BEET! INHALEN!",fightMsg:"Houd vast om in te halen — spanning in het groen!",aimMsg:"Tik nog eens om te werpen!",howto:"Tik WERP, dan nog eens voor de afstand. Als de dobber duikt, tik snel INHALEN! Houd daarna vast om in te halen, spanning in het groen. Verre worpen bereiken zeldzame vissen.",logT:"🐟 Vangstlog",empty:"Nog geen vangsten. Goede vangst!",newBest:"★ NIEUW RECORD!",close:"Verder vissen",power:"KRACHT",tension:"SPANNING",reelIn:"INHALEN",rC:"GEWOON",rU:"ONGEWOON",rR:"ZELDZAAM",rL:"LEGENDARISCH",pts:"pt"},
+ru:{tag:"Тихая ночь на лунном озере.",cast:"БРОСОК",reel:"ТЯНИ",hold:"ДЕРЖИ",score:"СЧЁТ",best:"РЕКОРД",caught:"Поймал!",gotAway:"Ушла…",snapped:"Леска порвалась!",tooSoon:"Пусто — бросай снова.",waitMsg:"Ждём поклёвки…",biteMsg:"КЛЮЁТ! ТЯНИ!",fightMsg:"Держи, чтобы тянуть — напряжение в зелёной зоне!",aimMsg:"Нажми ещё раз для броска!",howto:"Нажми БРОСОК, затем ещё раз — задать дальность. Когда поплавок нырнёт, быстро жми ТЯНИ! Потом удерживай, чтобы вытягивать, держа напряжение в зелёной зоне. Дальние забросы достают редкую рыбу.",logT:"🐟 Журнал улова",empty:"Пока пусто. Ни хвоста, ни чешуи!",newBest:"★ НОВЫЙ РЕКОРД!",close:"Ловить дальше",power:"СИЛА",tension:"НАТЯЖЕНИЕ",reelIn:"ВЫТЯГИВАНИЕ",rC:"ОБЫЧНАЯ",rU:"НЕОБЫЧНАЯ",rR:"РЕДКАЯ",rL:"ЛЕГЕНДАРНАЯ",pts:"очк"},
+uk:{tag:"Тиха ніч на місячному озері.",cast:"КИДОК",reel:"ТЯГНИ",hold:"ТРИМАЙ",score:"РАХУНОК",best:"РЕКОРД",caught:"Спіймав!",gotAway:"Втекла…",snapped:"Волосінь порвалася!",tooSoon:"Порожньо — кидай знову.",waitMsg:"Чекаємо клювання…",biteMsg:"КЛЮЄ! ТЯГНИ!",fightMsg:"Тримай, щоб тягнути — натяг у зеленій зоні!",aimMsg:"Натисни ще раз для кидка!",howto:"Натисни КИДОК, потім ще раз — задати дальність. Коли поплавець пірне, швидко тисни ТЯГНИ! Потім утримуй, щоб витягувати, тримаючи натяг у зеленій зоні. Далекі кидки дістають рідкісну рибу.",logT:"🐟 Журнал улову",empty:"Поки порожньо. Ні хвоста, ні луски!",newBest:"★ НОВИЙ РЕКОРД!",close:"Ловити далі",power:"СИЛА",tension:"НАТЯГ",reelIn:"ВИТЯГУВАННЯ",rC:"ЗВИЧАЙНА",rU:"НЕЗВИЧАЙНА",rR:"РІДКІСНА",rL:"ЛЕГЕНДАРНА",pts:"оч"},
+tr:{tag:"Ay gölünde sakin bir gece.",cast:"AT",reel:"ÇEK",hold:"BASILI TUT",score:"SKOR",best:"REKOR",caught:"Yakalandı!",gotAway:"Kaçtı…",snapped:"Misina koptu!",tooSoon:"Orada bir şey yok — tekrar at.",waitMsg:"Isırık bekleniyor…",biteMsg:"ISIRDI! ÇEK!",fightMsg:"Çekmek için basılı tut — gerginlik yeşilde kalsın!",aimMsg:"Atmak için tekrar dokun!",howto:"AT'a dokun, sonra mesafe için tekrar dokun. Şamandıra dalınca hızlıca ÇEK'e dokun! Sonra çekmek için basılı tut, gerginliği yeşilde tut. Uzak atışlar nadir balıklara ulaşır.",logT:"🐟 Av günlüğü",empty:"Henüz av yok. Rastgele!",newBest:"★ YENİ REKOR!",close:"Balığa devam",power:"GÜÇ",tension:"GERGİNLİK",reelIn:"ÇEKİLİYOR",rC:"YAYGIN",rU:"NADİRCE",rR:"NADİR",rL:"EFSANEVİ",pts:"puan"},
+ar:{tag:"ليلة هادئة على بحيرة القمر.",cast:"ارمِ",reel:"اسحب",hold:"اضغط",score:"النقاط",best:"الأفضل",caught:"تم الصيد!",gotAway:"هربت…",snapped:"انقطع الخيط!",tooSoon:"لا شيء هناك — ارمِ مجددًا.",waitMsg:"بانتظار عضّة…",biteMsg:"عضّت! اسحب!",fightMsg:"اضغط للسحب — أبقِ الشد في الأخضر!",aimMsg:"المس مجددًا للرمي!",howto:"المس «ارمِ» ثم المس مجددًا لتحديد المسافة. عندما يغوص العوّام، المس «اسحب» بسرعة! ثم اضغط مطولًا للسحب مع إبقاء الشد في المنطقة الخضراء. الرميات البعيدة تصل إلى أسماك نادرة.",logT:"🐟 سجل الصيد",empty:"لا صيد بعد. حظ سعيد!",newBest:"★ رقم قياسي جديد!",close:"متابعة الصيد",power:"القوة",tension:"الشد",reelIn:"السحب",rC:"شائع",rU:"غير شائع",rR:"نادر",rL:"أسطوري",pts:"نقطة"},
+hi:{tag:"चाँद झील पर एक शांत रात।",cast:"फेंको",reel:"खींचो",hold:"दबाए रखो",score:"स्कोर",best:"सर्वश्रेष्ठ",caught:"पकड़ लिया!",gotAway:"वह निकल गई…",snapped:"डोर टूट गई!",tooSoon:"वहाँ कुछ नहीं — फिर फेंको।",waitMsg:"काटे का इंतज़ार…",biteMsg:"काटा! खींचो!",fightMsg:"खींचने के लिए दबाए रखो — तनाव हरे में रखो!",aimMsg:"फेंकने के लिए फिर टैप करो!",howto:"फेंको टैप करो, फिर दूरी के लिए फिर टैप करो। जब फ्लोट डूबे, जल्दी खींचो टैप करो! फिर खींचने के लिए दबाए रखो, तनाव हरे क्षेत्र में रखो। दूर के फेंके दुर्लभ मछलियों तक पहुँचते हैं।",logT:"🐟 पकड़ लॉग",empty:"अभी कोई पकड़ नहीं। शुभकामनाएँ!",newBest:"★ नया रिकॉर्ड!",close:"मछली पकड़ना जारी",power:"शक्ति",tension:"तनाव",reelIn:"खींचना",rC:"आम",rU:"असामान्य",rR:"दुर्लभ",rL:"पौराणिक",pts:"अंक"},
+id:{tag:"Malam yang tenang di danau bulan.",cast:"LEMPAR",reel:"GULUNG",hold:"TAHAN",score:"SKOR",best:"TERBAIK",caught:"Dapat!",gotAway:"Lepas…",snapped:"Senarnya putus!",tooSoon:"Tidak ada apa-apa — lempar lagi.",waitMsg:"Menunggu gigitan…",biteMsg:"MENGGIGIT! GULUNG!",fightMsg:"Tahan untuk menggulung — jaga tegangan di hijau!",aimMsg:"Ketuk lagi untuk melempar!",howto:"Ketuk LEMPAR, lalu ketuk lagi untuk jarak. Saat pelampung tenggelam, ketuk GULUNG cepat! Lalu tahan untuk menggulung, jaga tegangan di zona hijau. Lemparan jauh menjangkau ikan langka.",logT:"🐟 Catatan tangkapan",empty:"Belum ada tangkapan. Semoga beruntung!",newBest:"★ REKOR BARU!",close:"Lanjut memancing",power:"KEKUATAN",tension:"TEGANGAN",reelIn:"MENGGULUNG",rC:"UMUM",rU:"TIDAK UMUM",rR:"LANGKA",rL:"LEGENDARIS",pts:"poin"},
+vi:{tag:"Một đêm yên tĩnh bên hồ trăng.",cast:"NÉM",reel:"QUAY",hold:"GIỮ",score:"ĐIỂM",best:"TỐT NHẤT",caught:"Bắt được!",gotAway:"Nó thoát rồi…",snapped:"Dây câu đứt!",tooSoon:"Không có gì — ném lại.",waitMsg:"Đang chờ cá cắn…",biteMsg:"CẮN RỒI! QUAY!",fightMsg:"Giữ để quay — giữ độ căng ở vùng xanh!",aimMsg:"Chạm lại để ném!",howto:"Chạm NÉM, rồi chạm lại để chọn khoảng cách. Khi phao chìm, chạm QUAY thật nhanh! Sau đó giữ để kéo vào, giữ độ căng ở vùng xanh. Ném xa chạm tới cá hiếm.",logT:"🐟 Nhật ký câu",empty:"Chưa câu được gì. Chúc may mắn!",newBest:"★ KỶ LỤC MỚI!",close:"Câu tiếp",power:"LỰC",tension:"ĐỘ CĂNG",reelIn:"KÉO VÀO",rC:"THƯỜNG",rU:"ÍT GẶP",rR:"HIẾM",rL:"HUYỀN THOẠI",pts:"điểm"},
+th:{tag:"คืนเงียบสงบบนทะเลสาบพระจันทร์",cast:"เหวี่ยง",reel:"หมุนเก็บ",hold:"กดค้าง",score:"คะแนน",best:"ดีที่สุด",caught:"จับได้!",gotAway:"มันหนีไป…",snapped:"สายขาด!",tooSoon:"ไม่มีอะไร — เหวี่ยงใหม่",waitMsg:"รอปลากินเหยื่อ…",biteMsg:"กินแล้ว! หมุนเก็บ!",fightMsg:"กดค้างเพื่อเก็บสาย — รักษาแรงตึงในโซนเขียว!",aimMsg:"แตะอีกครั้งเพื่อเหวี่ยง!",howto:"แตะเหวี่ยง แล้วแตะอีกครั้งเพื่อกำหนดระยะ เมื่อทุ่นจม ให้แตะหมุนเก็บเร็ว ๆ! จากนั้นกดค้างเพื่อดึงเข้า รักษาแรงตึงในโซนเขียว การเหวี่ยงไกลจะถึงปลาหายาก",logT:"🐟 บันทึกการจับ",empty:"ยังไม่มีปลา โชคดีนะ!",newBest:"★ สถิติใหม่!",close:"ตกปลาต่อ",power:"พลัง",tension:"แรงตึง",reelIn:"ดึงเข้า",rC:"ธรรมดา",rU:"ไม่ธรรมดา",rR:"หายาก",rL:"ตำนาน",pts:"แต้ม"},
+ko:{tag:"달 호수의 고요한 밤.",cast:"던지기",reel:"감기",hold:"누르기",score:"점수",best:"최고",caught:"잡았다!",gotAway:"놓쳤다…",snapped:"줄이 끊어졌다!",tooSoon:"아무것도 없어 — 다시 던져.",waitMsg:"입질을 기다리는 중…",biteMsg:"입질! 감아!",fightMsg:"감으려면 누르고 — 장력을 초록 구간에!",aimMsg:"다시 탭해서 던지기!",howto:"던지기를 탭하고, 다시 탭해 거리를 정하세요. 찌가 잠기면 빠르게 감기를 탭! 그런 다음 누른 채로 감아 올리며 장력을 초록 구간에 유지하세요. 멀리 던질수록 희귀한 물고기가 옵니다.",logT:"🐟 조과 기록",empty:"아직 잡은 게 없어요. 행운을!",newBest:"★ 신기록!",close:"계속 낚시",power:"파워",tension:"장력",reelIn:"감아 올리기",rC:"일반",rU:"비일반",rR:"희귀",rL:"전설",pts:"점"},
+ja:{tag:"月湖の静かな夜。",cast:"投げる",reel:"巻く",hold:"長押し",score:"スコア",best:"ベスト",caught:"釣れた！",gotAway:"逃げられた…",snapped:"糸が切れた！",tooSoon:"何もいない — 投げ直そう。",waitMsg:"アタリを待っています…",biteMsg:"アタリ！巻いて！",fightMsg:"長押しで巻く — テンションを緑に保て！",aimMsg:"もう一度タップでキャスト！",howto:"「投げる」をタップし、もう一度タップで距離を決めます。ウキが沈んだら素早く「巻く」をタップ！その後、長押しで巻き上げ、テンションを緑のゾーンに保ちましょう。遠投ほどレアな魚に届きます。",logT:"🐟 釣果ログ",empty:"まだ釣果なし。幸運を！",newBest:"★ 新記録！",close:"釣りを続ける",power:"パワー",tension:"テンション",reelIn:"巻き上げ",rC:"コモン",rU:"アンコモン",rR:"レア",rL:"レジェンド",pts:"pt"},
+zh:{tag:"月湖上宁静的夜晚。",cast:"抛竿",reel:"收线",hold:"按住",score:"分数",best:"最佳",caught:"钓到了！",gotAway:"它跑掉了…",snapped:"线断了！",tooSoon:"那里没鱼 — 再抛一次。",waitMsg:"等待咬钩…",biteMsg:"咬钩了！快收线！",fightMsg:"按住收线 — 让张力保持在绿区！",aimMsg:"再点一次抛竿！",howto:"点抛竿，再点一次定距离。浮漂下沉时，快速点收线！然后按住收线，让张力保持在绿色区域。抛得越远，越能钓到稀有鱼。",logT:"🐟 渔获记录",empty:"还没有渔获。祝好运！",newBest:"★ 新纪录！",close:"继续钓鱼",power:"力度",tension:"张力",reelIn:"收线进度",rC:"普通",rU:"不寻常",rR:"稀有",rL:"传说",pts:"分"}
+};
+let lang = localStorage.getItem('luncFishingLang') || 'en';
+if (!I18N[lang]) lang = 'en';
+const T = () => I18N[lang];
+const langSel = $('langSel');
+LANGS.forEach(([code,label]) => { const o=document.createElement('option'); o.value=code; o.textContent='🌐 '+label; langSel.appendChild(o); });
+langSel.value = lang;
+langSel.addEventListener('change', () => { lang = langSel.value; localStorage.setItem('luncFishingLang', lang); applyLang(); });
+</script>
+<script>
+/* ================= fish data ================= */
+/* zone: 0=near(<35) 1=mid(35-70) 2=deep(>70); weight in kg; mult = points per kg */
+const FISH=[
+ {name:"Moon Minnow",     rar:"common",   color:"#b8c7e0", w:[0.1,0.5],  mult:20,  zones:[0,1],   fight:0.55},
+ {name:"Silver Perch",    rar:"common",   color:"#d7dee8", w:[0.3,1.2],  mult:22,  zones:[0,1],   fight:0.65},
+ {name:"LUNC Trout",      rar:"common",   color:"#7fd4a8", w:[0.5,2.0],  mult:25,  zones:[0,1,2], fight:0.75},
+ {name:"Rocket Pike",     rar:"uncommon", color:"#8affd1", w:[1.0,4.0],  mult:32,  zones:[1,2],   fight:1.0},
+ {name:"Crescent Catfish",rar:"uncommon", color:"#a88aff", w:[2.0,7.0],  mult:30,  zones:[1,2],   fight:1.1},
+ {name:"Eclipse Eel",     rar:"rare",     color:"#5a6cff", w:[1.5,5.0],  mult:45,  zones:[2],     fight:1.25},
+ {name:"Golden Koi",      rar:"rare",     color:"#ffd94d", w:[0.8,3.0],  mult:60,  zones:[1,2],   fight:1.15},
+ {name:"Diamond Bass",    rar:"legendary",color:"#aef4ff", w:[3.0,9.0],  mult:80,  zones:[2],     fight:1.5},
+ {name:"Ancient Moonwhale",rar:"legendary",color:"#ffe9a8",w:[8.0,20.0], mult:70,  zones:[2],     fight:1.7}
+];
+const RARW = {common:52, uncommon:30, rare:13, legendary:5};
+const RARKEY = {common:"rC", uncommon:"rU", rare:"rR", legendary:"rL"};
+function pickFish(dist){
+  const zone = dist<35?0 : dist<70?1 : 2;
+  const pool = FISH.filter(f=>f.zones.includes(zone));
+  let total=0; for(const f of pool) total += RARW[f.rar];
+  let r = Math.random()*total;
+  for(const f of pool){ r -= RARW[f.rar]; if(r<=0) return f; }
+  return pool[0];
+}
+
+/* ================= save (local only) ================= */
+let save = {total:0, catches:[], best:null};
+try { const s = JSON.parse(localStorage.getItem('luncFishingSave')); if (s && typeof s.total==='number') save = s; } catch(e){}
+function persist(){ try{ localStorage.setItem('luncFishingSave', JSON.stringify(save)); }catch(e){} }
+
+/* ================= audio (WebAudio synth, no files) ================= */
+let AC=null, muted = localStorage.getItem('luncFishingMute')==='1';
+function ac(){ if(!AC){ try{ AC = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } if(AC && AC.state==='suspended') AC.resume(); return AC; }
+function tone(freq, dur, type, vol, slideTo, delay){
+  if(muted) return; const c=ac(); if(!c) return;
+  const t0 = c.currentTime + (delay||0);
+  const o=c.createOscillator(), g=c.createGain();
+  o.type=type||'sine'; o.frequency.setValueAtTime(freq, t0);
+  if(slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(20,slideTo), t0+dur);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(vol||0.15, t0+0.015);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0+dur);
+  o.connect(g); g.connect(c.destination); o.start(t0); o.stop(t0+dur+0.05);
+}
+function noiseBurst(dur, freq, vol, delay){
+  if(muted) return; const c=ac(); if(!c) return;
+  const t0=c.currentTime+(delay||0), len=Math.max(1,(dur*c.sampleRate)|0);
+  const buf=c.createBuffer(1,len,c.sampleRate), d=buf.getChannelData(0);
+  for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*(1-i/len);
+  const src=c.createBufferSource(); src.buffer=buf;
+  const f=c.createBiquadFilter(); f.type='lowpass'; f.frequency.value=freq;
+  const g=c.createGain(); g.gain.value=vol||0.2;
+  src.connect(f); f.connect(g); g.connect(c.destination); src.start(t0);
+}
+const sfx = {
+  cast(){ noiseBurst(0.35, 1800, 0.10); tone(300,0.3,'sine',0.05,900); },
+  splash(){ noiseBurst(0.28, 700, 0.22); tone(180,0.18,'sine',0.08,60); },
+  plip(){ tone(620,0.09,'sine',0.12,300); noiseBurst(0.08,900,0.08); },
+  click(){ tone(1400,0.03,'square',0.045); },
+  snap(){ tone(900,0.16,'sawtooth',0.14,120); noiseBurst(0.12,2400,0.14); },
+  away(){ tone(320,0.35,'sine',0.10,170); },
+  win(){ [523,659,784,1046].forEach((f,i)=>tone(f,0.22,'triangle',0.13,null,i*0.09)); }
+};
+$('soundBtn').textContent = muted ? '🔇' : '🔊';
+$('soundBtn').addEventListener('click', () => { muted=!muted; localStorage.setItem('luncFishingMute', muted?'1':'0'); $('soundBtn').textContent = muted?'🔇':'🔊'; if(!muted) sfx.plip(); });
+function buzz(p){ try{ if(navigator.vibrate) navigator.vibrate(p); }catch(e){} }
+</script>
+<script>
+/* ================= game state ================= */
+const cv = $('game'), ctx = cv.getContext('2d');
+let W=0, H=0, DPR=1, LAY={};
+function layout(){
+  LAY = {
+    horizon: H*0.42,
+    dockY: H*0.815,
+    dockEnd: W*0.47,
+    fisherX: W*0.335,
+    rodTip: { x: W*0.505, y: H*0.585 },
+    moonX: W*0.76, moonY: H*0.155, moonR: Math.min(W,H)*0.085
+  };
+}
+function resize(){
+  DPR = Math.min(2, window.devicePixelRatio||1);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = W*DPR; cv.height = H*DPR; ctx.setTransform(DPR,0,0,DPR,0,0);
+  layout();
+}
+window.addEventListener('resize', resize); resize();
+
+const G = {
+  state:'idle', power:0, powerDir:1, castDist:0,
+  bob:{x:0,y:0,fx:0,fy:0,tx:0,ty:0,t:0},
+  biteAt:0, biteEnd:0, nibbleAt:0, nibbleT:0,
+  fish:null, fishW:0, tension:0, progress:0, holding:false,
+  fightEnd:0, fightLen:0, surgeAt:0, surge:0, clickAt:0,
+  ripples:[], splashes:[], flies:[], msgTimer:0
+};
+for(let i=0;i<20;i++) G.flies.push({x:Math.random(), y:0.45+Math.random()*0.4, p:Math.random()*7, s:0.4+Math.random()*0.8});
+
+function castTarget(d){
+  const k = d/100;
+  return { x: W*(0.54 + 0.38*k), y: LAY.horizon + (H*0.335 - H*0.30*k) };
+}
+function setMsg(txt, cls){
+  const m = $('msg'); m.textContent = txt||''; m.className = cls||'';
+  clearTimeout(G.msgTimer);
+  if(txt && (G.state==='idle')) G.msgTimer = setTimeout(()=>{ if(G.state==='idle') m.textContent=''; }, 2600);
+}
+function setState(s){
+  G.state = s;
+  const b = $('actionBtn'), t = T();
+  b.classList.remove('reel','hold','dim');
+  $('powerWrap').style.display = s==='aim' ? 'block':'none';
+  $('fightWrap').style.display = s==='fight' ? 'block':'none';
+  if(s==='idle' || s==='aim'){ b.textContent = t.cast; }
+  else if(s==='fly'){ b.textContent='···'; b.classList.add('dim'); }
+  else if(s==='wait'){ b.textContent = t.reel; b.classList.add('dim'); }
+  else if(s==='bite'){ b.textContent = t.reel; b.classList.add('reel'); }
+  else if(s==='fight'){ b.textContent = t.hold; b.classList.add('hold'); }
+}
+function splashAt(x,y,big){
+  G.splashes.push({x,y,t:0,big:!!big});
+  G.ripples.push({x,y,t:0,max:big?46:26});
+  sfx.splash();
+}
+function startAim(){ setState('aim'); G.power=0; G.powerDir=1; setMsg(T().aimMsg); }
+function doCast(){
+  G.castDist = Math.round(G.power);
+  const tg = castTarget(G.castDist);
+  G.bob.fx = LAY.rodTip.x; G.bob.fy = LAY.rodTip.y;
+  G.bob.tx = tg.x; G.bob.ty = tg.y; G.bob.t = 0;
+  G.bob.x = G.bob.fx; G.bob.y = G.bob.fy;
+  setState('fly'); setMsg(''); sfx.cast();
+}
+function landBobber(){
+  G.bob.x = G.bob.tx; G.bob.y = G.bob.ty;
+  splashAt(G.bob.x, G.bob.y, false);
+  const now = performance.now();
+  G.biteAt = now + 2000 + Math.random()*4500;
+  G.nibbleAt = now + 1200 + Math.random()*2200;
+  setState('wait'); setMsg(T().waitMsg);
+}
+function startBite(){
+  setState('bite');
+  G.biteEnd = performance.now() + 1350;
+  splashAt(G.bob.x, G.bob.y, true);
+  sfx.plip(); buzz(180);
+  setMsg(T().biteMsg, 'bite');
+}
+function startFight(){
+  G.fish = pickFish(G.castDist);
+  G.fishW = +(G.fish.w[0] + Math.random()*(G.fish.w[1]-G.fish.w[0])).toFixed(2);
+  G.tension = 18; G.progress = 0; G.holding = false; G.surge = 0;
+  G.fightLen = 3800 + G.fish.fight*1700;
+  G.fightEnd = performance.now() + G.fightLen;
+  G.surgeAt = performance.now() + 700 + Math.random()*700;
+  setState('fight'); setMsg(T().fightMsg);
+  $('tensionZone').style.left = '33%'; $('tensionZone').style.width = '45%';
+}
+function endRound(kind){
+  G.holding = false;
+  if(kind==='snap'){ sfx.snap(); buzz(280); setMsg(T().snapped); }
+  else if(kind==='away'){ sfx.away(); buzz(90); setMsg(T().gotAway); }
+  else if(kind==='soon'){ setMsg(T().tooSoon); }
+  setState('idle');
+}
+function caught(){
+  const pts = Math.round(G.fishW * G.fish.mult);
+  const rec = {name:G.fish.name, rar:G.fish.rar, w:G.fishW, pts};
+  const isBest = !save.best || pts > save.best.pts;
+  save.total += pts;
+  save.catches.unshift(rec); save.catches = save.catches.slice(0,12);
+  if(isBest) save.best = rec;
+  persist(); updateHUD(); renderLog();
+  sfx.win(); buzz([60,40,60,40,120]);
+  G.holding = false; setState('card'); setMsg('');
+  const t = T();
+  $('catchName').textContent = rec.name;
+  const rarEl = $('catchRar'); rarEl.textContent = t[RARKEY[rec.rar]]; rarEl.className = 'rar-'+rec.rar; rarEl.id='catchRar';
+  $('newBestLab').textContent = isBest ? t.newBest : '';
+  $('catchStats').innerHTML = '⚖️ <b>'+rec.w.toFixed(2)+' kg</b> &nbsp;·&nbsp; ⭐ <b>'+pts+' '+t.pts+'</b>';
+  drawCardFish(G.fish);
+  $('catchCard').classList.add('show');
+}
+$('catchClose').addEventListener('click', ()=>{ $('catchCard').classList.remove('show'); setState('idle'); });
+
+/* ================= HUD / log / lang ================= */
+function updateHUD(){
+  $('scoreVal').textContent = save.total;
+  $('bestVal').textContent = save.best ? save.best.pts : '—';
+}
+function renderLog(){
+  const t = T(), rows = $('logRows');
+  if(!save.catches.length){ rows.innerHTML = '<div class="empty">'+t.empty+'</div>'; return; }
+  rows.innerHTML = save.catches.map(c =>
+    '<div class="row"><span class="rar-'+c.rar+'">'+c.name+'</span><span class="w">'+c.w.toFixed(2)+' kg · '+c.pts+' '+t.pts+'</span></div>').join('');
+}
+$('logBtn').addEventListener('click', ()=>{
+  const p = $('logPanel'); const open = p.style.display==='block';
+  if(!open) renderLog();
+  p.style.display = open ? 'none':'block';
+});
+function applyLang(){
+  const t = T();
+  $('tagline').textContent = t.tag;
+  $('scoreLab').textContent = t.score; $('bestLab').textContent = t.best;
+  $('howto').textContent = t.howto;
+  $('logTitle').textContent = t.logT;
+  $('powerLab').textContent = t.power; $('tensionLab').textContent = t.tension; $('progLab').textContent = t.reelIn;
+  $('caughtLab').textContent = t.caught; $('catchClose').textContent = t.close;
+  updateHUD(); renderLog(); setState(G.state);
+}
+
+/* ================= input: ONE button, tap-anywhere ================= */
+function pressStart(e){
+  if(e) e.preventDefault();
+  ac();
+  if(G.state==='idle') startAim();
+  else if(G.state==='aim') doCast();
+  else if(G.state==='wait') endRound('soon');
+  else if(G.state==='bite') startFight();
+  else if(G.state==='fight') G.holding = true;
+}
+function pressEnd(){
+  if(G.state==='fight') G.holding = false;
+}
+const btn = $('actionBtn');
+btn.addEventListener('pointerdown', pressStart);
+window.addEventListener('pointerup', pressEnd);
+window.addEventListener('pointercancel', pressEnd);
+cv.addEventListener('pointerdown', pressStart);
+window.addEventListener('keydown', e=>{ if(e.code==='Space' && !e.repeat) pressStart(e); });
+window.addEventListener('keyup', e=>{ if(e.code==='Space') pressEnd(); });
+
+/* debug hook for QA */
+window.__fish = { G, forceBite(){ if(G.state==='wait') G.biteAt = performance.now()-1; }, startFight, caught };
+
+/* ================= update ================= */
+let lastNow = performance.now();
+function update(dt, now){
+  if(G.state==='aim'){
+    G.power += G.powerDir * dt * 0.115;
+    if(G.power>=100){ G.power=100; G.powerDir=-1; }
+    if(G.power<=0){ G.power=0; G.powerDir=1; }
+    $('powerFill').style.width = G.power+'%';
+  }
+  else if(G.state==='fly'){
+    G.bob.t += dt/780;
+    const t = Math.min(1, G.bob.t);
+    G.bob.x = G.bob.fx + (G.bob.tx-G.bob.fx)*t;
+    G.bob.y = G.bob.fy + (G.bob.ty-G.bob.fy)*t - Math.sin(Math.PI*t)*H*0.20;
+    if(G.bob.t>=1) landBobber();
+  }
+  else if(G.state==='wait'){
+    if(G.nibbleT>0) G.nibbleT -= dt;
+    else if(now>=G.nibbleAt){ G.nibbleT = 300; G.nibbleAt = now + 1600 + Math.random()*2600; }
+    if(now>=G.biteAt) startBite();
+  }
+  else if(G.state==='bite'){
+    if(now>G.biteEnd) endRound('away');
+  }
+  else if(G.state==='fight'){
+    const f = G.fish, dts = dt/1000;
+    if(now>=G.surgeAt){ G.surge=1; G.surgeAt = now + 950 + Math.random()*1150; G.surgeEnd = now+430; }
+    if(G.surge>0 && now>G.surgeEnd) G.surge = Math.max(0, G.surge - dt/280);
+    const pull = (Math.sin(now*0.004)+Math.sin(now*0.0073+1.7))/2;
+    if(G.holding){
+      G.tension += (25 + 21*(f.fight-0.5) + G.surge*27 + Math.max(0,pull)*9) * dts;
+      const inGreen = G.tension>=33 && G.tension<=78;
+      G.progress += (inGreen?42 : G.tension<33?16 : 6) * dts;
+      if(now-G.clickAt>95){ sfx.click(); G.clickAt=now; }
+      if(Math.random()<dt/420) G.splashes.push({x:G.fishX||G.bob.x, y:G.bob.y, t:0, big:false});
+    } else {
+      G.tension -= 41*dts;
+    }
+    G.tension = Math.max(0, Math.min(104, G.tension));
+    G.fishX = G.bob.tx - (G.progress/100)*(G.bob.tx - (LAY.fisherX + W*0.10));
+    $('tensionFill').style.width = Math.min(100,G.tension)+'%';
+    $('progFill').style.width = Math.min(100,G.progress)+'%';
+    if(G.tension>=100){ endRound('snap'); return; }
+    if(G.progress>=100){ caught(); return; }
+    if(now>G.fightEnd){ endRound('away'); return; }
+  }
+  for(let i=G.ripples.length-1;i>=0;i--){ G.ripples[i].t += dt/1400; if(G.ripples[i].t>=1) G.ripples.splice(i,1); }
+  for(let i=G.splashes.length-1;i>=0;i--){ G.splashes[i].t += dt/480; if(G.splashes[i].t>=1) G.splashes.splice(i,1); }
+  if((G.state==='wait'||G.state==='bite') && Math.random()<dt/2600) G.ripples.push({x:G.bob.x, y:G.bob.y, t:0, max:22});
+}
+
+/* ================= drawing ================= */
+const STARS=[]; for(let i=0;i<110;i++) STARS.push({x:Math.random(), y:Math.random()*0.4, r:Math.random()*1.3+0.3, p:Math.random()*7});
+function fishPath(c, x, y, len, hgt, flip){
+  const s = flip?-1:1;
+  c.beginPath();
+  c.moveTo(x - s*len*0.5, y);
+  c.quadraticCurveTo(x - s*len*0.1, y - hgt, x + s*len*0.28, y - hgt*0.32);
+  c.quadraticCurveTo(x + s*len*0.42, y - hgt*0.5, x + s*len*0.5, y - hgt*0.85);
+  c.quadraticCurveTo(x + s*len*0.52, y, x + s*len*0.5, y + hgt*0.85);
+  c.quadraticCurveTo(x + s*len*0.42, y + hgt*0.5, x + s*len*0.28, y + hgt*0.32);
+  c.quadraticCurveTo(x - s*len*0.1, y + hgt, x - s*len*0.5, y);
+  c.closePath();
+}
+function drawCardFish(fish){
+  const c = $('catchFish').getContext('2d');
+  c.clearRect(0,0,220,110);
+  c.save(); c.translate(110,55);
+  c.shadowColor = fish.color; c.shadowBlur = 18;
+  fishPath(c, 0, 0, 150, 34, false); c.fillStyle = fish.color; c.fill();
+  c.shadowBlur = 0;
+  c.beginPath(); c.arc(-52,-8,5,0,7); c.fillStyle='#0a142e'; c.fill();
+  c.beginPath(); c.moveTo(30,-24); c.quadraticCurveTo(48,-40,58,-22); c.quadraticCurveTo(44,-14,30,-16); c.fillStyle=fish.color; c.fill();
+  c.restore();
+}
+function draw(now){
+  const t = now/1000;
+  /* sky */
+  const sky = ctx.createLinearGradient(0,0,0,LAY.horizon*1.15);
+  sky.addColorStop(0,'#05081a'); sky.addColorStop(0.55,'#0d1b3e'); sky.addColorStop(1,'#2a4a6b');
+  ctx.fillStyle = sky; ctx.fillRect(0,0,W,LAY.horizon+2);
+  for(const s of STARS){
+    ctx.globalAlpha = 0.35 + 0.55*Math.abs(Math.sin(t*0.7+s.p));
+    ctx.fillStyle = '#dfe9ff'; ctx.beginPath(); ctx.arc(s.x*W, s.y*H, s.r, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  /* moon: glow + crescent */
+  const mx=LAY.moonX, my=LAY.moonY, mr=LAY.moonR;
+  const glow = ctx.createRadialGradient(mx,my,mr*0.4, mx,my,mr*3.4);
+  glow.addColorStop(0,'rgba(255,240,200,0.30)'); glow.addColorStop(1,'rgba(255,240,200,0)');
+  ctx.fillStyle = glow; ctx.fillRect(mx-mr*3.4, my-mr*3.4, mr*6.8, mr*6.8);
+  ctx.beginPath();
+  ctx.arc(mx,my,mr, Math.PI*0.32, Math.PI*1.68);
+  ctx.arc(mx+mr*0.52, my-mr*0.18, mr*0.80, Math.PI*1.55, Math.PI*0.45, true);
+  ctx.closePath(); ctx.fillStyle = '#f7edd0'; ctx.fill();
+  /* hills */
+  ctx.fillStyle = '#13223f';
+  ctx.beginPath(); ctx.moveTo(0,LAY.horizon);
+  for(let x=0;x<=W;x+=14) ctx.lineTo(x, LAY.horizon - 16 - Math.sin(x*0.006+2)*20 - Math.sin(x*0.017)*8);
+  ctx.lineTo(W,LAY.horizon); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#0b1730';
+  ctx.beginPath(); ctx.moveTo(0,LAY.horizon);
+  for(let x=0;x<=W;x+=14) ctx.lineTo(x, LAY.horizon - 4 - Math.sin(x*0.009+5)*11);
+  ctx.lineTo(W,LAY.horizon); ctx.closePath(); ctx.fill();
+  /* pine silhouettes on the left shore */
+  ctx.fillStyle = '#071022';
+  for(const px of [W*0.05, W*0.115, W*0.175]){
+    const ph = H*0.10 + (px%0.05)*300, base = LAY.horizon+3;
+    ctx.fillRect(px-2, base-ph*0.3, 4, ph*0.3);
+    for(let i=0;i<3;i++){ const wdt = ph*0.30*(1-i*0.24), yy = base-ph*0.25-i*ph*0.24;
+      ctx.beginPath(); ctx.moveTo(px-wdt, yy); ctx.lineTo(px+wdt, yy); ctx.lineTo(px, yy-ph*0.30); ctx.closePath(); ctx.fill(); }
+  }
+  /* water */
+  const wat = ctx.createLinearGradient(0,LAY.horizon,0,H);
+  wat.addColorStop(0,'#1b3a58'); wat.addColorStop(0.25,'#122a46'); wat.addColorStop(1,'#060f22');
+  ctx.fillStyle = wat; ctx.fillRect(0,LAY.horizon,W,H-LAY.horizon);
+  /* moon reflection shimmer */
+  for(let i=0;i<26;i++){
+    const yy = LAY.horizon + 6 + i*((H-LAY.horizon-14)/26);
+    const wdt = mr*(0.55 + 0.5*Math.sin(i*1.7)) * (0.7+0.3*Math.sin(t*1.6+i));
+    const off = Math.sin(t*1.3 + i*2.1)*7;
+    ctx.globalAlpha = 0.10 + 0.10*Math.abs(Math.sin(t*2+i*1.3));
+    ctx.fillStyle = '#ffeec2';
+    ctx.fillRect(mx-wdt/2+off, yy, wdt, 2.2);
+  }
+  ctx.globalAlpha = 1;
+  /* general water shimmer */
+  ctx.strokeStyle = 'rgba(160,200,255,0.07)'; ctx.lineWidth = 1;
+  for(let i=0;i<7;i++){
+    const yy = LAY.horizon + 18 + i*(H-LAY.horizon)/7.5 + Math.sin(t*0.9+i*2)*2;
+    ctx.beginPath();
+    for(let x=0;x<=W;x+=26) ctx.lineTo(x + Math.sin(t+i+x*0.02)*5, yy);
+    ctx.stroke();
+  }
+  /* ripples */
+  for(const r of G.ripples){
+    ctx.globalAlpha = (1-r.t)*0.5; ctx.strokeStyle='#bfe0ff'; ctx.lineWidth=1.4;
+    ctx.beginPath(); ctx.ellipse(r.x, r.y, r.max*r.t+3, (r.max*r.t+3)*0.30, 0, 0, 7); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  /* aim target marker */
+  if(G.state==='aim'){
+    const tg = castTarget(G.power);
+    ctx.strokeStyle = 'rgba(255,233,168,0.9)'; ctx.lineWidth = 2;
+    const rr = 9 + Math.sin(t*7)*2.5;
+    ctx.beginPath(); ctx.ellipse(tg.x, tg.y, rr, rr*0.36, 0, 0, 7); ctx.stroke();
+  }
+  /* fighting fish silhouette */
+  if(G.state==='fight'){
+    const fx = G.fishX||G.bob.x, fy = G.bob.y + 7 + Math.sin(t*9)*2;
+    ctx.globalAlpha = 0.55; ctx.fillStyle = '#04101f';
+    fishPath(ctx, fx, fy, 44+G.fish.fight*16, 13+G.fish.fight*5, Math.sin(t*3)>0);
+    ctx.fill(); ctx.globalAlpha = 1;
+  }
+  /* fishing line + bobber */
+  const castOut = ['fly','wait','bite','fight'].includes(G.state);
+  if(castOut){
+    ctx.strokeStyle = 'rgba(230,240,255,0.65)'; ctx.lineWidth = 1.1;
+    ctx.beginPath(); ctx.moveTo(LAY.rodTip.x, LAY.rodTip.y);
+    const sag = G.state==='fly' ? 6 : 22;
+    ctx.quadraticCurveTo((LAY.rodTip.x+G.bob.x)/2, Math.min(LAY.rodTip.y,G.bob.y)-sag+18, G.bob.x, G.bob.y-4);
+    ctx.stroke();
+    let dip = 0;
+    if(G.state==='bite') dip = 7;
+    else if(G.state==='wait' && G.nibbleT>0) dip = 3.5;
+    else if(G.state==='fight') dip = 5 + Math.sin(t*11)*1.6;
+    const bobY = G.bob.y + Math.sin(t*2.2)*1.6 + dip;
+    ctx.beginPath(); ctx.arc(G.bob.x, bobY, 6, Math.PI, 0); ctx.fillStyle='#ff5147'; ctx.fill();
+    ctx.beginPath(); ctx.arc(G.bob.x, bobY, 6, 0, Math.PI); ctx.fillStyle='#f4f7ff'; ctx.fill();
+    ctx.beginPath(); ctx.arc(G.bob.x, bobY-7, 2.2, 0, 7); ctx.fillStyle='#ffd94d'; ctx.fill();
+    ctx.globalAlpha = 0.35; ctx.fillStyle='#ffb3ab';
+    ctx.beginPath(); ctx.ellipse(G.bob.x, G.bob.y+5, 8, 2.4, 0, 0, 7); ctx.fill(); ctx.globalAlpha=1;
+  }
+  /* splashes */
+  for(const s of G.splashes){
+    ctx.strokeStyle = 'rgba(210,235,255,0.85)'; ctx.lineWidth = 1.6;
+    const n = s.big?7:4;
+    for(let i=0;i<n;i++){
+      const a = -Math.PI*(0.15 + 0.7*i/(n-1)), sp = (s.big?66:42)*(1-s.t*0.4);
+      const dx = Math.cos(a)*sp*s.t, dy = Math.sin(a)*sp*s.t + 60*s.t*s.t;
+      ctx.beginPath(); ctx.moveTo(s.x+dx*0.6, s.y+dy*0.6); ctx.lineTo(s.x+dx, s.y+dy); ctx.stroke();
+    }
+  }
+  /* dock */
+  const dy = LAY.dockY;
+  ctx.fillStyle = '#3a2817';
+  ctx.beginPath(); ctx.moveTo(0, dy); ctx.lineTo(LAY.dockEnd, dy+4); ctx.lineTo(LAY.dockEnd-14, dy+17); ctx.lineTo(0, dy+20); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1.4;
+  for(let i=1;i<6;i++){ const xx = (LAY.dockEnd/6)*i; ctx.beginPath(); ctx.moveTo(xx, dy+1); ctx.lineTo(xx-3, dy+18); ctx.stroke(); }
+  ctx.fillStyle = '#2c1e10';
+  for(const px of [W*0.06, LAY.dockEnd-26]){ ctx.fillRect(px, dy+10, 9, H*0.10); }
+  ctx.fillStyle = 'rgba(160,200,255,0.10)'; ctx.fillRect(0, dy+20, LAY.dockEnd, 2);
+  /* fisher silhouette */
+  const fx = LAY.fisherX, fy = dy;
+  ctx.fillStyle = '#050b18';
+  ctx.beginPath(); ctx.ellipse(fx, fy-24, 10.5, 15, 0, 0, 7); ctx.fill();      /* body */
+  ctx.beginPath(); ctx.arc(fx+1, fy-46, 8, 0, 7); ctx.fill();                 /* head */
+  ctx.fillRect(fx-10, fy-52, 22, 3.4);                                          /* hat brim */
+  ctx.beginPath(); ctx.arc(fx+1, fy-53, 5.4, Math.PI, 0); ctx.fill();          /* hat top */
+  ctx.fillRect(fx-3, fy-12, 17, 5);                                             /* legs along dock */
+  /* rod */
+  ctx.strokeStyle = '#1a1208'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(fx+6, fy-30); ctx.lineTo(LAY.rodTip.x, LAY.rodTip.y); ctx.stroke();
+  /* lantern on the dock */
+  const lx = fx - W*0.085, ly = dy - 13;
+  ctx.fillStyle = '#241806'; ctx.fillRect(lx-5, ly-8, 10, 13);
+  const lg = ctx.createRadialGradient(lx,ly,1, lx,ly,26);
+  lg.addColorStop(0,'rgba(255,196,80,0.85)'); lg.addColorStop(1,'rgba(255,196,80,0)');
+  ctx.fillStyle = lg; ctx.fillRect(lx-26, ly-26, 52, 52);
+  ctx.fillStyle = '#ffcf6e'; ctx.beginPath(); ctx.arc(lx, ly-1, 3.2, 0, 7); ctx.fill();
+  /* fireflies */
+  for(const f of G.flies){
+    const px = (f.x + Math.sin(t*0.23*f.s + f.p)*0.03)*W;
+    const py = (f.y + Math.cos(t*0.31*f.s + f.p*2)*0.035)*H;
+    ctx.globalAlpha = 0.25 + 0.6*Math.abs(Math.sin(t*0.9*f.s + f.p));
+    ctx.fillStyle = '#d8ff9a'; ctx.beginPath(); ctx.arc(px, py, 1.8, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+function loop(now){
+  const dt = Math.min(60, now - lastNow); lastNow = now;
+  update(dt, now);
+  draw(now);
+  requestAnimationFrame(loop);
+}
+applyLang();
+setState('idle');
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
+</body>
+</html>
