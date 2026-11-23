@@ -2151,6 +2151,11 @@ const PACK_BNB_CHAIN_ID = '0x38';               /* BNB Smart Chain mainnet = 56 
 const GOLIATH_BNB = '0x0054b0F95D500d280A8d4a77dEEcecF970770EA3'; /* Goliath's BNB Chain wallet (sent by Goliath Nov 22, 2026, EIP-55 checksum verified). USDT pack payments go here. */
 const PACK_API = '/api/luna-games?pack=1';
 const PACK_PRICE_URL = 'https://api.coinpaprika.com/v1/tickers/lunc-terra-classic';
+/* Fallback price feed (Nov 23, 2026): CoinGecko simple/price. The id
+   "terra-luna" is Luna Classic — verified Nov 23, 2026 ($0.0000417,
+   matching LUNC). "terra-luna-2" is Luna 2.0 ($0.0313) — never use it
+   here. Kraken lists no LUNC pair. */
+const PACK_PRICE_URL_FALLBACK = 'https://api.coingecko.com/api/v3/simple/price?ids=terra-luna&vs_currencies=usd';
 let packEvmAddr = '', packCount = 1, packCushionOn = true, packPrice = null, packPriceAt = 0, packQuoteStr = '', packBusy = false, packPollTimer = null;
 
 /* Pack diagnostics stamp (Trust Wallet round 3, Nov 22, 2026): two small
@@ -2158,7 +2163,7 @@ let packEvmAddr = '', packCount = 1, packCushionOn = true, packPrice = null, pac
    which provider the page sees, the RAW eth_chainId answer exactly as the
    wallet returned it, the connected address, and the last step/error in
    plain words. English-only on purpose: it is a support readout. */
-const PACK_BUILD = 'pack build 2026-11-23-5';
+const PACK_BUILD = 'pack build 2026-11-23-6';
 let packDiagRawChain = '(not read yet)', packDiagStep = 'page loaded';
 function packDiagProvName(){
   try {
@@ -2197,10 +2202,31 @@ function packQuoteFor(price, count){
 }
 async function packLoadPrice(){
   if (packPrice && Date.now() - packPriceAt < 60000) return packPrice;
-  const r = await fetch(PACK_PRICE_URL);
+  /* Primary feed (CoinPaprika): up to 3 attempts with short backoff.
+     The old single fetch left the pack card stuck on "Live price
+     unavailable right now" after ONE transient failure even with the
+     feed healthy (Goliath, Nov 23, 2026). */
+  const backoffs = [0, 600, 1200];
+  for (let i = 0; i < backoffs.length; i++){
+    if (backoffs[i]) await new Promise(r => setTimeout(r, backoffs[i]));
+    try {
+      const r = await fetch(PACK_PRICE_URL);
+      if (!r.ok) throw new Error('price http ' + r.status);
+      const d = await r.json();
+      const p = d && d.quotes && d.quotes.USD && Number(d.quotes.USD.price);
+      if (!p || !(p > 0)) throw new Error('no price');
+      packPrice = p; packPriceAt = Date.now();
+      return p;
+    } catch (e) { /* next attempt, then the fallback feed */ }
+  }
+  /* Fallback feed (CoinGecko, id "terra-luna" = Luna Classic). If this
+     also fails, the throw keeps the existing honest "Live price
+     unavailable right now" state — never show a stale or hardcoded
+     number as live. */
+  const r = await fetch(PACK_PRICE_URL_FALLBACK);
   if (!r.ok) throw new Error('price http ' + r.status);
   const d = await r.json();
-  const p = d && d.quotes && d.quotes.USD && Number(d.quotes.USD.price);
+  const p = d && d['terra-luna'] && Number(d['terra-luna'].usd);
   if (!p || !(p > 0)) throw new Error('no price');
   packPrice = p; packPriceAt = Date.now();
   return p;
@@ -2511,6 +2537,54 @@ function packWcPreload(){
       () => packDiagSet('WC library could not load (network)'));
   } catch (e) {}
 }
+/* WalletConnect chain helpers (Nov 23, 2026): the WC route's version
+   of packWaitBnb/packEnsureChain above. They talk to packWcProv (the
+   WC provider) instead of the injected provider — packWaitBnb polls
+   packProv(), which is the WRONG provider on this route. Same pattern
+   otherwise: switch 0x38, on refusal/4902 add the chain with the full
+   BSC params, poll the normalized chain id, retry the switch once,
+   and only then give up to the packWrongChain message. */
+async function packWcChainNum(){
+  const rawCh = await packWcProv.request({ method: 'eth_chainId' });
+  packDiagRawChain = (typeof rawCh === 'string' ? '"' + rawCh + '"' : String(rawCh)) + ' (' + typeof rawCh + ')';
+  packDiagRender();
+  return packChainNum(rawCh);
+}
+async function packWcWaitBnb(tries){
+  const n = tries || 5;
+  for (let i = 0; i < n; i++){
+    try { if ((await packWcChainNum()) === 56) return true; } catch (e) { /* keep polling */ }
+    if (i < n - 1) await new Promise(r => setTimeout(r, 400));
+  }
+  return false;
+}
+async function packWcEnsureChain(){
+  if (await packWcWaitBnb(1)) { packDiagSet('WC chain already BNB'); return; }
+  packDiagSet('WC session not on BNB (raw above) — asking wallet to switch to 56');
+  packSetStatus(esc(t('packSwitching')));
+  try {
+    await packWcProv.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: PACK_BNB_CHAIN_ID }] });
+    packDiagSet('WC switch request accepted — verifying chain…');
+  } catch (e) {
+    packDiagSet('WC switch refused: ' + ((e && e.message) || String(e)) + ' — trying add-chain');
+    /* Chain unknown to the wallet (4902 — some wallets send the code
+       as a string or fail the switch with -32603 instead): add BNB
+       Chain with its full params; adding also selects it in most
+       wallets. */
+    try {
+      await packWcProv.request({ method: 'wallet_addEthereumChain', params: [{ chainId: PACK_BNB_CHAIN_ID, chainName: 'BNB Smart Chain', nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 }, rpcUrls: ['https://bsc-dataseed.binance.org'], blockExplorerUrls: ['https://bscscan.com'] }] });
+    } catch (e2) { /* fall through to the verification below */ }
+  }
+  /* Never trust that a switch landed — poll the (normalized) chain
+     id; if it still has not flipped, retry the switch once, poll
+     again, and only then refuse to continue on any other chain. */
+  if (!(await packWcWaitBnb(4))) {
+    packDiagSet('WC chain still not BNB after switch — retrying switch once');
+    try { await packWcProv.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: PACK_BNB_CHAIN_ID }] }); } catch (e) {}
+  }
+  if (!(await packWcWaitBnb(5))) { packDiagSet('FAILED: WC chain never became BNB (raw above) — wrong-chain error shown'); throw new Error(t('packWrongChain')); }
+  packDiagSet('WC chain verified BNB');
+}
 async function packPayWc(){
   if (packBusy) return;
   packDiagSet('pay tapped (WalletConnect route)');
@@ -2543,14 +2617,19 @@ async function packPayWc(){
     packDiagSet('WC v2: opening wallet pairing (session chain fixed at 56)…');
     const accts = (await packWcProv.enable()) || packWcProv.accounts || (await packWcProv.request({ method: 'eth_accounts' }));
     if (!accts || !accts[0]) throw new Error('no account');
-    /* The session was created for chain 56 — verify what it actually
-       reports before any money moves. NEVER send on another chain. */
-    const rawCh = await packWcProv.request({ method: 'eth_chainId' });
-    packDiagRawChain = (typeof rawCh === 'string' ? '"' + rawCh + '"' : String(rawCh)) + ' (' + typeof rawCh + ')';
-    if (packChainNum(rawCh) !== 56) { packDiagSet('FAILED: WC session chain is not BNB (raw above) — stopped, nothing sent'); throw new Error(t('packWrongChain')); }
+    /* The session was created for chain 56, but a wallet can still
+       pair it on another chain (Goliath's Trust Wallet test, Nov 23,
+       2026: session on Ethereum 0x1, page just told him to switch by
+       hand and stopped). Now ASK the wallet to switch in this same
+       tap — switch, add-chain fallback, poll-verify — mirroring the
+       injected route's packEnsureChain, and CONTINUE the pay flow
+       once the chain is verified 56. The packWrongChain message is
+       only the last resort, when the wallet refuses or never lands
+       on BNB. NEVER send on another chain. */
+    await packWcEnsureChain();
     packEvmAddr = String(accts[0]).toLowerCase();
     $('packWalletLine').textContent = t('packConnected') + packEvmAddr.slice(0, 8) + '…' + packEvmAddr.slice(-6) + ' (BNB Chain · WalletConnect)';
-    packDiagSet('WC connected on BNB — no switch was requested');
+    packDiagSet('WC connected on BNB — paying');
     const p = await packLoadPrice();                 /* fresh quote at pay time */
     packQuoteStr = packQuoteFor(p, packCount);
     await packRenderPrice();
