@@ -2080,7 +2080,7 @@ let packEvmAddr = '', packCount = 1, packCushionOn = true, packPrice = null, pac
    which provider the page sees, the RAW eth_chainId answer exactly as the
    wallet returned it, the connected address, and the last step/error in
    plain words. English-only on purpose: it is a support readout. */
-const PACK_BUILD = 'pack build 2026-11-22-4';
+const PACK_BUILD = 'pack build 2026-11-23-5';
 let packDiagRawChain = '(not read yet)', packDiagStep = 'page loaded';
 function packDiagProvName(){
   try {
@@ -2339,38 +2339,54 @@ async function packPay(){
     packSetStatus(esc((e && e.message) || String(e)));
   } finally { packBusy = false; packSyncPayBtn(); }
 }
-/* WalletConnect pay route (Trust Wallet round 3, Nov 22, 2026): the
-   injected-provider route keeps dying on Trust Wallet's chain-switch
-   behavior no matter how the switch is sequenced. This route never asks
-   for a switch at all: the WalletConnect session is created FOR chain 56,
-   so the wallet connects already on BNB Chain. The provider from
-   @walletconnect/web3-provider (v1) is EIP-1193 (request()), so the order
-   flow below mirrors packPay step for step — only the transport differs.
-   Library loading (round 4, Nov 22, 2026): the round-3 build loaded the
-   provider with a dynamic import() from esm.sh, and that is exactly what
-   died on Goliath's real Trust Wallet ("Failed to fetch dynamically
-   imported module: https://esm.sh/@walletconnect/web3-provider@1.8.0?bundle"
-   — Trust's in-app browser would not fetch the ESM bundle). The library
-   now loads the strong way: a plain <script> tag with the package's own
-   UMD build, jsDelivr first, unpkg second, the esm.sh ESM import only as
-   a last resort — see packWcLib() below. */
+/* WalletConnect pay route (Trust Wallet round 3, Nov 22, 2026; WC v2
+   migration Nov 23, 2026): the injected-provider route keeps dying on
+   Trust Wallet's chain-switch behavior no matter how the switch is
+   sequenced. This route never asks for a switch at all: the
+   WalletConnect session is created FOR chain 56, so the wallet connects
+   already on BNB Chain, and the provider is EIP-1193 (request()), so
+   the order flow below mirrors packPay step for step — only the
+   transport differs.
+   PROTOCOL (Nov 23, 2026): rounds 3–4 ran on @walletconnect/
+   web3-provider v1, and Trust Wallet now rejects it outright ("the
+   dapp uses a WalletConnect version that is not compatible") — WC v1
+   is dead. This route now loads @walletconnect/ethereum-provider v2
+   (EthereumProvider.init + enable()). v2 REQUIRES a project ID — see
+   PACK_WC_PROJECT_ID below.
+   Library loading keeps the round-4 pattern: a plain <script> tag with
+   the package's own UMD build, jsDelivr first, unpkg second, the
+   esm.sh ESM import only as a last resort — see packWcLib() below.
+   Version pinned at 2.21.0: the newest 2.x (2.26.0) ships a UMD that
+   is NOT self-contained (it expects viem/lit/qrcode/bs58 as page
+   globals and would crash as a plain script tag); 2.21.0's UMD is
+   fully bundled (1,389,997 bytes, md5 c036b003…) and exposes
+   window['@walletconnect/ethereum-provider'].EthereumProvider with a
+   static init() — all verified against the real bundle Nov 23, 2026. */
 let packWcLibP = null, packWcProv = null;
-/* Multi-route library loader (round 4). Route order:
+/* WalletConnect v2 project ID — free from cloud.walletconnect.com.
+   >>> TO GO LIVE: replace the placeholder value below with the real
+   >>> project ID (this one line is the whole change). While it is
+   >>> still the placeholder, the WC button stops with "WC v2 needs a
+   >>> project ID — not set yet" on the diagnostics line and never
+   >>> starts a session with a fake ID. */
+const PACK_WC_PROJECT_ID = 'REPLACE_WITH_PROJECT_ID';
+/* Multi-route library loader (round-4 pattern, v2 package). Route order:
      A — UMD <script> from jsDelivr (the package's own dist build)
      B — UMD <script> from unpkg (same file, different CDN)
-     C — the round-3 esm.sh ESM dynamic import (last resort)
-   Each route gets ~12s. The UMD global is window.WalletConnectProvider,
-   an object whose .default is the constructor (verified against the real
-   bundle Nov 22, 2026); the esm.sh module is double-wrapped
-   (m.default.default). First function found wins. The loaded constructor
-   is cached for the session; if EVERY route fails the cache is cleared
-   so a later tap retries, and the rejection says so in plain words. */
+     C — the esm.sh ESM dynamic import (last resort)
+   Each route gets ~12s. The UMD global is
+   window['@walletconnect/ethereum-provider'], an object whose
+   .EthereumProvider is the class (and whose .default is the same
+   class); the esm.sh module carries it as .EthereumProvider / .default.
+   First function found wins. The loaded class is cached for the
+   session; if EVERY route fails the cache is cleared so a later tap
+   retries, and the rejection says so in plain words. */
 const PACK_WC_UMD_URLS = [
-  'https://cdn.jsdelivr.net/npm/@walletconnect/web3-provider@1.8.0/dist/umd/index.min.js',
-  'https://unpkg.com/@walletconnect/web3-provider@1.8.0/dist/umd/index.min.js'
+  'https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.21.0/dist/index.umd.js',
+  'https://unpkg.com/@walletconnect/ethereum-provider@2.21.0/dist/index.umd.js'
 ];
 function packWcUnwrapGlobal(g){
-  const cands = [g && g.default, g, g && g.WalletConnectProvider];
+  const cands = [g && g.EthereumProvider, g && g.default, g];
   for (const c of cands){ if (typeof c === 'function') return c; }
   return null;
 }
@@ -2380,8 +2396,8 @@ function packWcLoadScript(url, timeoutMs){
     let done = false;
     const to = setTimeout(() => { if (!done){ done = true; try { s.remove(); } catch (e) {} reject(new Error('timeout loading WC library')); } }, timeoutMs || 12000);
     s.onload = () => { if (done) return; done = true; clearTimeout(to);
-      const C = packWcUnwrapGlobal(window.WalletConnectProvider);
-      if (C) resolve(C); else reject(new Error('WC library loaded but exposed no constructor')); };
+      const C = packWcUnwrapGlobal(window['@walletconnect/ethereum-provider']);
+      if (C) resolve(C); else reject(new Error('WC library loaded but exposed no EthereumProvider')); };
     s.onerror = () => { if (done) return; done = true; clearTimeout(to); reject(new Error('WC library script failed to load')); };
     s.src = url; s.async = true;
     document.head.appendChild(s);
@@ -2393,9 +2409,9 @@ function packWcLib(){
     for (const url of PACK_WC_UMD_URLS){
       try { return await packWcLoadScript(url, 12000); } catch (e) { /* next route */ }
     }
-    const m = await import('https://esm.sh/@walletconnect/web3-provider@1.8.0?bundle');
-    const cands = [m && m.default && m.default.default, m && m.default, m, m && m.WalletConnectProvider];
-    for (const c of cands){ if (typeof c === 'function') return c; }
+    const m = await import('https://esm.sh/@walletconnect/ethereum-provider@2.21.0?bundle');
+    const C = packWcUnwrapGlobal(m);
+    if (C) return C;
     throw new Error('WC library could not load (network)');
   })().catch(e => {
     if (e && String(e.message || e).indexOf('could not load') >= 0) throw e;
@@ -2426,15 +2442,29 @@ async function packPayWc(){
   if (!packIsOpen()) { packSetStatus(esc(t('packNotOpen'))); return; }
   packBusy = true; packSyncPayBtn();
   try {
-    packSetStatus(esc(t('packWcOpen')));
-    packDiagSet('WC: loading provider library…');
-    const WCProvider = await packWcLib();
-    if (!packWcProv) {
-      packWcProv = new WCProvider({ chainId: 56, rpc: { 56: 'https://bsc-dataseed.binance.org' }, qrcodeModalOptions: { mobileLinks: ['trust', 'metamask', 'rainbow', 'argent', 'imtoken', 'pillar'] } });
+    /* WalletConnect v2 needs a real project ID (free from
+       cloud.walletconnect.com). While PACK_WC_PROJECT_ID is still the
+       placeholder, stop HERE in plain words — never start a session
+       with a fake ID (init would even accept one silently; the relay
+       handshake at connect time is where it would die). */
+    if (!PACK_WC_PROJECT_ID || PACK_WC_PROJECT_ID === 'REPLACE_WITH_PROJECT_ID') {
+      packDiagSet('WC v2 needs a project ID — not set yet');
+      return;
     }
-    packDiagSet('WC: opening wallet pairing (session chain fixed at 56)…');
-    await packWcProv.enable();
-    const accts = packWcProv.accounts || (await packWcProv.request({ method: 'eth_accounts' }));
+    packSetStatus(esc(t('packWcOpen')));
+    packDiagSet('WC v2: loading provider library…');
+    const EthereumProvider = await packWcLib();
+    if (!packWcProv) {
+      /* API per the package's own types (@walletconnect/
+         ethereum-provider@2.21.0, dist/types/EthereumProvider.d.ts):
+         static init({ projectId, chains: [56, ...], rpcMap,
+         showQrModal, metadata? }) -> provider; enable() resolves with
+         the session accounts. showQrModal renders the pairing UI
+         (QR on desktop, wallet deep links on mobile). */
+      packWcProv = await EthereumProvider.init({ projectId: PACK_WC_PROJECT_ID, chains: [56], rpcMap: { 56: 'https://bsc-dataseed.binance.org' }, showQrModal: true, metadata: { name: 'Frog Fight — LUNC Pack', description: 'Buy a 10,000 LUNC pack with USDT on BNB Chain', url: 'https://luncgames.com/frog-fight/', icons: ['https://frg-fight-club.vercel.app/frog-fight/og-cover.jpg'] } });
+    }
+    packDiagSet('WC v2: opening wallet pairing (session chain fixed at 56)…');
+    const accts = (await packWcProv.enable()) || packWcProv.accounts || (await packWcProv.request({ method: 'eth_accounts' }));
     if (!accts || !accts[0]) throw new Error('no account');
     /* The session was created for chain 56 — verify what it actually
        reports before any money moves. NEVER send on another chain. */
