@@ -26,8 +26,8 @@
       var(--bg);
     color:var(--ink); font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
     padding:max(16px, env(safe-area-inset-top)) 14px calc(150px + env(safe-area-inset-bottom)); max-width:640px; margin:0 auto}
-  header{text-align:center; margin:6px 0 4px}
-  .hero{margin:0 auto 0; width:min(330px,88vw); filter:drop-shadow(0 0 30px rgba(255,215,106,.40)) drop-shadow(0 10px 34px rgba(53,242,160,.30))}
+  header{text-align:center; margin:2px 0 2px}
+  .hero{margin:0 auto 0; width:min(210px,58vw); filter:drop-shadow(0 0 30px rgba(255,215,106,.40)) drop-shadow(0 10px 34px rgba(53,242,160,.30))}
   .hero svg{display:block; width:100%; height:auto}
 .scopestrip{display:flex;align-items:center;gap:10px;margin:10px 0 6px;padding:11px 14px;
   background:var(--glass);
@@ -56,7 +56,7 @@
 .appstrip .as-note{font-size:12px;font-weight:700;color:var(--gold);letter-spacing:.02em;line-height:1.4}
 .appstrip .as-arr{flex:0 0 auto;font-size:19px;font-weight:900;color:var(--gold)}
 [dir="rtl"] .appstrip .as-arr{transform:scaleX(-1)}
-  .bigh{font-size:47px; font-weight:900; letter-spacing:.05em; line-height:1.04; margin:0 0 2px}
+  .bigh{font-size:40px; font-weight:900; letter-spacing:.05em; line-height:1.04; margin:0 0 2px}
   .bigh .bw{color:#fff; text-shadow:0 0 18px rgba(255,255,255,.35), 0 0 38px rgba(53,242,160,.35)}
   .bigh .bs{background:linear-gradient(180deg,#8dffc9,#35f2a0 60%,#12b76a); -webkit-background-clip:text; background-clip:text; color:transparent; filter:drop-shadow(0 0 14px rgba(53,242,160,.45))}
   h1{font-size:19px; font-weight:800; letter-spacing:.05em; margin:6px 0 2px; color:var(--ink);
@@ -6034,47 +6034,76 @@ if ('serviceWorker' in navigator) {
 
 <script>
 /* Top value cards (Sample B layout): display-only mirror. Priority:
-   (1) My Portfolio combined totals when wallets are saved (pfCombined),
-   (2) the current lookup's value once it has priced (state._value),
-   (3) a prompt state — never a fake $0 balance. No computation here;
-   pfRender()/finishValue() stay the single source of the numbers. */
+   (1) My Portfolio combined totals when they are available (pfCombined),
+   (2) the current lookup's rendered total the moment the results card
+       shows one (state._value, as finishValue() computed it),
+   (3) a loading state while either source is still working,
+   (4) a prompt state — never a fake $0 balance. No computation here;
+   pfRender()/finishValue() stay the single source of the numbers.
+   The lookup fallback matters: a saved-portfolio refresh can abort
+   (when the user runs their own lookup) or lag, leaving pfCombined()
+   null — the top cards must still mirror the finished lookup instead
+   of sitting on "…" forever. */
 (function(){
   var box = document.getElementById('topVals');
   if (!box) return;
   var tT = document.getElementById('topTotal'), tR = document.getElementById('topRewards'),
       tN = document.getElementById('topTotalNote'), rN = document.getElementById('topRewardsNote');
+  var lastKey = '';
   function set(cls, total, rewards, noteHTML){
+    var noteText = '';
+    try { noteText = tr('pf_rewards_note'); } catch (e) {}
+    var key = cls + '|' + total + '|' + rewards + '|' + (noteHTML || '') + '|' + noteText;
+    if (key === lastKey) return;
+    lastKey = key;
     box.className = 'pfhero topvals' + (cls ? ' ' + cls : '');
     tT.textContent = total; tR.textContent = rewards;
     tN.innerHTML = noteHTML || '';
-    try { rN.textContent = tr('pf_rewards_note'); } catch (e) { rN.textContent = ''; }
+    rN.textContent = noteText;
+  }
+  function lookupMirror(){
+    var dash = document.getElementById('dash');
+    if (!dash || dash.hidden) return null;
+    var vt = document.getElementById('valueTotal');
+    var txt = vt ? vt.textContent.trim() : '';
+    if (txt.charAt(0) !== '$') return null;   /* results card is not showing a total yet */
+    var v = (typeof state !== 'undefined' && state) ? state._value : null;
+    if (!v || !(v.pricedItems > 0 || v.total > 0)) return null;
+    return { total: txt, rewards: fmtUSD(v.rewards || 0) };
   }
   function sync(){
     try {
       var list = pfLoadList();
       if (list && list.length){
         var c = pfCombined();
-        if (c) set('', fmtUSD(c.total), fmtUSD(c.rewards), document.getElementById('pfDelta').innerHTML);
-        else set('is-loading', '\u2026', '\u2026', '');
+        if (c){ set('', fmtUSD(c.total), fmtUSD(c.rewards), document.getElementById('pfDelta').innerHTML); return; }
+        var lm = lookupMirror();
+        if (lm){ set('', lm.total, lm.rewards, ''); return; }
+        set('is-loading', '\u2026', '\u2026', '');
         return;
       }
+      var lm2 = lookupMirror();
+      if (lm2){ set('', lm2.total, lm2.rewards, ''); return; }
       var dash = document.getElementById('dash');
-      var v = (typeof state !== 'undefined' && state) ? state._value : null;
-      if (dash && !dash.hidden && v && (v.pricedItems > 0 || v.total > 0)){
-        set('', fmtUSD(v.total), fmtUSD(v.rewards || 0), '');
-        return;
-      }
+      if (dash && !dash.hidden){ set('is-loading', '\u2026', '\u2026', ''); return; }
       set('is-prompt', '\u2014', '\u2014', esc(tr('top_prompt')));
     } catch (e) {}
   }
   if (window.MutationObserver){
-    ['pfTotal', 'pfRewards', 'valueTotal'].forEach(function(id){
+    ['pfTotal', 'pfRewards', 'valueTotal', 'valueSplit', 'pfRows'].forEach(function(id){
       var el = document.getElementById(id);
       if (el) new MutationObserver(sync).observe(el, { childList: true, characterData: true, subtree: true });
     });
+    var vc = document.getElementById('valueCard');
+    if (vc) new MutationObserver(sync).observe(vc, { childList: true, characterData: true, subtree: true });
     var dash = document.getElementById('dash');
     if (dash) new MutationObserver(sync).observe(dash, { attributes: true, attributeFilter: ['hidden'] });
   }
+  /* Safety net: a 1s re-sync catches any write path that lands without
+     mutating an observed node (e.g. a phone bfcache restore). */
+  setInterval(sync, 1000);
+  window.addEventListener('pageshow', sync);
+  window.addEventListener('focus', sync);
   sync();
 })();
 </script>
