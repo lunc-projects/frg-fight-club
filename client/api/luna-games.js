@@ -7806,6 +7806,129 @@ async function ffrPotRead() {
   return { ok: true, totalLunc: round(spendable + requested), spendableLunc: round(spendable), requestedLunc: round(requested), players };
 }
 
+/* ---------- Owner admin + live config (Goliath, Nov 22, 2026) ----------
+   Goliath runs his own rewards settings from the /ff-admin/ panel.
+   Config lives in ONE store key (ffr:config, JSON); every reader
+   merges it over the defaults below, so an unset config behaves
+   EXACTLY like the original hardcoded system (3 / 10 / 300 /
+   Monday / 12:00 / not paused / the dedicated rewards wallet).
+   The owner code's SHA-256 lives in ffr:adminhash. It is NOT
+   seeded by us: while unset, admin data is never served and the
+   panel's first-run flow (ffrAdminSetCode) lets Goliath set his
+   own code on his first visit. Only the hash is ever stored.
+   Payout history is an append-only list (ffr:history), written
+   by ffrReqDone as each request is marked paid. The payout
+   runner reports which wallet its key signs for in
+   ffr:keystatus, which the panel compares against the configured
+   payout wallet for the "Signing key loaded: YES/NO" line. */
+const FFR_DEFAULT_CONFIG = {
+  perRound: FFR_PER_ROUND_LUNC, kingBonus: FFR_KING_BONUS_LUNC, minWithdraw: FFR_MIN_WITHDRAW_LUNC,
+  payWeekday: 1, payTimeET: '12:00', paused: false,
+  /* Goliath's OWN rewards wallet (he created it and sent the
+     address Nov 22, 2026 20:52 ET; fresh account). It is the
+     CONFIGURED payout wallet from the start. Until his key is
+     loaded on the runner side, ffr:keystatus reports the wallet
+     the runner CAN sign for (the dedicated wallet created
+     Nov 22, 2026) and payouts keep running from THAT wallet —
+     the panel shows "Signing key loaded: NO" for this one. */
+  payoutWallet: 'terra1h8drf2d0rqckx65rzd5ll4ljdyuhd6mjw0glav',
+};
+async function ffrGetConfig() {
+  try {
+    const out = await packPipeline([['GET', 'ffr:config']]);
+    const raw = out && out[0] && out[0].result;
+    if (raw) return { ...FFR_DEFAULT_CONFIG, ...JSON.parse(raw) };
+  } catch (e) { /* fall through to defaults */ }
+  return { ...FFR_DEFAULT_CONFIG };
+}
+function ffrAdminHashOf(code) {
+  return crypto.createHash('sha256').update('ffr-admin:' + String(code || '')).digest('hex');
+}
+async function ffrAdminStoredHash() {
+  const out = await packPipeline([['GET', 'ffr:adminhash']]);
+  return (out && out[0] && out[0].result) || '';
+}
+async function ffrAdminOk(code) {
+  const stored = await ffrAdminStoredHash();
+  if (!stored || !code) return false;
+  const h = ffrAdminHashOf(code);
+  if (h.length !== stored.length) return false;
+  try { return crypto.timingSafeEqual(Buffer.from(h), Buffer.from(stored)); } catch (e) { return false; }
+}
+/* Validate an owner config patch. Returns {patch} or {error}.
+   Ranges are sanity bounds, not policy: amounts positive and
+   finite, weekday 0..6, time HH:MM 24h, wallet a strict Terra
+   address. */
+function ffrValidConfigPatch(p) {
+  if (!p || typeof p !== 'object') return { error: 'bad config' };
+  const patch = {};
+  const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : NaN);
+  const round6 = (n) => Math.round(n * 1e6) / 1e6;
+  if (p.perRound !== undefined) { const n = num(p.perRound); if (!(n > 0 && n <= 1000)) return { error: 'perRound out of range' }; patch.perRound = round6(n); }
+  if (p.kingBonus !== undefined) { const n = num(p.kingBonus); if (!(n >= 0 && n <= 10000)) return { error: 'kingBonus out of range' }; patch.kingBonus = round6(n); }
+  if (p.minWithdraw !== undefined) { const n = num(p.minWithdraw); if (!(n >= 0 && n <= 10000000)) return { error: 'minWithdraw out of range' }; patch.minWithdraw = round6(n); }
+  if (p.payWeekday !== undefined) { const n = num(p.payWeekday); if (!Number.isInteger(n) || n < 0 || n > 6) return { error: 'payWeekday out of range' }; patch.payWeekday = n; }
+  if (p.payTimeET !== undefined) {
+    const s = String(p.payTimeET || '');
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(s)) return { error: 'payTimeET must be HH:MM' };
+    patch.payTimeET = s;
+  }
+  if (p.paused !== undefined) { if (typeof p.paused !== 'boolean') return { error: 'paused must be boolean' }; patch.paused = p.paused; }
+  if (p.payoutWallet !== undefined) {
+    const w = String(p.payoutWallet || '').trim().toLowerCase();
+    if (!tdaTerraAddrStrict(w)) return { error: 'payoutWallet is not a valid Terra address' };
+    patch.payoutWallet = w;
+  }
+  if (!Object.keys(patch).length) return { error: 'empty config patch' };
+  return { patch };
+}
+/* Per-player pending list for the owner panel — the pot read, but
+   per wallet. Admin-gated at the action level: it exposes wallet
+   addresses, unlike the public aggregate. */
+async function ffrPendingList() {
+  const keys = [];
+  let cursor = '0';
+  for (let page = 0; page < 100; page++) {
+    const out = await packPipeline([['SCAN', cursor, 'MATCH', 'ffr:bal:*', 'COUNT', '500']]);
+    const r = (out && out[0] && out[0].result) || [];
+    cursor = String(r[0] || '0');
+    if (Array.isArray(r[1])) for (const k of r[1]) keys.push(k);
+    if (cursor === '0') break;
+  }
+  const rows = [];
+  for (let i = 0; i < keys.length; i += 100) {
+    const batch = keys.slice(i, i + 100);
+    const out = await packPipeline(batch.map((k) => ['GET', k]));
+    for (let j = 0; j < batch.length; j++) {
+      const raw = out && out[j] && out[j].result;
+      if (!raw) continue;
+      let b; try { b = JSON.parse(raw); } catch (e) { continue; }
+      const s = Number(b.balLunc || 0), p = Number(b.pendingLunc || 0);
+      if (s + p <= 0) continue;
+      rows.push({ wallet: batch[j].slice('ffr:bal:'.length), balLunc: s, pendingLunc: p, totalLunc: Math.round((s + p) * 1e6) / 1e6 });
+    }
+  }
+  rows.sort((a, b) => b.totalLunc - a.totalLunc);
+  return rows;
+}
+async function ffrHistoryList() {
+  const out = await packPipeline([['LRANGE', 'ffr:history', '0', '99']]);
+  const raw = (out && out[0] && out[0].result) || [];
+  const rows = [];
+  for (const s of raw) { try { rows.push(JSON.parse(s)); } catch (e) { /* skip a bad row */ } }
+  return rows;
+}
+async function ffrKeyStatus(cfg) {
+  let ks = null;
+  try {
+    const out = await packPipeline([['GET', 'ffr:keystatus']]);
+    const raw = out && out[0] && out[0].result;
+    if (raw) ks = JSON.parse(raw);
+  } catch (e) { /* no runner report yet */ }
+  const wallet = ks && ks.wallet ? String(ks.wallet) : '';
+  return { loaded: !!wallet && wallet === cfg.payoutWallet, wallet, ts: ks && ks.ts ? Number(ks.ts) : 0 };
+}
+
 export async function ffrHandler(req, res) {
   /* GET ?ffrewards=1&pot=1 — the public Monday-payout aggregate
      (see ffrPotRead). GET is read-only here; every action below
@@ -7816,7 +7939,18 @@ export async function ffrHandler(req, res) {
       return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
     }
     res.setHeader('Cache-Control', 'no-store');
-    try { return res.status(200).json(await ffrPotRead()); }
+    try {
+      const pot = await ffrPotRead();
+      const cfg = await ffrGetConfig();
+      /* Public config fields ride along so the game page always
+         shows the owner's CURRENT numbers (rates, minimum,
+         payout weekday/time) without a second call. */
+      return res.status(200).json({
+        ...pot,
+        perRound: cfg.perRound, kingBonus: cfg.kingBonus, minWithdraw: cfg.minWithdraw,
+        payWeekday: cfg.payWeekday, payTimeET: cfg.payTimeET,
+      });
+    }
     catch (e) { console.error('ffr pot read failed', e && e.message); return res.status(500).json({ ok: false, error: 'pot read failed' }); }
   }
   if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' });
@@ -7847,9 +7981,13 @@ export async function ffrHandler(req, res) {
       if (matchWon && roundsWon !== 2) return res.status(400).json({ ok: false, error: 'a won match has exactly 2 rounds won' });
       if (!matchWon && roundsWon > 1) return res.status(400).json({ ok: false, error: 'a lost match has at most 1 round won' });
       /* The amount is computed HERE, never taken from the client:
-         rounds x 3 LUNC + 10 LUNC for beating the 7th rival. The
-         structural maximum for one match is 16 LUNC. */
-      const earned = roundsWon * FFR_PER_ROUND_LUNC + (matchWon && rivalIdx === FFR_LAST_RIVAL_IDX ? FFR_KING_BONUS_LUNC : 0);
+         rounds x perRound + kingBonus for beating the 7th rival,
+         at the OWNER's current rates (ffr:config; defaults 3 / 10).
+         The structural maximum for one match is therefore
+         2 x perRound + kingBonus, from this same formula — the cap
+         moves with the config, never a hardcoded number. */
+      const ffrCfg = await ffrGetConfig();
+      const earned = Math.round((roundsWon * ffrCfg.perRound + (matchWon && rivalIdx === FFR_LAST_RIVAL_IDX ? ffrCfg.kingBonus : 0)) * 1e6) / 1e6;
       const season = ffrSeason(Date.now());
       const holder = await ffrIsHolder(wallet);
       const bal = await ffrGetBal(wallet);
@@ -7881,9 +8019,11 @@ export async function ffrHandler(req, res) {
       const sv = ffrSeasonView(bal, season);
       let pending = null;
       if (bal.pendingReq) { const r = await ffrGetReq(String(bal.pendingReq)); if (r && r.status === 'pending') pending = ffrPublicReq(r); }
+      const cfg = await ffrGetConfig();
       return res.status(200).json({
         ok: true, holder, balance: Number(bal.balLunc || 0), pendingLunc: Number(bal.pendingLunc || 0),
-        pending, minWithdraw: FFR_MIN_WITHDRAW_LUNC, perRound: FFR_PER_ROUND_LUNC, kingBonus: FFR_KING_BONUS_LUNC,
+        pending, minWithdraw: cfg.minWithdraw, perRound: cfg.perRound, kingBonus: cfg.kingBonus,
+        payWeekday: cfg.payWeekday, payTimeET: cfg.payTimeET,
         season: { id: season.id, daysLeft: season.daysLeft, wins: sv.wins, fights: sv.fights },
         seasonTop: await ffrSeasonTop(season),
         totalEarnedLunc: Number(bal.totalEarnedLunc || 0), totalPaidLunc: Number(bal.totalPaidLunc || 0),
@@ -7901,7 +8041,8 @@ export async function ffrHandler(req, res) {
         bal.pendingReq = ''; bal.pendingLunc = 0; /* stale pointer — clear and continue */
       }
       const amount = Number(bal.balLunc || 0);
-      if (amount < FFR_MIN_WITHDRAW_LUNC) return res.status(400).json({ ok: false, error: 'below the 300 LUNC minimum', balance: amount });
+      const cfg = await ffrGetConfig();
+      if (amount < cfg.minWithdraw) return res.status(400).json({ ok: false, error: 'below the ' + cfg.minWithdraw + ' LUNC minimum', balance: amount });
       const id = 'ffr' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
       const o = { id, wallet, amountLunc: amount, status: 'pending', terraTx: '', note: '', created: Date.now(), paidAt: 0 };
       bal.balLunc = 0; bal.pendingLunc = amount; bal.pendingReq = id;
@@ -7912,6 +8053,60 @@ export async function ffrHandler(req, res) {
         ['LTRIM', 'ffr:reqs', '0', '499'],
       ]);
       return res.status(200).json({ ok: true, request: ffrPublicReq(o) });
+    }
+    /* ----- Owner admin (Goliath's panel, /ff-admin/) -----
+       Every call carries the owner code; the server compares its
+       SHA-256 against ffr:adminhash. Until a code is set, the
+       only thing served is the codeSet flag itself — no data. */
+    if (action === 'ffrAdminSetCode') {
+      const stored = await ffrAdminStoredHash();
+      if (stored) return res.status(409).json({ ok: false, error: 'owner code already set', codeSet: true });
+      const code = String(body.code || '');
+      if (code.length < 4 || code.length > 64) return res.status(400).json({ ok: false, error: 'code must be 4-64 characters' });
+      await packPipeline([['SET', 'ffr:adminhash', ffrAdminHashOf(code)]]);
+      return res.status(200).json({ ok: true, codeSet: true });
+    }
+    if (action === 'ffrAdminState') {
+      const stored = await ffrAdminStoredHash();
+      if (!stored) return res.status(200).json({ ok: true, codeSet: false });
+      if (!(await ffrAdminOk(body.code))) return res.status(403).json({ ok: false, error: 'wrong owner code', codeSet: true });
+      const cfg = await ffrGetConfig();
+      const pending = await ffrPendingList();
+      let potTotal = 0; for (const r of pending) potTotal += r.totalLunc;
+      let walletBalanceLunc = null;
+      try {
+        const r = await fetch(FFR_LCD + '/cosmos/bank/v1beta1/balances/' + cfg.payoutWallet + '/by_denom?denom=uluna');
+        if (r.ok) { const j = await r.json(); walletBalanceLunc = Number((j.balance && j.balance.amount) || 0) / 1e6; }
+      } catch (e) { /* balance stays null — the panel shows "couldn't load", never a fake 0 */ }
+      return res.status(200).json({
+        ok: true, codeSet: true, config: cfg, pending,
+        pot: { totalLunc: Math.round(potTotal * 1e6) / 1e6, players: pending.length },
+        history: await ffrHistoryList(),
+        keyStatus: await ffrKeyStatus(cfg),
+        walletBalanceLunc,
+      });
+    }
+    if (action === 'ffrAdminSaveConfig') {
+      const stored = await ffrAdminStoredHash();
+      if (!stored) return res.status(403).json({ ok: false, error: 'owner code not set yet', codeSet: false });
+      if (!(await ffrAdminOk(body.code))) return res.status(403).json({ ok: false, error: 'wrong owner code', codeSet: true });
+      const v = ffrValidConfigPatch(body.config);
+      if (v.error) return res.status(400).json({ ok: false, error: v.error });
+      const cfg = { ...(await ffrGetConfig()), ...v.patch };
+      await packPipeline([['SET', 'ffr:config', JSON.stringify(cfg)]]);
+      return res.status(200).json({ ok: true, config: cfg });
+    }
+    /* ----- Runner: owner-config read + signing-key report ----- */
+    if (action === 'ffrRunnerConfig') {
+      if (!(await ffrRunnerOk(body.bhash))) return res.status(403).json({ ok: false, error: 'runner not authorized' });
+      return res.status(200).json({ ok: true, config: await ffrGetConfig() });
+    }
+    if (action === 'ffrKeyStatus') {
+      if (!(await ffrRunnerOk(body.bhash))) return res.status(403).json({ ok: false, error: 'runner not authorized' });
+      const w = String(body.wallet || '').trim().toLowerCase();
+      if (!tdaTerraAddrStrict(w)) return res.status(400).json({ ok: false, error: 'bad wallet' });
+      await packPipeline([['SET', 'ffr:keystatus', JSON.stringify({ wallet: w, ts: Date.now() })]]);
+      return res.status(200).json({ ok: true });
     }
     if (action === 'ffrRequests' || action === 'ffrReqDone' || action === 'ffrReqWait') {
       if (!(await ffrRunnerOk(body.bhash))) return res.status(403).json({ ok: false, error: 'runner not authorized' });
@@ -7935,6 +8130,15 @@ export async function ffrHandler(req, res) {
         if (!/^[0-9A-F]{64}$/.test(terraTx)) return res.status(400).json({ ok: false, error: 'bad terra tx' });
         o.status = 'paid'; o.terraTx = terraTx; o.paidAt = Date.now(); o.note = '';
         await ffrSaveReq(o);
+        /* Append-only payout history for the owner panel
+           (newest first, last 200 kept). Best-effort: a history
+           failure must never fail the paid marking itself. */
+        try {
+          await packPipeline([
+            ['LPUSH', 'ffr:history', JSON.stringify({ ts: o.paidAt, wallet: o.wallet, amountLunc: Number(o.amountLunc || 0), terraTx, id: o.id })],
+            ['LTRIM', 'ffr:history', '0', '199'],
+          ]);
+        } catch (e) { /* history is best-effort */ }
         const bal = await ffrGetBal(o.wallet);
         if (bal.pendingReq === o.id) {
           bal.pendingLunc = Math.max(0, Number(bal.pendingLunc || 0) - Number(o.amountLunc || 0));

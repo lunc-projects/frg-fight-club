@@ -2347,11 +2347,12 @@ function ffrEtWeekday(d){
   const wd = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short' }).format(d || new Date());
   return { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[wd];
 }
+var FFR_PAYDAY = 1; /* owner's payout weekday (0=Sun..6=Sat) — refreshed from the server config on every balance/pot read; Monday until told otherwise */
 function ffrNextMondayMs(){
   const now = new Date();
   const etWall = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' })).getTime();
   const offset = etWall - now.getTime();
-  const addDays = (8 - ffrEtWeekday(now)) % 7;
+  const addDays = (FFR_PAYDAY - ffrEtWeekday(now) + 7) % 7;
   let targetWall = Math.floor(etWall / 86400000) * 86400000 + addDays * 86400000;
   if (targetWall <= etWall) targetWall += 7 * 86400000;
   return targetWall - offset;
@@ -2373,18 +2374,27 @@ function ffrRender(){
   }
   const d = ffrData;
   if (!d) { box.innerHTML = '<p class="note center">' + esc(t('loading')) + '</p>'; return; }
-  const isMon = ffrEtWeekday() === 1;
+  /* Owner-config numbers — ffrBalance reads ffr:config server-
+     side, so these lines always show Goliath's CURRENT rates,
+     minimum and payout day. Numerals swap via placeholders so
+     one value's replacement can never collide with the other. */
+  const cfgMin = Number(d.minWithdraw) > 0 ? Number(d.minWithdraw) : 300;
+  const cfgRound = Number(d.perRound) > 0 ? Number(d.perRound) : 3;
+  const cfgKing = d.kingBonus !== undefined && Number(d.kingBonus) >= 0 ? Number(d.kingBonus) : 10;
+  const cfgDay = Number.isInteger(Number(d.payWeekday)) ? Number(d.payWeekday) : 1;
+  FFR_PAYDAY = cfgDay;
+  const isMon = ffrEtWeekday() === cfgDay;
   let h = '';
   h += '<p class="note center" style="margin-bottom:2px">' + esc(t('ffrBalance')) + '</p>';
   h += '<div style="text-align:center;font-size:34px;font-weight:900;color:#ffe066;line-height:1.1">' + Number(d.balance || 0).toLocaleString() + ' LUNC</div>';
-  h += '<p class="note center">' + esc(t('ffrRates')) + '</p>';
-  h += '<p class="note center">' + esc(t('ffrMin')) + '</p>';
+  h += '<p class="note center">' + esc(t('ffrRates')).replace('3 LUNC', '@@R@@').replace('10 LUNC', '@@K@@').replace('@@R@@', cfgRound.toLocaleString() + ' LUNC').replace('@@K@@', cfgKing.toLocaleString() + ' LUNC') + '</p>';
+  h += '<p class="note center">' + esc(t('ffrMin')).replace('300', cfgMin.toLocaleString()) + '</p>';
   if (ffrLastEarn !== null && ffrLastEarn > 0) h += '<p class="note center" style="color:#8affc1">' + esc(ffrT('ffrLastEarn', { a: ffrLastEarn })) + '</p>';
   if (d.holder === false) h += '<p class="note center" style="color:#ffb3b3">' + esc(t('ffrNftOnly')) + '</p>';
   if (d.pending) {
     h += '<p class="note center" style="color:#ffd98a">' + esc(ffrT('ffrPending', { a: Number(d.pending.amountLunc || 0).toLocaleString() })) + '</p>';
-  } else if (Number(d.balance || 0) < 300) {
-    h += '<p class="note center">' + esc(ffrT('ffrNeedMore', { a: (300 - Number(d.balance || 0)).toLocaleString() })) + '</p>';
+  } else if (Number(d.balance || 0) < cfgMin) {
+    h += '<p class="note center">' + esc(ffrT('ffrNeedMore', { a: (cfgMin - Number(d.balance || 0)).toLocaleString() })) + '</p>';
   }
   if (d.season) h += '<p class="note center">' + esc(ffrT('ffrSeason', { a: d.season.id, b: d.season.daysLeft, c: d.season.wins })) + '</p>';
   if (Array.isArray(d.seasonTop) && d.seasonTop.length) {
@@ -2394,7 +2404,7 @@ function ffrRender(){
   }
   if (isMon) h += '<p class="note center" style="color:#8affc1;margin-top:8px">🟢 ' + esc(t('ffrOpenNow')) + '</p>';
   else h += '<p class="note center" style="margin-top:8px;margin-bottom:2px">' + esc(t('ffrOpensIn')) + '</p><div class="wdTimer" id="ffrTimer">' + ffrFmtCountdown(ffrNextMondayMs() - Date.now()) + '</div>';
-  if (!d.pending && d.holder !== false && Number(d.balance || 0) >= 300) {
+  if (!d.pending && d.holder !== false && Number(d.balance || 0) >= cfgMin) {
     h += '<button type="button" class="btn gold" id="ffrWithdrawBtn" style="width:100%;margin-top:6px"' + (isMon && !ffrBusy ? '' : ' disabled') + '>' + esc(ffrT('ffrWithdrawBtn', { a: Number(d.balance || 0).toLocaleString() })) + '</button>';
     if (!isMon) h += '<p class="note center">' + esc(t('ffrNotMonday')) + '</p>';
   }
@@ -2531,6 +2541,9 @@ ffrRefresh();
       var d = await r.json().catch(function(){ return null; });
       if (d && d.ok) {
         fail = false;
+        /* The pot read also carries the owner's payout weekday —
+           keep the withdrawal countdown aimed at the right day. */
+        if (Number.isInteger(Number(d.payWeekday))) FFR_PAYDAY = Number(d.payWeekday);
         totalTxt = Number(d.totalLunc || 0).toLocaleString('en-US') + ' LUNC';
         playersTxt = t('potPlayers').replace('{a}', Number(d.players || 0).toLocaleString('en-US'));
       } else { fail = true; }
