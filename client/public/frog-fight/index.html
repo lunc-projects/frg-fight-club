@@ -2112,8 +2112,37 @@ async function packChainId(){
   const ch = await packProv().request({ method: 'eth_chainId' });
   return String(ch || '').toLowerCase();
 }
+/* Chain-id normalization (Trust Wallet fix #2, Nov 22, 2026): providers
+   do not all answer eth_chainId the same way — most give the hex string
+   "0x38", but some return the number 56 or the decimal string "56". The
+   old code compared the raw answer strictly against "0x38", so a wallet
+   that WAS on BNB Chain could be told forever that it was not, and no
+   switch could ever fix it. Normalize every answer to a number in ONE
+   place: 56 = BNB Chain. */
+function packChainNum(ch){
+  if (ch === null || ch === undefined) return NaN;
+  if (typeof ch === 'number') return ch;
+  const s = String(ch).trim().toLowerCase();
+  if (!s) return NaN;
+  return s.startsWith('0x') ? parseInt(s, 16) : parseInt(s, 10);
+}
+async function packOnBnb(){
+  try { return packChainNum(await packChainId()) === 56; } catch (e) { return false; }
+}
+/* Poll eth_chainId for a bit before judging: Trust Wallet can take a
+   moment to actually flip chains after a switch request resolves, and a
+   single immediate re-read is too fast — that produced false
+   packWrongChain errors on a wallet that did switch. */
+async function packWaitBnb(tries){
+  const n = tries || 5;
+  for (let i = 0; i < n; i++){
+    if (await packOnBnb()) return true;
+    if (i < n - 1) await new Promise(r => setTimeout(r, 400));
+  }
+  return false;
+}
 async function packEnsureChain(){
-  if ((await packChainId()) === PACK_BNB_CHAIN_ID) return;
+  if (await packOnBnb()) return;
   packSetStatus(esc(t('packSwitching')));
   try {
     await packProv().request({ method: 'wallet_switchEthereumChain', params: [{ chainId: PACK_BNB_CHAIN_ID }] });
@@ -2126,12 +2155,13 @@ async function packEnsureChain(){
     } catch (e2) { /* fall through to the verification below */ }
   }
   /* Never trust that a switch landed — some wallets resolve the request
-     without changing chain. Re-read eth_chainId, retry the switch once,
-     and refuse to continue on any other chain. */
-  if ((await packChainId()) !== PACK_BNB_CHAIN_ID) {
+     without changing chain. Poll the (normalized) chain id for a few
+     seconds; if it still has not flipped, retry the switch once, poll
+     again, and only then refuse to continue on any other chain. */
+  if (!(await packWaitBnb(4))) {
     try { await packProv().request({ method: 'wallet_switchEthereumChain', params: [{ chainId: PACK_BNB_CHAIN_ID }] }); } catch (e) {}
   }
-  if ((await packChainId()) !== PACK_BNB_CHAIN_ID) throw new Error(t('packWrongChain'));
+  if (!(await packWaitBnb(5))) throw new Error(t('packWrongChain'));
 }
 async function packConnect(){
   if (!packProv()) { packSetStatus(esc(t('packNoWallet'))); return; }
@@ -2160,7 +2190,7 @@ async function packConnect(){
     }
     const accts = await packProv().request({ method: 'eth_requestAccounts' });
     if (!accts || !accts[0]) throw new Error('no account');
-    if ((await packChainId()) !== PACK_BNB_CHAIN_ID) throw new Error(t('packWrongChain'));
+    if (!(await packWaitBnb(4))) throw new Error(t('packWrongChain'));
     packEvmAddr = String(accts[0]).toLowerCase();
     $('packWalletLine').textContent = t('packConnected') + packEvmAddr.slice(0, 8) + '…' + packEvmAddr.slice(-6) + ' (BNB Chain)';
     packSetStatus('');
@@ -2213,7 +2243,15 @@ async function packPay(){
   if (packBusy) return;
   const terra = $('packTerraAddr').value.trim().toLowerCase();
   if (!packTerraOk(terra)) { packSetStatus(esc(t('packNeedTerra') + ' ' + t('packBadTerra'))); return; }
-  if (!packProv() || !packEvmAddr) { packSetStatus(esc(t('packNeedWallet'))); return; }
+  if (!packProv()) { packSetStatus(esc(t('packNoWallet'))); return; }
+  if (!packEvmAddr) {
+    /* Tapped PAY before CONNECT (Goliath, Trust Wallet, Nov 22, 2026):
+       run the SAME connect flow as the Connect button (switch-first,
+       accounts-first fallback) instead of dead-ending here. Only stop
+       if connect itself failed — it already showed why. */
+    await packConnect();
+    if (!packEvmAddr) return;
+  }
   if (!packIsOpen()) { packSetStatus(esc(t('packNotOpen'))); return; }
   packBusy = true; packSyncPayBtn();
   try {
