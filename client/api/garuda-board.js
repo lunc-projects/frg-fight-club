@@ -1,6 +1,6 @@
 // GARUDA DASH — leaderboard read (Vercel serverless function).
 // Returns the top 20 of the all-time and current-week sorted sets with
-// display names. Env: NEONRUSH_UPSTASH_URL, NEONRUSH_UPSTASH_TOKEN.
+// display names. Env: KICKBACK_UPSTASH_URL, KICKBACK_UPSTASH_TOKEN (boards moved Nov 22, 2026; NEONRUSH fallback).
 function weekKey(d = new Date()) {
   const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
   const day = (date.getUTCDay() + 6) % 7;
@@ -13,16 +13,18 @@ function weekKey(d = new Date()) {
 }
 
 async function upstashPipeline(cmds) {
-  const r = await fetch(`${process.env.NEONRUSH_UPSTASH_URL}/pipeline`, {
+  const r = await fetch(`${(process.env.KICKBACK_UPSTASH_URL || process.env.NEONRUSH_UPSTASH_URL).replace(/\/$/, '')}/pipeline`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${process.env.NEONRUSH_UPSTASH_TOKEN}`,
+      Authorization: `Bearer ${process.env.KICKBACK_UPSTASH_TOKEN || process.env.NEONRUSH_UPSTASH_TOKEN}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(cmds),
   });
   if (!r.ok) throw new Error(`upstash ${r.status}`);
-  return r.json();
+  const out = await r.json();
+  if (Array.isArray(out)) for (const item of out) { if (item && item.error) throw new Error('store cmd failed: ' + item.error); }
+  return out;
 }
 
 function pairs(flat) {
@@ -35,7 +37,7 @@ function pairs(flat) {
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'method not allowed' });
-  if (!process.env.NEONRUSH_UPSTASH_URL || !process.env.NEONRUSH_UPSTASH_TOKEN) {
+  if (!((process.env.KICKBACK_UPSTASH_URL && process.env.KICKBACK_UPSTASH_TOKEN) || (process.env.NEONRUSH_UPSTASH_URL && process.env.NEONRUSH_UPSTASH_TOKEN))) {
     return res.status(503).json({ error: 'leaderboard not configured' });
   }
   const wk = `gd:week:${weekKey()}`;

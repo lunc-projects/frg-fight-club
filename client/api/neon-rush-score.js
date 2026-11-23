@@ -4,7 +4,7 @@
 // against the LUNC Assistant Bot token when present (verified players get a
 // stable tg:<id> identity and their Telegram first name); otherwise the
 // player is a guest keyed by a slug of their typed name.
-// Env (Vercel project settings): NEONRUSH_UPSTASH_URL, NEONRUSH_UPSTASH_TOKEN,
+// Env (Vercel project settings): KICKBACK_UPSTASH_URL, KICKBACK_UPSTASH_TOKEN (boards moved Nov 22, 2026; NEONRUSH fallback),
 // LUNC_BOT_TOKEN (for initData verification).
 import crypto from 'node:crypto';
 
@@ -42,21 +42,23 @@ function verifyInitData(initData, botToken) {
 }
 
 async function upstashPipeline(cmds) {
-  const r = await fetch(`${process.env.NEONRUSH_UPSTASH_URL}/pipeline`, {
+  const r = await fetch(`${(process.env.KICKBACK_UPSTASH_URL || process.env.NEONRUSH_UPSTASH_URL).replace(/\/$/, '')}/pipeline`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${process.env.NEONRUSH_UPSTASH_TOKEN}`,
+      Authorization: `Bearer ${process.env.KICKBACK_UPSTASH_TOKEN || process.env.NEONRUSH_UPSTASH_TOKEN}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(cmds),
   });
   if (!r.ok) throw new Error(`upstash ${r.status}`);
-  return r.json();
+  const out = await r.json();
+  if (Array.isArray(out)) for (const item of out) { if (item && item.error) throw new Error('store cmd failed: ' + item.error); }
+  return out;
 }
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
-  if (!process.env.NEONRUSH_UPSTASH_URL || !process.env.NEONRUSH_UPSTASH_TOKEN) {
+  if (!((process.env.KICKBACK_UPSTASH_URL && process.env.KICKBACK_UPSTASH_TOKEN) || (process.env.NEONRUSH_UPSTASH_URL && process.env.NEONRUSH_UPSTASH_TOKEN))) {
     return res.status(503).json({ error: 'leaderboard not configured' });
   }
   let body = req.body;

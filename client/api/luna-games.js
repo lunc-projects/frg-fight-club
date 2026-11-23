@@ -304,6 +304,30 @@ async function upstashPipeline(cmds) {
   return r.json();
 }
 
+/* Game leaderboards (submit/board below) moved to the KICKBACK Upstash
+   store Nov 22, 2026: the NEONRUSH store hit its 500k monthly command cap
+   and every board read empty. Pre-cap scores stay frozen in the old store
+   until its quota resets Dec 1, 2026; boards here start fresh. Other
+   features sharing upstashPipeline stay on NEONRUSH by design. Throws on
+   any per-command error so failures are loud, never silent-empty. */
+async function boardPipeline(cmds) {
+  const url = process.env.KICKBACK_UPSTASH_URL || process.env.NEONRUSH_UPSTASH_URL;
+  const tok = process.env.KICKBACK_UPSTASH_TOKEN || process.env.NEONRUSH_UPSTASH_TOKEN;
+  if (!url || !tok) throw new Error('board store not configured');
+  const r = await fetch(url.replace(/\/$/, '') + '/pipeline', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+    body: JSON.stringify(cmds),
+  });
+  if (!r.ok) throw new Error('board store http ' + r.status);
+  const out = await r.json();
+  if (!Array.isArray(out)) throw new Error('board store bad reply');
+  for (const item of out) {
+    if (item && item.error) throw new Error('board store cmd failed: ' + item.error);
+  }
+  return out;
+}
+
 function pairs(flat) {
   const out = [];
   if (Array.isArray(flat)) {
@@ -363,14 +387,14 @@ async function submit(cfg, req, res) {
       // read, withLevel games only.
       const lvl = Math.floor(+body.level);
       if (Number.isInteger(lvl) && lvl >= 1 && lvl <= 10) {
-        const cur = await upstashPipeline([['ZSCORE', `${cfg.prefix}:all`, playerId]]);
+        const cur = await boardPipeline([['ZSCORE', `${cfg.prefix}:all`, playerId]]);
         const curScore = cur[0] && cur[0].result != null ? +cur[0].result : null;
         if (curScore === null || score > curScore) {
           cmds.push(['HSET', `${cfg.prefix}:levels`, playerId, lvl]);
         }
       }
     }
-    const out = await upstashPipeline(cmds);
+    const out = await boardPipeline(cmds);
     const rank = out[4] && typeof out[4].result === 'number' ? out[4].result + 1 : null;
     return res.status(200).json({ ok: true, name, rank });
   } catch (e) {
@@ -387,7 +411,7 @@ async function board(cfg, res) {
   // and the edge cache holds a board for 5 minutes instead of 15 seconds.
   const blobKey = `boardcache:${cfg.prefix}:${wk}`;
   try {
-    const hit = await upstashPipeline([['GET', blobKey]]);
+    const hit = await boardPipeline([['GET', blobKey]]);
     const cached = hit[0] && hit[0].result;
     if (cached) {
       try {
@@ -396,7 +420,7 @@ async function board(cfg, res) {
         return res.status(200).json(data);
       } catch (e) { /* corrupt blob: fall through and rebuild */ }
     }
-    const out = await upstashPipeline([
+    const out = await boardPipeline([
       ['ZREVRANGE', `${cfg.prefix}:all`, 0, 49, 'WITHSCORES'],
       ['ZREVRANGE', wk, 0, 49, 'WITHSCORES'],
     ]);
@@ -406,11 +430,11 @@ async function board(cfg, res) {
     let names = {};
     let levels = {};
     if (ids.length) {
-      const nOut = await upstashPipeline([['HMGET', `${cfg.prefix}:names`, ...ids]]);
+      const nOut = await boardPipeline([['HMGET', `${cfg.prefix}:names`, ...ids]]);
       const vals = (nOut[0] && nOut[0].result) || [];
       ids.forEach((id, i) => { names[id] = vals[i] || 'Player'; });
       if (cfg.withLevel) {
-        const lOut = await upstashPipeline([['HMGET', `${cfg.prefix}:levels`, ...ids]]);
+        const lOut = await boardPipeline([['HMGET', `${cfg.prefix}:levels`, ...ids]]);
         const lvals = (lOut[0] && lOut[0].result) || [];
         ids.forEach((id, i) => { const n = parseInt(lvals[i], 10); levels[id] = Number.isNaN(n) ? null : n; });
       }
@@ -436,7 +460,7 @@ async function board(cfg, res) {
     const payload = { all: shape(all), week: shape(week) };
     // Refresh the blob for the next 4 minutes; a failed write only means
     // the next miss recomputes, so it never fails the read.
-    try { await upstashPipeline([['SET', blobKey, JSON.stringify(payload), 'EX', '240']]); } catch (e) {}
+    try { await boardPipeline([['SET', blobKey, JSON.stringify(payload), 'EX', '240']]); } catch (e) {}
     res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600');
     return res.status(200).json(payload);
   } catch (e) {
@@ -8007,7 +8031,7 @@ export default async function handler(req, res) {
     if (req.method === 'OPTIONS') return res.status(204).end();
   }
   /* orbit-cors:end */
-  if (!process.env.NEONRUSH_UPSTASH_URL || !process.env.NEONRUSH_UPSTASH_TOKEN) {
+  if (!((process.env.KICKBACK_UPSTASH_URL && process.env.KICKBACK_UPSTASH_TOKEN) || (process.env.NEONRUSH_UPSTASH_URL && process.env.NEONRUSH_UPSTASH_TOKEN))) {
     return res.status(503).json({ error: 'leaderboard not configured' });
   }
   if (req.method === 'POST') return submit(cfg, req, res);
