@@ -7621,6 +7621,273 @@ export async function packHandler(req, res) {
 }
 /* lunc-pack:end */
 
+/* frog-rewards:start
+   Frog Fight LUNC REWARDS (Goliath's spec, approved by Tom Nov 22,
+   2026 — see ~/workspace/frog-economy-plan.md and
+   ~/workspace/frog-rewards-notes.md). NFT holders earn LUNC for
+   fighting: 3 LUNC per ROUND won + a 10 LUNC bonus for beating the
+   7th opponent. Mapped to the game's real structure (read from
+   frog-fight/index.html): a match is best-of-3 rounds vs one rival —
+   the player takes a match with exactly 2 round wins — and the
+   ladder has exactly 7 rivals, the 7th being THE FROG KING
+   (RIVALS[6]). So one match can earn at most 2 x 3 + 10 = 16 LUNC;
+   the router RECOMPUTES the amount from (roundsWon, matchWon,
+   rivalIdx) with consistency rules (won => roundsWon = 2, lost =>
+   roundsWon <= 1) and never trusts a client-named amount — that
+   recomputation IS the per-fight cap.
+   Balances live server-side per wallet in the KICKBACK Upstash
+   store (packPipeline transport; NEONRUSH is capped). The router
+   verifies NFT ownership ON-CHAIN (LCD smart query against all
+   three Frogztrik fighter contracts) before crediting — a
+   non-holder earns nothing, whatever the client claims. One credit
+   per (wallet, fightId) via SET NX. Withdrawal requests (public,
+   holder + balance >= 300 LUNC, one pending at a time) move the
+   FULL balance out of the spendable balance into the request;
+   the VM rewards runner pays them on MONDAYS (ET) only, from the
+   dedicated rewards wallet, grossed up for the burn tax. Requests
+   may be filed any day; they are PAID on Mondays. Season = 30
+   days from 2026-11-22 (epoch below); season match-wins are
+   tracked per holder wallet for the season ranking — prize
+   amounts are NOT set by Goliath yet, so there is deliberately
+   NO prize payout logic here. Runner actions are gated by
+   ffrRunnerOk (own key, dairy-style self-register). */
+const FFR_PER_ROUND_LUNC = 3;
+const FFR_KING_BONUS_LUNC = 10;
+const FFR_MIN_WITHDRAW_LUNC = 300;
+const FFR_LAST_RIVAL_IDX = 6; /* RIVALS[6] = THE FROG KING, of 7 */
+const FFR_SEASON_EPOCH_MS = Date.UTC(2026, 10, 22); /* Nov 22, 2026 */
+const FFR_SEASON_MS = 30 * 24 * 3600 * 1000;
+const FFR_FIGHT_TTL_SEC = 30 * 24 * 3600;
+const FFR_REQ_TTL_SEC = 90 * 24 * 3600;
+const FFR_HOLDER_CACHE_SEC = 600;
+const FFR_LCD = 'https://terra-classic-lcd.publicnode.com';
+const FFR_FIGHTER_CONTRACTS = [
+  'terra1pwyv50whk9xllqnyna4p5g9n0qt4nslg70g799', /* Frogztrik (86) */
+  'terra1gah2e0ly97uz5hg7c48an6n9r5vxexq90wwwlv4jpg3ve8yhphjqtx4dmu', /* The Amphibians (98) */
+  'terra1s4zze0rhjd73qpze0hr3av7g9nsp2te0snp5kd4qe6mugtsewk6q27ah9q', /* FROGZ KAIJU (123) */
+];
+
+function ffrSeason(now) {
+  const t = Number(now || Date.now());
+  const idx = Math.max(0, Math.floor((t - FFR_SEASON_EPOCH_MS) / FFR_SEASON_MS));
+  const startMs = FFR_SEASON_EPOCH_MS + idx * FFR_SEASON_MS;
+  const endMs = startMs + FFR_SEASON_MS;
+  return { id: idx + 1, startMs, endMs, daysLeft: Math.max(0, Math.ceil((endMs - t) / 86400000)) };
+}
+
+async function ffrRunnerOk(bhash) {
+  if (!/^[a-f0-9]{64}$/.test(String(bhash || ''))) return false;
+  const out = await packPipeline([['GET', 'ffr:runnerhash']]);
+  const stored = out && out[0] && out[0].result;
+  if (!stored) {
+    await packPipeline([['SET', 'ffr:runnerhash', String(bhash)]]);
+    return true;
+  }
+  return stored === String(bhash);
+}
+
+function ffrBlankBal() {
+  return { balLunc: 0, pendingLunc: 0, pendingReq: '', seasonId: 0, seasonWins: 0, seasonFights: 0, totalEarnedLunc: 0, totalPaidLunc: 0, updated: 0 };
+}
+async function ffrGetBal(wallet) {
+  const out = await packPipeline([['GET', 'ffr:bal:' + wallet]]);
+  const raw = out && out[0] && out[0].result;
+  if (!raw) return ffrBlankBal();
+  try { return { ...ffrBlankBal(), ...JSON.parse(raw) }; } catch (e) { return ffrBlankBal(); }
+}
+async function ffrSaveBal(wallet, b) {
+  b.updated = Date.now();
+  await packPipeline([['SET', 'ffr:bal:' + wallet, JSON.stringify(b)]]);
+  return b;
+}
+/* Effective season counters: a record written in an older season
+   reads as zero for the current one (rolled over on next write). */
+function ffrSeasonView(b, season) {
+  if (Number(b.seasonId) !== season.id) return { wins: 0, fights: 0 };
+  return { wins: Number(b.seasonWins || 0), fights: Number(b.seasonFights || 0) };
+}
+
+async function ffrIsHolder(wallet) {
+  const cached = await packPipeline([['GET', 'ffr:holder:' + wallet]]);
+  const cv = cached && cached[0] && cached[0].result;
+  if (cv === '1') return true;
+  if (cv === '0') return false;
+  let holder = false;
+  const q = Buffer.from(JSON.stringify({ tokens: { owner: wallet, limit: 1 } })).toString('base64');
+  for (const c of FFR_FIGHTER_CONTRACTS) {
+    try {
+      const r = await fetch(FFR_LCD + '/cosmwasm/wasm/v1/contract/' + c + '/smart/' + q);
+      if (!r.ok) continue;
+      const j = await r.json();
+      const ids = (j && j.data && (j.data.ids || j.data.tokens)) || [];
+      if (ids.length > 0) { holder = true; break; }
+    } catch (e) { /* try the next contract */ }
+  }
+  try { await packPipeline([['SET', 'ffr:holder:' + wallet, holder ? '1' : '0', 'EX', String(FFR_HOLDER_CACHE_SEC)]]); } catch (e) {}
+  return holder;
+}
+
+async function ffrGetReq(id) {
+  const out = await packPipeline([['GET', 'ffr:req:' + id]]);
+  const raw = out && out[0] && out[0].result;
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+async function ffrSaveReq(o) {
+  await packPipeline([['SET', 'ffr:req:' + o.id, JSON.stringify(o), 'EX', String(FFR_REQ_TTL_SEC)]]);
+  return o;
+}
+function ffrPublicReq(o) {
+  return { id: o.id, wallet: o.wallet, amountLunc: o.amountLunc, status: o.status, terraTx: o.terraTx || '', note: o.note || '', created: o.created || 0, paidAt: o.paidAt || 0 };
+}
+async function ffrSeasonTop(season) {
+  const out = await packPipeline([['HGETALL', 'ffr:season:' + season.id + ':wins']]);
+  const flat = (out && out[0] && out[0].result) || [];
+  const rows = [];
+  for (let i = 0; i + 1 < flat.length; i += 2) rows.push({ wallet: flat[i], wins: Number(flat[i + 1] || 0) });
+  rows.sort((a, b) => b.wins - a.wins);
+  return rows.slice(0, 10);
+}
+
+export async function ffrHandler(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' });
+  if (!((process.env.KICKBACK_UPSTASH_URL && process.env.KICKBACK_UPSTASH_TOKEN) ||
+        (process.env.NEONRUSH_UPSTASH_URL && process.env.NEONRUSH_UPSTASH_TOKEN))) {
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }
+  if (!body || typeof body !== 'object') return res.status(400).json({ ok: false, error: 'bad body' });
+  const action = String(body.action || '');
+  const walletOf = () => {
+    const w = String(body.wallet || '').trim().toLowerCase();
+    return tdaTerraAddrStrict(w) ? w : '';
+  };
+  try {
+    if (action === 'ffrCredit') {
+      const wallet = walletOf();
+      if (!wallet) return res.status(400).json({ ok: false, error: 'bad wallet' });
+      const fightId = String(body.fightId || '').trim().toLowerCase();
+      if (!/^[a-z0-9][a-z0-9-]{7,63}$/.test(fightId)) return res.status(400).json({ ok: false, error: 'bad fight id' });
+      const roundsWon = Number(body.roundsWon);
+      const rivalIdx = Number(body.rivalIdx);
+      const matchWon = body.matchWon === true;
+      if (!Number.isInteger(roundsWon) || roundsWon < 0 || roundsWon > 2) return res.status(400).json({ ok: false, error: 'bad rounds' });
+      if (!Number.isInteger(rivalIdx) || rivalIdx < 0 || rivalIdx > FFR_LAST_RIVAL_IDX) return res.status(400).json({ ok: false, error: 'bad rival' });
+      if (matchWon && roundsWon !== 2) return res.status(400).json({ ok: false, error: 'a won match has exactly 2 rounds won' });
+      if (!matchWon && roundsWon > 1) return res.status(400).json({ ok: false, error: 'a lost match has at most 1 round won' });
+      /* The amount is computed HERE, never taken from the client:
+         rounds x 3 LUNC + 10 LUNC for beating the 7th rival. The
+         structural maximum for one match is 16 LUNC. */
+      const earned = roundsWon * FFR_PER_ROUND_LUNC + (matchWon && rivalIdx === FFR_LAST_RIVAL_IDX ? FFR_KING_BONUS_LUNC : 0);
+      const season = ffrSeason(Date.now());
+      const holder = await ffrIsHolder(wallet);
+      const bal = await ffrGetBal(wallet);
+      if (!holder) {
+        return res.status(200).json({ ok: true, holder: false, earned: 0, balance: Number(bal.balLunc || 0) });
+      }
+      const nx = await packPipeline([['SET', 'ffr:fight:' + wallet + ':' + fightId, '1', 'NX', 'EX', String(FFR_FIGHT_TTL_SEC)]]);
+      if (!(nx && nx[0] && nx[0].result)) {
+        const sv = ffrSeasonView(bal, season);
+        return res.status(200).json({ ok: true, holder: true, dup: true, earned: 0, balance: Number(bal.balLunc || 0), seasonWins: sv.wins });
+      }
+      if (Number(bal.seasonId) !== season.id) { bal.seasonId = season.id; bal.seasonWins = 0; bal.seasonFights = 0; }
+      bal.balLunc = Number(bal.balLunc || 0) + earned;
+      bal.totalEarnedLunc = Number(bal.totalEarnedLunc || 0) + earned;
+      bal.seasonFights = Number(bal.seasonFights || 0) + 1;
+      if (matchWon) {
+        bal.seasonWins = Number(bal.seasonWins || 0) + 1;
+        await packPipeline([['HINCRBY', 'ffr:season:' + season.id + ':wins', wallet, '1']]);
+      }
+      await ffrSaveBal(wallet, bal);
+      return res.status(200).json({ ok: true, holder: true, earned, balance: bal.balLunc, seasonWins: bal.seasonWins });
+    }
+    if (action === 'ffrBalance') {
+      const wallet = walletOf();
+      if (!wallet) return res.status(400).json({ ok: false, error: 'bad wallet' });
+      const season = ffrSeason(Date.now());
+      const bal = await ffrGetBal(wallet);
+      const holder = await ffrIsHolder(wallet);
+      const sv = ffrSeasonView(bal, season);
+      let pending = null;
+      if (bal.pendingReq) { const r = await ffrGetReq(String(bal.pendingReq)); if (r && r.status === 'pending') pending = ffrPublicReq(r); }
+      return res.status(200).json({
+        ok: true, holder, balance: Number(bal.balLunc || 0), pendingLunc: Number(bal.pendingLunc || 0),
+        pending, minWithdraw: FFR_MIN_WITHDRAW_LUNC, perRound: FFR_PER_ROUND_LUNC, kingBonus: FFR_KING_BONUS_LUNC,
+        season: { id: season.id, daysLeft: season.daysLeft, wins: sv.wins, fights: sv.fights },
+        seasonTop: await ffrSeasonTop(season),
+        totalEarnedLunc: Number(bal.totalEarnedLunc || 0), totalPaidLunc: Number(bal.totalPaidLunc || 0),
+      });
+    }
+    if (action === 'ffrWithdraw') {
+      const wallet = walletOf();
+      if (!wallet) return res.status(400).json({ ok: false, error: 'bad wallet' });
+      const holder = await ffrIsHolder(wallet);
+      if (!holder) return res.status(403).json({ ok: false, error: 'only NFT holders can withdraw' });
+      const bal = await ffrGetBal(wallet);
+      if (bal.pendingReq) {
+        const r = await ffrGetReq(String(bal.pendingReq));
+        if (r && r.status === 'pending') return res.status(409).json({ ok: false, error: 'a withdrawal is already pending', request: ffrPublicReq(r) });
+        bal.pendingReq = ''; bal.pendingLunc = 0; /* stale pointer — clear and continue */
+      }
+      const amount = Number(bal.balLunc || 0);
+      if (amount < FFR_MIN_WITHDRAW_LUNC) return res.status(400).json({ ok: false, error: 'below the 300 LUNC minimum', balance: amount });
+      const id = 'ffr' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      const o = { id, wallet, amountLunc: amount, status: 'pending', terraTx: '', note: '', created: Date.now(), paidAt: 0 };
+      bal.balLunc = 0; bal.pendingLunc = amount; bal.pendingReq = id;
+      await ffrSaveBal(wallet, bal);
+      await packPipeline([
+        ['SET', 'ffr:req:' + id, JSON.stringify(o), 'EX', String(FFR_REQ_TTL_SEC)],
+        ['LPUSH', 'ffr:reqs', id],
+        ['LTRIM', 'ffr:reqs', '0', '499'],
+      ]);
+      return res.status(200).json({ ok: true, request: ffrPublicReq(o) });
+    }
+    if (action === 'ffrRequests' || action === 'ffrReqDone' || action === 'ffrReqWait') {
+      if (!(await ffrRunnerOk(body.bhash))) return res.status(403).json({ ok: false, error: 'runner not authorized' });
+      if (action === 'ffrRequests') {
+        const out = await packPipeline([['LRANGE', 'ffr:reqs', '0', '199']]);
+        const ids = (out && out[0] && out[0].result) || [];
+        const reqs = [];
+        for (const id of ids) {
+          const o = await ffrGetReq(id);
+          if (o && o.status === 'pending') reqs.push(ffrPublicReq(o));
+        }
+        return res.status(200).json({ ok: true, requests: reqs });
+      }
+      const id = String(body.id || '').trim().toLowerCase();
+      if (!/^[a-z0-9]{8,40}$/.test(id)) return res.status(400).json({ ok: false, error: 'bad request id' });
+      const o = await ffrGetReq(id);
+      if (!o) return res.status(404).json({ ok: false, error: 'request not found' });
+      if (action === 'ffrReqDone') {
+        if (o.status === 'paid') return res.status(200).json({ ok: true, request: ffrPublicReq(o) });
+        const terraTx = String(body.terraTx || '').trim().toUpperCase();
+        if (!/^[0-9A-F]{64}$/.test(terraTx)) return res.status(400).json({ ok: false, error: 'bad terra tx' });
+        o.status = 'paid'; o.terraTx = terraTx; o.paidAt = Date.now(); o.note = '';
+        await ffrSaveReq(o);
+        const bal = await ffrGetBal(o.wallet);
+        if (bal.pendingReq === o.id) {
+          bal.pendingLunc = Math.max(0, Number(bal.pendingLunc || 0) - Number(o.amountLunc || 0));
+          bal.pendingReq = '';
+          bal.totalPaidLunc = Number(bal.totalPaidLunc || 0) + Number(o.amountLunc || 0);
+          await ffrSaveBal(o.wallet, bal);
+        }
+        return res.status(200).json({ ok: true, request: ffrPublicReq(o) });
+      }
+      /* ffrReqWait — stays pending; the note says why (e.g. low funds) */
+      o.note = String(body.error || 'waiting').slice(0, 140);
+      await ffrSaveReq(o);
+      return res.status(200).json({ ok: true, request: ffrPublicReq(o) });
+    }
+    return res.status(400).json({ ok: false, error: 'unknown action' });
+  } catch (e) {
+    console.error('ffr action failed', action, e && e.message);
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+}
+/* frog-rewards:end */
+
 export default async function handler(req, res) {
   /* Wallet Scope counter: /api/scope-count is rewritten to
      /api/luna-games?scope=1 (see the wallet-scope block above). Runs
@@ -7710,6 +7977,12 @@ export default async function handler(req, res) {
      Upstash store; the VM pack runner verifies BSC payments and sends
      the LUNC. */
   if (req.query && req.query.pack !== undefined) return packHandler(req, res);
+  /* Frog Fight LUNC rewards: the game page calls
+     /api/luna-games?ffrewards=1 directly (see the frog-rewards
+     block above). Balances + withdrawal requests in the KICKBACK
+     Upstash store; the VM rewards runner pays requests on
+     Mondays from the dedicated rewards wallet. */
+  if (req.query && req.query.ffrewards !== undefined) return ffrHandler(req, res);
   const game = String((req.query && req.query.game) || '');
   let cfg = GAMES[game];
   if (!cfg) return res.status(400).json({ error: 'unknown game' });
