@@ -7773,7 +7773,52 @@ async function ffrSeasonTop(season) {
   return rows.slice(0, 10);
 }
 
+/* PUBLIC Monday-payout pot (Goliath, Nov 22, 2026): the total of
+   every player's server-side rewards balance — spendable balLunc
+   plus pendingLunc already moved into a withdrawal request — i.e.
+   everything accumulated to be paid on Monday, plus the count of
+   players holding a positive total. Aggregate ONLY: no wallet
+   addresses or per-player data ever leave this read. Display-only;
+   it moves nothing. */
+async function ffrPotRead() {
+  const keys = [];
+  let cursor = '0';
+  for (let page = 0; page < 100; page++) {
+    const out = await packPipeline([['SCAN', cursor, 'MATCH', 'ffr:bal:*', 'COUNT', '500']]);
+    const r = (out && out[0] && out[0].result) || [];
+    cursor = String(r[0] || '0');
+    if (Array.isArray(r[1])) for (const k of r[1]) keys.push(k);
+    if (cursor === '0') break;
+  }
+  let spendable = 0, requested = 0, players = 0;
+  for (let i = 0; i < keys.length; i += 100) {
+    const out = await packPipeline(keys.slice(i, i + 100).map((k) => ['GET', k]));
+    for (const item of out) {
+      const raw = item && item.result;
+      if (!raw) continue;
+      let b; try { b = JSON.parse(raw); } catch (e) { continue; }
+      const s = Number(b.balLunc || 0), p = Number(b.pendingLunc || 0);
+      if (s + p > 0) players++;
+      spendable += s; requested += p;
+    }
+  }
+  const round = (n) => Math.round(n * 1e6) / 1e6;
+  return { ok: true, totalLunc: round(spendable + requested), spendableLunc: round(spendable), requestedLunc: round(requested), players };
+}
+
 export async function ffrHandler(req, res) {
+  /* GET ?ffrewards=1&pot=1 — the public Monday-payout aggregate
+     (see ffrPotRead). GET is read-only here; every action below
+     stays POST-only exactly as before. */
+  if (req.method === 'GET' && req.query && req.query.pot !== undefined) {
+    if (!((process.env.KICKBACK_UPSTASH_URL && process.env.KICKBACK_UPSTASH_TOKEN) ||
+          (process.env.NEONRUSH_UPSTASH_URL && process.env.NEONRUSH_UPSTASH_TOKEN))) {
+      return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    try { return res.status(200).json(await ffrPotRead()); }
+    catch (e) { console.error('ffr pot read failed', e && e.message); return res.status(500).json({ ok: false, error: 'pot read failed' }); }
+  }
   if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' });
   if (!((process.env.KICKBACK_UPSTASH_URL && process.env.KICKBACK_UPSTASH_TOKEN) ||
         (process.env.NEONRUSH_UPSTASH_URL && process.env.NEONRUSH_UPSTASH_TOKEN))) {
