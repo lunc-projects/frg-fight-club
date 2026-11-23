@@ -5948,9 +5948,20 @@ function pfValueSettled(){
    A genuinely empty wallet still finishes via the elapsed escape. */
 function pfSettleOk(v, stable, elapsed){
   if (!v) return false;
-  var priced = v.pricedItems > 0 || v.total > 0;
-  if (pfValueSettled() && stable >= 3 && (priced || elapsed > 25000)) return true;
-  if (stable >= 8 && elapsed > 20000) return true;
+  var priced = v.pricedItems > 0;
+  /* "Priced" means a priced LINE ITEM, not just total > 0: claimable
+     rewards can price tens of seconds before the staked/liquid lines
+     land, and settling on that rewards-only plateau locks in a
+     near-zero total just the same. Rewards-only and empty wallets
+     finish via the 90s escape below.
+     An UNPRICED all-zero read must not lock in early: pool pricing can
+     take well over a minute when the LCD is slow (kur3 took ~46s on
+     2026-11-23), and the old 20-25s escapes settled the wallet at
+     $0.00 before a single price landed. Priced reads still settle
+     fast; a genuinely empty wallet finishes via the 90s escape,
+     inside pfRunOne's 120s hard cap. */
+  if (pfValueSettled() && stable >= 3 && (priced || elapsed > 90000)) return true;
+  if (pfValueSettled() && stable >= 8 && elapsed > 90000) return true;
   return false;
 }
 function pfRunOne(w, cb){
@@ -6107,13 +6118,56 @@ if ('serviceWorker' in navigator) {
     if (!v || !(v.pricedItems > 0 || v.total > 0)) return null;
     return { total: txt, rewards: fmtUSD(v.rewards || 0) };
   }
+  function parseUSD(txt){
+    var n = parseFloat(String(txt || '').replace(/[^0-9.]/g, ''));
+    return isNaN(n) ? 0 : n;
+  }
+  /* A manual lookup never wrote pfTotals (only the portfolio runner
+     and the ?addr= boot watcher did), so once the portfolio held ANY
+     entry — worst case a $0.00 settled before pricing landed — the
+     top cards mirrored that stale sum forever and the user's own
+     finished lookup never reached the hero. Feed every finished,
+     priced lookup of a saved wallet back into pfTotals so the
+     combined total (and the portfolio rows) reflect the number the
+     user is actually looking at. Runs from sync(); skips while the
+     portfolio runner itself is working (it writes its own totals). */
+  var feedRun = -1, feedStable = 0, feedTotal = null;
+  function feedLookup(){
+    try {
+      if (typeof pfRunning === 'undefined' || pfRunning) return;
+      if (typeof ADDR === 'undefined' || !ADDR) return;
+      if (typeof RUN === 'undefined' || typeof state === 'undefined' || !state || !state._value) return;
+      var list = pfLoadList(), inList = false;
+      for (var i = 0; i < list.length; i++) if (list[i].addr === ADDR) inList = true;
+      if (!inList) return;
+      var v = state._value;
+      if (!(v.pricedItems > 0)) return;   /* priced line items only — see pfSettleOk */
+      var vt = document.getElementById('valueTotal');
+      if (!vt || vt.textContent.trim().charAt(0) !== '$') return;
+      if (feedRun !== RUN){ feedRun = RUN; feedStable = 0; feedTotal = null; }
+      if (feedTotal !== null && Math.abs(v.total - feedTotal) < 0.005) feedStable++; else feedStable = 0;
+      feedTotal = v.total;
+      if (feedStable >= 2){
+        var cur = pfTotals[ADDR];
+        if (!cur || Math.abs(cur.total - v.total) >= 0.005 || Math.abs((cur.rewards || 0) - (v.rewards || 0)) >= 0.005){
+          pfTotals[ADDR] = { total: v.total, rewards: v.rewards || 0 };
+          if (typeof pfRender === 'function') pfRender();
+        }
+      }
+    } catch (e) {}
+  }
   function sync(){
     try {
+      feedLookup();
       var list = pfLoadList();
       if (list && list.length){
         var c = pfCombined();
-        if (c){ set('', fmtUSD(c.total), fmtUSD(c.rewards), document.getElementById('pfDelta').innerHTML); return; }
         var lm = lookupMirror();
+        /* A combined total of exactly $0 must never outrank a finished
+           lookup showing a real amount — that is the settled-too-early
+           $0.00 the user reported on 2026-11-23. */
+        if (lm && c && !(c.total > 0) && parseUSD(lm.total) > 0){ set('', lm.total, lm.rewards, ''); return; }
+        if (c){ set('', fmtUSD(c.total), fmtUSD(c.rewards), document.getElementById('pfDelta').innerHTML); return; }
         if (lm){ set('', lm.total, lm.rewards, ''); return; }
         set('is-loading', '\u2026', '\u2026', '');
         return;
