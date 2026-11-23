@@ -2094,33 +2094,47 @@ function packSyncPayBtn(){
   const b = $('packPayBtn'); if (!b) return;
   b.disabled = packBusy || !packIsOpen() || !packQuoteStr;
 }
+/* Provider picker (Trust Wallet fix, Nov 22, 2026): Trust often injects
+   its provider as window.trustwallet.ethereum, or as one entry of
+   window.ethereum.providers[] flagged isTrust/isTrustWallet — while plain
+   window.ethereum may be a different wallet (or an aggregate that routes
+   switch requests badly). Prefer the Trust provider when present, then
+   fall back to window.ethereum. Every pack request goes through this. */
+function packProv(){
+  try {
+    const provs = (window.ethereum && window.ethereum.providers) || [];
+    for (const p of provs){ if (p && (p.isTrust || p.isTrustWallet)) return p; }
+  } catch (e) {}
+  try { if (window.trustwallet && window.trustwallet.ethereum) return window.trustwallet.ethereum; } catch (e) {}
+  return window.ethereum || null;
+}
 async function packChainId(){
-  const ch = await window.ethereum.request({ method: 'eth_chainId' });
+  const ch = await packProv().request({ method: 'eth_chainId' });
   return String(ch || '').toLowerCase();
 }
 async function packEnsureChain(){
   if ((await packChainId()) === PACK_BNB_CHAIN_ID) return;
   packSetStatus(esc(t('packSwitching')));
   try {
-    await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: PACK_BNB_CHAIN_ID }] });
+    await packProv().request({ method: 'wallet_switchEthereumChain', params: [{ chainId: PACK_BNB_CHAIN_ID }] });
   } catch (e) {
     /* Chain unknown to the wallet (4902 — some wallets send the code as a
        string or fail the switch with -32603 instead): add BNB Chain with
        its full params; adding also selects it in most wallets. */
     try {
-      await window.ethereum.request({ method: 'wallet_addEthereumChain', params: [{ chainId: PACK_BNB_CHAIN_ID, chainName: 'BNB Smart Chain', nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 }, rpcUrls: ['https://bsc-dataseed.binance.org'], blockExplorerUrls: ['https://bscscan.com'] }] });
+      await packProv().request({ method: 'wallet_addEthereumChain', params: [{ chainId: PACK_BNB_CHAIN_ID, chainName: 'BNB Smart Chain', nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 }, rpcUrls: ['https://bsc-dataseed.binance.org'], blockExplorerUrls: ['https://bscscan.com'] }] });
     } catch (e2) { /* fall through to the verification below */ }
   }
   /* Never trust that a switch landed — some wallets resolve the request
      without changing chain. Re-read eth_chainId, retry the switch once,
      and refuse to continue on any other chain. */
   if ((await packChainId()) !== PACK_BNB_CHAIN_ID) {
-    try { await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: PACK_BNB_CHAIN_ID }] }); } catch (e) {}
+    try { await packProv().request({ method: 'wallet_switchEthereumChain', params: [{ chainId: PACK_BNB_CHAIN_ID }] }); } catch (e) {}
   }
   if ((await packChainId()) !== PACK_BNB_CHAIN_ID) throw new Error(t('packWrongChain'));
 }
 async function packConnect(){
-  if (!window.ethereum) { packSetStatus(esc(t('packNoWallet'))); return; }
+  if (!packProv()) { packSetStatus(esc(t('packNoWallet'))); return; }
   try {
     /* BNB FIRST (Goliath's bug, Nov 22, 2026: "Solo a ethereum network...
        Not bnb"). The old flow called eth_requestAccounts while the wallet
@@ -2129,9 +2143,22 @@ async function packConnect(){
        could be missed or silently not land — while the line below claimed
        "(BNB Chain)" without ever verifying. Now: switch/add to BNB Chain
        (0x38) BEFORE requesting accounts, and verify eth_chainId before
-       the connected line is allowed to say BNB Chain. */
-    await packEnsureChain();
-    const accts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+       the connected line is allowed to say BNB Chain.
+       TRUST WALLET FALLBACK (Nov 22, 2026): Trust's provider commonly
+       rejects/ignores the switch BEFORE the dapp is authorized (no
+       accounts yet), so switch-first dies at packWrongChain in Trust
+       while MetaMask works. If switch-first throws, authorize FIRST
+       (eth_requestAccounts), then run the same ensure-chain again —
+       Trust accepts the switch once connected. The final eth_chainId
+       verification below still gates the "(BNB Chain)" claim. */
+    try {
+      await packEnsureChain();
+    } catch (e1) {
+      const a0 = await packProv().request({ method: 'eth_requestAccounts' });
+      if (!a0 || !a0[0]) throw e1;
+      await packEnsureChain();
+    }
+    const accts = await packProv().request({ method: 'eth_requestAccounts' });
     if (!accts || !accts[0]) throw new Error('no account');
     if ((await packChainId()) !== PACK_BNB_CHAIN_ID) throw new Error(t('packWrongChain'));
     packEvmAddr = String(accts[0]).toLowerCase();
@@ -2186,7 +2213,7 @@ async function packPay(){
   if (packBusy) return;
   const terra = $('packTerraAddr').value.trim().toLowerCase();
   if (!packTerraOk(terra)) { packSetStatus(esc(t('packNeedTerra') + ' ' + t('packBadTerra'))); return; }
-  if (!window.ethereum || !packEvmAddr) { packSetStatus(esc(t('packNeedWallet'))); return; }
+  if (!packProv() || !packEvmAddr) { packSetStatus(esc(t('packNeedWallet'))); return; }
   if (!packIsOpen()) { packSetStatus(esc(t('packNotOpen'))); return; }
   packBusy = true; packSyncPayBtn();
   try {
@@ -2197,7 +2224,7 @@ async function packPay(){
     const amount = packUsdtToBase(packQuoteStr);
     const data = '0xa9059cbb' + GOLIATH_BNB.toLowerCase().replace('0x', '').padStart(64, '0') + amount.toString(16).padStart(64, '0');
     packSetStatus(esc(t('packPaying')));
-    const txHash = await window.ethereum.request({ method: 'eth_sendTransaction', params: [{ from: packEvmAddr, to: PACK_USDT_CONTRACT, value: '0x0', data }] });
+    const txHash = await packProv().request({ method: 'eth_sendTransaction', params: [{ from: packEvmAddr, to: PACK_USDT_CONTRACT, value: '0x0', data }] });
     if (!/^0x[0-9a-fA-F]{64}$/.test(String(txHash || ''))) throw new Error('wallet returned no tx hash');
     const order = await packSubmitOrder(String(txHash).toLowerCase());
     try { localStorage.setItem('packLastTx', order.bscTxHash); } catch (e) {}
