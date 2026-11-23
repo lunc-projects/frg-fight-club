@@ -2381,6 +2381,17 @@ async function loadPools(){
     if (!POOLS.some(x => (x.a === "USDT" || x.b === "USDT"))){
       POOLS.push({a: "WKAVA", b: "USDT", addr: null, resA: 0, resB: 0, uncreated: true});
     }
+    // Same seed offer for every factory-created token that has no WKAVA
+    // pair yet: its creator must be able to make the first pool from this
+    // page (previously only WKAVA/USDT was offered uncreated, so a fresh
+    // factory token had NO add-liquidity path here at all). addr stays
+    // null; the router creates the pair inside the seed transaction.
+    for (const ft of factoryTokens){
+      const key = "FT" + ft.addr.slice(2, 8).toUpperCase();
+      if (!TOKENS[key]) continue;
+      if (POOLS.some(x => (x.a === key && x.b === "WKAVA") || (x.a === "WKAVA" && x.b === key))) continue;
+      POOLS.push({a: key, b: "WKAVA", addr: null, resA: 0, resB: 0, uncreated: true});
+    }
     // spot price for KTEST from the pool itself
     const p = POOLS.find(x => (x.a === "KTEST" || x.b === "KTEST"));
     if (p){
@@ -3153,9 +3164,11 @@ function renderTfList(){
     '<div class="rrow" style="align-items:flex-start;"><span><b>' + esc(ft.symbol) + "</b> · " + esc(ft.name) +
     '<br><span class="mono" style="font-size:12px;color:var(--ink-3);">' + ft.addr + "</span>" +
     '<br><span style="font-size:12px;color:var(--ink-3);">' + t("tf_creator") + ": " + ft.creator.slice(0, 10) + "…" + ft.creator.slice(-4) + "</span>" +
-    '<br><button class="smallbtn tf-link-btn" data-addr="' + ft.addr + '" style="margin-top:6px;padding:4px 12px;font-size:12.5px;">' + t("tc_copy_link") + "</button></span>" +
+    '<br><button class="smallbtn tf-link-btn" data-addr="' + ft.addr + '" style="margin-top:6px;padding:4px 12px;font-size:12.5px;">' + t("tc_copy_link") + "</button>" +
+    '<button class="smallbtn tf-liq-btn" data-addr="' + ft.addr + '" style="margin-top:6px;margin-left:6px;padding:4px 12px;font-size:12.5px;">' + t("tf_liq_btn") + "</button></span>" +
     "<b>" + fmtSupplyStr(ft.supply) + " " + esc(ft.symbol) + "</b></div>").join("");
   el.querySelectorAll(".tf-link-btn").forEach(b => b.onclick = e => copyText(tokenLink(b.dataset.addr), e.target));
+  el.querySelectorAll(".tf-liq-btn").forEach(b => b.onclick = () => openCreatedLiq(b.dataset.addr));
 }
 function tokenLink(addr){ return location.origin + location.pathname + "?token=" + addr; }
 async function copyText(txt, btn){
