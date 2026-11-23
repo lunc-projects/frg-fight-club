@@ -2130,7 +2130,7 @@ function ffbRenderRank(){
     return;
   }
   const rec = ffbRecord();
-  const myName = (($('nameInput') && $('nameInput').value) || localStorage.getItem('ffight_name') || t('ffbYou') || 'YOU').toString().slice(0, 16) || 'YOU';
+  const myName = (($('nameInput') && $('nameInput').value) || ffNameLoad() || t('ffbYou') || 'YOU').toString().slice(0, 16) || 'YOU';
   box.innerHTML = '<div class="rankRow you"><span>1. ' + esc(myName) + '</span><span class="sc">' +
     rec.fights + ' ' + t('ffbFights') + ' · ' + rec.wins + ' ' + t('ffbWins') + (rec.fights ? ' · ' + Math.round(rec.wins / rec.fights * 100) + '%' : '') + '</span></div>';
 }
@@ -2359,6 +2359,7 @@ async function packConnect(){
     packEvmAddr = String(accts[0]).toLowerCase();
     packDiagSet('connected (injected route), chain BNB verified');
     $('packWalletLine').textContent = t('packConnected') + packEvmAddr.slice(0, 8) + '…' + packEvmAddr.slice(-6) + ' (BNB Chain)';
+    try { ffNameApply(); } catch (e) {} /* per-wallet name: this wallet's name takes the box (Nov 23, 2026) */
     packSetStatus('');
     packSyncPayBtn();
   } catch (e) { packDiagSet('connect error: ' + ((e && e.message) || String(e))); packSetStatus(esc((e && e.message) || String(e))); }
@@ -2629,6 +2630,7 @@ async function packPayWc(){
     await packWcEnsureChain();
     packEvmAddr = String(accts[0]).toLowerCase();
     $('packWalletLine').textContent = t('packConnected') + packEvmAddr.slice(0, 8) + '…' + packEvmAddr.slice(-6) + ' (BNB Chain · WalletConnect)';
+    try { ffNameApply(); } catch (e) {} /* per-wallet name: this wallet's name takes the box (Nov 23, 2026) */
     packDiagSet('WC connected on BNB — paying');
     const p = await packLoadPrice();                 /* fresh quote at pay time */
     packQuoteStr = packQuoteFor(p, packCount);
@@ -2729,17 +2731,70 @@ $('lbWeekBtn2').onclick = () => { boardWhich = 'week'; renderBoard(); };
 /* Player name persistence (Goliath report, Nov 22, 2026: "every
    time you leave and come back it is erased"). The name used to be
    saved only at the moment a run started, so a typed name could be
-   lost. Now it is saved ON THE DEVICE as it is typed — localStorage
-   plus a cookie mirror — and boot() restores it from ffNameLoad()
-   on every load. It never depends on any server store. */
+   lost. Now it is saved as it is typed and boot() restores it from
+   ffNameLoad() on every load. It never depends on any server store.
+   PER-WALLET NAMES (Goliath, Nov 23, 2026): a player with two
+   wallets wants two accounts — the name belongs to the WALLET, not
+   the device. Names live in a map (localStorage ffight_names:
+   wallet -> name). The active wallet is the linked Terra holder
+   wallet (ownedAddr), else the connected BNB pack wallet
+   (packEvmAddr). Switching wallets switches the name in the box
+   (ffNameApply runs on every wallet change); each wallet's name is
+   edited and saved independently. With NO wallet active, the old
+   device name (ffight_name + cookie mirror) is still the fallback,
+   so wallet-less players keep their name exactly as before.
+   Migration: the FIRST wallet active after this change inherits
+   the old device name once (ffight_names_migrated flag), so an
+   existing player keeps the name they had; later wallets start
+   blank and get their own. */
+function ffWalletKey(){
+  try { if (typeof ownedAddr !== 'undefined' && ownedAddr) return String(ownedAddr).toLowerCase(); } catch (e) {}
+  try { if (typeof packEvmAddr !== 'undefined' && packEvmAddr) return String(packEvmAddr).toLowerCase(); } catch (e) {}
+  return '';
+}
+function ffNamesMap(){
+  try { const m = JSON.parse(localStorage.getItem('ffight_names') || '{}'); return (m && typeof m === 'object') ? m : {}; } catch (e) { return {}; }
+}
+function ffNameDevice(){
+  try { const v = localStorage.getItem('ffight_name'); if (v) return v; } catch (e) {}
+  try { const m = document.cookie.match(/(?:^|; )ffight_name=([^;]*)/); if (m) return decodeURIComponent(m[1]); } catch (e) {}
+  return '';
+}
 function ffNameSave(nm){
+  const k = ffWalletKey();
+  if (k){
+    const m = ffNamesMap();
+    if (nm) m[k] = nm; else delete m[k];
+    try { localStorage.setItem('ffight_names', JSON.stringify(m)); } catch (e) {}
+    return;
+  }
   try { localStorage.setItem('ffight_name', nm); } catch (e) {}
   try { document.cookie = 'ffight_name=' + encodeURIComponent(nm) + '; max-age=31536000; path=/frog-fight; SameSite=Lax'; } catch (e) {}
 }
 function ffNameLoad(){
-  try { const v = localStorage.getItem('ffight_name'); if (v) return v; } catch (e) {}
-  try { const m = document.cookie.match(/(?:^|; )ffight_name=([^;]*)/); if (m) return decodeURIComponent(m[1]); } catch (e) {}
-  return '';
+  const k = ffWalletKey();
+  if (k){
+    const m = ffNamesMap();
+    if (m[k]) return m[k];
+    /* one-time migration: the first wallet seen after this change
+       inherits the device name, so an existing player keeps it */
+    let migrated = '';
+    try { migrated = localStorage.getItem('ffight_names_migrated') || ''; } catch (e) {}
+    if (!migrated){
+      const dev = ffNameDevice();
+      try { localStorage.setItem('ffight_names_migrated', '1'); } catch (e) {}
+      if (dev){ m[k] = dev; try { localStorage.setItem('ffight_names', JSON.stringify(m)); } catch (e) {} return dev; }
+    }
+    return '';
+  }
+  return ffNameDevice();
+}
+/* Runs whenever the active wallet changes (holder lookup, pack
+   connect): the name box switches to that wallet's own name. */
+function ffNameApply(){
+  const ni = $('nameInput'); if (!ni) return;
+  ni.value = (ffNameLoad() || '').slice(0, 16);
+  try { ffbRenderRank(); } catch (e) {}
 }
 (function(){
   const ni = $('nameInput');
@@ -2750,7 +2805,7 @@ function ffNameLoad(){
 })();
 /* remember the looked-up address so a saved fighter reloads on revisit */
 const _fetchOwned = fetchOwned;
-fetchOwned = function(addr){ if (addr) localStorage.setItem('ffight_addr', addr); const p = _fetchOwned(addr); if (p && p.then) p.then(() => { try { ffbRenderRank(); } catch (e) {} try { if (window.__ffrFlush) window.__ffrFlush(); } catch (e) {} try { if (window.__ffrWallet) window.__ffrWallet(); } catch (e) {} }); return p; };
+fetchOwned = function(addr){ if (addr) localStorage.setItem('ffight_addr', addr); const p = _fetchOwned(addr); try { ffNameApply(); } catch (e) {} if (p && p.then) p.then(() => { try { ffbRenderRank(); } catch (e) {} try { if (window.__ffrFlush) window.__ffrFlush(); } catch (e) {} try { if (window.__ffrWallet) window.__ffrWallet(); } catch (e) {} }); return p; };
 window.GAME = { get G(){ return G; }, get input(){ return input; }, get joy(){ return joy; }, get ownedTokens(){ return ownedTokens; }, get perks(){ return perks; },
   get selectedToken(){ return selectedToken; }, get mode(){ return gameMode; }, setMode, artCache, playerArtUrl,
   startRun, fetchOwned, playerSkinId, RIVALS, get ffbBoost(){ return ffbBoost; }, get ffbEquipped(){ return [...ffbEquipped]; }, get ffbOwned(){ return ffbOwned; }, ffbToggleEquip, ffbBuy, ffbRenderRank };

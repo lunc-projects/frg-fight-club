@@ -1102,11 +1102,52 @@ function renderBattle(){
 }
 /* ================= leaderboard (house pattern) ================= */
 const API_URL = 'https://frg-fight-club.vercel.app/api/luna-games?game=frogcards';
+/* Per-wallet names (Goliath, Nov 23, 2026 — same fix as Frog Fight):
+   the name belongs to the WALLET, not the device. Names live in a
+   map (frogCardsNames: wallet -> name); frogCardsName stays the
+   device fallback for wallet-less play. The first wallet seen after
+   this change inherits the device name once (frogCardsNamesMigrated
+   flag); later wallets start fresh and get their own name. */
+function fcWalletKey(){
+  try { if (typeof walletAddr !== 'undefined' && /^terra1[0-9a-z]{38}$/.test(walletAddr || '')) return String(walletAddr).toLowerCase(); } catch (e) {}
+  return '';
+}
+function fcNamesMap(){
+  try { const m = JSON.parse(localStorage.getItem('frogCardsNames') || '{}'); return (m && typeof m === 'object') ? m : {}; } catch (e) { return {}; }
+}
+function fcNameSave(nm){
+  const k = fcWalletKey();
+  if (k){
+    const m = fcNamesMap();
+    if (nm) m[k] = nm; else delete m[k];
+    try { localStorage.setItem('frogCardsNames', JSON.stringify(m)); } catch (e) {}
+    return;
+  }
+  try { localStorage.setItem('frogCardsName', nm); } catch (e) {}
+}
+function fcNameLoad(){
+  const k = fcWalletKey();
+  if (k){
+    const m = fcNamesMap();
+    if (m[k]) return m[k];
+    /* one-time migration: first wallet seen inherits the device name */
+    let migrated = '';
+    try { migrated = localStorage.getItem('frogCardsNamesMigrated') || ''; } catch (e) {}
+    if (!migrated){
+      let dev = '';
+      try { dev = localStorage.getItem('frogCardsName') || ''; } catch (e) {}
+      try { localStorage.setItem('frogCardsNamesMigrated', '1'); } catch (e) {}
+      if (dev){ m[k] = dev; try { localStorage.setItem('frogCardsNames', JSON.stringify(m)); } catch (e) {} return dev; }
+    }
+    return '';
+  }
+  try { return localStorage.getItem('frogCardsName') || ''; } catch (e) { return ''; }
+}
 function prefillName(){
   const inp = $('nameInput');
   const tg = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe;
   const tname = tg && tg.user && tg.user.first_name;
-  inp.value = (localStorage.getItem('frogCardsName') || tname || 'Guest').slice(0, 16);
+  inp.value = (fcNameLoad() || tname || 'Guest').slice(0, 16);
 }
 let boardData = null, boardTab = 'all', boardErr = false;
 async function loadBoard(){
@@ -1151,7 +1192,7 @@ $('resMenuBtn').onclick = () => { $('resultOverlay').classList.add('hidden'); re
 $('submitBtn').onclick = async () => {
   const btn = $('submitBtn'); btn.disabled = true;
   const name = ($('nameInput').value.trim() || 'Guest').slice(0, 16);
-  localStorage.setItem('frogCardsName', name);
+  fcNameSave(name);
   $('submitStatus').textContent = T('saving');
   const initData = (window.Telegram && window.Telegram.WebApp && window.Telegram.initData) || '';
   try {
@@ -1162,6 +1203,11 @@ $('submitBtn').onclick = async () => {
     else { $('submitStatus').textContent = T('couldNot'); btn.disabled = false; }
   } catch (e) { $('submitStatus').textContent = T('couldNot'); btn.disabled = false; }
 };
+/* Wallet switch => name switch: every wallet link/lookup (Keplr,
+   WalletConnect, paste) funnels through fetchOwned, which sets
+   walletAddr first thing — re-apply the name for the new wallet. */
+const _fcFetchOwned = fetchOwned;
+fetchOwned = function(addr){ const p = _fcFetchOwned(addr); try { prefillName(); } catch (e) {} return p; };
 prefillName();
 renderMenuStats();
 renderDeckScreen();
