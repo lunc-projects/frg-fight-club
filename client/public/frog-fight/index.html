@@ -2080,7 +2080,7 @@ let packEvmAddr = '', packCount = 1, packCushionOn = true, packPrice = null, pac
    which provider the page sees, the RAW eth_chainId answer exactly as the
    wallet returned it, the connected address, and the last step/error in
    plain words. English-only on purpose: it is a support readout. */
-const PACK_BUILD = 'pack build 2026-11-22-3';
+const PACK_BUILD = 'pack build 2026-11-22-4';
 let packDiagRawChain = '(not read yet)', packDiagStep = 'page loaded';
 function packDiagProvName(){
   try {
@@ -2346,16 +2346,78 @@ async function packPay(){
    so the wallet connects already on BNB Chain. The provider from
    @walletconnect/web3-provider (v1) is EIP-1193 (request()), so the order
    flow below mirrors packPay step for step — only the transport differs.
-   Loaded from esm.sh with the same dynamic-import pattern as wcLib(). */
+   Library loading (round 4, Nov 22, 2026): the round-3 build loaded the
+   provider with a dynamic import() from esm.sh, and that is exactly what
+   died on Goliath's real Trust Wallet ("Failed to fetch dynamically
+   imported module: https://esm.sh/@walletconnect/web3-provider@1.8.0?bundle"
+   — Trust's in-app browser would not fetch the ESM bundle). The library
+   now loads the strong way: a plain <script> tag with the package's own
+   UMD build, jsDelivr first, unpkg second, the esm.sh ESM import only as
+   a last resort — see packWcLib() below. */
 let packWcLibP = null, packWcProv = null;
-function packWcLib(){ if (!packWcLibP) packWcLibP = import('https://esm.sh/@walletconnect/web3-provider@1.8.0?bundle').then(m => {
-  /* The package's export is double-wrapped (verified Nov 22, 2026 against
-     the npm build + the esm.sh bundle): the constructor can sit at
-     m.default.default, m.default, or m itself — take the first function. */
-  const cands = [m && m.default && m.default.default, m && m.default, m, m && m.WalletConnectProvider];
+/* Multi-route library loader (round 4). Route order:
+     A — UMD <script> from jsDelivr (the package's own dist build)
+     B — UMD <script> from unpkg (same file, different CDN)
+     C — the round-3 esm.sh ESM dynamic import (last resort)
+   Each route gets ~12s. The UMD global is window.WalletConnectProvider,
+   an object whose .default is the constructor (verified against the real
+   bundle Nov 22, 2026); the esm.sh module is double-wrapped
+   (m.default.default). First function found wins. The loaded constructor
+   is cached for the session; if EVERY route fails the cache is cleared
+   so a later tap retries, and the rejection says so in plain words. */
+const PACK_WC_UMD_URLS = [
+  'https://cdn.jsdelivr.net/npm/@walletconnect/web3-provider@1.8.0/dist/umd/index.min.js',
+  'https://unpkg.com/@walletconnect/web3-provider@1.8.0/dist/umd/index.min.js'
+];
+function packWcUnwrapGlobal(g){
+  const cands = [g && g.default, g, g && g.WalletConnectProvider];
   for (const c of cands){ if (typeof c === 'function') return c; }
-  return m.default || m;
-}); return packWcLibP; }
+  return null;
+}
+function packWcLoadScript(url, timeoutMs){
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    let done = false;
+    const to = setTimeout(() => { if (!done){ done = true; try { s.remove(); } catch (e) {} reject(new Error('timeout loading WC library')); } }, timeoutMs || 12000);
+    s.onload = () => { if (done) return; done = true; clearTimeout(to);
+      const C = packWcUnwrapGlobal(window.WalletConnectProvider);
+      if (C) resolve(C); else reject(new Error('WC library loaded but exposed no constructor')); };
+    s.onerror = () => { if (done) return; done = true; clearTimeout(to); reject(new Error('WC library script failed to load')); };
+    s.src = url; s.async = true;
+    document.head.appendChild(s);
+  });
+}
+function packWcLib(){
+  if (packWcLibP) return packWcLibP;
+  packWcLibP = (async () => {
+    for (const url of PACK_WC_UMD_URLS){
+      try { return await packWcLoadScript(url, 12000); } catch (e) { /* next route */ }
+    }
+    const m = await import('https://esm.sh/@walletconnect/web3-provider@1.8.0?bundle');
+    const cands = [m && m.default && m.default.default, m && m.default, m, m && m.WalletConnectProvider];
+    for (const c of cands){ if (typeof c === 'function') return c; }
+    throw new Error('WC library could not load (network)');
+  })().catch(e => {
+    if (e && String(e.message || e).indexOf('could not load') >= 0) throw e;
+    throw new Error('WC library could not load (network)');
+  });
+  /* A total failure must not poison the session: clear the cache so the
+     next tap (or preload) tries the routes again. */
+  packWcLibP.catch(() => { packWcLibP = null; });
+  return packWcLibP;
+}
+/* Preload: fired when the Deposit tab is opened and on the first
+   pointerdown on the WC button, so a slow CDN fetch happens BEFORE the
+   real tap instead of eating it. A failure is reported on the
+   diagnostics line in plain words; the injected PAY route is untouched
+   by any of this and stays fully usable. */
+function packWcPreload(){
+  try {
+    packWcLib().then(
+      () => packDiagSet('WC library ready (loaded ahead of the tap)'),
+      () => packDiagSet('WC library could not load (network)'));
+  } catch (e) {}
+}
 async function packPayWc(){
   if (packBusy) return;
   packDiagSet('pay tapped (WalletConnect route)');
@@ -2398,15 +2460,24 @@ async function packPayWc(){
     packShowOrder(order);
     packStartPoll(order.bscTxHash);
   } catch (e) {
-    packDiagSet('WC pay error: ' + ((e && e.message) || String(e)));
-    packSetStatus(esc((e && e.message) || String(e)));
+    const msg = (e && e.message) || String(e);
+    /* A library-load failure gets its own plain line on the diagnostics
+       stamp — that is the failure Goliath's screenshot has to explain. */
+    packDiagSet(msg.indexOf('could not load') >= 0 ? 'WC library could not load (network)' : 'WC pay error: ' + msg);
+    packSetStatus(esc(msg));
   } finally { packBusy = false; packSyncPayBtn(); }
 }
 (function packInit(){
   if (!$('packCard')) return;
   $('packConnectBtn').onclick = packConnect;
   $('packPayBtn').onclick = packPay;
-  const wcBtn = $('packWcBtn'); if (wcBtn) wcBtn.onclick = packPayWc;
+  const wcBtn = $('packWcBtn'); if (wcBtn) { wcBtn.onclick = packPayWc; wcBtn.addEventListener('pointerdown', packWcPreload); }
+  /* Preload the WC library the moment the Deposit tab (where this card
+     lives) is opened — the click handler below runs alongside the menu's
+     own tab switching, it does not replace it. */
+  document.querySelectorAll('.menuTab').forEach(function(tb){
+    if (tb.dataset && tb.dataset.mtab === 'deposit') tb.addEventListener('click', packWcPreload);
+  });
   packDiagRender();
   $('packMinus').onclick = () => { packCount = Math.max(1, packCount - 1); $('packCountTxt').textContent = packCount; packRenderPrice(); };
   $('packPlus').onclick = () => { packCount = Math.min(20, packCount + 1); $('packCountTxt').textContent = packCount; packRenderPrice(); };
