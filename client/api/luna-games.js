@@ -169,8 +169,16 @@ const GAMES = {
   /* Frog Fight 1v1 (client/public/frog-fight/): score = damage dealt x10
      + round wins 300 + KO bonus (in damage) + match wins 1000 + ladder
      stage x500 + remaining-HP bonus + 5000 champion bonus; a full ladder
-     clear lands ~30-60k — rails generous per the house rule. */
-  frogfight: { prefix: 'frogfight', maxScore: 500000, minSec: 10, maxSec: 3600, rateMul: 300, rateBase: 2000 },
+     clear lands ~30-60k — rails generous per the house rule. Rails
+     RAISED Nov 23, 2026 (300/2000 -> 1000/5000): runTime counts ONLY
+     active fight-phase seconds, and FFB boost stacks push a strong
+     player's damage rate to ~37 dmg/s (~370 pts/s) before round/match
+     bonuses — a real 36,095-pt run was rejected as "too high for run
+     time" (Goliath's Nov 23 report). The mechanical ceiling for a
+     whole-run average is ~1000 pts/s (max-boost kick spam, perfect
+     play, late-match bonuses amortised), so the cap now sits above
+     anything a real run can reach. */
+  frogfight: { prefix: 'frogfight', maxScore: 500000, minSec: 10, maxSec: 3600, rateMul: 1000, rateBase: 5000 },
   /* Frog Arena (client/public/frog-arena/): MK-style 1v1 — score =
      damage dealt x10 (accumulates across the whole ladder run) + match
      win 1000 + stage x500 + remaining-HP bonus (<=300) + 5000 champion;
@@ -7074,6 +7082,18 @@ export async function hussyBotHandler(req, res) {
      hl:status     the status JSON the bot posts each cycle
                    (level, pot, progress, trades, positions —
                    display only).
+   STORE MOVE (Nov 23, 2026): the hl:* keys moved from the NEONRUSH
+   store to the KICKBACK store (boardPipeline — same move the game
+   leaderboards made Nov 22) because NEONRUSH hit its 500k monthly
+   command cap and froze: the bot kept posting status every ~30s
+   but every write failed, so the game screen read an empty
+   hl:status and showed all dashes. The bot posts THROUGH this
+   endpoint (hlBotStatus), so no bot-side change is needed. The
+   stored hl:botsecret in the old store equals HL_BOT_BOOTSTRAP_HASH
+   by construction (registration only ever stores a bootstrap-
+   matching hash), so bot auth carries over unchanged; the hb:*
+   code-hash/lockout keys shared with the trading-bot page stay on
+   NEONRUSH — only the hl:* keys moved.
    The page reads with Hussy's SAME access code as his trading-bot
    page: hlCheck / hlGet verify against the hb effective code hash
    and share its per-IP brute-force lockout rails. This endpoint
@@ -7084,24 +7104,35 @@ const HL_BOT_BOOTSTRAP_HASH = '41d7fa09cf49544606b428939a7c91d2f57e3740d821f2247
 
 async function hlBotHashOk(bhash) {
   if (!hbIsHash(bhash)) return false;
-  const out = await upstashPipeline([['GET', HL_BOTSECRET_KEY]]);
+  const out = await boardPipeline([['GET', HL_BOTSECRET_KEY]]);
   const v = out[0] && out[0].result;
   const effective = hbIsHash(v) ? v : HL_BOT_BOOTSTRAP_HASH;
   return hbHashEq(bhash, effective);
+}
+
+/* hl:status read on the KICKBACK store (see the store-move note in
+   the block header) — same JSON-or-null semantics as hbGetJson,
+   which still serves the hb:* keys on NEONRUSH. */
+async function hlGetStatusJson() {
+  const out = await boardPipeline([['GET', HL_STATUS_KEY]]);
+  const v = out[0] && out[0].result;
+  if (!v) return null;
+  try { return JSON.parse(v); } catch (e) { return null; }
 }
 
 export async function hussyLadderHandler(req, res) {
   if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ ok: false, error: 'method not allowed' });
   }
-  if (!process.env.NEONRUSH_UPSTASH_URL || !process.env.NEONRUSH_UPSTASH_TOKEN) {
+  if (!((process.env.KICKBACK_UPSTASH_URL && process.env.KICKBACK_UPSTASH_TOKEN) ||
+        (process.env.NEONRUSH_UPSTASH_URL && process.env.NEONRUSH_UPSTASH_TOKEN))) {
     return res.status(500).json({ ok: false, unavailable: true, error: 'storage not configured' });
   }
   res.setHeader('Cache-Control', 'no-store');
 
   if (req.method === 'GET') {
     try {
-      const out = await upstashPipeline([['GET', HL_STATUS_KEY]]);
+      const out = await boardPipeline([['GET', HL_STATUS_KEY]]);
       return res.status(200).json({ ok: true, set: !!(out[0] && out[0].result) });
     } catch (e) {
       return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
@@ -7120,11 +7151,11 @@ export async function hussyLadderHandler(req, res) {
     if (!hbIsHash(bhash)) return res.status(400).json({ ok: false, error: 'bad hash' });
     try {
       if (action === 'hlBotRegister') {
-        const out = await upstashPipeline([['GET', HL_BOTSECRET_KEY]]);
+        const out = await boardPipeline([['GET', HL_BOTSECRET_KEY]]);
         const stored = out[0] && out[0].result;
         if (hbIsHash(stored)) return res.status(200).json({ ok: hbHashEq(bhash, stored), registered: true });
         if (!hbHashEq(bhash, HL_BOT_BOOTSTRAP_HASH)) return res.status(200).json({ ok: false, error: 'bootstrap mismatch' });
-        await upstashPipeline([['SET', HL_BOTSECRET_KEY, bhash]]);
+        await boardPipeline([['SET', HL_BOTSECRET_KEY, bhash]]);
         return res.status(200).json({ ok: true, registered: true });
       }
       if (!(await hlBotHashOk(bhash))) return res.status(200).json({ ok: false, error: 'bot auth failed' });
@@ -7132,7 +7163,7 @@ export async function hussyLadderHandler(req, res) {
       if (!statusIn) return res.status(400).json({ ok: false, error: 'bad status' });
       const raw = JSON.stringify(statusIn);
       if (raw.length > 20000) return res.status(400).json({ ok: false, error: 'status too large' });
-      await upstashPipeline([['SET', HL_STATUS_KEY, raw]]);
+      await boardPipeline([['SET', HL_STATUS_KEY, raw]]);
       return res.status(200).json({ ok: true });
     } catch (e) {
       console.error('hussy ladder bot action failed', action, e && e.message);
@@ -7155,7 +7186,7 @@ export async function hussyLadderHandler(req, res) {
     await hbClearFails(tag);
     if (action === 'hlCheck') return res.status(200).json({ ok: true });
     if (action === 'hlGet') {
-      const ladderStatus = await hbGetJson(HL_STATUS_KEY);
+      const ladderStatus = await hlGetStatusJson();
       return res.status(200).json({ ok: true, status: ladderStatus });
     }
     return res.status(400).json({ ok: false, error: 'unknown action' });
@@ -7980,14 +8011,25 @@ export async function ffrHandler(req, res) {
       if (!Number.isInteger(rivalIdx) || rivalIdx < 0 || rivalIdx > FFR_LAST_RIVAL_IDX) return res.status(400).json({ ok: false, error: 'bad rival' });
       if (matchWon && roundsWon !== 2) return res.status(400).json({ ok: false, error: 'a won match has exactly 2 rounds won' });
       if (!matchWon && roundsWon > 1) return res.status(400).json({ ok: false, error: 'a lost match has at most 1 round won' });
-      /* The amount is computed HERE, never taken from the client:
-         rounds x perRound + kingBonus for beating the 7th rival,
-         at the OWNER's current rates (ffr:config; defaults 3 / 10).
-         The structural maximum for one match is therefore
-         2 x perRound + kingBonus, from this same formula — the cap
-         moves with the config, never a hardcoded number. */
+      /* KING RULE (Goliath's spec, Nov 23, 2026): LUNC is paid ONLY
+         for beating the 7th rival, THE FROG KING — "if the King is
+         not defeated there should not be a reward". The amount is
+         computed HERE, never taken from the client: a champion run
+         wins exactly 2 rounds in each of the 7 matches (a won match
+         is enforced as exactly 2 rounds won above, and a run only
+         reaches the King by winning all 6 earlier matches), so the
+         run's accrued rounds are structurally 2 x 7 = 14 and the
+         King credit pays 14 x perRound + kingBonus at the OWNER's
+         current rates (ffr:config; defaults 3 / 10). Every other
+         match result earns 0 LUNC — the bounty built up over the
+         run is lost — while season fights/wins, the holder gate
+         and the fight-id dedupe below are unchanged, so the season
+         ranking still counts every match exactly as before. */
       const ffrCfg = await ffrGetConfig();
-      const earned = Math.round((roundsWon * ffrCfg.perRound + (matchWon && rivalIdx === FFR_LAST_RIVAL_IDX ? ffrCfg.kingBonus : 0)) * 1e6) / 1e6;
+      const kingDown = matchWon && rivalIdx === FFR_LAST_RIVAL_IDX;
+      const earned = kingDown
+        ? Math.round(((2 * (FFR_LAST_RIVAL_IDX + 1)) * ffrCfg.perRound + ffrCfg.kingBonus) * 1e6) / 1e6
+        : 0;
       const season = ffrSeason(Date.now());
       const holder = await ffrIsHolder(wallet);
       const bal = await ffrGetBal(wallet);
