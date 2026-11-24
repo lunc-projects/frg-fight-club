@@ -9629,7 +9629,7 @@ export async function ldnftHandler(req, res) {
          word. */
       const txhash = String(body.txhash || '').toUpperCase();
       if (!/^[0-9A-F]{64}$/.test(txhash)) return res.status(400).json({ ok: false, error: 'bad txhash' });
-      const tx = await ldnftTxByHash(txhash);
+      const tx = await ldnftLcd('/cosmos/tx/v1beta1/txs/' + txhash);
       const tr = tx && tx.tx_response;
       if (!tr || Number(tr.code || 0) !== 0) return res.status(400).json({ ok: false, error: 'tx not successful' });
       const msgs = (tx.tx && tx.tx.body && tx.tx.body.messages) || [];
