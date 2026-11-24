@@ -46,11 +46,24 @@
     font-size:16px; line-height:1.5; padding:14px; font-family:inherit; }
   textarea:focus{ outline:2px solid var(--green); outline-offset:1px; }
   textarea::placeholder{ color:#5f8a68; }
-  .send-btn{ width:100%; margin-top:14px; padding:16px; font-size:18px; font-weight:800;
+  .send-btn{ flex:1; padding:16px; font-size:18px; font-weight:800;
     border:none; border-radius:14px; cursor:pointer; color:#14240a;
     background:linear-gradient(90deg,var(--green),#8bf06e);
     box-shadow:0 10px 24px rgba(87,217,61,.25); font-family:inherit; }
   .send-btn:active{ transform:scale(.985); }
+  .send-row{ display:flex; gap:10px; margin-top:14px; }
+  .attach-btn{ padding:16px 14px; font-size:15px; font-weight:700; border-radius:14px;
+    border:1px solid var(--line); background:var(--card2); color:var(--text);
+    cursor:pointer; font-family:inherit; white-space:nowrap; }
+  .attach-btn:active{ transform:scale(.985); }
+  .attach-preview{ margin-top:12px; display:flex; align-items:flex-start; gap:10px; }
+  .attach-preview img{ width:84px; height:84px; object-fit:cover; border-radius:12px;
+    border:1px solid var(--line); background:#081a0e; }
+  .remove-photo{ padding:9px 13px; font-size:13px; font-weight:700; border-radius:10px;
+    border:1px solid var(--line); background:transparent; color:#ff8a8a;
+    cursor:pointer; font-family:inherit; }
+  .req img.thumb{ display:block; margin-top:10px; width:100%; max-width:230px;
+    border-radius:12px; border:1px solid var(--line); }
   .send-line{ margin-top:10px; font-size:13px; text-align:center; color:var(--muted); min-height:18px; }
   .send-line.ok{ color:var(--good); font-weight:700; }
   .send-line.bad{ color:#ff8a8a; font-weight:700; }
@@ -117,7 +130,15 @@
   <div class="card">
     <label class="boxlabel" for="desc" id="boxLabel">Tu pedido</label>
     <textarea id="desc" placeholder="Ejemplo: Necesito que se pruebe el mercado con una venta real, de principio a fin…"></textarea>
-    <button type="button" class="send-btn" id="sendBtn">Enviar</button>
+    <div class="attach-preview" id="attachPreview" style="display:none">
+      <img id="previewImg" alt="">
+      <button type="button" class="remove-photo" id="removePhotoBtn">Quitar foto</button>
+    </div>
+    <div class="send-row">
+      <button type="button" class="attach-btn" id="attachBtn">📎 Adjuntar foto</button>
+      <button type="button" class="send-btn" id="sendBtn">Enviar</button>
+    </div>
+    <input type="file" id="photoInput" accept="image/*" style="display:none">
     <div class="send-line" id="sendLine"></div>
   </div>
 
@@ -153,6 +174,33 @@ ko:{dir:"ltr",langName:"언어",brandSub:"Goliath 전용 페이지",headline:'�
 };
 var LANGS = Object.keys(I18N);
 
+/* Photo-attachment strings (added Nov 24, 2026 with the 📎 feature) —
+   kept as an overlay so the core table above stays untouched. */
+var PHOTO_STR = {
+es:{attach:"📎 Adjuntar foto",removePhoto:"Quitar foto",tooBig:"La foto es demasiado grande y no se pudo reducir — prueba con otra foto",photoOnly:"📷 Foto adjunta"},
+en:{attach:"📎 Attach photo",removePhoto:"Remove photo",tooBig:"That photo is too large and couldn't be shrunk — try another one",photoOnly:"📷 Photo attached"},
+fr:{attach:"📎 Joindre une photo",removePhoto:"Retirer la photo",tooBig:"Cette photo est trop grande et n'a pas pu être réduite — essaie-en une autre",photoOnly:"📷 Photo jointe"},
+de:{attach:"📎 Foto anhängen",removePhoto:"Foto entfernen",tooBig:"Das Foto ist zu groß und konnte nicht verkleinert werden — versuch ein anderes",photoOnly:"📷 Foto angehängt"},
+it:{attach:"📎 Allega foto",removePhoto:"Rimuovi foto",tooBig:"La foto è troppo grande e non si è potuta ridurre — provane un'altra",photoOnly:"📷 Foto allegata"},
+pt:{attach:"📎 Anexar foto",removePhoto:"Remover foto",tooBig:"A foto é grande demais e não pôde ser reduzida — tente outra",photoOnly:"📷 Foto anexada"},
+nl:{attach:"📎 Foto bijvoegen",removePhoto:"Foto verwijderen",tooBig:"Die foto is te groot en kon niet worden verkleind — probeer een andere",photoOnly:"📷 Foto bijgevoegd"},
+pl:{attach:"📎 Załącz zdjęcie",removePhoto:"Usuń zdjęcie",tooBig:"To zdjęcie jest za duże i nie udało się go zmniejszyć — spróbuj innego",photoOnly:"📷 Załączone zdjęcie"},
+ru:{attach:"📎 Прикрепить фото",removePhoto:"Убрать фото",tooBig:"Фото слишком большое и его не удалось уменьшить — попробуй другое",photoOnly:"📷 Прикреплённое фото"},
+uk:{attach:"📎 Додати фото",removePhoto:"Прибрати фото",tooBig:"Фото занадто велике і його не вдалося зменшити — спробуй інше",photoOnly:"📷 Додане фото"},
+tr:{attach:"📎 Fotoğraf ekle",removePhoto:"Fotoğrafı kaldır",tooBig:"Bu fotoğraf çok büyük ve küçültülemedi — başka bir tane dene",photoOnly:"📷 Fotoğraf eklendi"},
+ar:{attach:"📎 إرفاق صورة",removePhoto:"إزالة الصورة",tooBig:"هذه الصورة كبيرة جدًا ولم يمكن تصغيرها — جرّب صورة أخرى",photoOnly:"📷 صورة مرفقة"},
+fa:{attach:"📎 پیوست عکس",removePhoto:"حذف عکس",tooBig:"این عکس خیلی بزرگ است و کوچک نشد — یکی دیگر را امتحان کن",photoOnly:"📷 عکس پیوست شد"},
+hi:{attach:"📎 फ़ोटो जोड़ें",removePhoto:"फ़ोटो हटाएँ",tooBig:"यह फ़ोटो बहुत बड़ी है और छोटी नहीं हो सकी — कोई दूसरी आज़माएँ",photoOnly:"📷 फ़ोटो जुड़ी है"},
+bn:{attach:"📎 ছবি যোগ করুন",removePhoto:"ছবি সরান",tooBig:"ছবিটি খুব বড় এবং ছোট করা যায়নি — অন্য একটি চেষ্টা করুন",photoOnly:"📷 ছবি সংযুক্ত"},
+zh:{attach:"📎 添加照片",removePhoto:"删除照片",tooBig:"这张照片太大了，无法缩小 — 请换一张",photoOnly:"📷 已附照片"},
+ja:{attach:"📎 写真を添付",removePhoto:"写真を削除",tooBig:"その写真は大きすぎて縮小できませんでした — 別の写真をお試しください",photoOnly:"📷 写真を添付しました"},
+ko:{attach:"📎 사진 첨부",removePhoto:"사진 삭제",tooBig:"사진이 너무 커서 줄일 수 없습니다 — 다른 사진을 시도하세요",photoOnly:"📷 사진 첨부됨"}
+};
+function TP(key){
+  var p = PHOTO_STR[langSel.value] || PHOTO_STR.es;
+  return p[key] || PHOTO_STR.es[key] || key;
+}
+
 var API = "/api/luna-games?gg=1";
 var LS_KEY = "gg:reqs:v1";
 var langSel = document.getElementById("lang");
@@ -160,9 +208,17 @@ var desc = document.getElementById("desc");
 var sendLine = document.getElementById("sendLine");
 var reqList = document.getElementById("reqList");
 var emptyState = document.getElementById("emptyState");
-var myReqs = loadReqs();       /* [{id, text, ts}] newest first */
-var liveState = {};            /* id -> {stage, reply, link} from ggStatus polls */
+var myReqs = loadReqs();       /* [{id, text, ts, hasImg}] newest first */
+var liveState = {};            /* id -> {stage, reply, link, hasImg} from ggStatus polls */
 var pollTimer = null;
+var pendingImg = null;         /* downscaled JPEG data URL waiting to send */
+var imgCache = {};             /* id -> data URL, memory only (never localStorage) */
+var imgAsked = {};             /* id -> true once the full image was fetched */
+var attachBtn = document.getElementById("attachBtn");
+var photoInput = document.getElementById("photoInput");
+var attachPreview = document.getElementById("attachPreview");
+var previewImg = document.getElementById("previewImg");
+var IMG_CAP = 2450000;         /* data-URL chars; server hard cap is 2,500,000 */
 
 function T(){ return I18N[langSel.value] || I18N.es; }
 
@@ -187,6 +243,8 @@ function applyLang(){
   document.getElementById("boxLabel").textContent = t.boxLabel;
   desc.placeholder = t.placeholder;
   document.getElementById("sendBtn").textContent = t.send;
+  attachBtn.textContent = TP("attach");
+  document.getElementById("removePhotoBtn").textContent = TP("removePhoto");
   document.getElementById("reqsH").textContent = t.yourReqs;
   emptyState.textContent = t.emptyList;
   renderList();
@@ -252,6 +310,12 @@ function renderList(){
     text.className = "text"; text.textContent = r.text;
     card.appendChild(text);
 
+    if((r.hasImg || s.hasImg) && imgCache[r.id]){
+      var thumb = document.createElement("img");
+      thumb.className = "thumb"; thumb.src = imgCache[r.id]; thumb.alt = "";
+      card.appendChild(thumb);
+    }
+
     if(s.reply){
       var rep = document.createElement("div");
       rep.className = "reply";
@@ -278,10 +342,22 @@ function pollOnce(){
     ggPost({ action: "ggStatus", id: r.id }).then(function(res){
       if(!res.j || !res.j.ok) return;
       var prev = liveState[r.id] || {};
-      var next = { stage: res.j.stage || "received", reply: res.j.reply || null, link: res.j.link || null };
-      if(prev.stage !== next.stage || prev.reply !== next.reply || prev.link !== next.link){
+      var next = { stage: res.j.stage || "received", reply: res.j.reply || null, link: res.j.link || null, hasImg: !!res.j.hasImg };
+      if(prev.stage !== next.stage || prev.reply !== next.reply || prev.link !== next.link || prev.hasImg !== next.hasImg){
         liveState[r.id] = next;
         renderList();
+      }
+      /* Photo thumbnail: the polls above NEVER carry the image. If
+         this record has one and we don't hold it yet, fetch it ONCE
+         (explicit img:1) and keep it in memory for the list render. */
+      if(next.hasImg && !imgCache[r.id] && !imgAsked[r.id]){
+        imgAsked[r.id] = true;
+        ggPost({ action: "ggStatus", id: r.id, img: 1 }).then(function(res2){
+          if(res2.j && res2.j.ok && res2.j.img){
+            imgCache[r.id] = res2.j.img;
+            renderList();
+          }
+        }).catch(function(){ /* thumbnail is best-effort */ });
       }
     }).catch(function(){ /* a failed poll is not fatal — keep waiting */ });
   });
@@ -292,20 +368,84 @@ function startPoll(){
   pollTimer = setInterval(pollOnce, 15000);
 }
 
-document.getElementById("sendBtn").addEventListener("click", function(){
-  var text = desc.value.trim();
-  if(!text){ if(desc.focus) desc.focus(); return; }
-  setSendLine(T().sending, "");
-  ggPost({ action: "ggSubmit", text: text, lang: langSel.value }).then(function(r){
-    if(!r.j || !r.j.ok || !r.j.id){
-      setSendLine(T().couldnt, "bad");
+/* ---------- photo attach: downscale on-device before upload ----------
+   Canvas pass: max dimension 1600px, JPEG q0.8. If the data URL is
+   still over IMG_CAP, step quality down, then dimensions down, until
+   it fits — a phone screenshot lands around a few hundred KB. Only a
+   photo that survives all steps still oversize is refused, in his
+   language (TP "tooBig"). */
+function clearPhoto(){
+  pendingImg = null;
+  photoInput.value = "";
+  previewImg.removeAttribute("src");
+  attachPreview.style.display = "none";
+}
+function processPhoto(file){
+  if(!file) return;
+  var url = URL.createObjectURL(file);
+  var im = new Image();
+  im.onload = function(){
+    URL.revokeObjectURL(url);
+    var maxDim = 1600, quality = 0.8, data = null, fits = false;
+    for(var attempt = 0; attempt < 7; attempt++){
+      var scale = Math.min(1, maxDim / Math.max(im.naturalWidth || 1, im.naturalHeight || 1));
+      var w = Math.max(1, Math.round((im.naturalWidth || 1) * scale));
+      var h = Math.max(1, Math.round((im.naturalHeight || 1) * scale));
+      var cv = document.createElement("canvas");
+      cv.width = w; cv.height = h;
+      cv.getContext("2d").drawImage(im, 0, 0, w, h);
+      data = cv.toDataURL("image/jpeg", quality);
+      if(data.length <= IMG_CAP){ fits = true; break; }
+      if(quality > 0.45) quality = Math.round((quality - 0.15) * 100) / 100;
+      else { maxDim = Math.round(maxDim * 0.75); quality = 0.7; }
+    }
+    if(!fits){
+      clearPhoto();
+      setSendLine(TP("tooBig"), "bad");
       return;
     }
-    myReqs.unshift({ id: r.j.id, text: text, ts: Date.now() });
+    pendingImg = data;
+    previewImg.src = data;
+    attachPreview.style.display = "";
+    setSendLine("", "");
+  };
+  im.onerror = function(){
+    URL.revokeObjectURL(url);
+    clearPhoto();
+    setSendLine(T().couldnt, "bad");
+  };
+  im.src = url;
+}
+attachBtn.addEventListener("click", function(){ photoInput.click(); });
+photoInput.addEventListener("change", function(){
+  processPhoto(photoInput.files && photoInput.files[0]);
+});
+document.getElementById("removePhotoBtn").addEventListener("click", clearPhoto);
+
+document.getElementById("sendBtn").addEventListener("click", function(){
+  var text = desc.value.trim();
+  var img = pendingImg;
+  if(!text && !img){ if(desc.focus) desc.focus(); return; }
+  if(!text && img) text = TP("photoOnly");
+  setSendLine(T().sending, "");
+  var body = { action: "ggSubmit", text: text, lang: langSel.value };
+  if(img) body.img = img;
+  ggPost(body).then(function(r){
+    if(!r.j || !r.j.ok || !r.j.id){
+      if(r.j && r.j.error && String(r.j.error).indexOf("image") >= 0){
+        setSendLine(TP("tooBig"), "bad");
+      } else {
+        setSendLine(T().couldnt, "bad");
+      }
+      return;
+    }
+    myReqs.unshift({ id: r.j.id, text: text, ts: Date.now(), hasImg: !!img });
     myReqs = myReqs.slice(0, 30);
     saveReqs();
-    liveState[r.j.id] = { stage: "received", reply: null, link: null };
+    if(img) imgCache[r.j.id] = img;
+    liveState[r.j.id] = { stage: "received", reply: null, link: null, hasImg: !!img };
     desc.value = "";
+    clearPhoto();
     setSendLine(T().sentOk + r.j.id, "ok");
     renderList();
     startPoll();

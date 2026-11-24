@@ -9070,24 +9070,40 @@ export async function sdHandler(req, res) {
    namespace so they never mix with Studio Describe records:
    gg:req:<id> (JSON record) and gg:index (newest-first id list,
    trimmed to the newest GG_INDEX_CAP). Actions mirror sd exactly:
-   - ggSubmit {text, lang} — PUBLIC by design and grants NOTHING: it
-     only drops a text request (3–2000 chars) into the inbox with
-     status "new". Nothing is built, charged or promised from it.
-   - ggStatus {id} — public read of ONE request's {status, reply,
-     stage, link} only. Ids are timestamp+random and unguessable in
-     practice, and a reply is written for the requester to read.
-     stage is one of received|building|preview|done.
-   - ggList / ggReply {secret, …} — gated by the SAME sdRunnerOk
-     verify as the sd block (the lunc-pack runner gate). */
+   - ggSubmit {text, lang, img?} — PUBLIC by design and grants
+     NOTHING: it only drops a request (text 3–2000 chars, or a short
+     caption when a photo rides along) into the inbox with status
+     "new". Nothing is built, charged or promised from it. The
+     optional img is ONE client-downscaled JPEG data URL (max
+     GG_IMG_MAX chars, the dairy/jsa photo pattern); it is stored
+     under its own key gg:img:<id> so request records stay light,
+     and the record carries only hasImg:true.
+   - ggStatus {id, img?} — public read of ONE request's {status,
+     reply, stage, link, hasImg} only. The full image is included
+     ONLY when the caller passes img:1 (his page does that once per
+     photo record to render its thumbnail; the 15s polls stay
+     light). Ids are timestamp+random and unguessable in practice,
+     and a reply is written for the requester to read. stage is one
+     of received|building|preview|done.
+   - ggList / ggReply / ggImage {secret, …} — gated by the SAME
+     sdRunnerOk verify as the sd block (the lunc-pack runner gate).
+     ggImage returns one request's stored photo for Muse's helper. */
 const GG_INDEX_CAP = 50;
 const GG_LIST_N = 20;
 const GG_ID_RE = /^GG-[A-Za-z0-9]{6}$/;
+const GG_IMG_MAX = 2500000; /* data-URL chars, incl. the prefix */
 
 async function ggGetReq(id) {
   const out = await packPipeline([['GET', 'gg:req:' + id]]);
   const raw = out && out[0] && out[0].result;
   if (!raw) return null;
   try { return JSON.parse(raw); } catch (e) { return null; }
+}
+
+async function ggGetImg(id) {
+  const out = await packPipeline([['GET', 'gg:img:' + id]]);
+  const raw = out && out[0] && out[0].result;
+  return typeof raw === 'string' && raw ? raw : null;
 }
 
 export async function ggHandler(req, res) {
@@ -9104,17 +9120,30 @@ export async function ggHandler(req, res) {
   try {
     if (action === 'ggSubmit') {
       const text = String(body.text || '').trim();
-      if (text.length < 3 || text.length > 2000) {
+      /* Optional ONE photo: a client-downscaled JPEG data URL. Bad
+         or oversize images are refused outright — never stored. */
+      let img = null;
+      if (body.img !== undefined && body.img !== null && body.img !== '') {
+        img = String(body.img);
+        if (!/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(img) || img.length > GG_IMG_MAX) {
+          return res.status(400).json({ ok: false, error: 'image too big or bad format' });
+        }
+      }
+      /* Text-only requests keep the 3-char floor; with a photo the
+         text is just a caption and may be empty. */
+      if (img ? (text.length > 2000) : (text.length < 3 || text.length > 2000)) {
         return res.status(400).json({ ok: false, error: 'text must be 3-2000 chars' });
       }
       const lang = String(body.lang || 'es').slice(0, 5);
       const id = 'GG-' + (Date.now().toString(36) + crypto.randomBytes(3).toString('hex')).toUpperCase().slice(-6);
-      const rec = { id, text, lang, ts: Date.now(), status: 'new', reply: null, stage: 'received', link: null };
-      await packPipeline([
+      const rec = { id, text, lang, ts: Date.now(), status: 'new', reply: null, stage: 'received', link: null, hasImg: !!img };
+      const cmds = [
         ['SET', 'gg:req:' + id, JSON.stringify(rec)],
         ['LPUSH', 'gg:index', id],
         ['LTRIM', 'gg:index', '0', String(GG_INDEX_CAP - 1)],
-      ]);
+      ];
+      if (img) cmds.push(['SET', 'gg:img:' + id, img]);
+      await packPipeline(cmds);
       return res.status(200).json({ ok: true, id });
     }
     if (action === 'ggStatus') {
@@ -9122,7 +9151,22 @@ export async function ggHandler(req, res) {
       if (!GG_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
       const rec = await ggGetReq(id);
       if (!rec) return res.status(404).json({ ok: false, error: 'not found' });
-      return res.status(200).json({ ok: true, status: rec.status, reply: rec.reply || null, stage: rec.stage || 'received', link: rec.link || null });
+      const out = { ok: true, status: rec.status, reply: rec.reply || null, stage: rec.stage || 'received', link: rec.link || null, hasImg: !!rec.hasImg };
+      /* The image itself ships ONLY on an explicit img:1 ask — his
+         page fetches it once per photo record for the thumbnail;
+         the 15s status polls never carry it. */
+      if (body.img && rec.hasImg) out.img = await ggGetImg(id);
+      return res.status(200).json(out);
+    }
+    if (action === 'ggImage') {
+      if (!(await sdRunnerOk(body.secret))) return res.status(403).json({ ok: false, error: 'not authorized' });
+      const id = String(body.id || '');
+      if (!GG_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const rec = await ggGetReq(id);
+      if (!rec) return res.status(404).json({ ok: false, error: 'not found' });
+      const img = rec.hasImg ? await ggGetImg(id) : null;
+      if (!img) return res.status(404).json({ ok: false, error: 'no image' });
+      return res.status(200).json({ ok: true, img });
     }
     if (action === 'ggList') {
       if (!(await sdRunnerOk(body.secret))) return res.status(403).json({ ok: false, error: 'not authorized' });
