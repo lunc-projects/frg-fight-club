@@ -9416,6 +9416,11 @@ const LDNFT_LIST_N = 60;
 const LDNFT_IMG_MAX = 2500000; /* data-URL chars, incl. the prefix */
 const LDNFT_IMG_DAY_CAP = 300;
 const LDNFT_ADDR_RE = /^terra1[0-9a-z]{38}$/;
+/* Contract addresses come in two lengths on columbus-5: legacy
+   44-char (terra1 + 38) and the current wasmd 64-char form
+   (terra1 + 58). Account/wallet addresses are always the 44-char
+   form; contracts may be either. */
+const LDNFT_CONTRACT_RE = /^terra1[0-9a-z]{38}([0-9a-z]{20})?$/;
 const LDNFT_TX_RE = /^[A-Fa-f0-9]{64}$/;
 const LDNFT_IMG_ID_RE = /^LDN[A-Za-z0-9]{6,24}$/;
 const LDNFT_LCDS = ['https://api.terra-classic.hexxagon.io', 'https://terra-classic-lcd.publicnode.com'];
@@ -9469,7 +9474,7 @@ async function ldnftServeMeta(req, res) {
   const parts = raw.split('~');
   const contract = parts[0] || '';
   const tokenId = (parts.slice(1).join('~') || '').slice(0, 128);
-  if (!LDNFT_ADDR_RE.test(contract) || !tokenId) return res.status(400).json({ error: 'bad meta id' });
+  if (!LDNFT_CONTRACT_RE.test(contract) || !tokenId) return res.status(400).json({ error: 'bad meta id' });
   try {
     const info = await ldnftSmart(contract, { nft_info: { token_id: tokenId } });
     if (!info) return res.status(404).json({ error: 'not found' });
@@ -9547,7 +9552,7 @@ export async function ldnftHandler(req, res) {
           }
         }
       }
-      if (!LDNFT_ADDR_RE.test(contract)) return res.status(400).json({ ok: false, error: 'contract address not found in tx' });
+      if (!LDNFT_CONTRACT_RE.test(contract)) return res.status(400).json({ ok: false, error: 'contract address not found in tx' });
       const existing = await ldnftGetCol(contract);
       if (existing) return res.status(200).json({ ok: true, already: true, collection: existing });
       const ci = await ldnftSmart(contract, { contract_info: {} });
