@@ -784,6 +784,28 @@ Object.assign(I.ko,{potTitle:"월요일 지급",potLabel:"지급 예정 총 보�
 Object.assign(I.ja,{potTitle:"月曜日の支払い",potLabel:"支払い予定の報酬合計",potPlayers:"{a} 人のプレイヤーが報酬を待っています",potPaysIn:"月曜日 12:00 PM ET に支払い · あと",potNote:"ゲーム内に表示される残高は参考値です — 月曜日の支払いがウォレットに届いた時点で報酬が確定します。"});
 Object.assign(I.zh,{potTitle:"周一支付",potLabel:"待支付奖励总额",potPlayers:"{a} 位玩家有奖励等待中",potPaysIn:"周一 12:00 PM ET 支付 · 倒计时",potNote:"游戏中显示的余额仅供参考 — 周一付款到达你的钱包后，奖励才最终确定。"});
 
+/* WIN SIGN (Goliath, Nov 23, 2026): the banner hung over the ring at
+   the moment the King falls — "You win +{a} LUNC" with the run's real
+   credited amount (King rule: the only credit in a run). */
+Object.assign(I.en,{ffrWinSign:"🏆 You win +{a} LUNC!"});
+Object.assign(I.es,{ffrWinSign:"🏆 ¡Ganaste +{a} LUNC!"});
+Object.assign(I.pt,{ffrWinSign:"🏆 Você ganhou +{a} LUNC!"});
+Object.assign(I.fr,{ffrWinSign:"🏆 Vous gagnez +{a} LUNC !"});
+Object.assign(I.de,{ffrWinSign:"🏆 Du gewinnst +{a} LUNC!"});
+Object.assign(I.it,{ffrWinSign:"🏆 Hai vinto +{a} LUNC!"});
+Object.assign(I.nl,{ffrWinSign:"🏆 Je wint +{a} LUNC!"});
+Object.assign(I.ru,{ffrWinSign:"🏆 Вы выиграли +{a} LUNC!"});
+Object.assign(I.uk,{ffrWinSign:"🏆 Ви виграли +{a} LUNC!"});
+Object.assign(I.tr,{ffrWinSign:"🏆 Kazandın: +{a} LUNC!"});
+Object.assign(I.ar,{ffrWinSign:"🏆 فزت بـ +{a} LUNC!"});
+Object.assign(I.hi,{ffrWinSign:"🏆 आपने +{a} LUNC जीते!"});
+Object.assign(I.id,{ffrWinSign:"🏆 Kamu menang +{a} LUNC!"});
+Object.assign(I.vi,{ffrWinSign:"🏆 Bạn thắng +{a} LUNC!"});
+Object.assign(I.th,{ffrWinSign:"🏆 คุณชนะ +{a} LUNC!"});
+Object.assign(I.ko,{ffrWinSign:"🏆 +{a} LUNC 획득!"});
+Object.assign(I.ja,{ffrWinSign:"🏆 +{a} LUNC ゲット!"});
+Object.assign(I.zh,{ffrWinSign:"🏆 你赢得了 +{a} LUNC!"});
+
 /* ================= Fighter skins (Amphibians classes) ================= */
 const SKINS = [
   { id:'green',    name:'Green',        rarity:'Common',    body:0x3ab44a, belly:0xd8f7b0, spot:0x2a7d34, pupil:0x141414, gear:[] },
@@ -1173,6 +1195,7 @@ function drawFrog(f, time){
   const has = g => gear.includes(g);
   ctx.save();
   ctx.translate(f.x, FLOOR);
+  if (f.scale && f.scale !== 1) ctx.scale(f.scale, f.scale); /* the King (biggest Kaiju) towers in every mode */
   /* soft ground shadow */
   softShadow(54, 1 - f.jump * 0.0035);
   ctx.translate(0, -f.jump);
@@ -1355,7 +1378,18 @@ ffModeGate(); /* boot: a stored 2D pick falls back to 3D until a holder wallet i
    class skin — not a specific token — is picked) and per ladder rival. */
 const SKIN_ART = { green:'23', soldier:'21', cosmo:'27', blue:'18', warrior:'24', gold:'214', special:'2',
   king:'6', queen:'11', princess:'13', burn:'16' };
-const RIVAL_ART = ['3', '19', '22', '20', '17', '1', '6']; /* Green · Soldier · Cosmonaut · Warrior · Blue · Special · Frog King #6 */
+const RIVAL_ART = ['3', '19', '22', '20', '17', '1', '88']; /* Green · Soldier · Cosmonaut · Warrior · Blue · Special · KAIJU #88 */
+const RIVAL_COLL = ['A', 'A', 'A', 'A', 'A', 'A', 'K'];
+/* The KING is the biggest Kaiju (Goliath, Nov 23, 2026): Kaiju #88 —
+   the golden titan — carries the heaviest art of all 371 Kaiju
+   (largest opaque mass in the collection's cutouts, full-frame) and
+   now fights as THE FROG KING. His stats/rewards role are the old
+   King's, unchanged; only the fighter himself changed. */
+function rivalArtUrl(ci){ return RIVAL_COLL[ci] === 'K' ? KAIJU_IMG(RIVAL_ART[ci]) : AMPH_IMG(RIVAL_ART[ci]); }
+function rivalCutUrl(ci){ return cutUrl(RIVAL_COLL[ci], RIVAL_ART[ci]); }
+/* The run's ladder maps a fight POSITION (0..6) to a rival character
+   index — the first six are shuffled every run (see buildLadder). */
+function ladderChar(pos){ return (G && G.ladder) ? G.ladder[pos] : pos; }
 const artCache = {};
 function artImg(url){
   if (!url) return null;
@@ -1391,7 +1425,7 @@ function loadCutman(){
        arrived — re-snapshot its fighters so they upgrade in place */
     if (G && G.p && G.r && G.mode === '2d'){
       G.p.cut = artImg(playerCutUrl());
-      G.r.cut = artImg(cutUrl('A', RIVAL_ART[G.rivalIdx]));
+      G.r.cut = artImg(rivalCutUrl(ladderChar(G.rivalIdx)));
     }
   }).catch(() => { cutmanLoading = false; });
 }
@@ -1410,7 +1444,7 @@ function drawArtFrog(f, time){
   const cut = (f.cut && f.cut.ok && !f.cut.failed) ? f.cut : null;
   const rec = cut || f.art;
   if (!rec || rec.failed || !rec.ok){ drawFrog(f, time); return; }
-  const S = 152, ph = f.phase || 0;
+  const S = 152 * (f.scale || 1), ph = f.phase || 0;
   ctx.save();
   ctx.translate(f.x, FLOOR);
   /* soft ground shadow */
@@ -1500,12 +1534,21 @@ function banner(main, sub, show){
   $('bannerMain').textContent = main || ''; $('bannerSub').textContent = sub || '';
   $('bannerTxt').style.display = show ? 'flex' : 'none';
 }
+/* RANDOM LADDER (Goliath, Nov 23, 2026): the first 6 opponents are
+   shuffled every run — the same six frogs, never the same order —
+   and the King is always the 7th and final fight. */
+function buildLadder(){
+  const first = [0, 1, 2, 3, 4, 5];
+  for (let i = first.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); const tmp = first[i]; first[i] = first[j]; first[j] = tmp; }
+  first.push(RIVALS.length - 1);
+  return first;
+}
 function startRun(){
   const nm = ($('nameInput').value || '').trim().slice(0, 16) || t('guest');
   ffNameSave(nm);
   G = { phase:'intro', phaseT:0, introStage:0, rivalIdx:0, round:1, pWins:0, rWins:0,
         score:0, timer:roundTime(), hitstop:0, shake:0, time:0, runTime:0, paused:false,
-        accRounds:0,
+        accRounds:0, ladder: buildLadder(),
         parts:[], texts:[], posted:false, playerName:nm, toastT:0 };
   startMatch(0, true);
   showScreen('game');
@@ -1526,7 +1569,8 @@ function showVs(pUrl, rUrl){
 }
 function startMatch(idx, fresh){
   loadCutman(); /* retry a failed manifest fetch; the cut URLs below re-resolve every match */
-  const rv = RIVALS[idx];
+  const ci = ladderChar(idx);
+  const rv = RIVALS[ci];
   G.rivalIdx = idx; G.round = 1; G.pWins = 0; G.rWins = 0;
   const pSkin = playerSkinId();
   G.p = mkFighter(215, 1, pSkin, G.playerName, playerMaxHp(), '#ef4456');
@@ -1535,10 +1579,11 @@ function startMatch(idx, fresh){
   G.r.dmgMul = rv.dmg; G.r.ai = { nextThink:0.5, moveDir:0, blockUntil:0 };
   G.mode = gameMode;
   G.p.art = artImg(playerArtUrl());
-  G.r.art = artImg(AMPH_IMG(RIVAL_ART[idx]));
+  G.r.art = artImg(rivalArtUrl(ci));
   G.p.cut = artImg(playerCutUrl());
-  G.r.cut = artImg(cutUrl('A', RIVAL_ART[idx]));
-  showVs(playerArtUrl(), AMPH_IMG(RIVAL_ART[idx]));
+  G.r.cut = artImg(rivalCutUrl(ci));
+  if (ci === RIVALS.length - 1) G.r.scale = 1.3; /* the King is the biggest Kaiju in the pond — he fights BIG */
+  showVs(playerArtUrl(), rivalArtUrl(ci));
   startRound();
 }
 function startRound(){
@@ -1571,7 +1616,21 @@ function endMatch(playerWon){
   /* LUNC rewards: credit this match server-side (NFT holders only;
      the router recomputes the amount and verifies ownership). */
   if (window.__ffrCreditMatch) window.__ffrCreditMatch(playerWon);
-  if (playerWon){ G.score += 1000 + G.rivalIdx * 500 + Math.ceil(G.p.hp) * 5; G.p.state = 'win'; G.p.tState = 0; banner(t('matchWon'), G.rivalIdx + 1 < RIVALS.length ? t('nextRival') + ': ' + RIVALS[G.rivalIdx + 1].name : '', true); }
+  if (playerWon){ G.score += 1000 + G.rivalIdx * 500 + Math.ceil(G.p.hp) * 5; G.p.state = 'win'; G.p.tState = 0;
+    if (G.rivalIdx === RIVALS.length - 1){
+      /* WIN SIGN (Goliath, Nov 23, 2026): "You win +X LUNC". Under
+         the King rule the ONLY real LUNC credit in a run lands at
+         this exact moment — beating the King — so the sign hangs
+         here and nowhere else: a regular match win credits 0 LUNC
+         (the bounty pays only when the King falls) and must never
+         flash an amount. X is the server's own formula at the
+         owner's live rates (window.FFR_RATES, refreshed from the
+         pot/balance reads): 14 round-wins x perRound + kingBonus —
+         the same number the over screen shows as earned. */
+      const rates = window.FFR_RATES || { perRound: 3, kingBonus: 10 };
+      const amt = Math.round((14 * rates.perRound + rates.kingBonus) * 100) / 100;
+      banner(t('ffrWinSign').replace('{a}', amt.toLocaleString('en-US')), t('matchWon'), true);
+    } else banner(t('matchWon'), t('nextRival') + ': ' + RIVALS[ladderChar(G.rivalIdx + 1)].name, true); }
   else banner('', t('defeated'), true);
   updateHud();
 }
@@ -1690,7 +1749,7 @@ function clampStage(){
 }
 function freeMove(f, dir, dt){ f.x += dir * 245 * ((G && f === G.p) ? (1 + ffbBoost.agi / 100) : 1) * dt; }
 function aiControl(dt){
-  const r = G.r, p = G.p, ai = r.ai, rv = RIVALS[G.rivalIdx];
+  const r = G.r, p = G.p, ai = r.ai, rv = RIVALS[ladderChar(G.rivalIdx)];
   const dist = Math.abs(p.x - r.x);
   const busy = r.state === 'punch' || r.state === 'kick' || r.state === 'special' || r.state === 'hurt' || r.state === 'ko';
   r.blocking = G.time < ai.blockUntil;
@@ -2774,7 +2833,7 @@ $('lbWeekBtn2').onclick = () => { boardWhich = 'week'; renderBoard(); };
   const tname = tg && tg.user && tg.user.first_name;
   $('nameInput').value = (ffNameLoad() || tname || '').slice(0, 16);
   ffModeGate(); /* apply (not setMode: boot must not overwrite the stored mode pick with the gated one) */
-  RIVAL_ART.forEach(id => artImg(AMPH_IMG(id)));
+  RIVAL_ART.forEach((id, ci) => artImg(rivalArtUrl(ci)));
   Object.keys(SKIN_ART).forEach(k => artImg(AMPH_IMG(SKIN_ART[k])));
   renderSkins(); renderPerks(); renderOwned(); updateProfNft(); applyI18n();
   const savedAddr = localStorage.getItem('ffight_addr');
