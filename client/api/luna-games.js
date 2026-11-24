@@ -7982,17 +7982,25 @@ async function ffrKeyStatus(cfg) {
    Frog Fight DAILY LIVES + LIFE BOXES (Goliath's spec, Nov 24,
    2026): "we have to limit the fights per day... a lives counter
    in the top corner of the screen, with 50 lives — each time a
-   player starts a match it deducts 1 life. That limits bot abuse.
-   Add to the market life boxes: 10 lives for 150 LUNC (these are
-   NOT NFTs — the LUNC for extra lives goes to the rewards wallet).
-   Extra lives can only be bought 2 times per day."
+   player starts the FIRST match it deducts 1 life. That limits
+   bot abuse. Add to the market life boxes: 10 lives for 150 LUNC
+   (these are NOT NFTs — the LUNC for extra lives goes to the
+   rewards wallet). Extra lives can only be bought 2 times per
+   day."
+   Goliath's clarification (Nov 24, 2026, after the first ship):
+   a "combate" is ONE fight vs ONE opponent (can end 2-0 or 2-1);
+   a "ronda" (run) starts when the player presses Fight and ends
+   when they beat the King or lose. The life is charged ONCE per
+   RUN, at run start — the later fights inside the same run
+   (NEXT RIVAL continuations) cost nothing.
    Lives are server-side per Terra wallet per ET calendar day in
    the KICKBACK store (packPipeline): ffl:state:<wallet> JSON
    {day, used, bonus, bought} — available = 50 - used + bonus;
    everything resets at the ET day boundary (unused bonus lives
-   expire with the day; that IS the daily limit). Match starts go
-   through ffLifeStart with the same SET NX fight-id dedupe as
-   ffrCredit, so a retried start never double-charges.
+   expire with the day; that IS the daily limit). Run starts go
+   through ffLifeStart keyed on a per-run id with SET NX dedupe,
+   so a retried start never double-charges and a new run always
+   charges exactly 1.
    Life Box orders mirror the pack order discipline: the page
    creates the order FIRST (ffLifeOrder — public, grants nothing,
    enforces the 2/day cap counting today's settled + awaiting
@@ -8224,12 +8232,18 @@ export async function ffrHandler(req, res) {
     if (action === 'ffLifeStart') {
       const wallet = walletOf();
       if (!wallet) return res.status(400).json({ ok: false, error: 'bad wallet' });
-      const fightId = String(body.fightId || '').trim().toLowerCase();
-      if (!/^[a-z0-9][a-z0-9-]{7,63}$/.test(fightId)) return res.status(400).json({ ok: false, error: 'bad fight id' });
+      /* One life per RUN (Goliath's clarification, Nov 24, 2026):
+         the page sends a fresh runId only when a run starts
+         (Fight / Fight Again) and calls nothing for the fights
+         inside the run. fightId is still accepted so an older
+         cached page behaves as it did before. The SET NX dedupe
+         keys on the run id — a retried start never double-charges. */
+      const runId = String(body.runId || body.fightId || '').trim().toLowerCase();
+      if (!/^[a-z0-9][a-z0-9-]{7,63}$/.test(runId)) return res.status(400).json({ ok: false, error: 'bad run id' });
       const s = await fflGetState(wallet);
       const view = fflView(s, 0);
       if (view.lives <= 0) return res.status(200).json({ ok: true, refused: true, ...view });
-      const nx = await packPipeline([['SET', 'ffl:fight:' + wallet + ':' + fightId, '1', 'NX', 'EX', String(FFR_FIGHT_TTL_SEC)]]);
+      const nx = await packPipeline([['SET', 'ffl:run:' + wallet + ':' + runId, '1', 'NX', 'EX', String(FFR_FIGHT_TTL_SEC)]]);
       if (!(nx && nx[0] && nx[0].result)) {
         return res.status(200).json({ ok: true, dup: true, ...view });
       }
