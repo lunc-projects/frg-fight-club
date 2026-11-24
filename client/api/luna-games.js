@@ -8234,9 +8234,12 @@ export async function ffrHandler(req, res) {
    - sdSubmit {text, lang} — PUBLIC by design and grants NOTHING: it
      only drops a text request (3–2000 chars) into the inbox with
      status "new". Nothing is built, charged or promised from it.
-   - sdStatus {id} — public read of ONE request's {status, reply}
-     only. Ids are timestamp+random and unguessable in practice, and
-     a reply is written for the requester to read.
+   - sdStatus {id} — public read of ONE request's {status, reply,
+     stage, link} only. Ids are timestamp+random and unguessable in
+     practice, and a reply is written for the requester to read.
+     stage is one of received|building|preview|done (v2 build-view
+     status board); link is an optional preview URL. Both default
+     safely on records written before v2 (stage "received", no link).
    - sdList / sdReply {secret, …} — gated by sdRunnerOk: the SAME
      verify as the lunc-pack runner gate (packRunnerOk against
      pack:runnerhash). The caller may send either the raw builder
@@ -8280,7 +8283,7 @@ export async function sdHandler(req, res) {
       }
       const lang = String(body.lang || 'en').slice(0, 5);
       const id = 'SD-' + (Date.now().toString(36) + crypto.randomBytes(3).toString('hex')).toUpperCase().slice(-6);
-      const rec = { id, text, lang, ts: Date.now(), status: 'new', reply: null };
+      const rec = { id, text, lang, ts: Date.now(), status: 'new', reply: null, stage: 'received', link: null };
       await packPipeline([
         ['SET', 'sd:req:' + id, JSON.stringify(rec)],
         ['LPUSH', 'sd:index', id],
@@ -8293,7 +8296,7 @@ export async function sdHandler(req, res) {
       if (!SD_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
       const rec = await sdGetReq(id);
       if (!rec) return res.status(404).json({ ok: false, error: 'not found' });
-      return res.status(200).json({ ok: true, status: rec.status, reply: rec.reply || null });
+      return res.status(200).json({ ok: true, status: rec.status, reply: rec.reply || null, stage: rec.stage || 'received', link: rec.link || null });
     }
     if (action === 'sdList') {
       if (!(await sdRunnerOk(body.secret))) return res.status(403).json({ ok: false, error: 'not authorized' });
@@ -8311,12 +8314,33 @@ export async function sdHandler(req, res) {
       const id = String(body.id || '');
       if (!SD_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
       const reply = String(body.reply || '').trim().slice(0, 2000);
-      if (!reply) return res.status(400).json({ ok: false, error: 'empty reply' });
+      /* v2: optional stage/link updates for the build-view status
+         board. A call may carry a reply, a stage, a link, or any mix;
+         at least one is required. */
+      const SD_STAGES = ['received', 'building', 'preview', 'done'];
+      let stage = null;
+      if (body.stage !== undefined && body.stage !== null && body.stage !== '') {
+        stage = String(body.stage);
+        if (!SD_STAGES.includes(stage)) return res.status(400).json({ ok: false, error: 'bad stage' });
+      }
+      let link;
+      if (body.link !== undefined) {
+        const l = String(body.link || '').trim().slice(0, 500);
+        if (l && !/^https:\/\//i.test(l)) return res.status(400).json({ ok: false, error: 'bad link' });
+        link = l || null;
+      }
+      if (!reply && !stage && link === undefined) {
+        return res.status(400).json({ ok: false, error: 'nothing to update' });
+      }
       const rec = await sdGetReq(id);
       if (!rec) return res.status(404).json({ ok: false, error: 'not found' });
-      rec.reply = reply;
-      rec.status = 'answered';
-      rec.replyTs = Date.now();
+      if (reply) {
+        rec.reply = reply;
+        rec.status = 'answered';
+        rec.replyTs = Date.now();
+      }
+      if (stage) rec.stage = stage;
+      if (link !== undefined) rec.link = link;
       await packPipeline([['SET', 'sd:req:' + id, JSON.stringify(rec)]]);
       return res.status(200).json({ ok: true });
     }
