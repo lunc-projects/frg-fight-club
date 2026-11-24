@@ -7721,7 +7721,44 @@ const FFR_FIGHTER_CONTRACTS = [
   'terra1pwyv50whk9xllqnyna4p5g9n0qt4nslg70g799', /* Frogztrik (86) */
   'terra1gah2e0ly97uz5hg7c48an6n9r5vxexq90wwwlv4jpg3ve8yhphjqtx4dmu', /* The Amphibians (98) */
   'terra1s4zze0rhjd73qpze0hr3av7g9nsp2te0snp5kd4qe6mugtsewk6q27ah9q', /* FROGZ KAIJU (123) */
+  'terra1m70wzvlseqaxha8s62xnpzcvq0d06f4y3hdj4u2cdra0nrdezaysqymh2t', /* NEW FROG Fighters (NFROG) — Goliath Stage D, Nov 24, 2026 */
 ];
+
+/* ================= NEW FROG metadata (Stage D) =================
+   GET ?ffmeta=1&id=<n> — the token_uri target for NFROG tokens.
+   The variant function is a deliberate mirror of ffnew-data.mjs
+   (builder-runner) so this JSON always matches the on-chain
+   extension the mint pass wrote. */
+const NFROG_CLASS_PATTERN = ['Green', 'Green', 'Warrior', 'Green', 'Blue', 'Soldier', 'Green', 'Warrior', 'Cosmo', 'Green',
+                             'Blue', 'Warrior', 'Soldier', 'Green', 'Special', 'Blue', 'Warrior', 'Green', 'Cosmo', 'Gold'];
+const NFROG_RARITY_PATTERN = ['Common', 'Common', 'Common', 'Common', 'Common', 'Common', 'Common', 'Common', 'Common', 'Common',
+                              'Rare', 'Rare', 'Rare', 'Rare', 'Rare', 'Rare', 'Epic', 'Epic', 'Epic', 'Legendary'];
+const NFROG_ABILITIES = ['Tongue Lash', 'Swamp Dash', 'Iron Skin', 'Venom Spit', 'Leap Slam', 'Mud Guard'];
+const NFROG_POWER_BASE = { Common: 15, Rare: 30, Epic: 48, Legendary: 70 };
+function ffmetaHandler(req, res) {
+  const n = Math.floor(Number((req.query && req.query.id) || 0));
+  if (!(n >= 1 && n <= 10000)) { res.status(404).json({ error: 'no such token' }); return; }
+  const cls = NFROG_CLASS_PATTERN[(n - 1) % 20];
+  const rarity = NFROG_RARITY_PATTERN[((n - 1) * 7) % 20];
+  const ability = NFROG_ABILITIES[(n - 1) % 6];
+  const power = NFROG_POWER_BASE[rarity] + ((n * 13) % 16);
+  const pad = String(n).padStart(3, '0');
+  const name = 'New Frog #' + pad;
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.status(200).json({
+    name,
+    image: 'https://frg-fight-club.vercel.app/frog-fight/newfrog-art/' + cls.toLowerCase() + '.jpg?e=' + pad,
+    description: name + ' — a NEW FROG Fighters NFT fighter for Frog Fight. ' + cls + ' class · ' + rarity + ' · Ability: ' + ability + ' · Power ' + power + '.',
+    attributes: [
+      { trait_type: 'Collection', value: 'NEW FROG Fighters' },
+      { trait_type: 'Skin', value: cls },
+      { trait_type: 'Rarity', value: rarity },
+      { trait_type: 'Ability', value: ability },
+      { trait_type: 'Power', value: String(power) },
+      { trait_type: 'Edition', value: String(n) },
+    ],
+  });
+}
 
 function ffrSeason(now) {
   const t = Number(now || Date.now());
@@ -8856,6 +8893,8 @@ export default async function handler(req, res) {
   if (req.query && req.query.frogadmin !== undefined) return frogAdminHandler(req, res);
   if (req.query && req.query.frogsettings !== undefined) return frogSettingsHandler(req, res);
   if (req.query && req.query.frogctl !== undefined) return frogCtlHandler(req, res);
+  /* NEW FROG Fighters token metadata: ?ffmeta=1&id=<n> (Stage D). */
+  if (req.query && req.query.ffmeta !== undefined) return ffmetaHandler(req, res);
   /* Garuda Dash LEVEL EDITOR data: ?garudaedit=1 (see the garuda-edit
      block above). Published reads are public; writes are admin-gated. */
   if (req.query && req.query.garudaedit !== undefined) return garudaEditHandler(req, res);
