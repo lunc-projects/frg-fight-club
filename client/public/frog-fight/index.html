@@ -2199,8 +2199,11 @@ async function ffbBuy(type, code){
     ffbOrder('❌ ' + esc(String((e && e.message) || e)));
   }
 }
-/* ranking ladder — NFT players only: your real record, shown once your
-   wallet holds a fighter frog (see ffbRenderRank) */
+/* ranking ladder — NFT players only, served globally by the router
+   (see ffbRenderRank / ffbLoadRank below). ffbRecord keeps the
+   phone-local tally exactly as before; it is no longer what the
+   ladder renders — the board comes from the server so every
+   visitor sees the same one. */
 function ffbRecord(){ try { return JSON.parse(localStorage.getItem('ffb_record') || '{"fights":0,"wins":0,"byRival":{}}'); } catch (e) { return { fights: 0, wins: 0, byRival: {} }; } }
 function ffbRecordMatch(won){
   try {
@@ -2212,30 +2215,86 @@ function ffbRecordMatch(won){
     localStorage.setItem('ffb_record', JSON.stringify(rec));
   } catch (e) {}
   ffbRenderRank();
+  /* the match is credited server-side at match end — refetch the
+     ladder a few seconds later so the new record joins the board */
+  setTimeout(() => { try { ffbLoadRank(); } catch (e) {} }, 4000);
 }
-/* Ranking ladder — NFT players only (Goliath, Nov 22, 2026): the dojo
-   rivals stay in the game as fight opponents but they do NOT rank. The
-   only row is your own real record, and it appears only once the wallet
-   you looked up holds a fighter frog (Amphibians / Frogztrik / Kaiju —
-   the same ownedTokens read as My Frogs). Everyone else sees one honest
-   NFT-only line with the mint links — no fake rows, no filled board. */
+/* Ranking ladder — NFT players only (Goliath, Nov 22, 2026), GLOBAL
+   board (fixed Nov 24, 2026): the dojo rivals stay in the game as
+   fight opponents but they do NOT rank. The old card rendered only
+   the viewer's own phone-local record, and only after that viewer
+   looked up an NFT wallet — so a fresh player saw no ranking at
+   all, nobody ever saw the other players, and the same player on a
+   new phone started from zero. The ladder is now fetched from the
+   router (ffrLadder), which reads the same holder-verified season
+   records the rewards system keeps — identical for every visitor,
+   wallet or no wallet. Qualification is unchanged: a row exists
+   only for a wallet whose matches were credited as an NFT holder
+   (Amphibians / Frogztrik / Kaiju). A player whose name the server
+   has not learned yet shows as a shortened wallet until their page
+   posts their per-wallet name with a balance/credit read. When
+   nobody has fought yet this season, the card shows the honest
+   NFT-only line with the mint links — no fake rows, no filled
+   board. */
+let ffbRankRows = null;      /* null = never loaded */
+let ffbRankBusy = false;
+let ffbRankHeal = null;      /* 10s self-heal timer while unloaded */
+function ffbShortW(w){ return w ? String(w).slice(0, 10) + '…' + String(w).slice(-6) : ''; }
+function ffbRankNoteHtml(){
+  return '<p class="note" style="text-align:center;margin:6px 0 2px">' + esc(t('ffbRankNftOnly')) + '</p>' +
+    '<p class="note" style="text-align:center;margin:0 0 6px">' +
+    '🐸 <a href="https://miata.io/creators/25/collection/86" target="_blank" rel="noopener" style="color:#ffd54a"><b>Mint a Frogztrik NFT</b></a><br>' +
+    '🐸 <a href="https://miata.io/creators/25/collection/98" target="_blank" rel="noopener" style="color:#ffd54a"><b>Mint an Amphibians NFT</b></a><br>' +
+    '🐸 <a href="https://miata.io/creators/25/collection/123" target="_blank" rel="noopener" style="color:#ffd54a"><b>Mint a Kaiju NFT</b></a></p>';
+}
 function ffbRenderRank(){
   const box = $('ffbRankBody'); if (!box) return;
-  if (!(typeof ownedTokens !== 'undefined' && ownedTokens.length)){
-    box.innerHTML = '<p class="note" style="text-align:center;margin:6px 0 2px">' + esc(t('ffbRankNftOnly')) + '</p>' +
-      '<p class="note" style="text-align:center;margin:0 0 6px">' +
-      '🐸 <a href="https://miata.io/creators/25/collection/86" target="_blank" rel="noopener" style="color:#ffd54a"><b>Mint a Frogztrik NFT</b></a><br>' +
-      '🐸 <a href="https://miata.io/creators/25/collection/98" target="_blank" rel="noopener" style="color:#ffd54a"><b>Mint an Amphibians NFT</b></a><br>' +
-      '🐸 <a href="https://miata.io/creators/25/collection/123" target="_blank" rel="noopener" style="color:#ffd54a"><b>Mint a Kaiju NFT</b></a></p>';
+  if (ffbRankRows === null) {
+    box.innerHTML = '<p class="note" style="text-align:center;margin:6px 0">' + esc(t('loading')) + '</p>';
+    ffbLoadRank();
     return;
   }
-  const rec = ffbRecord();
-  const myName = (($('nameInput') && $('nameInput').value) || ffNameLoad() || t('ffbYou') || 'YOU').toString().slice(0, 16) || 'YOU';
-  box.innerHTML = '<div class="rankRow you"><span>1. ' + esc(myName) + '</span><span class="sc">' +
-    rec.fights + ' ' + t('ffbFights') + ' · ' + rec.wins + ' ' + t('ffbWins') + (rec.fights ? ' · ' + Math.round(rec.wins / rec.fights * 100) + '%' : '') + '</span></div>';
+  if (!ffbRankRows.length) { box.innerHTML = ffbRankNoteHtml(); return; }
+  const me = (typeof ownedAddr !== 'undefined' && ownedAddr) ? String(ownedAddr).toLowerCase() : '';
+  box.innerHTML = ffbRankRows.map((r, i) => {
+    const nm = r.name ? esc(r.name) : esc(ffbShortW(r.wallet));
+    return '<div class="rankRow' + (me && r.wallet === me ? ' you' : '') + '"><span>' + (i + 1) + '. ' + nm + '</span><span class="sc">' +
+      r.fights + ' ' + t('ffbFights') + ' · ' + r.wins + ' ' + t('ffbWins') + (r.fights ? ' · ' + Math.round(r.wins / r.fights * 100) + '%' : '') + '</span></div>';
+  }).join('');
+}
+async function ffbLoadRank(){
+  /* Read-only fetch with the rewards pattern (Nov 23 fix): a few
+     retries with backoff, then a 10s self-heal while the board has
+     never loaded — one bad minute at the store never pins an empty
+     or dead ladder on the player's screen. Once rows exist they
+     stay on screen and simply refresh. */
+  if (ffbRankBusy) return;
+  ffbRankBusy = true;
+  try {
+    for (let i = 0; i < 3; i++){
+      try {
+        const r = await fetch('/api/luna-games?ffrewards=1', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'ffrLadder' }) });
+        const d = await r.json().catch(() => null);
+        if (d && d.ok && Array.isArray(d.rows)) {
+          ffbRankRows = d.rows;
+          if (ffbRankHeal) { clearInterval(ffbRankHeal); ffbRankHeal = null; }
+          ffbRenderRank();
+          return;
+        }
+        throw new Error('ladder http ' + r.status);
+      } catch (e) {
+        if (i < 2) await new Promise(res => setTimeout(res, 600 * (i + 1)));
+      }
+    }
+    if (ffbRankRows === null) {
+      const box = $('ffbRankBody');
+      if (box) box.innerHTML = '<p class="note" style="text-align:center;margin:6px 0">' + esc(t('boardFail')) + '</p>';
+      if (!ffbRankHeal) ffbRankHeal = setInterval(ffbLoadRank, 10000);
+    }
+  } finally { ffbRankBusy = false; }
 }
 ffbRenderShop(); ffbRenderRank(); ffbRenderSlots(); ffbLoadSupply(); ffbLoadCtl();
-setInterval(ffbRenderRank, 30000);
+setInterval(ffbLoadRank, 30000);
 
 /* ================= LUNC PACKS — pay USDT on BNB Chain, get native LUNC =================
    Goliath's pack sales (router block: lunc-pack in client/api/luna-games.js).
@@ -2997,13 +3056,13 @@ window.FFR_RATES = { perRound: 3, kingBonus: 10 };
 let ffrData = null, ffrLastEarn = null, ffrBusy = false, ffrMsg = '', ffrWalletSeen = '';
 
 async function ffrPost(body){
-  /* ffrBalance is a pure read — retry it a few times so ONE
-     transient hiccup (store or chain LCD having a bad minute)
-     never pins a "couldn't load" on the player's screen.
+  /* ffrBalance / ffrLadder are pure reads — retry them a few times
+     so ONE transient hiccup (store or chain LCD having a bad
+     minute) never pins a "couldn't load" on the player's screen.
      Writes keep single-attempt semantics exactly as before:
      ffrCredit has its own server-deduped queue retry, and a
      withdraw must never be blindly re-sent. */
-  const readOnly = !!(body && body.action === 'ffrBalance');
+  const readOnly = !!(body && (body.action === 'ffrBalance' || body.action === 'ffrLadder'));
   const tries = readOnly ? 3 : 1;
   let err = null;
   for (let i = 0; i < tries; i++){
@@ -3055,7 +3114,7 @@ async function ffrFlushCredits(){
     const wallet = p.wallet || ownedAddr || '';
     if (!wallet) { left.push(p); continue; }
     try {
-      const d = await ffrPost({ action: 'ffrCredit', wallet, fightId: p.fightId, roundsWon: p.roundsWon, matchWon: p.matchWon, rivalIdx: p.rivalIdx });
+      const d = await ffrPost({ action: 'ffrCredit', wallet, fightId: p.fightId, roundsWon: p.roundsWon, matchWon: p.matchWon, rivalIdx: p.rivalIdx, name: ffrName() });
       if (d && d.ok) { if (typeof d.earned === 'number' && d.holder) { ffrLastEarn = d.earned; earnedNow += d.earned; } }
       else left.push(p);
     } catch (e) { left.push(p); }
@@ -3106,6 +3165,16 @@ function ffrFmtCountdown(ms){
   return d + 'd ' + p(h) + ':' + p(m) + ':' + p(s);
 }
 function ffrShort(w){ return w ? w.slice(0, 10) + '…' + w.slice(-6) : ''; }
+/* The active wallet's display name, sent with balance/credit posts
+   so the server can show it on the public ranking ladder. The
+   server sanitizes and stores it on the player's record
+   (display only — see ffrCleanName in the router). */
+function ffrName(){
+  try {
+    const v = (($('nameInput') && $('nameInput').value) || ffNameLoad() || '');
+    return String(v).trim().slice(0, 16);
+  } catch (e) { return ''; }
+}
 
 function ffrRender(){
   const box = $('ffrBody');
@@ -3160,7 +3229,7 @@ function ffrRender(){
 async function ffrRefresh(){
   if (!ownedAddr) { ffrRender(); return; }
   try {
-    const d = await ffrPost({ action: 'ffrBalance', wallet: ownedAddr });
+    const d = await ffrPost({ action: 'ffrBalance', wallet: ownedAddr, name: ffrName() });
     if (d && d.ok) { ffrData = d; ffrMsg = ''; }
   } catch (e) { /* keep the last good data on screen */ }
   ffrRender();
@@ -3345,7 +3414,7 @@ fflRefresh();
       if (seenAddr === addr){ luncTxt = (amt / 1e6).toLocaleString('en-US', { maximumFractionDigits: 6 }) + ' LUNC'; render(); }
     } catch (e) { if (seenAddr === addr){ luncTxt = 'x'; luncFail = true; render(); } }
     try {
-      var d = await ffrPost({ action: 'ffrBalance', wallet: addr });
+      var d = await ffrPost({ action: 'ffrBalance', wallet: addr, name: ffrName() });
       if (seenAddr === addr){
         if (d && d.ok) { rewTxt = Number(d.balance || 0).toLocaleString('en-US') + ' LUNC'; }
         else { rewTxt = 'x'; rewFail = true; }

@@ -7822,6 +7822,56 @@ async function ffrSeasonTop(season) {
   return rows.slice(0, 10);
 }
 
+/* Display name for the public ranking ladder: the game page sends
+   the player's per-wallet name with its balance/credit posts and
+   it is kept on the balance record (bal.name). Sanitized hard —
+   it is rendered on every visitor's screen. */
+function ffrCleanName(v) {
+  return String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 16);
+}
+
+/* The global ranking ladder (Goliath, Nov 24, 2026): every NFT
+   holder's CURRENT-season record, read from the same balance
+   records ffrCredit maintains. seasonFights only ever moves in
+   ffrCredit's holder-verified, fight-id-deduped path, so every
+   row here is a verified holder who actually fought this season —
+   the ladder's qualification and counting are unchanged; this is
+   a read-only view of them, served identically to every visitor
+   whether or not they have looked up a wallet. (The old ladder
+   card rendered only the viewer's own phone-local record, so a
+   fresh player saw no ranking at all and nobody saw the other
+   players.) */
+async function ffrLadderRows(season) {
+  const keys = [];
+  const seen = new Set();
+  let cursor = '0';
+  for (let page = 0; page < 100; page++) {
+    const out = await packPipeline([['SCAN', cursor, 'MATCH', 'ffr:bal:*', 'COUNT', '500']]);
+    const r = (out && out[0] && out[0].result) || [];
+    cursor = String(r[0] || '0');
+    if (Array.isArray(r[1])) for (const k of r[1]) { if (!seen.has(k)) { seen.add(k); keys.push(k); } }
+    if (cursor === '0') break;
+  }
+  const rows = [];
+  for (let i = 0; i < keys.length; i += 100) {
+    const batch = keys.slice(i, i + 100);
+    const out = await packPipeline(batch.map((k) => ['GET', k]));
+    for (let j = 0; j < out.length; j++) {
+      const raw = out[j] && out[j].result;
+      if (!raw) continue;
+      let b; try { b = JSON.parse(raw); } catch (e) { continue; }
+      if (Number(b.seasonId) !== season.id) continue;
+      const fights = Number(b.seasonFights || 0);
+      if (!(fights > 0)) continue;
+      rows.push({ wallet: batch[j].slice('ffr:bal:'.length), name: ffrCleanName(b.name), fights, wins: Number(b.seasonWins || 0) });
+    }
+  }
+  rows.sort((a, b) => (b.wins - a.wins) ||
+    ((b.fights ? b.wins / b.fights : 0) - (a.fights ? a.wins / a.fights : 0)) ||
+    (b.fights - a.fights) || (a.wallet < b.wallet ? -1 : 1));
+  return rows;
+}
+
 /* PUBLIC Monday-payout pot (Goliath, Nov 22, 2026): the total of
    every player's server-side rewards balance — spendable balLunc
    plus pendingLunc already moved into a withdrawal request — i.e.
@@ -8165,6 +8215,11 @@ export async function ffrHandler(req, res) {
         return res.status(200).json({ ok: true, holder: true, dup: true, earned: 0, balance: Number(bal.balLunc || 0), seasonWins: sv.wins });
       }
       if (Number(bal.seasonId) !== season.id) { bal.seasonId = season.id; bal.seasonWins = 0; bal.seasonFights = 0; }
+      /* The player's display name rides the credit so the public
+         ranking ladder can show it (see ffrLadderRows). Display
+         only — it never affects holder checks or amounts. */
+      const creditName = ffrCleanName(body.name);
+      if (creditName) bal.name = creditName;
       bal.balLunc = Number(bal.balLunc || 0) + earned;
       bal.totalEarnedLunc = Number(bal.totalEarnedLunc || 0) + earned;
       bal.seasonFights = Number(bal.seasonFights || 0) + 1;
@@ -8175,11 +8230,27 @@ export async function ffrHandler(req, res) {
       await ffrSaveBal(wallet, bal);
       return res.status(200).json({ ok: true, holder: true, earned, balance: bal.balLunc, seasonWins: bal.seasonWins });
     }
+    if (action === 'ffrLadder') {
+      /* Public global ranking ladder — no wallet needed: the same
+         board for every visitor (see ffrLadderRows). */
+      const season = ffrSeason(Date.now());
+      const rows = await ffrLadderRows(season);
+      return res.status(200).json({
+        ok: true,
+        season: { id: season.id, daysLeft: season.daysLeft },
+        players: rows.length,
+        rows: rows.slice(0, 20),
+      });
+    }
     if (action === 'ffrBalance') {
       const wallet = walletOf();
       if (!wallet) return res.status(400).json({ ok: false, error: 'bad wallet' });
       const season = ffrSeason(Date.now());
       const bal = await ffrGetBal(wallet);
+      /* Keep the player's display name fresh on their record so
+         the public ladder shows it (written only when it changed). */
+      const balName = ffrCleanName(body.name);
+      if (balName && balName !== ffrCleanName(bal.name)) { bal.name = balName; await ffrSaveBal(wallet, bal); }
       const holder = await ffrIsHolder(wallet);
       const sv = ffrSeasonView(bal, season);
       let pending = null;
