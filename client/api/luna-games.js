@@ -7978,6 +7978,103 @@ async function ffrKeyStatus(cfg) {
   return { loaded: !!wallet && wallet === cfg.payoutWallet, wallet, ts: ks && ks.ts ? Number(ks.ts) : 0 };
 }
 
+/* frog-lives:start
+   Frog Fight DAILY LIVES + LIFE BOXES (Goliath's spec, Nov 24,
+   2026): "we have to limit the fights per day... a lives counter
+   in the top corner of the screen, with 50 lives — each time a
+   player starts a match it deducts 1 life. That limits bot abuse.
+   Add to the market life boxes: 10 lives for 150 LUNC (these are
+   NOT NFTs — the LUNC for extra lives goes to the rewards wallet).
+   Extra lives can only be bought 2 times per day."
+   Lives are server-side per Terra wallet per ET calendar day in
+   the KICKBACK store (packPipeline): ffl:state:<wallet> JSON
+   {day, used, bonus, bought} — available = 50 - used + bonus;
+   everything resets at the ET day boundary (unused bonus lives
+   expire with the day; that IS the daily limit). Match starts go
+   through ffLifeStart with the same SET NX fight-id dedupe as
+   ffrCredit, so a retried start never double-charges.
+   Life Box orders mirror the pack order discipline: the page
+   creates the order FIRST (ffLifeOrder — public, grants nothing,
+   enforces the 2/day cap counting today's settled + awaiting
+   orders), the player then sends exactly 150 LUNC from their
+   wallet to the REWARDS wallet with memo "FFLIFE <id>", and the
+   pack runner (extended pass) verifies the payment ON-CHAIN via
+   LCD (sender, amount, memo, success) before ffLifeOrderDone
+   credits +10 bonus lives. Runner actions are gated by
+   packRunnerOk — the same bhash the pack runner already uses. */
+const FFL_DAILY_FREE = 50;
+const FFL_BOX_LIVES = 10;
+const FFL_BOX_PRICE_LUNC = 150;
+const FFL_BOX_PRICE_ULUNA = '150000000';
+const FFL_MAX_BOXES_PER_DAY = 2;
+const FFL_REWARDS_WALLET = 'terra1h8drf2d0rqckx65rzd5ll4ljdyuhd6mjw0glav';
+const FFL_STATE_TTL_SEC = 3 * 24 * 3600;
+const FFL_ORDER_TTL_SEC = 24 * 3600;
+
+function fflDay(now) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(now || Date.now()));
+  const p = {};
+  for (const x of parts) p[x.type] = x.value;
+  return p.year + '-' + p.month + '-' + p.day;
+}
+function fflBlank(day) { return { day, used: 0, bonus: 0, bought: 0 }; }
+async function fflGetState(wallet) {
+  const day = fflDay(Date.now());
+  const out = await packPipeline([['GET', 'ffl:state:' + wallet]]);
+  const raw = out && out[0] && out[0].result;
+  if (raw) {
+    try {
+      const s = { ...fflBlank(day), ...JSON.parse(raw) };
+      if (s.day === day) return s;
+    } catch (e) { /* fall through to a fresh day */ }
+  }
+  return fflBlank(day);
+}
+async function fflSaveState(wallet, s) {
+  await packPipeline([['SET', 'ffl:state:' + wallet, JSON.stringify(s), 'EX', String(FFL_STATE_TTL_SEC)]]);
+  return s;
+}
+function fflView(s, awaiting) {
+  return {
+    lives: Math.max(0, FFL_DAILY_FREE - Number(s.used || 0) + Number(s.bonus || 0)),
+    freeLeft: Math.max(0, FFL_DAILY_FREE - Number(s.used || 0)),
+    used: Number(s.used || 0), bonus: Number(s.bonus || 0),
+    boughtToday: Number(s.bought || 0), awaitingBoxes: Number(awaiting || 0),
+    dailyFree: FFL_DAILY_FREE, boxLives: FFL_BOX_LIVES, boxPriceLunc: FFL_BOX_PRICE_LUNC,
+    maxBoxes: FFL_MAX_BOXES_PER_DAY, day: s.day, rewardsWallet: FFL_REWARDS_WALLET,
+  };
+}
+async function fflGetOrder(id) {
+  const out = await packPipeline([['GET', 'ffl:order:' + id]]);
+  const raw = out && out[0] && out[0].result;
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+async function fflSaveOrder(o) {
+  await packPipeline([['SET', 'ffl:order:' + o.id, JSON.stringify(o), 'EX', String(FFL_ORDER_TTL_SEC)]]);
+  return o;
+}
+async function fflTodayOrders(wallet) {
+  const day = fflDay(Date.now());
+  const out = await packPipeline([['LRANGE', 'ffl:orders', '0', '199']]);
+  const ids = (out && out[0] && out[0].result) || [];
+  const rows = [];
+  for (const id of ids) {
+    const o = await fflGetOrder(id);
+    if (o && o.wallet === wallet && o.day === day) rows.push(o);
+  }
+  return rows;
+}
+function fflPublicOrder(o) {
+  return {
+    id: o.id, wallet: o.wallet, payFrom: o.payFrom, status: o.status,
+    priceLunc: FFL_BOX_PRICE_LUNC, lives: FFL_BOX_LIVES,
+    memo: 'FFLIFE ' + o.id, payTo: FFL_REWARDS_WALLET,
+    terraTx: o.terraTx || '', error: o.error || '', created: o.created || 0,
+  };
+}
+/* frog-lives:end */
+
 export async function ffrHandler(req, res) {
   /* GET ?ffrewards=1&pot=1 — the public Monday-payout aggregate
      (see ffrPotRead). GET is read-only here; every action below
@@ -8113,6 +8210,93 @@ export async function ffrHandler(req, res) {
         ['LTRIM', 'ffr:reqs', '0', '499'],
       ]);
       return res.status(200).json({ ok: true, request: ffrPublicReq(o) });
+    }
+    /* ----- Daily lives + Life Boxes (Goliath, Nov 24, 2026 — see
+       the frog-lives block above for the full spec) ----- */
+    if (action === 'ffLifeState') {
+      const wallet = walletOf();
+      if (!wallet) return res.status(400).json({ ok: false, error: 'bad wallet' });
+      const s = await fflGetState(wallet);
+      const rows = await fflTodayOrders(wallet);
+      const awaiting = rows.filter((o) => o.status === 'awaiting').length;
+      return res.status(200).json({ ok: true, ...fflView(s, awaiting) });
+    }
+    if (action === 'ffLifeStart') {
+      const wallet = walletOf();
+      if (!wallet) return res.status(400).json({ ok: false, error: 'bad wallet' });
+      const fightId = String(body.fightId || '').trim().toLowerCase();
+      if (!/^[a-z0-9][a-z0-9-]{7,63}$/.test(fightId)) return res.status(400).json({ ok: false, error: 'bad fight id' });
+      const s = await fflGetState(wallet);
+      const view = fflView(s, 0);
+      if (view.lives <= 0) return res.status(200).json({ ok: true, refused: true, ...view });
+      const nx = await packPipeline([['SET', 'ffl:fight:' + wallet + ':' + fightId, '1', 'NX', 'EX', String(FFR_FIGHT_TTL_SEC)]]);
+      if (!(nx && nx[0] && nx[0].result)) {
+        return res.status(200).json({ ok: true, dup: true, ...view });
+      }
+      s.used = Number(s.used || 0) + 1;
+      await fflSaveState(wallet, s);
+      const rows = await fflTodayOrders(wallet);
+      return res.status(200).json({ ok: true, ...fflView(s, rows.filter((o) => o.status === 'awaiting').length) });
+    }
+    if (action === 'ffLifeOrder') {
+      const wallet = walletOf();
+      if (!wallet) return res.status(400).json({ ok: false, error: 'bad wallet' });
+      const payFrom = String(body.payFrom || '').trim().toLowerCase();
+      if (!tdaTerraAddrStrict(payFrom)) return res.status(400).json({ ok: false, error: 'bad paying wallet' });
+      const rows = await fflTodayOrders(wallet);
+      const active = rows.filter((o) => o.status === 'awaiting' || o.status === 'settled');
+      if (active.length >= FFL_MAX_BOXES_PER_DAY) {
+        const s = await fflGetState(wallet);
+        return res.status(409).json({ ok: false, error: 'life box limit reached for today', ...fflView(s, rows.filter((o) => o.status === 'awaiting').length) });
+      }
+      const id = 'lf' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      const o = { id, wallet, payFrom, status: 'awaiting', terraTx: '', error: '', created: Date.now(), day: fflDay(Date.now()) };
+      await packPipeline([
+        ['SET', 'ffl:order:' + id, JSON.stringify(o), 'EX', String(FFL_ORDER_TTL_SEC)],
+        ['LPUSH', 'ffl:orders', id],
+        ['LTRIM', 'ffl:orders', '0', '499'],
+      ]);
+      return res.status(200).json({ ok: true, order: fflPublicOrder(o) });
+    }
+    if (action === 'ffLifeOrderStatus') {
+      const id = String(body.id || '').trim().toLowerCase();
+      if (!/^[a-z0-9]{8,40}$/.test(id)) return res.status(400).json({ ok: false, error: 'bad order id' });
+      const o = await fflGetOrder(id);
+      if (!o) return res.status(404).json({ ok: false, error: 'order not found' });
+      return res.status(200).json({ ok: true, order: fflPublicOrder(o) });
+    }
+    if (action === 'ffLifeOrders' || action === 'ffLifeOrderDone' || action === 'ffLifeOrderFail') {
+      if (!(await packRunnerOk(body.bhash))) return res.status(403).json({ ok: false, error: 'runner not authorized' });
+      if (action === 'ffLifeOrders') {
+        const out = await packPipeline([['LRANGE', 'ffl:orders', '0', '199']]);
+        const ids = (out && out[0] && out[0].result) || [];
+        const orders = [];
+        for (const id of ids) {
+          const o = await fflGetOrder(id);
+          if (o && o.status === 'awaiting') orders.push(fflPublicOrder(o));
+        }
+        return res.status(200).json({ ok: true, orders });
+      }
+      const id = String(body.id || '').trim().toLowerCase();
+      if (!/^[a-z0-9]{8,40}$/.test(id)) return res.status(400).json({ ok: false, error: 'bad order id' });
+      const o = await fflGetOrder(id);
+      if (!o) return res.status(404).json({ ok: false, error: 'order not found' });
+      if (action === 'ffLifeOrderDone') {
+        if (o.status === 'settled') return res.status(200).json({ ok: true, order: fflPublicOrder(o) });
+        const terraTx = String(body.terraTx || '').trim().toUpperCase();
+        if (!/^[0-9A-F]{64}$/.test(terraTx)) return res.status(400).json({ ok: false, error: 'bad terra tx' });
+        o.status = 'settled'; o.terraTx = terraTx; o.error = ''; o.doneAt = Date.now();
+        await fflSaveOrder(o);
+        const s = await fflGetState(o.wallet);
+        s.bonus = Number(s.bonus || 0) + FFL_BOX_LIVES;
+        s.bought = Number(s.bought || 0) + 1;
+        await fflSaveState(o.wallet, s);
+        return res.status(200).json({ ok: true, order: fflPublicOrder(o), ...fflView(s, 0) });
+      }
+      if (o.status === 'settled') return res.status(200).json({ ok: true, order: fflPublicOrder(o) });
+      o.status = 'failed'; o.error = String(body.error || 'payment could not be verified').slice(0, 140);
+      await fflSaveOrder(o);
+      return res.status(200).json({ ok: true, order: fflPublicOrder(o) });
     }
     /* ----- Owner admin (Goliath's panel, /ff-admin/) -----
        Every call carries the owner code; the server compares its
