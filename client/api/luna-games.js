@@ -8031,7 +8031,8 @@ async function ffrKeyStatus(cfg) {
 /* frog-lives:start
    Frog Fight DAILY LIVES + LIFE BOXES (Goliath's spec, Nov 24,
    2026): "we have to limit the fights per day... a lives counter
-   in the top corner of the screen, with 50 lives — each time a
+   in the top corner of the screen, with 50 lives (cut to 20 by
+   Goliath on Nov 24, 2026 — see FFL_DAILY_FREE) — each time a
    player starts the FIRST match it deducts 1 life. That limits
    bot abuse. Add to the market life boxes: 10 lives for 150 LUNC
    (these are NOT NFTs — the LUNC for extra lives goes to the
@@ -8045,7 +8046,7 @@ async function ffrKeyStatus(cfg) {
    (NEXT RIVAL continuations) cost nothing.
    Lives are server-side per Terra wallet per ET calendar day in
    the KICKBACK store (packPipeline): ffl:state:<wallet> JSON
-   {day, used, bonus, bought} — available = 50 - used + bonus;
+   {day, used, bonus, bought} — available = FFL_DAILY_FREE - used + bonus;
    everything resets at the ET day boundary (unused bonus lives
    expire with the day; that IS the daily limit). Run starts go
    through ffLifeStart keyed on a per-run id with SET NX dedupe,
@@ -8060,7 +8061,7 @@ async function ffrKeyStatus(cfg) {
    LCD (sender, amount, memo, success) before ffLifeOrderDone
    credits +10 bonus lives. Runner actions are gated by
    packRunnerOk — the same bhash the pack runner already uses. */
-const FFL_DAILY_FREE = 50;
+const FFL_DAILY_FREE = 20; /* Goliath, Nov 24, 2026: daily free lives cut 50 → 20 */
 const FFL_BOX_LIVES = 10;
 const FFL_BOX_PRICE_LUNC = 150;
 const FFL_BOX_PRICE_ULUNA = '150000000';
@@ -8429,6 +8430,19 @@ export async function ffrHandler(req, res) {
     if (action === 'ffrRunnerConfig') {
       if (!(await ffrRunnerOk(body.bhash))) return res.status(403).json({ ok: false, error: 'runner not authorized' });
       return res.status(200).json({ ok: true, config: await ffrGetConfig() });
+    }
+    /* Runner config write — same ffrRunnerOk gate and the same
+       ffrValidConfigPatch validation as the owner's panel save,
+       so Tom's side can apply Goliath's rate rulings (e.g. the
+       Nov 24, 2026 King-kill total cut) without holding the
+       owner's panel code. Only the validated patch is merged. */
+    if (action === 'ffrRunnerSaveConfig') {
+      if (!(await ffrRunnerOk(body.bhash))) return res.status(403).json({ ok: false, error: 'runner not authorized' });
+      const v = ffrValidConfigPatch(body.config);
+      if (v.error) return res.status(400).json({ ok: false, error: v.error });
+      const cfg = { ...(await ffrGetConfig()), ...v.patch };
+      await packPipeline([['SET', 'ffr:config', JSON.stringify(cfg)]]);
+      return res.status(200).json({ ok: true, config: cfg });
     }
     if (action === 'ffrKeyStatus') {
       if (!(await ffrRunnerOk(body.bhash))) return res.status(403).json({ ok: false, error: 'runner not authorized' });
