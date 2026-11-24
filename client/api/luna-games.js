@@ -7755,6 +7755,118 @@ async function ffrSaveBal(wallet, b) {
   await packPipeline([['SET', 'ffr:bal:' + wallet, JSON.stringify(b)]]);
   return b;
 }
+/* ---------- Unclaimed-rewards burn (Goliath, Nov 24, 2026) ----------
+   "Unclaimed rewards burn on Tuesday at 12am, giving a 24h
+   withdrawal window": the withdrawal window opens Monday 12:00 ET
+   (the configured payout moment); rewards not claimed (turned
+   into a withdrawal request) by Tuesday 00:00 ET are BURNED —
+   the balance simply zeroes; no coins move, the rewards are
+   ledger balances. Implementation: every credit lands in a "lot"
+   stamped with its burn deadline (bal.lots: [{amt, dl}]); balLunc
+   is always the sum of the live lots. A credit made WHILE a claim
+   window is open belongs to the NEXT cycle (its deadline is the
+   following Tuesday), so the currently-accruing week is never
+   burned. Legacy records (no lots) are migrated on first touch
+   with the upcoming Tuesday deadline — never retro-burned.
+   Burns are applied lazily on every balance touch (credit /
+   balance / withdraw / runner sweep) and recorded in the
+   append-only ffr:burns list for the owner panel. Amounts already
+   moved into a pending withdrawal request never burn. */
+function ffrRound6(n) { return Math.round(Number(n || 0) * 1e6) / 1e6; }
+function ffrEtParts(ms) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23', weekday: 'short' }).formatToParts(new Date(ms));
+  const p = {};
+  for (const x of parts) p[x.type] = x.value;
+  const wd = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[p.weekday];
+  return { y: Number(p.year), mo: Number(p.month), d: Number(p.day), hh: Number(p.hour), mi: Number(p.minute), ss: Number(p.second), wd };
+}
+/* The UTC instant of an America/New_York wall-clock time, via a
+   two-pass offset correction against Intl. */
+function ffrEtInstant(y, mo, d, hh, mi) {
+  let guess = Date.UTC(y, mo - 1, d, hh, mi, 0);
+  for (let i = 0; i < 2; i++) {
+    const p = ffrEtParts(guess);
+    const wallAsUtc = Date.UTC(p.y, p.mo - 1, p.d, p.hh, p.mi, p.ss);
+    guess += Date.UTC(y, mo - 1, d, hh, mi, 0) - wallAsUtc;
+  }
+  return guess;
+}
+/* First Tuesday 00:00 ET strictly after ms. */
+function ffrTueMidnightAfter(ms) {
+  const p = ffrEtParts(ms);
+  for (let add = 0; add < 10; add++) {
+    const dt = new Date(Date.UTC(p.y, p.mo - 1, p.d + add));
+    if (dt.getUTCDay() !== 2) continue;
+    const cand = ffrEtInstant(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate(), 0, 0);
+    if (cand > ms) return cand;
+  }
+  return ms + 7 * 24 * 3600 * 1000; /* unreachable in practice */
+}
+/* Burn deadline for a credit made at ms: the Tuesday 00:00 ET that
+   closes the claim window for its cycle. A credit made inside an
+   open window (Mon 12:00 ET → Tue 00:00 ET, i.e. the 12h before
+   that Tuesday) belongs to the NEXT cycle. */
+function ffrClaimDeadlineFor(ms) {
+  const tue = ffrTueMidnightAfter(ms);
+  if (ms >= tue - 12 * 3600 * 1000) return ffrTueMidnightAfter(tue);
+  return tue;
+}
+function ffrLotsInit(bal, now) {
+  if (Array.isArray(bal.lots)) return bal;
+  const amt = ffrRound6(bal.balLunc);
+  bal.lots = amt > 0 ? [{ amt, dl: ffrTueMidnightAfter(now) }] : [];
+  return bal;
+}
+function ffrLotsSum(bal) {
+  return ffrRound6((bal.lots || []).reduce((s, l) => s + Number(l.amt || 0), 0));
+}
+/* Drop expired lots from a record in memory; returns the amount
+   burned. balLunc is re-derived from the surviving lots. */
+function ffrApplyBurn(bal, now) {
+  ffrLotsInit(bal, now);
+  let burned = 0;
+  const keep = [];
+  for (const l of bal.lots) {
+    const amt = ffrRound6(l.amt), dl = Number(l.dl || 0);
+    if (amt > 0 && dl > 0 && dl <= now) burned += amt;
+    else if (amt > 0) keep.push({ amt, dl });
+  }
+  bal.lots = keep;
+  bal.balLunc = ffrLotsSum(bal);
+  return ffrRound6(burned);
+}
+/* Apply + persist the burn for one wallet; returns the amount
+   burned (0 when nothing expired). Also performs the one-time
+   legacy lots migration. */
+async function ffrBurnWallet(wallet) {
+  const out = await packPipeline([['GET', 'ffr:bal:' + wallet]]);
+  const raw = out && out[0] && out[0].result;
+  if (!raw) return 0;
+  let bal;
+  try { bal = { ...ffrBlankBal(), ...JSON.parse(raw) }; } catch (e) { return 0; }
+  const hadLots = Array.isArray(bal.lots);
+  const burned = ffrApplyBurn(bal, Date.now());
+  if (burned > 0 || !hadLots) {
+    await ffrSaveBal(wallet, bal);
+    if (burned > 0) {
+      try {
+        await packPipeline([
+          ['LPUSH', 'ffr:burns', JSON.stringify({ ts: Date.now(), wallet, amountLunc: burned })],
+          ['LTRIM', 'ffr:burns', '0', '199'],
+        ]);
+      } catch (e) { /* burn log is best-effort; the zeroing already persisted */ }
+    }
+  }
+  return burned;
+}
+/* Balance read with the burn applied and persisted first — every
+   player-facing path goes through here so an expired balance is
+   never shown or paid. */
+async function ffrGetBalLive(wallet) {
+  await ffrBurnWallet(wallet);
+  return ffrGetBal(wallet);
+}
+
 /* Effective season counters: a record written in an older season
    reads as zero for the current one (rolled over on next write). */
 function ffrSeasonView(b, season) {
@@ -7896,6 +8008,7 @@ async function ffrPotRead() {
       const raw = item && item.result;
       if (!raw) continue;
       let b; try { b = JSON.parse(raw); } catch (e) { continue; }
+      ffrApplyBurn(b, Date.now()); /* in-memory only — expired lots never inflate the pot */
       const s = Number(b.balLunc || 0), p = Number(b.pendingLunc || 0);
       if (s + p > 0) players++;
       spendable += s; requested += p;
@@ -8002,6 +8115,7 @@ async function ffrPendingList() {
       const raw = out && out[j] && out[j].result;
       if (!raw) continue;
       let b; try { b = JSON.parse(raw); } catch (e) { continue; }
+      ffrApplyBurn(b, Date.now()); /* in-memory only — the panel never shows expired money */
       const s = Number(b.balLunc || 0), p = Number(b.pendingLunc || 0);
       if (s + p <= 0) continue;
       rows.push({ wallet: batch[j].slice('ffr:bal:'.length), balLunc: s, pendingLunc: p, totalLunc: Math.round((s + p) * 1e6) / 1e6 });
@@ -8206,7 +8320,7 @@ export async function ffrHandler(req, res) {
         : 0;
       const season = ffrSeason(Date.now());
       const holder = await ffrIsHolder(wallet);
-      const bal = await ffrGetBal(wallet);
+      const bal = await ffrGetBalLive(wallet);
       if (!holder) {
         return res.status(200).json({ ok: true, holder: false, earned: 0, balance: Number(bal.balLunc || 0) });
       }
@@ -8221,7 +8335,15 @@ export async function ffrHandler(req, res) {
          only — it never affects holder checks or amounts. */
       const creditName = ffrCleanName(body.name);
       if (creditName) bal.name = creditName;
-      bal.balLunc = Number(bal.balLunc || 0) + earned;
+      /* The credit lands in a burn lot stamped with its cycle
+         deadline (see the burn block); balLunc is the lot sum. */
+      if (earned > 0) {
+        const dl = ffrClaimDeadlineFor(Date.now());
+        const lot = (bal.lots || []).find((l) => Number(l.dl) === dl);
+        if (lot) lot.amt = ffrRound6(Number(lot.amt || 0) + earned);
+        else bal.lots = [...(bal.lots || []), { amt: earned, dl }];
+        bal.balLunc = ffrLotsSum(bal);
+      }
       bal.totalEarnedLunc = Number(bal.totalEarnedLunc || 0) + earned;
       bal.seasonFights = Number(bal.seasonFights || 0) + 1;
       if (matchWon) {
@@ -8247,7 +8369,7 @@ export async function ffrHandler(req, res) {
       const wallet = walletOf();
       if (!wallet) return res.status(400).json({ ok: false, error: 'bad wallet' });
       const season = ffrSeason(Date.now());
-      const bal = await ffrGetBal(wallet);
+      const bal = await ffrGetBalLive(wallet);
       /* Keep the player's display name fresh on their record so
          the public ladder shows it (written only when it changed). */
       const balName = ffrCleanName(body.name);
@@ -8259,6 +8381,10 @@ export async function ffrHandler(req, res) {
       const cfg = await ffrGetConfig();
       return res.status(200).json({
         ok: true, holder, balance: Number(bal.balLunc || 0), pendingLunc: Number(bal.pendingLunc || 0),
+        /* Burn deadline of the player's oldest live lot (ms epoch)
+           — the page shows it as the claim-by date; null when the
+           balance is empty. */
+        claimDeadline: (bal.lots && bal.lots.length) ? Math.min(...bal.lots.map((l) => Number(l.dl || 0))) : null,
         pending, minWithdraw: cfg.minWithdraw, perRound: cfg.perRound, kingBonus: cfg.kingBonus,
         payWeekday: cfg.payWeekday, payTimeET: cfg.payTimeET,
         season: { id: season.id, daysLeft: season.daysLeft, wins: sv.wins, fights: sv.fights },
@@ -8271,7 +8397,7 @@ export async function ffrHandler(req, res) {
       if (!wallet) return res.status(400).json({ ok: false, error: 'bad wallet' });
       const holder = await ffrIsHolder(wallet);
       if (!holder) return res.status(403).json({ ok: false, error: 'only NFT holders can withdraw' });
-      const bal = await ffrGetBal(wallet);
+      const bal = await ffrGetBalLive(wallet);
       if (bal.pendingReq) {
         const r = await ffrGetReq(String(bal.pendingReq));
         if (r && r.status === 'pending') return res.status(409).json({ ok: false, error: 'a withdrawal is already pending', request: ffrPublicReq(r) });
@@ -8282,7 +8408,7 @@ export async function ffrHandler(req, res) {
       if (amount < cfg.minWithdraw) return res.status(400).json({ ok: false, error: 'below the ' + cfg.minWithdraw + ' LUNC minimum', balance: amount });
       const id = 'ffr' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
       const o = { id, wallet, amountLunc: amount, status: 'pending', terraTx: '', note: '', created: Date.now(), paidAt: 0 };
-      bal.balLunc = 0; bal.pendingLunc = amount; bal.pendingReq = id;
+      bal.balLunc = 0; bal.lots = []; bal.pendingLunc = amount; bal.pendingReq = id;
       await ffrSaveBal(wallet, bal);
       await packPipeline([
         ['SET', 'ffr:req:' + id, JSON.stringify(o), 'EX', String(FFR_REQ_TTL_SEC)],
@@ -8451,6 +8577,46 @@ export async function ffrHandler(req, res) {
       await packPipeline([['SET', 'ffr:keystatus', JSON.stringify({ wallet: w, ts: Date.now() })]]);
       return res.status(200).json({ ok: true });
     }
+    /* Burn sweep (Goliath's unclaimed-rewards burn, Nov 24, 2026):
+       applies the Tuesday-00:00 ET burn to EVERY balance record,
+       so expired rewards zero out even for players who never come
+       back. The rewards runner calls this on its passes; the same
+       burn also applies lazily on every player balance touch. */
+    if (action === 'ffrBurnSweep') {
+      if (!(await ffrRunnerOk(body.bhash))) return res.status(403).json({ ok: false, error: 'runner not authorized' });
+      const keys = [];
+      let cursor = '0';
+      for (let page = 0; page < 100; page++) {
+        const out = await packPipeline([['SCAN', cursor, 'MATCH', 'ffr:bal:*', 'COUNT', '500']]);
+        const r = (out && out[0] && out[0].result) || [];
+        cursor = String(r[0] || '0');
+        if (Array.isArray(r[1])) for (const k of r[1]) keys.push(k);
+        if (cursor === '0') break;
+      }
+      let burnedTotal = 0, wallets = 0;
+      for (const k of keys) {
+        const burned = await ffrBurnWallet(k.slice('ffr:bal:'.length));
+        if (burned > 0) { burnedTotal += burned; wallets++; }
+      }
+      return res.status(200).json({ ok: true, burnedTotal: ffrRound6(burnedTotal), wallets, scanned: keys.length });
+    }
+    /* TEMP — Stage B staged proof only (Goliath burn, Nov 24,
+       2026): seeds a balance record with explicit burn lots so the
+       burn can be proven end-to-end. Runner-gated. REMOVED in the
+       same batch once the proof is captured. */
+    if (action === 'ffrTestSeedLots') {
+      if (!(await ffrRunnerOk(body.bhash))) return res.status(403).json({ ok: false, error: 'runner not authorized' });
+      const wallet = walletOf();
+      if (!wallet) return res.status(400).json({ ok: false, error: 'bad wallet' });
+      const lots = (Array.isArray(body.lots) ? body.lots : [])
+        .map((l) => ({ amt: ffrRound6(l && l.amt), dl: Number((l && l.dl) || 0) }))
+        .filter((l) => l.amt > 0 && l.dl > 0);
+      const bal = await ffrGetBal(wallet);
+      bal.lots = lots;
+      bal.balLunc = ffrLotsSum(bal);
+      await ffrSaveBal(wallet, bal);
+      return res.status(200).json({ ok: true, balance: bal.balLunc, lots: bal.lots });
+    }
     if (action === 'ffrRequests' || action === 'ffrReqDone' || action === 'ffrReqWait') {
       if (!(await ffrRunnerOk(body.bhash))) return res.status(403).json({ ok: false, error: 'runner not authorized' });
       if (action === 'ffrRequests') {
@@ -8482,7 +8648,7 @@ export async function ffrHandler(req, res) {
             ['LTRIM', 'ffr:history', '0', '199'],
           ]);
         } catch (e) { /* history is best-effort */ }
-        const bal = await ffrGetBal(o.wallet);
+        const bal = await ffrGetBalLive(o.wallet);
         if (bal.pendingReq === o.id) {
           bal.pendingLunc = Math.max(0, Number(bal.pendingLunc || 0) - Number(o.amountLunc || 0));
           bal.pendingReq = '';
