@@ -8286,6 +8286,239 @@ function fflPublicOrder(o) {
 }
 /* frog-lives:end */
 
+/* ================= Frog Fight extras: P2P fighter market (Stage E),
+   Refer & Earn (Stage F), ADs x vidas (Stage G) — Goliath, Nov 24, 2026.
+   One handler (?ffx=1), KICKBACK store via packPipeline, same
+   discipline as the rest of the game: public actions grant nothing
+   on their own word — the VM services verify everything on-chain
+   and write back through runner-gated actions (ffrRunnerOk). */
+const FFX_GOLIATH = 'terra183yjyennklj77uc47txds9mmpu6vlaecaxk66g';
+/* Stage E config: P2P sale royalty — Goliath's ruling Nov 24, 2026
+   is 7% to his wallet (config value, mirrored in the market
+   service's ffnew-config.json royaltyPct). */
+const FFMKT_ROYALTY_PCT = 7;
+const FFMKT_CONTRACTS = {
+  NFROG: 'terra1m70wzvlseqaxha8s62xnpzcvq0d06f4y3hdj4u2cdra0nrdezaysqymh2t',
+  FROGZ: 'terra1pwyv50whk9xllqnyna4p5g9n0qt4nslg70g799',
+  AMPH: 'terra1gah2e0ly97uz5hg7c48an6n9r5vxexq90wwwlv4jpg3ve8yhphjqtx4dmu',
+  KAIJU: 'terra1s4zze0rhjd73qpze0hr3av7g9nsp2te0snp5kd4qe6mugtsewk6q27ah9q',
+};
+const FFMKT_TTL_SEC = 30 * 24 * 3600;
+/* Stage F config: referral reward = +5 bonus lives (same pool and
+   ET-day expiry as Life Box bonus lives). */
+const FFREF_REWARD_LIVES = 5;
+/* Stage G config: ad-earned lives cap per player per ET day.
+   Monetag zone id + postback secret are CONFIG (ffad:config,
+   set by the runner-gated action once Goliath's publisher
+   account exists) — never hard-coded. */
+const FFAD_DAILY_CAP = 10;
+
+function ffxRef() { return 'r' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4); }
+async function ffxGet(key) {
+  const out = await packPipeline([['GET', key]]);
+  const raw = out && out[0] && out[0].result;
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+async function ffxSet(key, val, ttlSec) {
+  const cmds = [['SET', key, JSON.stringify(val)]];
+  if (ttlSec) cmds[0].push('EX', String(ttlSec));
+  await packPipeline(cmds);
+}
+function ffmktRoyalty(priceLunc) { return Math.floor(Number(priceLunc) * FFMKT_ROYALTY_PCT / 100); }
+function ffmktPublic(l, buyer) {
+  const royalty = ffmktRoyalty(l.priceLunc);
+  const out = {
+    ref: l.ref, seller: l.seller, contract: l.contractCode, contractAddr: FFMKT_CONTRACTS[l.contractCode],
+    tokenId: l.tokenId, priceLunc: l.priceLunc, royaltyLunc: royalty, sellerGetsLunc: l.priceLunc - royalty,
+    royaltyPct: FFMKT_ROYALTY_PCT, status: l.status, created: l.created || 0,
+    escrowWallet: FFX_GOLIATH,
+    buyMemo: 'FFMKT-BUY ' + l.ref, royaltyMemo: 'FFMKT-ROY ' + l.ref,
+  };
+  if (buyer && l.buyer === buyer) { out.paidSellerLunc = l.paidSellerLunc || 0; out.paidRoyaltyLunc = l.paidRoyaltyLunc || 0; }
+  return out;
+}
+
+export async function ffxHandler(req, res) {
+  if (!((process.env.KICKBACK_UPSTASH_URL && process.env.KICKBACK_UPSTASH_TOKEN) ||
+        (process.env.NEONRUSH_UPSTASH_URL && process.env.NEONRUSH_UPSTASH_TOKEN))) {
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  /* Stage G postback arrives as a server-to-server GET from Monetag. */
+  const q = req.query || {};
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }
+  if (!body || typeof body !== 'object') body = {};
+  const action = String(body.action || q.action || '');
+  const walletOf = (v) => { const w = String(v || '').trim().toLowerCase(); return tdaTerraAddrStrict(w) ? w : ''; };
+  try {
+    /* ---------- Stage G: Monetag S2S postback ----------
+       Grants +1 bonus life ONLY when reward_event_type=valued,
+       the ymid exists and was never spent, and the caller proves
+       the configured postback secret (or the runner bhash — the
+       test-harness path). Fails closed when no secret is set. */
+    if (action === 'ffadPostback') {
+      const ymid = String(body.ymid || q.ymid || '');
+      const rewardType = String(body.reward_event_type || q.reward_event_type || '');
+      const cfg = await ffxGet('ffad:config') || {};
+      const secretOk = cfg.secret && String(body.secret || q.secret || '') === String(cfg.secret);
+      const runnerOk = await ffrRunnerOk(String(body.bhash || q.bhash || ''));
+      if (!secretOk && !runnerOk) return res.status(403).json({ ok: false, error: 'bad secret' });
+      if (rewardType !== 'valued') return res.status(200).json({ ok: true, granted: false, why: 'not valued' });
+      const att = await ffxGet('ffad:attempt:' + ymid);
+      if (!att) return res.status(200).json({ ok: true, granted: false, why: 'unknown ymid' });
+      if (att.spent) return res.status(200).json({ ok: true, granted: false, why: 'already spent' });
+      att.spent = true; att.spentAt = Date.now();
+      const wallet = att.wallet;
+      const s = await fflGetState(wallet);
+      const adsToday = Number(s.adsToday || 0);
+      if (adsToday >= FFAD_DAILY_CAP) {
+        att.result = 'capped';
+        await ffxSet('ffad:attempt:' + ymid, att, 3600);
+        return res.status(200).json({ ok: true, granted: false, why: 'daily cap', cap: FFAD_DAILY_CAP });
+      }
+      s.bonus = Number(s.bonus || 0) + 1;
+      s.adsToday = adsToday + 1;
+      await fflSaveState(wallet, s);
+      att.result = 'granted';
+      await ffxSet('ffad:attempt:' + ymid, att, 3600);
+      return res.status(200).json({ ok: true, granted: true, lives: fflView(s, 0).lives, adsToday: s.adsToday, cap: FFAD_DAILY_CAP });
+    }
+    if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' });
+
+    /* ---------- Stage G: start an ad attempt ---------- */
+    if (action === 'ffadStart') {
+      const wallet = walletOf(body.wallet);
+      if (!wallet) return res.status(400).json({ ok: false, error: 'bad wallet' });
+      const cfg = await ffxGet('ffad:config') || {};
+      const s = await fflGetState(wallet);
+      const adsToday = Number(s.adsToday || 0);
+      if (adsToday >= FFAD_DAILY_CAP) return res.status(200).json({ ok: false, error: 'daily cap reached', cap: FFAD_DAILY_CAP, adsToday });
+      const ymid = 'ad' + ffxRef();
+      await ffxSet('ffad:attempt:' + ymid, { ymid, wallet, day: fflDay(Date.now()), spent: false, created: Date.now() }, 3600);
+      return res.status(200).json({ ok: true, ymid, zoneId: cfg.zoneId || '', adsToday, cap: FFAD_DAILY_CAP, lives: fflView(s, 0).lives });
+    }
+    if (action === 'ffadState') {
+      const wallet = walletOf(body.wallet);
+      if (!wallet) return res.status(400).json({ ok: false, error: 'bad wallet' });
+      const cfg = await ffxGet('ffad:config') || {};
+      const s = await fflGetState(wallet);
+      return res.status(200).json({ ok: true, adsToday: Number(s.adsToday || 0), cap: FFAD_DAILY_CAP, zoneId: cfg.zoneId || '', lives: fflView(s, 0).lives });
+    }
+    if (action === 'ffadRunnerSetConfig') {
+      if (!(await ffrRunnerOk(String(body.bhash || '')))) return res.status(403).json({ ok: false, error: 'runner auth failed' });
+      const cfg = await ffxGet('ffad:config') || {};
+      if (typeof body.zoneId === 'string') cfg.zoneId = body.zoneId.slice(0, 40);
+      if (typeof body.secret === 'string' && body.secret) cfg.secret = body.secret.slice(0, 120);
+      await ffxSet('ffad:config', cfg);
+      return res.status(200).json({ ok: true, zoneId: cfg.zoneId || '', secretSet: !!cfg.secret });
+    }
+
+    /* ---------- Stage F: Refer & Earn ---------- */
+    if (action === 'ffrefRegister') {
+      const invitee = walletOf(body.wallet);
+      const inviter = walletOf(body.inviter);
+      if (!invitee) return res.status(400).json({ ok: false, error: 'bad wallet' });
+      if (!inviter || inviter === invitee) {
+        /* still mark the wallet as seen so a later self-/no-ref
+           registration can never be re-attributed */
+        const seen0 = await ffxGet('ffref:seen:' + invitee);
+        if (!seen0) await ffxSet('ffref:seen:' + invitee, { inviter: '', rewarded: false, at: Date.now() });
+        return res.status(200).json({ ok: true, rewarded: false, why: 'no valid inviter' });
+      }
+      let seen = await ffxGet('ffref:seen:' + invitee);
+      if (!seen) { seen = { inviter, rewarded: false, at: Date.now() }; await ffxSet('ffref:seen:' + invitee, seen); }
+      if (seen.rewarded) return res.status(200).json({ ok: true, rewarded: false, why: 'already rewarded' });
+      if (seen.inviter !== inviter) return res.status(200).json({ ok: true, rewarded: false, why: 'registered under another inviter' });
+      const holder = await ffrIsHolder(invitee);
+      if (!holder) return res.status(200).json({ ok: true, rewarded: false, why: 'invitee holds no fighter NFT yet' });
+      /* pay the inviter: +5 bonus lives into TODAY's lives state —
+         same pool/expiry as Life Box bonus lives (ET day reset). */
+      const s = await fflGetState(inviter);
+      s.bonus = Number(s.bonus || 0) + FFREF_REWARD_LIVES;
+      await fflSaveState(inviter, s);
+      seen.rewarded = true; seen.rewardedAt = Date.now();
+      await ffxSet('ffref:seen:' + invitee, seen);
+      const inv = await ffxGet('ffref:inviter:' + inviter) || { count: 0, lives: 0 };
+      inv.count += 1; inv.lives += FFREF_REWARD_LIVES;
+      await ffxSet('ffref:inviter:' + inviter, inv);
+      return res.status(200).json({ ok: true, rewarded: true, inviter, lives: FFREF_REWARD_LIVES });
+    }
+    if (action === 'ffrefStats') {
+      const wallet = walletOf(body.wallet);
+      if (!wallet) return res.status(400).json({ ok: false, error: 'bad wallet' });
+      const inv = await ffxGet('ffref:inviter:' + wallet) || { count: 0, lives: 0 };
+      const s = await fflGetState(wallet);
+      return res.status(200).json({ ok: true, referred: inv.count, earnedLives: inv.lives, rewardLives: FFREF_REWARD_LIVES, lives: fflView(s, 0).lives, link: 'https://frg-fight-club.vercel.app/frog-fight/?ref=' + wallet });
+    }
+
+    /* ---------- Stage E: P2P fighter market ---------- */
+    if (action === 'ffmktCreate') {
+      const seller = walletOf(body.wallet);
+      const code = String(body.contract || '').toUpperCase();
+      const tokenId = String(body.tokenId || '').trim();
+      const priceLunc = Math.floor(Number(body.priceLunc || 0));
+      if (!seller) return res.status(400).json({ ok: false, error: 'bad wallet' });
+      if (!FFMKT_CONTRACTS[code]) return res.status(400).json({ ok: false, error: 'bad collection' });
+      if (!/^[A-Za-z0-9_-]{1,40}$/.test(tokenId)) return res.status(400).json({ ok: false, error: 'bad token id' });
+      if (!(priceLunc >= 1 && priceLunc <= 100000000)) return res.status(400).json({ ok: false, error: 'bad price' });
+      const idxOut = await packPipeline([['LRANGE', 'ffmkt:index', '0', '499']]);
+      const refs = (idxOut && idxOut[0] && idxOut[0].result) || [];
+      for (const r of refs) {
+        const l = await ffxGet('ffmkt:listing:' + r);
+        if (l && l.contractCode === code && l.tokenId === tokenId && ['awaiting-escrow', 'live', 'settling'].includes(l.status)) {
+          return res.status(200).json({ ok: false, error: 'that frog is already listed', ref: l.ref });
+        }
+      }
+      const ref = ffxRef();
+      const listing = { ref, seller, contractCode: code, tokenId, priceLunc, status: 'awaiting-escrow', created: Date.now(), paidSellerLunc: 0, paidRoyaltyLunc: 0, buyer: '' };
+      await ffxSet('ffmkt:listing:' + ref, listing, FFMKT_TTL_SEC);
+      await packPipeline([['LPUSH', 'ffmkt:index', ref], ['LTRIM', 'ffmkt:index', '0', '499']]);
+      return res.status(200).json({ ok: true, listing: ffmktPublic(listing) });
+    }
+    if (action === 'ffmktList') {
+      const buyer = walletOf(body.wallet);
+      const idxOut = await packPipeline([['LRANGE', 'ffmkt:index', '0', '199']]);
+      const refs = (idxOut && idxOut[0] && idxOut[0].result) || [];
+      const rows = [];
+      for (const r of refs) {
+        const l = await ffxGet('ffmkt:listing:' + r);
+        if (l && ['awaiting-escrow', 'live', 'settling'].includes(l.status)) rows.push(ffmktPublic(l, buyer));
+      }
+      return res.status(200).json({ ok: true, royaltyPct: FFMKT_ROYALTY_PCT, escrowWallet: FFX_GOLIATH, listings: rows });
+    }
+    if (action === 'ffmktCancel') {
+      const seller = walletOf(body.wallet);
+      const ref = String(body.ref || '');
+      const l = await ffxGet('ffmkt:listing:' + ref);
+      if (!l) return res.status(404).json({ ok: false, error: 'no such listing' });
+      if (l.seller !== seller) return res.status(403).json({ ok: false, error: 'not your listing' });
+      if (l.status === 'awaiting-escrow') { l.status = 'cancelled'; await ffxSet('ffmkt:listing:' + ref, l, FFMKT_TTL_SEC); return res.status(200).json({ ok: true, status: l.status }); }
+      if (l.status === 'live') { l.status = 'cancel-requested'; await ffxSet('ffmkt:listing:' + ref, l, FFMKT_TTL_SEC); return res.status(200).json({ ok: true, status: l.status, note: 'escrow return runs on the market pass once operator approval is set' }); }
+      return res.status(200).json({ ok: false, error: 'cannot cancel in status ' + l.status });
+    }
+    if (action === 'ffmktRunnerSet') {
+      if (!(await ffrRunnerOk(String(body.bhash || '')))) return res.status(403).json({ ok: false, error: 'runner auth failed' });
+      const ref = String(body.ref || '');
+      const l = await ffxGet('ffmkt:listing:' + ref);
+      if (!l) return res.status(404).json({ ok: false, error: 'no such listing' });
+      const patch = (body.patch && typeof body.patch === 'object') ? body.patch : {};
+      for (const k of ['status', 'paidSellerLunc', 'paidRoyaltyLunc', 'buyer', 'escrowTx', 'settleTx', 'error']) {
+        if (patch[k] !== undefined) l[k] = patch[k];
+      }
+      l.updated = Date.now();
+      await ffxSet('ffmkt:listing:' + ref, l, FFMKT_TTL_SEC);
+      return res.status(200).json({ ok: true, listing: ffmktPublic(l) });
+    }
+
+    return res.status(400).json({ ok: false, error: 'unknown action' });
+  } catch (e) {
+    console.error('ffx failed', action, e && e.message);
+    return res.status(500).json({ ok: false, error: 'ffx failed' });
+  }
+}
+
 export async function ffrHandler(req, res) {
   /* GET ?ffrewards=1&pot=1 — the public Monday-payout aggregate
      (see ffrPotRead). GET is read-only here; every action below
@@ -8895,6 +9128,9 @@ export default async function handler(req, res) {
   if (req.query && req.query.frogctl !== undefined) return frogCtlHandler(req, res);
   /* NEW FROG Fighters token metadata: ?ffmeta=1&id=<n> (Stage D). */
   if (req.query && req.query.ffmeta !== undefined) return ffmetaHandler(req, res);
+  /* Frog Fight extras: ?ffx=1 — P2P fighter market (Stage E),
+     Refer & Earn (Stage F), ADs x vidas / Monetag postback (Stage G). */
+  if (req.query && req.query.ffx !== undefined) return ffxHandler(req, res);
   /* Garuda Dash LEVEL EDITOR data: ?garudaedit=1 (see the garuda-edit
      block above). Published reads are public; writes are admin-gated. */
   if (req.query && req.query.garudaedit !== undefined) return garudaEditHandler(req, res);
