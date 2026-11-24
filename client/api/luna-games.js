@@ -9384,6 +9384,232 @@ export async function ayHandler(req, res) {
 }
 /* ayub-page:end */
 
+/* lunc-dev-nfts:start — LUNC DEV NFTS (client/public/lunc-dev-nfts/).
+   Tom's order Nov 24, 2026: a public NFT launchpad page in the
+   Miata / Big Bang launchpad pattern — anyone connects their own
+   wallet and creates a REAL NFT collection on Terra Classic
+   (columbus-5). Collections are instantiated by the CREATOR's own
+   wallet from the canonical cw721-base code 10217 (its data hash
+   matches the cw-nfts v0.19.0 cw721_base.wasm release checksum —
+   verified Nov 24, 2026 by scanning all 11,763 codes on chain;
+   instantiate permission is Everybody). cw721-base has NO minter
+   hook on transfers — the Miata code-8722 EOA-minter trap (a frozen
+   collection that can never transfer) does NOT exist here; a chained
+   mint -> transfer_nft simulation with an ordinary wallet as minter
+   was proven clean BEFORE this page was built.
+   This router NEVER signs anything and custodies nothing. It only:
+   - stores collection/token images the page uploads (the gg/dairy
+     data-URL pattern) under ldnft:img:<id> in the KICKBACK store and
+     serves them back (GET ?ldnft=1&img=<id>),
+   - serves token metadata JSON (GET ?ldnft=1&meta=<contract>~<id>),
+     read live from the chain, for the token_uri the page mints with,
+   - keeps the showcase index (ldnft:index / ldnft:col:<contract>).
+     A collection is listed ONLY after ldnftRegister verifies its
+     instantiate tx on-chain (code 10217, tx successful, contract
+     address from the tx logs, name/symbol/image/royalty read back
+     from the contract itself — the client's word is never trusted).
+   Reached via /api/luna-games?ldnft=1 (folded into this router for
+   the same 12-function-cap reason as every block above). */
+const LDNFT_CODE_ID = '10217';
+const LDNFT_INDEX_CAP = 200;
+const LDNFT_LIST_N = 60;
+const LDNFT_IMG_MAX = 2500000; /* data-URL chars, incl. the prefix */
+const LDNFT_IMG_DAY_CAP = 300;
+const LDNFT_ADDR_RE = /^terra1[0-9a-z]{38}$/;
+const LDNFT_TX_RE = /^[A-Fa-f0-9]{64}$/;
+const LDNFT_IMG_ID_RE = /^LDN[A-Za-z0-9]{6,24}$/;
+const LDNFT_LCDS = ['https://api.terra-classic.hexxagon.io', 'https://terra-classic-lcd.publicnode.com'];
+const LDNFT_SITE = 'https://frg-fight-club.vercel.app';
+
+async function ldnftLcd(path) {
+  let lastErr = null;
+  for (const b of LDNFT_LCDS) {
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 9000);
+      const r = await fetch(b + path, { headers: { 'user-agent': 'ldnft/1.0' }, signal: ctl.signal });
+      clearTimeout(t);
+      if (r.ok) return await r.json();
+      lastErr = new Error('lcd http ' + r.status);
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr || new Error('lcd unavailable');
+}
+
+async function ldnftSmart(contract, msgObj) {
+  const b64 = Buffer.from(JSON.stringify(msgObj)).toString('base64');
+  const j = await ldnftLcd('/cosmwasm/wasm/v1/contract/' + contract + '/smart/' + encodeURIComponent(b64));
+  return j && j.data !== undefined ? j.data : null;
+}
+
+async function ldnftGetCol(contract) {
+  const out = await packPipeline([['GET', 'ldnft:col:' + contract]]);
+  const raw = out && out[0] && out[0].result;
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+
+async function ldnftServeImage(req, res) {
+  const id = String((req.query && req.query.img) || '');
+  if (!LDNFT_IMG_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'bad image id' });
+  const out = await packPipeline([['GET', 'ldnft:img:' + id]]);
+  const raw = out && out[0] && out[0].result;
+  if (!raw || typeof raw !== 'string') return res.status(404).json({ ok: false, error: 'not found' });
+  const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(raw);
+  if (!m) return res.status(404).json({ ok: false, error: 'not found' });
+  const buf = Buffer.from(m[2], 'base64');
+  res.setHeader('Content-Type', m[1]);
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  return res.status(200).send(buf);
+}
+
+async function ldnftServeMeta(req, res) {
+  const raw = String((req.query && req.query.meta) || '');
+  const parts = raw.split('~');
+  const contract = parts[0] || '';
+  const tokenId = (parts.slice(1).join('~') || '').slice(0, 128);
+  if (!LDNFT_ADDR_RE.test(contract) || !tokenId) return res.status(400).json({ error: 'bad meta id' });
+  try {
+    const info = await ldnftSmart(contract, { nft_info: { token_id: tokenId } });
+    if (!info) return res.status(404).json({ error: 'not found' });
+    const ext = (info && info.extension) || {};
+    let collName = '';
+    try {
+      const ci = await ldnftSmart(contract, { contract_info: {} });
+      collName = (ci && ci.name) || '';
+    } catch (e) { /* name is a nicety only */ }
+    const meta = {
+      name: ext.name || (collName ? collName + ' #' + tokenId : 'NFT #' + tokenId),
+      description: ext.description || '',
+      image: ext.image || '',
+      attributes: Array.isArray(ext.attributes) ? ext.attributes : [],
+    };
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    return res.status(200).json(meta);
+  } catch (e) {
+    return res.status(502).json({ error: 'chain read failed' });
+  }
+}
+
+export async function ldnftHandler(req, res) {
+  if (!((process.env.KICKBACK_UPSTASH_URL && process.env.KICKBACK_UPSTASH_TOKEN) ||
+        (process.env.NEONRUSH_UPSTASH_URL && process.env.NEONRUSH_UPSTASH_TOKEN))) {
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+  try {
+    if (req.method === 'GET' && req.query && req.query.img !== undefined) return await ldnftServeImage(req, res);
+    if (req.method === 'GET' && req.query && req.query.meta !== undefined) return await ldnftServeMeta(req, res);
+  } catch (e) {
+    console.error('ldnft serve failed', e && e.message);
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' });
+  res.setHeader('Cache-Control', 'no-store');
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }
+  if (!body || typeof body !== 'object') return res.status(400).json({ ok: false, error: 'bad body' });
+  const action = String(body.action || '');
+  try {
+    if (action === 'ldnftImage') {
+      const img = String(body.img || '');
+      if (img.length > LDNFT_IMG_MAX || !/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(img)) {
+        return res.status(400).json({ ok: false, error: 'bad image (jpeg/png/webp data URL, max ~2.5MB)' });
+      }
+      const dayKey = 'ldnft:imgday:' + new Date().toISOString().slice(0, 10);
+      const cnt = await packPipeline([['INCR', dayKey], ['EXPIRE', dayKey, '200000']]);
+      const n = Number(cnt && cnt[0] && cnt[0].result) || 0;
+      if (n > LDNFT_IMG_DAY_CAP) return res.status(429).json({ ok: false, error: 'daily image limit reached — try tomorrow' });
+      const id = 'LDN' + Date.now().toString(36).toUpperCase() + crypto.randomBytes(4).toString('hex').toUpperCase();
+      await packPipeline([['SET', 'ldnft:img:' + id, img]]);
+      return res.status(200).json({ ok: true, id, url: LDNFT_SITE + '/api/luna-games?ldnft=1&img=' + id });
+    }
+    if (action === 'ldnftRegister') {
+      const txhash = String(body.txhash || '').toUpperCase();
+      if (!LDNFT_TX_RE.test(txhash)) return res.status(400).json({ ok: false, error: 'bad tx hash' });
+      /* Verify the instantiate on-chain — never trust the client. */
+      const tj = await ldnftLcd('/cosmos/tx/v1beta1/txs/' + txhash);
+      const tr = tj && tj.tx_response;
+      if (!tr) return res.status(404).json({ ok: false, error: 'tx not found yet' });
+      if (Number(tr.code || 0) !== 0) return res.status(400).json({ ok: false, error: 'tx failed on-chain' });
+      const msgs = (tj.tx && tj.tx.body && tj.tx.body.messages) || [];
+      const im = msgs.find((mm) => mm && String(mm['@type'] || '').endsWith('MsgInstantiateContract') && String(mm.code_id) === LDNFT_CODE_ID);
+      if (!im) return res.status(400).json({ ok: false, error: 'not a factory instantiate tx' });
+      const creator = String(im.sender || '');
+      if (!LDNFT_ADDR_RE.test(creator)) return res.status(400).json({ ok: false, error: 'bad creator' });
+      let contract = '';
+      for (const log of (tr.logs || [])) {
+        for (const ev of (log.events || [])) {
+          if (ev.type !== 'instantiate') continue;
+          for (const at of (ev.attributes || [])) {
+            if (at.key === '_contract_address') contract = String(at.value || '');
+          }
+        }
+      }
+      if (!LDNFT_ADDR_RE.test(contract)) return res.status(400).json({ ok: false, error: 'contract address not found in tx' });
+      const existing = await ldnftGetCol(contract);
+      if (existing) return res.status(200).json({ ok: true, already: true, collection: existing });
+      const ci = await ldnftSmart(contract, { contract_info: {} });
+      if (!ci || !ci.name) return res.status(400).json({ ok: false, error: 'contract info unreadable' });
+      let description = '', image = '', royaltyPct = null;
+      try {
+        const cir = await ldnftSmart(contract, { collection_info_and_royalties: {} });
+        const collInfo = (cir && cir.collection_info) || {};
+        description = String(collInfo.description || '').slice(0, 600);
+        image = String(collInfo.image || '').slice(0, 500);
+        const share = cir && cir.royalty_info && cir.royalty_info.share;
+        if (share != null && isFinite(Number(share))) royaltyPct = Math.round(Number(share) * 10000) / 100;
+      } catch (e) { /* collection info is optional on-chain */ }
+      let cap = null;
+      if (body.cap != null && body.cap !== '') {
+        const c = Math.floor(Number(body.cap));
+        if (isFinite(c) && c >= 1 && c <= 100000000) cap = c;
+      }
+      let priceLunc = null;
+      if (body.priceLunc != null && body.priceLunc !== '') {
+        const p = Number(body.priceLunc);
+        if (isFinite(p) && p >= 0 && p <= 1e12) priceLunc = p;
+      }
+      const rec = {
+        contract, creator,
+        name: String(ci.name).slice(0, 80), symbol: String(ci.symbol || '').slice(0, 20),
+        description, image, royaltyPct, cap, priceLunc, ts: Date.now(),
+      };
+      await packPipeline([
+        ['SET', 'ldnft:col:' + contract, JSON.stringify(rec)],
+        ['LPUSH', 'ldnft:index', contract],
+        ['LTRIM', 'ldnft:index', '0', String(LDNFT_INDEX_CAP - 1)],
+      ]);
+      return res.status(200).json({ ok: true, collection: rec });
+    }
+    if (action === 'ldnftList' || action === 'ldnftMine') {
+      let creator = null;
+      if (action === 'ldnftMine') {
+        creator = String(body.creator || '');
+        if (!LDNFT_ADDR_RE.test(creator)) return res.status(400).json({ ok: false, error: 'bad creator' });
+      }
+      const n = action === 'ldnftMine' ? LDNFT_INDEX_CAP : LDNFT_LIST_N;
+      const out = await packPipeline([['LRANGE', 'ldnft:index', '0', String(n - 1)]]);
+      const ids = (out && out[0] && out[0].result) || [];
+      const collections = [];
+      for (const id of ids) {
+        const r = await ldnftGetCol(id);
+        if (!r) continue;
+        if (creator && r.creator !== creator) continue;
+        collections.push(r);
+        if (action === 'ldnftList' && collections.length >= LDNFT_LIST_N) break;
+      }
+      return res.status(200).json({ ok: true, collections });
+    }
+    return res.status(400).json({ ok: false, error: 'unknown action' });
+  } catch (e) {
+    console.error('ldnft action failed', action, e && e.message);
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+}
+/* lunc-dev-nfts:end */
+
 export default async function handler(req, res) {
   /* Wallet Scope counter: /api/scope-count is rewritten to
      /api/luna-games?scope=1 (see the wallet-scope block above). Runs
@@ -9499,6 +9725,10 @@ export default async function handler(req, res) {
      above). English-first request inbox for Ayub only; the page
      stays unlinked from every site. */
   if (req.query && req.query.ay !== undefined) return ayHandler(req, res);
+  /* LUNC Dev NFTs launchpad: the page calls /api/luna-games?ldnft=1
+     directly (see the lunc-dev-nfts block above). Image + metadata
+     serving, and the on-chain-verified showcase index. */
+  if (req.query && req.query.ldnft !== undefined) return ldnftHandler(req, res);
   const game = String((req.query && req.query.game) || '');
   let cfg = GAMES[game];
   if (!cfg) return res.status(400).json({ error: 'unknown game' });
