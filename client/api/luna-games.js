@@ -8221,6 +8221,113 @@ export async function ffrHandler(req, res) {
 }
 /* frog-rewards:end */
 
+/* studio-describe:start — STUDIO "DESCRIBE IT" PRIVATE TEST LOOP
+   (client/public/studio-describe/). Tom's order Nov 23, 2026: make the
+   Base44-style describe page actually work end to end, but PRIVATE —
+   the page stays unlinked from every site and keeps its PREVIEW tag;
+   this is a test inbox for Tom + Muse only, not a public order form.
+   Reached via /api/luna-games?sd=1 (folded into this router for the
+   same 12-function-cap reason as every block above). Requests live in
+   the KICKBACK Upstash store (packPipeline transport; NEONRUSH is
+   capped): sd:req:<id> (JSON record) and sd:index (newest-first id
+   list, trimmed to the newest SD_INDEX_CAP). Actions:
+   - sdSubmit {text, lang} — PUBLIC by design and grants NOTHING: it
+     only drops a text request (3–2000 chars) into the inbox with
+     status "new". Nothing is built, charged or promised from it.
+   - sdStatus {id} — public read of ONE request's {status, reply}
+     only. Ids are timestamp+random and unguessable in practice, and
+     a reply is written for the requester to read.
+   - sdList / sdReply {secret, …} — gated by sdRunnerOk: the SAME
+     verify as the lunc-pack runner gate (packRunnerOk against
+     pack:runnerhash). The caller may send either the raw builder
+     secret or its sha256 hex (the pack-runner form); both are
+     reduced to the bhash before the check. The working secret is
+     the pre-rotation builder secret (see the lunc-pack block). */
+const SD_INDEX_CAP = 50;
+const SD_LIST_N = 20;
+const SD_ID_RE = /^SD-[A-Za-z0-9]{6}$/;
+
+async function sdRunnerOk(secret) {
+  const s = String(secret || '').trim();
+  if (!s) return false;
+  if (/^[a-f0-9]{64}$/.test(s) && (await packRunnerOk(s))) return true;
+  return packRunnerOk(crypto.createHash('sha256').update(s).digest('hex'));
+}
+
+async function sdGetReq(id) {
+  const out = await packPipeline([['GET', 'sd:req:' + id]]);
+  const raw = out && out[0] && out[0].result;
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+
+export async function sdHandler(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' });
+  if (!((process.env.KICKBACK_UPSTASH_URL && process.env.KICKBACK_UPSTASH_TOKEN) ||
+        (process.env.NEONRUSH_UPSTASH_URL && process.env.NEONRUSH_UPSTASH_TOKEN))) {
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }
+  if (!body || typeof body !== 'object') return res.status(400).json({ ok: false, error: 'bad body' });
+  const action = String(body.action || '');
+  try {
+    if (action === 'sdSubmit') {
+      const text = String(body.text || '').trim();
+      if (text.length < 3 || text.length > 2000) {
+        return res.status(400).json({ ok: false, error: 'text must be 3-2000 chars' });
+      }
+      const lang = String(body.lang || 'en').slice(0, 5);
+      const id = 'SD-' + (Date.now().toString(36) + crypto.randomBytes(3).toString('hex')).toUpperCase().slice(-6);
+      const rec = { id, text, lang, ts: Date.now(), status: 'new', reply: null };
+      await packPipeline([
+        ['SET', 'sd:req:' + id, JSON.stringify(rec)],
+        ['LPUSH', 'sd:index', id],
+        ['LTRIM', 'sd:index', '0', String(SD_INDEX_CAP - 1)],
+      ]);
+      return res.status(200).json({ ok: true, id });
+    }
+    if (action === 'sdStatus') {
+      const id = String(body.id || '');
+      if (!SD_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const rec = await sdGetReq(id);
+      if (!rec) return res.status(404).json({ ok: false, error: 'not found' });
+      return res.status(200).json({ ok: true, status: rec.status, reply: rec.reply || null });
+    }
+    if (action === 'sdList') {
+      if (!(await sdRunnerOk(body.secret))) return res.status(403).json({ ok: false, error: 'not authorized' });
+      const out = await packPipeline([['LRANGE', 'sd:index', '0', String(SD_LIST_N - 1)]]);
+      const ids = (out && out[0] && out[0].result) || [];
+      const requests = [];
+      for (const id of ids) {
+        const r = await sdGetReq(id);
+        if (r) requests.push(r);
+      }
+      return res.status(200).json({ ok: true, requests });
+    }
+    if (action === 'sdReply') {
+      if (!(await sdRunnerOk(body.secret))) return res.status(403).json({ ok: false, error: 'not authorized' });
+      const id = String(body.id || '');
+      if (!SD_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const reply = String(body.reply || '').trim().slice(0, 2000);
+      if (!reply) return res.status(400).json({ ok: false, error: 'empty reply' });
+      const rec = await sdGetReq(id);
+      if (!rec) return res.status(404).json({ ok: false, error: 'not found' });
+      rec.reply = reply;
+      rec.status = 'answered';
+      rec.replyTs = Date.now();
+      await packPipeline([['SET', 'sd:req:' + id, JSON.stringify(rec)]]);
+      return res.status(200).json({ ok: true });
+    }
+    return res.status(400).json({ ok: false, error: 'unknown action' });
+  } catch (e) {
+    console.error('sd action failed', action, e && e.message);
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+}
+/* studio-describe:end */
+
 export default async function handler(req, res) {
   /* Wallet Scope counter: /api/scope-count is rewritten to
      /api/luna-games?scope=1 (see the wallet-scope block above). Runs
@@ -8316,6 +8423,11 @@ export default async function handler(req, res) {
      Upstash store; the VM rewards runner pays requests on
      Mondays from the dedicated rewards wallet. */
   if (req.query && req.query.ffrewards !== undefined) return ffrHandler(req, res);
+  /* Studio "describe it" PRIVATE test loop: the preview page calls
+     /api/luna-games?sd=1 directly (see the studio-describe block
+     above). Test inbox for Tom + Muse only; the page stays
+     unlinked from every site and keeps its PREVIEW tag. */
+  if (req.query && req.query.sd !== undefined) return sdHandler(req, res);
   const game = String((req.query && req.query.game) || '');
   let cfg = GAMES[game];
   if (!cfg) return res.status(400).json({ error: 'unknown game' });

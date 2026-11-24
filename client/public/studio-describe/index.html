@@ -73,6 +73,13 @@
   .next-step{ margin-top:14px; padding-top:13px; border-top:1px dashed var(--line);
     font-size:15px; line-height:1.55; }
   .preview-note{ margin-top:10px; font-size:12px; color:#6d79a8; text-align:center; }
+  .send-line{ margin-top:10px; font-size:13px; text-align:center; color:var(--muted); }
+  .send-line.ok{ color:var(--good); font-weight:700; }
+  .send-line.bad{ color:#ff8a8a; font-weight:700; }
+  .reply-box{ margin-top:14px; padding-top:13px; border-top:1px dashed var(--line); }
+  .reply-text{ font-size:15px; line-height:1.55; color:var(--text); background:#0c1126;
+    border:1px solid var(--good); border-radius:12px; padding:12px 14px;
+    white-space:pre-wrap; word-break:break-word; }
   .foot{ margin-top:26px; text-align:center; font-size:12px; color:#5b6691; }
 </style>
 </head>
@@ -204,7 +211,7 @@ var PRODUCTS = [
 var ALL_FOUR = "<ul><li>🏎️ Racing games (Grand Prix engine)</li><li>📈 Signals pages</li><li>🪙 Token launches</li><li>🥊 Fighting games (Arena Clash 3D)</li></ul>";
 
 function esc(s){ return s.replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
-function hideResult(){ var r=document.getElementById("result"); r.classList.remove("show"); r.innerHTML=""; }
+function hideResult(){ stopPoll(); var r=document.getElementById("result"); r.classList.remove("show"); r.innerHTML=""; }
 
 document.getElementById("buildBtn").addEventListener("click", function(){
   var text = desc.value.trim();
@@ -234,11 +241,52 @@ document.getElementById("buildBtn").addEventListener("click", function(){
             '<div class="match-body">Honest answer: that is not something the Studio builds yet, and there is no charge for asking. Here is what we do make:' + ALL_FOUR + '</div>';
   }
   html += '<div class="next-step">A builder reviews this and your app build starts — we\'ll show you a preview before anything goes live.</div>' +
-          '<div class="preview-note">Preview only — nothing was sent.</div>';
+          '<div class="send-line" id="sendLine">Sending…</div>' +
+          '<div class="reply-box" id="replyBox" style="display:none"><div class="you-said">Builder reply</div><div class="reply-text" id="replyText"></div></div>';
   r.innerHTML = html;
   r.classList.add("show");
   r.scrollIntoView({behavior:"smooth", block:"nearest"});
+  sendRequest(text);
 });
+
+/* ---------- private test loop: send to the builder inbox, poll for the reply ---------- */
+var sdPollTimer = null;
+function stopPoll(){ if(sdPollTimer){ clearInterval(sdPollTimer); sdPollTimer = null; } }
+function sdPost(payload){
+  return fetch("/api/luna-games?sd=1", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload) })
+    .then(function(resp){ return resp.json().then(function(j){ return { http: resp.status, j: j }; }); });
+}
+function sendRequest(text){
+  stopPoll();
+  var line = document.getElementById("sendLine");
+  sdPost({ action:"sdSubmit", text: text, lang: langSel.value }).then(function(r){
+    if(!r.j || !r.j.ok || !r.j.id){
+      if(line){ line.textContent = "Couldn't send — try again"; line.className = "send-line bad"; }
+      return;
+    }
+    var id = r.j.id;
+    if(line){ line.textContent = "Sent ✓ — request #" + id; line.className = "send-line ok"; }
+    var tries = 0;
+    sdPollTimer = setInterval(function(){
+      tries++;
+      if(tries > 40){ stopPoll(); return; } /* 40 x 15s = 10 minutes */
+      sdPost({ action:"sdStatus", id: id }).then(function(s){
+        if(s.j && s.j.ok && s.j.status === "answered" && s.j.reply){
+          stopPoll();
+          var box = document.getElementById("replyBox");
+          var rt = document.getElementById("replyText");
+          if(box && rt){
+            rt.textContent = s.j.reply;
+            box.style.display = "block";
+            box.scrollIntoView({behavior:"smooth", block:"nearest"});
+          }
+        }
+      }).catch(function(){ /* a failed poll is not fatal — keep waiting */ });
+    }, 15000);
+  }).catch(function(){
+    if(line){ line.textContent = "Couldn't send — try again"; line.className = "send-line bad"; }
+  });
+}
 </script>
 </body>
 </html>
