@@ -9222,6 +9222,168 @@ export async function ggHandler(req, res) {
 }
 /* goliath-page:end */
 
+/* ayub-page:start — AYUB'S PRIVATE REQUEST PAGE
+   (client/public/ayub/). Tom's order Nov 24, 2026: Ayub (Garuda team) gets his own request page — a
+   functional replica of the goliath-page loop above, English-first.
+   He types what he needs; the requests land in Muse's queue; replies
+   and status show on his page. Reached via /api/luna-games?ay=1
+   (folded into this router for the same 12-function-cap reason).
+   Records live in the KICKBACK Upstash store under their OWN
+   namespace so they never mix with Studio Describe records:
+   ay:req:<id> (JSON record) and ay:index (newest-first id list,
+   trimmed to the newest AY_INDEX_CAP). Actions mirror sd exactly:
+   - aySubmit {text, lang, img?} — PUBLIC by design and grants
+     NOTHING: it only drops a request (text 3–2000 chars, or a short
+     caption when a photo rides along) into the inbox with status
+     "new". Nothing is built, charged or promised from it. The
+     optional img is ONE client-downscaled JPEG data URL (max
+     AY_IMG_MAX chars, the dairy/jsa photo pattern); it is stored
+     under its own key ay:img:<id> so request records stay light,
+     and the record carries only hasImg:true.
+   - ayStatus {id, img?} — public read of ONE request's {status,
+     reply, stage, link, hasImg} only. The full image is included
+     ONLY when the caller passes img:1 (his page does that once per
+     photo record to render its thumbnail; the 15s polls stay
+     light). Ids are timestamp+random and unguessable in practice,
+     and a reply is written for the requester to read. stage is one
+     of received|building|preview|done.
+   - ayList / ayReply / ayImage {secret, …} — gated by the SAME
+     sdRunnerOk verify as the sd block (the lunc-pack runner gate).
+     ayImage returns one request's stored photo for Muse's helper. */
+const AY_INDEX_CAP = 50;
+const AY_LIST_N = 20;
+const AY_ID_RE = /^AY-[A-Za-z0-9]{6}$/;
+const AY_IMG_MAX = 2500000; /* data-URL chars, incl. the prefix */
+
+async function ayGetReq(id) {
+  const out = await packPipeline([['GET', 'ay:req:' + id]]);
+  const raw = out && out[0] && out[0].result;
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+
+async function ayGetImg(id) {
+  const out = await packPipeline([['GET', 'ay:img:' + id]]);
+  const raw = out && out[0] && out[0].result;
+  return typeof raw === 'string' && raw ? raw : null;
+}
+
+export async function ayHandler(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' });
+  if (!((process.env.KICKBACK_UPSTASH_URL && process.env.KICKBACK_UPSTASH_TOKEN) ||
+        (process.env.NEONRUSH_UPSTASH_URL && process.env.NEONRUSH_UPSTASH_TOKEN))) {
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }
+  if (!body || typeof body !== 'object') return res.status(400).json({ ok: false, error: 'bad body' });
+  const action = String(body.action || '');
+  try {
+    if (action === 'aySubmit') {
+      const text = String(body.text || '').trim();
+      /* Optional ONE photo: a client-downscaled JPEG data URL. Bad
+         or oversize images are refused outright — never stored. */
+      let img = null;
+      if (body.img !== undefined && body.img !== null && body.img !== '') {
+        img = String(body.img);
+        if (!/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(img) || img.length > AY_IMG_MAX) {
+          return res.status(400).json({ ok: false, error: 'image too big or bad format' });
+        }
+      }
+      /* Text-only requests keep the 3-char floor; with a photo the
+         text is just a caption and may be empty. */
+      if (img ? (text.length > 2000) : (text.length < 3 || text.length > 2000)) {
+        return res.status(400).json({ ok: false, error: 'text must be 3-2000 chars' });
+      }
+      const lang = String(body.lang || 'en').slice(0, 5);
+      const id = 'AY-' + (Date.now().toString(36) + crypto.randomBytes(3).toString('hex')).toUpperCase().slice(-6);
+      const rec = { id, text, lang, ts: Date.now(), status: 'new', reply: null, stage: 'received', link: null, hasImg: !!img };
+      const cmds = [
+        ['SET', 'ay:req:' + id, JSON.stringify(rec)],
+        ['LPUSH', 'ay:index', id],
+        ['LTRIM', 'ay:index', '0', String(AY_INDEX_CAP - 1)],
+      ];
+      if (img) cmds.push(['SET', 'ay:img:' + id, img]);
+      await packPipeline(cmds);
+      return res.status(200).json({ ok: true, id });
+    }
+    if (action === 'ayStatus') {
+      const id = String(body.id || '');
+      if (!AY_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const rec = await ayGetReq(id);
+      if (!rec) return res.status(404).json({ ok: false, error: 'not found' });
+      const out = { ok: true, status: rec.status, reply: rec.reply || null, stage: rec.stage || 'received', link: rec.link || null, hasImg: !!rec.hasImg };
+      /* The image itself ships ONLY on an explicit img:1 ask — his
+         page fetches it once per photo record for the thumbnail;
+         the 15s status polls never carry it. */
+      if (body.img && rec.hasImg) out.img = await ayGetImg(id);
+      return res.status(200).json(out);
+    }
+    if (action === 'ayImage') {
+      if (!(await sdRunnerOk(body.secret))) return res.status(403).json({ ok: false, error: 'not authorized' });
+      const id = String(body.id || '');
+      if (!AY_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const rec = await ayGetReq(id);
+      if (!rec) return res.status(404).json({ ok: false, error: 'not found' });
+      const img = rec.hasImg ? await ayGetImg(id) : null;
+      if (!img) return res.status(404).json({ ok: false, error: 'no image' });
+      return res.status(200).json({ ok: true, img });
+    }
+    if (action === 'ayList') {
+      if (!(await sdRunnerOk(body.secret))) return res.status(403).json({ ok: false, error: 'not authorized' });
+      const out = await packPipeline([['LRANGE', 'ay:index', '0', String(AY_LIST_N - 1)]]);
+      const ids = (out && out[0] && out[0].result) || [];
+      const requests = [];
+      for (const id of ids) {
+        const r = await ayGetReq(id);
+        if (r) requests.push(r);
+      }
+      return res.status(200).json({ ok: true, requests });
+    }
+    if (action === 'ayReply') {
+      if (!(await sdRunnerOk(body.secret))) return res.status(403).json({ ok: false, error: 'not authorized' });
+      const id = String(body.id || '');
+      if (!AY_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const reply = String(body.reply || '').trim().slice(0, 2000);
+      /* Optional stage/link updates, same contract as sdReply: a call
+         may carry a reply, a stage, a link, or any mix; at least one
+         is required. */
+      const AY_STAGES = ['received', 'building', 'preview', 'done'];
+      let stage = null;
+      if (body.stage !== undefined && body.stage !== null && body.stage !== '') {
+        stage = String(body.stage);
+        if (!AY_STAGES.includes(stage)) return res.status(400).json({ ok: false, error: 'bad stage' });
+      }
+      let link;
+      if (body.link !== undefined) {
+        const l = String(body.link || '').trim().slice(0, 500);
+        if (l && !/^https:\/\//i.test(l)) return res.status(400).json({ ok: false, error: 'bad link' });
+        link = l || null;
+      }
+      if (!reply && !stage && link === undefined) {
+        return res.status(400).json({ ok: false, error: 'nothing to update' });
+      }
+      const rec = await ayGetReq(id);
+      if (!rec) return res.status(404).json({ ok: false, error: 'not found' });
+      if (reply) {
+        rec.reply = reply;
+        rec.status = 'answered';
+        rec.replyTs = Date.now();
+      }
+      if (stage) rec.stage = stage;
+      if (link !== undefined) rec.link = link;
+      await packPipeline([['SET', 'ay:req:' + id, JSON.stringify(rec)]]);
+      return res.status(200).json({ ok: true });
+    }
+    return res.status(400).json({ ok: false, error: 'unknown action' });
+  } catch (e) {
+    console.error('ay action failed', action, e && e.message);
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+}
+/* ayub-page:end */
+
 export default async function handler(req, res) {
   /* Wallet Scope counter: /api/scope-count is rewritten to
      /api/luna-games?scope=1 (see the wallet-scope block above). Runs
@@ -9332,6 +9494,11 @@ export default async function handler(req, res) {
      above). Spanish-first request inbox for Goliath only; the page
      stays unlinked from every site. */
   if (req.query && req.query.gg !== undefined) return ggHandler(req, res);
+  /* Ayub's private request page: the page calls
+     /api/luna-games?ay=1 directly (see the ayub-page block
+     above). English-first request inbox for Ayub only; the page
+     stays unlinked from every site. */
+  if (req.query && req.query.ay !== undefined) return ayHandler(req, res);
   const game = String((req.query && req.query.game) || '');
   let cfg = GAMES[game];
   if (!cfg) return res.status(400).json({ error: 'unknown game' });
