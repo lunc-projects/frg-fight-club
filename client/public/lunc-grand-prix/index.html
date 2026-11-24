@@ -642,7 +642,7 @@
     <div id="shopScroll"><div id="shopInner">
       <div id="walletPanel">
         <button id="walletBtn">🔗 CONNECT WALLET</button>
-        <div id="walletStatus">Connect to see your NFT cars and parts. The ownership read never signs anything — buying is the one action that asks your wallet to send LUNC.</div>
+        <div id="walletStatus">Connect to see your NFT cars and parts. The ownership read never signs anything.</div>
         <div id="walletPasteRow"><input id="walletInput" placeholder="terra1… address (read-only look)" autocomplete="off"><button id="walletPasteBtn">LOOK</button></div>
         <div id="walletPairBox">WalletConnect pairing link — paste it into your wallet's scanner:<br><input id="walletPairUri" readonly><canvas id="walletPairQr" width="180" height="180" style="display:none;margin:8px auto 2px;background:#fff;border-radius:8px"></canvas><div id="walletPairActs" style="display:none;gap:7px;justify-content:center;margin-top:7px;flex-wrap:wrap"><a id="walletPairOpen" href="#" style="text-decoration:none;display:inline-block;cursor:pointer;padding:10px 18px;border-radius:10px;background:#274b3a;color:#d9ffee;font-weight:700">🚀 OPEN LUNCDASH</a><button id="walletPairCopy" type="button">📋 COPY LINK</button></div></div>
       </div>
@@ -6463,7 +6463,7 @@ function updateWalletUi() {
   if (!btn || !st) return;
   if (!walletAddress) {
     btn.textContent = '🔗 CONNECT WALLET';
-    st.textContent = 'Connect to see your NFT cars and parts. The ownership read never signs anything — buying is the one action that asks your wallet to send LUNC.';
+    st.textContent = 'Connect to see your NFT cars and parts. The ownership read never signs anything.';
     return;
   }
   btn.textContent = '✖ DISCONNECT';
@@ -7185,7 +7185,13 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
    A pasted address is read-only and can never reach step 1.
    A purchase interrupted between payment and mint is NOT lost:
    the pending record persists per item, and its card offers
-   "Finish your purchase" — a re-POST of /buy, never a re-pay. */
+   "Finish your purchase" — a re-POST of /buy, never a re-pay.
+   FREE MINT (owner order, 2026-11-23): while the service reports
+   freeMint on /state, step 1 disappears — startBuy branches to
+   freeMintBuy, which POSTs the claim with no payment and no
+   pending record, prices render as FREE, and the button reads
+   MINT FREE. The paid path above stays live for stored pendings
+   (VERIFY) and returns untouched if the service ever flips back. */
 var BUY_STORE_KEY = 'luncGpPendingBuys';
 var BUY_GAS_PRICE = 28.325;   /* uluna per gas unit — the rate the Defender build proved */
 var BUY_RPC_URL = 'https://terra-classic-rpc.publicnode.com';
@@ -7247,6 +7253,7 @@ function resetBuySession() {
    function, so the game can never charge a price it didn't show. */
 function displayPriceUluna(item) {
   if (shopState) {
+    if (shopState.freeMint) return '0';
     if (shopState.testMode && shopState.testPriceUluna != null) return String(shopState.testPriceUluna);
     if (shopState.pricesUluna && shopState.pricesUluna[item.tier] != null) return String(shopState.pricesUluna[item.tier]);
     if (shopState.prices && shopState.prices[item.key] != null) return String(shopState.prices[item.key]);
@@ -7260,7 +7267,9 @@ function fmtLunc(ulunaStr) {
 function buyMemo(item) {
   return NFT_CONFIG.memoTemplate.replace('{tier}', String(item.tier)).replace('{item}', item.key);
 }
+function mintIsFree() { return !!(shopState && shopState.freeMint); }
 function buyLine(item) {
+  if (mintIsFree()) return 'Free mint — no payment at all. The NFT is minted straight to your connected wallet.';
   return 'Purchase — you pay ' + fmtLunc(displayPriceUluna(item)) + ' LUNC from your connected wallet to the game wallet, then the NFT is minted to you.';
 }
 function refreshBuyState() {
@@ -7280,7 +7289,10 @@ function refreshBuyState() {
       return buyAvailability;
     });
 }
-function buyErrorText(code, item) {
+function buyErrorText(code, item, wasPaid) {
+  if (code === 'sold_out') return 'This item is sold out.';
+  if (code === 'rate_limited') return 'Too many mints in the last hour — wait a bit and try again.';
+  if (mintIsFree() && !wasPaid) return 'Mint hiccup — nothing was charged (minting is free); tap MINT FREE to try again.';
   if (code === 'payment_not_found') return 'Payment not visible on-chain yet — give it a moment, then tap VERIFY.';
   if (code === 'payment_invalid') return "That payment doesn't match a " + fmtLunc(displayPriceUluna(item)) + ' LUNC purchase for this item';
   if (code === 'payment_used') return 'That payment was already redeemed';
@@ -7312,8 +7324,10 @@ function buyStargateClient(signer) {
   });
 }
 function postBuy(p) {
+  var payload = { address: p.address, item: p.itemKey, tier: p.tier };
+  if (p.txHash) payload.txHash = p.txHash;   /* free claims carry no payment hash */
   return lbFetch(NFT_CONFIG.mintUrl + '/buy', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ address: p.address, item: p.itemKey, tier: p.tier, txHash: p.txHash }) }, 25000)
+      body: JSON.stringify(payload) }, 25000)
     .then(function (r) { return (r && typeof r.json === 'function') ? r.json().catch(function () { return null; }) : null; })
     .catch(function () { return null; });
 }
@@ -7360,15 +7374,16 @@ function settleBuy(p, data) {
   var key = p.itemKey, item = itemByKey(key);
   if (data && data.ok) {
     var tokenId = String(data.tokenId || ('paid-tier-' + p.tier));
+    var gotWord = p.txHash ? '✓ Bought — ' : '✓ Minted free — ';
     delete pendings[key]; savePendings();
     buyJustKey = key;
-    buyNotes[key] = { cls: 'ok', text: '✓ Bought — ' + tokenId + ' is yours. Reading the chain…' };
+    buyNotes[key] = { cls: 'ok', text: gotWord + tokenId + ' is yours. Reading the chain…' };
     renderShop();
     return refreshOwned(false).then(function () {
       if (walletAddress === p.address) {
         if (ownedItems()[key]) landBoughtItem(key, tokenId);
         else {
-          buyNotes[key] = { cls: 'ok', text: '✓ Bought — ' + tokenId + ' is yours (the chain read is still catching up).' };
+          buyNotes[key] = { cls: 'ok', text: gotWord + tokenId + ' is yours (the chain read is still catching up).' };
           renderShop();
           startBuyWatch(key, p.address, tokenId);
         }
@@ -7378,7 +7393,7 @@ function settleBuy(p, data) {
   }
   var code = data && data.error;
   if (!buyErrorKeepsPending(code)) { delete pendings[key]; savePendings(); }
-  buyNotes[key] = { cls: 'err', text: buyErrorText(code, item) };
+  buyNotes[key] = { cls: 'err', text: buyErrorText(code, item, !!p.txHash) };
   renderShop();
   if (code === 'payment_used') refreshOwned(false);
   return Promise.resolve(false);
@@ -7388,7 +7403,9 @@ function startBuy(key) {
   if (!item || !buyConfigured() || buyBusyKey) return Promise.resolve(false);
   if (!walletAddress) {
     showPasteRow();
-    walletHint('Connect a wallet first — buying needs a connected wallet to send the payment.');
+    walletHint(mintIsFree()
+      ? 'Connect a wallet first — minting needs a connected wallet to receive the NFT.'
+      : 'Connect a wallet first — buying needs a connected wallet to send the payment.');
     return Promise.resolve(false);
   }
   if (pendingFor(key)) return verifyBuy(key);
@@ -7402,7 +7419,9 @@ function startBuy(key) {
     return Promise.resolve(false);
   }
   if (!walletCanPay()) {
-    buyNotes[key] = { cls: 'err', text: 'Connect a wallet to buy — a pasted address is read-only and cannot pay.' };
+    buyNotes[key] = { cls: 'err', text: mintIsFree()
+      ? 'Connect a wallet to mint — a pasted address is read-only and cannot receive a mint.'
+      : 'Connect a wallet to buy — a pasted address is read-only and cannot pay.' };
     renderShop();
     return Promise.resolve(false);
   }
@@ -7411,6 +7430,7 @@ function startBuy(key) {
     renderShop();
     return Promise.resolve(false);
   }
+  if (mintIsFree()) return freeMintBuy(key);
   if (!payeeAddress()) {
     buyNotes[key] = { cls: 'err', text: 'The game wallet is not set yet — buying opens at go-live.' };
     renderShop();
@@ -7438,6 +7458,25 @@ function startBuy(key) {
       renderShop();
       return finish(false);
     });
+}
+/* FREE MINT — the service says the mint is free (shopState.freeMint,
+   owner order 2026-11-23): no payment, no pending record (nothing
+   was paid, so there is nothing to resume — a failed mint is just
+   retried with the same button). The claim POSTs {address, item,
+   tier} with no txHash; the service claims + mints server-side and
+   the NFT lands in the connected wallet. The success path is the
+   paid flow's own settleBuy, so ownership still unlocks from the
+   chain read, never from /buy's say-so. */
+function freeMintBuy(key) {
+  var item = itemByKey(key);
+  var addr = walletAddress;
+  buyBusyKey = key;
+  delete buyNotes[key];
+  renderShop();
+  var finish = function (ok) { if (buyBusyKey === key) { buyBusyKey = ''; renderShop(); } return ok; };
+  var p = { address: addr, itemKey: key, tier: item.tier, txHash: '' };
+  return postBuy(p).then(function (data) { return settleBuy(p, data); })
+    .then(function (ok) { return finish(ok); });
 }
 /* VERIFY — "Finish your purchase": re-POST the stored payment.
    No new payment, no new charge. */
@@ -7545,14 +7584,14 @@ function itemCardHtml(item) {
   var paused = buyConfigured() && !shopState;
   var btns = '';
   if (pending) btns += '<button class="buyBtn" data-act="verify" data-key="' + item.key + '">VERIFY — FINISH PURCHASE</button>';
-  else if (buyBusyKey === item.key) btns += '<button class="buyBtn" disabled>PAYING…</button>';
+  else if (buyBusyKey === item.key) btns += '<button class="buyBtn" disabled>' + (mintIsFree() ? 'MINTING…' : 'PAYING…') + '</button>';
   else if (paused) btns += '<button class="buyBtn" disabled>BUYING PAUSED</button>';
-  else btns += '<button class="buyBtn" data-act="buy" data-key="' + item.key + '">BUY</button>';
+  else btns += '<button class="buyBtn" data-act="buy" data-key="' + item.key + '">' + (mintIsFree() ? 'MINT FREE' : 'BUY') + '</button>';
   if (owned > 0 && item.kind === 'car')
     btns += '<br><button class="eqBtn' + (isEq ? ' on' : '') + '" data-act="drive" data-key="' + item.key + '">' + (isEq ? '✓ DRIVING' : 'DRIVE') + '</button>';
   else if (owned > 0 && item.slot)
     btns += '<br><button class="eqBtn' + (isEq ? ' on' : '') + '" data-act="equip" data-key="' + item.key + '">' + (isEq ? '✓ EQUIPPED' : 'EQUIP') + '</button>';
-  var priceHtml = paused ? '—' : fmtLunc(displayPriceUluna(item)) + ' LUNC<small>PER ITEM</small>';
+  var priceHtml = paused ? '—' : mintIsFree() ? 'FREE' : fmtLunc(displayPriceUluna(item)) + ' LUNC<small>PER ITEM</small>';
   return '<div class="itemCard' + (isEq ? ' equipped' : '') + '" data-itemkey="' + item.key + '">' + itemArtHtml(item) +
     '<div class="itemInfo"><div class="itemName">' + lbEscape(item.name) + testTag +
     (owned ? ' <span class="ownCt">×' + owned + ' OWNED</span>' : '') + '</div>' +
@@ -7576,6 +7615,7 @@ function renderShop() {
         ? 'Shop service unreachable — buying is paused, check your connection and reopen the shop'
         : 'Contacting the shop service…')
       : buyAvailability === 'closed' ? BUY_DOWN_LINE
+      : mintIsFree() ? '🎉 Minting is FREE — no LUNC payment on any item. Connect a wallet and mint.'
       : (shopState && shopState.testMode ? '🧪 Testing mode — every item is ' + fmtLunc(shopState.testPriceUluna || '0') + ' LUNC until the real prices switch on.' : '');
   }
   var html = '';
