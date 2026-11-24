@@ -9479,15 +9479,18 @@ async function ldnftServeMeta(req, res) {
     const info = await ldnftSmart(contract, { nft_info: { token_id: tokenId } });
     if (!info) return res.status(404).json({ error: 'not found' });
     const ext = (info && info.extension) || {};
-    let collName = '';
+    let collName = '', collImage = '', collDesc = '';
     try {
       const ci = await ldnftSmart(contract, { contract_info: {} });
       collName = (ci && ci.name) || '';
-    } catch (e) { /* name is a nicety only */ }
+      const cext = (ci && ci.extension) || {};
+      collImage = cext.image || '';
+      collDesc = cext.description || '';
+    } catch (e) { /* collection fallbacks are niceties only */ }
     const meta = {
       name: ext.name || (collName ? collName + ' #' + tokenId : 'NFT #' + tokenId),
-      description: ext.description || '',
-      image: ext.image || '',
+      description: ext.description || collDesc || '',
+      image: ext.image || collImage || '',
       attributes: Array.isArray(ext.attributes) ? ext.attributes : [],
     };
     res.setHeader('Cache-Control', 'public, max-age=300');
@@ -9553,19 +9556,28 @@ export async function ldnftHandler(req, res) {
         }
       }
       if (!LDNFT_CONTRACT_RE.test(contract)) return res.status(400).json({ ok: false, error: 'contract address not found in tx' });
-      const existing = await ldnftGetCol(contract);
-      if (existing) return res.status(200).json({ ok: true, already: true, collection: existing });
       const ci = await ldnftSmart(contract, { contract_info: {} });
       if (!ci || !ci.name) return res.status(400).json({ ok: false, error: 'contract info unreadable' });
-      let description = '', image = '', royaltyPct = null;
-      try {
-        const cir = await ldnftSmart(contract, { collection_info_and_royalties: {} });
-        const collInfo = (cir && cir.collection_info) || {};
-        description = String(collInfo.description || '').slice(0, 600);
-        image = String(collInfo.image || '').slice(0, 500);
-        const share = cir && cir.royalty_info && cir.royalty_info.share;
-        if (share != null && isFinite(Number(share))) royaltyPct = Math.round(Number(share) * 10000) / 100;
-      } catch (e) { /* collection info is optional on-chain */ }
+      /* code 10217 stores the collection info (description, image,
+         royalty) as contract_info.extension — this build has no
+         collection_info_and_royalties query (verified live). */
+      const cext = (ci && ci.extension) || {};
+      const description = String(cext.description || '').slice(0, 600);
+      const image = String(cext.image || '').slice(0, 500);
+      let royaltyPct = null;
+      const share = cext.royalty_info && cext.royalty_info.share;
+      if (share != null && isFinite(Number(share))) royaltyPct = Math.round(Number(share) * 10000) / 100;
+      const existing = await ldnftGetCol(contract);
+      if (existing) {
+        /* refresh the chain-read fields (self-healing), keep the
+           page-level cap/price and the original timestamp */
+        const merged = Object.assign({}, existing, {
+          name: String(ci.name).slice(0, 80), symbol: String(ci.symbol || '').slice(0, 20),
+          description, image, royaltyPct,
+        });
+        await packPipeline([['SET', 'ldnft:col:' + contract, JSON.stringify(merged)]]);
+        return res.status(200).json({ ok: true, already: true, collection: merged });
+      }
       let cap = null;
       if (body.cap != null && body.cap !== '') {
         const c = Math.floor(Number(body.cap));
