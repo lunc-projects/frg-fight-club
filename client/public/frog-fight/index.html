@@ -2845,10 +2845,29 @@ window.FFR_RATES = { perRound: 3, kingBonus: 10 };
 let ffrData = null, ffrLastEarn = null, ffrBusy = false, ffrMsg = '', ffrWalletSeen = '';
 
 async function ffrPost(body){
-  const r = await fetch(FFR_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const d = await r.json().catch(() => null);
-  if (!d) throw new Error('rewards http ' + r.status);
-  return d;
+  /* ffrBalance is a pure read — retry it a few times so ONE
+     transient hiccup (store or chain LCD having a bad minute)
+     never pins a "couldn't load" on the player's screen.
+     Writes keep single-attempt semantics exactly as before:
+     ffrCredit has its own server-deduped queue retry, and a
+     withdraw must never be blindly re-sent. */
+  const readOnly = !!(body && body.action === 'ffrBalance');
+  const tries = readOnly ? 3 : 1;
+  let err = null;
+  for (let i = 0; i < tries; i++){
+    try {
+      const r = await fetch(FFR_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const d = await r.json().catch(() => null);
+      if (!d) throw new Error('rewards http ' + r.status);
+      if (!readOnly || d.ok || r.status < 500) return d;
+      err = new Error('rewards http ' + r.status);
+    } catch (e) {
+      if (!readOnly) throw e;
+      err = e;
+    }
+    if (i < tries - 1) await new Promise(res => setTimeout(res, 600 * (i + 1)));
+  }
+  throw err || new Error('rewards failed');
 }
 function ffrQueue(){
   try { return JSON.parse(localStorage.getItem('ffr_credit_queue') || '[]'); } catch (e) { return []; }
@@ -3030,6 +3049,7 @@ ffrRefresh();
   var BANK = 'https://terra-classic-lcd.publicnode.com/cosmos/bank/v1beta1/balances/';
   var seenAddr = '', seenLang = null;
   var luncTxt = null, rewTxt = null, luncFail = false, rewFail = false;
+  var lastLoadAt = 0;
   function render(){
     var box = document.getElementById('mwBalBox'); if (!box) return;
     if (!seenAddr){ box.style.display = 'none'; return; }
@@ -3039,6 +3059,7 @@ ffrRefresh();
     if (rv) rv.textContent = (rewTxt === null ? '…' : (rewFail ? t('mwBalFail') : rewTxt));
   }
   async function load(addr){
+    lastLoadAt = Date.now();
     luncTxt = null; rewTxt = null; luncFail = false; rewFail = false; render();
     try {
       var r = await fetch(BANK + addr);
@@ -3065,6 +3086,10 @@ ffrRefresh();
   }
   setInterval(function(){
     try { if (typeof ownedAddr !== 'undefined' && ownedAddr) watch(ownedAddr); } catch (e) {}
+    /* Self-heal: if the rewards read failed (one bad minute on
+       the store/LCD), retry it while the same wallet stays on
+       screen instead of leaving "couldn't load" up forever. */
+    try { if (seenAddr && rewFail && Date.now() - lastLoadAt > 10000) load(seenAddr); } catch (e) {}
     try { if (seenAddr && typeof lang !== 'undefined' && lang !== seenLang){ seenLang = lang; render(); } } catch (e) {}
   }, 500);
   render();

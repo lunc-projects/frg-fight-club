@@ -7768,17 +7768,35 @@ async function ffrIsHolder(wallet) {
   if (cv === '1') return true;
   if (cv === '0') return false;
   let holder = false;
+  let answered = 0;
   const q = Buffer.from(JSON.stringify({ tokens: { owner: wallet, limit: 1 } })).toString('base64');
   for (const c of FFR_FIGHTER_CONTRACTS) {
     try {
-      const r = await fetch(FFR_LCD + '/cosmwasm/wasm/v1/contract/' + c + '/smart/' + q);
+      /* Per-query timeout: the public LCD stalls often enough
+         that an unbounded fetch can hang this whole request
+         until the platform kills it (the caller then shows
+         "couldn't load"). 4s per contract is generous — a
+         healthy LCD answers in well under 1s. */
+      const ctl = new AbortController();
+      const to = setTimeout(() => ctl.abort(), 4000);
+      let r;
+      try { r = await fetch(FFR_LCD + '/cosmwasm/wasm/v1/contract/' + c + '/smart/' + q, { signal: ctl.signal }); }
+      finally { clearTimeout(to); }
       if (!r.ok) continue;
+      answered++;
       const j = await r.json();
       const ids = (j && j.data && (j.data.ids || j.data.tokens)) || [];
       if (ids.length > 0) { holder = true; break; }
     } catch (e) { /* try the next contract */ }
   }
-  try { await packPipeline([['SET', 'ffr:holder:' + wallet, holder ? '1' : '0', 'EX', String(FFR_HOLDER_CACHE_SEC)]]); } catch (e) {}
+  /* Cache ONLY a definitive answer: tokens found, or every
+     contract answered empty. If the LCD errored or timed out on
+     any contract, "not a holder" is only a guess — caching it
+     would brand a real holder a non-holder for the whole TTL
+     (and block their withdraw with a 403). */
+  if (holder || answered === FFR_FIGHTER_CONTRACTS.length) {
+    try { await packPipeline([['SET', 'ffr:holder:' + wallet, holder ? '1' : '0', 'EX', String(FFR_HOLDER_CACHE_SEC)]]); } catch (e) {}
+  }
   return holder;
 }
 
