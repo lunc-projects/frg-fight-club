@@ -9476,6 +9476,27 @@ async function ldnftServeMeta(req, res) {
   const tokenId = (parts.slice(1).join('~') || '').slice(0, 128);
   if (!LDNFT_CONTRACT_RE.test(contract) || !tokenId) return res.status(400).json({ error: 'bad meta id' });
   try {
+    /* Per-token metadata override, recorded from the verified mint
+       tx (ldnftTokenMeta). Code 10217 does not retain the mint
+       extension on-chain (nft_info.extension is Empty by design), so
+       the token_uri metadata is served from the mint record when one
+       exists. */
+    let override = null;
+    try {
+      const got = await packPipeline([['GET', 'ldnft:tok:' + contract + '~' + tokenId]]);
+      const raw = got && got[0] && got[0].result;
+      if (raw) override = JSON.parse(raw);
+    } catch (e) { /* override is optional */ }
+    if (override && (override.name || override.image)) {
+      res.setHeader('Cache-Control', 'public, max-age=300');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      return res.status(200).json({
+        name: override.name || ('NFT #' + tokenId),
+        description: override.description || '',
+        image: override.image || '',
+        attributes: Array.isArray(override.attributes) ? override.attributes : [],
+      });
+    }
     const info = await ldnftSmart(contract, { nft_info: { token_id: tokenId } });
     if (!info) return res.status(404).json({ error: 'not found' });
     const ext = (info && info.extension) || {};
@@ -9599,6 +9620,45 @@ export async function ldnftHandler(req, res) {
         ['LTRIM', 'ldnft:index', '0', String(LDNFT_INDEX_CAP - 1)],
       ]);
       return res.status(200).json({ ok: true, collection: rec });
+    }
+    if (action === 'ldnftTokenMeta') {
+      /* Record a token's metadata from its REAL mint tx: the client
+         sends only the tx hash; the name/description/image are read
+         out of the on-chain mint message itself, and the sender must
+         be the collection's minter. Nothing is taken on the client's
+         word. */
+      const txhash = String(body.txhash || '').toUpperCase();
+      if (!/^[0-9A-F]{64}$/.test(txhash)) return res.status(400).json({ ok: false, error: 'bad txhash' });
+      const tx = await ldnftTxByHash(txhash);
+      const tr = tx && tx.tx_response;
+      if (!tr || Number(tr.code || 0) !== 0) return res.status(400).json({ ok: false, error: 'tx not successful' });
+      const msgs = (tx.tx && tx.tx.body && tx.tx.body.messages) || [];
+      let contract = '', mintMsg = null, sender = '';
+      for (const m of msgs) {
+        if (m && m['@type'] === '/cosmwasm.wasm.v1.MsgExecuteContract' && m.msg && m.msg.mint && m.msg.mint.token_id != null) {
+          contract = String(m.contract || '');
+          sender = String(m.sender || '');
+          mintMsg = m.msg.mint;
+          break;
+        }
+      }
+      if (!mintMsg || !LDNFT_CONTRACT_RE.test(contract)) return res.status(400).json({ ok: false, error: 'no mint in tx' });
+      const minterInfo = await ldnftSmart(contract, { minter: {} });
+      if (!minterInfo || minterInfo.minter !== sender) return res.status(400).json({ ok: false, error: 'sender is not the minter' });
+      const ext = mintMsg.extension || {};
+      const attrs = Array.isArray(ext.attributes) ? ext.attributes.slice(0, 20).map((a) => ({
+        trait_type: String((a && a.trait_type) || '').slice(0, 40),
+        value: String((a && a.value) || '').slice(0, 80),
+      })) : [];
+      const rec = {
+        name: String(ext.name || '').slice(0, 120),
+        description: String(ext.description || '').slice(0, 1000),
+        image: String(ext.image || '').slice(0, 500),
+        attributes: attrs,
+      };
+      const tokenId = String(mintMsg.token_id).slice(0, 128);
+      await packPipeline([['SET', 'ldnft:tok:' + contract + '~' + tokenId, JSON.stringify(rec)]]);
+      return res.status(200).json({ ok: true, token: tokenId });
     }
     if (action === 'ldnftList' || action === 'ldnftMine') {
       let creator = null;
