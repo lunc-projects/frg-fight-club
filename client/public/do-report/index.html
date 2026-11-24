@@ -756,7 +756,11 @@ function classifyTerra(tx, addr){
     if (contract !== DO_CW20) return;
     var amt = toBig(a.amount || "0");
     if (amt === 0n) return;
-    if (a.action === "transfer" || a.action === "send"){
+    if (a.action === "transfer" || a.action === "send" || a.action === "transfer_from"){
+      /* transfer_from included (2026-11-24): allowance-pull swaps (the pair
+         pulls the seller's tokens) emit ONLY a transfer_from event — the old
+         code dropped those movements entirely. from/to carry the movement;
+         the "by" attribute is just the spender and is ignored. */
       if (a.from === addr && a.to && a.to !== addr){ doOut += amt; if (!party) party = a.to; }
       else if (a.to === addr && a.from && a.from !== addr){ doIn += amt; if (!party) party = a.from; }
     } else if (a.action === "mint"){
@@ -766,18 +770,15 @@ function classifyTerra(tx, addr){
     }
   });
   var msgs = (((tx.tx || {}).value || {}).msg) || [];
-  if (doIn === 0n && doOut === 0n){
-    /* message fallback: outgoing execute on the DO contract itself */
-    msgs.forEach(function(m){
-      if (m.type !== "wasm/MsgExecuteContract") return;
-      var v = m.value || {};
-      if (v.contract !== DO_CW20 || v.sender !== addr) return;
-      var em = v.execute_msg || v.msg || {};
-      var tr = em.transfer || em.send || null;
-      if (tr && tr.amount){ doOut += toBig(tr.amount); if (!party) party = tr.recipient || tr.contract || null; }
-      if (em.burn && em.burn.amount){ doOut += toBig(em.burn.amount); if (!party) party = DO_CW20; }
-    });
-  }
+  /* NO message fallback for movements (removed 2026-11-24): a CW20 balance
+     change ALWAYS emits a wasm event from the token contract, so a tx whose
+     events show no DO movement did not move DO for this wallet. The old
+     fallback counted raw execute messages as movements — but FCD tx objects
+     carry no success code, so FAILED/reverted executes (and txs whose logs
+     FCD could not return) were booked as real transfers, fabricating rows
+     and breaking reconciliation. A genuine read gap is instead caught by
+     the reconciliation gate in run(): closing balance minus the rows' net
+     must be exactly zero, or the section flags itself incomplete. */
   if (!isSwap){
     msgs.forEach(function(m){
       if (m.type !== "wasm/MsgExecuteContract") return;
@@ -1001,16 +1002,41 @@ function run(){
   });
   var terraP = Promise.all([ fetchTerraTokenInfo(), fetchTerraDoBalance(terraAddr), fetchTerraTxs(terraAddr) ])
   .then(function(res){
+    /* True chain order, newest first: block height, then FCD id (FCD ids
+       grow with inclusion order inside a block), then timestamp. Sorting
+       by timestamp text alone could order same-second txs wrongly and
+       corrupt the running-balance column. */
+    var txs = res[2].txs.slice().sort(function(a, b){
+      var dh = Number(b.height || 0) - Number(a.height || 0);
+      if (dh) return dh;
+      var di = Number(b.id || 0) - Number(a.id || 0);
+      if (di) return di;
+      return String(b.timestamp || "").localeCompare(String(a.timestamp || ""));
+    });
     var rows = [];
-    res[2].txs.forEach(function(tx){
+    txs.forEach(function(tx){
       if (tx.code && Number(tx.code) !== 0) return;
       var r = classifyTerra(tx, terraAddr);
       if (r) rows.push(r);
     });
-    rows.sort(function(a, b){ return String(b.ts || "").localeCompare(String(a.ts || "")); });
-    return { rows:rows, capped:res[2].capped, closingRaw:res[1], dec:res[0].decimals, rawTxs:res[2].txs };
+    /* Reconciliation gate (2026-11-24): a complete ledger read from the
+       token's birth opens at exactly 0 — closing balance minus the rows'
+       net — and the running balance never dips negative. If either fails,
+       the history read is incomplete or inconsistent: flag the section
+       (capNote) instead of presenting numbers that cannot be true. */
+    var net = 0n;
+    rows.forEach(function(r){ net += (r.doIn - r.doOut); });
+    var opening = res[1] - net, unreconciled = opening !== 0n;
+    if (!unreconciled){
+      var bal = opening;
+      for (var i = rows.length - 1; i >= 0; i--){
+        bal += (rows[i].doIn - rows[i].doOut);
+        if (bal < 0n){ unreconciled = true; break; }
+      }
+    }
+    return { rows:rows, capped:res[2].capped || unreconciled, closingRaw:res[1], dec:res[0].decimals, rawTxs:res[2].txs };
   }).catch(function(){
-    return { rows:[], capped:false, closingRaw:0n, dec:terraDec(), rawTxs:[] };
+    return { rows:[], capped:true, closingRaw:0n, dec:terraDec(), rawTxs:[] };
   });
   Promise.all([ doP, terraP ]).then(function(res){
     lastReport = { addr:doAddr, addrDo:doAddr, addrTerra:terraAddr, input:input,
