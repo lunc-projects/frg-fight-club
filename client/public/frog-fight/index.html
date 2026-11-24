@@ -201,6 +201,9 @@ input[type=text]:focus{outline:none;border-color:var(--emer);box-shadow:0 0 0 3p
 .ffbGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:8px;}
 .ffbItem{border:1px solid rgba(255,255,255,.16);border-radius:14px;background:rgba(0,0,0,.35);padding:8px;text-align:center;}
 .ffbItem img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:10px;}
+/* Scale-family boost art renders smaller (Goliath, Nov 24, 2026:
+   "reduce the size of the scale images"). */
+.ffbItem.scaleItem img{width:58%;margin:0 auto;display:block;}
 .ffbItem b{display:block;font-size:13.5px;margin-top:5px;}
 .ffbItem .fx{display:block;font-size:11.5px;color:var(--emer);font-weight:800;margin-top:2px;}
 .ffbItem .pr{display:block;font-size:13px;color:var(--gold);font-weight:800;margin-top:3px;}
@@ -1734,6 +1737,9 @@ function resolveHit(att, def, kind){
   let dmg = blocked ? (kind === 'special' ? 6 : kind === 'kick' ? 2 : 1) : Math.round(A.dmg * att.dmgMul);
   /* FFB boosts: ATK scales the player's damage, DEF softens unblocked hits taken */
   if (!blocked && att === G.p) dmg = Math.round(dmg * (1 + ffbBoost.atk / 50));
+  /* SPC (Lengua Afilada, Goliath Nov 24, 2026): flat +SPC damage on
+     the player's SPECIAL technique (the tongue lash). */
+  if (!blocked && att === G.p && kind === 'special') dmg += (ffbBoost.spc || 0);
   if (!blocked && def === G.p) dmg = Math.max(1, Math.round(dmg * (1 - Math.min(ffbBoost.def, 25) / 50)));
   def.hp = Math.max(0, def.hp - dmg);
   att.meter = Math.min(100, att.meter + (A.meter + (blocked ? 5 : 0)) * (att === G.p ? (1 + ffbBoost.agi / 100) : 1));
@@ -2012,18 +2018,21 @@ const FFB_BASE = [
   { code:'PADS',  name:'Pads',        art:'boost-art/pads.jpg',        fx:{atk:6, def:0, agi:0}, price:4500,  start:111, count:40 },
   { code:'LEGS',  name:'Frog Legs',   art:'boost-art/legs.jpg',        fx:{atk:3, def:3, agi:0}, price:8000,  start:151, count:30 },
   { code:'RPILL', name:'Red Pills',   art:'boost-art/red-pills.jpg',   fx:{atk:8, def:8, agi:8}, price:15000, start:181, count:20 },
+  { code:'TONGUE', name:'Lengua Afilada', art:'boost-art/tongue.jpg', fx:{atk:0, def:0, agi:0, spc:5}, price:6000, start:201, count:30 },
 ];
 const FFB_PREM = [
   { code:'SILVER',  name:'Silver Scale',  art:'boost-art/silver-scale.jpg',  fx:{atk:0,  def:12, agi:4},  price:30000,  start:1,  count:30 },
   { code:'GOLD',    name:'Gold Scale',    art:'boost-art/gold-scale.jpg',    fx:{atk:12, def:6,  agi:0},  price:60000,  start:31, count:20 },
   { code:'DIAMOND', name:'Diamond Scale', art:'boost-art/diamond-scale.jpg', fx:{atk:16, def:16, agi:16}, price:150000, start:51, count:10 },
+  { code:'CRIMSON', name:'Crimson Scales', art:'boost-art/crimson-scale.jpg', fx:{atk:14, def:10, agi:4}, price:100000, start:61, count:20 },
 ];
 const FFB_CHESTS = [
   { code:'WOOD',   name:'Wood Chest',   art:'boost-art/chest-wood.jpg',   inside:1, price:4000 },
   { code:'BRONZE', name:'Bronze Chest', art:'boost-art/chest-bronze.jpg', inside:3, price:10000 },
+  { code:'SILVER', name:'Silver Chest', art:'boost-art/chest-silver.jpg', inside:4, price:13000 },
   { code:'GOLD',   name:'Gold Chest',   art:'boost-art/chest-gold.jpg',   inside:5, price:16000 },
 ];
-let ffbBoost = { atk: 0, def: 0, agi: 0 };
+let ffbBoost = { atk: 0, def: 0, agi: 0, spc: 0 };
 let ffbOwned = [];
 let ffbEquipped = new Set();
 let ffbAddr = '';
@@ -2086,14 +2095,14 @@ async function ffbLoadCtl(){
   } catch (e) { /* defaults stand */ }
 }
 
-function ffbFxLine(fx){ const p = []; if (fx.atk) p.push('ATK +' + fx.atk); if (fx.def) p.push('DEF +' + fx.def); if (fx.agi) p.push('AGI +' + fx.agi); return p.join(' · '); }
+function ffbFxLine(fx){ const p = []; if (fx.atk) p.push('ATK +' + fx.atk); if (fx.def) p.push('DEF +' + fx.def); if (fx.agi) p.push('AGI +' + fx.agi); if (fx.spc) p.push('SPC +' + fx.spc); return p.join(' · '); }
 function ffbSaveEquipped(){ try { const all = JSON.parse(localStorage.getItem('ffb_equipped') || '{}'); all[ffbAddr] = [...ffbEquipped]; localStorage.setItem('ffb_equipped', JSON.stringify(all)); } catch (e) {} }
 function ffbLoadEquipped(){ try { const all = JSON.parse(localStorage.getItem('ffb_equipped') || '{}'); ffbEquipped = new Set(all[ffbAddr] || []); } catch (e) { ffbEquipped = new Set(); } }
 function ffbRecompute(){
-  ffbBoost = { atk: 0, def: 0, agi: 0 };
+  ffbBoost = { atk: 0, def: 0, agi: 0, spc: 0 };
   const ownedKeys = new Set(ffbOwned.map(b => b.key));
   for (const k of [...ffbEquipped]) if (!ownedKeys.has(k)) ffbEquipped.delete(k);
-  for (const b of ffbOwned) if (ffbEquipped.has(b.key)) { ffbBoost.atk += b.atk; ffbBoost.def += b.def; ffbBoost.agi += b.agi; }
+  for (const b of ffbOwned) if (ffbEquipped.has(b.key)) { ffbBoost.atk += b.atk; ffbBoost.def += b.def; ffbBoost.agi += b.agi; ffbBoost.spc += (b.spc || 0); }
   ffbRenderSlots();
 }
 function ffbRenderSlots(){
@@ -2109,7 +2118,7 @@ function ffbRenderSlots(){
       box.appendChild(d);
     }
   }
-  const line = ffbEquipped.size ? ('ATK +' + ffbBoost.atk + ' · DEF +' + ffbBoost.def + ' · AGI +' + ffbBoost.agi) : '';
+  const line = ffbEquipped.size ? (['ATK +' + ffbBoost.atk, 'DEF +' + ffbBoost.def, 'AGI +' + ffbBoost.agi, ffbBoost.spc ? 'SPC +' + ffbBoost.spc : ''].filter(Boolean).join(' · ')) : '';
   if ($('ffbStats')) $('ffbStats').textContent = line;
   if ($('ffbStripTxt')) $('ffbStripTxt').textContent = ffbEquipped.size ? line : t('ffbNoBoosts');
 }
@@ -2163,7 +2172,8 @@ function ffbShopCard(item, type, issued){
   const fxLine = type === 'chest' ? ('🎲 × ' + item.inside) : ffbFxLine(item.fx);
   const pct = ffbSalePctNow();
   const featured = ffbCtl && ffbCtl.global && ffbCtl.global.featuredFfb === item.code;
-  return '<div class="ffbItem"><img src="' + item.art + '" alt="" loading="lazy"><b>' + (featured ? '⭐ ' : '') + esc(item.name) + '</b>' +
+  const scaleCls = ['SILVER', 'GOLD', 'DIAMOND', 'CRIMSON'].includes(item.code) ? ' scaleItem' : '';
+  return '<div class="ffbItem' + scaleCls + '"><img src="' + item.art + '" alt="" loading="lazy"><b>' + (featured ? '⭐ ' : '') + esc(item.name) + '</b>' +
     '<span class="fx">' + fxLine + '</span>' +
     '<span class="pr">' + (pct ? '<s>' + item.price.toLocaleString('en-US') + '</s> ' : '') + ffbPriceNow(item).toLocaleString('en-US') + ' LUNC' + (pct ? ' 🏷️' : '') + '</span>' +
     (left != null ? '<span class="left">' + left + ' / ' + cap + ' ' + t('ffbLeft') + '</span>' : '') +

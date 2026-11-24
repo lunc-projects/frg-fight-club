@@ -2051,10 +2051,10 @@ async function frogAdminHandler(req, res) {
 const FROG_CTL_KEY = 'frog:settings';
 const FROG_GIVEAWAY_KEY = 'frog:giveaway';
 const FROG_CTL_GOLIATH = 'terra183yjyennklj77uc47txds9mmpu6vlaecaxk66g';
-const FROG_CTL_FFB_CODES = ['LILY', 'GPILL', 'PADS', 'LEGS', 'RPILL'];
-const FROG_CTL_FFBP_CODES = ['SILVER', 'GOLD', 'DIAMOND'];
-const FROG_CTL_CHEST_CODES = ['WOOD', 'BRONZE', 'GOLD'];
-const FROG_CTL_CAPS_MAX = { LILY: 60, GPILL: 50, PADS: 40, LEGS: 30, RPILL: 20, SILVER: 30, GOLD: 20, DIAMOND: 10 };
+const FROG_CTL_FFB_CODES = ['LILY', 'GPILL', 'PADS', 'LEGS', 'RPILL', 'TONGUE'];
+const FROG_CTL_FFBP_CODES = ['SILVER', 'GOLD', 'DIAMOND', 'CRIMSON'];
+const FROG_CTL_CHEST_CODES = ['WOOD', 'BRONZE', 'SILVER', 'GOLD'];
+const FROG_CTL_CAPS_MAX = { LILY: 60, GPILL: 50, PADS: 40, LEGS: 30, RPILL: 20, TONGUE: 30, SILVER: 30, GOLD: 20, DIAMOND: 10, CRIMSON: 20 };
 const FROG_CTL_BOARDS = { arena2: 'frogarena2', fight: 'frogfight', cards: 'frogcards', clash: 'frogclash', arena: 'frogarena', hop: 'luncfrog' };
 
 function frogCtlDefaults() {
@@ -2067,16 +2067,17 @@ function frogCtlDefaults() {
     },
     fight: {
       shopPaused: false, marketPaused: false,
-      prices: { LILY: 2500, GPILL: 3000, PADS: 4500, LEGS: 8000, RPILL: 15000 },
-      premPrices: { SILVER: 30000, GOLD: 60000, DIAMOND: 150000 },
-      chestPrices: { WOOD: 4000, BRONZE: 10000, GOLD: 16000 },
+      prices: { LILY: 2500, GPILL: 3000, PADS: 4500, LEGS: 8000, RPILL: 15000, TONGUE: 6000 },
+      premPrices: { SILVER: 30000, GOLD: 60000, DIAMOND: 150000, CRIMSON: 100000 },
+      chestPrices: { WOOD: 4000, BRONZE: 10000, SILVER: 13000, GOLD: 16000 },
       fx: {
         LILY: { atk: 0, def: 5, agi: 0 }, GPILL: { atk: 0, def: 0, agi: 5 },
         PADS: { atk: 6, def: 0, agi: 0 }, LEGS: { atk: 3, def: 3, agi: 0 },
         RPILL: { atk: 8, def: 8, agi: 8 }, SILVER: { atk: 0, def: 12, agi: 4 },
         GOLD: { atk: 12, def: 6, agi: 0 }, DIAMOND: { atk: 16, def: 16, agi: 16 },
+        TONGUE: { atk: 0, def: 0, agi: 0 }, CRIMSON: { atk: 14, def: 10, agi: 4 },
       },
-      caps: { LILY: 60, GPILL: 50, PADS: 40, LEGS: 30, RPILL: 20, SILVER: 30, GOLD: 20, DIAMOND: 10 },
+      caps: { LILY: 60, GPILL: 50, PADS: 40, LEGS: 30, RPILL: 20, TONGUE: 30, SILVER: 30, GOLD: 20, DIAMOND: 10, CRIMSON: 20 },
       event: { amount: 100000, text: '', winner: '' },
     },
     cards: { banner: '', season: '', maintenance: false },

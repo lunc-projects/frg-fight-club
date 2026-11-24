@@ -76,11 +76,12 @@ async function ffbLoadBoosts(owner) {
           atk: parseInt(fa2Trait(ext, 'ATK'), 10) || 0,
           def: parseInt(fa2Trait(ext, 'DEF'), 10) || 0,
           agi: parseInt(fa2Trait(ext, 'AGI'), 10) || 0,
+          spc: parseInt(fa2Trait(ext, 'SPC'), 10) || 0,
         });
       } catch (e) { /* one unreadable token never blocks the rest */ }
     }
   }
-  out.sort((a, b) => (b.atk + b.def + b.agi) - (a.atk + a.def + a.agi) || (a.tokenId < b.tokenId ? -1 : 1));
+  out.sort((a, b) => (b.atk + b.def + b.agi + b.spc) - (a.atk + a.def + a.agi + a.spc) || (a.tokenId < b.tokenId ? -1 : 1));
   return out;
 }
 function gdRenderPanel(msg) {
@@ -100,6 +101,7 @@ function gdRenderPanel(msg) {
       if (g.atk) fx.push('ATK +' + g.atk);
       if (g.def) fx.push('DEF +' + g.def);
       if (g.agi) fx.push('AGI +' + g.agi);
+      if (g.spc) fx.push('SPC +' + g.spc);
       pw.textContent = fx.join(' · ') + (g.finish ? ' · ' + g.finish : '');
       const equipped = !!(window.__ffbEquipState && window.__ffbEquipState(g.key));
       const btn = document.createElement('button');
