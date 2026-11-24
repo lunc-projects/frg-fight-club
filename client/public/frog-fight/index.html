@@ -2200,6 +2200,21 @@ function packQuoteFor(price, count){
   const raw = price * packTotalLunc(count) * (1 + PACK_MARGIN_PCT / 100);
   return (Math.ceil(raw * 10000) / 10000).toFixed(4);
 }
+/* One price-feed fetch with a hard 6s ceiling (Nov 23, 2026, WC
+   speed pass): a plain fetch() on a flaky phone connection can
+   hang for tens of seconds before failing, and packLoadPrice's
+   retry loop multiplied that into the long dead wait players
+   felt between connecting their wallet and seeing the payment
+   prompt. Same feeds, same order — each attempt now fails fast. */
+async function packFetchJson(url){
+  const ctl = new AbortController();
+  const to = setTimeout(() => ctl.abort(), 6000);
+  try {
+    const r = await fetch(url, { signal: ctl.signal });
+    if (!r.ok) throw new Error('price http ' + r.status);
+    return await r.json();
+  } finally { clearTimeout(to); }
+}
 async function packLoadPrice(){
   if (packPrice && Date.now() - packPriceAt < 60000) return packPrice;
   /* Primary feed (CoinPaprika): up to 3 attempts with short backoff.
@@ -2210,9 +2225,7 @@ async function packLoadPrice(){
   for (let i = 0; i < backoffs.length; i++){
     if (backoffs[i]) await new Promise(r => setTimeout(r, backoffs[i]));
     try {
-      const r = await fetch(PACK_PRICE_URL);
-      if (!r.ok) throw new Error('price http ' + r.status);
-      const d = await r.json();
+      const d = await packFetchJson(PACK_PRICE_URL);
       const p = d && d.quotes && d.quotes.USD && Number(d.quotes.USD.price);
       if (!p || !(p > 0)) throw new Error('no price');
       packPrice = p; packPriceAt = Date.now();
@@ -2223,9 +2236,7 @@ async function packLoadPrice(){
      also fails, the throw keeps the existing honest "Live price
      unavailable right now" state — never show a stale or hardcoded
      number as live. */
-  const r = await fetch(PACK_PRICE_URL_FALLBACK);
-  if (!r.ok) throw new Error('price http ' + r.status);
-  const d = await r.json();
+  const d = await packFetchJson(PACK_PRICE_URL_FALLBACK);
   const p = d && d['terra-luna'] && Number(d['terra-luna'].usd);
   if (!p || !(p > 0)) throw new Error('no price');
   packPrice = p; packPriceAt = Date.now();
@@ -2467,7 +2478,30 @@ async function packPay(){
    fully bundled (1,389,997 bytes, md5 c036b003…) and exposes
    window['@walletconnect/ethereum-provider'].EthereumProvider with a
    static init() — all verified against the real bundle Nov 23, 2026. */
-let packWcLibP = null, packWcProv = null;
+let packWcLibP = null, packWcProv = null, packWcProvP = null;
+/* The ONE place the WC provider is created (Nov 23, 2026, WC
+   speed pass). EthereumProvider.init() is the slow step of the
+   connect flow — it builds the WalletConnect SignClient and
+   opens the relay socket, several seconds on a phone — and it
+   used to run only AFTER the pay tap, inside the tap's serial
+   path. The factory is shared by the tap and by the Deposit-tab
+   preload (packWcPreload below), so the client is built and the
+   relay is connected AHEAD of the tap; the tap itself then only
+   has to enable() the session. Options are exactly the ones the
+   tap used before. A failed init clears the shared promise so
+   the next attempt retries cleanly; nothing here ever shows UI
+   (the pairing modal appears at enable(), on the tap). */
+function packWcProvider(){
+  if (packWcProv) return Promise.resolve(packWcProv);
+  if (packWcProvP) return packWcProvP;
+  packWcProvP = (async () => {
+    const EthereumProvider = await packWcLib();
+    const prov = await EthereumProvider.init({ projectId: PACK_WC_PROJECT_ID, chains: [56], rpcMap: { 56: 'https://bsc-dataseed.binance.org' }, showQrModal: true, metadata: { name: 'Frog Fight — LUNC Pack', description: 'Buy a 10,000 LUNC pack with USDT on BNB Chain', url: 'https://luncgames.com/frog-fight/', icons: ['https://frg-fight-club.vercel.app/frog-fight/og-cover.jpg'] } });
+    packWcProv = prov;
+    return prov;
+  })().catch(e => { packWcProvP = null; throw e; });
+  return packWcProvP;
+}
 /* WalletConnect v2 project ID — free from cloud.walletconnect.com.
    LIVE since Nov 23, 2026: the real Reown project ID is set below.
    If it is ever cleared or malformed, the WC button stops with
@@ -2533,8 +2567,20 @@ function packWcLib(){
    by any of this and stays fully usable. */
 function packWcPreload(){
   try {
+    /* Warm the 60s price-quote cache too, so the pay tap does not
+       stop to refetch the price after the wallet connects. */
+    packLoadPrice().catch(() => {});
     packWcLib().then(
-      () => packDiagSet('WC library ready (loaded ahead of the tap)'),
+      () => { packDiagSet('WC library ready (loaded ahead of the tap)');
+        /* Build the provider (SignClient + relay) ahead of the tap
+           as well — init is the slow step, enable() is the fast
+           one. Only with a valid project ID, same rule as the tap. */
+        if (PACK_WC_PROJECT_ID && /^[0-9a-f]{32}$/i.test(PACK_WC_PROJECT_ID)) {
+          packWcProvider().then(
+            () => packDiagSet('WC provider ready (built ahead of the tap)'),
+            () => packDiagSet('WC provider warm-up failed — the tap will retry'));
+        }
+      },
       () => packDiagSet('WC library could not load (network)'));
   } catch (e) {}
 }
@@ -2604,17 +2650,23 @@ async function packPayWc(){
       return;
     }
     packSetStatus(esc(t('packWcOpen')));
+    /* Start the fresh price quote NOW, in parallel with the wallet
+       pairing below, instead of after it (Nov 23, 2026, WC speed
+       pass): the quote used to be fetched only once the wallet was
+       connected, so a slow price feed left a long dead wait between
+       connecting and the payment prompt appearing. The promise is
+       awaited at the point of use; the quote is computed by the
+       same packLoadPrice as before (60s cache + retries + fallback). */
+    const priceP = packLoadPrice(); priceP.catch(() => {});
     packDiagSet('WC v2: loading provider library…');
-    const EthereumProvider = await packWcLib();
-    if (!packWcProv) {
-      /* API per the package's own types (@walletconnect/
-         ethereum-provider@2.21.0, dist/types/EthereumProvider.d.ts):
-         static init({ projectId, chains: [56, ...], rpcMap,
-         showQrModal, metadata? }) -> provider; enable() resolves with
-         the session accounts. showQrModal renders the pairing UI
-         (QR on desktop, wallet deep links on mobile). */
-      packWcProv = await EthereumProvider.init({ projectId: PACK_WC_PROJECT_ID, chains: [56], rpcMap: { 56: 'https://bsc-dataseed.binance.org' }, showQrModal: true, metadata: { name: 'Frog Fight — LUNC Pack', description: 'Buy a 10,000 LUNC pack with USDT on BNB Chain', url: 'https://luncgames.com/frog-fight/', icons: ['https://frg-fight-club.vercel.app/frog-fight/og-cover.jpg'] } });
-    }
+    /* Provider via the shared factory: normally already built by
+       the Deposit-tab preload, so this resolves immediately; on a
+       cold start it inits here exactly as the tap always did.
+       API per the package's own types (@walletconnect/
+       ethereum-provider@2.21.0): init() -> provider; enable()
+       resolves with the session accounts and renders the pairing
+       UI (QR on desktop, wallet deep links on mobile). */
+    await packWcProvider();
     packDiagSet('WC v2: opening wallet pairing (session chain fixed at 56)…');
     const accts = (await packWcProv.enable()) || packWcProv.accounts || (await packWcProv.request({ method: 'eth_accounts' }));
     if (!accts || !accts[0]) throw new Error('no account');
@@ -2632,7 +2684,7 @@ async function packPayWc(){
     $('packWalletLine').textContent = t('packConnected') + packEvmAddr.slice(0, 8) + '…' + packEvmAddr.slice(-6) + ' (BNB Chain · WalletConnect)';
     try { ffNameApply(); } catch (e) {} /* per-wallet name: this wallet's name takes the box (Nov 23, 2026) */
     packDiagSet('WC connected on BNB — paying');
-    const p = await packLoadPrice();                 /* fresh quote at pay time */
+    const p = await priceP;                          /* fresh quote, fetched in parallel with pairing */
     packQuoteStr = packQuoteFor(p, packCount);
     await packRenderPrice();
     const amount = packUsdtToBase(packQuoteStr);
