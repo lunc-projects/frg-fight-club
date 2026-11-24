@@ -8600,23 +8600,10 @@ export async function ffrHandler(req, res) {
       }
       return res.status(200).json({ ok: true, burnedTotal: ffrRound6(burnedTotal), wallets, scanned: keys.length });
     }
-    /* TEMP — Stage B staged proof only (Goliath burn, Nov 24,
-       2026): seeds a balance record with explicit burn lots so the
-       burn can be proven end-to-end. Runner-gated. REMOVED in the
-       same batch once the proof is captured. */
-    if (action === 'ffrTestSeedLots') {
-      if (!(await ffrRunnerOk(body.bhash))) return res.status(403).json({ ok: false, error: 'runner not authorized' });
-      const wallet = walletOf();
-      if (!wallet) return res.status(400).json({ ok: false, error: 'bad wallet' });
-      const lots = (Array.isArray(body.lots) ? body.lots : [])
-        .map((l) => ({ amt: ffrRound6(l && l.amt), dl: Number((l && l.dl) || 0) }))
-        .filter((l) => l.amt > 0 && l.dl > 0);
-      const bal = await ffrGetBal(wallet);
-      bal.lots = lots;
-      bal.balLunc = ffrLotsSum(bal);
-      await ffrSaveBal(wallet, bal);
-      return res.status(200).json({ ok: true, balance: bal.balLunc, lots: bal.lots });
-    }
+    /* (A TEMP runner-gated seed action lived here during the
+       Stage B staged proof on Nov 24, 2026 — expired lots zeroed
+       on both the lazy-touch and sweep paths, then it was removed
+       in the same batch. The shipped surface has no test hooks.) */
     if (action === 'ffrRequests' || action === 'ffrReqDone' || action === 'ffrReqWait') {
       if (!(await ffrRunnerOk(body.bhash))) return res.status(403).json({ ok: false, error: 'runner not authorized' });
       if (action === 'ffrRequests') {
