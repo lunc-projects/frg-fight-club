@@ -9428,12 +9428,13 @@ const LDNFT_SITE = 'https://frg-fight-club.vercel.app';
 
 /* ===== creation fee (both factories) =====
    Tom's ruling (Nov 24, 2026): creating a collection or a token costs
-   a 100,000 LUNC creation fee. The fee rides INSIDE the create tx as a
-   bank MsgSend from the creator to Tom's personal wallet, so a failed
-   create never pays it. NEW showcase registrations must prove the fee
-   in the same tx; already-registered refresh paths stay fee-free. */
+   a creation fee, raised from 100,000 LUNC to 200,000 LUNC on
+   Nov 25, 2026. The fee rides INSIDE the create tx as a bank MsgSend
+   from the creator to Tom's personal wallet, so a failed create never
+   pays it. NEW showcase registrations must prove the fee in the same
+   tx; already-registered refresh paths stay fee-free. */
 const FACTORY_FEE_WALLET = 'terra1kur3cr4vask4lgs3tr4gww7lr0zvc944gjfcqc';
-const FACTORY_FEE_MIN_ULUNA = 100000000000n; /* 100,000 LUNC */
+const FACTORY_FEE_MIN_ULUNA = 200000000000n; /* 200,000 LUNC */
 function factoryFeePaidUluna(msgs, from) {
   let total = 0n;
   for (const m of (msgs || [])) {
@@ -9446,6 +9447,48 @@ function factoryFeePaidUluna(msgs, from) {
     }
   }
   return total;
+}
+
+/* ===== factory admin proofs (both factories) =====
+   Showcase hide/show is gated to Tom's CC wallet WITHOUT any server
+   secret: the admin page broadcasts a 1,000-uluna self-send from the
+   CC wallet with an exact memo ("LDADMIN list", "LDADMIN hide
+   <contract>", "LDADMIN show <contract>") and hands this router the
+   tx hash. The router re-reads the tx on-chain and only then acts:
+   sender must be the CC wallet, the tx must have succeeded, the memo
+   must match exactly, and the tx must be recent (proofs go stale so
+   an old hash cannot be replayed forever). */
+const FACTORY_ADMIN_MAX_AGE_BLOCKS = 50000;
+async function factoryAdminVerify(txhash, expectedMemo) {
+  const tj = await ldnftLcd('/cosmos/tx/v1beta1/txs/' + txhash);
+  const tr = tj && tj.tx_response;
+  if (!tr) return { ok: false, error: 'tx not found yet' };
+  if (Number(tr.code || 0) !== 0) return { ok: false, error: 'tx failed on-chain' };
+  const memo = String((tj.tx && tj.tx.body && tj.tx.body.memo) || '');
+  if (memo !== expectedMemo) return { ok: false, error: 'memo does not match' };
+  const msgs = (tj.tx && tj.tx.body && tj.tx.body.messages) || [];
+  const send = msgs.find((m) => m && String(m['@type'] || '') === '/cosmos.bank.v1beta1.MsgSend'
+    && String(m.from_address || '') === FACTORY_FEE_WALLET
+    && String(m.to_address || '') === FACTORY_FEE_WALLET);
+  if (!send) return { ok: false, error: 'not a CC-wallet self-send' };
+  const h = Number(tr.height || 0);
+  if (!h) return { ok: false, error: 'tx height unreadable' };
+  let cur = h;
+  try {
+    const bj = await ldnftLcd('/cosmos/base/tendermint/v1beta1/blocks/latest');
+    cur = Number(bj && bj.block && bj.block.header && bj.block.header.height) || h;
+  } catch (e) { /* height read is best-effort; fall back to the tx's own height */ }
+  if (h > cur || (cur - h) > FACTORY_ADMIN_MAX_AGE_BLOCKS) return { ok: false, error: 'proof tx too old — unlock again' };
+  return { ok: true, height: h };
+}
+/* Read the hidden flags for a set of contracts in one pipeline.
+   Returns a Set of the hidden contract addresses. */
+async function factoryHiddenSet(prefix, ids) {
+  const hidden = new Set();
+  if (!ids || !ids.length) return hidden;
+  const out = await packPipeline(ids.map((id) => ['GET', prefix + ':hidden:' + id]));
+  ids.forEach((id, i) => { if (out && out[i] && out[i].result) hidden.add(id); });
+  return hidden;
 }
 
 async function ldnftLcd(path) {
@@ -9686,21 +9729,55 @@ export async function ldnftHandler(req, res) {
       await packPipeline([['SET', 'ldnft:tok:' + contract + '~' + tokenId, JSON.stringify(rec)]]);
       return res.status(200).json({ ok: true, token: tokenId });
     }
+    if (action === 'ldnftAdmin') {
+      /* CC-wallet admin: op 'list' just validates the unlock proof;
+         'hide'/'show' flip the showcase hidden flag for a contract.
+         Every op is proven by its own on-chain memo self-send. */
+      const op = String(body.op || '');
+      const txhash = String(body.txhash || '').toUpperCase();
+      if (!LDNFT_TX_RE.test(txhash)) return res.status(400).json({ ok: false, error: 'bad tx hash' });
+      if (op === 'list') {
+        const v = await factoryAdminVerify(txhash, 'LDADMIN list');
+        if (!v.ok) return res.status(403).json({ ok: false, error: v.error });
+        return res.status(200).json({ ok: true, op });
+      }
+      if (op !== 'hide' && op !== 'show') return res.status(400).json({ ok: false, error: 'bad op' });
+      const contract = String(body.contract || '');
+      if (!LDNFT_CONTRACT_RE.test(contract)) return res.status(400).json({ ok: false, error: 'bad contract' });
+      const v = await factoryAdminVerify(txhash, 'LDADMIN ' + op + ' ' + contract);
+      if (!v.ok) return res.status(403).json({ ok: false, error: v.error });
+      if (op === 'hide') await packPipeline([['SET', 'ldnft:hidden:' + contract, String(Date.now())]]);
+      else await packPipeline([['DEL', 'ldnft:hidden:' + contract]]);
+      return res.status(200).json({ ok: true, op, contract, hidden: op === 'hide' });
+    }
     if (action === 'ldnftList' || action === 'ldnftMine') {
       let creator = null;
       if (action === 'ldnftMine') {
         creator = String(body.creator || '');
         if (!LDNFT_ADDR_RE.test(creator)) return res.status(400).json({ ok: false, error: 'bad creator' });
       }
+      /* Admin list calls carry a recent "LDADMIN list" proof tx and
+         see hidden items too (flagged); public calls never do. */
+      let includeHidden = false;
+      if (action === 'ldnftList' && body.adminTx) {
+        const atx = String(body.adminTx || '').toUpperCase();
+        if (!LDNFT_TX_RE.test(atx)) return res.status(400).json({ ok: false, error: 'bad adminTx' });
+        const v = await factoryAdminVerify(atx, 'LDADMIN list');
+        if (!v.ok) return res.status(403).json({ ok: false, error: 'admin proof invalid: ' + v.error });
+        includeHidden = true;
+      }
       const n = action === 'ldnftMine' ? LDNFT_INDEX_CAP : LDNFT_LIST_N;
       const out = await packPipeline([['LRANGE', 'ldnft:index', '0', String(n - 1)]]);
       const ids = (out && out[0] && out[0].result) || [];
+      const hidden = action === 'ldnftList' ? await factoryHiddenSet('ldnft', ids) : new Set();
       const collections = [];
       for (const id of ids) {
         const r = await ldnftGetCol(id);
         if (!r) continue;
         if (creator && r.creator !== creator) continue;
-        collections.push(r);
+        const isHidden = hidden.has(id);
+        if (action === 'ldnftList' && isHidden && !includeHidden) continue;
+        collections.push(includeHidden && isHidden ? Object.assign({}, r, { hidden: true }) : r);
         if (action === 'ldnftList' && collections.length >= LDNFT_LIST_N) break;
       }
       return res.status(200).json({ ok: true, collections });
@@ -9877,21 +9954,53 @@ export async function ldtokHandler(req, res) {
       ]);
       return res.status(200).json({ ok: true, token: rec });
     }
+    if (action === 'ldtokAdmin') {
+      /* CC-wallet admin — same memo-proof pattern as ldnftAdmin. */
+      const op = String(body.op || '');
+      const txhash = String(body.txhash || '').toUpperCase();
+      if (!LDTOK_TX_RE.test(txhash)) return res.status(400).json({ ok: false, error: 'bad tx hash' });
+      if (op === 'list') {
+        const v = await factoryAdminVerify(txhash, 'LDADMIN list');
+        if (!v.ok) return res.status(403).json({ ok: false, error: v.error });
+        return res.status(200).json({ ok: true, op });
+      }
+      if (op !== 'hide' && op !== 'show') return res.status(400).json({ ok: false, error: 'bad op' });
+      const contract = String(body.contract || '');
+      if (!LDTOK_CONTRACT_RE.test(contract)) return res.status(400).json({ ok: false, error: 'bad contract' });
+      const v = await factoryAdminVerify(txhash, 'LDADMIN ' + op + ' ' + contract);
+      if (!v.ok) return res.status(403).json({ ok: false, error: v.error });
+      if (op === 'hide') await packPipeline([['SET', 'ldtok:hidden:' + contract, String(Date.now())]]);
+      else await packPipeline([['DEL', 'ldtok:hidden:' + contract]]);
+      return res.status(200).json({ ok: true, op, contract, hidden: op === 'hide' });
+    }
     if (action === 'ldtokList' || action === 'ldtokMine') {
       let creator = null;
       if (action === 'ldtokMine') {
         creator = String(body.creator || '');
         if (!LDTOK_ADDR_RE.test(creator)) return res.status(400).json({ ok: false, error: 'bad creator' });
       }
+      /* Admin list calls carry a recent "LDADMIN list" proof tx and
+         see hidden items too (flagged); public calls never do. */
+      let includeHidden = false;
+      if (action === 'ldtokList' && body.adminTx) {
+        const atx = String(body.adminTx || '').toUpperCase();
+        if (!LDTOK_TX_RE.test(atx)) return res.status(400).json({ ok: false, error: 'bad adminTx' });
+        const v = await factoryAdminVerify(atx, 'LDADMIN list');
+        if (!v.ok) return res.status(403).json({ ok: false, error: 'admin proof invalid: ' + v.error });
+        includeHidden = true;
+      }
       const n = action === 'ldtokMine' ? LDTOK_INDEX_CAP : LDTOK_LIST_N;
       const out = await packPipeline([['LRANGE', 'ldtok:index', '0', String(n - 1)]]);
       const ids = (out && out[0] && out[0].result) || [];
+      const hidden = action === 'ldtokList' ? await factoryHiddenSet('ldtok', ids) : new Set();
       const tokens = [];
       for (const id of ids) {
         const r = await ldtokGetTok(id);
         if (!r) continue;
         if (creator && r.creator !== creator) continue;
-        tokens.push(r);
+        const isHidden = hidden.has(id);
+        if (action === 'ldtokList' && isHidden && !includeHidden) continue;
+        tokens.push(includeHidden && isHidden ? Object.assign({}, r, { hidden: true }) : r);
         if (action === 'ldtokList' && tokens.length >= LDTOK_LIST_N) break;
       }
       return res.status(200).json({ ok: true, tokens });
