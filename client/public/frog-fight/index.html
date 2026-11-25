@@ -1829,15 +1829,21 @@ function rivalCutUrl(ci){ return cutUrl(RIVAL_COLL[ci], RIVAL_ART[ci]); }
    index — the first six are shuffled every run (see buildLadder). */
 function ladderChar(pos){ return (G && G.ladder) ? G.ladder[pos] : pos; }
 const artCache = {};
-function artImg(url){
+function artImg(url, isCut){
   if (!url) return null;
   if (!artCache[url]){
-    const rec = { img: new Image(), ok: false, failed: false };
-    rec.img.onload = () => { rec.ok = true; };
-    rec.img.onerror = () => { rec.failed = true; };
+    const rec = { img: new Image(), ok: false, failed: false, cut: !!isCut, retried: false };
+    rec.img.onload = () => { rec.ok = true; rec.failed = false; };
+    rec.img.onerror = () => {
+      /* a token that HAS a cutout gets one retry before any fallback —
+         its framed card must never flash in-fight */
+      if (rec.cut && !rec.retried){ rec.retried = true; rec.img.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'retry=1'; return; }
+      rec.failed = true;
+    };
     rec.img.src = url;
     artCache[url] = rec;
   }
+  if (isCut) artCache[url].cut = true;
   return artCache[url];
 }
 function playerArtUrl(){
@@ -1847,9 +1853,11 @@ function playerArtUrl(){
 }
 /* ---- NFT character cutouts (transparent background — just the frog, no
    square picture). Manifest is built by the frog-art pass; a token with
-   cut:false, a missing manifest or a failed cutout load keeps the framed
-   art above. Cutouts live under /frog-art/ on this same site. ---- */
-const CUTMAN = { A:{}, Z:{}, K:{} };
+   cut:false or a missing manifest keeps the framed art above, while a
+   token WITH a cutout retries a failed load once and otherwise stands
+   in with the placeholder frog — never the frame. Cutouts live under
+   /frog-art/ on this same site. ---- */
+const CUTMAN = { A:{}, Z:{}, K:{}, N:{} };
 let cutmanLoaded = false, cutmanLoading = false;
 function loadCutman(){
   if (cutmanLoaded || cutmanLoading) return;
@@ -1857,13 +1865,13 @@ function loadCutman(){
   fetch('/frog-art/manifest.json').then(r => r.ok ? r.json() : null).then(m => {
     cutmanLoading = false;
     if (!m) return; /* failed/404 does NOT latch — retried at the next match start */
-    CUTMAN.A = m.amph || {}; CUTMAN.Z = m.frogz || {}; CUTMAN.K = m.kaiju || {};
+    CUTMAN.A = m.amph || {}; CUTMAN.Z = m.frogz || {}; CUTMAN.K = m.kaiju || {}; CUTMAN.N = m.newfrog || {};
     cutmanLoaded = true;
     /* a match already running snapshotted null cuts before the manifest
        arrived — re-snapshot its fighters so they upgrade in place */
     if (G && G.p && G.r && G.mode === '2d'){
-      G.p.cut = artImg(playerCutUrl());
-      G.r.cut = artImg(rivalCutUrl(ladderChar(G.rivalIdx)));
+      G.p.cut = artImg(playerCutUrl(), true);
+      G.r.cut = artImg(rivalCutUrl(ladderChar(G.rivalIdx)), true);
     }
   }).catch(() => { cutmanLoading = false; });
 }
@@ -1874,12 +1882,16 @@ function cutUrl(coll, id){
 }
 function playerCutUrl(){
   if (selectedToken){ const tk = ownedTokens.find(o => o.uid === selectedToken);
-    if (tk) return cutUrl(tk.coll, tk.id); }
+    if (tk) return tk.coll === 'N' ? cutUrl('N', tk.cls) : cutUrl(tk.coll, tk.id); }
   return cutUrl('A', SKIN_ART[curSkin] || '23');
 }
 /* ---- one living NFT-art cutout; same fighter state as drawFrog ---- */
 function drawArtFrog(f, time){
   const cut = (f.cut && f.cut.ok && !f.cut.failed) ? f.cut : null;
+  /* this token HAS a cutout: while it loads/retries (or if it ultimately
+     fails) the placeholder frog stands in — the framed card is never
+     shown in-fight for a token that has a cutout */
+  if (f.cut && !cut){ drawFrog(f, time); return; }
   const rec = cut || f.art;
   if (!rec || rec.failed || !rec.ok){ drawFrog(f, time); return; }
   const S = 210 * (f.scale || 1), ph = f.phase || 0;
@@ -2057,8 +2069,8 @@ function startMatchGo(idx, fresh){
   G.mode = gameMode;
   G.p.art = artImg(playerArtUrl());
   G.r.art = artImg(rivalArtUrl(ci));
-  G.p.cut = artImg(playerCutUrl());
-  G.r.cut = artImg(rivalCutUrl(ci));
+  G.p.cut = artImg(playerCutUrl(), true);
+  G.r.cut = artImg(rivalCutUrl(ci), true);
   if (ci === RIVALS.length - 1) G.r.scale = 1.3; /* the King is the biggest Kaiju in the pond — he fights BIG */
   showVs(playerArtUrl(), rivalArtUrl(ci));
   startRound();
