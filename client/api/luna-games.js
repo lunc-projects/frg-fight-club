@@ -8198,7 +8198,13 @@ async function ffrKeyStatus(cfg) {
    (NEXT RIVAL continuations) cost nothing.
    Lives are server-side per Terra wallet per ET calendar day in
    the KICKBACK store (packPipeline): ffl:state:<wallet> JSON
-   {day, used, bonus, bought} — available = FFL_DAILY_FREE - used + bonus;
+   {day, used, bonus, bought, missionDay} — available = FFL_DAILY_FREE - used + bonus;
+   DAILY MISSION (GG-0438EB): ffLifeMission adds FFL_MISSION_LIVES
+   (+3) into the SAME bonus pool and stamps missionDay = today;
+   one claim per wallet per day, enforced here server-side. X
+   offers no API to verify a like/retweet, so the social action
+   itself is honor-system by design — only the once-a-day limit
+   is enforced, and nothing anywhere claims a verification.
    everything resets at the ET day boundary (unused bonus lives
    expire with the day; that IS the daily limit). Run starts go
    through ffLifeStart keyed on a per-run id with SET NX dedupe,
@@ -8218,6 +8224,7 @@ const FFL_BOX_LIVES = 10;
 const FFL_BOX_PRICE_LUNC = 150;
 const FFL_BOX_PRICE_ULUNA = '150000000';
 const FFL_MAX_BOXES_PER_DAY = 2;
+const FFL_MISSION_LIVES = 3; /* Daily mission (Goliath GG-0438EB, Nov 25, 2026): +3 lives, once per wallet per day */
 const FFL_REWARDS_WALLET = 'terra1h8drf2d0rqckx65rzd5ll4ljdyuhd6mjw0glav';
 const FFL_STATE_TTL_SEC = 3 * 24 * 3600;
 const FFL_ORDER_TTL_SEC = 24 * 3600;
@@ -8228,7 +8235,7 @@ function fflDay(now) {
   for (const x of parts) p[x.type] = x.value;
   return p.year + '-' + p.month + '-' + p.day;
 }
-function fflBlank(day) { return { day, used: 0, bonus: 0, bought: 0 }; }
+function fflBlank(day) { return { day, used: 0, bonus: 0, bought: 0, missionDay: '' }; }
 async function fflGetState(wallet) {
   const day = fflDay(Date.now());
   const out = await packPipeline([['GET', 'ffl:state:' + wallet]]);
@@ -8251,6 +8258,7 @@ function fflView(s, awaiting) {
     freeLeft: Math.max(0, FFL_DAILY_FREE - Number(s.used || 0)),
     used: Number(s.used || 0), bonus: Number(s.bonus || 0),
     boughtToday: Number(s.bought || 0), awaitingBoxes: Number(awaiting || 0),
+    missionClaimed: String(s.missionDay || '') === s.day, missionLives: FFL_MISSION_LIVES,
     dailyFree: FFL_DAILY_FREE, boxLives: FFL_BOX_LIVES, boxPriceLunc: FFL_BOX_PRICE_LUNC,
     maxBoxes: FFL_MAX_BOXES_PER_DAY, day: s.day, rewardsWallet: FFL_REWARDS_WALLET,
   };
@@ -8717,6 +8725,27 @@ export async function ffrHandler(req, res) {
         return res.status(200).json({ ok: true, dup: true, ...view });
       }
       s.used = Number(s.used || 0) + 1;
+      await fflSaveState(wallet, s);
+      const rows = await fflTodayOrders(wallet);
+      return res.status(200).json({ ok: true, ...fflView(s, rows.filter((o) => o.status === 'awaiting').length) });
+    }
+    if (action === 'ffLifeMission') {
+      const wallet = walletOf();
+      if (!wallet) return res.status(400).json({ ok: false, error: 'bad wallet' });
+      /* Daily mission (Goliath GG-0438EB, Nov 25, 2026): +3 lives
+         once per wallet per ET day for the like + retweet mission.
+         The like itself is honor-system (X has no verification API
+         we can call) — what IS enforced here is the once-a-day
+         limit, via missionDay on the same lives record. The +3
+         rides the existing bonus pool, so ffLifeStart spends it
+         exactly like Life Box lives and it expires with the day. */
+      const s = await fflGetState(wallet);
+      if (String(s.missionDay || '') === s.day) {
+        const rows = await fflTodayOrders(wallet);
+        return res.status(409).json({ ok: false, error: 'already', ...fflView(s, rows.filter((o) => o.status === 'awaiting').length) });
+      }
+      s.missionDay = s.day;
+      s.bonus = Number(s.bonus || 0) + FFL_MISSION_LIVES;
       await fflSaveState(wallet, s);
       const rows = await fflTodayOrders(wallet);
       return res.status(200).json({ ok: true, ...fflView(s, rows.filter((o) => o.status === 'awaiting').length) });
