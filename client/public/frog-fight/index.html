@@ -233,6 +233,17 @@ input[type=text]:focus{outline:none;border-color:var(--emer);box-shadow:0 0 0 3p
 .heroArt{display:flex;align-items:flex-end;justify-content:center;gap:6px;}
 .heroArt img.heroFrog{height:92px;width:auto;filter:drop-shadow(0 6px 10px rgba(0,0,0,.6));}
 .vsBadge{flex:none;align-self:center;line-height:0;filter:drop-shadow(0 0 10px rgba(80,140,255,.85)) drop-shadow(0 0 24px rgba(168,85,247,.55));}
+/* ===== Onboarding (Goliath GG-4F8354, Nov 25, 2026): first-entry guide, practice tips, first-steps checklist ===== */
+#ffGuide{position:fixed;inset:0;z-index:300;pointer-events:none;}
+#ffGuideRing{position:fixed;display:none;border:3px solid #ffd54a;border-radius:14px;box-shadow:0 0 0 4px rgba(255,213,74,.30),0 0 26px rgba(255,213,74,.55);pointer-events:none;transition:top .3s,left .3s,width .3s,height .3s;}
+#ffGuidePanel{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;width:min(92vw,430px);background:rgba(14,10,34,.97);border:1px solid var(--gold,#e8c15a);border-radius:16px;padding:14px 16px;pointer-events:auto;box-shadow:0 12px 34px rgba(0,0,0,.65);text-align:center;}
+#ffGuideStep{font-size:12px;font-weight:900;letter-spacing:.12em;color:#ffd54a;margin-bottom:4px;}
+#ffGuideText{font-size:16px;font-weight:700;color:#e8ecff;line-height:1.35;margin:0 0 10px;}
+#ffTip{position:absolute;left:50%;transform:translateX(-50%);bottom:10px;z-index:6;background:rgba(10,6,32,.88);border:1px solid rgba(255,213,74,.65);color:#ffe9a8;border-radius:999px;padding:7px 16px;font-size:15px;font-weight:800;white-space:nowrap;pointer-events:none;text-align:center;}
+.ffsRow{display:flex;align-items:center;gap:10px;padding:7px 2px;font-size:15px;font-weight:700;color:#aab;}
+.ffsRow.done{color:#e8ecff;}
+.ffsBox{flex:none;width:24px;height:24px;border-radius:7px;border:2px solid rgba(255,255,255,.35);display:flex;align-items:center;justify-content:center;font-size:15px;color:#7be495;}
+.ffsRow.done .ffsBox{border-color:#7be495;background:rgba(123,228,149,.12);}
 </style>
 </head>
 <body>
@@ -298,6 +309,17 @@ input[type=text]:focus{outline:none;border-color:var(--emer);box-shadow:0 0 0 3p
       <button class="bigBtn" id="fightBtn">🥊 <span data-i="fight">FIGHT!</span></button>
       <div style="height:8px"></div>
       <button class="ghostBtn" id="boardBtn">🏆 <span data-i="leaderboard">Leaderboard</span></button>
+      <div style="height:8px"></div>
+      <button class="ghostBtn" id="practiceBtn" type="button">🎯 <span id="practiceBtnTxt">PRACTICE — FREE</span></button>
+    </div>
+
+    <!-- FIRST STEPS checklist (Goliath GG-4F8354, Nov 25, 2026):
+         new-player card, filled by the onboarding add-on at the end
+         of this file. Hidden until it renders; disappears forever
+         once all 4 steps are done. No rewards attached. -->
+    <div class="card" id="ffsCard" style="display:none">
+      <div class="subTitle" style="margin-bottom:4px">⭐ <span id="ffsTitle">FIRST STEPS</span></div>
+      <div id="ffsList"></div>
     </div>
 
     <!-- MONDAY PAYOUT pot (Goliath, Nov 22, 2026): public total of
@@ -549,6 +571,7 @@ input[type=text]:focus{outline:none;border-color:var(--emer);box-shadow:0 0 0 3p
     <div id="stageWrap">
       <canvas id="stage" width="780" height="520"></canvas>
       <div id="bannerTxt"><div id="bannerMain"></div><div id="bannerSub"></div></div>
+      <div id="ffTip" style="display:none"></div>
       <div id="vsOverlay"><div class="vsSide p" id="vsP"></div><div id="vsMid">VS</div><div class="vsSide r" id="vsR"></div></div>
     </div>
     <div id="ffbStrip">⚡ <span id="ffbStripTxt">No boosts equipped</span></div>
@@ -583,6 +606,22 @@ input[type=text]:focus{outline:none;border-color:var(--emer);box-shadow:0 0 0 3p
     <button class="bigBtn goldBtn" id="againBtn">🥊 <span data-i="playAgain">FIGHT AGAIN</span></button>
     <div style="height:8px"></div>
     <button class="ghostBtn" id="overMenuBtn" data-i="backMenu">Back to menu</button>
+  </div>
+</div>
+
+<!-- FIRST-ENTRY GUIDE overlay (Goliath GG-4F8354, Nov 25, 2026):
+     driven by the onboarding add-on at the end of this file. The
+     shade never blocks the page (pointer-events:none); only the
+     panel takes taps. Shows once per device (ff_guide_done). -->
+<div id="ffGuide" style="display:none">
+  <div id="ffGuideRing"></div>
+  <div id="ffGuidePanel">
+    <div id="ffGuideStep"></div>
+    <p id="ffGuideText"></p>
+    <div class="rowBtns">
+      <button class="ghostBtn" id="ffGuideSkip" type="button">Skip</button>
+      <button class="btn gold" id="ffGuideNext" type="button">Next</button>
+    </div>
   </div>
 </div>
 
@@ -1764,11 +1803,28 @@ function buildLadder(){
 function startRun(){
   const nm = ($('nameInput').value || '').trim().slice(0, 16) || t('guest');
   ffNameSave(nm);
+  try { localStorage.setItem('ff_real_fight', '1'); } catch (e) {} /* FIRST STEPS checklist: a real run started (GG-4F8354) */
   G = { phase:'intro', phaseT:0, introStage:0, rivalIdx:0, round:1, pWins:0, rWins:0,
         score:0, timer:roundTime(), hitstop:0, shake:0, time:0, runTime:0, paused:false,
         accRounds:0, ladder: buildLadder(),
         parts:[], texts:[], posted:false, playerName:nm, toastT:0 };
   startMatch(0, true, true); /* run start — the ONE life of the run is charged here */
+  showScreen('game');
+}
+/* FREE PRACTICE FIGHT (Goliath GG-4F8354, Nov 25, 2026): one match
+   against the first ladder rival (RIVALS[0]), reusing the real
+   engine. startMatch is called WITHOUT the runStart flag, so the
+   daily-lives gate never fires and NO life is charged; G.practice
+   gates the reward hooks in endMatch and diverts the matchEnd
+   phase to endPractice instead of the ladder / endRun. */
+function startPractice(){
+  const nm = ($('nameInput').value || '').trim().slice(0, 16) || t('guest');
+  ffNameSave(nm);
+  G = { phase:'intro', phaseT:0, introStage:0, rivalIdx:0, round:1, pWins:0, rWins:0,
+        score:0, timer:roundTime(), hitstop:0, shake:0, time:0, runTime:0, paused:false,
+        accRounds:0, ladder:[0], practice:true,
+        parts:[], texts:[], posted:false, playerName:nm, toastT:0 };
+  startMatch(0, true); /* no runStart — practice never touches the lives gate */
   showScreen('game');
 }
 /* ---- VS overlay (visual pass 2026-11-18) ---- */
@@ -1848,7 +1904,7 @@ function endRound(winner){ /* winner: 'p' | 'r' | 'draw' */
 }
 function endMatch(playerWon){
   G.phase = 'matchEnd'; G.phaseT = 0;
-  ffbRecordMatch(playerWon);
+  if (!G.practice) ffbRecordMatch(playerWon); /* practice pays nothing and records nothing (GG-4F8354) */
   /* Bounty accrual for the KING RULE end-screen display (Goliath,
      Nov 23, 2026): rounds won across the whole run. The server
      keeps the real ledger — this only drives what the over screen
@@ -1856,9 +1912,10 @@ function endMatch(playerWon){
   G.accRounds = (G.accRounds || 0) + G.pWins;
   /* LUNC rewards: credit this match server-side (NFT holders only;
      the router recomputes the amount and verifies ownership). */
-  if (window.__ffrCreditMatch) window.__ffrCreditMatch(playerWon);
+  if (!G.practice && window.__ffrCreditMatch) window.__ffrCreditMatch(playerWon);
   if (playerWon){ FFSnd.win(); G.score += 1000 + G.rivalIdx * 500 + Math.ceil(G.p.hp) * 5; G.p.state = 'win'; G.p.tState = 0;
-    if (G.rivalIdx === RIVALS.length - 1){
+    if (G.practice) banner(t('matchWon'), t('ffpracGoReal'), true);
+    else if (G.rivalIdx === RIVALS.length - 1){
       /* WIN SIGN (Goliath, Nov 23, 2026): "You win +X LUNC". Under
          the King rule the ONLY real LUNC credit in a run lands at
          this exact moment — beating the King — so the sign hangs
@@ -1908,6 +1965,24 @@ function endRun(champion){
     G.posted = true;
     postScore(G.playerName, G.score, G.runTime).then(ok => { $('overBoardNote').textContent = ok ? t('scorePosted') : t('scoreFailed'); loadBoard(); });
   } else loadBoard();
+}
+/* Practice end screen (GG-4F8354): win or lose, the player is sent
+   to a real fight — the FIGHT AGAIN button on this screen already
+   calls startRun. No score is posted and no LUNC is shown as
+   earned: practice is free and pays nothing. */
+function endPractice(won){
+  G.phase = 'over';
+  try { localStorage.setItem('ff_practice_done', '1'); if (won) localStorage.setItem('ff_practice_won', '1'); } catch (e) {}
+  if (won) FFSnd.win(); else FFSnd.lose();
+  showScreen('over');
+  $('overArt').textContent = '🎯';
+  $('overTitle').textContent = t(won ? 'ffpracWinTitle' : 'ffpracLoseTitle');
+  $('overSub').textContent = t('ffpracGoReal');
+  $('finalScore').textContent = G.score.toLocaleString();
+  const earnEl = $('overEarn');
+  if (earnEl) earnEl.textContent = t('ffpracNoRewards');
+  $('overBoardNote').textContent = '';
+  loadBoard();
 }
 function startAttack(f, kind){
   if (f.state === 'punch' || f.state === 'kick' || f.state === 'special' || f.state === 'hurt' || f.state === 'ko') return false;
@@ -2096,7 +2171,8 @@ function loop(ts){
         G.phaseT += dt;
         if (G.phaseT > 2.3){
           banner('', '', false);
-          if (G.pWins >= 2){ if (G.rivalIdx + 1 < RIVALS.length) startMatch(G.rivalIdx + 1); else endRun(true); }
+          if (G.practice) endPractice(G.pWins >= 2); /* practice ends after its one match (GG-4F8354) */
+          else if (G.pWins >= 2){ if (G.rivalIdx + 1 < RIVALS.length) startMatch(G.rivalIdx + 1); else endRun(true); }
           else endRun(false);
         }
       }
@@ -3411,7 +3487,7 @@ fetchOwned = function(addr){ if (addr) localStorage.setItem('ffight_addr', addr)
 try { if (typeof ownedAddr !== 'undefined' && ownedAddr) ffNameApply(); } catch (e) {}
 window.GAME = { get G(){ return G; }, get input(){ return input; }, get joy(){ return joy; }, get ownedTokens(){ return ownedTokens; }, get perks(){ return perks; },
   get selectedToken(){ return selectedToken; }, get mode(){ return gameMode; }, setMode, artCache, playerArtUrl,
-  startRun, fetchOwned, playerSkinId, RIVALS, get ffbBoost(){ return ffbBoost; }, get ffbEquipped(){ return [...ffbEquipped]; }, get ffbOwned(){ return ffbOwned; }, ffbToggleEquip, ffbBuy, ffbRenderRank };
+  startRun, startPractice, fetchOwned, playerSkinId, RIVALS, get ffbBoost(){ return ffbBoost; }, get ffbEquipped(){ return [...ffbEquipped]; }, get ffbOwned(){ return ffbOwned; }, ffbToggleEquip, ffbBuy, ffbRenderRank };
 </script>
 <script>
 /* ================= FROG FIGHT LUNC REWARDS =================
@@ -3925,6 +4001,180 @@ fflRefresh();
   /* The old fake withdrawal countdown (fixed Dec 22, 2026 target)
      is GONE — the Withdrawal tab is now the real LUNC rewards
      balance, driven by the rewards script block below. */
+})();
+</script>
+<script>
+/* ================= ONBOARDING (Goliath GG-4F8354, Nov 25, 2026) =================
+   The plan answered on GG-90941C, approved by Goliath: (1) a short
+   first-entry guide pointing at the REAL controls, (2) a FREE
+   practice fight (startPractice in the main script — no life, no
+   rewards, tips below), (3) a FIRST STEPS checklist card that
+   fills from real events and disappears when all 4 are done.
+   Nothing here grants anything: no lives, no LUNC, no rewards. */
+(function(){
+  'use strict';
+  /* --- strings, in the game's own i18n (t() falls back to en) --- */
+  try {
+    Object.assign(I.en, {
+      ffpracBtn:"PRACTICE — FREE",
+      ffpracWinTitle:"PRACTICE WON!", ffpracLoseTitle:"PRACTICE OVER",
+      ffpracGoReal:"Good warm-up! Now tap FIGHT AGAIN for a real fight — real fights climb the ladder.",
+      ffpracNoRewards:"Practice — no life used, no rewards",
+      ffTip1:"👊 Tap PUNCH to hit — it's fast!", ffTip2:"🛡 Hold BLOCK when he swings",
+      ffTip3:"🦵 KICK hits harder, but it's slower", ffTip4:"👅 Landing hits charge your SPECIAL — the Tongue Lash!",
+      ffgStep1:"First, connect your wallet — tap Keplr, Trust Wallet or MetaMask.",
+      ffgStep2:"Get your first frog — mint a fighter here. (The free green frog works too!)",
+      ffgStep3:"Tap FIGHT! to start your first real fight. Good luck!",
+      ffgNext:"Next", ffgSkip:"Skip", ffgDone:"Let's go!", ffgOf:"STEP {a} OF {b}",
+      ffsTitle:"FIRST STEPS",
+      ffsWallet:"Connect your wallet", ffsFrog:"Own a frog",
+      ffsPractice:"Win a practice fight", ffsFight:"Play a real fight"
+    });
+    Object.assign(I.es, {
+      ffpracBtn:"PRÁCTICA — GRATIS",
+      ffpracWinTitle:"¡PRÁCTICA GANADA!", ffpracLoseTitle:"FIN DE LA PRÁCTICA",
+      ffpracGoReal:"¡Buen calentamiento! Ahora toca PELEAR DE NUEVO para una pelea real — las peleas reales suben la escalera.",
+      ffpracNoRewards:"Práctica — sin gastar vidas, sin recompensas",
+      ffTip1:"👊 Toca GOLPE para pegar — ¡es rápido!", ffTip2:"🛡 Mantén BLOQUEO cuando él ataque",
+      ffTip3:"🦵 PATADA pega más fuerte, pero es más lenta", ffTip4:"👅 Los golpes cargan tu ESPECIAL — ¡el Lengüetazo!",
+      ffgStep1:"Primero conecta tu billetera — toca Keplr, Trust Wallet o MetaMask.",
+      ffgStep2:"Consigue tu primera rana — acuña un luchador aquí. (¡La rana verde gratis también sirve!)",
+      ffgStep3:"Toca ¡PELEA! para tu primera pelea real. ¡Buena suerte!",
+      ffgNext:"Siguiente", ffgSkip:"Saltar", ffgDone:"¡Vamos!", ffgOf:"PASO {a} DE {b}",
+      ffsTitle:"PRIMEROS PASOS",
+      ffsWallet:"Conecta tu billetera", ffsFrog:"Ten una rana",
+      ffsPractice:"Gana una pelea de práctica", ffsFight:"Juega una pelea real"
+    });
+  } catch (e) {}
+  var $id = function(id){ return document.getElementById(id); };
+  var lsGet = function(k){ try { return localStorage.getItem(k); } catch (e) { return null; } };
+  var lsSet = function(k, v){ try { localStorage.setItem(k, v); } catch (e) {} };
+
+  /* ---------- PRACTICE button + in-fight tips ---------- */
+  var pracBtn = $id('practiceBtn');
+  if (pracBtn) pracBtn.addEventListener('click', function(){
+    if (window.GAME && GAME.startPractice) GAME.startPractice();
+  });
+  var tipEl = $id('ffTip'), tipKeys = ['ffTip1', 'ffTip2', 'ffTip3', 'ffTip4'];
+  function tickTips(){
+    var g = null;
+    try { g = window.GAME ? GAME.G : null; } catch (e) {}
+    var show = !!(g && g.practice && (g.phase === 'fight' || g.phase === 'intro' || g.phase === 'roundEnd'));
+    if (!tipEl) return;
+    if (show) {
+      var idx = Math.floor(Date.now() / 3600) % tipKeys.length;
+      var txt = t(tipKeys[idx]);
+      if (tipEl.textContent !== txt) tipEl.textContent = txt;
+      if (tipEl.style.display === 'none') tipEl.style.display = 'block';
+    } else if (tipEl.style.display !== 'none') tipEl.style.display = 'none';
+  }
+
+  /* ---------- FIRST STEPS checklist ---------- */
+  var STEP_DEFS = [
+    { id:'wallet',   key:'ffsWallet' },
+    { id:'frog',     key:'ffsFrog' },
+    { id:'practice', key:'ffsPractice' },
+    { id:'fight',    key:'ffsFight' }
+  ];
+  function stepsState(){
+    var s = {};
+    try { s = JSON.parse(lsGet('ff_steps_done') || '{}') || {}; } catch (e) { s = {}; }
+    var w = '';
+    try { if (window.__ffwallet && __ffwallet.state) w = __ffwallet.state().addr || ''; } catch (e) {}
+    if (!w) { try { w = ownedAddr || ''; } catch (e) {} }
+    if (w) s.wallet = true;                                   /* real event: a wallet is connected / looked up */
+    try { if (typeof ownedTokens !== 'undefined' && ownedTokens.length > 0) s.frog = true; } catch (e) {} /* real event: holds a frog */
+    if (lsGet('ff_practice_won')) s.practice = true;          /* set by endPractice on a win */
+    if (lsGet('ff_real_fight')) s.fight = true;               /* set by startRun */
+    lsSet('ff_steps_done', JSON.stringify(s));
+    return s;
+  }
+  var lastStepsJson = '';
+  function renderSteps(){
+    var card = $id('ffsCard'), list = $id('ffsList');
+    if (!card || !list) return;
+    var s = stepsState();
+    var doneCount = STEP_DEFS.filter(function(d){ return s[d.id]; }).length;
+    if (doneCount >= STEP_DEFS.length) {           /* all 4 done — gone for good */
+      if (card.style.display !== 'none') card.style.display = 'none';
+      return;
+    }
+    var sig = JSON.stringify(s) + '|' + (typeof lang !== 'undefined' ? lang : '');
+    if (sig === lastStepsJson && card.style.display !== 'none') return;
+    lastStepsJson = sig;
+    var title = $id('ffsTitle'); if (title) title.textContent = t('ffsTitle');
+    list.innerHTML = STEP_DEFS.map(function(d){
+      var done = !!s[d.id];
+      return '<div class="ffsRow' + (done ? ' done' : '') + '"><span class="ffsBox">' + (done ? '✓' : '') + '</span><span>' + t(d.key) + '</span></div>';
+    }).join('');
+    card.style.display = 'block';
+  }
+
+  /* ---------- FIRST-ENTRY GUIDE ---------- */
+  var GUIDE = [
+    { sel:'#btnKeplr',    key:'ffgStep1' },
+    { sel:'#nfrogBuyBtn', key:'ffgStep2' },
+    { sel:'#fightBtn',    key:'ffgStep3' }
+  ];
+  var guideIdx = -1, guideTimer = null;
+  function guideFinish(){
+    lsSet('ff_guide_done', '1');
+    guideIdx = -1;
+    var g = $id('ffGuide'); if (g) g.style.display = 'none';
+    var ring = $id('ffGuideRing'); if (ring) ring.style.display = 'none';
+    if (guideTimer) { clearInterval(guideTimer); guideTimer = null; }
+  }
+  function guidePlace(){
+    if (guideIdx < 0) return;
+    var el = document.querySelector(GUIDE[guideIdx].sel), ring = $id('ffGuideRing');
+    if (!el || !ring) return;
+    var r = el.getBoundingClientRect(), pad = 6;
+    ring.style.display = 'block';
+    ring.style.top = (r.top - pad) + 'px'; ring.style.left = (r.left - pad) + 'px';
+    ring.style.width = (r.width + pad * 2) + 'px'; ring.style.height = (r.height + pad * 2) + 'px';
+  }
+  function guideShow(i){
+    guideIdx = i;
+    var g = $id('ffGuide'); if (!g) return;
+    g.style.display = 'block';
+    $id('ffGuideStep').textContent = t('ffgOf').replace('{a}', i + 1).replace('{b}', GUIDE.length);
+    $id('ffGuideText').textContent = t(GUIDE[i].key);
+    $id('ffGuideNext').textContent = (i === GUIDE.length - 1) ? t('ffgDone') : t('ffgNext');
+    $id('ffGuideSkip').textContent = t('ffgSkip');
+    var el = document.querySelector(GUIDE[i].sel);
+    if (el) { try { el.scrollIntoView({ block:'center', behavior:'smooth' }); } catch (e) { el.scrollIntoView(); } }
+    setTimeout(guidePlace, 380); setTimeout(guidePlace, 750);
+  }
+  function guideStart(){
+    if (lsGet('ff_guide_done')) return;                       /* returning player — never shown again */
+    var menu = $id('scrMenu');
+    if (!menu || menu.style.display === 'none') return;
+    guideShow(0);
+    guideTimer = setInterval(function(){                      /* leaving the menu ends the guide */
+      var m = $id('scrMenu');
+      if (guideIdx >= 0 && (!m || m.style.display === 'none')) guideFinish();
+      guidePlace();
+    }, 900);
+  }
+  var nx = $id('ffGuideNext'), sk = $id('ffGuideSkip');
+  if (nx) nx.addEventListener('click', function(){
+    if (guideIdx >= GUIDE.length - 1) guideFinish(); else guideShow(guideIdx + 1);
+  });
+  if (sk) sk.addEventListener('click', guideFinish);
+  window.addEventListener('resize', guidePlace);
+
+  /* ---------- language + boot ---------- */
+  function localize(){
+    var pb = $id('practiceBtnTxt'); if (pb) pb.textContent = t('ffpracBtn');
+    lastStepsJson = ''; renderSteps();
+    if (guideIdx >= 0) guideShow(guideIdx);
+  }
+  var langSel = $id('langSel');
+  if (langSel) langSel.addEventListener('change', function(){ setTimeout(localize, 60); });
+  localize();
+  setInterval(function(){ renderSteps(); tickTips(); }, 2000);
+  setInterval(tickTips, 450);
+  setTimeout(guideStart, 800);
 })();
 </script>
 <script src="ffwallet.js"></script>
