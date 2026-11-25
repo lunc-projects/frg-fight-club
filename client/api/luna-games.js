@@ -7743,14 +7743,14 @@ function ffmetaHandler(req, res) {
   const ability = NFROG_ABILITIES[(n - 1) % 6];
   const power = NFROG_POWER_BASE[rarity] + ((n * 13) % 16);
   const pad = String(n).padStart(3, '0');
-  const name = 'New Frog #' + pad;
+  const name = 'Frog Fighter #' + pad;
   res.setHeader('Cache-Control', 'public, max-age=86400');
   res.status(200).json({
     name,
     image: 'https://frg-fight-club.vercel.app/frog-fight/newfrog-art/' + cls.toLowerCase() + '.jpg?e=' + pad,
-    description: name + ' — a NEW FROG Fighters NFT fighter for Frog Fight. ' + cls + ' class · ' + rarity + ' · Ability: ' + ability + ' · Power ' + power + '.',
+    description: name + ' — a Frog Fighter NFT for the Frog Fight game. ' + cls + ' class · ' + rarity + ' · Ability: ' + ability + ' · Power ' + power + '.',
     attributes: [
-      { trait_type: 'Collection', value: 'NEW FROG Fighters' },
+      { trait_type: 'Collection', value: 'Frog Fighter' },
       { trait_type: 'Skin', value: cls },
       { trait_type: 'Rarity', value: rarity },
       { trait_type: 'Ability', value: ability },
