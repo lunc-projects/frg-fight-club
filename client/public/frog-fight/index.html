@@ -659,7 +659,13 @@ var FFSnd = (function(){
       var AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return null;
       try { ctx = new AC(); } catch (e) { return null; }
-      master = ctx.createGain(); master.gain.value = 0.5; master.connect(ctx.destination);
+      master = ctx.createGain(); master.gain.value = 0.55;
+      /* brick-wall-ish safety: layered MK-style hits stack loud — the
+         compressor keeps the master bus hot without clipping */
+      var comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -16; comp.knee.value = 18; comp.ratio.value = 12;
+      comp.attack.value = 0.003; comp.release.value = 0.24;
+      master.connect(comp); comp.connect(ctx.destination);
       var len = Math.floor(ctx.sampleRate * 0.5), buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
       for (var i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
       noiseBuf = buf;
@@ -699,25 +705,81 @@ var FFSnd = (function(){
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     src.connect(f); f.connect(g); g.connect(master); src.start(t0); src.stop(t0 + dur + 0.05);
   }
+  /* noise crunch through a waveshaper — the gritty body of a heavy hit:
+     freq = lowpass cutoff, dur/gain/delay as usual */
+  function grit(freq, dur, gain, delay){
+    var c = ac(); if (!c) return;
+    var t0 = c.currentTime + (delay || 0);
+    var src = c.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+    var sh = c.createWaveShaper();
+    var curve = new Float32Array(256);
+    for (var i = 0; i < 256; i++){ var x = i / 128 - 1; curve[i] = Math.tanh(2.6 * x); }
+    sh.curve = curve;
+    var f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = freq;
+    var g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(gain, t0 + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    src.connect(sh); sh.connect(f); f.connect(g); g.connect(master); src.start(t0); src.stop(t0 + dur + 0.05);
+  }
+  /* low growl: detuned saws through a lowpass whose cutoff wobbles on an
+     LFO — the King's throat under the roar */
+  function growl(dur, gain, delay){
+    var c = ac(); if (!c) return;
+    var t0 = c.currentTime + (delay || 0);
+    var f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 220; f.Q.value = 6;
+    var lfo = c.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 13;
+    var lfoG = c.createGain(); lfoG.gain.value = 110;
+    lfo.connect(lfoG); lfoG.connect(f.frequency);
+    var g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(gain, t0 + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    [55, 58.3, 82.4].forEach(function(fr){
+      var o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = fr;
+      o.connect(f); o.start(t0); o.stop(t0 + dur + 0.05);
+    });
+    f.connect(g); g.connect(master); lfo.start(t0); lfo.stop(t0 + dur + 0.05);
+  }
   var api = {
     click: function(){ if (gate('click', 40)) tone('square', 660, 0.05, 0.10); },
     open:  function(){ tone('sine', [300, 540], 0.10, 0.16); },
     close: function(){ tone('sine', [540, 300], 0.10, 0.14); },
     coin:  function(){ if (!gate('coin', 120)) return; tone('sine', 988, 0.09, 0.20); tone('sine', 1319, 0.22, 0.20, 0.08); },
     miss:  function(){ if (gate('miss', 60)) noise('bandpass', [500, 1900], 0.16, 0.20, 0, 1.4); },
-    block: function(){ if (!gate('block', 50)) return; tone('triangle', 1180, 0.07, 0.22); noise('highpass', 3200, 0.05, 0.10); },
+    block: function(){ if (!gate('block', 50)) return;
+      /* hard metallic clang: inharmonic detuned partials, fast decay */
+      tone('square', 1244, 0.16, 0.16); tone('square', 1866, 0.12, 0.12);
+      tone('triangle', 2513, 0.09, 0.12); tone('triangle', 3417, 0.06, 0.08);
+      tone('square', 831, 0.10, 0.10);
+      noise('highpass', 3800, 0.07, 0.14); tone('sine', [300, 90], 0.08, 0.20); },
     hit:   function(kind){
       if (!gate('hit', 45)) return;
-      if (kind === 'special'){ noise('lowpass', 900, 0.22, 0.50); tone('square', [220, 55], 0.24, 0.34); noise('bandpass', [300, 2400], 0.18, 0.16, 0, 1.2); }
-      else if (kind === 'kick'){ noise('lowpass', 650, 0.16, 0.44); tone('square', [170, 60], 0.17, 0.30); }
-      else { noise('lowpass', 800, 0.12, 0.38); tone('square', [200, 75], 0.12, 0.26); }
+      if (kind === 'special'){
+        /* tongue lash: rising sweep winding up, then a heavy slam */
+        tone('sawtooth', [160, 920], 0.16, 0.20); noise('bandpass', [300, 2600], 0.16, 0.18, 0, 1.2);
+        tone('sine', [165, 34], 0.32, 0.66, 0.15); grit(1500, 0.24, 0.44, 0.15); noise('lowpass', 700, 0.28, 0.40, 0.15);
+      }
+      else if (kind === 'kick'){
+        /* kick lands lower and heavier than a punch */
+        tone('sine', [120, 32], 0.24, 0.62); grit(1100, 0.15, 0.48); noise('lowpass', 500, 0.14, 0.34);
+      }
+      else {
+        /* punch: deep bass thump + waveshaped crunch */
+        tone('sine', [150, 40], 0.18, 0.55); grit(1800, 0.10, 0.40); noise('lowpass', 800, 0.10, 0.30);
+      }
     },
-    king:  function(){ if (!gate('king', 300)) return; tone('sawtooth', [130, 52], 0.38, 0.30); tone('sawtooth', [98, 41], 0.38, 0.22, 0.03); noise('lowpass', 300, 0.34, 0.20); },
-    ko:    function(){ noise('lowpass', 1100, 0.40, 0.50); tone('square', [320, 38], 0.50, 0.36); tone('sine', 65, 0.50, 0.40, 0.02); },
+    king:  function(){ if (!gate('king', 300)) return; growl(0.5, 0.34); tone('sawtooth', [130, 52], 0.38, 0.30); tone('sawtooth', [98, 41], 0.38, 0.22, 0.03); noise('lowpass', 300, 0.34, 0.20); },
+    ko:    function(){
+      /* cinematic boom: sub drop + noise wash + a low rumble tail */
+      tone('sine', [110, 27], 0.90, 0.78); tone('square', [320, 38], 0.50, 0.30);
+      noise('lowpass', [3200, 180], 0.70, 0.50); grit(300, 0.95, 0.30, 0.05);
+      tone('sine', 46, 1.0, 0.34, 0.06); noise('lowpass', 140, 0.90, 0.22, 0.08);
+    },
     bell:  function(){ tone('triangle', 1568, 0.50, 0.20); tone('triangle', 1568, 0.70, 0.20, 0.22); },
     roundWin:  function(){ tone('triangle', 784, 0.10, 0.20); tone('triangle', 1047, 0.16, 0.20, 0.09); },
     roundLose: function(){ tone('triangle', 392, 0.12, 0.18); tone('triangle', 311, 0.18, 0.18, 0.10); },
-    win:   function(){ if (!gate('win', 200)) return; [523, 659, 784, 1047].forEach(function(f, i){ tone('triangle', f, 0.16, 0.22, i * 0.11); }); tone('triangle', 1319, 0.30, 0.20, 0.46); },
+    win:   function(){ if (!gate('win', 200)) return; [523, 659, 784, 1047].forEach(function(f, i){ tone('triangle', f, 0.16, 0.22, i * 0.11); }); tone('triangle', 1319, 0.30, 0.20, 0.46); tone('sine', 262, 0.55, 0.16, 0.44); tone('triangle', 1570, 0.34, 0.12, 0.46); },
     lose:  function(){ if (!gate('lose', 200)) return; [392, 330, 262, 196].forEach(function(f, i){ tone('sawtooth', f, 0.20, 0.12, i * 0.15); }); },
     isOn:  function(){ return on; },
     toggle: function(){
