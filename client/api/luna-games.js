@@ -9656,6 +9656,101 @@ async function ldnftServeMeta(req, res) {
   }
 }
 
+
+/* ===== ldsale: public minting, service-minter model =====
+   Public minting WITHOUT any new contract code: the collection's
+   minter role is transferred (cw-ownable two-step) to the LUNC Dev
+   Studio minting-service wallet; buyers pay the CREATOR directly
+   (bank send, memo "LDMINT <contract>"); the service settler watches
+   the chain and mints on verified payment. Supply cap and per-wallet
+   limits are enforced by the service (the launchpad record's cap was
+   always page-level on code 10217) and every mint is a real on-chain
+   mint by the collection's minter of record. Config lives at
+   ldsale:<contract>; the settled ledger at ldsale:log:<contract>
+   (array of {paymentTx, tokenId, mintTx, buyer, amount, ts}, capped);
+   unmintable payments are never dropped silently — they land in
+   ldsale:attention:<contract> for a human to sort out.
+   Opening a sale costs a 100,000 LUNC platform fee, proven in the
+   SAME tx as the "LDSALE <contract>" creator proof (the fee MsgSend
+   rides next to the tiny proof self-send, so a failed open never
+   pays). Closing is proven by an "LDSALE-CLOSE <contract>" self-send.
+   Settler writes are gated by the builder-secret hash, self-
+   registering on first use exactly like packRunnerOk. */
+const LDSALE_FEE_MIN_ULUNA = 100000000000n; /* 100,000 LUNC */
+const LDSALE_LOG_CAP = 5000;
+const LDSALE_ATTN_CAP = 1000;
+const LDSALE_INDEX_CAP = 200;
+
+async function ldsaleRunnerOk(bhash) {
+  if (!/^[a-f0-9]{64}$/.test(String(bhash || ''))) return false;
+  const out = await packPipeline([['GET', 'ldsale:runnerhash']]);
+  const stored = out && out[0] && out[0].result;
+  if (!stored) {
+    await packPipeline([['SET', 'ldsale:runnerhash', String(bhash)]]);
+    return true;
+  }
+  return stored === String(bhash);
+}
+async function ldsaleGetCfg(contract) {
+  const out = await packPipeline([['GET', 'ldsale:' + contract]]);
+  const raw = out && out[0] && out[0].result;
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+async function ldsaleSaveCfg(cfg) {
+  await packPipeline([['SET', 'ldsale:' + cfg.contract, JSON.stringify(cfg)]]);
+  return cfg;
+}
+async function ldsaleGetLog(contract) {
+  const out = await packPipeline([['GET', 'ldsale:log:' + contract]]);
+  const raw = out && out[0] && out[0].result;
+  if (!raw) return [];
+  try { const a = JSON.parse(raw); return Array.isArray(a) ? a : []; } catch (e) { return []; }
+}
+function ldsalePublicState(cfg, log, wallet) {
+  const st = {
+    contract: cfg.contract, creator: cfg.creator, status: cfg.status,
+    price_uluna: cfg.price_uluna, cap: cfg.cap, per_wallet: cfg.per_wallet,
+    start: cfg.start || 0, end: cfg.end || 0,
+    minted: Number(cfg.minted || 0),
+    minterState: cfg.minterState || 'creator',
+  };
+  if (wallet) {
+    let n = 0;
+    for (const e of (log || [])) if (e && e.buyer === wallet) n++;
+    st.walletMinted = n;
+  }
+  return st;
+}
+function ldsaleParseConfig(body, creator, existing) {
+  const price = Number(body.price_uluna);
+  if (!isFinite(price) || Math.floor(price) !== price || price < 1 || price > 1e15) return { error: 'bad price_uluna' };
+  let cap = null;
+  if (body.cap != null && body.cap !== '') {
+    cap = Math.floor(Number(body.cap));
+    if (!isFinite(cap) || cap < 1 || cap > 100000000) return { error: 'bad cap' };
+  }
+  let perWallet = null;
+  if (body.per_wallet != null && body.per_wallet !== '') {
+    perWallet = Math.floor(Number(body.per_wallet));
+    if (!isFinite(perWallet) || perWallet < 1 || perWallet > 100000) return { error: 'bad per_wallet' };
+  }
+  let start = 0, end = 0;
+  if (body.start != null && body.start !== '') { start = Math.floor(Number(body.start)); if (!isFinite(start) || start < 0) return { error: 'bad start' }; }
+  if (body.end != null && body.end !== '') { end = Math.floor(Number(body.end)); if (!isFinite(end) || end < 0) return { error: 'bad end' }; }
+  if (start && end && end <= start) return { error: 'end must be after start' };
+  return {
+    cfg: {
+      contract: String(body.contract || ''), creator,
+      price_uluna: String(price), cap, per_wallet: perWallet,
+      start, end, status: 'open',
+      minterState: (existing && existing.minterState) || 'creator',
+      minted: (existing && Number(existing.minted || 0)) || 0,
+      opened: Date.now(),
+    },
+  };
+}
+
 export async function ldnftHandler(req, res) {
   if (!((process.env.KICKBACK_UPSTASH_URL && process.env.KICKBACK_UPSTASH_TOKEN) ||
         (process.env.NEONRUSH_UPSTASH_URL && process.env.NEONRUSH_UPSTASH_TOKEN))) {
@@ -9881,6 +9976,131 @@ export async function ldnftHandler(req, res) {
         if (action === 'ldnftList' && collections.length >= LDNFT_LIST_N) break;
       }
       return res.status(200).json({ ok: true, collections });
+    }
+    if (action === 'ldsaleOpen') {
+      /* Open a public sale. Creator-proven by an "LDSALE <contract>"
+         self-send; the SAME tx must also carry the 100,000 LUNC
+         platform fee to the fee wallet (checked with the shared
+         factoryFeePaidUluna over the tx's messages). */
+      const contract = String(body.contract || '');
+      if (!LDNFT_CONTRACT_RE.test(contract)) return res.status(400).json({ ok: false, error: 'bad contract' });
+      const txhash = String(body.txhash || '').toUpperCase();
+      if (!LDNFT_TX_RE.test(txhash)) return res.status(400).json({ ok: false, error: 'bad tx hash' });
+      const rec = await ldnftGetCol(contract);
+      if (!rec) return res.status(404).json({ ok: false, error: 'not registered' });
+      const existing = await ldsaleGetCfg(contract);
+      if (existing && existing.status === 'open') return res.status(400).json({ ok: false, error: 'sale already open' });
+      const v = await factoryProofVerify(txhash, 'LDSALE ' + contract, rec.creator);
+      if (!v.ok) return res.status(403).json({ ok: false, error: v.error });
+      const tj = await ldnftLcd('/cosmos/tx/v1beta1/txs/' + txhash);
+      const msgs = (tj && tj.tx && tj.tx.body && tj.tx.body.messages) || [];
+      if (factoryFeePaidUluna(msgs, rec.creator) < LDSALE_FEE_MIN_ULUNA) {
+        return res.status(400).json({ ok: false, error: 'sale fee not found in tx' });
+      }
+      const parsed = ldsaleParseConfig(body, rec.creator, existing);
+      if (parsed.error) return res.status(400).json({ ok: false, error: parsed.error });
+      const cfg = parsed.cfg;
+      cfg.openTx = txhash;
+      await ldsaleSaveCfg(cfg);
+      if (!existing) await packPipeline([['LPUSH', 'ldsale:index', contract], ['LTRIM', 'ldsale:index', '0', String(LDSALE_INDEX_CAP - 1)]]);
+      const log = await ldsaleGetLog(contract);
+      return res.status(200).json({ ok: true, sale: ldsalePublicState(cfg, log, null) });
+    }
+    if (action === 'ldsaleState') {
+      const contract = String(body.contract || '');
+      if (!LDNFT_CONTRACT_RE.test(contract)) return res.status(400).json({ ok: false, error: 'bad contract' });
+      const cfg = await ldsaleGetCfg(contract);
+      if (!cfg) return res.status(404).json({ ok: false, error: 'no sale' });
+      const wallet = LDNFT_ADDR_RE.test(String(body.wallet || '')) ? String(body.wallet) : null;
+      const log = wallet ? await ldsaleGetLog(contract) : [];
+      return res.status(200).json({ ok: true, sale: ldsalePublicState(cfg, log, wallet) });
+    }
+    if (action === 'ldsaleClose') {
+      const contract = String(body.contract || '');
+      if (!LDNFT_CONTRACT_RE.test(contract)) return res.status(400).json({ ok: false, error: 'bad contract' });
+      const txhash = String(body.txhash || '').toUpperCase();
+      if (!LDNFT_TX_RE.test(txhash)) return res.status(400).json({ ok: false, error: 'bad tx hash' });
+      const rec = await ldnftGetCol(contract);
+      if (!rec) return res.status(404).json({ ok: false, error: 'not registered' });
+      const cfg = await ldsaleGetCfg(contract);
+      if (!cfg) return res.status(404).json({ ok: false, error: 'no sale' });
+      const v = await factoryProofVerify(txhash, 'LDSALE-CLOSE ' + contract, rec.creator);
+      if (!v.ok) return res.status(403).json({ ok: false, error: v.error });
+      cfg.status = 'closed';
+      cfg.closed = Date.now();
+      await ldsaleSaveCfg(cfg);
+      return res.status(200).json({ ok: true, sale: ldsalePublicState(cfg, [], null) });
+    }
+    if (action === 'ldsaleList' || action === 'ldsaleMark' || action === 'ldsaleAttention' || action === 'ldsaleCfg') {
+      /* Settler-only actions, gated by the builder-secret hash. */
+      if (!(await ldsaleRunnerOk(body.bhash))) return res.status(403).json({ ok: false, error: 'runner not authorized' });
+      if (action === 'ldsaleList') {
+        const out = await packPipeline([['LRANGE', 'ldsale:index', '0', String(LDSALE_INDEX_CAP - 1)]]);
+        const ids = (out && out[0] && out[0].result) || [];
+        const sales = [];
+        const seen = new Set();
+        for (const id of ids) {
+          if (seen.has(id)) continue;
+          seen.add(id);
+          const cfg = await ldsaleGetCfg(id);
+          if (cfg) {
+            /* The settler is stateless: it rebuilds its whole view
+               (settled payments, per-buyer counts, flagged payments)
+               from these two lists on every run. */
+            cfg.log = await ldsaleGetLog(id);
+            const ao = await packPipeline([['GET', 'ldsale:attention:' + id]]);
+            try { const a = JSON.parse((ao && ao[0] && ao[0].result) || '[]'); cfg.attention = Array.isArray(a) ? a : []; } catch (e) { cfg.attention = []; }
+            sales.push(cfg);
+          }
+        }
+        return res.status(200).json({ ok: true, sales });
+      }
+      const contract = String(body.contract || '');
+      if (!LDNFT_CONTRACT_RE.test(contract)) return res.status(400).json({ ok: false, error: 'bad contract' });
+      const cfg = await ldsaleGetCfg(contract);
+      if (!cfg) return res.status(404).json({ ok: false, error: 'no sale' });
+      if (action === 'ldsaleCfg') {
+        const patch = (body.patch && typeof body.patch === 'object') ? body.patch : {};
+        if (patch.status === 'open' || patch.status === 'closed') cfg.status = patch.status;
+        if (typeof patch.minterState === 'string' && ['creator', 'pending', 'service', 'returning', 'returned'].includes(patch.minterState)) cfg.minterState = patch.minterState;
+        await ldsaleSaveCfg(cfg);
+        return res.status(200).json({ ok: true, sale: ldsalePublicState(cfg, [], null) });
+      }
+      if (action === 'ldsaleMark') {
+        const paymentTx = String(body.paymentTx || '').toUpperCase();
+        const tokenId = String(body.tokenId || '').slice(0, 128);
+        const mintTx = String(body.mintTx || '').toUpperCase();
+        const buyer = String(body.buyer || '');
+        if (!LDNFT_TX_RE.test(paymentTx) || !LDNFT_TX_RE.test(mintTx) || !tokenId || !LDNFT_ADDR_RE.test(buyer)) {
+          return res.status(400).json({ ok: false, error: 'bad mark fields' });
+        }
+        const log = await ldsaleGetLog(contract);
+        if (log.some((e) => e && e.paymentTx === paymentTx && e.tokenId === tokenId)) {
+          return res.status(200).json({ ok: true, already: true, minted: Number(cfg.minted || 0) });
+        }
+        log.push({ paymentTx, tokenId, mintTx, buyer, amount: String(body.amount_uluna || ''), ts: Date.now() });
+        while (log.length > LDSALE_LOG_CAP) log.shift();
+        cfg.minted = Number(cfg.minted || 0) + 1;
+        await packPipeline([
+          ['SET', 'ldsale:log:' + contract, JSON.stringify(log)],
+          ['SET', 'ldsale:' + contract, JSON.stringify(cfg)],
+        ]);
+        return res.status(200).json({ ok: true, minted: cfg.minted });
+      }
+      /* ldsaleAttention */
+      const paymentTx = String(body.paymentTx || '').toUpperCase();
+      if (!LDNFT_TX_RE.test(paymentTx)) return res.status(400).json({ ok: false, error: 'bad paymentTx' });
+      const out = await packPipeline([['GET', 'ldsale:attention:' + contract]]);
+      let attn = [];
+      try { attn = JSON.parse((out && out[0] && out[0].result) || '[]'); if (!Array.isArray(attn)) attn = []; } catch (e) { attn = []; }
+      if (attn.some((e) => e && e.paymentTx === paymentTx)) return res.status(200).json({ ok: true, already: true });
+      attn.push({
+        paymentTx, buyer: String(body.buyer || ''), amount: String(body.amount_uluna || ''),
+        reason: String(body.reason || '').slice(0, 200), ts: Date.now(),
+      });
+      while (attn.length > LDSALE_ATTN_CAP) attn.shift();
+      await packPipeline([['SET', 'ldsale:attention:' + contract, JSON.stringify(attn)]]);
+      return res.status(200).json({ ok: true, attention: attn.length });
     }
     return res.status(400).json({ ok: false, error: 'unknown action' });
   } catch (e) {

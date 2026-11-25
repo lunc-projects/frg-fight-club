@@ -349,6 +349,13 @@ body.tabbed{padding-bottom:86px}
     <div class="log" id="burnLog"></div>
   </div>
 
+  <div class="card" id="saleCard" style="display:none">
+    <h3>🛒 Public sale</h3>
+    <p class="hint">Open a public sale on one of your collections: anyone can mint at your price. Buyers pay YOU directly; the LUNC Dev Studio minting service mints for them. Opening a sale hands the collection's minter role to the minting service — close the sale and reclaim the role any time.</p>
+    <div id="saleBody"><p class="hint">Loading…</p></div>
+    <div class="log" id="saleLog"></div>
+  </div>
+
   <div class="card" id="projectCard">
     <h3>🔗 Project</h3>
     <div id="projectBody"><p class="hint">Open a collection from the Showcase to see its project page here — or share a link like this page's address with <b>?c=&lt;contract&gt;</b> added.</p></div>
@@ -1245,7 +1252,7 @@ loadShowcase();
     {key:'home', label:'Home', ic:'\u{1F3E0}', sel:['.hero', '.secstrip']},
     {key:'create', label:'Create', ic:'\u{2795}', sel:['#connectCard', '#formCard', '#reviewCard', '#mintCard']},
     {key:'showcase', label:'Showcase', ic:'\u{1F310}', sel:['#showcaseH', '.toolbar', '#showGrid', '#showEmpty']},
-    {key:'mine', label:'My Collections', ic:'\u{1F5BC}\u{FE0F}', sel:['#mineH', '#mineGrid', '#mineEmpty', '#toolsCard', '#airCard', '#burnCard']},
+    {key:'mine', label:'My Collections', ic:'\u{1F5BC}\u{FE0F}', sel:['#mineH', '#mineGrid', '#mineEmpty', '#toolsCard', '#airCard', '#burnCard', '#saleCard']},
     {key:'safety', label:'Safety', ic:'\u{1F6E1}\u{FE0F}', sel:['#safetyH']},
     {key:'project', label:'Project', ic:'\u{1F517}', sel:['#projectCard']},
     {key:'admin', label:'Admin', ic:'\u{1F6E0}\u{FE0F}', sel:['#adminCard']}
@@ -1806,6 +1813,260 @@ mintFeeLineRefresh();
 setInterval(toolsRefresh, 2000);
 toolsRefresh();
 })();
+</script>
+<script>
+/* ===== Public sale add-on (service-minter model) =====
+   Creators open a public sale from My Collections: one tx carries
+   the 100,000 LUNC platform fee + the "LDSALE <contract>" proof
+   self-send, the router records the sale, then a second tx hands
+   the collection's minter role to the LUNC Dev Studio minting
+   service (cw-ownable transfer). Buyers mint from the project
+   view: they pay the CREATOR directly (memo "LDMINT <contract>")
+   and the service mints on verified payment. Closing a sale is a
+   proven self-send too; the service then offers the minter role
+   back and the creator reclaims it with one accept tap. */
+(function(){
+"use strict";
+var SALE_SERVICE = "terra14vwd0sxlh9m6z70t2uvscfd29zy8w7a6ynr523";
+var SALE_FEE_ULUNA = "100000000000"; /* 100,000 LUNC */
+var SALE_API = SITE + "/api/luna-games?ldnft=1";
+var SS = {
+en:{saleH:"Public sale",openBtn:"Open public sale",priceL:"Mint price (LUNC)",capL:"Sale cap (optional)",perL:"Per-wallet limit (optional)",startL:"Starts (optional)",endL:"Ends (optional)",feeNote:"Opening a sale costs a one-time 100,000 LUNC platform fee, paid inside the proof transaction — if the open fails, the fee is not taken.",stepFee:"Step 1 of 2 — fee + proof transaction",stepMinter:"Step 2 of 2 — hand the minter role to the minting service",openOk:"Sale open ✓ — the minting service takes over the minter role within a few minutes, then buyers can mint from your project page.",closeBtn:"Close sale",closedNote:"Sale closed. The minting service returns the minter role shortly — reclaim it here when it is ready.",reclaimBtn:"Reclaim minter role",reclaimOk:"Minter role is yours again ✓",notReady:"Not ready yet — the service returns the role within a few minutes; try again shortly.",liveNote:"Live — the minting service holds the minter role and mints for buyers.",pendingNote:"Sale recorded — waiting for the minting service to accept the minter role (a few minutes).",handoverBtn:"Hand over the minter role",mintedK:"Minted",priceK:"Price",mintBoxH:"Mint this NFT",qtyL:"Quantity",mintBtn:"Mint",payNote:"You pay the creator directly. Your NFT is minted by the service and arrives within a few minutes.",honest:"Minting is run by the LUNC Dev Studio minting service; supply cap and limits are enforced by the service and every mint is on-chain.",paidOk:"Paid ✓ — your NFT arrives within a few minutes.",connectFirst:"Connect your wallet first (step 1).",remainingK:"You can still mint",startsK:"Sale starts",endedK:"This sale has ended.",soldOut:"Sold out.",viewTx:"View transaction",working:"Working…"},
+es:{saleH:"Venta pública",openBtn:"Abrir venta pública",priceL:"Precio de acuñación (LUNC)",capL:"Límite de la venta (opcional)",perL:"Límite por billetera (opcional)",startL:"Empieza (opcional)",endL:"Termina (opcional)",feeNote:"Abrir una venta cuesta una tarifa única de plataforma de 100.000 LUNC, pagada dentro de la transacción de prueba — si la apertura falla, la tarifa no se cobra.",stepFee:"Paso 1 de 2 — transacción de tarifa + prueba",stepMinter:"Paso 2 de 2 — entregar el rol de acuñador al servicio de acuñación",openOk:"Venta abierta ✓ — el servicio de acuñación toma el rol de acuñador en unos minutos y los compradores podrán acuñar desde tu página de proyecto.",closeBtn:"Cerrar venta",closedNote:"Venta cerrada. El servicio de acuñación devolverá el rol de acuñador en breve — reclámalo aquí cuando esté listo.",reclaimBtn:"Reclamar el rol de acuñador",reclaimOk:"El rol de acuñador es tuyo otra vez ✓",notReady:"Aún no está listo — el servicio devuelve el rol en unos minutos; inténtalo de nuevo en breve.",liveNote:"En vivo — el servicio de acuñación tiene el rol de acuñador y acuña para los compradores.",pendingNote:"Venta registrada — esperando que el servicio de acuñación acepte el rol de acuñador (unos minutos).",handoverBtn:"Entregar el rol de acuñador",mintedK:"Acuñados",priceK:"Precio",mintBoxH:"Acuña este NFT",qtyL:"Cantidad",mintBtn:"Acuñar",payNote:"Pagas directamente al creador. Tu NFT lo acuña el servicio y llega en unos minutos.",honest:"La acuñación la realiza el servicio de acuñación de LUNC Dev Studio; el límite de suministro y los límites los aplica el servicio y cada acuñación es en cadena.",paidOk:"Pagado ✓ — tu NFT llega en unos minutos.",connectFirst:"Conecta primero tu billetera (paso 1).",remainingK:"Aún puedes acuñar",startsK:"La venta empieza",endedK:"Esta venta ha terminado.",soldOut:"Agotado.",viewTx:"Ver transacción",working:"Trabajando…"}};
+function ss(){ return SS[state.lang] || SS.en; }
+function slog(html){ var el = $("saleLog"); if (el) el.innerHTML = html; }
+async function saleApi(action, obj, quick){
+  var payload = { action: action }; for (var k in obj) payload[k] = obj[k];
+  var lastErr = null;
+  for (var i = 0; i < 8; i++){
+    try{
+      var r = await fetch(SALE_API, { method:"POST", headers:{ "content-type":"application/json" }, body: JSON.stringify(payload) });
+      var j = await r.json().catch(function(){ return null; });
+      if (r.ok && j && j.ok) return j;
+      lastErr = (j && j.error) || ("HTTP " + r.status);
+      if (quick && r.status === 404) break;
+      if (r.status !== 403 && r.status !== 404 && r.status !== 502 && r.status !== 503) break;
+    }catch(e){ lastErr = e.message || "network"; }
+    await new Promise(function(res){ setTimeout(res, 2500); });
+  }
+  throw new Error(lastErr || "request failed");
+}
+function proofSelfSend(sender, amt){
+  return { typeUrl:"/cosmos.bank.v1beta1.MsgSend", value: MsgSend.encode(MsgSend.fromPartial({ fromAddress: sender, toAddress: sender, amount:[{ denom:"uluna", amount: String(amt || "1000") }] })).finish() };
+}
+function sendToAny(sender, to, amt){
+  return { typeUrl:"/cosmos.bank.v1beta1.MsgSend", value: MsgSend.encode(MsgSend.fromPartial({ fromAddress: sender, toAddress: to, amount:[{ denom:"uluna", amount: String(amt) }] })).finish() };
+}
+async function queryMinter(contract){
+  try{
+    var q = btoa(JSON.stringify({ minter:{} })).replace(/\+/g,"-").replace(/\//g,"_");
+    var r = await fetch(LCDS[0] + "/cosmwasm/wasm/v1/contract/" + contract + "/smart/" + q);
+    var j = await r.json();
+    return (j && j.data && j.data.minter) || "";
+  }catch(e){ return ""; }
+}
+function dtToSec(v){ if (!v) return null; var t = Math.floor(new Date(v).getTime()/1000); return isFinite(t) ? t : null; }
+function fmtWhen(sec){ try{ return new Date(sec*1000).toLocaleString(); }catch(e){ return ""; } }
+
+/* ---------- My Collections: sale panel ---------- */
+var saleStateCache = {}; /* contract -> {sale|null, minter} */
+var saleBusy = false;
+async function saleFetch(contract){
+  var out = { sale: null, minter: "" };
+  try{ var j = await saleApi("ldsaleState", { contract: contract, wallet: state.wallet || undefined }, true); out.sale = j.sale; }catch(e){ out.sale = null; }
+  out.minter = await queryMinter(contract);
+  saleStateCache[contract] = out;
+  return out;
+}
+function saleBlockHtml(rec, st){
+  var t = ss(), c = rec.contract, h = "";
+  h += '<div style="border-top:1px solid var(--line);padding:12px 0">';
+  h += '<b>' + esc(rec.name || rec.symbol || "") + '</b> <span class="hint">' + esc(rec.symbol || "") + '</span>';
+  var sale = st.sale;
+  if (sale && sale.status === "open"){
+    h += '<p class="hint">' + t.priceK + ': <b>' + esc(fmtLunc(sale.price_uluna)) + '</b> · ' + t.mintedK + ': <b>' + sale.minted + (sale.cap ? " / " + sale.cap : "") + '</b>' + (sale.per_wallet ? ' · ' + t.perL.replace(/ \(.*$/,"") + ': ' + sale.per_wallet : '') + '</p>';
+    if (st.minter === SALE_SERVICE) h += '<p class="hint">🟢 ' + t.liveNote + '</p>';
+    else if (st.minter === state.wallet) h += '<p class="hint">🟡 ' + t.pendingNote + '</p><button type="button" class="attach-btn" data-salehandover="' + c + '">' + t.handoverBtn + '</button>';
+    else h += '<p class="hint">🟡 ' + t.pendingNote + '</p>';
+    h += ' <button type="button" class="attach-btn" data-saleclose="' + c + '">' + t.closeBtn + '</button>';
+  } else {
+    if (sale && sale.status === "closed"){
+      h += '<p class="hint">' + t.closedNote + ' (' + t.mintedK + ': ' + sale.minted + ')</p>';
+      h += '<button type="button" class="attach-btn" data-salereclaim="' + c + '">' + t.reclaimBtn + '</button>';
+    }
+    h += '<div class="grid2" style="margin-top:8px">'
+      + '<div><label>' + t.priceL + '</label><input type="number" min="0" step="any" id="sp-' + c + '" placeholder="e.g. 5000"></div>'
+      + '<div><label>' + t.capL + '</label><input type="number" min="1" step="1" id="sc-' + c + '" placeholder="1000"></div>'
+      + '<div><label>' + t.perL + '</label><input type="number" min="1" step="1" id="sw-' + c + '" placeholder="5"></div>'
+      + '<div><label>' + t.startL + '</label><input type="datetime-local" id="ss-' + c + '"></div>'
+      + '<div><label>' + t.endL + '</label><input type="datetime-local" id="se-' + c + '"></div>'
+      + '</div>'
+      + '<p class="hint">' + t.feeNote + '</p>'
+      + '<button type="button" class="big" data-saleopen="' + c + '">' + t.openBtn + '</button>';
+  }
+  h += '</div>';
+  return h;
+}
+async function renderSaleCard(){
+  var card = $("saleCard"); if (!card) return;
+  var has = !!(state.wallet && state.mine && state.mine.length);
+  card.style.display = has ? "" : "none";
+  if (!has) return;
+  var body = $("saleBody"); if (!body || saleBusy) return;
+  var h = "";
+  for (var i = 0; i < state.mine.length; i++){
+    var rec = state.mine[i];
+    var st = saleStateCache[rec.contract];
+    if (!st){ h += '<div style="border-top:1px solid var(--line);padding:12px 0"><b>' + esc(rec.name || "") + '</b> <span class="hint">…</span></div>'; saleFetch(rec.contract).then(function(){ renderSaleCard(); }); }
+    else h += saleBlockHtml(rec, st);
+  }
+  if (body.dataset.h !== h){ body.innerHTML = h; body.dataset.h = h; }
+}
+async function saleOpen(contract, btn){
+  if (saleBusy) return;
+  var t = ss();
+  var priceEl = $("sp-" + contract), capEl = $("sc-" + contract), perEl = $("sw-" + contract), stEl = $("ss-" + contract), enEl = $("se-" + contract);
+  var priceLunc = parseFloat(priceEl && priceEl.value);
+  if (!isFinite(priceLunc) || priceLunc <= 0){ slog("⚠️ " + t.priceL); return; }
+  var priceUluna = String(Math.round(priceLunc * 1000000));
+  var cap = capEl && capEl.value ? Math.floor(Number(capEl.value)) : null;
+  var per = perEl && perEl.value ? Math.floor(Number(perEl.value)) : null;
+  var start = dtToSec(stEl && stEl.value), end = dtToSec(enEl && enEl.value);
+  saleBusy = true; if (btn) btn.disabled = true;
+  try{
+    slog(t.stepFee + "…");
+    var msgs = [ sendAny(state.wallet, SALE_FEE_ULUNA), proofSelfSend(state.wallet, "1000") ];
+    var h1 = await signBroadcast(msgs, "LDSALE " + contract, 500000);
+    slog(t.stepFee + ' ✓ <a href="' + FINDER + '/tx/' + h1 + '" target="_blank" rel="noopener">' + t.viewTx + '</a><br>' + t.working);
+    await saleApi("ldsaleOpen", { contract: contract, txhash: h1, price_uluna: priceUluna, cap: cap, per_wallet: per, start: start, end: end });
+    slog(t.stepMinter + "…");
+    var h2 = await signBroadcast([ executeAny(state.wallet, contract, { update_minter_ownership: { transfer_ownership: { new_owner: SALE_SERVICE, expiry: null } } }) ], "LDSALE minter handover", 300000);
+    slog(t.openOk + '<br><a href="' + FINDER + '/tx/' + h2 + '" target="_blank" rel="noopener">' + t.viewTx + '</a>');
+    delete saleStateCache[contract];
+  }catch(e){ slog("⚠️ " + esc(e.message || String(e))); }
+  saleBusy = false; if (btn) btn.disabled = false;
+  renderSaleCard();
+}
+async function saleClose(contract, btn){
+  if (saleBusy) return;
+  var t = ss(); saleBusy = true; if (btn) btn.disabled = true;
+  try{
+    var h = await signBroadcast([ proofSelfSend(state.wallet, "1000") ], "LDSALE-CLOSE " + contract, 300000);
+    await saleApi("ldsaleClose", { contract: contract, txhash: h });
+    slog(t.closedNote + '<br><a href="' + FINDER + '/tx/' + h + '" target="_blank" rel="noopener">' + t.viewTx + '</a>');
+    delete saleStateCache[contract];
+  }catch(e){ slog("⚠️ " + esc(e.message || String(e))); }
+  saleBusy = false; if (btn) btn.disabled = false;
+  renderSaleCard();
+}
+async function saleHandover(contract, btn){
+  if (saleBusy) return;
+  var t = ss(); saleBusy = true; if (btn) btn.disabled = true;
+  try{
+    var h = await signBroadcast([ executeAny(state.wallet, contract, { update_minter_ownership: { transfer_ownership: { new_owner: SALE_SERVICE, expiry: null } } }) ], "LDSALE minter handover", 300000);
+    slog(t.pendingNote + '<br><a href="' + FINDER + '/tx/' + h + '" target="_blank" rel="noopener">' + t.viewTx + '</a>');
+    delete saleStateCache[contract];
+  }catch(e){ slog("⚠️ " + esc(e.message || String(e))); }
+  saleBusy = false; if (btn) btn.disabled = false;
+  renderSaleCard();
+}
+async function saleReclaim(contract, btn){
+  if (saleBusy) return;
+  var t = ss(); saleBusy = true; if (btn) btn.disabled = true;
+  try{
+    var h = await signBroadcast([ executeAny(state.wallet, contract, { update_minter_ownership: "accept_ownership" }) ], "LDSALE minter reclaim", 300000);
+    slog(t.reclaimOk + '<br><a href="' + FINDER + '/tx/' + h + '" target="_blank" rel="noopener">' + t.viewTx + '</a>');
+    delete saleStateCache[contract];
+  }catch(e){ slog("⚠️ " + t.notReady + " (" + esc(e.message || String(e)) + ")"); }
+  saleBusy = false; if (btn) btn.disabled = false;
+  renderSaleCard();
+}
+document.addEventListener("click", function(ev){
+  var b;
+  if ((b = ev.target.closest("[data-saleopen]"))) saleOpen(b.getAttribute("data-saleopen"), b);
+  else if ((b = ev.target.closest("[data-saleclose]"))) saleClose(b.getAttribute("data-saleclose"), b);
+  else if ((b = ev.target.closest("[data-salehandover]"))) saleHandover(b.getAttribute("data-salehandover"), b);
+  else if ((b = ev.target.closest("[data-salereclaim]"))) saleReclaim(b.getAttribute("data-salereclaim"), b);
+});
+setInterval(renderSaleCard, 2500);
+
+/* ---------- Project view: public mint box ---------- */
+var mintBoxFor = "", mintBoxSale = null, mintBoxFetched = 0, mintBusy = false;
+function mintLimits(sale){
+  var capRem = sale.cap ? Math.max(0, sale.cap - sale.minted) : Infinity;
+  var perRem = Infinity;
+  if (sale.per_wallet) perRem = (typeof sale.walletMinted === "number") ? Math.max(0, sale.per_wallet - sale.walletMinted) : sale.per_wallet;
+  return { capRem: capRem, perRem: perRem, max: Math.max(0, Math.min(capRem, perRem, 25)) };
+}
+function renderMintBox(contract, sale){
+  var t = ss();
+  var pb = $("projectBody"); if (!pb) return;
+  var old = $("ldMintBox"); if (old) old.remove();
+  var box = document.createElement("div");
+  box.id = "ldMintBox"; box.dataset.contract = contract;
+  box.style.cssText = "margin-top:14px;border:1px solid var(--line);border-radius:12px;padding:14px";
+  var lim = mintLimits(sale);
+  var now = Math.floor(Date.now()/1000);
+  var h = '<h4 style="margin:0 0 8px">🛒 ' + t.mintBoxH + '</h4>';
+  h += '<p class="hint">' + t.priceK + ': <b>' + esc(fmtLunc(sale.price_uluna)) + '</b> · ' + t.mintedK + ': <b>' + sale.minted + (sale.cap ? " / " + sale.cap : "") + '</b></p>';
+  if (sale.start && now < sale.start) h += '<p class="hint">🕒 ' + t.startsK + ' ' + esc(fmtWhen(sale.start)) + '</p>';
+  else if (sale.end && now > sale.end) h += '<p class="hint">⏹ ' + t.endedK + '</p>';
+  else if (lim.capRem <= 0) h += '<p class="hint">⏹ ' + t.soldOut + '</p>';
+  else {
+    if (state.wallet && sale.per_wallet) h += '<p class="hint">' + t.remainingK + ': <b>' + lim.perRem + '</b></p>';
+    if (lim.max > 0){
+      h += '<label>' + t.qtyL + '</label><input type="number" id="ldMintQty" min="1" max="' + lim.max + '" value="1" style="max-width:120px"> ';
+      h += '<button type="button" class="big" id="ldMintBtn" style="width:auto;display:inline-block;padding:10px 22px">' + t.mintBtn + ' · <span id="ldMintTotal">' + esc(fmtLunc(sale.price_uluna)) + '</span></button>';
+      h += '<p class="hint">' + t.payNote + '</p>';
+    } else if (state.wallet) h += '<p class="hint">⏹ ' + t.remainingK + ': <b>0</b></p>';
+  }
+  h += '<p class="hint">' + t.honest + '</p>';
+  h += '<div class="log" id="ldMintLog"></div>';
+  box.innerHTML = h;
+  pb.appendChild(box);
+  var qty = $("ldMintQty"), btn = $("ldMintBtn");
+  if (qty && btn){
+    qty.addEventListener("input", function(){
+      var q = Math.max(1, Math.min(lim.max, Math.floor(Number(qty.value) || 1)));
+      $("ldMintTotal").textContent = fmtLunc(String(Math.round(Number(sale.price_uluna) * q)));
+    });
+    btn.addEventListener("click", async function(){
+      if (mintBusy) return;
+      if (!state.wallet){ $("ldMintLog").textContent = "⚠️ " + t.connectFirst; return; }
+      var q = Math.max(1, Math.min(lim.max, Math.floor(Number(qty.value) || 1)));
+      var total = String(Math.round(Number(sale.price_uluna) * q));
+      mintBusy = true; btn.disabled = true;
+      try{
+        var hash = await signBroadcast([ sendToAny(state.wallet, sale.creator, total) ], "LDMINT " + contract, 500000);
+        $("ldMintLog").innerHTML = t.paidOk + '<br><a href="' + FINDER + '/tx/' + hash + '" target="_blank" rel="noopener">' + t.viewTx + '</a>';
+      }catch(e){ $("ldMintLog").textContent = "⚠️ " + (e.message || String(e)); }
+      mintBusy = false; btn.disabled = false;
+    });
+  }
+}
+setInterval(async function(){
+  var pb = $("projectBody"); if (!pb) return;
+  var addrEl = pb.querySelector(".addr");
+  var contract = addrEl ? addrEl.textContent.trim() : "";
+  if (!contract || !/^terra1[0-9a-z]{38}$/.test(contract)){
+    var stale = $("ldMintBox"); if (stale) stale.remove();
+    mintBoxFor = ""; mintBoxSale = null;
+    return;
+  }
+  var now = Date.now();
+  if (mintBoxFor === contract && mintBoxSale && (now - mintBoxFetched) < 30000 && $("ldMintBox")) return;
+  try{
+    var j = await saleApi("ldsaleState", { contract: contract, wallet: state.wallet || undefined }, true);
+    mintBoxFor = contract; mintBoxSale = j.sale; mintBoxFetched = now;
+    if (j.sale && j.sale.status === "open") renderMintBox(contract, j.sale);
+    else { var b = $("ldMintBox"); if (b) b.remove(); }
+  }catch(e){
+    mintBoxFor = contract; mintBoxSale = null; mintBoxFetched = now;
+    var b2 = $("ldMintBox"); if (b2) b2.remove();
+  }
+}, 2500);
+})();
+
 </script>
 </body>
 </html>
