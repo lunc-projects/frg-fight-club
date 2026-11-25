@@ -1259,8 +1259,12 @@ function normClass(c){ c = String(c || '').toLowerCase();
 function normRarity(r){ r = String(r || 'Common'); if (/legen/i.test(r)) return 'Legendary'; if (/uniq/i.test(r)) return 'Unique';
   if (/epic/i.test(r)) return 'Epic'; if (/rare/i.test(r)) return 'Rare'; return 'Common'; }
 function wStat(msg){ $('wStatus').textContent = msg; }
-async function smartQuery(q, contract){ const r = await fetch(LCD + '/cosmwasm/wasm/v1/contract/' + (contract || AMPH_CONTRACT) + '/smart/' + b64q(q));
-  if (!r.ok) throw new Error('chain ' + r.status); const j = await r.json(); return j.data; }
+const LCD_ALT = 'https://api.terra-classic.hexxagon.io';
+async function lcdFetch(path){ let last = null;
+  for (const base of [LCD, LCD_ALT]){ try { const r = await fetch(base + path); if (r.ok) return r; last = new Error('chain ' + r.status); } catch (e) { last = e; } }
+  throw last || new Error('chain unreachable'); }
+async function smartQuery(q, contract){ const r = await lcdFetch('/cosmwasm/wasm/v1/contract/' + (contract || AMPH_CONTRACT) + '/smart/' + b64q(q));
+  const j = await r.json(); return j.data; }
 async function fetchOwned(addr){
   if (!/^terra1[0-9a-z]{38}$/.test(addr)){ wStat('That does not look like a Terra Classic address.'); return; }
   wStat('Looking up frogs for ' + addr.slice(0, 12) + '…');
@@ -2565,8 +2569,7 @@ window.__ffbOnWallet = ({ addr, owned }) => {
 };
 async function ffbSmart(contract, q){
   const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(q))));
-  const r = await fetch(FFB_LCD + '/cosmwasm/wasm/v1/contract/' + contract + '/smart/' + encodeURIComponent(b64));
-  if (!r.ok) throw new Error('chain ' + r.status);
+  const r = await lcdFetch('/cosmwasm/wasm/v1/contract/' + contract + '/smart/' + encodeURIComponent(b64));
   const j = await r.json(); return j.data;
 }
 async function ffbIssuedSet(contract, prefix){
@@ -4072,8 +4075,9 @@ ffmRender();
     lastLoadAt = Date.now();
     luncTxt = null; rewTxt = null; luncFail = false; rewFail = false; render();
     try {
-      var r = await fetch(BANK + addr);
-      if (!r.ok) throw new Error('bank ' + r.status);
+      var r = null;
+      for (const bb of [BANK, 'https://api.terra-classic.hexxagon.io/cosmos/bank/v1beta1/balances/']){ try { r = await fetch(bb + addr); if (r.ok) break; } catch (e) { r = null; } }
+      if (!r || !r.ok) throw new Error('bank ' + (r ? r.status : 'down'));
       var j = await r.json(), amt = 0;
       (j.balances || []).forEach(function(b){ if (b.denom === 'uluna') amt = Number(b.amount || 0); });
       if (seenAddr === addr){ luncTxt = (amt / 1e6).toLocaleString('en-US', { maximumFractionDigits: 6 }) + ' LUNC'; render(); }
