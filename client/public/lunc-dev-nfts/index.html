@@ -376,6 +376,7 @@ body.tabbed{padding-bottom:86px}
     </div>
     <label for="mImageUrl" id="mImageUrlL">…or paste an image URL</label>
     <input type="text" id="mImageUrl" placeholder="https://…">
+    <div class="review" id="mintFeeLine" style="margin:10px 0">Platform fee: 500 LUNC</div>
     <button type="button" class="big" id="mintBtn">Mint NFT</button>
     <div class="log" id="mintLog"></div>
   </div>
@@ -442,6 +443,7 @@ var CHAIN_ID = "columbus-5";
 var CODE_ID = 10217;
 var FEE_WALLET = "terra1kur3cr4vask4lgs3tr4gww7lr0zvc944gjfcqc"; /* Tom's personal wallet (kur3) — creation fees land here */
 var FEE_ULUNA = "200000000000"; /* 200,000 LUNC creation fee — rides inside the create tx as its first message */
+var MINT_FEE_ULUNA = "500000000"; /* 500 LUNC platform fee per creator mint — rides inside the mint tx via sendAny */
 var GAS_PRICE = 28.325; /* uluna per gas, the Terra Classic standard */
 var LCDS = ["https://terra-classic-lcd.publicnode.com", "https://api.terra-classic.hexxagon.io"];
 var FINDER = "https://finder.terraclassic.community/mainnet";
@@ -616,8 +618,8 @@ function executeAny(sender, contract, execMsgObj){
    signature pays fee + creation together, and if the creation fails the
    whole tx fails, so the fee is never taken on a failed create. The
    showcase register actions verify this send on-chain (same tx). */
-function sendAny(sender){
-  var coin = u8([].concat(fieldString(1, "uluna"), fieldString(2, FEE_ULUNA)));
+function sendAny(sender, amtUluna){
+  var coin = u8([].concat(fieldString(1, "uluna"), fieldString(2, amtUluna || FEE_ULUNA)));
   var m = u8([].concat(
     fieldString(1, sender), fieldString(2, FEE_WALLET),
     fieldBytes(3, Array.prototype.slice.call(coin))));
@@ -1097,7 +1099,7 @@ $("mintBtn").addEventListener("click", function(){
         token_id: tokenId, owner: recipient, token_uri: tokenUri,
         extension: { name: nftName, description: rec.description || "", image: imageUrl, attributes: [] }
       } };
-      return signBroadcast([executeAny(state.wallet, rec.contract, execMsg)], "LUNC Dev NFTs: mint " + tokenId, 450000,
+      return signBroadcast([sendAny(state.wallet, MINT_FEE_ULUNA), executeAny(state.wallet, rec.contract, execMsg)], "LUNC Dev NFTs: mint " + tokenId, 450000,
         function(m, c){ setLog(logEl, m, c); });
     });
   }).then(function(out){
@@ -1427,9 +1429,10 @@ admRefreshGate();
    new controls only. */
 (function(){
 "use strict";
+var AIR_FEE_ULUNA = "5000000000"; /* 5,000 LUNC platform fee — airdrop, first chunk tx only (main script's sendAny) */
 var STR = {
-en:{signProof:"Sign the tiny 0.001 LUNC self-send in your wallet — that proves the profile is yours.",profSaved:"Profile saved ✓",saveProfile:"Save profile",editProfile:"Edit profile",descL:"Description",website:"Website",profNote:"Profile links and the showcase description. Saving signs a tiny 0.001 LUNC self-send as proof — only the network fee applies.",shareBtn:"Share",creatorK:"Creator",contractK:"Contract",mintedK:"Minted",royaltyK:"Royalty",projNotFound:"Project not found.",airReady:"NFT(s) ready to send",airSkipped:"skipped:",airBad:"invalid line(s) — they will be skipped:",airLine:"Line",airNotOwned:"not owned by your wallet",airNotFound:"token not found",airNoColl:"Connect your wallet and pick one of your collections first.",airChecking:"Checking ownership on-chain…",chunkLine:"Chunk {a}/{b}",doneLine:"Done ✓",failedLine:"Failed",stoppedLine:"Stopped — {n} NFT(s) were not sent. You can fix the list and send the rest.",burnBtn:"Burn",burnConfirm:"Burn NFT {id} ({sym}) from your wallet? This cannot be undone.",burnedOk:"Burned ✓",noneOwned:"Your wallet owns no NFTs in this collection."},
-es:{signProof:"Firma el pequeño autoenvío de 0,001 LUNC en tu billetera: eso demuestra que el perfil es tuyo.",profSaved:"Perfil guardado ✓",saveProfile:"Guardar perfil",editProfile:"Editar perfil",descL:"Descripción",website:"Sitio web",profNote:"Enlaces del proyecto y la descripción del escaparate. Al guardar firmas un pequeño autoenvío de 0,001 LUNC como prueba: solo pagas la tarifa de red.",shareBtn:"Compartir",creatorK:"Creador",contractK:"Contrato",mintedK:"Acuñados",royaltyK:"Regalía",projNotFound:"Proyecto no encontrado.",airReady:"NFT(s) listos para enviar",airSkipped:"omitidos:",airBad:"línea(s) no válida(s): se omitirán:",airLine:"Línea",airNotOwned:"no es de tu billetera",airNotFound:"token no encontrado",airNoColl:"Primero conecta tu billetera y elige una de tus colecciones.",airChecking:"Comprobando la propiedad en la cadena…",chunkLine:"Parte {a}/{b}",doneLine:"Listo ✓",failedLine:"Falló",stoppedLine:"Detenido: {n} NFT(s) no se enviaron. Puedes corregir la lista y enviar el resto.",burnBtn:"Quemar",burnConfirm:"¿Quemar el NFT {id} ({sym}) de tu billetera? Esto no se puede deshacer.",burnedOk:"Quemado ✓",noneOwned:"Tu billetera no tiene NFTs en esta colección."}
+en:{signProof:"Sign the tiny 0.001 LUNC self-send in your wallet — that proves the profile is yours.",profSaved:"Profile saved ✓",saveProfile:"Save profile",editProfile:"Edit profile",descL:"Description",website:"Website",profNote:"Profile links and the showcase description. Saving signs a tiny 0.001 LUNC self-send as proof — only the network fee applies.",shareBtn:"Share",creatorK:"Creator",contractK:"Contract",mintedK:"Minted",royaltyK:"Royalty",projNotFound:"Project not found.",mintFeeLine:"Platform fee: 500 LUNC",airFeeLine:"Platform fee: 5,000 LUNC",airReady:"NFT(s) ready to send",airSkipped:"skipped:",airBad:"invalid line(s) — they will be skipped:",airLine:"Line",airNotOwned:"not owned by your wallet",airNotFound:"token not found",airNoColl:"Connect your wallet and pick one of your collections first.",airChecking:"Checking ownership on-chain…",chunkLine:"Chunk {a}/{b}",doneLine:"Done ✓",failedLine:"Failed",stoppedLine:"Stopped — {n} NFT(s) were not sent. You can fix the list and send the rest.",burnBtn:"Burn",burnConfirm:"Burn NFT {id} ({sym}) from your wallet? This cannot be undone.",burnedOk:"Burned ✓",noneOwned:"Your wallet owns no NFTs in this collection."},
+es:{signProof:"Firma el pequeño autoenvío de 0,001 LUNC en tu billetera: eso demuestra que el perfil es tuyo.",profSaved:"Perfil guardado ✓",saveProfile:"Guardar perfil",editProfile:"Editar perfil",descL:"Descripción",website:"Sitio web",profNote:"Enlaces del proyecto y la descripción del escaparate. Al guardar firmas un pequeño autoenvío de 0,001 LUNC como prueba: solo pagas la tarifa de red.",shareBtn:"Compartir",creatorK:"Creador",contractK:"Contrato",mintedK:"Acuñados",royaltyK:"Regalía",projNotFound:"Proyecto no encontrado.",mintFeeLine:"Tarifa de plataforma: 500 LUNC",airFeeLine:"Tarifa de plataforma: 5.000 LUNC",airReady:"NFT(s) listos para enviar",airSkipped:"omitidos:",airBad:"línea(s) no válida(s): se omitirán:",airLine:"Línea",airNotOwned:"no es de tu billetera",airNotFound:"token no encontrado",airNoColl:"Primero conecta tu billetera y elige una de tus colecciones.",airChecking:"Comprobando la propiedad en la cadena…",chunkLine:"Parte {a}/{b}",doneLine:"Listo ✓",failedLine:"Falló",stoppedLine:"Detenido: {n} NFT(s) no se enviaron. Puedes corregir la lista y enviar el resto.",burnBtn:"Quemar",burnConfirm:"¿Quemar el NFT {id} ({sym}) de tu billetera? Esto no se puede deshacer.",burnedOk:"Quemado ✓",noneOwned:"Tu billetera no tiene NFTs en esta colección."}
 };
 function TS(k){ var l = "en"; var ls = document.getElementById("lang"); if(ls && ls.value) l = ls.value; var d = STR[l] || STR.en; return d[k] || STR.en[k] || k; }
 function selfSendAny(sender, amountUluna){
@@ -1653,6 +1656,7 @@ $("airCheckBtn").addEventListener("click", function(){
       });
       airParsed = { rec: p.rec, valid: valid };
       var html = "<div><b>" + valid.length + "</b> " + esc(TS("airReady")) + "</div>";
+      html += "<div>" + esc(TS("airFeeLine")) + "</div>";
       if(p.invalid.length){
         html += '<div style="color:#ff8a8a">' + p.invalid.length + " " + esc(TS("airBad")) + "</div>";
         p.invalid.slice(0, 20).forEach(function(b){
@@ -1707,6 +1711,7 @@ $("airSendBtn").addEventListener("click", function(){
     var msgs = chunks[ci].map(function(v){
       return executeAny(state.wallet, p.rec.contract, { transfer_nft: { recipient: v.addr, token_id: v.tokenId } });
     });
+    if(ci === 0) msgs.unshift(sendAny(state.wallet, AIR_FEE_ULUNA));
     signBroadcast(msgs, "Airdrop " + (p.rec.symbol || ""), 250000 + 220000 * msgs.length, null)
       .then(function(out){
         sent += chunks[ci].length;
@@ -1790,11 +1795,14 @@ function toolsRefresh(){
   fillCollSelect($("airColl"));
   fillCollSelect($("burnColl"));
 }
+function mintFeeLineRefresh(){ var mfl = $("mintFeeLine"); if(mfl) mfl.textContent = TS("mintFeeLine"); }
 var langEl2 = document.getElementById("lang");
 if(langEl2) langEl2.addEventListener("change", function(){
   toolsSig = null; toolsRefresh();
+  mintFeeLineRefresh();
   if(projContract) openProject(projContract);
 });
+mintFeeLineRefresh();
 setInterval(toolsRefresh, 2000);
 toolsRefresh();
 })();

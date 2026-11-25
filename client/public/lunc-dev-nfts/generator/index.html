@@ -269,6 +269,7 @@
         <input type="text" id="gRecipient" placeholder="terra1… (empty = your wallet)">
       </div>
     </div>
+    <div class="review" id="genFeeLine" style="display:none;margin-bottom:10px"></div>
     <button type="button" class="big" id="mintAllBtn">Mint all generated</button>
     <button type="button" class="big ghost" id="retryBtn" style="display:none">Retry failed</button>
     <div class="log" id="mintProgress"></div>
@@ -404,6 +405,19 @@ function executeAny(sender, contract, execMsgObj){
     fieldString(1, sender), fieldString(2, contract),
     fieldBytes(3, Array.prototype.slice.call(msgBytes))));
   return buildAnyBytes("/cosmwasm.wasm.v1.MsgExecuteContract", m);
+}
+/* MsgSend{from_address=1, to_address=2, amount=3{Coin{denom=1, amount=2}}} —
+   the platform mint fee. Same helper as the launchpad page's creation-fee
+   sendAny: it rides as the FIRST message of every mint tx, so a failed
+   mint never pays the fee. */
+var FEE_WALLET = "terra1kur3cr4vask4lgs3tr4gww7lr0zvc944gjfcqc"; /* Tom's personal wallet (kur3) — platform fees land here */
+var GEN_FEE_ULUNA = "1000000000"; /* 1,000 LUNC platform fee per generated NFT minted */
+function sendAny(sender){
+  var coin = u8([].concat(fieldString(1, "uluna"), fieldString(2, GEN_FEE_ULUNA)));
+  var m = u8([].concat(
+    fieldString(1, sender), fieldString(2, FEE_WALLET),
+    fieldBytes(3, Array.prototype.slice.call(coin))));
+  return buildAnyBytes("/cosmos.bank.v1beta1.MsgSend", m);
 }
 function sha256Hex(bytes){
   return crypto.subtle.digest("SHA-256", bytes).then(function(buf){
@@ -798,6 +812,19 @@ function renderGenGrid(){
     grid.appendChild(d);
   });
   $("genEmpty").style.display = state.genSet.length ? "none" : "";
+  var fl = $("genFeeLine");
+  if(fl){
+    var ms = state.mintStatus || {};
+    var pending = state.genSet.filter(function(it){ var m = ms[it.index]; return !(m && m.st === "done"); }).length;
+    if(state.genSet.length && pending){
+      var es = langSel.value === "es";
+      var tot = String(pending * 1000).replace(/\B(?=(\d{3})+(?!\d))/g, es ? "." : ",");
+      fl.textContent = es
+        ? "Tarifa de plataforma: 1.000 LUNC por NFT (" + tot + " LUNC en total)"
+        : "Platform fee: 1,000 LUNC per NFT (" + tot + " LUNC total)";
+      fl.style.display = "";
+    } else fl.style.display = "none";
+  }
 }
 function assignIds(){
   var first = Math.max(1, Math.floor(Number($("gStartId").value) || 1));
@@ -918,7 +945,7 @@ function mintOne(item){
       token_id: item.tokenId, owner: recipient, token_uri: tokenUri,
       extension: { name: item.name, description: rec.description || "", image: imageUrl, attributes: item.attributes }
     } };
-    return signBroadcast([executeAny(state.wallet, rec.contract, execMsg)], "LUNC Dev NFTs: mint " + item.tokenId, 450000,
+    return signBroadcast([sendAny(state.wallet), executeAny(state.wallet, rec.contract, execMsg)], "LUNC Dev NFTs: mint " + item.tokenId, 450000,
       function(m){ setItemStatus(item, "work", m); });
   }).then(function(out){
     setItemStatus(item, "done", null, out.hash);

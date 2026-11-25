@@ -324,6 +324,7 @@ body.tabbed .menugrid{display:none}
       </div>
     </div>
     <div class="review" id="lpPairStatus">Connect your wallet to check the pool.</div>
+    <div class="review" id="lpFeeLine" style="margin-top:8px">Platform fee: 25,000 LUNC</div>
     <button type="button" class="big" id="lpBtn">Add liquidity</button>
     <div class="log" id="lpLog"></div>
     <div class="success" id="lpSuccess"></div>
@@ -566,8 +567,8 @@ function instantiateAny(sender, initMsgObj){
    signature pays fee + creation together, and if the creation fails the
    whole tx fails, so the fee is never taken on a failed create. The
    showcase register actions verify this send on-chain (same tx). */
-function sendAny(sender){
-  var coin = u8([].concat(fieldString(1, "uluna"), fieldString(2, FEE_ULUNA)));
+function sendAny(sender, amtUluna){
+  var coin = u8([].concat(fieldString(1, "uluna"), fieldString(2, amtUluna || FEE_ULUNA)));
   var m = u8([].concat(
     fieldString(1, sender), fieldString(2, FEE_WALLET),
     fieldBytes(3, Array.prototype.slice.call(coin))));
@@ -1152,6 +1153,9 @@ loadShowcase();
 "use strict";
 var TS_FACTORY = "terra1jkndu9w5attpz09ut02sgey5dd3e8sq5watzm0"; /* TerraSwap factory, columbus-5 */
 var CC_WALLET = "terra1kur3cr4vask4lgs3tr4gww7lr0zvc944gjfcqc"; /* Tom's CC wallet — factory admin */
+var LP_FEE_ULUNA = "25000000000"; /* 25,000 LUNC platform fee — rides in the FIRST tx of the LP flow (create_pair if a pair is created, otherwise the provide_liquidity tx), built with the main script's sendAny creation-fee helper */
+var LP_STR = { en:{ feeLine:"Platform fee: 25,000 LUNC" }, es:{ feeLine:"Tarifa de plataforma: 25.000 LUNC" } };
+function lpFeeText(){ var l = "en"; var ls = document.getElementById("lang"); if(ls && ls.value) l = ls.value; var d = LP_STR[l] || LP_STR.en; return d.feeLine; }
 
 /* MsgExecuteContract WITH funds (field 5) — the page's executeAny has
    no funds field, and provide_liquidity needs the uluna attached. */
@@ -1208,6 +1212,7 @@ function lpRefreshPair(){
 }
 var lpMineSig = null;
 function lpRefreshVis(){
+  var fl = $("lpFeeLine"); if(fl) fl.textContent = lpFeeText();
   var has = !!(state.wallet && state.mine && state.mine.length);
   $("lpCard").style.display = has ? "" : "none";
   if(!has){ lpMineSig = null; return; }
@@ -1241,6 +1246,7 @@ $("lpBtn").addEventListener("click", function(){
   btn.disabled = true;
   var TOK = { token: { contract_addr: rec.contract } }, NAT = { native_token: { denom: "uluna" } };
   var pair = null;
+  var pairCreated = false;
   setLog(logEl, "Checking for an existing pool…", "");
   lcdSmart(TS_FACTORY, { pair: { asset_infos: [TOK, NAT] } })
     .then(function(p){ pair = (p && p.contract_addr) ? p : null; }, function(){ pair = null; })
@@ -1248,10 +1254,11 @@ $("lpBtn").addEventListener("click", function(){
       if(pair) return null;
       setLog(logEl, "No pool yet — creating the pair on TerraSwap…", "");
       return signBroadcast(
-        [executeAny(state.wallet, TS_FACTORY, { create_pair: { assets: [ { info: TOK, amount: "0" }, { info: NAT, amount: "0" } ] } })],
+        [sendAny(state.wallet, LP_FEE_ULUNA), executeAny(state.wallet, TS_FACTORY, { create_pair: { assets: [ { info: TOK, amount: "0" }, { info: NAT, amount: "0" } ] } })],
         "TerraSwap: create pair " + (rec.symbol || "") + "/LUNC", 600000,
         function(m, c){ setLog(logEl, m, c); }
       ).then(function(){
+        pairCreated = true;
         return lcdSmart(TS_FACTORY, { pair: { asset_infos: [TOK, NAT] } }).then(function(p){ pair = p; });
       });
     })
@@ -1264,6 +1271,7 @@ $("lpBtn").addEventListener("click", function(){
           { provide_liquidity: { assets: [ { info: TOK, amount: tokBase }, { info: NAT, amount: luncBase } ], slippage_tolerance: "0.05" } },
           luncBase)
       ];
+      if(!pairCreated) msgs.unshift(sendAny(state.wallet, LP_FEE_ULUNA));
       return signBroadcast(msgs, "TerraSwap: add liquidity " + (rec.symbol || "") + "/LUNC", 900000,
         function(m, c){ setLog(logEl, m, c); }).then(function(out){
         return { pair: pair.contract_addr, hash: out.hash };
@@ -1405,9 +1413,11 @@ admRefreshGate(); lpRefreshVis();
 "use strict";
 var TS_FACTORY = "terra1jkndu9w5attpz09ut02sgey5dd3e8sq5watzm0"; /* TerraSwap factory */
 var ADDR_RE2 = /^terra1[0-9a-z]{38}$/;
+var MKT_FEE_ULUNA = "10000000000"; /* 10,000 LUNC platform fee — listing-info edit, rides in the same tx (main script's sendAny) */
+var AIR_FEE_ULUNA = "5000000000"; /* 5,000 LUNC platform fee — airdrop, first chunk tx only (main script's sendAny) */
 var STR = {
-en:{signProof:"Sign the tiny 0.001 LUNC self-send in your wallet — that proves the profile is yours.",profSaved:"Profile saved ✓",saveProfile:"Save profile",editProfile:"Edit profile",editListing:"Edit listing info",burnT:"Burn",descL:"Description",website:"Website",profNote:"Profile links and the showcase description. Saving signs a tiny 0.001 LUNC self-send as proof — only the network fee applies.",mktOnly:"Only the token's marketing account can edit the on-chain listing info.",mktAcct:"Marketing account",projectL:"Project name",logoUrlL:"Logo URL",uploadLogo:"📎 Upload new logo",saveListing:"Save listing info",listingSaved:"Listing info saved ✓",keepNote:"Leave a field empty to keep its current value. A new logo applies when you paste a URL or upload one.",logoReady:"Logo ready — it uploads when you save.",checking:"Checking the marketing account…",yourBal:"Your balance",amountL:"Amount",burnBtn:"Burn tokens",burnConfirm:"Burn {amt} {sym} from your own wallet? This cannot be undone.",burnedOk:"Burned ✓",shareBtn:"Share",creatorK:"Creator",supplyK:"Total supply",contractK:"Contract",poolK:"TerraSwap pool",noPool:"No pool yet",projNotFound:"Project not found.",airRecipients:"recipients",airTotal:"Total",airBad:"invalid line(s) — they will be skipped:",airLine:"Line",airNoToken:"Connect your wallet and pick one of your tokens first.",chunkLine:"Chunk {a}/{b}",doneLine:"Done ✓",failedLine:"Failed",stoppedLine:"Stopped — {n} recipient(s) were not sent. You can fix the list and send the rest."},
-es:{signProof:"Firma el pequeño autoenvío de 0,001 LUNC en tu billetera: eso demuestra que el perfil es tuyo.",profSaved:"Perfil guardado ✓",saveProfile:"Guardar perfil",editProfile:"Editar perfil",editListing:"Editar datos del listado",burnT:"Quemar",descL:"Descripción",website:"Sitio web",profNote:"Enlaces del proyecto y la descripción del escaparate. Al guardar firmas un pequeño autoenvío de 0,001 LUNC como prueba: solo pagas la tarifa de red.",mktOnly:"Solo la cuenta de marketing del token puede editar los datos del listado en la cadena.",mktAcct:"Cuenta de marketing",projectL:"Nombre del proyecto",logoUrlL:"URL del logo",uploadLogo:"📎 Subir logo nuevo",saveListing:"Guardar datos del listado",listingSaved:"Datos del listado guardados ✓",keepNote:"Deja un campo vacío para mantener su valor actual. El logo nuevo se aplica cuando pegas una URL o subes uno.",logoReady:"Logo listo: se subirá al guardar.",checking:"Comprobando la cuenta de marketing…",yourBal:"Tu saldo",amountL:"Cantidad",burnBtn:"Quemar tokens",burnConfirm:"¿Quemar {amt} {sym} de tu propia billetera? Esto no se puede deshacer.",burnedOk:"Quemado ✓",shareBtn:"Compartir",creatorK:"Creador",supplyK:"Suministro total",contractK:"Contrato",poolK:"Pool de TerraSwap",noPool:"Aún no hay pool",projNotFound:"Proyecto no encontrado.",airRecipients:"destinatarios",airTotal:"Total",airBad:"línea(s) no válida(s): se omitirán:",airLine:"Línea",airNoToken:"Primero conecta tu billetera y elige uno de tus tokens.",chunkLine:"Parte {a}/{b}",doneLine:"Listo ✓",failedLine:"Falló",stoppedLine:"Detenido: {n} destinatario(s) no recibieron. Puedes corregir la lista y enviar el resto."}
+en:{signProof:"Sign the tiny 0.001 LUNC self-send in your wallet — that proves the profile is yours.",profSaved:"Profile saved ✓",saveProfile:"Save profile",editProfile:"Edit profile",editListing:"Edit listing info",burnT:"Burn",descL:"Description",website:"Website",profNote:"Profile links and the showcase description. Saving signs a tiny 0.001 LUNC self-send as proof — only the network fee applies.",mktOnly:"Only the token's marketing account can edit the on-chain listing info.",mktAcct:"Marketing account",projectL:"Project name",logoUrlL:"Logo URL",uploadLogo:"📎 Upload new logo",saveListing:"Save listing info",listingSaved:"Listing info saved ✓",keepNote:"Leave a field empty to keep its current value. A new logo applies when you paste a URL or upload one.",logoReady:"Logo ready — it uploads when you save.",checking:"Checking the marketing account…",yourBal:"Your balance",amountL:"Amount",burnBtn:"Burn tokens",burnConfirm:"Burn {amt} {sym} from your own wallet? This cannot be undone.",burnedOk:"Burned ✓",shareBtn:"Share",creatorK:"Creator",supplyK:"Total supply",contractK:"Contract",poolK:"TerraSwap pool",noPool:"No pool yet",projNotFound:"Project not found.",mktFeeLine:"Platform fee: 10,000 LUNC",airFeeLine:"Platform fee: 5,000 LUNC",airRecipients:"recipients",airTotal:"Total",airBad:"invalid line(s) — they will be skipped:",airLine:"Line",airNoToken:"Connect your wallet and pick one of your tokens first.",chunkLine:"Chunk {a}/{b}",doneLine:"Done ✓",failedLine:"Failed",stoppedLine:"Stopped — {n} recipient(s) were not sent. You can fix the list and send the rest."},
+es:{signProof:"Firma el pequeño autoenvío de 0,001 LUNC en tu billetera: eso demuestra que el perfil es tuyo.",profSaved:"Perfil guardado ✓",saveProfile:"Guardar perfil",editProfile:"Editar perfil",editListing:"Editar datos del listado",burnT:"Quemar",descL:"Descripción",website:"Sitio web",profNote:"Enlaces del proyecto y la descripción del escaparate. Al guardar firmas un pequeño autoenvío de 0,001 LUNC como prueba: solo pagas la tarifa de red.",mktOnly:"Solo la cuenta de marketing del token puede editar los datos del listado en la cadena.",mktAcct:"Cuenta de marketing",projectL:"Nombre del proyecto",logoUrlL:"URL del logo",uploadLogo:"📎 Subir logo nuevo",saveListing:"Guardar datos del listado",listingSaved:"Datos del listado guardados ✓",keepNote:"Deja un campo vacío para mantener su valor actual. El logo nuevo se aplica cuando pegas una URL o subes uno.",logoReady:"Logo listo: se subirá al guardar.",checking:"Comprobando la cuenta de marketing…",yourBal:"Tu saldo",amountL:"Cantidad",burnBtn:"Quemar tokens",burnConfirm:"¿Quemar {amt} {sym} de tu propia billetera? Esto no se puede deshacer.",burnedOk:"Quemado ✓",shareBtn:"Compartir",creatorK:"Creador",supplyK:"Suministro total",contractK:"Contrato",poolK:"Pool de TerraSwap",noPool:"Aún no hay pool",projNotFound:"Proyecto no encontrado.",mktFeeLine:"Tarifa de plataforma: 10.000 LUNC",airFeeLine:"Tarifa de plataforma: 5.000 LUNC",airRecipients:"destinatarios",airTotal:"Total",airBad:"línea(s) no válida(s): se omitirán:",airLine:"Línea",airNoToken:"Primero conecta tu billetera y elige uno de tus tokens.",chunkLine:"Parte {a}/{b}",doneLine:"Listo ✓",failedLine:"Falló",stoppedLine:"Detenido: {n} destinatario(s) no recibieron. Puedes corregir la lista y enviar el resto."}
 };
 function TS(k){ var l = "en"; var ls = document.getElementById("lang"); if(ls && ls.value) l = ls.value; var d = STR[l] || STR.en; return d[k] || STR.en[k] || k; }
 function selfSendAny(sender, amountUluna){
@@ -1600,6 +1610,7 @@ function openListingForm(slot, rec){
       '<label>' + esc(TS("logoUrlL")) + '</label><input type="text" class="lf-logo" maxlength="500" value="' + esc(logoUrl) + '">' +
       '<div class="attach-row"><button type="button" class="attach-btn lf-up">' + esc(TS("uploadLogo")) + '</button><input type="file" class="lf-file" accept="image/*" style="display:none"></div>' +
       '<p class="hint">' + esc(TS("keepNote")) + "</p>" +
+      '<p class="hint">' + esc(TS("mktFeeLine")) + "</p>" +
       '<button type="button" class="big teal lf-save">' + esc(TS("saveListing")) + "</button>" +
       '<div class="log lf-log"></div>';
     var logEl = slot.querySelector(".lf-log");
@@ -1624,7 +1635,7 @@ function openListingForm(slot, rec){
         ? uploadImage(pendingLogo, function(m, c){ setLog(logEl, m, c); })
         : Promise.resolve(logoField);
       logoP.then(function(finalLogo){
-        var msgs = [executeAny(state.wallet, rec.contract, {
+        var msgs = [sendAny(state.wallet, MKT_FEE_ULUNA), executeAny(state.wallet, rec.contract, {
           update_marketing: { project: proj || null, description: desc || null, marketing: state.wallet }
         })];
         if(finalLogo && finalLogo !== logoUrl)
@@ -1719,6 +1730,7 @@ $("airCheckBtn").addEventListener("click", function(){
   p.valid.forEach(function(v){ total += BigInt(v.base); });
   var html = "<div><b>" + p.valid.length + "</b> " + esc(TS("airRecipients")) + "</div>";
   html += "<div>" + esc(TS("airTotal")) + ": <b>" + esc(fmtSupply(total.toString(), p.rec.decimals)) + " " + esc(p.rec.symbol) + "</b></div>";
+  html += "<div>" + esc(TS("airFeeLine")) + "</div>";
   if(p.invalid.length){
     html += '<div style="color:#ff8a8a">' + p.invalid.length + " " + esc(TS("airBad")) + "</div>";
     p.invalid.slice(0, 20).forEach(function(b){
@@ -1751,6 +1763,7 @@ $("airSendBtn").addEventListener("click", function(){
     var msgs = chunks[ci].map(function(v){
       return executeAny(state.wallet, rec.contract, { transfer: { recipient: v.addr, amount: v.base } });
     });
+    if(ci === 0) msgs.unshift(sendAny(state.wallet, AIR_FEE_ULUNA));
     signBroadcast(msgs, "Airdrop " + (rec.symbol || ""), 250000 + 220000 * msgs.length, null)
       .then(function(out){
         sent += chunks[ci].length;
