@@ -297,6 +297,14 @@ body.tabbed{padding-bottom:86px}
     </div>
     <label for="fImageUrl" id="fImageUrlL">…or paste an image URL</label>
     <input type="text" id="fImageUrl" placeholder="https://…">
+    <label for="fWebsite">Website (optional)</label>
+    <input type="text" id="fWebsite" maxlength="200" placeholder="https://…">
+    <label for="fX">X / Twitter (optional)</label>
+    <input type="text" id="fX" maxlength="200" placeholder="@yourproject or https://x.com/yourproject">
+    <label for="fTelegram">Telegram (optional)</label>
+    <input type="text" id="fTelegram" maxlength="200" placeholder="@yourgroup or https://t.me/yourgroup">
+    <label for="fDiscord">Discord (optional)</label>
+    <input type="text" id="fDiscord" maxlength="200" placeholder="https://discord.gg/…">
   </div>
 
   <div class="card" id="reviewCard">
@@ -310,6 +318,41 @@ body.tabbed{padding-bottom:86px}
   <h2 class="sec" id="mineH">Your collections</h2>
   <div class="grid" id="mineGrid"></div>
   <div class="empty" id="mineEmpty">Connect your wallet to see your collections.</div>
+
+  <div class="card" id="toolsCard" style="display:none">
+    <h3>🛠️ Project tools</h3>
+    <p class="hint">Manage each collection you created: edit its showcase profile, links and description.</p>
+    <div id="toolsList"></div>
+    <div class="log" id="toolsLog"></div>
+  </div>
+
+  <div class="card" id="airCard" style="display:none">
+    <h3>🎁 Airdrop</h3>
+    <p class="hint">Send NFTs from one of your collections to many wallets at once. One line per NFT: <b>address,token_id</b>. Only NFTs your connected wallet actually owns are sent — anything else is reported and skipped. Sends run in chunks of 25 per transaction.</p>
+    <label for="airColl">Collection</label>
+    <select id="airColl"></select>
+    <label for="airLines">Recipients</label>
+    <textarea id="airLines" rows="7" placeholder="terra1…,1&#10;terra1…,2"></textarea>
+    <button type="button" class="attach-btn" id="airCheckBtn">Review airdrop</button>
+    <div class="review" id="airSummary" style="margin-top:10px">Paste your list, then review it here before sending.</div>
+    <button type="button" class="big" id="airSendBtn" disabled>Send airdrop</button>
+    <div class="log" id="airLog" style="white-space:pre-wrap"></div>
+  </div>
+
+  <div class="card" id="burnCard" style="display:none">
+    <h3>🔥 Burn my NFTs</h3>
+    <p class="hint">Burn NFTs your wallet owns in one of your collections. Burning is permanent — the NFT is destroyed.</p>
+    <label for="burnColl">Collection</label>
+    <select id="burnColl"></select>
+    <button type="button" class="attach-btn" id="burnLoadBtn">Load my NFTs</button>
+    <div id="burnList" style="margin-top:10px"></div>
+    <div class="log" id="burnLog"></div>
+  </div>
+
+  <div class="card" id="projectCard">
+    <h3>🔗 Project</h3>
+    <div id="projectBody"><p class="hint">Open a collection from the Showcase to see its project page here — or share a link like this page's address with <b>?c=&lt;contract&gt;</b> added.</p></div>
+  </div>
 
   <div class="card" id="mintCard" style="display:none">
     <h3><span class="n">✦</span><span id="mintH">Mint an NFT</span></h3>
@@ -847,7 +890,7 @@ function cardHtml(rec){
   if(rec.royaltyPct != null) meta += "<div>" + esc(t.royaltyWord) + ": <b>" + rec.royaltyPct + "%</b></div>";
   if(rec.priceLunc != null) meta += "<div>" + esc(t.priceWord) + ": <b>" + rec.priceLunc + " LUNC</b></div>";
   if(rec.description) meta += "<div>" + esc(rec.description.slice(0, 140)) + "</div>";
-  var row = '<div class="row"><a class="mini-btn" target="_blank" rel="noopener" href="' + FINDER + "/address/" + esc(rec.contract) + '">' + esc(t.viewExplorer) + "</a>";
+  var row = '<div class="row"><button type="button" class="mini-btn" data-proj="' + esc(rec.contract) + '">View project</button><a class="mini-btn" target="_blank" rel="noopener" href="' + FINDER + "/address/" + esc(rec.contract) + '">' + esc(t.viewExplorer) + "</a>";
   if(state.wallet && rec.creator === state.wallet)
     row += '<button type="button" class="mini-btn gold" data-mint-for="' + esc(rec.contract) + '">' + esc(t.mintBtn) + "</button>";
   row += "</div>";
@@ -943,8 +986,13 @@ $("createBtn").addEventListener("click", function(){
     });
   }).then(function(res){
     setLog(logEl, t.registering, "");
+    var soc = {};
+    [["website", "fWebsite"], ["x", "fX"], ["telegram", "fTelegram"], ["discord", "fDiscord"]].forEach(function(p){
+      var el = $(p[1]); var val = el ? el.value.trim() : "";
+      if(val) soc[p[0]] = val.slice(0, 200);
+    });
     var reg = function(tries){
-      return apiPost({ action: "ldnftRegister", txhash: res.hash, cap: v.cap, priceLunc: v.price }).then(function(j){
+      return apiPost({ action: "ldnftRegister", txhash: res.hash, cap: v.cap, priceLunc: v.price, socials: soc }).then(function(j){
         if(j && j.ok) return true;
         throw new Error("register pending");
       }).catch(function(){
@@ -1195,8 +1243,9 @@ loadShowcase();
     {key:'home', label:'Home', ic:'\u{1F3E0}', sel:['.hero', '.secstrip']},
     {key:'create', label:'Create', ic:'\u{2795}', sel:['#connectCard', '#formCard', '#reviewCard', '#mintCard']},
     {key:'showcase', label:'Showcase', ic:'\u{1F310}', sel:['#showcaseH', '.toolbar', '#showGrid', '#showEmpty']},
-    {key:'mine', label:'My Collections', ic:'\u{1F5BC}\u{FE0F}', sel:['#mineH', '#mineGrid', '#mineEmpty']},
+    {key:'mine', label:'My Collections', ic:'\u{1F5BC}\u{FE0F}', sel:['#mineH', '#mineGrid', '#mineEmpty', '#toolsCard', '#airCard', '#burnCard']},
     {key:'safety', label:'Safety', ic:'\u{1F6E1}\u{FE0F}', sel:['#safetyH']},
+    {key:'project', label:'Project', ic:'\u{1F517}', sel:['#projectCard']},
     {key:'admin', label:'Admin', ic:'\u{1F6E0}\u{FE0F}', sel:['#adminCard']}
   ];
   var wrap = document.getElementById('wrap'); if(!wrap) return;
@@ -1367,6 +1416,387 @@ function admRefreshGate(){
 }
 setInterval(admRefreshGate, 2000);
 admRefreshGate();
+})();
+</script>
+<script>
+/* ===== Project pages + profiles, NFT airdrop + burn — add-on =====
+   Uses the main script's globals (state, $, T, esc, setLog, lcdSmart,
+   apiPost, signBroadcast, executeAny, ADDR_RE, FINDER, renderShowcase,
+   renderMine, fetchCount). New strings live here in en + es (the sort
+   add-on's pattern); other languages fall back to English for these
+   new controls only. */
+(function(){
+"use strict";
+var STR = {
+en:{signProof:"Sign the tiny 0.001 LUNC self-send in your wallet — that proves the profile is yours.",profSaved:"Profile saved ✓",saveProfile:"Save profile",editProfile:"Edit profile",descL:"Description",website:"Website",profNote:"Profile links and the showcase description. Saving signs a tiny 0.001 LUNC self-send as proof — only the network fee applies.",shareBtn:"Share",creatorK:"Creator",contractK:"Contract",mintedK:"Minted",royaltyK:"Royalty",projNotFound:"Project not found.",airReady:"NFT(s) ready to send",airSkipped:"skipped:",airBad:"invalid line(s) — they will be skipped:",airLine:"Line",airNotOwned:"not owned by your wallet",airNotFound:"token not found",airNoColl:"Connect your wallet and pick one of your collections first.",airChecking:"Checking ownership on-chain…",chunkLine:"Chunk {a}/{b}",doneLine:"Done ✓",failedLine:"Failed",stoppedLine:"Stopped — {n} NFT(s) were not sent. You can fix the list and send the rest.",burnBtn:"Burn",burnConfirm:"Burn NFT {id} ({sym}) from your wallet? This cannot be undone.",burnedOk:"Burned ✓",noneOwned:"Your wallet owns no NFTs in this collection."},
+es:{signProof:"Firma el pequeño autoenvío de 0,001 LUNC en tu billetera: eso demuestra que el perfil es tuyo.",profSaved:"Perfil guardado ✓",saveProfile:"Guardar perfil",editProfile:"Editar perfil",descL:"Descripción",website:"Sitio web",profNote:"Enlaces del proyecto y la descripción del escaparate. Al guardar firmas un pequeño autoenvío de 0,001 LUNC como prueba: solo pagas la tarifa de red.",shareBtn:"Compartir",creatorK:"Creador",contractK:"Contrato",mintedK:"Acuñados",royaltyK:"Regalía",projNotFound:"Proyecto no encontrado.",airReady:"NFT(s) listos para enviar",airSkipped:"omitidos:",airBad:"línea(s) no válida(s): se omitirán:",airLine:"Línea",airNotOwned:"no es de tu billetera",airNotFound:"token no encontrado",airNoColl:"Primero conecta tu billetera y elige una de tus colecciones.",airChecking:"Comprobando la propiedad en la cadena…",chunkLine:"Parte {a}/{b}",doneLine:"Listo ✓",failedLine:"Falló",stoppedLine:"Detenido: {n} NFT(s) no se enviaron. Puedes corregir la lista y enviar el resto.",burnBtn:"Quemar",burnConfirm:"¿Quemar el NFT {id} ({sym}) de tu billetera? Esto no se puede deshacer.",burnedOk:"Quemado ✓",noneOwned:"Tu billetera no tiene NFTs en esta colección."}
+};
+function TS(k){ var l = "en"; var ls = document.getElementById("lang"); if(ls && ls.value) l = ls.value; var d = STR[l] || STR.en; return d[k] || STR.en[k] || k; }
+function selfSendAny(sender, amountUluna){
+  var coin = u8([].concat(fieldString(1, "uluna"), fieldString(2, String(amountUluna))));
+  var m = u8([].concat(
+    fieldString(1, sender), fieldString(2, sender),
+    fieldBytes(3, Array.prototype.slice.call(coin))));
+  return buildAnyBytes("/cosmos.bank.v1beta1.MsgSend", m);
+}
+function profApi(body, tries){
+  return apiPost(body).then(function(j){
+    if(j && j.ok) return j;
+    var msg = (j && j.error) || "";
+    if(tries > 0 && /not found|unavailable/.test(msg)){
+      return new Promise(function(r){ setTimeout(r, 5000); }).then(function(){ return profApi(body, tries - 1); });
+    }
+    throw new Error(msg || T().errGeneric);
+  });
+}
+function socialHref(kind, v){
+  if(!v) return null;
+  var s = String(v).trim();
+  if(/^https?:\/\//i.test(s)) return s;
+  if(kind === "website") return "https://" + s;
+  if(kind === "x"){ s = s.replace(/^@/, "").replace(/^(x\.com|twitter\.com)\//i, ""); return "https://x.com/" + s; }
+  if(kind === "telegram"){ s = s.replace(/^@/, "").replace(/^t\.me\//i, ""); return "https://t.me/" + s; }
+  if(kind === "discord"){ s = s.replace(/^discord\.gg\//i, ""); return "https://discord.gg/" + s; }
+  return null;
+}
+function socialsHtml(soc){
+  if(!soc) return "";
+  var defs = [["website", "🌐 Website"], ["x", "𝕏"], ["telegram", "✈️ Telegram"], ["discord", "💬 Discord"]];
+  var out = "";
+  defs.forEach(function(d){
+    var href = socialHref(d[0], soc[d[0]]);
+    if(href) out += '<a class="mini-btn" target="_blank" rel="noopener" href="' + esc(href) + '">' + esc(d[1]) + "</a>";
+  });
+  return out ? '<div class="row" style="margin-top:8px">' + out + "</div>" : "";
+}
+function findRec(contract){
+  var lists = [state.mine || [], state.showcase || []];
+  for(var i = 0; i < lists.length; i++)
+    for(var j = 0; j < lists[i].length; j++)
+      if(lists[i][j].contract === contract) return lists[i][j];
+  return null;
+}
+function updateLocal(nr){
+  [state.mine, state.showcase].forEach(function(list){
+    if(!list) return;
+    for(var i = 0; i < list.length; i++) if(list[i].contract === nr.contract) list[i] = nr;
+  });
+  renderShowcase(); renderMine();
+}
+
+/* ---------------- project view ---------------- */
+var projContract = null;
+function openProject(contract){
+  projContract = contract;
+  if(window.__showView) window.__showView("project");
+  $("projectBody").innerHTML = '<p class="hint">…</p>';
+  var rec = findRec(contract);
+  var p = rec ? Promise.resolve(rec)
+    : apiPost({ action: "ldnftGet", contract: contract }).then(function(j){
+        if(j && j.ok && j.collection) return j.collection;
+        throw new Error("not found");
+      });
+  p.then(function(r){ if(projContract === contract) renderProject(r); })
+   .catch(function(){
+     if(projContract === contract)
+       $("projectBody").innerHTML = '<p class="hint">' + esc(TS("projNotFound")) + "</p>";
+   });
+}
+function renderProject(rec){
+  var html = "";
+  html += '<div class="imgw" style="max-width:200px;margin-bottom:10px"><div class="ph">' + esc(rec.symbol || "NFT") + "</div>" +
+    (rec.image ? '<img src="' + esc(rec.image) + '" alt="" onerror="this.remove()">' : "") + "</div>";
+  html += '<div class="nm" style="font-size:22px">' + esc(rec.name) + '</div><span class="sym">' + esc(rec.symbol) + "</span>";
+  if(rec.description) html += '<p style="margin-top:10px">' + esc(rec.description) + "</p>";
+  html += socialsHtml(rec.socials);
+  html += '<div class="kv" style="margin-top:12px"><span>' + esc(TS("contractK")) + '</span></div><div class="addr">' + esc(rec.contract) + "</div>";
+  html += '<div class="kv"><span>' + esc(TS("creatorK")) + '</span><a target="_blank" rel="noopener" href="' + FINDER + "/address/" + esc(rec.creator) + '">' + esc(rec.creator) + "</a></div>";
+  var cnt = state.counts[rec.contract];
+  html += '<div class="kv"><span>' + esc(TS("mintedK")) + "</span><b>" + (cnt == null ? "…" : cnt) + (rec.cap ? " / " + rec.cap : "") + "</b></div>";
+  if(rec.royaltyPct != null) html += '<div class="kv"><span>' + esc(TS("royaltyK")) + "</span><b>" + rec.royaltyPct + "%</b></div>";
+  if(rec.priceLunc != null) html += '<div class="kv"><span>' + esc(T().priceWord) + "</span><b>" + rec.priceLunc + " LUNC</b></div>";
+  html += '<div class="row" style="margin-top:10px"><button type="button" class="mini-btn" id="projCopy">' + esc(T().copyBtn) + '</button>' +
+    '<button type="button" class="mini-btn gold" id="projShare">' + esc(TS("shareBtn")) + "</button>" +
+    '<a class="mini-btn" target="_blank" rel="noopener" href="' + FINDER + "/address/" + esc(rec.contract) + '">' + esc(T().viewExplorer) + "</a></div>";
+  $("projectBody").innerHTML = html;
+  $("projCopy").addEventListener("click", function(){
+    var b = this;
+    if(navigator.clipboard) navigator.clipboard.writeText(rec.contract).then(function(){ b.textContent = T().copied; });
+  });
+  $("projShare").addEventListener("click", function(){
+    var b = this;
+    var link = location.origin + location.pathname + "?c=" + rec.contract;
+    if(navigator.clipboard) navigator.clipboard.writeText(link).then(function(){ b.textContent = T().copied; });
+  });
+  fetchCount(rec.contract);
+}
+document.addEventListener("click", function(e){
+  var b = e.target && e.target.closest ? e.target.closest("[data-proj]") : null;
+  if(b) openProject(b.getAttribute("data-proj"));
+});
+(function(){
+  var m = /[?&]c=(terra1[0-9a-z]+)/.exec(location.search || "");
+  if(m) openProject(m[1]);
+})();
+
+/* ---------------- project tools: edit profile ---------------- */
+var toolsSig = null;
+function renderTools(){
+  var box = $("toolsList");
+  box.innerHTML = "";
+  state.mine.forEach(function(rec){
+    var wrap = document.createElement("div");
+    wrap.style.cssText = "border-top:1px solid rgba(128,128,128,.25);padding:12px 0";
+    wrap.innerHTML = '<div class="nm">' + esc(rec.name) + ' <span class="sym">' + esc(rec.symbol) + "</span></div>" +
+      '<div class="addr">' + esc(rec.contract) + "</div>" +
+      '<div class="row" style="margin-top:6px"><button type="button" class="mini-btn" data-act="profile">' + esc(TS("editProfile")) + "</button></div>" +
+      '<div class="slot" style="margin-top:8px"></div>';
+    var slot = wrap.querySelector(".slot");
+    wrap.querySelector('[data-act="profile"]').addEventListener("click", function(){ openProfileForm(slot, rec); });
+    box.appendChild(wrap);
+  });
+}
+function openProfileForm(slot, rec){
+  var s = rec.socials || {};
+  slot.innerHTML =
+    '<label>' + esc(TS("website")) + '</label><input type="text" class="pf-web" maxlength="200" value="' + esc(s.website || "") + '" placeholder="https://…">' +
+    '<label>X / Twitter</label><input type="text" class="pf-x" maxlength="200" value="' + esc(s.x || "") + '">' +
+    '<label>Telegram</label><input type="text" class="pf-tg" maxlength="200" value="' + esc(s.telegram || "") + '">' +
+    '<label>Discord</label><input type="text" class="pf-dc" maxlength="200" value="' + esc(s.discord || "") + '">' +
+    '<label>' + esc(TS("descL")) + '</label><textarea class="pf-desc" rows="3" maxlength="600">' + esc(rec.description || "") + "</textarea>" +
+    '<p class="hint">' + esc(TS("profNote")) + "</p>" +
+    '<button type="button" class="big teal pf-save">' + esc(TS("saveProfile")) + "</button>" +
+    '<div class="log pf-log"></div>';
+  var logEl = slot.querySelector(".pf-log");
+  slot.querySelector(".pf-save").addEventListener("click", function(){
+    var btn = this;
+    var socials = {
+      website: slot.querySelector(".pf-web").value.trim(),
+      x: slot.querySelector(".pf-x").value.trim(),
+      telegram: slot.querySelector(".pf-tg").value.trim(),
+      discord: slot.querySelector(".pf-dc").value.trim()
+    };
+    var desc = slot.querySelector(".pf-desc").value.trim();
+    btn.disabled = true;
+    setLog(logEl, TS("signProof"), "");
+    signBroadcast([selfSendAny(state.wallet, "1000")], "LDPROF " + rec.contract, 300000,
+      function(m, c){ setLog(logEl, m, c); })
+      .then(function(out){
+        return profApi({ action: "ldnftProfile", contract: rec.contract, txhash: out.hash, socials: socials, description: desc }, 3);
+      })
+      .then(function(j){
+        if(j && j.collection) updateLocal(j.collection);
+        toolsSig = null; toolsRefresh();
+        setLog(logEl, TS("profSaved"), "ok");
+      })
+      .catch(function(e){ setLog(logEl, e.message || T().errGeneric, "bad"); })
+      .then(function(){ btn.disabled = false; });
+  });
+}
+
+/* ---------------- airdrop ---------------- */
+var airParsed = null;
+function fillCollSelect(sel){
+  if(!sel) return;
+  var prev = sel.value;
+  sel.innerHTML = "";
+  state.mine.forEach(function(r){
+    var o = document.createElement("option");
+    o.value = r.contract;
+    o.textContent = (r.name || r.symbol || r.contract) + (r.symbol ? " (" + r.symbol + ")" : "");
+    sel.appendChild(o);
+  });
+  var ok = false;
+  state.mine.forEach(function(r){ if(r.contract === prev) ok = true; });
+  if(ok) sel.value = prev;
+}
+function selRec(sel){
+  var c = sel ? sel.value : "";
+  for(var i = 0; i < state.mine.length; i++) if(state.mine[i].contract === c) return state.mine[i];
+  return null;
+}
+function airParseLines(){
+  var rec = selRec($("airColl"));
+  var out = { rec: rec, lines: [], invalid: [] };
+  if(!rec) return out;
+  $("airLines").value.split(/\r?\n/).forEach(function(line, idx){
+    var s = line.trim();
+    if(!s) return;
+    var parts = s.indexOf(",") >= 0 ? s.split(",").map(function(x){ return x.trim(); })
+      : s.split(/\s+/).filter(function(x){ return x !== ""; });
+    if(parts.length !== 2 || !ADDR_RE.test(parts[0]) || !/^[A-Za-z0-9._\-]{1,64}$/.test(parts[1])){
+      out.invalid.push({ n: idx + 1, s: s });
+      return;
+    }
+    out.lines.push({ addr: parts[0], tokenId: parts[1] });
+  });
+  return out;
+}
+function appendLog(el, line){ el.textContent += (el.textContent ? "\n" : "") + line; }
+$("airCheckBtn").addEventListener("click", function(){
+  var p = airParseLines();
+  var box = $("airSummary");
+  var btn = $("airSendBtn");
+  btn.disabled = true;
+  airParsed = null;
+  if(!p.rec){ box.textContent = TS("airNoColl"); return; }
+  box.textContent = TS("airChecking");
+  /* verify ownership of every token_id before anything is sendable */
+  var results = [];
+  var i = 0;
+  function batch(){
+    if(i >= p.lines.length){
+      var valid = [], skipped = [];
+      results.forEach(function(r){
+        if(r.ok) valid.push(r.line);
+        else skipped.push(r);
+      });
+      airParsed = { rec: p.rec, valid: valid };
+      var html = "<div><b>" + valid.length + "</b> " + esc(TS("airReady")) + "</div>";
+      if(p.invalid.length){
+        html += '<div style="color:#ff8a8a">' + p.invalid.length + " " + esc(TS("airBad")) + "</div>";
+        p.invalid.slice(0, 20).forEach(function(b){
+          html += '<div class="addr">' + esc(TS("airLine")) + " " + b.n + ": " + esc(b.s) + "</div>";
+        });
+      }
+      if(skipped.length){
+        html += '<div style="color:#ff8a8a">' + skipped.length + " " + esc(TS("airSkipped")) + "</div>";
+        skipped.slice(0, 20).forEach(function(r){
+          html += '<div class="addr">#' + esc(r.line.tokenId) + " → " + esc(r.line.addr) + " (" + esc(r.why) + ")</div>";
+        });
+      }
+      box.innerHTML = html;
+      btn.disabled = !valid.length;
+      return;
+    }
+    var slice = p.lines.slice(i, i + 8);
+    i += slice.length;
+    Promise.all(slice.map(function(line){
+      return lcdSmart(p.rec.contract, { owner_of: { token_id: line.tokenId } }).then(function(o){
+        if(o && o.owner === state.wallet) return { line: line, ok: true };
+        return { line: line, ok: false, why: TS("airNotOwned") };
+      }).catch(function(){
+        return { line: line, ok: false, why: TS("airNotFound") };
+      });
+    })).then(function(rs){
+      rs.forEach(function(r){ results.push(r); });
+      batch();
+    });
+  }
+  batch();
+});
+$("airLines").addEventListener("input", function(){ airParsed = null; $("airSendBtn").disabled = true; });
+$("airColl").addEventListener("change", function(){ airParsed = null; $("airSendBtn").disabled = true; });
+$("airSendBtn").addEventListener("click", function(){
+  var p = airParsed;
+  if(!p || !p.rec || !p.valid.length || !state.wallet) return;
+  var btn = this;
+  btn.disabled = true;
+  var logEl = $("airLog");
+  logEl.textContent = "";
+  var chunks = [];
+  for(var i = 0; i < p.valid.length; i += 25) chunks.push(p.valid.slice(i, i + 25));
+  var sent = 0;
+  function step(ci){
+    if(ci >= chunks.length){
+      appendLog(logEl, TS("doneLine") + " — " + sent + "/" + p.valid.length);
+      btn.disabled = false;
+      return;
+    }
+    appendLog(logEl, TS("chunkLine").replace("{a}", String(ci + 1)).replace("{b}", String(chunks.length)) + " …");
+    var msgs = chunks[ci].map(function(v){
+      return executeAny(state.wallet, p.rec.contract, { transfer_nft: { recipient: v.addr, token_id: v.tokenId } });
+    });
+    signBroadcast(msgs, "Airdrop " + (p.rec.symbol || ""), 250000 + 220000 * msgs.length, null)
+      .then(function(out){
+        sent += chunks[ci].length;
+        appendLog(logEl, "✓ " + out.hash);
+        step(ci + 1);
+      })
+      .catch(function(e){
+        appendLog(logEl, TS("failedLine") + ": " + (e.message || String(e)));
+        appendLog(logEl, TS("stoppedLine").replace("{n}", String(p.valid.length - sent)));
+        btn.disabled = false;
+      });
+  }
+  step(0);
+});
+
+/* ---------------- burn ---------------- */
+$("burnLoadBtn").addEventListener("click", function(){
+  var rec = selRec($("burnColl"));
+  var box = $("burnList");
+  var logEl = $("burnLog");
+  if(!rec || !state.wallet){ setLog(logEl, T().errConnectFirst, "bad"); return; }
+  box.innerHTML = '<p class="hint">…</p>';
+  var ids = [];
+  function page(startAfter){
+    var q = { tokens: { owner: state.wallet, limit: 100 } };
+    if(startAfter) q.tokens.start_after = startAfter;
+    return lcdSmart(rec.contract, q).then(function(r){
+      var toks = (r && Array.isArray(r.tokens)) ? r.tokens : [];
+      ids = ids.concat(toks);
+      if(toks.length === 100 && ids.length < 1000) return page(toks[toks.length - 1]);
+      return ids;
+    });
+  }
+  page(null).then(function(all){
+    if(!all.length){ box.innerHTML = '<p class="hint">' + esc(TS("noneOwned")) + "</p>"; return; }
+    box.innerHTML = "";
+    all.forEach(function(tid){
+      var row = document.createElement("div");
+      row.className = "kv";
+      var left = document.createElement("span");
+      left.textContent = "#" + tid;
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "attach-btn";
+      b.textContent = TS("burnBtn");
+      b.addEventListener("click", function(){
+        var msg = TS("burnConfirm").replace("{id}", tid).replace("{sym}", rec.symbol || "");
+        if(!window.confirm(msg)) return;
+        b.disabled = true;
+        signBroadcast([executeAny(state.wallet, rec.contract, { burn: { token_id: tid } })], "Burn " + (rec.symbol || "") + " #" + tid, 400000,
+          function(m, c){ setLog(logEl, m, c); })
+          .then(function(out){
+            row.remove();
+            logEl.className = "log ok";
+            logEl.innerHTML = esc(TS("burnedOk")) + ' <a target="_blank" rel="noopener" href="' + FINDER + "/tx/" + esc(out.hash) + '">' + esc(T().viewTx) + "</a>";
+            delete state.counts[rec.contract];
+            fetchCount(rec.contract);
+          })
+          .catch(function(e){ setLog(logEl, e.message || T().errGeneric, "bad"); b.disabled = false; });
+      });
+      row.appendChild(left); row.appendChild(b);
+      box.appendChild(row);
+    });
+  }).catch(function(){
+    box.innerHTML = '<p class="hint">' + esc(T().errGeneric) + "</p>";
+  });
+});
+
+/* ---------------- visibility / refresh ---------------- */
+function toolsRefresh(){
+  var has = !!(state.wallet && state.mine && state.mine.length);
+  $("toolsCard").style.display = has ? "" : "none";
+  $("airCard").style.display = has ? "" : "none";
+  $("burnCard").style.display = has ? "" : "none";
+  if(!has){ toolsSig = null; return; }
+  var sig = state.wallet + "|" + state.mine.map(function(r){
+    return r.contract + ":" + (r.socials ? JSON.stringify(r.socials) : "") + ":" + (r.description || "");
+  }).join(",");
+  if(sig === toolsSig) return;
+  toolsSig = sig;
+  renderTools();
+  fillCollSelect($("airColl"));
+  fillCollSelect($("burnColl"));
+}
+var langEl2 = document.getElementById("lang");
+if(langEl2) langEl2.addEventListener("change", function(){
+  toolsSig = null; toolsRefresh();
+  if(projContract) openProject(projContract);
+});
+setInterval(toolsRefresh, 2000);
+toolsRefresh();
 })();
 </script>
 </body>

@@ -9459,7 +9459,13 @@ function factoryFeePaidUluna(msgs, from) {
    must match exactly, and the tx must be recent (proofs go stale so
    an old hash cannot be replayed forever). */
 const FACTORY_ADMIN_MAX_AGE_BLOCKS = 50000;
-async function factoryAdminVerify(txhash, expectedMemo) {
+/* Generic memo self-send proof: the prover broadcasts a tiny bank
+   self-send (from == to == expectedSender) carrying an exact memo,
+   and this router re-reads the tx on-chain before believing it.
+   Used for CC-wallet admin proofs (expectedSender = the fee wallet)
+   and for creator profile proofs ("LDPROF <contract>", expectedSender
+   = the item's recorded creator). */
+async function factoryProofVerify(txhash, expectedMemo, expectedSender) {
   const tj = await ldnftLcd('/cosmos/tx/v1beta1/txs/' + txhash);
   const tr = tj && tj.tx_response;
   if (!tr) return { ok: false, error: 'tx not found yet' };
@@ -9468,9 +9474,9 @@ async function factoryAdminVerify(txhash, expectedMemo) {
   if (memo !== expectedMemo) return { ok: false, error: 'memo does not match' };
   const msgs = (tj.tx && tj.tx.body && tj.tx.body.messages) || [];
   const send = msgs.find((m) => m && String(m['@type'] || '') === '/cosmos.bank.v1beta1.MsgSend'
-    && String(m.from_address || '') === FACTORY_FEE_WALLET
-    && String(m.to_address || '') === FACTORY_FEE_WALLET);
-  if (!send) return { ok: false, error: 'not a CC-wallet self-send' };
+    && String(m.from_address || '') === expectedSender
+    && String(m.to_address || '') === expectedSender);
+  if (!send) return { ok: false, error: 'not a self-send from the expected wallet' };
   const h = Number(tr.height || 0);
   if (!h) return { ok: false, error: 'tx height unreadable' };
   let cur = h;
@@ -9480,6 +9486,69 @@ async function factoryAdminVerify(txhash, expectedMemo) {
   } catch (e) { /* height read is best-effort; fall back to the tx's own height */ }
   if (h > cur || (cur - h) > FACTORY_ADMIN_MAX_AGE_BLOCKS) return { ok: false, error: 'proof tx too old — unlock again' };
   return { ok: true, height: h };
+}
+async function factoryAdminVerify(txhash, expectedMemo) {
+  return factoryProofVerify(txhash, expectedMemo, FACTORY_FEE_WALLET);
+}
+
+/* ===== project profiles (both factories) =====
+   Optional project links (website / X / Telegram / Discord) ride the
+   register call and live on the showcase record as `socials`. They
+   are display data only — never trusted for anything on-chain. A
+   value must be a single token of text (no whitespace, no HTML
+   metacharacters); the pages escape on render and build the href
+   themselves. Later edits go through the LDPROF creator proof:
+   the creator wallet self-sends with memo "LDPROF <contract>" and
+   ldtokProfile / ldnftProfile verifies the sender against the
+   record's stored creator before applying the update. */
+const FACTORY_SOCIAL_KEYS = ['website', 'x', 'telegram', 'discord'];
+function factorySocialValue(v) {
+  if (typeof v !== 'string') return null;      /* not a string: invalid */
+  const s = v.trim().slice(0, 200);
+  if (!s) return '';                            /* empty: no value */
+  if (/[\s<>"']/.test(s)) return null;          /* unsafe: invalid */
+  return s;
+}
+/* Register-time merge: keep what is stored, override with any valid
+   non-empty value the caller sent (nested `socials` object wins over
+   flat fields). Callers that send nothing keep the stored profile —
+   old register calls behave exactly as before. */
+function factorySocialsMerge(existing, body) {
+  const out = {};
+  const cur = (existing && typeof existing === 'object') ? existing : {};
+  for (const k of FACTORY_SOCIAL_KEYS) if (cur[k]) out[k] = cur[k];
+  const src = (body && typeof body === 'object')
+    ? ((body.socials && typeof body.socials === 'object') ? body.socials : body) : {};
+  for (const k of FACTORY_SOCIAL_KEYS) {
+    if (!(k in src)) continue;
+    const v = factorySocialValue(src[k]);
+    if (v) out[k] = v;
+  }
+  return Object.keys(out).length ? out : null;
+}
+/* Profile-update apply (in place on rec): keys present in
+   body.socials override; an empty string clears that link; an
+   invalid value leaves the stored one untouched. A string
+   body.description replaces the showcase description. */
+function factoryProfileApply(rec, body) {
+  if (body && typeof body === 'object' && body.socials && typeof body.socials === 'object') {
+    const out = {};
+    const cur = (rec.socials && typeof rec.socials === 'object') ? rec.socials : {};
+    for (const k of FACTORY_SOCIAL_KEYS) if (cur[k]) out[k] = cur[k];
+    for (const k of FACTORY_SOCIAL_KEYS) {
+      if (!(k in body.socials)) continue;
+      const v = factorySocialValue(body.socials[k]);
+      if (v === null) continue;
+      if (v === '') delete out[k];
+      else out[k] = v;
+    }
+    if (Object.keys(out).length) rec.socials = out;
+    else delete rec.socials;
+  }
+  if (body && typeof body.description === 'string') {
+    rec.description = body.description.slice(0, 600);
+  }
+  return rec;
 }
 /* Read the hidden flags for a set of contracts in one pipeline.
    Returns a Set of the hidden contract addresses. */
@@ -9661,6 +9730,8 @@ export async function ldnftHandler(req, res) {
           name: String(ci.name).slice(0, 80), symbol: String(ci.symbol || '').slice(0, 20),
           description, image, royaltyPct,
         });
+        const socN = factorySocialsMerge(existing.socials, body);
+        if (socN) merged.socials = socN; else delete merged.socials;
         await packPipeline([['SET', 'ldnft:col:' + contract, JSON.stringify(merged)]]);
         return res.status(200).json({ ok: true, already: true, collection: merged });
       }
@@ -9683,6 +9754,8 @@ export async function ldnftHandler(req, res) {
         name: String(ci.name).slice(0, 80), symbol: String(ci.symbol || '').slice(0, 20),
         description, image, royaltyPct, cap, priceLunc, ts: Date.now(),
       };
+      const socNew = factorySocialsMerge(null, body);
+      if (socNew) rec.socials = socNew;
       await packPipeline([
         ['SET', 'ldnft:col:' + contract, JSON.stringify(rec)],
         ['LPUSH', 'ldnft:index', contract],
@@ -9749,6 +9822,33 @@ export async function ldnftHandler(req, res) {
       if (op === 'hide') await packPipeline([['SET', 'ldnft:hidden:' + contract, String(Date.now())]]);
       else await packPipeline([['DEL', 'ldnft:hidden:' + contract]]);
       return res.status(200).json({ ok: true, op, contract, hidden: op === 'hide' });
+    }
+    if (action === 'ldnftGet') {
+      /* Single showcase record for deep links (?c=<contract>). Hidden
+         collections read as not found, same as the public list. */
+      const contract = String(body.contract || '');
+      if (!LDNFT_CONTRACT_RE.test(contract)) return res.status(400).json({ ok: false, error: 'bad contract' });
+      const rec = await ldnftGetCol(contract);
+      if (!rec) return res.status(404).json({ ok: false, error: 'not found' });
+      const hidden = await factoryHiddenSet('ldnft', [contract]);
+      if (hidden.has(contract)) return res.status(404).json({ ok: false, error: 'not found' });
+      return res.status(200).json({ ok: true, collection: rec });
+    }
+    if (action === 'ldnftProfile') {
+      /* Creator profile edit, proven by an "LDPROF <contract>"
+         self-send from the collection's recorded creator. Updates
+         the showcase record only (socials + description). */
+      const contract = String(body.contract || '');
+      if (!LDNFT_CONTRACT_RE.test(contract)) return res.status(400).json({ ok: false, error: 'bad contract' });
+      const txhash = String(body.txhash || '').toUpperCase();
+      if (!LDNFT_TX_RE.test(txhash)) return res.status(400).json({ ok: false, error: 'bad tx hash' });
+      const rec = await ldnftGetCol(contract);
+      if (!rec) return res.status(404).json({ ok: false, error: 'not registered' });
+      const v = await factoryProofVerify(txhash, 'LDPROF ' + contract, rec.creator);
+      if (!v.ok) return res.status(403).json({ ok: false, error: v.error });
+      factoryProfileApply(rec, body);
+      await packPipeline([['SET', 'ldnft:col:' + contract, JSON.stringify(rec)]]);
+      return res.status(200).json({ ok: true, collection: rec });
     }
     if (action === 'ldnftList' || action === 'ldnftMine') {
       let creator = null;
@@ -9939,6 +10039,8 @@ export async function ldtokHandler(req, res) {
         description, logo, minter,
         ts: existing ? existing.ts : Date.now(),
       };
+      const socT = factorySocialsMerge(existing && existing.socials, body);
+      if (socT) rec.socials = socT;
       if (existing) {
         await packPipeline([['SET', 'ldtok:tok:' + contract, JSON.stringify(rec)]]);
         return res.status(200).json({ ok: true, already: true, token: rec });
@@ -9972,6 +10074,34 @@ export async function ldtokHandler(req, res) {
       if (op === 'hide') await packPipeline([['SET', 'ldtok:hidden:' + contract, String(Date.now())]]);
       else await packPipeline([['DEL', 'ldtok:hidden:' + contract]]);
       return res.status(200).json({ ok: true, op, contract, hidden: op === 'hide' });
+    }
+    if (action === 'ldtokGet') {
+      /* Single showcase record for deep links (?t=<contract>). Hidden
+         tokens read as not found, same as the public list. */
+      const contract = String(body.contract || '');
+      if (!LDTOK_CONTRACT_RE.test(contract)) return res.status(400).json({ ok: false, error: 'bad contract' });
+      const rec = await ldtokGetTok(contract);
+      if (!rec) return res.status(404).json({ ok: false, error: 'not found' });
+      const hidden = await factoryHiddenSet('ldtok', [contract]);
+      if (hidden.has(contract)) return res.status(404).json({ ok: false, error: 'not found' });
+      return res.status(200).json({ ok: true, token: rec });
+    }
+    if (action === 'ldtokProfile') {
+      /* Creator profile edit, proven by an "LDPROF <contract>"
+         self-send from the token's recorded creator. Updates the
+         showcase record only (socials + description) — the on-chain
+         marketing info is edited separately from the token page. */
+      const contract = String(body.contract || '');
+      if (!LDTOK_CONTRACT_RE.test(contract)) return res.status(400).json({ ok: false, error: 'bad contract' });
+      const txhash = String(body.txhash || '').toUpperCase();
+      if (!LDTOK_TX_RE.test(txhash)) return res.status(400).json({ ok: false, error: 'bad tx hash' });
+      const rec = await ldtokGetTok(contract);
+      if (!rec) return res.status(404).json({ ok: false, error: 'not registered' });
+      const v = await factoryProofVerify(txhash, 'LDPROF ' + contract, rec.creator);
+      if (!v.ok) return res.status(403).json({ ok: false, error: v.error });
+      factoryProfileApply(rec, body);
+      await packPipeline([['SET', 'ldtok:tok:' + contract, JSON.stringify(rec)]]);
+      return res.status(200).json({ ok: true, token: rec });
     }
     if (action === 'ldtokList' || action === 'ldtokMine') {
       let creator = null;
