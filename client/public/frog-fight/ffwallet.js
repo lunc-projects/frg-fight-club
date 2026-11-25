@@ -8,8 +8,8 @@
    and fa2SendLunc (the Garuda DEX send pattern: direct signer for
    Keplr/Galaxy, terra_signAmino for LUNCDash).
    ===================================================================== */
-const FFB_NFT_CONTRACT = 'terra1x2tl35dtpgu2d2mlv5szwnxe6mwk07gapzjqk2vetg9atjqhxefskc99he';
-const FFBP_NFT_CONTRACT = 'terra1pd88tkk9l96fhlqcxy5gz9jxfnmlgr9j5gd8ck08keu2pcfm94js7953fq';
+const FFB_NFT_CONTRACT = 'terra18jjj7jrcmmkfe5w3kcuz4w3z8sfzxwm5hf7585qvqepvm4usgmcqku72ve';
+const FFBP_NFT_CONTRACT = 'terra147epfc4npavqmtdkcuuynsaajgfyn2v0llcryq9pjtxg6essfvdsznlfj3';
 const FA2_NFT_CONTRACT = FFB_NFT_CONTRACT; /* default contract for gdSmart */
 const FA2_GOLIATH = 'terra183yjyennklj77uc47txds9mmpu6vlaecaxk66g';
 const GD_RPC = 'https://terra-classic-rpc.publicnode.com';

@@ -7721,7 +7721,7 @@ const FFR_FIGHTER_CONTRACTS = [
   'terra1pwyv50whk9xllqnyna4p5g9n0qt4nslg70g799', /* Frogztrik (86) */
   'terra1gah2e0ly97uz5hg7c48an6n9r5vxexq90wwwlv4jpg3ve8yhphjqtx4dmu', /* The Amphibians (98) */
   'terra1s4zze0rhjd73qpze0hr3av7g9nsp2te0snp5kd4qe6mugtsewk6q27ah9q', /* FROGZ KAIJU (123) */
-  'terra1m70wzvlseqaxha8s62xnpzcvq0d06f4y3hdj4u2cdra0nrdezaysqymh2t', /* NEW FROG Fighters (NFROG) — Goliath Stage D, Nov 24, 2026 */
+  'terra19sqcm49qfh32lukn5yt503ql07rhu2hy6q2ccx0npqj4n2ph3gtsc6x3dc', /* NEW FROG Fighters (NFROG) — Goliath Stage D, Nov 24, 2026 */
 ];
 
 /* ================= NEW FROG metadata (Stage D) =================
@@ -8306,7 +8306,7 @@ const FFX_GOLIATH = 'terra183yjyennklj77uc47txds9mmpu6vlaecaxk66g';
    service's ffnew-config.json royaltyPct). */
 const FFMKT_ROYALTY_PCT = 7;
 const FFMKT_CONTRACTS = {
-  NFROG: 'terra1m70wzvlseqaxha8s62xnpzcvq0d06f4y3hdj4u2cdra0nrdezaysqymh2t',
+  NFROG: 'terra19sqcm49qfh32lukn5yt503ql07rhu2hy6q2ccx0npqj4n2ph3gtsc6x3dc',
   FROGZ: 'terra1pwyv50whk9xllqnyna4p5g9n0qt4nslg70g799',
   AMPH: 'terra1gah2e0ly97uz5hg7c48an6n9r5vxexq90wwwlv4jpg3ve8yhphjqtx4dmu',
   KAIJU: 'terra1s4zze0rhjd73qpze0hr3av7g9nsp2te0snp5kd4qe6mugtsewk6q27ah9q',
