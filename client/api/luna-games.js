@@ -9687,6 +9687,193 @@ export async function ldnftHandler(req, res) {
 }
 /* lunc-dev-nfts:end */
 
+/* ===== lunc-dev-tokens:start =====
+   LUNC Dev Tokens — the CW20 counterpart of LUNC Dev NFTs. A creator
+   connects their own wallet and creates a REAL CW20 token on Terra
+   Classic (columbus-5) from the canonical cw20-base code 11086
+   (cw-plus v1.1.1 — its data hash 34939b32...dade equals the official
+   release checksum; scanned across all 11,763 codes Nov 24, 2026;
+   instantiate permission Everybody). Factory tokens are created with
+   NO mint config, so supply is fixed at creation (minter query reads
+   back null — proven live with the LDTT test token). This router
+   NEVER signs or custodies: it stores uploaded logo images
+   (ldtok:img:<id>), and keeps the showcase index (ldtok:index /
+   ldtok:tok:<contract>) — a token is listed ONLY after ldtokRegister
+   verifies its instantiate tx on-chain (code 11086) and reads
+   token_info / marketing_info / minter back from the contract.
+   Reached via /api/luna-games?ldtok=1 (folded into this router for
+   the same 12-function-cap reason as every block above). */
+const LDTOK_CODE_ID = '11086';
+const LDTOK_INDEX_CAP = 200;
+const LDTOK_LIST_N = 60;
+const LDTOK_IMG_MAX = 2500000;
+const LDTOK_IMG_DAY_CAP = 300;
+const LDTOK_ADDR_RE = /^terra1[0-9a-z]{38}$/;
+const LDTOK_CONTRACT_RE = /^terra1[0-9a-z]{38}([0-9a-z]{20})?$/;
+const LDTOK_TX_RE = /^[A-Fa-f0-9]{64}$/;
+const LDTOK_IMG_ID_RE = /^LDT[A-Za-z0-9]{6,24}$/;
+const LDTOK_LCDS = ['https://api.terra-classic.hexxagon.io', 'https://terra-classic-lcd.publicnode.com'];
+const LDTOK_SITE = 'https://frg-fight-club.vercel.app';
+
+async function ldtokLcd(path) {
+  let lastErr = null;
+  for (const b of LDTOK_LCDS) {
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 9000);
+      const r = await fetch(b + path, { headers: { 'user-agent': 'ldtok/1.0' }, signal: ctl.signal });
+      clearTimeout(t);
+      if (r.ok) return await r.json();
+      lastErr = new Error('lcd http ' + r.status);
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr || new Error('lcd unavailable');
+}
+
+async function ldtokSmart(contract, msgObj) {
+  const b64 = Buffer.from(JSON.stringify(msgObj)).toString('base64');
+  const j = await ldtokLcd('/cosmwasm/wasm/v1/contract/' + contract + '/smart/' + encodeURIComponent(b64));
+  return j && j.data !== undefined ? j.data : null;
+}
+
+async function ldtokGetTok(contract) {
+  const out = await packPipeline([['GET', 'ldtok:tok:' + contract]]);
+  const raw = out && out[0] && out[0].result;
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+
+async function ldtokServeImage(req, res) {
+  const id = String((req.query && req.query.img) || '');
+  if (!LDTOK_IMG_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'bad image id' });
+  const out = await packPipeline([['GET', 'ldtok:img:' + id]]);
+  const raw = out && out[0] && out[0].result;
+  if (!raw || typeof raw !== 'string') return res.status(404).json({ ok: false, error: 'not found' });
+  const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(raw);
+  if (!m) return res.status(404).json({ ok: false, error: 'not found' });
+  const buf = Buffer.from(m[2], 'base64');
+  res.setHeader('Content-Type', m[1]);
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  return res.status(200).send(buf);
+}
+
+export async function ldtokHandler(req, res) {
+  if (!((process.env.KICKBACK_UPSTASH_URL && process.env.KICKBACK_UPSTASH_TOKEN) ||
+        (process.env.NEONRUSH_UPSTASH_URL && process.env.NEONRUSH_UPSTASH_TOKEN))) {
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+  try {
+    if (req.method === 'GET' && req.query && req.query.img !== undefined) return await ldtokServeImage(req, res);
+  } catch (e) {
+    console.error('ldtok serve failed', e && e.message);
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' });
+  res.setHeader('Cache-Control', 'no-store');
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }
+  if (!body || typeof body !== 'object') return res.status(400).json({ ok: false, error: 'bad body' });
+  const action = String(body.action || '');
+  try {
+    if (action === 'ldtokImage') {
+      const img = String(body.img || '');
+      if (img.length > LDTOK_IMG_MAX || !/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(img)) {
+        return res.status(400).json({ ok: false, error: 'bad image (jpeg/png/webp data URL, max ~2.5MB)' });
+      }
+      const dayKey = 'ldtok:imgday:' + new Date().toISOString().slice(0, 10);
+      const cnt = await packPipeline([['INCR', dayKey], ['EXPIRE', dayKey, '200000']]);
+      const n = Number(cnt && cnt[0] && cnt[0].result) || 0;
+      if (n > LDTOK_IMG_DAY_CAP) return res.status(429).json({ ok: false, error: 'daily image limit reached — try tomorrow' });
+      const id = 'LDT' + Date.now().toString(36).toUpperCase() + crypto.randomBytes(4).toString('hex').toUpperCase();
+      await packPipeline([['SET', 'ldtok:img:' + id, img]]);
+      return res.status(200).json({ ok: true, id, url: LDTOK_SITE + '/api/luna-games?ldtok=1&img=' + id });
+    }
+    if (action === 'ldtokRegister') {
+      const txhash = String(body.txhash || '').toUpperCase();
+      if (!LDTOK_TX_RE.test(txhash)) return res.status(400).json({ ok: false, error: 'bad tx hash' });
+      const tj = await ldtokLcd('/cosmos/tx/v1beta1/txs/' + txhash);
+      const tr = tj && tj.tx_response;
+      if (!tr) return res.status(404).json({ ok: false, error: 'tx not found yet' });
+      if (Number(tr.code || 0) !== 0) return res.status(400).json({ ok: false, error: 'tx failed on-chain' });
+      const msgs = (tj.tx && tj.tx.body && tj.tx.body.messages) || [];
+      const im = msgs.find((mm) => mm && String(mm['@type'] || '').endsWith('MsgInstantiateContract') && String(mm.code_id) === LDTOK_CODE_ID);
+      if (!im) return res.status(400).json({ ok: false, error: 'not a factory instantiate tx' });
+      const creator = String(im.sender || '');
+      if (!LDTOK_ADDR_RE.test(creator)) return res.status(400).json({ ok: false, error: 'bad creator' });
+      let contract = '';
+      for (const log of (tr.logs || [])) {
+        for (const ev of (log.events || [])) {
+          if (ev.type !== 'instantiate') continue;
+          for (const at of (ev.attributes || [])) {
+            if (at.key === '_contract_address') contract = String(at.value || '');
+          }
+        }
+      }
+      if (!LDTOK_CONTRACT_RE.test(contract)) return res.status(400).json({ ok: false, error: 'contract address not found in tx' });
+      const ti = await ldtokSmart(contract, { token_info: {} });
+      if (!ti || !ti.name) return res.status(400).json({ ok: false, error: 'token info unreadable' });
+      let description = '', logo = '';
+      try {
+        const mi = await ldtokSmart(contract, { marketing_info: {} });
+        if (mi) {
+          description = String(mi.description || '').slice(0, 600);
+          if (mi.logo && typeof mi.logo === 'object' && mi.logo.url) logo = String(mi.logo.url).slice(0, 500);
+        }
+      } catch (e) { /* marketing info is best-effort */ }
+      let minter = null;
+      try {
+        const mr = await ldtokSmart(contract, { minter: {} });
+        if (typeof mr === 'string' && mr) minter = mr;
+        else if (mr && typeof mr === 'object' && mr.minter) minter = String(mr.minter);
+      } catch (e) { /* no minter configured reads as null */ }
+      const existing = await ldtokGetTok(contract);
+      const rec = {
+        contract, creator,
+        name: String(ti.name).slice(0, 80), symbol: String(ti.symbol || '').slice(0, 20),
+        decimals: Number(ti.decimals) || 0,
+        totalSupply: String(ti.total_supply || '0'),
+        description, logo, minter,
+        ts: existing ? existing.ts : Date.now(),
+      };
+      if (existing) {
+        await packPipeline([['SET', 'ldtok:tok:' + contract, JSON.stringify(rec)]]);
+        return res.status(200).json({ ok: true, already: true, token: rec });
+      }
+      await packPipeline([
+        ['SET', 'ldtok:tok:' + contract, JSON.stringify(rec)],
+        ['LPUSH', 'ldtok:index', contract],
+        ['LTRIM', 'ldtok:index', '0', String(LDTOK_INDEX_CAP - 1)],
+      ]);
+      return res.status(200).json({ ok: true, token: rec });
+    }
+    if (action === 'ldtokList' || action === 'ldtokMine') {
+      let creator = null;
+      if (action === 'ldtokMine') {
+        creator = String(body.creator || '');
+        if (!LDTOK_ADDR_RE.test(creator)) return res.status(400).json({ ok: false, error: 'bad creator' });
+      }
+      const n = action === 'ldtokMine' ? LDTOK_INDEX_CAP : LDTOK_LIST_N;
+      const out = await packPipeline([['LRANGE', 'ldtok:index', '0', String(n - 1)]]);
+      const ids = (out && out[0] && out[0].result) || [];
+      const tokens = [];
+      for (const id of ids) {
+        const r = await ldtokGetTok(id);
+        if (!r) continue;
+        if (creator && r.creator !== creator) continue;
+        tokens.push(r);
+        if (action === 'ldtokList' && tokens.length >= LDTOK_LIST_N) break;
+      }
+      return res.status(200).json({ ok: true, tokens });
+    }
+    return res.status(400).json({ ok: false, error: 'unknown action' });
+  } catch (e) {
+    console.error('ldtok action failed', action, e && e.message);
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+}
+/* lunc-dev-tokens:end */
+
 export default async function handler(req, res) {
   /* Wallet Scope counter: /api/scope-count is rewritten to
      /api/luna-games?scope=1 (see the wallet-scope block above). Runs
@@ -9806,6 +9993,7 @@ export default async function handler(req, res) {
      directly (see the lunc-dev-nfts block above). Image + metadata
      serving, and the on-chain-verified showcase index. */
   if (req.query && req.query.ldnft !== undefined) return ldnftHandler(req, res);
+  if (req.query && req.query.ldtok !== undefined) return ldtokHandler(req, res);
   const game = String((req.query && req.query.game) || '');
   let cfg = GAMES[game];
   if (!cfg) return res.status(400).json({ error: 'unknown game' });
