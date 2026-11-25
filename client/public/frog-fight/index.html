@@ -242,6 +242,7 @@ input[type=text]:focus{outline:none;border-color:var(--emer);box-shadow:0 0 0 3p
     <div class="topTitle"><b>FROG FIGHT 1v1</b><small>FROGZTRIK · POND DOJO</small></div>
     <div class="livesPill" id="fflPill" title="1 life = 1 full run — all 7 rivals, King included">❤️ <span id="fflCount">50</span><small data-i="fflLives">LIVES</small></div>
     <select id="langSel" aria-label="Language"></select>
+    <button id="sndBtn" class="menuBtn" type="button" aria-label="Sound on — tap to mute">🔊</button>
     <button id="menuBtn" class="menuBtn" type="button" aria-label="Menu">☰ <span data-i="menuBtn">MENU</span></button>
   </div>
 
@@ -584,6 +585,124 @@ input[type=text]:focus{outline:none;border-color:var(--emer);box-shadow:0 0 0 3p
     <button class="ghostBtn" id="overMenuBtn" data-i="backMenu">Back to menu</button>
   </div>
 </div>
+
+<script>
+/* ================= SOUND ENGINE (Goliath GG-E06241, Nov 25, 2026) =================
+   "Quiero poner sonido al juego también. Y a los combates" — a tiny
+   WebAudio synth: every effect is oscillators + filtered noise, NO
+   audio files, nothing to download. Sound is ON by default at a
+   modest volume; the 🔊/🔇 button in the topbar flips it and the
+   choice persists in localStorage ('ff_sound'). The AudioContext
+   is created/resumed only after the first user gesture (browser
+   autoplay rules), so nothing ever plays uninvited. Every method
+   no-ops safely when sound is off or WebAudio is unavailable. */
+var FFSnd = (function(){
+  'use strict';
+  var on = true, ctx = null, master = null, noiseBuf = null;
+  var lastPlay = {}; /* per-sound throttle, so rapid hits never stack into mud */
+  try { on = localStorage.getItem('ff_sound') !== '0'; } catch (e) {}
+  function ac(){
+    if (!on) return null;
+    if (!ctx){
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      try { ctx = new AC(); } catch (e) { return null; }
+      master = ctx.createGain(); master.gain.value = 0.5; master.connect(ctx.destination);
+      var len = Math.floor(ctx.sampleRate * 0.5), buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+      for (var i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      noiseBuf = buf;
+    }
+    if (ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  }
+  function gate(name, ms){
+    var n = performance.now();
+    if (lastPlay[name] && n - lastPlay[name] < ms) return false;
+    lastPlay[name] = n; return true;
+  }
+  /* one oscillator note: type, freq (number or [from,to] sweep), dur, gain, delay */
+  function tone(type, freq, dur, gain, delay){
+    var c = ac(); if (!c) return;
+    var t0 = c.currentTime + (delay || 0);
+    var o = c.createOscillator(), g = c.createGain();
+    o.type = type;
+    if (Array.isArray(freq)){ o.frequency.setValueAtTime(freq[0], t0); o.frequency.exponentialRampToValueAtTime(Math.max(1, freq[1]), t0 + dur); }
+    else o.frequency.setValueAtTime(freq, t0);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(gain, t0 + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(master); o.start(t0); o.stop(t0 + dur + 0.05);
+  }
+  /* one filtered noise burst: filter type, freq (number or [from,to]), dur, gain, delay, Q */
+  function noise(type, freq, dur, gain, delay, q){
+    var c = ac(); if (!c) return;
+    var t0 = c.currentTime + (delay || 0);
+    var src = c.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+    var f = c.createBiquadFilter(); f.type = type; f.Q.value = q || 0.9;
+    if (Array.isArray(freq)){ f.frequency.setValueAtTime(freq[0], t0); f.frequency.exponentialRampToValueAtTime(Math.max(10, freq[1]), t0 + dur); }
+    else f.frequency.setValueAtTime(freq, t0);
+    var g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(gain, t0 + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    src.connect(f); f.connect(g); g.connect(master); src.start(t0); src.stop(t0 + dur + 0.05);
+  }
+  var api = {
+    click: function(){ if (gate('click', 40)) tone('square', 660, 0.05, 0.10); },
+    open:  function(){ tone('sine', [300, 540], 0.10, 0.16); },
+    close: function(){ tone('sine', [540, 300], 0.10, 0.14); },
+    coin:  function(){ if (!gate('coin', 120)) return; tone('sine', 988, 0.09, 0.20); tone('sine', 1319, 0.22, 0.20, 0.08); },
+    miss:  function(){ if (gate('miss', 60)) noise('bandpass', [500, 1900], 0.16, 0.20, 0, 1.4); },
+    block: function(){ if (!gate('block', 50)) return; tone('triangle', 1180, 0.07, 0.22); noise('highpass', 3200, 0.05, 0.10); },
+    hit:   function(kind){
+      if (!gate('hit', 45)) return;
+      if (kind === 'special'){ noise('lowpass', 900, 0.22, 0.50); tone('square', [220, 55], 0.24, 0.34); noise('bandpass', [300, 2400], 0.18, 0.16, 0, 1.2); }
+      else if (kind === 'kick'){ noise('lowpass', 650, 0.16, 0.44); tone('square', [170, 60], 0.17, 0.30); }
+      else { noise('lowpass', 800, 0.12, 0.38); tone('square', [200, 75], 0.12, 0.26); }
+    },
+    king:  function(){ if (!gate('king', 300)) return; tone('sawtooth', [130, 52], 0.38, 0.30); tone('sawtooth', [98, 41], 0.38, 0.22, 0.03); noise('lowpass', 300, 0.34, 0.20); },
+    ko:    function(){ noise('lowpass', 1100, 0.40, 0.50); tone('square', [320, 38], 0.50, 0.36); tone('sine', 65, 0.50, 0.40, 0.02); },
+    bell:  function(){ tone('triangle', 1568, 0.50, 0.20); tone('triangle', 1568, 0.70, 0.20, 0.22); },
+    roundWin:  function(){ tone('triangle', 784, 0.10, 0.20); tone('triangle', 1047, 0.16, 0.20, 0.09); },
+    roundLose: function(){ tone('triangle', 392, 0.12, 0.18); tone('triangle', 311, 0.18, 0.18, 0.10); },
+    win:   function(){ if (!gate('win', 200)) return; [523, 659, 784, 1047].forEach(function(f, i){ tone('triangle', f, 0.16, 0.22, i * 0.11); }); tone('triangle', 1319, 0.30, 0.20, 0.46); },
+    lose:  function(){ if (!gate('lose', 200)) return; [392, 330, 262, 196].forEach(function(f, i){ tone('sawtooth', f, 0.20, 0.12, i * 0.15); }); },
+    isOn:  function(){ return on; },
+    toggle: function(){
+      on = !on;
+      try { localStorage.setItem('ff_sound', on ? '1' : '0'); } catch (e) {}
+      paint();
+      if (on) api.click();
+      return on;
+    }
+  };
+  function paint(){
+    var b = document.getElementById('sndBtn');
+    if (b){ b.textContent = on ? '🔊' : '🔇'; b.setAttribute('aria-label', on ? 'Sound on — tap to mute' : 'Sound off — tap to unmute'); }
+  }
+  function wire(){
+    paint();
+    var b = document.getElementById('sndBtn');
+    if (b) b.addEventListener('click', function(ev){ ev.stopPropagation(); api.toggle(); });
+    /* first gesture unlocks the AudioContext (browser autoplay policy) */
+    var unlock = function(){ ac(); };
+    document.addEventListener('pointerdown', unlock);
+    document.addEventListener('keydown', unlock);
+    /* soft UI click for the menu screen, the ☰ menu panel and the
+       game-over screen (dynamically rendered buttons included).
+       Fight controls live in #scrGame and stay out of this — their
+       sounds come from the fight itself. #menuBtn has its own
+       open/close sounds, #sndBtn its toggle blip. */
+    document.addEventListener('click', function(ev){
+      var el = ev.target && ev.target.closest ? ev.target.closest('button, select') : null;
+      if (!el || el.id === 'sndBtn' || el.id === 'menuBtn') return;
+      if (el.closest('#scrMenu, #menuPanel, #scrOver')) api.click();
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire); else wire();
+  return api;
+})();
+</script>
 
 <script>
 'use strict';
@@ -1724,6 +1843,7 @@ function endRound(winner){ /* winner: 'p' | 'r' | 'draw' */
   if (winner === 'r' && G.r.state !== 'ko'){ G.r.state = 'win'; G.r.tState = 0; }
   G.phase = 'roundEnd'; G.phaseT = 0;
   if (winner !== 'draw') banner('', winner === 'p' ? t('youWinRound') : t('rivalWinRound'), true);
+  if (winner === 'p') FFSnd.roundWin(); else if (winner === 'r') FFSnd.roundLose();
   updateHud();
 }
 function endMatch(playerWon){
@@ -1737,7 +1857,7 @@ function endMatch(playerWon){
   /* LUNC rewards: credit this match server-side (NFT holders only;
      the router recomputes the amount and verifies ownership). */
   if (window.__ffrCreditMatch) window.__ffrCreditMatch(playerWon);
-  if (playerWon){ G.score += 1000 + G.rivalIdx * 500 + Math.ceil(G.p.hp) * 5; G.p.state = 'win'; G.p.tState = 0;
+  if (playerWon){ FFSnd.win(); G.score += 1000 + G.rivalIdx * 500 + Math.ceil(G.p.hp) * 5; G.p.state = 'win'; G.p.tState = 0;
     if (G.rivalIdx === RIVALS.length - 1){
       /* WIN SIGN (Goliath, Nov 23, 2026): "You win +X LUNC". Under
          the King rule the ONLY real LUNC credit in a run lands at
@@ -1757,6 +1877,7 @@ function endMatch(playerWon){
 }
 function endRun(champion){
   G.phase = 'over';
+  if (champion) FFSnd.coin(); else FFSnd.lose(); /* champion = the King's bounty moment; a knockout gets the sting */
   if (champion) G.score += 5000;
   showScreen('over');
   $('overArt').textContent = champion ? '👑' : '💫';
@@ -1807,7 +1928,7 @@ function resolveHit(att, def, kind){
   const A = ATK[kind];
   const dist = Math.abs(def.x - att.x);
   const cx = def.x - def.face * 6, cy = FLOOR - 74;
-  if (dist > A.reach){ spawnText(att.x + att.face * 60, FLOOR - 120, '💨', '#ffffff', 17); return; }
+  if (dist > A.reach){ FFSnd.miss(); spawnText(att.x + att.face * 60, FLOOR - 120, '💨', '#ffffff', 17); return; }
   const blocked = def.state === 'block';
   let dmg = blocked ? (kind === 'special' ? 6 : kind === 'kick' ? 2 : 1) : Math.round(A.dmg * att.dmgMul);
   /* FFB boosts: ATK scales the player's damage, DEF softens unblocked hits taken */
@@ -1822,10 +1943,13 @@ function resolveHit(att, def, kind){
   def.vx = att.face * A.kb * (blocked ? 0.35 : 1);
   crowdExcite = 1;
   if (blocked){
+    FFSnd.block();
     spawnBurst(cx, cy, 7, ['#aee6ff', '#ffffff', '#ffd76e'], 0.7);
     spawnText(cx, cy - 26, '🛡 ' + dmg, '#aee6ff', 16);
     G.shake = Math.max(G.shake, 2);
   } else {
+    FFSnd.hit(kind);
+    if (ladderChar(G.rivalIdx) === RIVALS.length - 1) FFSnd.king(); /* the King's fight sounds BIG */
     def.state = 'hurt'; def.tState = 0; def.hitDone = true; def.flash = 0.28;
     spawnBurst(cx, cy, kind === 'special' ? 24 : 14, ['#ffd76e', '#ff9d2e', '#ffffff', '#ff5c39', '#17d67c', '#b26bff'], kind === 'special' ? 1.5 : 1);
     spawnText(cx, cy - 30, '-' + dmg, kind === 'special' ? '#ff5c39' : '#fff3b0', kind === 'special' ? 30 : 22);
@@ -1836,6 +1960,7 @@ function resolveHit(att, def, kind){
     def.state = 'ko'; def.tState = 0; def.vx = att.face * 300;
     spawnBurst(def.x, FLOOR - 60, 42, ['#ffd76e', '#ffffff', '#ff9d2e', '#17d67c', '#b26bff'], 1.9);
     G.shake = 12; G.hitstop = 0.14; crowdExcite = 1;
+    FFSnd.ko();
     banner(t('ko'), '', true);
     G.phase = 'ko'; G.phaseT = 0;
   }
@@ -1942,7 +2067,7 @@ function loop(ts){
       if (G.hitstop > 0){ G.hitstop -= dt; }
       else if (G.phase === 'intro'){
         G.phaseT += dt;
-        if (G.phaseT > 0.95 && G.introStage === 0){ G.introStage = 1; banner(t('fightWord'), '', true); }
+        if (G.phaseT > 0.95 && G.introStage === 0){ G.introStage = 1; FFSnd.bell(); banner(t('fightWord'), '', true); }
         if (G.phaseT > 1.5){ G.phase = 'fight'; banner('', '', false); }
       } else if (G.phase === 'fight'){
         G.time += dt; G.runTime += dt; G.timer -= dt;
@@ -3505,7 +3630,7 @@ async function ffrWithdraw(){
   ffrBusy = true; ffrRender();
   try {
     const d = await ffrPost({ action: 'ffrWithdraw', wallet: ownedAddr });
-    if (!d || !d.ok) ffrMsg = (d && d.error) || 'error';
+    if (!d || !d.ok) ffrMsg = (d && d.error) || 'error'; else FFSnd.coin(); /* withdrawal requested — reward chime */
   } catch (e) { ffrMsg = String((e && e.message) || e); }
   ffrBusy = false;
   await ffrRefresh();
@@ -3783,7 +3908,7 @@ fflRefresh();
   move('walletCard', 'msecWallet'); move('ffbCard', 'msecWallet');
   move('ffbEventsCard', 'msecEvents'); /* prize chest card -> Events tab (Goliath, Nov 22, 2026) */
   var panel = byId('menuPanel'), btn = byId('menuBtn');
-  if (btn && panel) btn.addEventListener('click', function(){ panel.classList.toggle('hidden'); });
+  if (btn && panel) btn.addEventListener('click', function(){ panel.classList.toggle('hidden'); if (panel.classList.contains('hidden')) FFSnd.close(); else FFSnd.open(); });
   var fightBtn = byId('fightBtn');
   if (fightBtn && panel) fightBtn.addEventListener('click', function(){ panel.classList.add('hidden'); });
   var tabs = document.querySelectorAll('.menuTab');
