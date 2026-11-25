@@ -28,7 +28,7 @@
      - LUNCDash (legacy WC v1): AMINO ONLY. The wallet speaks
        terra_signAmino (the Garuda DEX __dexDashSign flow), so the
        adapter decodes the page's TxBody/AuthInfo protobuf into a
-       StdSignDoc (CosmJS 0.33 wasm amino converters, mirrored
+       StdSignDoc (CosmJS 0.33 amino converters — wasm + bank send — mirrored
        field-for-field), has LUNCDash sign it, then reassembles
        body/authInfo from the RETURNED signed doc with
        SIGN_MODE_LEGACY_AMINO_JSON — exactly what CosmJS does with
@@ -96,8 +96,9 @@ var wkIsMobileUA = /Android|webOS|iPhone|iPad|iPod/i.test(navigator.userAgent ||
 /* =====================================================================
    Tiny protobuf codec + the LUNCDash amino bridge.
    The pages build TxBody/AuthInfo with their own writer; this is
-   the mirror reader/writer the amino path needs. Only the two wasm
-   message types these pages ever send are convertible — anything
+   the mirror reader/writer the amino path needs. Only the three
+   message types these pages ever send are convertible (wasm
+   instantiate/execute + bank MsgSend, the creation fee) — anything
    else throws, honestly, instead of signing a wrong doc.
    ===================================================================== */
 function pbVarintRead(buf, pos){
@@ -195,9 +196,31 @@ function wasmExecuteFromAmino(value){
   (value.funds || []).forEach(function(c){ parts = parts.concat(pbFieldBytes(4, pbSlice(pbCoinToProto(c)))); });
   return pbU8(parts);
 }
+
+/* MsgSend{from_address=1, to_address=2, amount=3{Coin{denom=1, amount=2}}} —
+   the factories' creation fee rides as the first message of every
+   create tx, so the amino path must carry it too (CosmJS amino type
+   cosmos-sdk/MsgSend, mirrored field-for-field). */
+function bankSendToAmino(valueBytes){
+  var f = pbReadFields(valueBytes);
+  var amount = pbFields(f, 3).map(function(x){ return pbCoinFromProto(x.bytes); });
+  return { type: "cosmos-sdk/MsgSend", value: {
+    from_address: pbStrField(f, 1),
+    to_address: pbStrField(f, 2),
+    amount: amount
+  } };
+}
+function bankSendFromAmino(value){
+  var parts = [].concat(
+    pbFieldStr(1, value.from_address),
+    pbFieldStr(2, value.to_address));
+  (value.amount || []).forEach(function(c){ parts = parts.concat(pbFieldBytes(3, pbSlice(pbCoinToProto(c)))); });
+  return pbU8(parts);
+}
 var AMINO_CONVERTERS = {
-  "/cosmwasm.wasm.v1.MsgInstantiateContract": { toAmino: wasmInstantiateToAmino, fromAmino: wasmInstantiateFromAmino },
-  "/cosmwasm.wasm.v1.MsgExecuteContract": { toAmino: wasmExecuteToAmino, fromAmino: wasmExecuteFromAmino }
+  "/cosmwasm.wasm.v1.MsgInstantiateContract": { aminoType: "wasm/MsgInstantiateContract", toAmino: wasmInstantiateToAmino, fromAmino: wasmInstantiateFromAmino },
+  "/cosmwasm.wasm.v1.MsgExecuteContract": { aminoType: "wasm/MsgExecuteContract", toAmino: wasmExecuteToAmino, fromAmino: wasmExecuteFromAmino },
+  "/cosmos.bank.v1beta1.MsgSend": { aminoType: "cosmos-sdk/MsgSend", toAmino: bankSendToAmino, fromAmino: bankSendFromAmino }
 };
 function anyToAmino(anyBytes){
   var f = pbReadFields(anyBytes);
@@ -209,8 +232,7 @@ function anyToAmino(anyBytes){
 function anyFromAmino(aminoMsg){
   for (var url in AMINO_CONVERTERS){
     var conv = AMINO_CONVERTERS[url];
-    var probe = { "/cosmwasm.wasm.v1.MsgInstantiateContract": "wasm/MsgInstantiateContract", "/cosmwasm.wasm.v1.MsgExecuteContract": "wasm/MsgExecuteContract" }[url];
-    if (probe === aminoMsg.type){
+    if (conv.aminoType === aminoMsg.type){
       var valueBytes = conv.fromAmino(aminoMsg.value);
       return pbU8([].concat(pbFieldStr(1, url), pbFieldBytes(2, pbSlice(valueBytes))));
     }

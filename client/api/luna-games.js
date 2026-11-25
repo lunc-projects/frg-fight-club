@@ -9426,6 +9426,28 @@ const LDNFT_IMG_ID_RE = /^LDN[A-Za-z0-9]{6,24}$/;
 const LDNFT_LCDS = ['https://api.terra-classic.hexxagon.io', 'https://terra-classic-lcd.publicnode.com'];
 const LDNFT_SITE = 'https://frg-fight-club.vercel.app';
 
+/* ===== creation fee (both factories) =====
+   Tom's ruling (Nov 24, 2026): creating a collection or a token costs
+   a 100,000 LUNC creation fee. The fee rides INSIDE the create tx as a
+   bank MsgSend from the creator to Tom's personal wallet, so a failed
+   create never pays it. NEW showcase registrations must prove the fee
+   in the same tx; already-registered refresh paths stay fee-free. */
+const FACTORY_FEE_WALLET = 'terra1kur3cr4vask4lgs3tr4gww7lr0zvc944gjfcqc';
+const FACTORY_FEE_MIN_ULUNA = 100000000000n; /* 100,000 LUNC */
+function factoryFeePaidUluna(msgs, from) {
+  let total = 0n;
+  for (const m of (msgs || [])) {
+    if (!m || String(m['@type'] || '') !== '/cosmos.bank.v1beta1.MsgSend') continue;
+    if (String(m.from_address || '') !== String(from || '')) continue;
+    if (String(m.to_address || '') !== FACTORY_FEE_WALLET) continue;
+    for (const c of (m.amount || [])) {
+      if (String(c.denom || '') !== 'uluna') continue;
+      try { total += BigInt(String(c.amount || '0')); } catch (e) { /* malformed coin: ignore */ }
+    }
+  }
+  return total;
+}
+
 async function ldnftLcd(path) {
   let lastErr = null;
   for (const b of LDNFT_LCDS) {
@@ -9598,6 +9620,10 @@ export async function ldnftHandler(req, res) {
         });
         await packPipeline([['SET', 'ldnft:col:' + contract, JSON.stringify(merged)]]);
         return res.status(200).json({ ok: true, already: true, collection: merged });
+      }
+      /* NEW registrations only: the same tx must carry the creation fee. */
+      if (factoryFeePaidUluna(msgs, creator) < FACTORY_FEE_MIN_ULUNA) {
+        return res.status(400).json({ ok: false, error: 'creation fee not found in tx' });
       }
       let cap = null;
       if (body.cap != null && body.cap !== '') {
@@ -9839,6 +9865,10 @@ export async function ldtokHandler(req, res) {
       if (existing) {
         await packPipeline([['SET', 'ldtok:tok:' + contract, JSON.stringify(rec)]]);
         return res.status(200).json({ ok: true, already: true, token: rec });
+      }
+      /* NEW registrations only: the same tx must carry the creation fee. */
+      if (factoryFeePaidUluna(msgs, creator) < FACTORY_FEE_MIN_ULUNA) {
+        return res.status(400).json({ ok: false, error: 'creation fee not found in tx' });
       }
       await packPipeline([
         ['SET', 'ldtok:tok:' + contract, JSON.stringify(rec)],
