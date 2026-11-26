@@ -9742,12 +9742,14 @@ export async function hyHandler(req, res) {
       /* Optional deliverables (Tom's rule, Nov 26, 2026 — the work
          lands INSIDE the requesting page): media = a finished video
          hosted on this site under /request-media/<ID>.mp4 (his page
-         renders a player); post = a post draft (his page renders it
-         in its own box with a one-tap Copy button). Empty clears. */
+         renders a player) OR a finished image under the same path
+         as .png/.jpg/.webp (his page renders it inline); post = a
+         post draft (his page renders it in its own box with a
+         one-tap Copy button). Empty clears. */
       let media;
       if (body.media !== undefined) {
         const m = String(body.media || '').trim().slice(0, 200);
-        if (m && !/^\/request-media\/[A-Za-z0-9._-]+\.mp4$/.test(m)) return res.status(400).json({ ok: false, error: 'bad media' });
+        if (m && !/^\/request-media\/[A-Za-z0-9._-]+\.(mp4|png|jpg|webp)$/.test(m)) return res.status(400).json({ ok: false, error: 'bad media' });
         media = m || null;
       }
       let post;
