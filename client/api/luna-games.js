@@ -9818,11 +9818,18 @@ export async function hyHandler(req, res) {
      draft for the page's copy-button box.
    - gaList / gaReply / gaImage {secret, …} — gated by the SAME
      sdRunnerOk verify as the sd block (the lunc-pack runner gate).
-     gaImage returns one request's stored photo for Muse's helper. */
+     gaImage returns one request's stored photo for Muse's helper.
+   - DAILY CAP (Tom, Nov 26, 2026): a gaSubmit whose text is the
+     exact fixed Quick Post line is limited to ONE per person per
+     America/New_York day, claimed atomically (SET NX) on
+     ga:qp:<day>:<sha256(visitor-token)> before the record is
+     written; a second one gets HTTP 429 {cap:true}. Video and Ask
+     submits are NOT capped. */
 const GA_INDEX_CAP = 50;
 const GA_LIST_N = 20;
 const GA_ID_RE = /^GA-[A-Za-z0-9]{6}$/;
 const GA_IMG_MAX = 2500000; /* data-URL chars, incl. the prefix */
+const GA_QUICK_POST_TEXT = "QUICK POST — Garuda X post"; /* exact fixed line the page Quick Post button submits */
 
 async function gaGetReq(id) {
   const out = await packPipeline([['GET', 'ga:req:' + id]]);
@@ -9866,6 +9873,40 @@ export async function gaHandler(req, res) {
         return res.status(400).json({ ok: false, error: 'text must be 3-2000 chars' });
       }
       const lang = String(body.lang || 'en').slice(0, 5);
+      /* DAILY CAP — Quick Posts only (Tom's ruling, Nov 26, 2026):
+         ONE Quick Post per person per America/New_York calendar day,
+         enforced HERE on the server; the page's own state is never
+         the enforcement. Every ga request type shares this one submit
+         path, and the cap triggers ONLY when the submitted text is
+         the exact fixed Quick Post line — Video and free-text Ask
+         requests stay uncapped. "A person" is the page's per-browser
+         visitor token (body.vid, persisted in the page's localStorage
+         alongside its request list — the page collects no name,
+         handle or wallet); only a sha256 of it is ever stored. A
+         missing/invalid vid (an old cached page) falls back to the
+         client-IP hash, and with no IP either, one shared anon
+         bucket. The claim is a SET NX on ga:qp:<ET-day>:<idhash>,
+         so two taps in the same second cannot both slip through.
+         The claim is burned even if the record write below then
+         fails — a store hiccup costs that visitor today's post,
+         never a duplicate. */
+      if (text === GA_QUICK_POST_TEXT) {
+        let idSrc = '';
+        const vid = String(body.vid || '');
+        if (/^[A-Za-z0-9-]{8,64}$/.test(vid)) idSrc = 'v:' + vid;
+        if (!idSrc) {
+          const xff = String((req.headers && req.headers['x-forwarded-for']) || '').split(',')[0].trim();
+          if (xff) idSrc = 'i:' + xff;
+        }
+        if (!idSrc) idSrc = 'anon';
+        const idHash = crypto.createHash('sha256').update(idSrc).digest('hex').slice(0, 32);
+        const dp = {};
+        for (const part of new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date())) dp[part.type] = part.value;
+        const claim = await packPipeline([['SET', 'ga:qp:' + dp.year + '-' + dp.month + '-' + dp.day + ':' + idHash, '1', 'NX', 'EX', '129600']]);
+        if (!claim || !claim[0] || claim[0].result !== 'OK') {
+          return res.status(429).json({ ok: false, cap: true, error: 'daily cap: one Quick Post per day — come back tomorrow' });
+        }
+      }
       const id = 'GA-' + (Date.now().toString(36) + crypto.randomBytes(3).toString('hex')).toUpperCase().slice(-6);
       const rec = { id, text, lang, ts: Date.now(), status: 'new', reply: null, stage: 'received', link: null, hasImg: !!img, media: null, post: null };
       const cmds = [

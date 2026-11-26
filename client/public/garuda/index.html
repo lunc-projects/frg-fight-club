@@ -241,6 +241,20 @@ function TB(key){
 var QUICK_POST_TEXT = "QUICK POST — Garuda X post";
 var VIDEO_TEXT = "VIDEO — Garuda promo video";
 
+/* Daily-cap message (Nov 26, 2026 — Tom's ruling: ONE Quick Post
+   per person per day). The cap itself is enforced ON THE SERVER;
+   this is only the plain wording the page shows when the server
+   refuses a second Quick Post. English and Spanish in full; the
+   other languages fall back to English for this line only. */
+var CAP_STR = {
+es:{cap:"Ya usaste tu Post rápido de hoy — vuelve mañana para otro."},
+en:{cap:"You've already used today's Quick Post — come back tomorrow for another."}
+};
+function TC(key){
+  var p = CAP_STR[langSel.value] || CAP_STR.en;
+  return p[key] || CAP_STR.en[key] || key;
+}
+
 /* "Being worked on" timer strings (Nov 26, 2026) — English and
    Spanish in full; other languages fall back to English for these
    lines only. The timer counts UP from the server-stamped start
@@ -369,7 +383,26 @@ langSel.addEventListener("change", applyLang);
   if(saved && I18N[saved]) langSel.value = saved;
 })();
 
+/* Per-browser visitor token: generated once and kept in
+   localStorage next to this page's request list. It is the only
+   identity this page has (no name, handle or wallet is ever
+   collected); gaSubmit carries it so the server can enforce the
+   one-Quick-Post-per-day cap per person. */
+function visitorId(){
+  try {
+    var v = localStorage.getItem("ga:vid");
+    if(v && /^[A-Za-z0-9-]{8,64}$/.test(v)) return v;
+    v = "v" + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+    localStorage.setItem("ga:vid", v);
+    return v;
+  } catch(e){ return ""; }
+}
+
 function gaPost(body){
+  if(body && body.action === "gaSubmit" && !body.vid){
+    var vid = visitorId();
+    if(vid) body.vid = vid;
+  }
   return fetch(API, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -592,7 +625,9 @@ document.getElementById("sendBtn").addEventListener("click", function(){
   if(img) body.img = img;
   gaPost(body).then(function(r){
     if(!r.j || !r.j.ok || !r.j.id){
-      if(r.j && r.j.error && String(r.j.error).indexOf("image") >= 0){
+      if(r.j && r.j.cap){
+        setSendLine(TC("cap"), "bad");
+      } else if(r.j && r.j.error && String(r.j.error).indexOf("image") >= 0){
         setSendLine(TP("tooBig"), "bad");
       } else {
         setSendLine(T().couldnt, "bad");
@@ -624,7 +659,8 @@ function quickSubmit(text){
   setQuickLine(T().sending, "");
   gaPost({ action: "gaSubmit", text: text, lang: langSel.value }).then(function(r){
     if(!r.j || !r.j.ok || !r.j.id){
-      setQuickLine(T().couldnt, "bad");
+      if(r.j && r.j.cap) setQuickLine(TC("cap"), "bad");
+      else setQuickLine(T().couldnt, "bad");
       return;
     }
     myReqs.unshift({ id: r.j.id, text: text, ts: Date.now(), hasImg: false });
