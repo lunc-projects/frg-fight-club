@@ -10034,6 +10034,339 @@ export async function gaHandler(req, res) {
 }
 /* garuda-page:end */
 
+/* poster-page:start — PROJECT POSTER REQUEST PAGE
+   (client/public/poster/). Tom's order Nov 26, 2026: the Garuda
+   community page generalized into a PROJECT POSTER — anybody can
+   request promo material for THEIR OWN project (a Quick Post, a
+   Video or an Image). Same request-queue architecture as the ga
+   family: nothing generates or posts by itself; every request
+   lands in the pp queue for a person to read first. Reached via
+   /api/luna-games?pp=1 (folded into this router for the same
+   12-function-cap reason). Records live in the KICKBACK Upstash
+   store under their OWN namespace: pp:req:<id> (JSON record) and
+   pp:index (newest-first id list, trimmed to PP_INDEX_CAP).
+   The page sends STRUCTURED fields {kind, project, details, link}
+   and the canonical request text is composed HERE on the server
+   ("QUICK POST — <project>" / "VIDEO — <project>" / "IMAGE —
+   <project>", plus the link and details lines), so a queue item
+   is always self-contained and the request type is authoritative
+   server-side. The composed text rides back in the submit
+   response so the page's own list shows exactly what was queued.
+   Actions:
+   - ppSubmit {kind, project, details?, link?, code?, lang, img?,
+     vid?} — PUBLIC by design and grants NOTHING beyond dropping
+     the request into the inbox with status "new", subject to the
+     three server-side controls below. The optional img is ONE
+     client-downscaled JPEG data URL (max PP_IMG_MAX chars),
+     stored under pp:img:<id>; the record carries only hasImg.
+   - ppStatus {id, img?} — public read of ONE request's {status,
+     reply, stage, link, hasImg, etaMin, buildingSince, media,
+     post} only; the full image ships ONLY on an explicit img:1.
+   - ppList / ppReply / ppImage {secret, …} — gated by the SAME
+     sdRunnerOk verify as the sd block (the lunc-pack runner gate).
+   - ppAmbList / ppAmbSet {secret, …} — gated management of the
+     ambassador code list (see control 2). ppAmbList returns only
+     COUNTS (codes are never listed, hashed or otherwise); ppAmbSet
+     {op:'add'|'del', code} hashes the supplied code server-side.
+   ANTI-ABUSE + COST CONTROLS (Tom, Nov 26, 2026 — all enforced
+   HERE on the server; the page's own state is never enforcement):
+   1. PER-PERSON DAILY CAP: ONE pp request per person per
+      America/New_York day across ALL types (Quick Post, Video,
+      Image and photo submits alike) — an atomic SET NX claim on
+      pp:cap:<ET-day>:<sha256(visitor-token)>, with the ga
+      fallbacks (vid -> client-IP hash -> one shared anon bucket).
+      A second request gets HTTP 429 {cap:true}.
+   2. AMBASSADOR GATE for the expensive types: a Video or Image
+      submit must carry a code whose sha256 is in pp:ambcodes (a
+      JSON array of sha256 hashes in the store; plaintext codes
+      are never stored, logged or returned). No valid code ->
+      HTTP 403 {amb:true}. Quick Post stays open to everyone
+      (still daily-capped). Codes are managed ONLY through the
+      gated ppAmbSet action (the pp.mjs helper's ambadd/ambdel).
+   3. GLOBAL DAILY CEILING: at most PP_GLOBAL_DAY_CAP accepted
+      pp requests per ET day across everyone — an atomic INCR on
+      pp:gcap:<ET-day> in the submit path; past the ceiling the
+      increment is rolled back and the submit is refused with
+      HTTP 429 {full:true}. A submit later refused by the
+      per-person cap also rolls its increment back, so the
+      counter always equals the day's ACCEPTED requests.
+   Check order: field validation -> ambassador gate (touches no
+   counters) -> global ceiling -> per-person cap -> record write.
+   A cap claim burned by a later store failure costs that visitor
+   today's request, never a duplicate (the ga philosophy). */
+const PP_INDEX_CAP = 50;
+const PP_LIST_N = 20;
+const PP_ID_RE = /^PP-[A-Za-z0-9]{6}$/;
+const PP_IMG_MAX = 2500000; /* data-URL chars, incl. the prefix */
+const PP_GLOBAL_DAY_CAP = 25; /* max accepted pp requests per ET day, everyone combined */
+const PP_PROJECT_MAX = 60;
+const PP_DETAILS_MAX = 1400;
+const PP_LINK_MAX = 300;
+const PP_KINDS = ['quick', 'video', 'image'];
+
+function ppEtDay() {
+  const dp = {};
+  for (const part of new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date())) dp[part.type] = part.value;
+  return dp.year + '-' + dp.month + '-' + dp.day;
+}
+
+async function ppGetReq(id) {
+  const out = await packPipeline([['GET', 'pp:req:' + id]]);
+  const raw = out && out[0] && out[0].result;
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+
+async function ppGetImg(id) {
+  const out = await packPipeline([['GET', 'pp:img:' + id]]);
+  const raw = out && out[0] && out[0].result;
+  return typeof raw === 'string' && raw ? raw : null;
+}
+
+async function ppGetAmbHashes() {
+  const out = await packPipeline([['GET', 'pp:ambcodes']]);
+  const raw = out && out[0] && out[0].result;
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((h) => /^[a-f0-9]{64}$/.test(h)) : [];
+  } catch (e) { return []; }
+}
+
+export async function ppHandler(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' });
+  if (!((process.env.KICKBACK_UPSTASH_URL && process.env.KICKBACK_UPSTASH_TOKEN) ||
+        (process.env.NEONRUSH_UPSTASH_URL && process.env.NEONRUSH_UPSTASH_TOKEN))) {
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }
+  if (!body || typeof body !== 'object') return res.status(400).json({ ok: false, error: 'bad body' });
+  const action = String(body.action || '');
+  try {
+    if (action === 'ppSubmit') {
+      /* --- structured fields, validated + composed server-side --- */
+      const kind = PP_KINDS.includes(String(body.kind || '')) ? String(body.kind) : 'quick';
+      const project = String(body.project || '').replace(/\s+/g, ' ').trim().slice(0, PP_PROJECT_MAX);
+      if (!project) return res.status(400).json({ ok: false, error: 'project name required' });
+      const details = String(body.details || '').trim().slice(0, PP_DETAILS_MAX);
+      let link = String(body.link || '').trim().slice(0, PP_LINK_MAX);
+      if (link && !/^https:\/\//i.test(link)) return res.status(400).json({ ok: false, error: 'bad link' });
+      if (!link) link = null;
+      /* Optional ONE photo: a client-downscaled JPEG data URL. Bad
+         or oversize images are refused outright — never stored. */
+      let img = null;
+      if (body.img !== undefined && body.img !== null && body.img !== '') {
+        img = String(body.img);
+        if (!/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(img) || img.length > PP_IMG_MAX) {
+          return res.status(400).json({ ok: false, error: 'image too big or bad format' });
+        }
+      }
+      const head = kind === 'video' ? 'VIDEO' : kind === 'image' ? 'IMAGE' : 'QUICK POST';
+      let text = head + ' — ' + project;
+      if (link) text += '\nLink: ' + link;
+      if (details) text += '\n' + details;
+      if (text.length > 2000) return res.status(400).json({ ok: false, error: 'text must be 3-2000 chars' });
+      const lang = String(body.lang || 'en').slice(0, 5);
+      const day = ppEtDay();
+      /* --- control 2: AMBASSADOR GATE (Video/Image only). Checked
+         before any counter moves, so a refused submit burns
+         nothing. The submitted code is hashed and compared
+         against the stored hash list; the plaintext code is never
+         stored, logged or echoed. An empty list means NO code is
+         valid — Video/Image stay closed until a code is added. */
+      if (kind === 'video' || kind === 'image') {
+        const code = String(body.code || '').trim().slice(0, 64);
+        const hashes = await ppGetAmbHashes();
+        const codeHash = code ? crypto.createHash('sha256').update(code).digest('hex') : '';
+        if (!codeHash || !hashes.includes(codeHash)) {
+          return res.status(403).json({ ok: false, amb: true, error: 'Video and Image requests need an ambassador code' });
+        }
+      }
+      /* --- control 3: GLOBAL DAILY CEILING. Atomic INCR; the
+         first increment of the day also sets the key's expiry.
+         Past the ceiling the increment is rolled back so the
+         counter keeps equalling accepted requests. */
+      const gOut = await packPipeline([['INCR', 'pp:gcap:' + day]]);
+      const gCount = Number(gOut && gOut[0] && gOut[0].result) || 0;
+      if (gCount === 1) await packPipeline([['EXPIRE', 'pp:gcap:' + day, '129600']]);
+      if (gCount > PP_GLOBAL_DAY_CAP) {
+        await packPipeline([['DECR', 'pp:gcap:' + day]]);
+        return res.status(429).json({ ok: false, full: true, error: "Today's batch is full — come back tomorrow" });
+      }
+      /* --- control 1: PER-PERSON DAILY CAP, all types. "A person"
+         is the page's per-browser visitor token (body.vid); only a
+         sha256 of it is stored. Fallbacks mirror ga: vid -> client
+         IP hash -> one shared anon bucket. The claim is a SET NX,
+         so two taps in the same second cannot both slip through.
+         On refusal the global increment above is rolled back. */
+      let idSrc = '';
+      const vid = String(body.vid || '');
+      if (/^[A-Za-z0-9-]{8,64}$/.test(vid)) idSrc = 'v:' + vid;
+      if (!idSrc) {
+        const xff = String((req.headers && req.headers['x-forwarded-for']) || '').split(',')[0].trim();
+        if (xff) idSrc = 'i:' + xff;
+      }
+      if (!idSrc) idSrc = 'anon';
+      const idHash = crypto.createHash('sha256').update(idSrc).digest('hex').slice(0, 32);
+      const claim = await packPipeline([['SET', 'pp:cap:' + day + ':' + idHash, '1', 'NX', 'EX', '129600']]);
+      if (!claim || !claim[0] || claim[0].result !== 'OK') {
+        await packPipeline([['DECR', 'pp:gcap:' + day]]);
+        return res.status(429).json({ ok: false, cap: true, error: "daily cap: one request per day — come back tomorrow" });
+      }
+      const id = 'PP-' + (Date.now().toString(36) + crypto.randomBytes(3).toString('hex')).toUpperCase().slice(-6);
+      const rec = { id, text, kind, project, lang, ts: Date.now(), status: 'new', reply: null, stage: 'received', link: null, hasImg: !!img, media: null, post: null };
+      const cmds = [
+        ['SET', 'pp:req:' + id, JSON.stringify(rec)],
+        ['LPUSH', 'pp:index', id],
+        ['LTRIM', 'pp:index', '0', String(PP_INDEX_CAP - 1)],
+      ];
+      if (img) cmds.push(['SET', 'pp:img:' + id, img]);
+      await packPipeline(cmds);
+      return res.status(200).json({ ok: true, id, text });
+    }
+    if (action === 'ppStatus') {
+      const id = String(body.id || '');
+      if (!PP_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const rec = await ppGetReq(id);
+      if (!rec) return res.status(404).json({ ok: false, error: 'not found' });
+      const out = { ok: true, status: rec.status, reply: rec.reply || null, stage: rec.stage || 'received', link: rec.link || null, hasImg: !!rec.hasImg, etaMin: rec.etaMin || null, buildingSince: rec.buildingSince || null, media: rec.media || null, post: rec.post || null };
+      /* The image itself ships ONLY on an explicit img:1 ask — the
+         page fetches it once per photo record for the thumbnail;
+         the 15s status polls never carry it. */
+      if (body.img && rec.hasImg) out.img = await ppGetImg(id);
+      return res.status(200).json(out);
+    }
+    if (action === 'ppImage') {
+      if (!(await sdRunnerOk(body.secret))) return res.status(403).json({ ok: false, error: 'not authorized' });
+      const id = String(body.id || '');
+      if (!PP_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const rec = await ppGetReq(id);
+      if (!rec) return res.status(404).json({ ok: false, error: 'not found' });
+      const img = rec.hasImg ? await ppGetImg(id) : null;
+      if (!img) return res.status(404).json({ ok: false, error: 'no image' });
+      return res.status(200).json({ ok: true, img });
+    }
+    if (action === 'ppList') {
+      if (!(await sdRunnerOk(body.secret))) return res.status(403).json({ ok: false, error: 'not authorized' });
+      const out = await packPipeline([['LRANGE', 'pp:index', '0', String(PP_LIST_N - 1)]]);
+      const ids = (out && out[0] && out[0].result) || [];
+      const requests = [];
+      for (const id of ids) {
+        const r = await ppGetReq(id);
+        if (r) requests.push(r);
+      }
+      return res.status(200).json({ ok: true, requests });
+    }
+    if (action === 'ppReply') {
+      if (!(await sdRunnerOk(body.secret))) return res.status(403).json({ ok: false, error: 'not authorized' });
+      const id = String(body.id || '');
+      if (!PP_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const reply = String(body.reply || '').trim().slice(0, 2000);
+      /* Optional stage/link updates, same contract as gaReply: a
+         call may carry a reply, a stage, a link, or any mix; at
+         least one is required. */
+      const PP_STAGES = ['received', 'building', 'preview', 'done'];
+      let stage = null;
+      if (body.stage !== undefined && body.stage !== null && body.stage !== '') {
+        stage = String(body.stage);
+        if (!PP_STAGES.includes(stage)) return res.status(400).json({ ok: false, error: 'bad stage' });
+      }
+      /* Optional etaMin: our own rough estimate, set when work
+         starts (stage "building"). Integer minutes 1–240. It is a
+         "usually ready in ~N min" guide for the page's count-up
+         timer — never a promise or a countdown. */
+      let etaMin;
+      if (body.etaMin !== undefined && body.etaMin !== null && body.etaMin !== '') {
+        etaMin = Number(body.etaMin);
+        if (!Number.isInteger(etaMin) || etaMin < 1 || etaMin > 240) {
+          return res.status(400).json({ ok: false, error: 'bad etaMin' });
+        }
+      }
+      let link;
+      if (body.link !== undefined) {
+        const l = String(body.link || '').trim().slice(0, 500);
+        if (l && !/^https:\/\//i.test(l)) return res.status(400).json({ ok: false, error: 'bad link' });
+        link = l || null;
+      }
+      /* Optional deliverables (Tom's rule, Nov 26, 2026 — the work
+         lands INSIDE the requesting page): media = a finished
+         video hosted on this site under /request-media/<ID>.mp4
+         (the page renders a player) OR a finished image under the
+         same path as .png/.jpg/.webp (the page renders it inline);
+         post = a post draft (the page renders it in its own box
+         with a one-tap Copy button). Empty clears. */
+      let media;
+      if (body.media !== undefined) {
+        const m = String(body.media || '').trim().slice(0, 200);
+        if (m && !/^\/request-media\/[A-Za-z0-9._-]+\.(mp4|png|jpg|webp)$/.test(m)) return res.status(400).json({ ok: false, error: 'bad media' });
+        media = m || null;
+      }
+      let post;
+      if (body.post !== undefined) {
+        const p = String(body.post || '').slice(0, 2000);
+        post = p ? p : null;
+      }
+      if (!reply && !stage && link === undefined && media === undefined && post === undefined) {
+        return res.status(400).json({ ok: false, error: 'nothing to update' });
+      }
+      const rec = await ppGetReq(id);
+      if (!rec) return res.status(404).json({ ok: false, error: 'not found' });
+      if (reply) {
+        rec.reply = reply;
+        rec.status = 'answered';
+        rec.replyTs = Date.now();
+      }
+      if (stage) {
+        rec.stage = stage;
+        /* Work starting stamps the clock the page counts up from.
+           A fresh "building" always restarts it; an etaMin rides
+           along when given, otherwise a previous one is kept. */
+        if (stage === 'building') {
+          rec.buildingSince = Date.now();
+          if (etaMin !== undefined) rec.etaMin = etaMin;
+        }
+      }
+      if (link !== undefined) rec.link = link;
+      if (media !== undefined) rec.media = media;
+      if (post !== undefined) rec.post = post;
+      await packPipeline([['SET', 'pp:req:' + id, JSON.stringify(rec)]]);
+      return res.status(200).json({ ok: true });
+    }
+    if (action === 'ppAmbList') {
+      if (!(await sdRunnerOk(body.secret))) return res.status(403).json({ ok: false, error: 'not authorized' });
+      const hashes = await ppGetAmbHashes();
+      const day = ppEtDay();
+      const gOut = await packPipeline([['GET', 'pp:gcap:' + day]]);
+      const today = Number(gOut && gOut[0] && gOut[0].result) || 0;
+      /* Counts only — the code hashes themselves are never returned. */
+      return res.status(200).json({ ok: true, ambCount: hashes.length, today, globalCap: PP_GLOBAL_DAY_CAP, day });
+    }
+    if (action === 'ppAmbSet') {
+      if (!(await sdRunnerOk(body.secret))) return res.status(403).json({ ok: false, error: 'not authorized' });
+      const op = String(body.op || '');
+      if (op !== 'add' && op !== 'del') return res.status(400).json({ ok: false, error: 'bad op' });
+      const code = String(body.code || '').trim().slice(0, 64);
+      if (!code) return res.status(400).json({ ok: false, error: 'code required' });
+      const codeHash = crypto.createHash('sha256').update(code).digest('hex');
+      let hashes = await ppGetAmbHashes();
+      if (op === 'add') {
+        if (!hashes.includes(codeHash)) hashes.push(codeHash);
+      } else {
+        hashes = hashes.filter((h) => h !== codeHash);
+      }
+      await packPipeline([['SET', 'pp:ambcodes', JSON.stringify(hashes)]]);
+      return res.status(200).json({ ok: true, ambCount: hashes.length });
+    }
+    return res.status(400).json({ ok: false, error: 'unknown action' });
+  } catch (e) {
+    console.error('pp action failed', action, e && e.message);
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+}
+/* poster-page:end */
+
 /* lunc-dev-nfts:start — LUNC DEV NFTS (client/public/lunc-dev-nfts/).
    Tom's order Nov 24, 2026: a public NFT launchpad page in the
    Miata / Big Bang launchpad pattern — anyone connects their own
@@ -11150,6 +11483,11 @@ export default async function handler(req, res) {
   if (req.query && req.query.ay !== undefined) return ayHandler(req, res);
   if (req.query && req.query.hy !== undefined) return hyHandler(req, res);
   if (req.query && req.query.ga !== undefined) return gaHandler(req, res);
+  /* Project Poster: the page calls /api/luna-games?pp=1 directly
+     (see the poster-page block above). Public request inbox for
+     anyone's project promos, with the server-side daily cap,
+     ambassador gate and global daily ceiling. */
+  if (req.query && req.query.pp !== undefined) return ppHandler(req, res);
   /* LUNC Dev NFTs launchpad: the page calls /api/luna-games?ldnft=1
      directly (see the lunc-dev-nfts block above). Image + metadata
      serving, and the on-chain-verified showcase index. */
