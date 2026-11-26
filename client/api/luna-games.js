@@ -8334,6 +8334,28 @@ async function ffxSet(key, val, ttlSec) {
   await packPipeline(cmds);
 }
 function ffmktRoyalty(priceLunc) { return Math.floor(Number(priceLunc) * FFMKT_ROYALTY_PCT / 100); }
+const FFMKT_LCDS = ['https://api.terra-classic.hexxagon.io', 'https://terra-classic-lcd.publicnode.com'];
+/* GG-B18030: on-chain owner of a token, read on its TOKEN contract
+   (FFMKT_CONTRACTS already maps to token contracts). Returns null
+   when no LCD answered — the caller fails closed rather than
+   recording a listing that can never complete. */
+async function ffmktOwnerOf(contract, tokenId) {
+  const q = Buffer.from(JSON.stringify({ owner_of: { token_id: String(tokenId) } })).toString('base64');
+  for (const base of FFMKT_LCDS) {
+    try {
+      const ctl = new AbortController();
+      const to = setTimeout(() => ctl.abort(), 4000);
+      let r;
+      try { r = await fetch(base + '/cosmwasm/wasm/v1/contract/' + contract + '/smart/' + q, { signal: ctl.signal }); }
+      finally { clearTimeout(to); }
+      if (!r.ok) continue;
+      const j = await r.json();
+      const owner = j && j.data && j.data.owner;
+      if (owner) return String(owner).toLowerCase();
+    } catch (e) { /* try the next LCD */ }
+  }
+  return null;
+}
 function ffmktPublic(l, buyer) {
   const royalty = ffmktRoyalty(l.priceLunc);
   const out = {
@@ -8471,6 +8493,16 @@ export async function ffxHandler(req, res) {
       if (!FFMKT_CONTRACTS[code]) return res.status(400).json({ ok: false, error: 'bad collection' });
       if (!/^[A-Za-z0-9_-]{1,40}$/.test(tokenId)) return res.status(400).json({ ok: false, error: 'bad token id' });
       if (!(priceLunc >= 1 && priceLunc <= 100000000)) return res.status(400).json({ ok: false, error: 'bad price' });
+      /* Ownership proof (GG-B18030): the seller must own the token
+         on-chain. The page picker lists the LOOKED-UP wallet's
+         frogs while the listing's seller is the CONNECTED wallet —
+         when those differ, the escrow transfer dies on-chain with
+         "Unauthorized" and the listing can never complete (the
+         runner's escrow match also requires sender === seller).
+         Fail closed when the chain cannot be read. */
+      const owner = await ffmktOwnerOf(FFMKT_CONTRACTS[code], tokenId);
+      if (!owner) return res.status(503).json({ ok: false, error: 'could not check that frog on-chain — try again in a moment' });
+      if (owner !== seller) return res.status(400).json({ ok: false, error: 'that frog is not in the wallet you are selling from — connect the wallet that owns it' });
       const idxOut = await packPipeline([['LRANGE', 'ffmkt:index', '0', '499']]);
       const refs = (idxOut && idxOut[0] && idxOut[0].result) || [];
       for (const r of refs) {
