@@ -9797,7 +9797,7 @@ export async function hyHandler(req, res) {
      gaImage returns one request's stored photo for Muse's helper. */
 const GA_INDEX_CAP = 50;
 const GA_LIST_N = 20;
-const GA_ID_RE = /^HY-[A-Za-z0-9]{6}$/;
+const GA_ID_RE = /^GA-[A-Za-z0-9]{6}$/;
 const GA_IMG_MAX = 2500000; /* data-URL chars, incl. the prefix */
 
 async function gaGetReq(id) {
