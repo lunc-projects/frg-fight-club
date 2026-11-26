@@ -9280,7 +9280,7 @@ export async function ggHandler(req, res) {
       }
       const lang = String(body.lang || 'es').slice(0, 5);
       const id = 'GG-' + (Date.now().toString(36) + crypto.randomBytes(3).toString('hex')).toUpperCase().slice(-6);
-      const rec = { id, text, lang, ts: Date.now(), status: 'new', reply: null, stage: 'received', link: null, hasImg: !!img };
+      const rec = { id, text, lang, ts: Date.now(), status: 'new', reply: null, stage: 'received', link: null, hasImg: !!img, media: null, post: null };
       const cmds = [
         ['SET', 'gg:req:' + id, JSON.stringify(rec)],
         ['LPUSH', 'gg:index', id],
@@ -9295,7 +9295,7 @@ export async function ggHandler(req, res) {
       if (!GG_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
       const rec = await ggGetReq(id);
       if (!rec) return res.status(404).json({ ok: false, error: 'not found' });
-      const out = { ok: true, status: rec.status, reply: rec.reply || null, stage: rec.stage || 'received', link: rec.link || null, hasImg: !!rec.hasImg };
+      const out = { ok: true, status: rec.status, reply: rec.reply || null, stage: rec.stage || 'received', link: rec.link || null, hasImg: !!rec.hasImg, media: rec.media || null, post: rec.post || null };
       /* The image itself ships ONLY on an explicit img:1 ask — his
          page fetches it once per photo record for the thumbnail;
          the 15s status polls never carry it. */
@@ -9343,7 +9343,23 @@ export async function ggHandler(req, res) {
         if (l && !/^https:\/\//i.test(l)) return res.status(400).json({ ok: false, error: 'bad link' });
         link = l || null;
       }
-      if (!reply && !stage && link === undefined) {
+      /* Optional deliverables (Tom's rule, Nov 26, 2026 — the work
+         lands INSIDE the requesting page): media = a finished video
+         hosted on this site under /request-media/<ID>.mp4 (his page
+         renders a player); post = a post draft (his page renders it
+         in its own box with a one-tap Copy button). Empty clears. */
+      let media;
+      if (body.media !== undefined) {
+        const m = String(body.media || '').trim().slice(0, 200);
+        if (m && !/^\/request-media\/[A-Za-z0-9._-]+\.mp4$/.test(m)) return res.status(400).json({ ok: false, error: 'bad media' });
+        media = m || null;
+      }
+      let post;
+      if (body.post !== undefined) {
+        const p = String(body.post || '').slice(0, 2000);
+        post = p ? p : null;
+      }
+      if (!reply && !stage && link === undefined && media === undefined && post === undefined) {
         return res.status(400).json({ ok: false, error: 'nothing to update' });
       }
       const rec = await ggGetReq(id);
@@ -9355,6 +9371,8 @@ export async function ggHandler(req, res) {
       }
       if (stage) rec.stage = stage;
       if (link !== undefined) rec.link = link;
+      if (media !== undefined) rec.media = media;
+      if (post !== undefined) rec.post = post;
       await packPipeline([['SET', 'gg:req:' + id, JSON.stringify(rec)]]);
       return res.status(200).json({ ok: true });
     }
@@ -9442,7 +9460,7 @@ export async function ayHandler(req, res) {
       }
       const lang = String(body.lang || 'en').slice(0, 5);
       const id = 'AY-' + (Date.now().toString(36) + crypto.randomBytes(3).toString('hex')).toUpperCase().slice(-6);
-      const rec = { id, text, lang, ts: Date.now(), status: 'new', reply: null, stage: 'received', link: null, hasImg: !!img };
+      const rec = { id, text, lang, ts: Date.now(), status: 'new', reply: null, stage: 'received', link: null, hasImg: !!img, media: null, post: null };
       const cmds = [
         ['SET', 'ay:req:' + id, JSON.stringify(rec)],
         ['LPUSH', 'ay:index', id],
@@ -9457,7 +9475,7 @@ export async function ayHandler(req, res) {
       if (!AY_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
       const rec = await ayGetReq(id);
       if (!rec) return res.status(404).json({ ok: false, error: 'not found' });
-      const out = { ok: true, status: rec.status, reply: rec.reply || null, stage: rec.stage || 'received', link: rec.link || null, hasImg: !!rec.hasImg };
+      const out = { ok: true, status: rec.status, reply: rec.reply || null, stage: rec.stage || 'received', link: rec.link || null, hasImg: !!rec.hasImg, media: rec.media || null, post: rec.post || null };
       /* The image itself ships ONLY on an explicit img:1 ask — his
          page fetches it once per photo record for the thumbnail;
          the 15s status polls never carry it. */
@@ -9505,7 +9523,23 @@ export async function ayHandler(req, res) {
         if (l && !/^https:\/\//i.test(l)) return res.status(400).json({ ok: false, error: 'bad link' });
         link = l || null;
       }
-      if (!reply && !stage && link === undefined) {
+      /* Optional deliverables (Tom's rule, Nov 26, 2026 — the work
+         lands INSIDE the requesting page): media = a finished video
+         hosted on this site under /request-media/<ID>.mp4 (his page
+         renders a player); post = a post draft (his page renders it
+         in its own box with a one-tap Copy button). Empty clears. */
+      let media;
+      if (body.media !== undefined) {
+        const m = String(body.media || '').trim().slice(0, 200);
+        if (m && !/^\/request-media\/[A-Za-z0-9._-]+\.mp4$/.test(m)) return res.status(400).json({ ok: false, error: 'bad media' });
+        media = m || null;
+      }
+      let post;
+      if (body.post !== undefined) {
+        const p = String(body.post || '').slice(0, 2000);
+        post = p ? p : null;
+      }
+      if (!reply && !stage && link === undefined && media === undefined && post === undefined) {
         return res.status(400).json({ ok: false, error: 'nothing to update' });
       }
       const rec = await ayGetReq(id);
@@ -9517,6 +9551,8 @@ export async function ayHandler(req, res) {
       }
       if (stage) rec.stage = stage;
       if (link !== undefined) rec.link = link;
+      if (media !== undefined) rec.media = media;
+      if (post !== undefined) rec.post = post;
       await packPipeline([['SET', 'ay:req:' + id, JSON.stringify(rec)]]);
       return res.status(200).json({ ok: true });
     }
@@ -9605,7 +9641,7 @@ export async function hyHandler(req, res) {
       }
       const lang = String(body.lang || 'en').slice(0, 5);
       const id = 'HY-' + (Date.now().toString(36) + crypto.randomBytes(3).toString('hex')).toUpperCase().slice(-6);
-      const rec = { id, text, lang, ts: Date.now(), status: 'new', reply: null, stage: 'received', link: null, hasImg: !!img };
+      const rec = { id, text, lang, ts: Date.now(), status: 'new', reply: null, stage: 'received', link: null, hasImg: !!img, media: null, post: null };
       const cmds = [
         ['SET', 'hy:req:' + id, JSON.stringify(rec)],
         ['LPUSH', 'hy:index', id],
@@ -9620,7 +9656,7 @@ export async function hyHandler(req, res) {
       if (!HY_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
       const rec = await hyGetReq(id);
       if (!rec) return res.status(404).json({ ok: false, error: 'not found' });
-      const out = { ok: true, status: rec.status, reply: rec.reply || null, stage: rec.stage || 'received', link: rec.link || null, hasImg: !!rec.hasImg, etaMin: rec.etaMin || null, buildingSince: rec.buildingSince || null };
+      const out = { ok: true, status: rec.status, reply: rec.reply || null, stage: rec.stage || 'received', link: rec.link || null, hasImg: !!rec.hasImg, etaMin: rec.etaMin || null, buildingSince: rec.buildingSince || null, media: rec.media || null, post: rec.post || null };
       /* The image itself ships ONLY on an explicit img:1 ask — his
          page fetches it once per photo record for the thumbnail;
          the 15s status polls never carry it. */
@@ -9679,7 +9715,23 @@ export async function hyHandler(req, res) {
         if (l && !/^https:\/\//i.test(l)) return res.status(400).json({ ok: false, error: 'bad link' });
         link = l || null;
       }
-      if (!reply && !stage && link === undefined) {
+      /* Optional deliverables (Tom's rule, Nov 26, 2026 — the work
+         lands INSIDE the requesting page): media = a finished video
+         hosted on this site under /request-media/<ID>.mp4 (his page
+         renders a player); post = a post draft (his page renders it
+         in its own box with a one-tap Copy button). Empty clears. */
+      let media;
+      if (body.media !== undefined) {
+        const m = String(body.media || '').trim().slice(0, 200);
+        if (m && !/^\/request-media\/[A-Za-z0-9._-]+\.mp4$/.test(m)) return res.status(400).json({ ok: false, error: 'bad media' });
+        media = m || null;
+      }
+      let post;
+      if (body.post !== undefined) {
+        const p = String(body.post || '').slice(0, 2000);
+        post = p ? p : null;
+      }
+      if (!reply && !stage && link === undefined && media === undefined && post === undefined) {
         return res.status(400).json({ ok: false, error: 'nothing to update' });
       }
       const rec = await hyGetReq(id);
@@ -9700,6 +9752,8 @@ export async function hyHandler(req, res) {
         }
       }
       if (link !== undefined) rec.link = link;
+      if (media !== undefined) rec.media = media;
+      if (post !== undefined) rec.post = post;
       await packPipeline([['SET', 'hy:req:' + id, JSON.stringify(rec)]]);
       return res.status(200).json({ ok: true });
     }

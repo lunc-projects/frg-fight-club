@@ -94,6 +94,15 @@
   .reply .rtext{ font-size:15px; line-height:1.55; white-space:pre-wrap; word-break:break-word; margin-top:4px; }
   .open-btn{ display:inline-block; margin-top:10px; padding:11px 18px; border-radius:12px; font-size:14px; font-weight:800;
     color:#14240a; text-decoration:none; background:linear-gradient(90deg,var(--accent),#ffdf6b); }
+  .req video.media{ display:block; width:100%; margin-top:12px; border-radius:12px;
+    border:1px solid var(--line); background:#000; }
+  .postbox{ margin-top:12px; padding:12px; border:1px solid var(--line); border-radius:12px;
+    background:var(--card2); }
+  .postbox .ptext{ font-size:15px; line-height:1.55; white-space:pre-wrap; word-break:break-word; margin-top:4px; }
+  .copy-btn{ display:block; width:100%; margin-top:11px; padding:14px; font-size:16px; font-weight:800;
+    border:none; border-radius:12px; cursor:pointer; color:#14240a;
+    background:linear-gradient(90deg,var(--accent),#ffdf6b); font-family:inherit; }
+  .copy-btn:active{ transform:scale(.985); }
   .foot{ margin-top:26px; text-align:center; font-size:12px; color:#4d5f7a; }
 </style>
 </head>
@@ -265,6 +274,42 @@ function timerText(since, etaMin){
   return TT("workingNoEta").replace("{elapsed}", el);
 }
 
+/* Deliverable strings (Nov 26, 2026 — Tom's rule: the work lands
+   INSIDE this page): a finished video plays right in the request
+   card, and a post draft sits in its own box with a one-tap Copy
+   button. English and Spanish in full; the other languages fall
+   back to English for these strings only. */
+var DELIV_STR = {
+es:{postLabel:"Tu post — listo para copiar",copyPost:"📋 Copiar post",copied:"¡Copiado ✔",copyFail:"No se pudo copiar — mantén presionado el texto para copiarlo"},
+en:{postLabel:"Your post — ready to copy",copyPost:"📋 Copy post",copied:"Copied ✔",copyFail:"Couldn't copy — press and hold the text to copy it"}
+};
+function TD(key){
+  var p = DELIV_STR[langSel.value] || DELIV_STR.en;
+  return p[key] || DELIV_STR.en[key] || key;
+}
+function fallbackCopy(text){
+  var ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  var ok = false;
+  try { ok = document.execCommand("copy"); } catch(e){}
+  document.body.removeChild(ta);
+  return ok;
+}
+function copyPostText(text, btn){
+  function done(ok){
+    btn.textContent = ok ? TD("copied") : TD("copyFail");
+    setTimeout(function(){ btn.textContent = TD("copyPost"); }, 2000);
+  }
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(function(){ done(true); }, function(){ done(fallbackCopy(text)); });
+  } else {
+    done(fallbackCopy(text));
+  }
+}
+
 var API = "/api/luna-games?hy=1";
 var LS_KEY = "hy:reqs:v1";
 var langSel = document.getElementById("lang");
@@ -395,6 +440,30 @@ function renderList(){
       card.appendChild(thumb);
     }
 
+    if(s.media){
+      var vid = document.createElement("video");
+      vid.className = "media"; vid.src = s.media; vid.controls = true;
+      vid.setAttribute("preload", "metadata");
+      vid.setAttribute("playsinline", "");
+      card.appendChild(vid);
+    }
+
+    if(s.post){
+      var pb = document.createElement("div");
+      pb.className = "postbox";
+      var plab = document.createElement("div");
+      plab.className = "who"; plab.textContent = TD("postLabel");
+      var ptext = document.createElement("div");
+      ptext.className = "ptext"; ptext.textContent = s.post;
+      var cbtn = document.createElement("button");
+      cbtn.type = "button"; cbtn.className = "copy-btn"; cbtn.textContent = TD("copyPost");
+      (function(postText, btn){
+        btn.addEventListener("click", function(){ copyPostText(postText, btn); });
+      })(s.post, cbtn);
+      pb.appendChild(plab); pb.appendChild(ptext); pb.appendChild(cbtn);
+      card.appendChild(pb);
+    }
+
     if(s.reply){
       var rep = document.createElement("div");
       rep.className = "reply";
@@ -421,8 +490,8 @@ function pollOnce(){
     hyPost({ action: "hyStatus", id: r.id }).then(function(res){
       if(!res.j || !res.j.ok) return;
       var prev = liveState[r.id] || {};
-      var next = { stage: res.j.stage || "received", reply: res.j.reply || null, link: res.j.link || null, hasImg: !!res.j.hasImg, etaMin: res.j.etaMin || null, buildingSince: res.j.buildingSince || null };
-      if(prev.stage !== next.stage || prev.reply !== next.reply || prev.link !== next.link || prev.hasImg !== next.hasImg || prev.etaMin !== next.etaMin || prev.buildingSince !== next.buildingSince){
+      var next = { stage: res.j.stage || "received", reply: res.j.reply || null, link: res.j.link || null, hasImg: !!res.j.hasImg, media: res.j.media || null, post: res.j.post || null, etaMin: res.j.etaMin || null, buildingSince: res.j.buildingSince || null };
+      if(prev.stage !== next.stage || prev.reply !== next.reply || prev.link !== next.link || prev.hasImg !== next.hasImg || prev.media !== next.media || prev.post !== next.post || prev.etaMin !== next.etaMin || prev.buildingSince !== next.buildingSince){
         liveState[r.id] = next;
         renderList();
       }
@@ -534,7 +603,7 @@ document.getElementById("sendBtn").addEventListener("click", function(){
     myReqs = myReqs.slice(0, 30);
     saveReqs();
     if(img) imgCache[r.j.id] = img;
-    liveState[r.j.id] = { stage: "received", reply: null, link: null, hasImg: !!img, etaMin: null, buildingSince: null };
+    liveState[r.j.id] = { stage: "received", reply: null, link: null, hasImg: !!img, etaMin: null, buildingSince: null, media: null, post: null };
     desc.value = "";
     clearPhoto();
     setSendLine(T().sentOk + r.j.id, "ok");
@@ -561,7 +630,7 @@ function quickSubmit(text){
     myReqs.unshift({ id: r.j.id, text: text, ts: Date.now(), hasImg: false });
     myReqs = myReqs.slice(0, 30);
     saveReqs();
-    liveState[r.j.id] = { stage: "received", reply: null, link: null, hasImg: false, etaMin: null, buildingSince: null };
+    liveState[r.j.id] = { stage: "received", reply: null, link: null, hasImg: false, etaMin: null, buildingSince: null, media: null, post: null };
     setQuickLine(T().sentOk + r.j.id, "ok");
     renderList();
     startPoll();
