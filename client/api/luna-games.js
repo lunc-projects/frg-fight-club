@@ -9528,6 +9528,168 @@ export async function ayHandler(req, res) {
 }
 /* ayub-page:end */
 
+/* hussy-page:start — HUSSY'S PRIVATE REQUEST PAGE
+   (client/public/hussy/). Tom's order Nov 26, 2026: Hussy (Tom's partner) gets his own request page — a
+   functional replica of the goliath-page loop above, English-first.
+   He taps a button or types what he needs; the requests land in Muse's queue; replies
+   and status show on his page. Reached via /api/luna-games?hy=1
+   (folded into this router for the same 12-function-cap reason).
+   Records live in the KICKBACK Upstash store under their OWN
+   namespace so they never mix with Studio Describe records:
+   hy:req:<id> (JSON record) and hy:index (newest-first id list,
+   trimmed to the newest HY_INDEX_CAP). Actions mirror ay exactly:
+   - hySubmit {text, lang, img?} — PUBLIC by design and grants
+     NOTHING: it only drops a request (text 3–2000 chars, or a short
+     caption when a photo rides along) into the inbox with status
+     "new". Nothing is built, charged or promised from it. The
+     optional img is ONE client-downscaled JPEG data URL (max
+     HY_IMG_MAX chars, the dairy/jsa photo pattern); it is stored
+     under its own key hy:img:<id> so request records stay light,
+     and the record carries only hasImg:true.
+   - hyStatus {id, img?} — public read of ONE request's {status,
+     reply, stage, link, hasImg} only. The full image is included
+     ONLY when the caller passes img:1 (his page does that once per
+     photo record to render its thumbnail; the 15s polls stay
+     light). Ids are timestamp+random and unguessable in practice,
+     and a reply is written for the requester to read. stage is one
+     of received|building|preview|done.
+   - hyList / hyReply / hyImage {secret, …} — gated by the SAME
+     sdRunnerOk verify as the sd block (the lunc-pack runner gate).
+     hyImage returns one request's stored photo for Muse's helper. */
+const HY_INDEX_CAP = 50;
+const HY_LIST_N = 20;
+const HY_ID_RE = /^HY-[A-Za-z0-9]{6}$/;
+const HY_IMG_MAX = 2500000; /* data-URL chars, incl. the prefix */
+
+async function hyGetReq(id) {
+  const out = await packPipeline([['GET', 'hy:req:' + id]]);
+  const raw = out && out[0] && out[0].result;
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+
+async function hyGetImg(id) {
+  const out = await packPipeline([['GET', 'hy:img:' + id]]);
+  const raw = out && out[0] && out[0].result;
+  return typeof raw === 'string' && raw ? raw : null;
+}
+
+export async function hyHandler(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' });
+  if (!((process.env.KICKBACK_UPSTASH_URL && process.env.KICKBACK_UPSTASH_TOKEN) ||
+        (process.env.NEONRUSH_UPSTASH_URL && process.env.NEONRUSH_UPSTASH_TOKEN))) {
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }
+  if (!body || typeof body !== 'object') return res.status(400).json({ ok: false, error: 'bad body' });
+  const action = String(body.action || '');
+  try {
+    if (action === 'hySubmit') {
+      const text = String(body.text || '').trim();
+      /* Optional ONE photo: a client-downscaled JPEG data URL. Bad
+         or oversize images are refused outright — never stored. */
+      let img = null;
+      if (body.img !== undefined && body.img !== null && body.img !== '') {
+        img = String(body.img);
+        if (!/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(img) || img.length > HY_IMG_MAX) {
+          return res.status(400).json({ ok: false, error: 'image too big or bad format' });
+        }
+      }
+      /* Text-only requests keep the 3-char floor; with a photo the
+         text is just a caption and may be empty. */
+      if (img ? (text.length > 2000) : (text.length < 3 || text.length > 2000)) {
+        return res.status(400).json({ ok: false, error: 'text must be 3-2000 chars' });
+      }
+      const lang = String(body.lang || 'en').slice(0, 5);
+      const id = 'HY-' + (Date.now().toString(36) + crypto.randomBytes(3).toString('hex')).toUpperCase().slice(-6);
+      const rec = { id, text, lang, ts: Date.now(), status: 'new', reply: null, stage: 'received', link: null, hasImg: !!img };
+      const cmds = [
+        ['SET', 'hy:req:' + id, JSON.stringify(rec)],
+        ['LPUSH', 'hy:index', id],
+        ['LTRIM', 'hy:index', '0', String(HY_INDEX_CAP - 1)],
+      ];
+      if (img) cmds.push(['SET', 'hy:img:' + id, img]);
+      await packPipeline(cmds);
+      return res.status(200).json({ ok: true, id });
+    }
+    if (action === 'hyStatus') {
+      const id = String(body.id || '');
+      if (!HY_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const rec = await hyGetReq(id);
+      if (!rec) return res.status(404).json({ ok: false, error: 'not found' });
+      const out = { ok: true, status: rec.status, reply: rec.reply || null, stage: rec.stage || 'received', link: rec.link || null, hasImg: !!rec.hasImg };
+      /* The image itself ships ONLY on an explicit img:1 ask — his
+         page fetches it once per photo record for the thumbnail;
+         the 15s status polls never carry it. */
+      if (body.img && rec.hasImg) out.img = await hyGetImg(id);
+      return res.status(200).json(out);
+    }
+    if (action === 'hyImage') {
+      if (!(await sdRunnerOk(body.secret))) return res.status(403).json({ ok: false, error: 'not authorized' });
+      const id = String(body.id || '');
+      if (!HY_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const rec = await hyGetReq(id);
+      if (!rec) return res.status(404).json({ ok: false, error: 'not found' });
+      const img = rec.hasImg ? await hyGetImg(id) : null;
+      if (!img) return res.status(404).json({ ok: false, error: 'no image' });
+      return res.status(200).json({ ok: true, img });
+    }
+    if (action === 'hyList') {
+      if (!(await sdRunnerOk(body.secret))) return res.status(403).json({ ok: false, error: 'not authorized' });
+      const out = await packPipeline([['LRANGE', 'hy:index', '0', String(HY_LIST_N - 1)]]);
+      const ids = (out && out[0] && out[0].result) || [];
+      const requests = [];
+      for (const id of ids) {
+        const r = await hyGetReq(id);
+        if (r) requests.push(r);
+      }
+      return res.status(200).json({ ok: true, requests });
+    }
+    if (action === 'hyReply') {
+      if (!(await sdRunnerOk(body.secret))) return res.status(403).json({ ok: false, error: 'not authorized' });
+      const id = String(body.id || '');
+      if (!HY_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const reply = String(body.reply || '').trim().slice(0, 2000);
+      /* Optional stage/link updates, same contract as ayReply: a call
+         may carry a reply, a stage, a link, or any mix; at least one
+         is required. */
+      const HY_STAGES = ['received', 'building', 'preview', 'done'];
+      let stage = null;
+      if (body.stage !== undefined && body.stage !== null && body.stage !== '') {
+        stage = String(body.stage);
+        if (!HY_STAGES.includes(stage)) return res.status(400).json({ ok: false, error: 'bad stage' });
+      }
+      let link;
+      if (body.link !== undefined) {
+        const l = String(body.link || '').trim().slice(0, 500);
+        if (l && !/^https:\/\//i.test(l)) return res.status(400).json({ ok: false, error: 'bad link' });
+        link = l || null;
+      }
+      if (!reply && !stage && link === undefined) {
+        return res.status(400).json({ ok: false, error: 'nothing to update' });
+      }
+      const rec = await hyGetReq(id);
+      if (!rec) return res.status(404).json({ ok: false, error: 'not found' });
+      if (reply) {
+        rec.reply = reply;
+        rec.status = 'answered';
+        rec.replyTs = Date.now();
+      }
+      if (stage) rec.stage = stage;
+      if (link !== undefined) rec.link = link;
+      await packPipeline([['SET', 'hy:req:' + id, JSON.stringify(rec)]]);
+      return res.status(200).json({ ok: true });
+    }
+    return res.status(400).json({ ok: false, error: 'unknown action' });
+  } catch (e) {
+    console.error('hy action failed', action, e && e.message);
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+}
+/* hussy-page:end */
+
 /* lunc-dev-nfts:start — LUNC DEV NFTS (client/public/lunc-dev-nfts/).
    Tom's order Nov 24, 2026: a public NFT launchpad page in the
    Miata / Big Bang launchpad pattern — anyone connects their own
@@ -10642,6 +10804,7 @@ export default async function handler(req, res) {
      above). English-first request inbox for Ayub only; the page
      stays unlinked from every site. */
   if (req.query && req.query.ay !== undefined) return ayHandler(req, res);
+  if (req.query && req.query.hy !== undefined) return hyHandler(req, res);
   /* LUNC Dev NFTs launchpad: the page calls /api/luna-games?ldnft=1
      directly (see the lunc-dev-nfts block above). Image + metadata
      serving, and the on-chain-verified showcase index. */
