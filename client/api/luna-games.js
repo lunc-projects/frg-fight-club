@@ -8073,6 +8073,10 @@ async function ffrPotRead() {
    payout wallet for the "Signing key loaded: YES/NO" line. */
 const FFR_DEFAULT_CONFIG = {
   perRound: FFR_PER_ROUND_LUNC, kingBonus: FFR_KING_BONUS_LUNC, minWithdraw: FFR_MIN_WITHDRAW_LUNC,
+  /* GG-917CC4: owner's payout cap — the most LUNC one withdrawal
+     request may carry. 0 = no cap (the original behaviour: a
+     withdrawal takes the whole balance). Enforced in ffrWithdraw. */
+  maxWithdraw: 0,
   payWeekday: 1, payTimeET: '12:00', paused: false,
   /* Goliath's OWN rewards wallet (he created it and sent the
      address Nov 22, 2026 20:52 ET; fresh account). It is the
@@ -8117,6 +8121,7 @@ function ffrValidConfigPatch(p) {
   if (p.perRound !== undefined) { const n = num(p.perRound); if (!(n > 0 && n <= 1000)) return { error: 'perRound out of range' }; patch.perRound = round6(n); }
   if (p.kingBonus !== undefined) { const n = num(p.kingBonus); if (!(n >= 0 && n <= 10000)) return { error: 'kingBonus out of range' }; patch.kingBonus = round6(n); }
   if (p.minWithdraw !== undefined) { const n = num(p.minWithdraw); if (!(n >= 0 && n <= 10000000)) return { error: 'minWithdraw out of range' }; patch.minWithdraw = round6(n); }
+  if (p.maxWithdraw !== undefined) { const n = num(p.maxWithdraw); if (!(n >= 0 && n <= 10000000)) return { error: 'maxWithdraw out of range' }; patch.maxWithdraw = round6(n); }
   if (p.payWeekday !== undefined) { const n = num(p.payWeekday); if (!Number.isInteger(n) || n < 0 || n > 6) return { error: 'payWeekday out of range' }; patch.payWeekday = n; }
   if (p.payTimeET !== undefined) {
     const s = String(p.payTimeET || '');
@@ -8779,7 +8784,7 @@ export async function ffrHandler(req, res) {
            — the page shows it as the claim-by date; null when the
            balance is empty. */
         claimDeadline: (bal.lots && bal.lots.length) ? Math.min(...bal.lots.map((l) => Number(l.dl || 0))) : null,
-        pending, minWithdraw: cfg.minWithdraw, perRound: cfg.perRound, kingBonus: cfg.kingBonus,
+        pending, minWithdraw: cfg.minWithdraw, maxWithdraw: Number(cfg.maxWithdraw || 0), perRound: cfg.perRound, kingBonus: cfg.kingBonus,
         payWeekday: cfg.payWeekday, payTimeET: cfg.payTimeET,
         season: { id: season.id, daysLeft: season.daysLeft, wins: sv.wins, fights: sv.fights },
         seasonTop: await ffrSeasonTop(season),
@@ -8797,12 +8802,31 @@ export async function ffrHandler(req, res) {
         if (r && r.status === 'pending') return res.status(409).json({ ok: false, error: 'a withdrawal is already pending', request: ffrPublicReq(r) });
         bal.pendingReq = ''; bal.pendingLunc = 0; /* stale pointer — clear and continue */
       }
-      const amount = Number(bal.balLunc || 0);
+      const balance = Number(bal.balLunc || 0);
       const cfg = await ffrGetConfig();
-      if (amount < cfg.minWithdraw) return res.status(400).json({ ok: false, error: 'below the ' + cfg.minWithdraw + ' LUNC minimum', balance: amount });
+      if (balance < cfg.minWithdraw) return res.status(400).json({ ok: false, error: 'below the ' + cfg.minWithdraw + ' LUNC minimum', balance });
+      /* GG-917CC4: the owner's payout cap (ffr:config maxWithdraw,
+         0 = no cap) limits ONE request; the rest of the balance
+         stays put as live lots and can be requested after this one
+         is paid. Lots are consumed oldest-first, splitting a lot
+         when the cap cuts through it. */
+      const cap = Number(cfg.maxWithdraw || 0);
+      const amount = cap > 0 ? Math.min(balance, cap) : balance;
       const id = 'ffr' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
       const o = { id, wallet, amountLunc: amount, status: 'pending', terraTx: '', note: '', created: Date.now(), paidAt: 0 };
-      bal.balLunc = 0; bal.lots = []; bal.pendingLunc = amount; bal.pendingReq = id;
+      if (amount >= balance) { bal.balLunc = 0; bal.lots = []; }
+      else {
+        let need = amount; const keep = [];
+        for (const l of (bal.lots || [])) {
+          const a = Number(l.amt || 0);
+          if (need <= 0) { keep.push(l); continue; }
+          if (a <= need) { need = Math.round((need - a) * 1e6) / 1e6; continue; }
+          keep.push({ ...l, amt: Math.round((a - need) * 1e6) / 1e6 }); need = 0;
+        }
+        bal.lots = keep;
+        bal.balLunc = Math.round(keep.reduce((s, l) => s + Number(l.amt || 0), 0) * 1e6) / 1e6;
+      }
+      bal.pendingLunc = amount; bal.pendingReq = id;
       await ffrSaveBal(wallet, bal);
       await packPipeline([
         ['SET', 'ffr:req:' + id, JSON.stringify(o), 'EX', String(FFR_REQ_TTL_SEC)],
