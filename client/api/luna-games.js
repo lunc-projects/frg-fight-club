@@ -7709,7 +7709,7 @@ export async function packHandler(req, res) {
    ffrRunnerOk (own key, dairy-style self-register). */
 const FFR_PER_ROUND_LUNC = 3;
 const FFR_KING_BONUS_LUNC = 10;
-const FFR_MIN_WITHDRAW_LUNC = 300;
+const FFR_MIN_WITHDRAW_LUNC = 100; /* GG-A87BB2: matches the live config (100 since Nov 25, 2026) — was 300 */
 const FFR_LAST_RIVAL_IDX = 6; /* RIVALS[6] = THE FROG KING, of 7 */
 const FFR_SEASON_EPOCH_MS = Date.UTC(2026, 10, 22); /* Nov 22, 2026 */
 const FFR_SEASON_MS = 30 * 24 * 3600 * 1000;
