@@ -8312,6 +8312,23 @@ const FFMKT_CONTRACTS = {
   KAIJU: 'terra1s4zze0rhjd73qpze0hr3av7g9nsp2te0snp5kd4qe6mugtsewk6q27ah9q',
 };
 const FFMKT_TTL_SEC = 30 * 24 * 3600;
+/* GG-FB35B1 / GG-5A49C2 (Nov 26, 2026): the market operator — the
+   service wallet that moves listed NFTs into escrow and delivers
+   them to buyers once the owner's one-time approve_all is set. */
+const FFMKT_OPERATOR = 'terra1t2fclmenwehn6kczxg76cgd86sy2tdvvatqnlh';
+/* Listing fee (GG-5A49C2): Goliath asked for a fee on listing but
+   named no amount — it starts at 100 LUNC (config value, his to
+   change). Paid by the seller to Goliath (the royalty/escrow
+   wallet) with memo "FFMKT-FEE <ref>"; the market pass verifies
+   it on-chain before the listing can go live. */
+const FFMKT_FEE_LUNC = 100;
+/* Royalty per collection (GG-5A49C2, verified on-chain Nov 26):
+   NFROG carries a real on-chain royalty — 7% to Goliath in its
+   collection extension. The Miata originals expose NO on-chain
+   royalty at all; the 7% there is the market's own rule
+   (Goliath's Nov 24 ruling), charged the same way so every sale
+   shows one clear cut. */
+const FFMKT_ROYALTY_BY_COLL = { NFROG: 7, FROGZ: 7, AMPH: 7, KAIJU: 7 };
 /* Stage F config: referral reward = +5 bonus lives (same pool and
    ET-day expiry as Life Box bonus lives). */
 const FFREF_REWARD_LIVES = 5;
@@ -8356,14 +8373,57 @@ async function ffmktOwnerOf(contract, tokenId) {
   }
   return null;
 }
+/* Smart query that keeps the contract's error visible, so callers
+   can tell "query not supported" apart from a real answer. */
+async function ffmktSmart(contract, msgObj) {
+  const q = Buffer.from(JSON.stringify(msgObj)).toString('base64');
+  for (const base of FFMKT_LCDS) {
+    try {
+      const ctl = new AbortController();
+      const to = setTimeout(() => ctl.abort(), 4000);
+      let r;
+      try { r = await fetch(base + '/cosmwasm/wasm/v1/contract/' + contract + '/smart/' + q, { signal: ctl.signal }); }
+      finally { clearTimeout(to); }
+      const j = await r.json().catch(() => null);
+      if (r.ok && j && j.data !== undefined) return { data: j.data };
+      if (j && j.message) return { error: String(j.message) };
+    } catch (e) { /* try the next LCD */ }
+  }
+  return { error: 'unreachable' };
+}
+/* GG-FB35B1: has `owner` given the market operator its one-time
+   approve_all on this contract? Returns true / false when the
+   contract answers (cw721-base family: operator + all_operators
+   queries, spender-shaped responses), and null when the family
+   cannot be queried at all — the Miata originals expose neither
+   query, so there the market pass is the verifier: its execute
+   fails closed on-chain if the approval is missing. */
+async function ffmktApprovalOf(contract, owner) {
+  const op = await ffmktSmart(contract, { operator: { owner, operator: FFMKT_OPERATOR } });
+  if (op.data && op.data.approval) {
+    const a = op.data.approval;
+    if (String(a.spender || '').toLowerCase() !== FFMKT_OPERATOR) return false;
+    if (a.expires && a.expires.at_time && Number(a.expires.at_time) / 1000000 < Date.now()) return false;
+    return true;
+  }
+  if (op.data && op.data.approved !== undefined) return !!op.data.approved;
+  const all = await ffmktSmart(contract, { all_operators: { owner, limit: 30 } });
+  if (all.data && Array.isArray(all.data.operators)) {
+    return all.data.operators.some((o) => String((o && (o.spender || o.operator)) || '').toLowerCase() === FFMKT_OPERATOR);
+  }
+  return null;
+}
 function ffmktPublic(l, buyer) {
-  const royalty = ffmktRoyalty(l.priceLunc);
+  const royaltyPct = FFMKT_ROYALTY_BY_COLL[l.contractCode] !== undefined ? FFMKT_ROYALTY_BY_COLL[l.contractCode] : FFMKT_ROYALTY_PCT;
+  const royalty = Math.floor(Number(l.priceLunc) * royaltyPct / 100);
   const out = {
-    ref: l.ref, seller: l.seller, contract: l.contractCode, contractAddr: FFMKT_CONTRACTS[l.contractCode],
+    ref: l.ref, seller: l.seller, ownerWallet: l.ownerWallet || l.seller,
+    operatorEscrow: !!l.operatorEscrow, feeLunc: l.feeLunc || 0, feePaid: !!l.feePaid,
+    contract: l.contractCode, contractAddr: FFMKT_CONTRACTS[l.contractCode],
     tokenId: l.tokenId, priceLunc: l.priceLunc, royaltyLunc: royalty, sellerGetsLunc: l.priceLunc - royalty,
-    royaltyPct: FFMKT_ROYALTY_PCT, status: l.status, created: l.created || 0,
+    royaltyPct, status: l.status, created: l.created || 0, error: l.error || '',
     escrowWallet: FFX_GOLIATH,
-    buyMemo: 'FFMKT-BUY ' + l.ref, royaltyMemo: 'FFMKT-ROY ' + l.ref,
+    buyMemo: 'FFMKT-BUY ' + l.ref, royaltyMemo: 'FFMKT-ROY ' + l.ref, feeMemo: 'FFMKT-FEE ' + l.ref,
   };
   if (buyer && l.buyer === buyer) { out.paidSellerLunc = l.paidSellerLunc || 0; out.paidRoyaltyLunc = l.paidRoyaltyLunc || 0; }
   return out;
@@ -8502,7 +8562,25 @@ export async function ffxHandler(req, res) {
          Fail closed when the chain cannot be read. */
       const owner = await ffmktOwnerOf(FFMKT_CONTRACTS[code], tokenId);
       if (!owner) return res.status(503).json({ ok: false, error: 'could not check that frog on-chain — try again in a moment' });
-      if (owner !== seller) return res.status(400).json({ ok: false, error: 'that frog is not in the wallet you are selling from — connect the wallet that owns it' });
+      /* GG-FB35B1 / GG-5A49C2: every listing now goes through the
+         OPERATOR-ESCROW route — nobody sends an NFT by hand. The
+         seller may list from any wallet (their own, or one acting
+         for the owner, named via ownerWallet), and the market pass
+         moves the token owner → escrow once the listing fee is
+         verified — but only when the OWNER has given the market
+         operator its one-time approve_all. Where the contract
+         family answers the approval query (cw721-base) a missing
+         approval stops the listing here; on the Miata originals
+         the query does not exist, so the pass verifies by
+         execution and fails closed on-chain. */
+      const namedOwner = walletOf(body.ownerWallet);
+      if (owner !== seller && namedOwner !== owner) {
+        return res.status(400).json({ ok: false, error: 'that frog is not in the wallet you are selling from — connect the wallet that owns it' });
+      }
+      const approval = await ffmktApprovalOf(FFMKT_CONTRACTS[code], owner);
+      if (approval === false) {
+        return res.status(400).json({ ok: false, error: 'needs-approval', errorText: 'the wallet that owns this frog has not given the market its one-time approval yet — connect that wallet once in the approval section and approve, then list from any wallet' });
+      }
       const idxOut = await packPipeline([['LRANGE', 'ffmkt:index', '0', '499']]);
       const refs = (idxOut && idxOut[0] && idxOut[0].result) || [];
       for (const r of refs) {
@@ -8512,21 +8590,26 @@ export async function ffxHandler(req, res) {
         }
       }
       const ref = ffxRef();
-      const listing = { ref, seller, contractCode: code, tokenId, priceLunc, status: 'awaiting-escrow', created: Date.now(), paidSellerLunc: 0, paidRoyaltyLunc: 0, buyer: '' };
+      const listing = { ref, seller, ownerWallet: owner, contractCode: code, tokenId, priceLunc, status: 'awaiting-escrow', operatorEscrow: true, approvalKnown: approval === true, feeLunc: FFMKT_FEE_LUNC, feePaid: false, created: Date.now(), paidSellerLunc: 0, paidRoyaltyLunc: 0, buyer: '' };
       await ffxSet('ffmkt:listing:' + ref, listing, FFMKT_TTL_SEC);
       await packPipeline([['LPUSH', 'ffmkt:index', ref], ['LTRIM', 'ffmkt:index', '0', '499']]);
       return res.status(200).json({ ok: true, listing: ffmktPublic(listing) });
     }
     if (action === 'ffmktList') {
       const buyer = walletOf(body.wallet);
+      /* Runner view (GG-FB35B1 fix): cancel-requested rows are
+         hidden from the public list, but the market pass must see
+         them or a cancelled live listing's NFT would sit in
+         escrow forever. A valid runner bhash widens the view. */
+      const runnerView = !!(body.bhash && (await ffrRunnerOk(String(body.bhash))));
       const idxOut = await packPipeline([['LRANGE', 'ffmkt:index', '0', '199']]);
       const refs = (idxOut && idxOut[0] && idxOut[0].result) || [];
       const rows = [];
       for (const r of refs) {
         const l = await ffxGet('ffmkt:listing:' + r);
-        if (l && ['awaiting-escrow', 'live', 'settling'].includes(l.status)) rows.push(ffmktPublic(l, buyer));
+        if (l && (['awaiting-escrow', 'live', 'settling'].includes(l.status) || (runnerView && l.status === 'cancel-requested'))) rows.push(ffmktPublic(l, buyer));
       }
-      return res.status(200).json({ ok: true, royaltyPct: FFMKT_ROYALTY_PCT, escrowWallet: FFX_GOLIATH, listings: rows });
+      return res.status(200).json({ ok: true, royaltyPct: FFMKT_ROYALTY_PCT, feeLunc: FFMKT_FEE_LUNC, operator: FFMKT_OPERATOR, escrowWallet: FFX_GOLIATH, listings: rows });
     }
     if (action === 'ffmktCancel') {
       const seller = walletOf(body.wallet);
@@ -8544,7 +8627,7 @@ export async function ffxHandler(req, res) {
       const l = await ffxGet('ffmkt:listing:' + ref);
       if (!l) return res.status(404).json({ ok: false, error: 'no such listing' });
       const patch = (body.patch && typeof body.patch === 'object') ? body.patch : {};
-      for (const k of ['status', 'paidSellerLunc', 'paidRoyaltyLunc', 'buyer', 'escrowTx', 'settleTx', 'error']) {
+      for (const k of ['status', 'paidSellerLunc', 'paidRoyaltyLunc', 'buyer', 'escrowTx', 'settleTx', 'error', 'feePaid', 'approvalKnown']) {
         if (patch[k] !== undefined) l[k] = patch[k];
       }
       l.updated = Date.now();
