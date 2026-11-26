@@ -1262,7 +1262,7 @@ function playerFrogLabel(){
   if (selectedToken){ const tk = ownedTokens.find(o => o.uid === selectedToken); if (tk) return tokenLabel(tk); }
   return curSkin === 'green' ? t('defaultFrog') : skinById(curSkin).name;
 }
-function applySkin(id){ curSkin = id; localStorage.setItem('ffight_skin', id); renderSkins(); updateProfNft(); }
+function applySkin(id){ curSkin = id; localStorage.setItem('ffight_skin', id); renderSkins(); updateProfNft(); try { artImg(playerCutUrl(), true); } catch(e){} /* GG-7E62F9: warm the new pick's fight cutout right away */ }
 function updateProfNft(){
   const tk = selectedToken ? ownedTokens.find(o => o.uid === selectedToken) : null;
   const img = $('profNftImg'), art = $('freeFrogArt');
@@ -1877,6 +1877,41 @@ function playerArtUrl(){
     if (tk) return tk.img || (tk.coll === 'Z' ? FROGZ_IMG(tk.id) : (tk.coll === 'K' ? KAIJU_IMG(tk.id) : (tk.coll === 'N' ? ('newfrog-art/' + tk.cls + '.jpg') : AMPH_IMG(tk.id)))); }
   return AMPH_IMG(SKIN_ART[curSkin] || '23');
 }
+/* ---- GG-7E62F9: light fight art + load gate. The framed originals
+   (local 680–875 KB class paintings; remote IPFS art up to 1.3 MB /
+   2160px) made fight starts freeze on slow devices — the canvas
+   background paints instantly while the fighters were still in
+   flight. Now: a fighter WITH a cutout never fetches its framed art
+   at all (it is never drawn in-fight); the VS portrait rides the
+   same light image the fight uses; NFROG class fighters use the
+   local light WebP set (newfrog-fight/, ~65–98 KB, the same
+   paintings); and a match holds on the VS screen until both
+   fighters' in-fight images are ready (4s cap — the placeholder
+   frog + in-place upgrade make a hang impossible). Display
+   surfaces (mint gallery, market, token list) keep full-size art. */
+function playerFightArtUrl(){
+  if (selectedToken){ const tk = ownedTokens.find(o => o.uid === selectedToken);
+    if (tk && tk.coll === 'N') return 'newfrog-fight/' + tk.cls + '.webp'; }
+  return playerArtUrl();
+}
+function ffArtSettled(rec){ return !rec || rec.ok || rec.failed; }
+function ffWaitFightArt(recs, done){
+  const t0 = Date.now();
+  (function poll(){
+    const el = Date.now() - t0;
+    if ((el >= 900 && recs.every(ffArtSettled)) || el > 4000){ done(); return; }
+    setTimeout(poll, 60);
+  })();
+}
+function ffPreloadFightArt(){
+  /* menu-time warm-up, called once the cutout manifest lands: the
+     seven rival cutouts every run needs, the player's own cutout,
+     and the light NFROG class set — all local and light, spread
+     over idle menu time instead of a multi-MB burst at fight start */
+  RIVAL_ART.forEach((id, ci) => artImg(rivalCutUrl(ci), true));
+  artImg(playerCutUrl(), true);
+  ['green','warrior','soldier','blue','cosmo','special','gold'].forEach(c => artImg('newfrog-fight/' + c + '.webp'));
+}
 /* ---- NFT character cutouts (transparent background — just the frog, no
    square picture). Manifest is built by the frog-art pass; a token with
    cut:false or a missing manifest keeps the framed art above, while a
@@ -1893,6 +1928,7 @@ function loadCutman(){
     if (!m) return; /* failed/404 does NOT latch — retried at the next match start */
     CUTMAN.A = m.amph || {}; CUTMAN.Z = m.frogz || {}; CUTMAN.K = m.kaiju || {}; CUTMAN.N = m.newfrog || {};
     cutmanLoaded = true;
+    try { ffPreloadFightArt(); } catch(e){} /* GG-7E62F9: warm the fight images while the player is still in the menus */
     /* a match already running snapshotted null cuts before the manifest
        arrived — re-snapshot its fighters so they upgrade in place */
     if (G && G.p && G.r && G.mode === '2d'){
@@ -2087,6 +2123,7 @@ function showVs(pUrl, rUrl){
   clearTimeout(window.__vsT);
   window.__vsT = setTimeout(() => o.classList.remove('show'), 1480);
 }
+function hideVs(){ const o = $('vsOverlay'); if (o) o.classList.remove('show'); clearTimeout(window.__vsT); }
 /* DAILY LIVES gate (Goliath, Nov 24, 2026; per-RUN correction
    the same day, after Goliath clarified his terms): ONE life per
    RUN, charged once when the run starts. startRun() is the only
@@ -2120,13 +2157,27 @@ function startMatchGo(idx, fresh){
   G.r = mkFighter(565, -1, rv.skin, rv.name, rv.hp, rv.glove);
   G.r.dmgMul = rv.dmg; G.r.ai = { nextThink:0.5, moveDir:0, blockUntil:0 };
   G.mode = gameMode;
-  G.p.art = artImg(playerArtUrl());
-  G.r.art = artImg(rivalArtUrl(ci));
-  G.p.cut = artImg(playerCutUrl(), true);
-  G.r.cut = artImg(rivalCutUrl(ci), true);
+  const pCutU = playerCutUrl(), rCutU = rivalCutUrl(ci);
+  G.p.cut = artImg(pCutU, true);
+  G.r.cut = artImg(rCutU, true);
+  /* GG-7E62F9: framed art is drawn in-fight ONLY by a fighter with
+     no cutout — when a cutout exists, skip its (possibly multi-MB)
+     fetch entirely */
+  G.p.art = pCutU ? null : artImg(playerFightArtUrl());
+  G.r.art = rCutU ? null : artImg(rivalArtUrl(ci));
   if (ci === RIVALS.length - 1) G.r.scale = 1.3; /* the King is the biggest Kaiju in the pond — he fights BIG */
-  showVs(playerArtUrl(), rivalArtUrl(ci));
-  startRound();
+  /* GG-7E62F9: hold on the VS screen until both fighters' in-fight
+     images are ready — no more background-only stage at fight
+     start. The gate keeps the VS up at least ~0.9s, caps at 4s:
+     on timeout the round starts anyway, the placeholder frog
+     stands in, and the art upgrades in place when it lands. */
+  G.artHold = true;
+  showVs(pCutU || playerFightArtUrl(), rCutU || rivalArtUrl(ci));
+  const pF = G.p, rF = G.r;
+  ffWaitFightArt([G.p.cut || G.p.art, G.r.cut || G.r.art], () => {
+    if (!G || G.p !== pF || G.r !== rF) return; /* a newer match superseded this gate */
+    G.artHold = false; hideVs(); startRound();
+  });
 }
 function startRound(){
   const p = G.p, r = G.r;
@@ -2394,7 +2445,7 @@ function loop(ts){
   drawScene(time);
   if (G){
     crowdExcite = Math.max(0, crowdExcite - dt * 1.4);
-    if (!G.paused){
+    if (!G.paused && !G.artHold){
       if (G.hitstop > 0){ G.hitstop -= dt; }
       else if (G.phase === 'intro'){
         G.phaseT += dt;
@@ -3974,8 +4025,10 @@ $('lbWeekBtn2').onclick = () => { boardWhich = 'week'; renderBoard(); };
   const tname = tg && tg.user && tg.user.first_name;
   $('nameInput').value = (ffNameLoad() || tname || '').slice(0, 16);
   ffModeGate(); /* apply (not setMode: boot must not overwrite the stored mode pick with the gated one) */
-  RIVAL_ART.forEach((id, ci) => artImg(rivalArtUrl(ci)));
-  Object.keys(SKIN_ART).forEach(k => artImg(AMPH_IMG(SKIN_ART[k])));
+  /* GG-7E62F9: the old boot preload fetched the heavy FRAMED art
+     (multi-MB of remote IPFS PNGs) that a fight never draws when a
+     cutout exists — removed. Fight images warm up light and local
+     in ffPreloadFightArt() once the cutout manifest lands. */
   renderSkins(); renderPerks(); renderOwned(); updateProfNft(); applyI18n();
   const savedAddr = localStorage.getItem('ffight_addr');
   if (savedAddr) fetchOwned(savedAddr);
