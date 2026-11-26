@@ -10131,6 +10131,26 @@ export async function ldnftHandler(req, res) {
       await packPipeline([['SET', 'ldsale:attention:' + contract, JSON.stringify(attn)]]);
       return res.status(200).json({ ok: true, attention: attn.length });
     }
+    if (action === 'ldAdminRunnerHide') {
+      /* Runner-gated showcase hide/show — the VM-side counterpart of
+         ldtokAdmin/ldnftAdmin, for cleaning up our own factory test
+         items (LDTT / LDTEST / GENPROOF, Nov 25, 2026): this machine
+         holds no kur3 key by design, so the builder-secret runner
+         gate (ldsaleRunnerOk — the same hash the sale settler uses)
+         flips the exact hidden flags the CC-wallet admin path sets.
+         ONLY hide/show of showcase entries — nothing else. */
+      if (!(await ldsaleRunnerOk(body.bhash))) return res.status(403).json({ ok: false, error: 'runner not authorized' });
+      const target = String(body.target || '');
+      const op = String(body.op || '');
+      const contract = String(body.contract || '');
+      if (target !== 'ldtok' && target !== 'ldnft') return res.status(400).json({ ok: false, error: 'bad target' });
+      if (op !== 'hide' && op !== 'show') return res.status(400).json({ ok: false, error: 'bad op' });
+      const re = target === 'ldtok' ? LDTOK_CONTRACT_RE : LDNFT_CONTRACT_RE;
+      if (!re.test(contract)) return res.status(400).json({ ok: false, error: 'bad contract' });
+      if (op === 'hide') await packPipeline([['SET', target + ':hidden:' + contract, String(Date.now())]]);
+      else await packPipeline([['DEL', target + ':hidden:' + contract]]);
+      return res.status(200).json({ ok: true, op, target, contract, hidden: op === 'hide' });
+    }
     return res.status(400).json({ ok: false, error: 'unknown action' });
   } catch (e) {
     console.error('ldnft action failed', action, e && e.message);
