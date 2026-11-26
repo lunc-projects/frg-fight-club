@@ -85,6 +85,14 @@
   .flagrow{padding:5px 0;border-bottom:1px solid var(--line);font-size:15.5px}
   .flagrow:last-child{border-bottom:0}
   .snapbtn.offline{font-size:16px;padding:12px;border:1px solid var(--line);background:#fff;color:var(--ink);min-height:48px}
+  .modes{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .modebtn{flex:1 1 30%;font-size:16px;font-weight:700;padding:13px 8px;border-radius:12px;border:2px solid var(--line);background:#fff;color:var(--ink);cursor:pointer;min-height:52px}
+  .modebtn.active{background:var(--accent);border-color:var(--accent);color:#fff}
+  .sevlabel{font-size:15px;font-weight:700;margin-top:14px}
+  #prevBox{display:none;background:var(--amber-bg);border:1px solid #efc07a;border-radius:12px;padding:11px 12px;font-size:15.5px;font-weight:600;margin-bottom:12px}
+  #prevBox.show{display:block}
+  .listsec{font-size:14px;font-weight:800;letter-spacing:.4px;color:var(--muted);margin:12px 0 2px}
+  .hitem .hsub{font-size:12.5px;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -124,7 +132,9 @@
   </div>
 
   <div class="card" id="result">
+    <div id="prevBox"></div>
     <div class="verdict" id="verdictBox"></div>
+    <div class="small" id="modeLine" style="margin:-4px 0 10px"></div>
     <div class="prod" id="prodBox" style="display:none">
       <img id="prodImg" alt="">
       <div>
@@ -166,10 +176,30 @@
     <div class="small" id="t-honest">Data from Open Food Facts. Labels can change — always check the package.</div>
   </div>
 
+  <div class="card" id="profileCard">
+    <div class="hhead">
+      <h2 id="t-profile">My Profile</h2>
+    </div>
+    <div class="modes" id="modeRow">
+      <button class="modebtn" data-mode="dairyfree" id="mb-dairyfree">Dairy Free</button>
+      <button class="modebtn" data-mode="milkfree" id="mb-milkfree">Milk Free</button>
+      <button class="modebtn" data-mode="lactosefree" id="mb-lactosefree">Lactose Free</button>
+    </div>
+    <div class="note" id="modeHint"></div>
+    <div id="sevBlock">
+      <div class="sevlabel" id="t-severity">“May contain” warnings</div>
+      <div class="modes" id="sevRow">
+        <button class="modebtn" data-sev="standard" id="sb-standard">Standard</button>
+        <button class="modebtn" data-sev="severe" id="sb-severe">Severe</button>
+      </div>
+    </div>
+    <div class="note" id="t-profileNote">Saved on this phone only — no account, nothing leaves your phone.</div>
+  </div>
+
   <div class="card" id="historyCard">
     <div class="hhead">
-      <h2 id="t-history">Checked this trip</h2>
-      <button id="clearHist"><span id="t-clear">Clear</span></button>
+      <h2 id="t-history">My List</h2>
+      <button id="clearHist"><span id="t-clear">Clear all</span></button>
     </div>
     <div id="histList"></div>
   </div>
@@ -192,16 +222,30 @@ var SAFE_PHRASES = [
   "butterfly","butternut","coconut butter","cashew cream","oat cream","soy cream",
   "rice cream","almond cream","cream soda"
 ];
+/* "Lactose-free" phrasing: the word lactose inside it must never flag — a
+   lactose-free milk is exactly what Lactose Free mode exists to pass. The milk
+   in it still flags under Dairy Free / Milk Free via the remaining text. */
+var LACTOSE_FREE_PHRASES = [
+  "lactose-free","lactose free","free of lactose","sans lactose","sin lactosa",
+  "sem lactose","ohne laktose","laktosefrei","lactosevrij","laktozsuz","senza lattosio"
+];
 function _stripSafe(text){
   var out = " " + text.toLowerCase() + " ";
   for (var i=0;i<SAFE_PHRASES.length;i++){
     out = out.split(SAFE_PHRASES[i]).join(" ");
   }
+  for (var j=0;j<LACTOSE_FREE_PHRASES.length;j++){
+    out = out.split(LACTOSE_FREE_PHRASES[j]).join(" ");
+  }
   return out;
 }
-function _dairyWordHit(text){
+/* Class of each plain dairy word: lactose = lactose class; butter/cream/ghee/
+   smetana = milk fat; the rest (incl. lait, leche, milch…) = milk protein class. */
+var WORD_CLASS = { lactose:"lactose", butter:"fat", cream:"fat", ghee:"fat", smetana:"fat" };
+function _dairyWordHit(text, mode){
   var clean = _stripSafe(text);
   for (var i=0;i<DAIRY_WORDS.length;i++){
+    if (!_classAllowed(WORD_CLASS[DAIRY_WORDS[i]] || "protein", mode)) continue;
     var re = new RegExp("(^|[^a-z])" + DAIRY_WORDS[i] + "([^a-z]|$)");
     var m = clean.match(re);
     if (m) return DAIRY_WORDS[i];
@@ -260,6 +304,34 @@ var AMBIG_TERMS = [
   {p:"caramel", name:"Caramel", rk:"raCaramel"},
   {p:"nougat", name:"Nougat", rk:"raNougat"}
 ];
+/* ---------- profile modes (My Profile) ----------
+   Every dairy term belongs to a class, derived from its reason key:
+   "lactose" = lactose itself (milk sugar); "protein" = milk-protein ingredients
+   (casein, whey, milk solids, milk itself, cheese…); "fat" = milk-fat ingredients
+   (butter, cream, ghee…). The three profile modes flag different class sets:
+   Dairy Free flags all three, Milk Free flags lactose + protein, Lactose Free
+   flags lactose only. So lactose-free milk (ingredient: milk) is flagged under
+   Dairy Free and Milk Free but OK under Lactose Free, while a product listing
+   only lactose is flagged in all three modes. */
+function _termClass(rk){
+  if (rk === "rsMilkSugar") return "lactose";
+  if (rk === "rsMilkFat" || rk === "rsGhee") return "fat";
+  return "protein";
+}
+var MODE_CLASSES = {
+  dairyfree: ["lactose", "protein", "fat"],
+  milkfree: ["lactose", "protein"],
+  lactosefree: ["lactose"]
+};
+function _normMode(mode){ return MODE_CLASSES[mode] ? mode : "dairyfree"; }
+function _classAllowed(cls, mode){
+  return MODE_CLASSES[_normMode(mode)].indexOf(cls) !== -1;
+}
+/* Severity "severe" applies to the strict modes only: a "may contain" / traces
+   warning is then treated as CONTAINS. */
+function _severeApplies(profile){
+  return !!profile && profile.severity === "severe" && _normMode(profile.mode) !== "lactosefree";
+}
 function _termSpan(clean, phrase){
   var esc = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
   var re = new RegExp("(^|[^a-z])" + esc + "(?:es|s)?([^a-z]|$)");
@@ -268,11 +340,13 @@ function _termSpan(clean, phrase){
   var start = m.index + m[1].length;
   return [start, start + m[0].length - m[1].length - m[2].length];
 }
-/* Returns {flags:[{name,reasonKey}], amb:[{name,reasonKey}]} — plant phrases never flag. */
-function scanDairyTerms(text){
+/* Returns {flags:[{name,reasonKey,cls}], amb:[{name,reasonKey}]} — plant phrases
+   never flag. With a profile mode, definite-dairy flags are filtered to the
+   classes that mode trips (default "dairyfree" = today's behaviour). */
+function scanDairyTerms(text, mode){
   var clean = _stripSafe(text || "");
   var flags = [], amb = [], spans = [];
-  function collect(terms, out){
+  function collect(terms, out, isDairy){
     var sorted = terms.slice().sort(function(a,b){ return b.p.length - a.p.length; });
     for (var i=0;i<sorted.length;i++){
       var sp = _termSpan(clean, sorted[i].p);
@@ -281,11 +355,17 @@ function scanDairyTerms(text){
       for (var j=0;j<spans.length;j++){ if (sp[0] < spans[j][1] && sp[1] > spans[j][0]){ overlap = true; break; } }
       if (overlap) continue;
       spans.push(sp);
-      out.push({ name:sorted[i].name, reasonKey:sorted[i].rk });
+      if (isDairy){
+        var cls = _termClass(sorted[i].rk);
+        if (!_classAllowed(cls, mode)) continue;
+        out.push({ name:sorted[i].name, reasonKey:sorted[i].rk, cls:cls });
+      } else {
+        out.push({ name:sorted[i].name, reasonKey:sorted[i].rk });
+      }
     }
   }
-  collect(DAIRY_TERMS, flags);
-  collect(AMBIG_TERMS, amb);
+  collect(DAIRY_TERMS, flags, true);
+  collect(AMBIG_TERMS, amb, false);
   return { flags:flags, amb:amb };
 }
 function _tagHas(tags, want){
@@ -293,20 +373,27 @@ function _tagHas(tags, want){
   for (var i=0;i<tags.length;i++){ if (tags[i] === want) return true; }
   return false;
 }
-/* Returns {level: contains|may|none|unknown, reason: {kind, value}} */
-function dairyVerdict(product){
+/* Returns {level: contains|may|none|unknown, reason: {kind, value}}.
+   profile = {mode, severity} from My Profile; default = Dairy Free / Standard,
+   which reproduces the original behaviour exactly. Under Lactose Free the
+   declared-milk-allergen tag alone does NOT flag (lactose-free milk still
+   declares "Contains: Milk") — only a lactose ingredient does. Under Severe
+   (strict modes), traces / "may contain" escalate to CONTAINS. */
+function dairyVerdict(product, profile){
   if (!product || typeof product !== "object") return {level:"unknown", reason:{kind:"nodata"}};
+  var mode = _normMode(profile && profile.mode);
+  var severe = _severeApplies(profile);
   var allergens = product.allergens_tags || [];
   var traces = product.traces_tags || [];
   var text = product.ingredients_text_en || product.ingredients_text || "";
   var hasData = (typeof text === "string" && text.trim().length > 0) ||
                 (Array.isArray(product.allergens_tags) && product.allergens_tags.length > 0) ||
                 (Array.isArray(product.ingredients) && product.ingredients.length > 0);
-  /* 1 — declared milk allergen */
-  if (_tagHas(allergens, "en:milk")) return {level:"contains", reason:{kind:"allergen"}};
+  /* 1 — declared milk allergen (not, by itself, under Lactose Free) */
+  if (mode !== "lactosefree" && _tagHas(allergens, "en:milk")) return {level:"contains", reason:{kind:"allergen"}};
   /* ingredients analysis tags sometimes carry milk */
   var analysis = product.ingredients_analysis_tags || [];
-  if (_tagHas(analysis, "en:milk")) return {level:"contains", reason:{kind:"allergen"}};
+  if (mode !== "lactosefree" && _tagHas(analysis, "en:milk")) return {level:"contains", reason:{kind:"allergen"}};
   /* split off a "may contain …" clause: it feeds MAY, not CONTAINS */
   var mayClause = "";
   var mainText = text;
@@ -315,23 +402,28 @@ function dairyVerdict(product){
     mayClause = mayMatch[0];
     mainText = text.replace(mayMatch[0], " ");
   }
-  /* 2 — dairy word in the ingredient list itself */
-  var hit = _dairyWordHit(mainText);
+  /* 2 — dairy term in the ingredient list itself (class-filtered by mode) */
+  var tscan = scanDairyTerms(mainText, mode);
+  if (tscan.flags.length) return {level:"contains", reason:{kind:"ingredient", value:tscan.flags[0].name}};
+  var hit = _dairyWordHit(mainText, mode);
   if (hit) return {level:"contains", reason:{kind:"ingredient", value:hit}};
   /* 3 — structured ingredient ids (e.g. en:skimmed-milk-powder) */
   if (Array.isArray(product.ingredients)){
     for (var i=0;i<product.ingredients.length;i++){
       var id = (product.ingredients[i].id || "").replace(/^en:/,"").replace(/-/g," ");
-      var ih = _dairyWordHit(id);
-      if (ih) return {level:"contains", reason:{kind:"ingredient", value:id}};
+      if (scanDairyTerms(id, mode).flags.length || _dairyWordHit(id, mode))
+        return {level:"contains", reason:{kind:"ingredient", value:id}};
     }
   }
-  /* 4 — traces of milk */
-  if (_tagHas(traces, "en:milk")) return {level:"may", reason:{kind:"traces"}};
-  if (mayClause && _dairyWordHit(mayClause)) return {level:"may", reason:{kind:"maytext"}};
+  /* 4 — traces of milk / "may contain" text: MAY normally, CONTAINS under Severe */
+  if (_tagHas(traces, "en:milk"))
+    return severe ? {level:"contains", reason:{kind:"severemay"}} : {level:"may", reason:{kind:"traces"}};
+  if (mayClause && (scanDairyTerms(mayClause, mode).flags.length || _dairyWordHit(mayClause, mode)))
+    return severe ? {level:"contains", reason:{kind:"severemay"}} : {level:"may", reason:{kind:"maytext"}};
   var traceText = text.match(/traces of[^.;]*/i);
-  if (traceText && _dairyWordHit(traceText[0])) return {level:"may", reason:{kind:"maytext"}};
-  /* 5 — found, with data, nothing dairy */
+  if (traceText && (scanDairyTerms(traceText[0], mode).flags.length || _dairyWordHit(traceText[0], mode)))
+    return severe ? {level:"contains", reason:{kind:"severemay"}} : {level:"may", reason:{kind:"maytext"}};
+  /* 5 — found, with data, nothing dairy for this profile */
   if (hasData) return {level:"none", reason:{kind:"clean"}};
   return {level:"unknown", reason:{kind:"nodata"}};
 }
@@ -396,7 +488,9 @@ function ocrQuality(raw){
 /* Verdict from OCR text of a label photo.
    Returns {level, reason, matched[], containsLine, ingredients, quality}.
    A failed quality gate returns NO ingredients text — gibberish is never displayed. */
-function labelVerdict(rawText){
+function labelVerdict(rawText, profile){
+  var mode = _normMode(profile && profile.mode);
+  var severe = _severeApplies(profile);
   var text = (rawText || "").replace(/\s+/g, " ").trim();
   var quality = ocrQuality(text);
   if (!quality.ok){
@@ -411,16 +505,24 @@ function labelVerdict(rawText){
     mayClause = mayMatch[0];
     mainText = text.replace(mayMatch[0], " ");
   }
-  var scan = scanDairyTerms(mainText);
+  var scan = scanDairyTerms(mainText, mode);
   var flags = scan.flags, amb = scan.amb;
   if (!flags.length){
-    /* non-English fallback: the wider word list (lait, leche, milch…) still catches a red */
+    /* non-English fallback: the wider word list (lait, leche, milch…) still catches a red;
+       those are milk words (protein class), so under Lactose Free only "lactose" trips */
     var hits = _allDairyHits(mainText);
-    for (var hi=0; hi<hits.length; hi++) flags.push({ name:hits[hi], reasonKey:"rsFromMilk" });
+    for (var hi=0; hi<hits.length; hi++){
+      var hcls = WORD_CLASS[hits[hi]] || "protein";
+      if (!_classAllowed(hcls, mode)) continue;
+      flags.push({ name:hits[hi], reasonKey:"rsFromMilk", cls:hcls });
+    }
   }
   var names = flags.map(function(f){ return f.name; });
   if (flags.length) return {level:"contains", reason:{kind:"photoingredient", value:names.join(", ")}, matched:names, flags:flags, amb:amb, containsLine:containsLine, ingredients:ingredients, quality:quality};
-  if (mayClause && (scanDairyTerms(mayClause).flags.length || _dairyWordHit(mayClause))) return {level:"may", reason:{kind:"photomay"}, matched:[], flags:[], amb:amb, containsLine:containsLine, ingredients:ingredients, quality:quality};
+  if (mayClause && (scanDairyTerms(mayClause, mode).flags.length || _dairyWordHit(mayClause, mode))){
+    if (severe) return {level:"contains", reason:{kind:"photosevere"}, matched:[], flags:[], amb:amb, containsLine:containsLine, ingredients:ingredients, quality:quality};
+    return {level:"may", reason:{kind:"photomay"}, matched:[], flags:[], amb:amb, containsLine:containsLine, ingredients:ingredients, quality:quality};
+  }
   if (containsLine) return {level:"none", reason:{kind:"photoclean"}, matched:[], flags:[], amb:amb, containsLine:containsLine, ingredients:ingredients, quality:quality};
   return {level:"unknown", reason:{kind:"nocontains"}, matched:[], flags:[], amb:amb, containsLine:null, ingredients:ingredients, quality:quality};
 }
@@ -556,8 +658,8 @@ var LANG_NAMES = {
   th:"ไทย", zh:"中文", ja:"日本語", ko:"한국어"
 };
 var I18N = {
-en:{title:"Dairy Checker",langLabel:"Language",sub:"Scan a product barcode and find out if it contains dairy.",scan:"Scan barcode",stop:"Stop camera",point:"Point the camera at the barcode…",camFail:"Camera scanning isn't available on this browser. Type the barcode number instead.",or:"— or type the number —",codePh:"Barcode number",check:"Check",checking:"Checking…",vContains:"🔴 CONTAINS DAIRY",vMay:"🟡 MAY CONTAIN DAIRY",vNone:"🟢 No dairy found",vUnknown:"⚪ DON'T KNOW",whyAllergen:"Why: Milk is listed as an allergen.",whyTraces:"Why: The label lists traces of milk.",whyIngredient:"Why: Ingredient found: {w}.",whyMayText:"Why: The label warns it may contain milk.",whyClean:"Why: No milk in the allergens, traces or ingredients.",allergensLabel:"Allergens:",noneListed:"none listed",honest:"Data from Open Food Facts. Labels can change — always check the package.",unknownLine:"We couldn't find enough data on this product. Check the ingredient label on the package.",history:"Checked this trip",clear:"Clear",errNet:"Couldn't reach the product database. Check your connection and try again.",emptyCode:"Enter a barcode number first.",sContains:"Dairy",sMay:"May contain",sNone:"No dairy",sUnknown:"Unknown",noName:"Unknown product",snapBtn:"Snap the ingredients label",snapHint:"Not in the database? Snap the ingredients label instead.",reading:"Reading the label… (the first time can take a little while)",privacy:"AI label photos are sent to the reader service and deleted right after reading. The offline reader and barcode lookups never send photos.",whyPhotoContains:"Read from your photo of the label. Dairy found: {w}.",whyPhotoMay:"Read from your photo of the label. The label warns it may contain milk.",whyPhotoClean:"Read from your photo of the label. The Contains statement lists no milk, and no dairy words were found.",photoGarbled:"That photo was too blurry or curved to read. Retake it closer, straight-on, in good light, filling the screen with just the label.",photoNoContains:"We read the label but found no clear Contains statement, so we can't be sure. Check the package.",ingFromPhoto:"Ingredients (from your photo)",ingLabel:"Ingredients",containsLabel:"Contains:",foundNoData:"We found this product, but neither database has its ingredients, so we can't tell about dairy. Check the label — or snap a photo of it.",photoTag:"📷 Photo",photoName:"Label photo",levelsTitle:"Levels",lvlSugar:"Sugar",lvlSalt:"Salt",lvlSatFat:"Saturated fat",lvlFat:"Total fat",lvlCalories:"Calories",lvlLow:"Low",lvlMed:"Medium",lvlHigh:"High",lvlBasis100:"Rated per 100 g",lvlBasisServing:"Amounts per serving",lvlFromPhoto:"Read from your photo",nutriScore:"Nutri-Score",snapNutri:"Snap the Nutrition Facts panel",nutriHint:"Or snap the Nutrition Facts panel for the sugar, salt and fat levels.",photoTip:"Fill the screen with the label, straight-on, good light.",retake:"Retake photo",whyNutriPhoto:"Nutrition levels read from your photo of the Nutrition Facts panel.",nutriPhotoName:"Nutrition Facts photo",perServingShort:"per serving",snapAi:"Snap the label — AI read",aiReading:"🤖 AI is reading your label…",aiWait:"This can take a minute or two — please keep this page open.",aiFail:"The AI reader didn't answer this time. You can try the offline reader instead — it reads the photo right on your phone.",offlineBtn:"Read it on my phone instead (offline)",flagsTitle:"Dairy found in the ingredients",ambTitle:"Worth checking — can come from dairy",servingLabel:"Serving: {s}",rsMilk:"milk itself",rsMilkProtein:"a milk protein",rsMilkSugar:"milk sugar",rsMilkFat:"milk fat",rsGhee:"clarified butter",rsFromMilk:"made from milk",rsDriedMilk:"dried or concentrated milk",rsCurd:"milk curd",rsCheese:"a cheese",raLactic:"usually plant-made, but can come from milk",raLactylate:"can be made with milk-based lactic acid",raCaramel:"can be made with milk",raNaturalFlavor:"can hide milk ingredients",raNougat:"often made with milk"},
-es:{title:"Detector de Lácteos",langLabel:"Idioma",sub:"Escanea el código de barras de un producto y descubre si contiene lácteos.",scan:"Escanear código",stop:"Detener cámara",point:"Apunta la cámara al código de barras…",camFail:"El escaneo con cámara no está disponible en este navegador. Escribe el número del código.",or:"— o escribe el número —",codePh:"Número de código",check:"Comprobar",checking:"Comprobando…",vContains:"🔴 CONTIENE LÁCTEOS",vMay:"🟡 PUEDE CONTENER LÁCTEOS",vNone:"🟢 Sin lácteos encontrados",vUnknown:"⚪ NO SE SABE",whyAllergen:"Por qué: la leche figura como alérgeno.",whyTraces:"Por qué: la etiqueta indica trazas de leche.",whyIngredient:"Por qué: ingrediente encontrado: {w}.",whyMayText:"Por qué: la etiqueta advierte que puede contener leche.",whyClean:"Por qué: no hay leche en alérgenos, trazas ni ingredientes.",allergensLabel:"Alérgenos:",noneListed:"ninguno indicado",honest:"Datos de Open Food Facts. Las etiquetas pueden cambiar: revisa siempre el envase.",unknownLine:"No encontramos datos suficientes de este producto. Revisa la etiqueta de ingredientes del envase.",history:"Revisados en esta compra",clear:"Borrar",errNet:"No se pudo contactar la base de datos. Revisa tu conexión e inténtalo de nuevo.",emptyCode:"Primero escribe un número de código.",sContains:"Lácteos",sMay:"Puede contener",sNone:"Sin lácteos",sUnknown:"Desconocido",noName:"Producto desconocido",snapBtn:"Foto de la etiqueta de ingredientes",snapHint:"¿No está en la base de datos? Haz una foto de la etiqueta de ingredientes.",reading:"Leyendo la etiqueta… (la primera vez puede tardar un poco)",privacy:"Las fotos de etiquetas con IA se envían al servicio de lectura y se eliminan justo después de leerlas. El lector sin conexión y las búsquedas por código nunca envían fotos.",whyPhotoContains:"Leído de tu foto de la etiqueta. Lácteos encontrados: {w}.",whyPhotoMay:"Leído de tu foto de la etiqueta. La etiqueta advierte que puede contener leche.",whyPhotoClean:"Leído de tu foto de la etiqueta. La declaración «Contiene» no lista leche y no se encontraron palabras de lácteos.",photoGarbled:"No pudimos leer bien esa foto. Inténtalo de nuevo con buena luz y la etiqueta plana.",photoNoContains:"Leímos la etiqueta pero no encontramos una declaración «Contiene» clara, así que no podemos estar seguros. Revisa el envase.",ingFromPhoto:"Ingredientes (de tu foto)",ingLabel:"Ingredientes",containsLabel:"Contiene:",foundNoData:"Encontramos este producto, pero ninguna base de datos tiene sus ingredientes, así que no podemos saber si tiene lácteos. Revisa la etiqueta o hazle una foto.",photoTag:"📷 Foto",photoName:"Foto de la etiqueta",levelsTitle:"Niveles",lvlSugar:"Azúcar",lvlSalt:"Sal",lvlSatFat:"Grasa saturada",lvlFat:"Grasa total",lvlCalories:"Calorías",lvlLow:"Bajo",lvlMed:"Medio",lvlHigh:"Alto",lvlBasis100:"Valorado por cada 100 g",lvlBasisServing:"Cantidades por porción",lvlFromPhoto:"Leído de tu foto",nutriScore:"Nutri-Score",snapNutri:"Foto del panel de información nutricional",nutriHint:"O haz una foto del panel de información nutricional para ver los niveles de azúcar, sal y grasa.",photoTip:"Llena la pantalla con la etiqueta, de frente, con buena luz.",retake:"Repetir foto",whyNutriPhoto:"Niveles de nutrición leídos de tu foto del panel de información nutricional.",nutriPhotoName:"Foto de información nutricional",perServingShort:"por porción",snapAi:"Haz una foto de la etiqueta — lectura con IA",aiReading:"🤖 La IA está leyendo tu etiqueta…",aiWait:"Esto puede tardar uno o dos minutos — mantén esta página abierta.",aiFail:"El lector con IA no respondió esta vez. Puedes probar el lector sin conexión — lee la foto en tu teléfono.",offlineBtn:"Leerlo en mi teléfono (sin conexión)",flagsTitle:"Lácteos encontrados en los ingredientes",ambTitle:"Vale la pena revisar — puede venir de la leche",servingLabel:"Porción: {s}",rsMilk:"la leche misma",rsMilkProtein:"una proteína de la leche",rsMilkSugar:"azúcar de la leche",rsMilkFat:"grasa de la leche",rsGhee:"mantequilla clarificada",rsFromMilk:"hecho con leche",rsDriedMilk:"leche en polvo o concentrada",rsCurd:"cuajada de leche",rsCheese:"un queso",raLactic:"suele ser vegetal, pero puede venir de la leche",raLactylate:"puede hacerse con ácido láctico de la leche",raCaramel:"puede hacerse con leche",raNaturalFlavor:"puede ocultar ingredientes de leche",raNougat:"a menudo se hace con leche"},
+en:{title:"Dairy Checker",langLabel:"Language",sub:"Scan a product barcode and find out if it contains dairy.",scan:"Scan barcode",stop:"Stop camera",point:"Point the camera at the barcode…",camFail:"Camera scanning isn't available on this browser. Type the barcode number instead.",or:"— or type the number —",codePh:"Barcode number",check:"Check",checking:"Checking…",vContains:"🔴 CONTAINS DAIRY",vMay:"🟡 MAY CONTAIN DAIRY",vNone:"🟢 No dairy found",vUnknown:"⚪ DON'T KNOW",whyAllergen:"Why: Milk is listed as an allergen.",whyTraces:"Why: The label lists traces of milk.",whyIngredient:"Why: Ingredient found: {w}.",whyMayText:"Why: The label warns it may contain milk.",whyClean:"Why: No milk in the allergens, traces or ingredients.",allergensLabel:"Allergens:",noneListed:"none listed",honest:"Data from Open Food Facts. Labels can change — always check the package.",unknownLine:"We couldn't find enough data on this product. Check the ingredient label on the package.",history:"Checked this trip",clear:"Clear",errNet:"Couldn't reach the product database. Check your connection and try again.",emptyCode:"Enter a barcode number first.",sContains:"Dairy",sMay:"May contain",sNone:"No dairy",sUnknown:"Unknown",noName:"Unknown product",snapBtn:"Snap the ingredients label",snapHint:"Not in the database? Snap the ingredients label instead.",reading:"Reading the label… (the first time can take a little while)",privacy:"AI label photos are sent to the reader service and deleted right after reading. The offline reader and barcode lookups never send photos.",whyPhotoContains:"Read from your photo of the label. Dairy found: {w}.",whyPhotoMay:"Read from your photo of the label. The label warns it may contain milk.",whyPhotoClean:"Read from your photo of the label. The Contains statement lists no milk, and no dairy words were found.",photoGarbled:"That photo was too blurry or curved to read. Retake it closer, straight-on, in good light, filling the screen with just the label.",photoNoContains:"We read the label but found no clear Contains statement, so we can't be sure. Check the package.",ingFromPhoto:"Ingredients (from your photo)",ingLabel:"Ingredients",containsLabel:"Contains:",foundNoData:"We found this product, but neither database has its ingredients, so we can't tell about dairy. Check the label — or snap a photo of it.",photoTag:"📷 Photo",photoName:"Label photo",levelsTitle:"Levels",lvlSugar:"Sugar",lvlSalt:"Salt",lvlSatFat:"Saturated fat",lvlFat:"Total fat",lvlCalories:"Calories",lvlLow:"Low",lvlMed:"Medium",lvlHigh:"High",lvlBasis100:"Rated per 100 g",lvlBasisServing:"Amounts per serving",lvlFromPhoto:"Read from your photo",nutriScore:"Nutri-Score",snapNutri:"Snap the Nutrition Facts panel",nutriHint:"Or snap the Nutrition Facts panel for the sugar, salt and fat levels.",photoTip:"Fill the screen with the label, straight-on, good light.",retake:"Retake photo",whyNutriPhoto:"Nutrition levels read from your photo of the Nutrition Facts panel.",nutriPhotoName:"Nutrition Facts photo",perServingShort:"per serving",snapAi:"Snap the label — AI read",aiReading:"🤖 AI is reading your label…",aiWait:"This can take a minute or two — please keep this page open.",aiFail:"The AI reader didn't answer this time. You can try the offline reader instead — it reads the photo right on your phone.",offlineBtn:"Read it on my phone instead (offline)",flagsTitle:"Dairy found in the ingredients",ambTitle:"Worth checking — can come from dairy",servingLabel:"Serving: {s}",rsMilk:"milk itself",rsMilkProtein:"a milk protein",rsMilkSugar:"milk sugar",rsMilkFat:"milk fat",rsGhee:"clarified butter",rsFromMilk:"made from milk",rsDriedMilk:"dried or concentrated milk",rsCurd:"milk curd",rsCheese:"a cheese",raLactic:"usually plant-made, but can come from milk",raLactylate:"can be made with milk-based lactic acid",raCaramel:"can be made with milk",raNaturalFlavor:"can hide milk ingredients",raNougat:"often made with milk",profileTitle:"My Profile",profileNote:"Saved on this phone only — no account, nothing leaves your phone.",modeDairyFree:"Dairy Free",modeMilkFree:"Milk Free",modeLactoseFree:"Lactose Free",hintDairyFree:"Flags everything that comes from milk.",hintMilkFree:"Flags milk proteins — casein, whey, milk solids and the like.",hintLactoseFree:"Flags only lactose itself.",severityLabel:"“May contain” warnings",sevStandard:"Standard — just warn me",sevSevere:"Severe — treat it as contains",sevWord:"Severe",profileLine:"Profile: {m}",prevChecked:"You checked this on {d} — {v}",prevCheckedMode:"You checked this on {d} under {m} — {v}",myList:"My List",listSafe:"SAFE",listNotSafe:"NOT SAFE",clearAll:"Clear all",whySevereMay:"Why: The label warns it may contain milk, and your profile is set to Severe — treat it as contains.",whyPhotoSevere:"Read from your photo of the label. The label warns it may contain milk, and your profile is set to Severe — treat it as contains."},
+es:{title:"Detector de Lácteos",langLabel:"Idioma",sub:"Escanea el código de barras de un producto y descubre si contiene lácteos.",scan:"Escanear código",stop:"Detener cámara",point:"Apunta la cámara al código de barras…",camFail:"El escaneo con cámara no está disponible en este navegador. Escribe el número del código.",or:"— o escribe el número —",codePh:"Número de código",check:"Comprobar",checking:"Comprobando…",vContains:"🔴 CONTIENE LÁCTEOS",vMay:"🟡 PUEDE CONTENER LÁCTEOS",vNone:"🟢 Sin lácteos encontrados",vUnknown:"⚪ NO SE SABE",whyAllergen:"Por qué: la leche figura como alérgeno.",whyTraces:"Por qué: la etiqueta indica trazas de leche.",whyIngredient:"Por qué: ingrediente encontrado: {w}.",whyMayText:"Por qué: la etiqueta advierte que puede contener leche.",whyClean:"Por qué: no hay leche en alérgenos, trazas ni ingredientes.",allergensLabel:"Alérgenos:",noneListed:"ninguno indicado",honest:"Datos de Open Food Facts. Las etiquetas pueden cambiar: revisa siempre el envase.",unknownLine:"No encontramos datos suficientes de este producto. Revisa la etiqueta de ingredientes del envase.",history:"Revisados en esta compra",clear:"Borrar",errNet:"No se pudo contactar la base de datos. Revisa tu conexión e inténtalo de nuevo.",emptyCode:"Primero escribe un número de código.",sContains:"Lácteos",sMay:"Puede contener",sNone:"Sin lácteos",sUnknown:"Desconocido",noName:"Producto desconocido",snapBtn:"Foto de la etiqueta de ingredientes",snapHint:"¿No está en la base de datos? Haz una foto de la etiqueta de ingredientes.",reading:"Leyendo la etiqueta… (la primera vez puede tardar un poco)",privacy:"Las fotos de etiquetas con IA se envían al servicio de lectura y se eliminan justo después de leerlas. El lector sin conexión y las búsquedas por código nunca envían fotos.",whyPhotoContains:"Leído de tu foto de la etiqueta. Lácteos encontrados: {w}.",whyPhotoMay:"Leído de tu foto de la etiqueta. La etiqueta advierte que puede contener leche.",whyPhotoClean:"Leído de tu foto de la etiqueta. La declaración «Contiene» no lista leche y no se encontraron palabras de lácteos.",photoGarbled:"No pudimos leer bien esa foto. Inténtalo de nuevo con buena luz y la etiqueta plana.",photoNoContains:"Leímos la etiqueta pero no encontramos una declaración «Contiene» clara, así que no podemos estar seguros. Revisa el envase.",ingFromPhoto:"Ingredientes (de tu foto)",ingLabel:"Ingredientes",containsLabel:"Contiene:",foundNoData:"Encontramos este producto, pero ninguna base de datos tiene sus ingredientes, así que no podemos saber si tiene lácteos. Revisa la etiqueta o hazle una foto.",photoTag:"📷 Foto",photoName:"Foto de la etiqueta",levelsTitle:"Niveles",lvlSugar:"Azúcar",lvlSalt:"Sal",lvlSatFat:"Grasa saturada",lvlFat:"Grasa total",lvlCalories:"Calorías",lvlLow:"Bajo",lvlMed:"Medio",lvlHigh:"Alto",lvlBasis100:"Valorado por cada 100 g",lvlBasisServing:"Cantidades por porción",lvlFromPhoto:"Leído de tu foto",nutriScore:"Nutri-Score",snapNutri:"Foto del panel de información nutricional",nutriHint:"O haz una foto del panel de información nutricional para ver los niveles de azúcar, sal y grasa.",photoTip:"Llena la pantalla con la etiqueta, de frente, con buena luz.",retake:"Repetir foto",whyNutriPhoto:"Niveles de nutrición leídos de tu foto del panel de información nutricional.",nutriPhotoName:"Foto de información nutricional",perServingShort:"por porción",snapAi:"Haz una foto de la etiqueta — lectura con IA",aiReading:"🤖 La IA está leyendo tu etiqueta…",aiWait:"Esto puede tardar uno o dos minutos — mantén esta página abierta.",aiFail:"El lector con IA no respondió esta vez. Puedes probar el lector sin conexión — lee la foto en tu teléfono.",offlineBtn:"Leerlo en mi teléfono (sin conexión)",flagsTitle:"Lácteos encontrados en los ingredientes",ambTitle:"Vale la pena revisar — puede venir de la leche",servingLabel:"Porción: {s}",rsMilk:"la leche misma",rsMilkProtein:"una proteína de la leche",rsMilkSugar:"azúcar de la leche",rsMilkFat:"grasa de la leche",rsGhee:"mantequilla clarificada",rsFromMilk:"hecho con leche",rsDriedMilk:"leche en polvo o concentrada",rsCurd:"cuajada de leche",rsCheese:"un queso",raLactic:"suele ser vegetal, pero puede venir de la leche",raLactylate:"puede hacerse con ácido láctico de la leche",raCaramel:"puede hacerse con leche",raNaturalFlavor:"puede ocultar ingredientes de leche",raNougat:"a menudo se hace con leche",profileTitle:"Mi perfil",profileNote:"Guardado solo en este teléfono — sin cuenta, nada sale de tu teléfono.",modeDairyFree:"Sin lácteos",modeMilkFree:"Sin leche",modeLactoseFree:"Sin lactosa",hintDairyFree:"Marca todo lo que viene de la leche.",hintMilkFree:"Marca las proteínas de la leche: caseína, suero, sólidos de leche y similares.",hintLactoseFree:"Marca solo la lactosa.",severityLabel:"Avisos de «puede contener»",sevStandard:"Estándar — solo avísame",sevSevere:"Grave — trátalo como si lo contuviera",sevWord:"Grave",profileLine:"Perfil: {m}",prevChecked:"Ya lo revisaste el {d} — {v}",prevCheckedMode:"Ya lo revisaste el {d} con el modo {m} — {v}",myList:"Mi lista",listSafe:"SEGUROS",listNotSafe:"NO SEGUROS",clearAll:"Borrar todo",whySevereMay:"Por qué: la etiqueta advierte que puede contener leche, y tu perfil está en modo grave — trátalo como si la contuviera.",whyPhotoSevere:"Leído de tu foto de la etiqueta. La etiqueta advierte que puede contener leche, y tu perfil está en modo grave — trátalo como si la contuviera."},
 pt:{title:"Verificador de Laticínios",langLabel:"Idioma",sub:"Escaneie o código de barras de um produto e descubra se ele contém laticínios.",scan:"Escanear código",stop:"Parar câmera",point:"Aponte a câmera para o código de barras…",camFail:"A leitura pela câmera não está disponível neste navegador. Digite o número do código.",or:"— ou digite o número —",codePh:"Número do código",check:"Verificar",checking:"Verificando…",vContains:"🔴 CONTÉM LATICÍNIOS",vMay:"🟡 PODE CONTER LATICÍNIOS",vNone:"🟢 Nenhum laticínio encontrado",vUnknown:"⚪ NÃO SE SABE",whyAllergen:"Por quê: o leite está listado como alérgeno.",whyTraces:"Por quê: o rótulo indica traços de leite.",whyIngredient:"Por quê: ingrediente encontrado: {w}.",whyMayText:"Por quê: o rótulo avisa que pode conter leite.",whyClean:"Por quê: sem leite nos alérgenos, traços ou ingredientes.",allergensLabel:"Alérgenos:",noneListed:"nenhum listado",honest:"Dados do Open Food Facts. Os rótulos podem mudar — verifique sempre a embalagem.",unknownLine:"Não encontramos dados suficientes sobre este produto. Verifique o rótulo de ingredientes da embalagem.",history:"Verificados nesta compra",clear:"Limpar",errNet:"Não foi possível acessar o banco de dados. Verifique sua conexão e tente novamente.",emptyCode:"Digite primeiro um número de código.",sContains:"Laticínios",sMay:"Pode conter",sNone:"Sem laticínios",sUnknown:"Desconhecido",noName:"Produto desconhecido",snapBtn:"Fotografar o rótulo de ingredientes",snapHint:"Não está no banco de dados? Fotografe o rótulo de ingredientes.",reading:"Lendo o rótulo… (na primeira vez pode demorar um pouco)",privacy:"As fotos de rótulo com IA são enviadas ao serviço de leitura e apagadas logo após a leitura. O leitor offline e as buscas por código nunca enviam fotos.",whyPhotoContains:"Lido da sua foto do rótulo. Laticínios encontrados: {w}.",whyPhotoMay:"Lido da sua foto do rótulo. O rótulo avisa que pode conter leite.",whyPhotoClean:"Lido da sua foto do rótulo. A declaração «Contém» não lista leite e nenhuma palavra de laticínios foi encontrada.",photoGarbled:"Não conseguimos ler bem essa foto. Tente de novo com boa luz e o rótulo plano.",photoNoContains:"Lemos o rótulo, mas não há uma declaração «Contém» clara, então não temos certeza. Verifique a embalagem.",ingFromPhoto:"Ingredientes (da sua foto)",ingLabel:"Ingredientes",containsLabel:"Contém:",foundNoData:"Encontramos este produto, mas nenhum banco de dados tem seus ingredientes, então não dá para saber sobre laticínios. Verifique o rótulo — ou fotografe-o.",photoTag:"📷 Foto",photoName:"Foto do rótulo",levelsTitle:"Níveis",lvlSugar:"Açúcar",lvlSalt:"Sal",lvlSatFat:"Gordura saturada",lvlFat:"Gordura total",lvlCalories:"Calorias",lvlLow:"Baixo",lvlMed:"Médio",lvlHigh:"Alto",lvlBasis100:"Avaliado por 100 g",lvlBasisServing:"Quantidades por porção",lvlFromPhoto:"Lido da sua foto",nutriScore:"Nutri-Score",snapNutri:"Fotografar o painel de informações nutricionais",nutriHint:"Ou fotografe o painel de informações nutricionais para ver os níveis de açúcar, sal e gordura.",photoTip:"Encha a tela com o rótulo, de frente, com boa luz.",retake:"Tirar outra foto",whyNutriPhoto:"Níveis de nutrição lidos da sua foto do painel de informações nutricionais.",nutriPhotoName:"Foto das informações nutricionais",perServingShort:"por porção",snapAi:"Fotografe o rótulo — leitura com IA",aiReading:"🤖 A IA está lendo seu rótulo…",aiWait:"Isso pode levar um ou dois minutos — mantenha esta página aberta.",aiFail:"O leitor com IA não respondeu desta vez. Você pode tentar o leitor offline — ele lê a foto no seu telefone.",offlineBtn:"Ler no meu telefone (offline)",flagsTitle:"Laticínios encontrados nos ingredientes",ambTitle:"Vale a pena verificar — pode vir do leite",servingLabel:"Porção: {s}",rsMilk:"o próprio leite",rsMilkProtein:"uma proteína do leite",rsMilkSugar:"açúcar do leite",rsMilkFat:"gordura do leite",rsGhee:"manteiga clarificada",rsFromMilk:"feito com leite",rsDriedMilk:"leite em pó ou concentrado",rsCurd:"coalhada de leite",rsCheese:"um queijo",raLactic:"geralmente vegetal, mas pode vir do leite",raLactylate:"pode ser feito com ácido lático do leite",raCaramel:"pode ser feito com leite",raNaturalFlavor:"pode esconder ingredientes de leite",raNougat:"geralmente feito com leite"},
 fr:{title:"Détecteur de Produits Laitiers",langLabel:"Langue",sub:"Scannez le code-barres d'un produit pour savoir s'il contient des produits laitiers.",scan:"Scanner le code",stop:"Arrêter la caméra",point:"Pointez la caméra vers le code-barres…",camFail:"Le scan par caméra n'est pas disponible sur ce navigateur. Tapez le numéro du code.",or:"— ou tapez le numéro —",codePh:"Numéro de code-barres",check:"Vérifier",checking:"Vérification…",vContains:"🔴 CONTIENT DES PRODUITS LAITIERS",vMay:"🟡 PEUT CONTENIR DES PRODUITS LAITIERS",vNone:"🟢 Aucun produit laitier trouvé",vUnknown:"⚪ INCONNU",whyAllergen:"Pourquoi : le lait est listé comme allergène.",whyTraces:"Pourquoi : l'étiquette indique des traces de lait.",whyIngredient:"Pourquoi : ingrédient trouvé : {w}.",whyMayText:"Pourquoi : l'étiquette avertit qu'il peut contenir du lait.",whyClean:"Pourquoi : pas de lait dans les allergènes, traces ou ingrédients.",allergensLabel:"Allergènes :",noneListed:"aucun indiqué",honest:"Données d'Open Food Facts. Les étiquettes peuvent changer — vérifiez toujours l'emballage.",unknownLine:"Données insuffisantes pour ce produit. Vérifiez la liste des ingrédients sur l'emballage.",history:"Vérifiés pendant ces courses",clear:"Effacer",errNet:"Base de données injoignable. Vérifiez votre connexion et réessayez.",emptyCode:"Entrez d'abord un numéro de code-barres.",sContains:"Laitier",sMay:"Peut contenir",sNone:"Sans laitier",sUnknown:"Inconnu",noName:"Produit inconnu",snapBtn:"Photographier l'étiquette des ingrédients",snapHint:"Absent de la base de données ? Photographiez plutôt l'étiquette des ingrédients.",reading:"Lecture de l'étiquette… (la première fois peut prendre un moment)",privacy:"Les photos d'étiquettes IA sont envoyées au service de lecture et supprimées juste après la lecture. Le lecteur hors ligne et les recherches par code n'envoient jamais de photos.",whyPhotoContains:"Lu sur votre photo de l'étiquette. Produits laitiers trouvés : {w}.",whyPhotoMay:"Lu sur votre photo de l'étiquette. L'étiquette avertit qu'il peut contenir du lait.",whyPhotoClean:"Lu sur votre photo de l'étiquette. La mention « Contient » ne liste pas de lait et aucun mot laitier n'a été trouvé.",photoGarbled:"Nous n'avons pas pu lire cette photo assez bien. Réessayez avec une bonne lumière, étiquette à plat.",photoNoContains:"Nous avons lu l'étiquette mais trouvé aucune mention « Contient » claire, donc nous ne pouvons pas être sûrs. Vérifiez l'emballage.",ingFromPhoto:"Ingrédients (de votre photo)",ingLabel:"Ingrédients",containsLabel:"Contient :",foundNoData:"Nous avons trouvé ce produit, mais aucune base de données n'a ses ingrédients, donc impossible de savoir pour les produits laitiers. Vérifiez l'étiquette — ou photographiez-la.",photoTag:"📷 Photo",photoName:"Photo de l'étiquette",levelsTitle:"Niveaux",lvlSugar:"Sucre",lvlSalt:"Sel",lvlSatFat:"Graisses saturées",lvlFat:"Graisses totales",lvlCalories:"Calories",lvlLow:"Faible",lvlMed:"Moyen",lvlHigh:"Élevé",lvlBasis100:"Évalué pour 100 g",lvlBasisServing:"Quantités par portion",lvlFromPhoto:"Lu sur votre photo",nutriScore:"Nutri-Score",snapNutri:"Photographier le tableau nutritionnel",nutriHint:"Ou photographiez le tableau nutritionnel pour les niveaux de sucre, sel et graisses.",photoTip:"Remplissez l'écran avec l'étiquette, bien en face, avec une bonne lumière.",retake:"Reprendre la photo",whyNutriPhoto:"Niveaux nutritionnels lus sur votre photo du tableau nutritionnel.",nutriPhotoName:"Photo du tableau nutritionnel",perServingShort:"par portion",snapAi:"Photographiez l'étiquette — lecture IA",aiReading:"🤖 L'IA lit votre étiquette…",aiWait:"Cela peut prendre une minute ou deux — gardez cette page ouverte.",aiFail:"Le lecteur IA n'a pas répondu cette fois. Vous pouvez essayer le lecteur hors ligne — il lit la photo sur votre téléphone.",offlineBtn:"Le lire sur mon téléphone (hors ligne)",flagsTitle:"Produits laitiers trouvés dans les ingrédients",ambTitle:"À vérifier — peut venir du lait",servingLabel:"Portion : {s}",rsMilk:"le lait lui-même",rsMilkProtein:"une protéine du lait",rsMilkSugar:"sucre du lait",rsMilkFat:"matière grasse du lait",rsGhee:"beurre clarifié",rsFromMilk:"fait avec du lait",rsDriedMilk:"lait en poudre ou concentré",rsCurd:"caillé de lait",rsCheese:"un fromage",raLactic:"généralement végétal, mais peut venir du lait",raLactylate:"peut être fait avec de l'acide lactique de lait",raCaramel:"peut être fait avec du lait",raNaturalFlavor:"peut cacher des ingrédients laitiers",raNougat:"souvent fait avec du lait"},
 de:{title:"Milchprodukt-Checker",langLabel:"Sprache",sub:"Scannen Sie den Barcode eines Produkts und erfahren Sie, ob es Milchprodukte enthält.",scan:"Barcode scannen",stop:"Kamera stoppen",point:"Richten Sie die Kamera auf den Barcode…",camFail:"Kamera-Scan ist in diesem Browser nicht verfügbar. Tippen Sie die Barcode-Nummer ein.",or:"— oder Nummer eintippen —",codePh:"Barcode-Nummer",check:"Prüfen",checking:"Prüfe…",vContains:"🔴 ENTHÄLT MILCHPRODUKTE",vMay:"🟡 KANN MILCHPRODUKTE ENTHALTEN",vNone:"🟢 Keine Milchprodukte gefunden",vUnknown:"⚪ UNBEKANNT",whyAllergen:"Warum: Milch ist als Allergen aufgeführt.",whyTraces:"Warum: Das Etikett nennt Spuren von Milch.",whyIngredient:"Warum: Zutat gefunden: {w}.",whyMayText:"Warum: Das Etikett warnt, dass Milch enthalten sein kann.",whyClean:"Warum: Keine Milch in Allergenen, Spuren oder Zutaten.",allergensLabel:"Allergene:",noneListed:"keine aufgeführt",honest:"Daten von Open Food Facts. Etiketten können sich ändern — prüfen Sie immer die Packung.",unknownLine:"Nicht genug Daten zu diesem Produkt. Prüfen Sie die Zutatenliste auf der Packung.",history:"Bei diesem Einkauf geprüft",clear:"Leeren",errNet:"Datenbank nicht erreichbar. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",emptyCode:"Geben Sie zuerst eine Barcode-Nummer ein.",sContains:"Milchprodukt",sMay:"Kann enthalten",sNone:"Ohne Milch",sUnknown:"Unbekannt",noName:"Unbekanntes Produkt",snapBtn:"Zutatenetikett fotografieren",snapHint:"Nicht in der Datenbank? Fotografieren Sie stattdessen das Zutatenetikett.",reading:"Etikett wird gelesen… (beim ersten Mal kann es etwas dauern)",privacy:"KI-Etikettfotos werden an den Lesedienst gesendet und direkt nach dem Lesen gelöscht. Der Offline-Leser und Barcode-Suchen senden nie Fotos.",whyPhotoContains:"Von Ihrem Etikettfoto gelesen. Gefunden: {w}.",whyPhotoMay:"Von Ihrem Etikettfoto gelesen. Das Etikett warnt, dass Milch enthalten sein kann.",whyPhotoClean:"Von Ihrem Etikettfoto gelesen. Die «Enthält»-Angabe listet keine Milch, und es wurden keine Milchwörter gefunden.",photoGarbled:"Wir konnten das Foto nicht gut genug lesen. Versuchen Sie es erneut bei gutem Licht mit flachem Etikett.",photoNoContains:"Wir haben das Etikett gelesen, aber keine klare «Enthält»-Angabe gefunden — wir können nicht sicher sein. Prüfen Sie die Packung.",ingFromPhoto:"Zutaten (von Ihrem Foto)",ingLabel:"Zutaten",containsLabel:"Enthält:",foundNoData:"Wir haben dieses Produkt gefunden, aber keine Datenbank hat seine Zutaten — zu Milchprodukten können wir nichts sagen. Prüfen Sie das Etikett oder fotografieren Sie es.",photoTag:"📷 Foto",photoName:"Etikettfoto",levelsTitle:"Werte",lvlSugar:"Zucker",lvlSalt:"Salz",lvlSatFat:"Gesättigte Fettsäuren",lvlFat:"Fett gesamt",lvlCalories:"Kalorien",lvlLow:"Niedrig",lvlMed:"Mittel",lvlHigh:"Hoch",lvlBasis100:"Bewertet pro 100 g",lvlBasisServing:"Mengen pro Portion",lvlFromPhoto:"Von Ihrem Foto gelesen",nutriScore:"Nutri-Score",snapNutri:"Nährwerttabelle fotografieren",nutriHint:"Oder fotografieren Sie die Nährwerttabelle für die Werte von Zucker, Salz und Fett.",photoTip:"Füllen Sie den Bildschirm mit dem Etikett, gerade von vorne, bei gutem Licht.",retake:"Foto erneut aufnehmen",whyNutriPhoto:"Nährwerte, gelesen von Ihrem Foto der Nährwerttabelle.",nutriPhotoName:"Foto der Nährwerttabelle",perServingShort:"pro Portion",snapAi:"Etikett fotografieren — KI liest mit",aiReading:"🤖 Die KI liest Ihr Etikett…",aiWait:"Das kann ein bis zwei Minuten dauern — lassen Sie diese Seite offen.",aiFail:"Der KI-Leser hat diesmal nicht geantwortet. Sie können den Offline-Leser versuchen — er liest das Foto auf Ihrem Telefon.",offlineBtn:"Auf meinem Telefon lesen (offline)",flagsTitle:"Milchprodukte in den Zutaten gefunden",ambTitle:"Prüfen lohnt sich — kann aus Milch stammen",servingLabel:"Portion: {s}",rsMilk:"Milch selbst",rsMilkProtein:"ein Milchprotein",rsMilkSugar:"Milchzucker",rsMilkFat:"Milchfett",rsGhee:"geklärte Butter",rsFromMilk:"aus Milch gemacht",rsDriedMilk:"Trockenmilch oder konzentrierte Milch",rsCurd:"Milchbruch",rsCheese:"ein Käse",raLactic:"meist pflanzlich, kann aber aus Milch stammen",raLactylate:"kann mit Milchsäure aus Milch gemacht sein",raCaramel:"kann mit Milch gemacht sein",raNaturalFlavor:"kann Milchzutaten verbergen",raNougat:"oft mit Milch gemacht"},
@@ -613,8 +715,12 @@ function applyLang(){
   $("codeInput").placeholder = T("codePh");
   $("t-check").textContent = T("check");
   $("t-honest").textContent = T("honest");
-  $("t-history").textContent = T("history");
-  $("t-clear").textContent = T("clear");
+  $("t-history").textContent = T("myList");
+  $("t-clear").textContent = T("clearAll");
+  $("t-profile").textContent = T("profileTitle");
+  $("t-severity").textContent = T("severityLabel");
+  $("t-profileNote").textContent = T("profileNote");
+  renderProfile();
   $("t-snap").textContent = T("snapAi");
   $("t-snap2").textContent = T("snapAi");
   $("t-offline").textContent = T("offlineBtn");
@@ -714,6 +820,21 @@ function showResult(){
                    T(verdict.level === "contains" ? "vContains" :
                      verdict.level === "may" ? "vMay" :
                      verdict.level === "none" ? "vNone" : "vUnknown");
+  var profNow = getProfile();
+  $("modeLine").textContent = T("profileLine").replace("{m}", modeName(profNow.mode) +
+    (_severeApplies(profNow) ? " · " + T("sevWord") : ""));
+  var pb = $("prevBox");
+  if (r0.prev){
+    var pv = r0.prev.level === "contains" ? T("sContains") : r0.prev.level === "may" ? T("sMay") :
+             r0.prev.level === "none" ? T("sNone") : T("sUnknown");
+    pb.textContent = (r0.prev.mode && r0.prev.mode !== profNow.mode)
+      ? T("prevCheckedMode").replace("{d}", fmtDate(r0.prev.ts)).replace("{m}", modeName(r0.prev.mode)).replace("{v}", pv)
+      : T("prevChecked").replace("{d}", fmtDate(r0.prev.ts)).replace("{v}", pv);
+    pb.className = "show";
+  } else {
+    pb.className = "";
+    pb.textContent = "";
+  }
   var p = r0.data && r0.data.product;
   if (p){
     $("prodBox").style.display = "flex";
@@ -744,6 +865,8 @@ function showResult(){
   else if (r.kind === "clean") why = T("whyClean");
   else if (r.kind === "photoingredient") why = T("whyPhotoContains").replace("{w}", r.value);
   else if (r.kind === "photomay") why = T("whyPhotoMay");
+  else if (r.kind === "severemay") why = T("whySevereMay");
+  else if (r.kind === "photosevere") why = T("whyPhotoSevere");
   else if (r.kind === "photoclean") why = T("whyPhotoClean");
   else if (r.kind === "garbled") why = T("photoGarbled");
   else if (r.kind === "nocontains") why = T("photoNoContains");
@@ -787,36 +910,154 @@ function showResult(){
   $("t-honest").textContent = (r0.source === "photo") ? T("privacy") : T("honest");
 }
 
+/* ---------- My Profile (on this phone only — localStorage, no account) ---------- */
+function getProfile(){
+  try {
+    var p = JSON.parse(localStorage.getItem("dairycheck_profile") || "null");
+    if (p && MODE_CLASSES[p.mode])
+      return { mode:p.mode, severity: p.severity === "severe" ? "severe" : "standard" };
+  } catch(e){}
+  return { mode:"dairyfree", severity:"standard" };
+}
+function saveProfile(p){ localStorage.setItem("dairycheck_profile", JSON.stringify(p)); }
+function modeName(m){
+  return T(m === "milkfree" ? "modeMilkFree" : m === "lactosefree" ? "modeLactoseFree" : "modeDairyFree");
+}
+function fmtDate(ts){
+  if (!ts) return "";
+  try { return new Date(ts).toLocaleDateString(lang, { year:"numeric", month:"short", day:"numeric" }); }
+  catch(e){ return ""; }
+}
+function renderProfile(){
+  var p = getProfile();
+  ["dairyfree","milkfree","lactosefree"].forEach(function(m){
+    $("mb-" + m).textContent = modeName(m);
+    $("mb-" + m).className = "modebtn" + (p.mode === m ? " active" : "");
+  });
+  $("modeHint").textContent = T(p.mode === "milkfree" ? "hintMilkFree" : p.mode === "lactosefree" ? "hintLactoseFree" : "hintDairyFree");
+  /* severity is a strict-mode choice; hidden (and unused) under Lactose Free */
+  $("sevBlock").style.display = (p.mode === "lactosefree") ? "none" : "";
+  $("sb-standard").textContent = T("sevStandard");
+  $("sb-severe").textContent = T("sevSevere");
+  $("sb-standard").className = "modebtn" + (p.severity === "standard" ? " active" : "");
+  $("sb-severe").className = "modebtn" + (p.severity === "severe" ? " active" : "");
+}
+function setProfile(patch){
+  var p = getProfile();
+  if (patch.mode) p.mode = patch.mode;
+  if (patch.severity) p.severity = patch.severity;
+  saveProfile(p);
+  renderProfile();
+  refreshVerdict();
+}
+/* Re-run the current result under the (possibly just-changed) profile, so flipping
+   modes on the result screen updates the verdict without a re-scan. */
+function refreshVerdict(){
+  if (!lastResult) return;
+  var prof = getProfile();
+  if (lastResult.data && lastResult.data.product){
+    var p = lastResult.data.product;
+    lastResult.verdict = dairyVerdict(p, prof);
+    var pIng = p.ingredients_text_en || p.ingredients_text || "";
+    var pScan = scanDairyTerms(pIng, prof.mode);
+    var pFlags = pScan.flags.slice();
+    if (prof.mode !== "lactosefree" && _tagHas(p.allergens_tags || [], "en:milk") &&
+        !pFlags.some(function(f){ return f.name === "Milk"; })){
+      pFlags.unshift({ name:"Milk", reasonKey:"rsMilk" });
+    }
+    lastResult.flags = pFlags;
+    lastResult.amb = pScan.amb;
+    showResult();
+  } else if (lastResult.source === "photo" && lastResult.rawText){
+    var v = labelVerdict(lastResult.rawText, prof);
+    if (lastResult.ai && v.reason && v.reason.kind === "garbled"){
+      /* same trust-the-AI fallback as the original read */
+      var sc2 = scanDairyTerms(lastResult.rawText, prof.mode);
+      var cl2 = _findContains(lastResult.rawText);
+      var lvl2 = sc2.flags.length ? "contains" : (cl2 ? "none" : "unknown");
+      v = { level:lvl2, flags:sc2.flags, amb:sc2.amb, containsLine:cl2,
+            ingredients:_extractIngredients(lastResult.rawText, cl2),
+            reason: lvl2 === "contains" ? {kind:"photoingredient", value:sc2.flags.map(function(x){ return x.name; }).join(", ")}
+                  : lvl2 === "none" ? {kind:"photoclean"} : {kind:"nocontains"} };
+    }
+    lastResult.verdict = v;
+    if (v.flags) lastResult.flags = v.flags;
+    if (v.amb) lastResult.amb = v.amb;
+    if (lastResult.photo){
+      if (v.ingredients) lastResult.photo.ingredients = v.ingredients;
+      lastResult.photo.containsLine = v.containsLine || null;
+    }
+    showResult();
+  }
+}
+Array.prototype.forEach.call(document.querySelectorAll("#modeRow .modebtn"), function(b){
+  b.addEventListener("click", function(){ setProfile({ mode:b.getAttribute("data-mode") }); });
+});
+Array.prototype.forEach.call(document.querySelectorAll("#sevRow .modebtn"), function(b){
+  b.addEventListener("click", function(){ setProfile({ severity:b.getAttribute("data-sev") }); });
+});
+
 /* ---------- history ---------- */
 function getHistory(){
   try { return JSON.parse(localStorage.getItem("dairycheck_history") || "[]"); }
   catch(e){ return []; }
 }
-function saveHistory(h){ localStorage.setItem("dairycheck_history", JSON.stringify(h.slice(0,30))); }
+function saveHistory(h){ localStorage.setItem("dairycheck_history", JSON.stringify(h.slice(0,100))); }
 function addHistory(code, name, level, source){
   var h = getHistory().filter(function(x){ return x.code !== code; });
-  h.unshift({code:code, name:name, level:level, source:source || "off"});
+  h.unshift({code:code, name:name, level:level, source:source || "off",
+             mode:getProfile().mode, ts:Date.now()});
   saveHistory(h);
   renderHistory();
+}
+/* Previous saved check for a barcode (also matches its UPC/EAN twin), or null. */
+function findPrev(code){
+  var h = getHistory();
+  var alt = altCode(code);
+  for (var i=0;i<h.length;i++){
+    if (h[i].code === code || (alt && h[i].code === alt))
+      return { ts:h[i].ts || null, level:h[i].level, mode:h[i].mode || null };
+  }
+  return null;
 }
 function renderHistory(){
   var h = getHistory();
   $("historyCard").className = "card" + (h.length ? " show" : "");
   var list = $("histList");
   list.innerHTML = "";
-  h.forEach(function(item){
-    var d = document.createElement("div");
-    d.className = "hitem";
-    var short = item.level === "contains" ? T("sContains") : item.level === "may" ? T("sMay") :
-                item.level === "none" ? T("sNone") : T("sUnknown");
-    d.innerHTML = '<span class="dot ' + item.level + '"></span><span class="hn"></span><span class="hv ' + item.level + '"></span>';
-    d.querySelector(".hn").textContent = (item.source === "photo" ? T("photoTag") + " " : "") + (item.name || item.code);
-    d.querySelector(".hv").textContent = short;
-    if (/^\d+$/.test(item.code || "")){
-      d.addEventListener("click", function(){ $("codeInput").value = item.code; lookup(item.code); });
-    }
-    list.appendChild(d);
-  });
+  function section(titleKey, items){
+    if (!items.length) return;
+    var hd = document.createElement("div");
+    hd.className = "listsec";
+    hd.textContent = T(titleKey);
+    list.appendChild(hd);
+    items.forEach(function(item){
+      var d = document.createElement("div");
+      d.className = "hitem";
+      var short = item.level === "contains" ? T("sContains") : item.level === "may" ? T("sMay") :
+                  item.level === "none" ? T("sNone") : T("sUnknown");
+      d.innerHTML = '<span class="dot ' + item.level + '"></span><span class="hn"></span><span class="hv ' + item.level + '"></span>';
+      var hn = d.querySelector(".hn");
+      hn.textContent = (item.source === "photo" ? T("photoTag") + " " : "") + (item.name || item.code);
+      var subBits = [];
+      if (item.ts) subBits.push(fmtDate(item.ts));
+      if (item.mode) subBits.push(modeName(item.mode));
+      if (subBits.length){
+        var sub = document.createElement("div");
+        sub.className = "hsub";
+        sub.textContent = subBits.join(" · ");
+        hn.appendChild(document.createElement("br"));
+        hn.appendChild(sub);
+      }
+      d.querySelector(".hv").textContent = short;
+      if (/^\d+$/.test(item.code || "")){
+        d.addEventListener("click", function(){ $("codeInput").value = item.code; lookup(item.code); });
+      }
+      list.appendChild(d);
+    });
+  }
+  section("listSafe", h.filter(function(x){ return x.level === "none"; }));
+  section("listNotSafe", h.filter(function(x){ return x.level !== "none"; }));
 }
 $("clearHist").addEventListener("click", function(){ saveHistory([]); renderHistory(); });
 
@@ -840,6 +1081,8 @@ function lookup(code){
   code = (code || "").replace(/\D/g,"");
   if (!code){ showErr(T("emptyCode")); return; }
   if (busy) return;
+  var prevEntry = findPrev(code);
+  var prof = getProfile();
   busy = true;
   showErr("");
   $("t-check").textContent = T("checking");
@@ -854,15 +1097,15 @@ function lookup(code){
   })
   .then(function(data){
     if (data){
-      var verdict = dairyVerdict(data.product);
+      var verdict = dairyVerdict(data.product, prof);
       var pIng = data.product.ingredients_text_en || data.product.ingredients_text || "";
-      var pScan = scanDairyTerms(pIng);
+      var pScan = scanDairyTerms(pIng, prof.mode);
       var pFlags = pScan.flags.slice();
-      if (_tagHas(data.product.allergens_tags || [], "en:milk") &&
+      if (prof.mode !== "lactosefree" && _tagHas(data.product.allergens_tags || [], "en:milk") &&
           !pFlags.some(function(f){ return f.name === "Milk"; })){
         pFlags.unshift({ name:"Milk", reasonKey:"rsMilk" });
       }
-      lastResult = { code:code, data:data, verdict:verdict, source:"off", flags:pFlags, amb:pScan.amb };
+      lastResult = { code:code, data:data, verdict:verdict, source:"off", flags:pFlags, amb:pScan.amb, prev:prevEntry };
       showResult();
       addHistory(code, data.product.product_name_en || data.product.product_name || code, verdict.level, "off");
       return null;
@@ -876,17 +1119,17 @@ function lookup(code){
       var brand = item ? (item.brand || "") : "";
       if (name){
         var display = (brand && name.toLowerCase().indexOf(brand.toLowerCase()) !== 0) ? brand + " " + name : name;
-        lastResult = { code:code, data:null, verdict:{ level:"unknown", reason:{kind:"foundnodata"} }, source:"upc", upcName:display };
+        lastResult = { code:code, data:null, verdict:{ level:"unknown", reason:{kind:"foundnodata"} }, source:"upc", upcName:display, prev:prevEntry };
         showResult();
         addHistory(code, display, "unknown", "upc");
       } else {
-        lastResult = { code:code, data:null, verdict:{ level:"unknown", reason:{kind:"nodata"} }, source:"off" };
+        lastResult = { code:code, data:null, verdict:{ level:"unknown", reason:{kind:"nodata"} }, source:"off", prev:prevEntry };
         showResult();
         addHistory(code, code, "unknown", "off");
       }
     })
     .catch(function(){
-      lastResult = { code:code, data:null, verdict:{ level:"unknown", reason:{kind:"nodata"} }, source:"off" };
+      lastResult = { code:code, data:null, verdict:{ level:"unknown", reason:{kind:"nodata"} }, source:"off", prev:prevEntry };
       showResult();
       addHistory(code, code, "unknown", "off");
     });
@@ -1142,10 +1385,10 @@ $("photoInput").addEventListener("change", function(){
     var combined = ingText + (cs ? "\nContains: " + cs : "");
     var v;
     if (combined.trim()){
-      v = labelVerdict(combined);
+      v = labelVerdict(combined, getProfile());
       if (v.reason.kind === "garbled"){
         /* the AI said the label was readable — trust its text over the OCR gate */
-        var sc2 = scanDairyTerms(combined);
+        var sc2 = scanDairyTerms(combined, getProfile().mode);
         var cl2 = _findContains(combined);
         var lvl2 = sc2.flags.length ? "contains" : (cl2 ? "none" : "unknown");
         v = { level:lvl2, flags:sc2.flags, amb:sc2.amb, containsLine:cl2,
@@ -1157,7 +1400,7 @@ $("photoInput").addEventListener("change", function(){
       v = { level:"unknown", reason:{kind:"nocontains"}, flags:[], amb:[], containsLine:null, ingredients:"" };
     }
     var ctxCode = $("codeInput").value.replace(/\D/g,"");
-    lastResult = { code:ctxCode, data:null, verdict:v, source:"photo", photoKind:"ingredients", ai:true,
+    lastResult = { code:ctxCode, data:null, verdict:v, source:"photo", photoKind:"ingredients", ai:true, rawText:combined,
                    flags:v.flags, amb:v.amb, levels:levelsFromAiNutrition(res.nutrition),
                    photo:{ ingredients: v.ingredients || ingText, containsLine: v.containsLine || (cs || null) } };
     showResult();
@@ -1173,9 +1416,9 @@ function ocrLabelFlow(f){
   ocrPhoto(f)
   .then(function(text){
     note.style.display = "none";
-    var v = labelVerdict(text);
+    var v = labelVerdict(text, getProfile());
     var ctxCode = $("codeInput").value.replace(/\D/g,"");
-    lastResult = { code:ctxCode, data:null, verdict:v, source:"photo", photoKind:"ingredients",
+    lastResult = { code:ctxCode, data:null, verdict:v, source:"photo", photoKind:"ingredients", rawText:text,
                    flags:v.flags, amb:v.amb,
                    photo:{ ingredients:v.ingredients, containsLine:v.containsLine } };
     showResult();
