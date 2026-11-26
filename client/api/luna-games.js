@@ -9765,6 +9765,208 @@ export async function hyHandler(req, res) {
 }
 /* hussy-page:end */
 
+/* garuda-page:start — GARUDA COMMUNITY REQUEST PAGE
+   (client/public/garuda/). Tom's order Nov 26, 2026: the Garuda
+   community gets the same direct page as Hussy's — anyone in the
+   community taps a button or writes what they need (a post or a
+   video about Garuda); the requests land in Muse's queue; the
+   finished work is delivered INSIDE this page (in-page video
+   player, post drafts in a copy-button box). Community page, not
+   team/official: no team branding, nothing is promised or charged
+   from a submission. Reached via /api/luna-games?ga=1 (folded into
+   this router for the same 12-function-cap reason).
+   Records live in the KICKBACK Upstash store under their OWN
+   namespace: ga:req:<id> (JSON record) and ga:index (newest-first
+   id list, trimmed to the newest GA_INDEX_CAP). Actions mirror hy:
+   - gaSubmit {text, lang, img?} — PUBLIC by design and grants
+     NOTHING: it only drops a request (text 3–2000 chars, or a short
+     caption when a photo rides along) into the inbox with status
+     "new". The optional img is ONE client-downscaled JPEG data URL
+     (max GA_IMG_MAX chars); it is stored under its own key
+     ga:img:<id> so request records stay light, and the record
+     carries only hasImg:true.
+   - gaStatus {id, img?} — public read of ONE request's {status,
+     reply, stage, link, hasImg, etaMin, buildingSince, media,
+     post} only. The full image is included ONLY when the caller
+     passes img:1. stage is one of received|building|preview|done.
+     etaMin/buildingSince drive the page's count-up timer; media is
+     a finished video path under /request-media/; post is a post
+     draft for the page's copy-button box.
+   - gaList / gaReply / gaImage {secret, …} — gated by the SAME
+     sdRunnerOk verify as the sd block (the lunc-pack runner gate).
+     gaImage returns one request's stored photo for Muse's helper. */
+const GA_INDEX_CAP = 50;
+const GA_LIST_N = 20;
+const GA_ID_RE = /^HY-[A-Za-z0-9]{6}$/;
+const GA_IMG_MAX = 2500000; /* data-URL chars, incl. the prefix */
+
+async function gaGetReq(id) {
+  const out = await packPipeline([['GET', 'ga:req:' + id]]);
+  const raw = out && out[0] && out[0].result;
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+
+async function gaGetImg(id) {
+  const out = await packPipeline([['GET', 'ga:img:' + id]]);
+  const raw = out && out[0] && out[0].result;
+  return typeof raw === 'string' && raw ? raw : null;
+}
+
+export async function gaHandler(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' });
+  if (!((process.env.KICKBACK_UPSTASH_URL && process.env.KICKBACK_UPSTASH_TOKEN) ||
+        (process.env.NEONRUSH_UPSTASH_URL && process.env.NEONRUSH_UPSTASH_TOKEN))) {
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }
+  if (!body || typeof body !== 'object') return res.status(400).json({ ok: false, error: 'bad body' });
+  const action = String(body.action || '');
+  try {
+    if (action === 'gaSubmit') {
+      const text = String(body.text || '').trim();
+      /* Optional ONE photo: a client-downscaled JPEG data URL. Bad
+         or oversize images are refused outright — never stored. */
+      let img = null;
+      if (body.img !== undefined && body.img !== null && body.img !== '') {
+        img = String(body.img);
+        if (!/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(img) || img.length > GA_IMG_MAX) {
+          return res.status(400).json({ ok: false, error: 'image too big or bad format' });
+        }
+      }
+      /* Text-only requests keep the 3-char floor; with a photo the
+         text is just a caption and may be empty. */
+      if (img ? (text.length > 2000) : (text.length < 3 || text.length > 2000)) {
+        return res.status(400).json({ ok: false, error: 'text must be 3-2000 chars' });
+      }
+      const lang = String(body.lang || 'en').slice(0, 5);
+      const id = 'GA-' + (Date.now().toString(36) + crypto.randomBytes(3).toString('hex')).toUpperCase().slice(-6);
+      const rec = { id, text, lang, ts: Date.now(), status: 'new', reply: null, stage: 'received', link: null, hasImg: !!img, media: null, post: null };
+      const cmds = [
+        ['SET', 'ga:req:' + id, JSON.stringify(rec)],
+        ['LPUSH', 'ga:index', id],
+        ['LTRIM', 'ga:index', '0', String(GA_INDEX_CAP - 1)],
+      ];
+      if (img) cmds.push(['SET', 'ga:img:' + id, img]);
+      await packPipeline(cmds);
+      return res.status(200).json({ ok: true, id });
+    }
+    if (action === 'gaStatus') {
+      const id = String(body.id || '');
+      if (!GA_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const rec = await gaGetReq(id);
+      if (!rec) return res.status(404).json({ ok: false, error: 'not found' });
+      const out = { ok: true, status: rec.status, reply: rec.reply || null, stage: rec.stage || 'received', link: rec.link || null, hasImg: !!rec.hasImg, etaMin: rec.etaMin || null, buildingSince: rec.buildingSince || null, media: rec.media || null, post: rec.post || null };
+      /* The image itself ships ONLY on an explicit img:1 ask — his
+         page fetches it once per photo record for the thumbnail;
+         the 15s status polls never carry it. */
+      if (body.img && rec.hasImg) out.img = await gaGetImg(id);
+      return res.status(200).json(out);
+    }
+    if (action === 'gaImage') {
+      if (!(await sdRunnerOk(body.secret))) return res.status(403).json({ ok: false, error: 'not authorized' });
+      const id = String(body.id || '');
+      if (!GA_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const rec = await gaGetReq(id);
+      if (!rec) return res.status(404).json({ ok: false, error: 'not found' });
+      const img = rec.hasImg ? await gaGetImg(id) : null;
+      if (!img) return res.status(404).json({ ok: false, error: 'no image' });
+      return res.status(200).json({ ok: true, img });
+    }
+    if (action === 'gaList') {
+      if (!(await sdRunnerOk(body.secret))) return res.status(403).json({ ok: false, error: 'not authorized' });
+      const out = await packPipeline([['LRANGE', 'ga:index', '0', String(GA_LIST_N - 1)]]);
+      const ids = (out && out[0] && out[0].result) || [];
+      const requests = [];
+      for (const id of ids) {
+        const r = await gaGetReq(id);
+        if (r) requests.push(r);
+      }
+      return res.status(200).json({ ok: true, requests });
+    }
+    if (action === 'gaReply') {
+      if (!(await sdRunnerOk(body.secret))) return res.status(403).json({ ok: false, error: 'not authorized' });
+      const id = String(body.id || '');
+      if (!GA_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
+      const reply = String(body.reply || '').trim().slice(0, 2000);
+      /* Optional stage/link updates, same contract as ayReply: a call
+         may carry a reply, a stage, a link, or any mix; at least one
+         is required. */
+      const GA_STAGES = ['received', 'building', 'preview', 'done'];
+      let stage = null;
+      if (body.stage !== undefined && body.stage !== null && body.stage !== '') {
+        stage = String(body.stage);
+        if (!GA_STAGES.includes(stage)) return res.status(400).json({ ok: false, error: 'bad stage' });
+      }
+      /* Optional etaMin: our own rough estimate, set when work
+         starts (stage "building"). Integer minutes 1–240. It is a
+         "usually ready in ~N min" guide for his page's count-up
+         timer — never a promise or a countdown. */
+      let etaMin;
+      if (body.etaMin !== undefined && body.etaMin !== null && body.etaMin !== '') {
+        etaMin = Number(body.etaMin);
+        if (!Number.isInteger(etaMin) || etaMin < 1 || etaMin > 240) {
+          return res.status(400).json({ ok: false, error: 'bad etaMin' });
+        }
+      }
+      let link;
+      if (body.link !== undefined) {
+        const l = String(body.link || '').trim().slice(0, 500);
+        if (l && !/^https:\/\//i.test(l)) return res.status(400).json({ ok: false, error: 'bad link' });
+        link = l || null;
+      }
+      /* Optional deliverables (Tom's rule, Nov 26, 2026 — the work
+         lands INSIDE the requesting page): media = a finished video
+         hosted on this site under /request-media/<ID>.mp4 (his page
+         renders a player); post = a post draft (his page renders it
+         in its own box with a one-tap Copy button). Empty clears. */
+      let media;
+      if (body.media !== undefined) {
+        const m = String(body.media || '').trim().slice(0, 200);
+        if (m && !/^\/request-media\/[A-Za-z0-9._-]+\.mp4$/.test(m)) return res.status(400).json({ ok: false, error: 'bad media' });
+        media = m || null;
+      }
+      let post;
+      if (body.post !== undefined) {
+        const p = String(body.post || '').slice(0, 2000);
+        post = p ? p : null;
+      }
+      if (!reply && !stage && link === undefined && media === undefined && post === undefined) {
+        return res.status(400).json({ ok: false, error: 'nothing to update' });
+      }
+      const rec = await gaGetReq(id);
+      if (!rec) return res.status(404).json({ ok: false, error: 'not found' });
+      if (reply) {
+        rec.reply = reply;
+        rec.status = 'answered';
+        rec.replyTs = Date.now();
+      }
+      if (stage) {
+        rec.stage = stage;
+        /* Work starting stamps the clock his page counts up from.
+           A fresh "building" always restarts it; an etaMin rides
+           along when given, otherwise a previous one is kept. */
+        if (stage === 'building') {
+          rec.buildingSince = Date.now();
+          if (etaMin !== undefined) rec.etaMin = etaMin;
+        }
+      }
+      if (link !== undefined) rec.link = link;
+      if (media !== undefined) rec.media = media;
+      if (post !== undefined) rec.post = post;
+      await packPipeline([['SET', 'ga:req:' + id, JSON.stringify(rec)]]);
+      return res.status(200).json({ ok: true });
+    }
+    return res.status(400).json({ ok: false, error: 'unknown action' });
+  } catch (e) {
+    console.error('ga action failed', action, e && e.message);
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+}
+/* garuda-page:end */
+
 /* lunc-dev-nfts:start — LUNC DEV NFTS (client/public/lunc-dev-nfts/).
    Tom's order Nov 24, 2026: a public NFT launchpad page in the
    Miata / Big Bang launchpad pattern — anyone connects their own
@@ -10880,6 +11082,7 @@ export default async function handler(req, res) {
      stays unlinked from every site. */
   if (req.query && req.query.ay !== undefined) return ayHandler(req, res);
   if (req.query && req.query.hy !== undefined) return hyHandler(req, res);
+  if (req.query && req.query.ga !== undefined) return gaHandler(req, res);
   /* LUNC Dev NFTs launchpad: the page calls /api/luna-games?ldnft=1
      directly (see the lunc-dev-nfts block above). Image + metadata
      serving, and the on-chain-verified showcase index. */
