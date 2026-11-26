@@ -9547,7 +9547,8 @@ export async function ayHandler(req, res) {
      under its own key hy:img:<id> so request records stay light,
      and the record carries only hasImg:true.
    - hyStatus {id, img?} — public read of ONE request's {status,
-     reply, stage, link, hasImg} only. The full image is included
+     reply, stage, link, hasImg, etaMin, buildingSince} only. The
+     full image is included
      ONLY when the caller passes img:1 (his page does that once per
      photo record to render its thumbnail; the 15s polls stay
      light). Ids are timestamp+random and unguessable in practice,
@@ -9619,7 +9620,7 @@ export async function hyHandler(req, res) {
       if (!HY_ID_RE.test(id)) return res.status(400).json({ ok: false, error: 'bad id' });
       const rec = await hyGetReq(id);
       if (!rec) return res.status(404).json({ ok: false, error: 'not found' });
-      const out = { ok: true, status: rec.status, reply: rec.reply || null, stage: rec.stage || 'received', link: rec.link || null, hasImg: !!rec.hasImg };
+      const out = { ok: true, status: rec.status, reply: rec.reply || null, stage: rec.stage || 'received', link: rec.link || null, hasImg: !!rec.hasImg, etaMin: rec.etaMin || null, buildingSince: rec.buildingSince || null };
       /* The image itself ships ONLY on an explicit img:1 ask — his
          page fetches it once per photo record for the thumbnail;
          the 15s status polls never carry it. */
@@ -9661,6 +9662,17 @@ export async function hyHandler(req, res) {
         stage = String(body.stage);
         if (!HY_STAGES.includes(stage)) return res.status(400).json({ ok: false, error: 'bad stage' });
       }
+      /* Optional etaMin: our own rough estimate, set when work
+         starts (stage "building"). Integer minutes 1–240. It is a
+         "usually ready in ~N min" guide for his page's count-up
+         timer — never a promise or a countdown. */
+      let etaMin;
+      if (body.etaMin !== undefined && body.etaMin !== null && body.etaMin !== '') {
+        etaMin = Number(body.etaMin);
+        if (!Number.isInteger(etaMin) || etaMin < 1 || etaMin > 240) {
+          return res.status(400).json({ ok: false, error: 'bad etaMin' });
+        }
+      }
       let link;
       if (body.link !== undefined) {
         const l = String(body.link || '').trim().slice(0, 500);
@@ -9677,7 +9689,16 @@ export async function hyHandler(req, res) {
         rec.status = 'answered';
         rec.replyTs = Date.now();
       }
-      if (stage) rec.stage = stage;
+      if (stage) {
+        rec.stage = stage;
+        /* Work starting stamps the clock his page counts up from.
+           A fresh "building" always restarts it; an etaMin rides
+           along when given, otherwise a previous one is kept. */
+        if (stage === 'building') {
+          rec.buildingSince = Date.now();
+          if (etaMin !== undefined) rec.etaMin = etaMin;
+        }
+      }
       if (link !== undefined) rec.link = link;
       await packPipeline([['SET', 'hy:req:' + id, JSON.stringify(rec)]]);
       return res.status(200).json({ ok: true });

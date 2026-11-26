@@ -88,6 +88,7 @@
   .chip.done{ color:#06281a; background:var(--good); border-color:var(--good); }
   @keyframes pulse{ 0%,100%{ box-shadow:0 0 0 0 rgba(255,210,62,.4);} 50%{ box-shadow:0 0 0 6px rgba(255,210,62,0);} }
   .req .text{ font-size:15px; line-height:1.55; white-space:pre-wrap; word-break:break-word; }
+  .req .timer{ margin:0 0 8px; font-size:13px; font-weight:700; color:#ffd98a; }
   .reply{ margin-top:12px; padding-top:11px; border-top:1px dashed var(--line); }
   .reply .who{ color:var(--green); }
   .reply .rtext{ font-size:15px; line-height:1.55; white-space:pre-wrap; word-break:break-word; margin-top:4px; }
@@ -231,6 +232,39 @@ function TB(key){
 var QUICK_POST_TEXT = "QUICK POST — Kava X post";
 var VIDEO_TEXT = "VIDEO — Kava promo video";
 
+/* "Being worked on" timer strings (Nov 26, 2026) — English and
+   Spanish in full; other languages fall back to English for these
+   lines only. The timer counts UP from the server-stamped start
+   (always true); the estimate is worded "usually ready in ~N min"
+   — never a promise and never a countdown to zero. Past the
+   estimate the line switches to the "longer" wording. */
+var TIMER_STR = {
+es:{working:"⏳ Trabajando en ello — llevamos {elapsed} · suele estar listo en ~{etaMin} min",workingNoEta:"⏳ Trabajando en ello — llevamos {elapsed}",longer:"⏳ Está tardando un poco más de lo habitual — seguimos trabajando en ello (llevamos {elapsed})."},
+en:{working:"⏳ Working on it — {elapsed} in · usually ready in ~{etaMin} min",workingNoEta:"⏳ Working on it — {elapsed} in",longer:"⏳ Taking a little longer than usual — still working on it ({elapsed} in)."}
+};
+function TT(key){
+  var p = TIMER_STR[langSel.value] || TIMER_STR.en;
+  return p[key] || TIMER_STR.en[key] || key;
+}
+function fmtElapsed(ms){
+  var s = Math.max(0, Math.floor(ms / 1000));
+  if(s < 60) return s + " s";
+  var m = Math.floor(s / 60);
+  if(m < 60) return m + " min";
+  var h = Math.floor(m / 60), rem = m % 60;
+  return rem ? (h + " h " + rem + " min") : (h + " h");
+}
+function timerText(since, etaMin){
+  var el = fmtElapsed(Date.now() - since);
+  if(etaMin && (Date.now() - since) > etaMin * 60000){
+    return TT("longer").replace("{elapsed}", el);
+  }
+  if(etaMin){
+    return TT("working").replace("{elapsed}", el).replace("{etaMin}", etaMin);
+  }
+  return TT("workingNoEta").replace("{elapsed}", el);
+}
+
 var API = "/api/luna-games?hy=1";
 var LS_KEY = "hy:reqs:v1";
 var langSel = document.getElementById("lang");
@@ -239,7 +273,7 @@ var sendLine = document.getElementById("sendLine");
 var reqList = document.getElementById("reqList");
 var emptyState = document.getElementById("emptyState");
 var myReqs = loadReqs();       /* [{id, text, ts, hasImg}] newest first */
-var liveState = {};            /* id -> {stage, reply, link, hasImg} from hyStatus polls */
+var liveState = {};            /* id -> {stage, reply, link, hasImg, etaMin, buildingSince} from hyStatus polls */
 var pollTimer = null;
 var pendingImg = null;         /* downscaled JPEG data URL waiting to send */
 var imgCache = {};             /* id -> data URL, memory only (never localStorage) */
@@ -339,6 +373,18 @@ function renderList(){
     meta.appendChild(who); meta.appendChild(rid); meta.appendChild(chipEl);
     card.appendChild(meta);
 
+    /* Live count-up timer while work is underway (stage "building"
+       with a server-stamped start). The 1s ticker below refreshes
+       the text from data-since, so it stays true between polls. */
+    if(stage === "building" && s.buildingSince){
+      var timerEl = document.createElement("div");
+      timerEl.className = "timer";
+      timerEl.setAttribute("data-since", s.buildingSince);
+      if(s.etaMin) timerEl.setAttribute("data-eta", s.etaMin);
+      timerEl.textContent = timerText(s.buildingSince, s.etaMin || null);
+      card.appendChild(timerEl);
+    }
+
     var text = document.createElement("div");
     text.className = "text"; text.textContent = r.text;
     card.appendChild(text);
@@ -375,8 +421,8 @@ function pollOnce(){
     hyPost({ action: "hyStatus", id: r.id }).then(function(res){
       if(!res.j || !res.j.ok) return;
       var prev = liveState[r.id] || {};
-      var next = { stage: res.j.stage || "received", reply: res.j.reply || null, link: res.j.link || null, hasImg: !!res.j.hasImg };
-      if(prev.stage !== next.stage || prev.reply !== next.reply || prev.link !== next.link || prev.hasImg !== next.hasImg){
+      var next = { stage: res.j.stage || "received", reply: res.j.reply || null, link: res.j.link || null, hasImg: !!res.j.hasImg, etaMin: res.j.etaMin || null, buildingSince: res.j.buildingSince || null };
+      if(prev.stage !== next.stage || prev.reply !== next.reply || prev.link !== next.link || prev.hasImg !== next.hasImg || prev.etaMin !== next.etaMin || prev.buildingSince !== next.buildingSince){
         liveState[r.id] = next;
         renderList();
       }
@@ -400,6 +446,18 @@ function startPoll(){
   pollOnce();
   pollTimer = setInterval(pollOnce, 15000);
 }
+
+/* 1s ticker for the building timers: the text is recomputed from
+   the server-stamped start every second, so the count stays true
+   even between the 15s status polls. */
+setInterval(function(){
+  var els = document.querySelectorAll(".req .timer");
+  for(var i = 0; i < els.length; i++){
+    var since = Number(els[i].getAttribute("data-since")) || 0;
+    var eta = Number(els[i].getAttribute("data-eta")) || null;
+    if(since) els[i].textContent = timerText(since, eta);
+  }
+}, 1000);
 
 /* ---------- photo attach: downscale on-device before upload ----------
    Canvas pass: max dimension 1600px, JPEG q0.8. If the data URL is
@@ -476,7 +534,7 @@ document.getElementById("sendBtn").addEventListener("click", function(){
     myReqs = myReqs.slice(0, 30);
     saveReqs();
     if(img) imgCache[r.j.id] = img;
-    liveState[r.j.id] = { stage: "received", reply: null, link: null, hasImg: !!img };
+    liveState[r.j.id] = { stage: "received", reply: null, link: null, hasImg: !!img, etaMin: null, buildingSince: null };
     desc.value = "";
     clearPhoto();
     setSendLine(T().sentOk + r.j.id, "ok");
@@ -503,7 +561,7 @@ function quickSubmit(text){
     myReqs.unshift({ id: r.j.id, text: text, ts: Date.now(), hasImg: false });
     myReqs = myReqs.slice(0, 30);
     saveReqs();
-    liveState[r.j.id] = { stage: "received", reply: null, link: null, hasImg: false };
+    liveState[r.j.id] = { stage: "received", reply: null, link: null, hasImg: false, etaMin: null, buildingSince: null };
     setQuickLine(T().sentOk + r.j.id, "ok");
     renderList();
     startPoll();
