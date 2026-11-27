@@ -300,10 +300,10 @@ function verifyInitData(initData, botToken) {
 }
 
 async function upstashPipeline(cmds) {
-  const r = await fetch(`${process.env.NEONRUSH_UPSTASH_URL}/pipeline`, {
+  const r = await fetch(`${process.env.UPSTASH_REDIS_REST_URL || process.env.NEONRUSH_UPSTASH_URL}/pipeline`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${process.env.NEONRUSH_UPSTASH_TOKEN}`,
+      Authorization: `Bearer ${process.env.UPSTASH_REDIS_REST_TOKEN || process.env.NEONRUSH_UPSTASH_TOKEN}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(cmds),
