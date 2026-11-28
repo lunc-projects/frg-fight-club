@@ -10421,7 +10421,7 @@ export async function agHandler(req, res) {
   const action = String(body.action || '');
   try {
     if (action === 'agCheck') {
-      const code = String(body.code || '').trim().slice(0, 64);
+      const code = String(body.code || '').trim().toUpperCase().slice(0, 64);
       if (!code) return res.status(400).json({ ok: false, error: 'code required' });
       const codeHash = crypto.createHash('sha256').update(code).digest('hex');
       const hashes = await agGetAmbHashes();
@@ -10438,7 +10438,7 @@ export async function agHandler(req, res) {
       if (!(await sdRunnerOk(body.secret))) return res.status(403).json({ ok: false, error: 'not authorized' });
       const op = String(body.op || '');
       if (op !== 'add' && op !== 'del') return res.status(400).json({ ok: false, error: 'bad op' });
-      const code = String(body.code || '').trim().slice(0, 64);
+      const code = String(body.code || '').trim().toUpperCase().slice(0, 64);
       if (!code) return res.status(400).json({ ok: false, error: 'code required' });
       const codeHash = crypto.createHash('sha256').update(code).digest('hex');
       let hashes = await agGetAmbHashes();
