@@ -10458,6 +10458,98 @@ export async function agHandler(req, res) {
 }
 /* auto-generate:end */
 
+/* do-generate:start — DO GENERATE (client/public/do-generate/).
+   Tom's order Nov 27, 2026: the same ambassador generator as Auto
+   Generate, made for DO ("Make this for DO — same thing"). An
+   instant, code-gated tweet + image generator for the DO community
+   ambassador group: enter the group code, tap a button (Video /
+   Image / Today's Post), get a ready-to-post DO tweet plus media,
+   all generated client-side from templates shipped in the page.
+   The ONLY server job is the code gate plus code management —
+   exactly the ag pattern, folded into this router for the same
+   12-function-cap reason. Codes live in the KICKBACK store as
+   dg:ambcodes — a JSON array of sha256 hashes; plaintext codes are
+   never stored, logged or returned.
+   Actions:
+   - dgCheck {code} — PUBLIC: 200 {ok:true} when sha256(code) is in
+     dg:ambcodes, else 403 {amb:true}. An empty list means NO code
+     is valid — the generator stays closed until a code is added.
+   - dgAmbList / dgAmbSet {secret, …} — gated by the SAME
+     sdRunnerOk verify as the ag / pp blocks (the lunc-pack runner
+     gate). dgAmbList returns only the COUNT; dgAmbSet
+     {op:'add'|'del', code} hashes the supplied code server-side.
+   CASE: codes are normalized (trim + UPPERCASE) before hashing in
+   BOTH the check and the set/list handlers — case-insensitive from
+   the start, the lesson from the Vega page (Pat's "Vega2026").
+   PLACEHOLDER CODE: DOAMB1 is seeded through the gated dgAmbSet
+   right after deploy (helper: ~/workspace/do-generate-page/dg.mjs).
+   Tom replaces it with the real group code BEFORE sharing the page:
+     node dg.mjs ambdel DOAMB1
+     node dg.mjs ambadd <the real group code>
+   The page keeps an accepted code on the ambassador's own phone
+   (localStorage) and re-checks it against this gate on every visit,
+   so rotating the code here locks old copies out on their next
+   visit. */
+async function dgGetAmbHashes() {
+  const out = await packPipeline([['GET', 'dg:ambcodes']]);
+  const raw = out && out[0] && out[0].result;
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((h) => /^[a-f0-9]{64}$/.test(h)) : [];
+  } catch (e) { return []; }
+}
+
+export async function dgHandler(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' });
+  if (!((process.env.KICKBACK_UPSTASH_URL && process.env.KICKBACK_UPSTASH_TOKEN) ||
+        (process.env.NEONRUSH_UPSTASH_URL && process.env.NEONRUSH_UPSTASH_TOKEN))) {
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }
+  if (!body || typeof body !== 'object') return res.status(400).json({ ok: false, error: 'bad body' });
+  const action = String(body.action || '');
+  try {
+    if (action === 'dgCheck') {
+      const code = String(body.code || '').trim().toUpperCase().slice(0, 64);
+      if (!code) return res.status(400).json({ ok: false, error: 'code required' });
+      const codeHash = crypto.createHash('sha256').update(code).digest('hex');
+      const hashes = await dgGetAmbHashes();
+      if (!hashes.includes(codeHash)) return res.status(403).json({ ok: false, amb: true });
+      return res.status(200).json({ ok: true });
+    }
+    if (action === 'dgAmbList') {
+      if (!(await sdRunnerOk(body.secret))) return res.status(403).json({ ok: false, error: 'not authorized' });
+      const hashes = await dgGetAmbHashes();
+      /* Count only — the code hashes themselves are never returned. */
+      return res.status(200).json({ ok: true, ambCount: hashes.length });
+    }
+    if (action === 'dgAmbSet') {
+      if (!(await sdRunnerOk(body.secret))) return res.status(403).json({ ok: false, error: 'not authorized' });
+      const op = String(body.op || '');
+      if (op !== 'add' && op !== 'del') return res.status(400).json({ ok: false, error: 'bad op' });
+      const code = String(body.code || '').trim().toUpperCase().slice(0, 64);
+      if (!code) return res.status(400).json({ ok: false, error: 'code required' });
+      const codeHash = crypto.createHash('sha256').update(code).digest('hex');
+      let hashes = await dgGetAmbHashes();
+      if (op === 'add') {
+        if (!hashes.includes(codeHash)) hashes.push(codeHash);
+      } else {
+        hashes = hashes.filter((h) => h !== codeHash);
+      }
+      await packPipeline([['SET', 'dg:ambcodes', JSON.stringify(hashes)]]);
+      return res.status(200).json({ ok: true, ambCount: hashes.length });
+    }
+    return res.status(400).json({ ok: false, error: 'unknown action' });
+  } catch (e) {
+    console.error('dg action failed', action, e && e.message);
+    return res.status(500).json({ ok: false, unavailable: true, error: 'service unavailable' });
+  }
+}
+/* do-generate:end */
+
 /* lunc-dev-nfts:start — LUNC DEV NFTS (client/public/lunc-dev-nfts/).
    Tom's order Nov 24, 2026: a public NFT launchpad page in the
    Miata / Big Bang launchpad pattern — anyone connects their own
@@ -11583,6 +11675,10 @@ export default async function handler(req, res) {
      (see the auto-generate block above). Code gate + ambassador
      code management only — generation itself is client-side. */
   if (req.query && req.query.ag !== undefined) return agHandler(req, res);
+  /* DO Generate: the page calls /api/luna-games?dg=1 directly
+     (see the do-generate block above). Same ambassador code gate
+     pattern as Auto Generate, for the DO community. */
+  if (req.query && req.query.dg !== undefined) return dgHandler(req, res);
   /* LUNC Dev NFTs launchpad: the page calls /api/luna-games?ldnft=1
      directly (see the lunc-dev-nfts block above). Image + metadata
      serving, and the on-chain-verified showcase index. */
