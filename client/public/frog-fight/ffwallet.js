@@ -135,6 +135,11 @@ async function gdApplyWallet(addr, connected, via) {
   } catch (e) {
     gdRenderPanel('Chain read failed — check your connection and try again.');
   }
+  /* ONE CONNECT (Goliath, Nov 27, 2026): this wallet is now the
+     ONLY connect on the page — the same connection also feeds
+     MY FROGS, so frogs, rewards, lives and the mode gate all
+     populate from here with no second lookup. */
+  if (typeof fetchOwned === 'function') { try { fetchOwned(addr); } catch (e) {} }
   if (window.__ffbOnWallet) window.__ffbOnWallet({ addr, connected: gdWalletConnected, via: gdWalletVia, owned: gdOwned });
 }
 const gdIsMobileUA = /Android|webOS|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -339,6 +344,19 @@ function gdLuncDashOpenHref(uri){
   if (typeof gdIsMobileUA !== 'undefined' && gdIsMobileUA && /Android/i.test(navigator.userAgent || ''))
     return 'intent://wallet_connect?' + encodeURIComponent('payload=' + encodeURIComponent(uri)) + '#Intent;scheme=luncdash;package=com.luncdash.wallet;end;';
   return gdLuncDashDeepLink(uri);
+}
+/* Open the LUNCDash APP itself — no pairing payload. Used at
+   SIGNING time, when the WalletConnect session already exists
+   and the player just needs the app in front of them to approve.
+   The payload form above is for pairing links ONLY: the amino
+   sign paths used to call gdLuncDashOpenHref() with NO argument,
+   which built "payload=undefined" and broke every LUNCDash
+   boost/chest buy and market execute in wallet browsers
+   (Goliath, Nov 27, 2026). */
+function gdLuncDashOpenApp(){
+  if (typeof gdIsMobileUA !== 'undefined' && gdIsMobileUA && /Android/i.test(navigator.userAgent || ''))
+    return 'intent://#Intent;scheme=luncdash;package=com.luncdash.wallet;end;';
+  return 'luncdash://';
 }
 function gdPairExtras(on, uri){
   const acts = $('nftPairActs');
@@ -891,7 +909,7 @@ async function fa2SendLunc(toAddress, ulunaAmount, memo) {
       getAccounts: async () => [{ address: gdWallet, algo: 'secp256k1', pubkey: Uint8Array.from(atob(pubKey.key), c => c.charCodeAt(0)) }],
       signAmino: async (signerAddress, signDoc) => {
         if (signerAddress !== gdWallet) throw new Error('LUNCDash signer address mismatch.');
-        if (/Android|iPhone|iPad/i.test(navigator.userAgent)) { try { window.location.href = gdLuncDashOpenHref(); } catch (e) {} }
+        if (/Android|iPhone|iPad/i.test(navigator.userAgent)) { try { window.location.href = gdLuncDashOpenApp(); } catch (e) {} }
         const res = await Promise.race([
           wc.sendCustomRequest({ id: Math.floor(Math.random() * 1e9), jsonrpc: '2.0', method: 'terra_signAmino', params: [signDoc] }),
           new Promise((_, rej) => setTimeout(() => rej(new Error('LUNCDash sign timed out after 120 seconds — nothing was sent.')), 120000)),
@@ -932,16 +950,19 @@ async function fa2SendLunc(toAddress, ulunaAmount, memo) {
 $('nftConnectBtn').onclick = gdConnectKeplr;
 { const gb = $('nftGalaxyBtn'); if (gb) gb.onclick = () => kitConnect('galaxy'); }
 { const db = $('nftDashRowBtn'); if (db) db.onclick = () => gdLuncDashConnect(); }
-$('nftViewBtn').onclick = () => {
+/* The old boosts-card paste box is gone (ONE CONNECT merge,
+   Nov 27, 2026) — the MY FROGS paste box drives this same
+   view-only path now. Guarded: these elements no longer exist. */
+{ const vb = $('nftViewBtn'); if (vb) vb.onclick = () => {
   const a = $('nftAddrInput').value.trim();
   if (!/^terra1[0-9a-z]{38}$/.test(a)) { $('nftStatus').textContent = 'That does not look like a Terra Classic address (terra1…).'; return; }
   try { localStorage.setItem('frogFightViewAddr', a); } catch (e) {}
   gdApplyWallet(a, false);
-};
+}; }
 try {
   const savedAddr = localStorage.getItem('frogFightViewAddr');
   if (savedAddr && /^terra1[0-9a-z]{38}$/.test(savedAddr)) {
-    $('nftAddrInput').value = savedAddr;
+    const inp = $('nftAddrInput'); if (inp) inp.value = savedAddr;
     gdApplyWallet(savedAddr, false);
   }
 } catch (e) {}
