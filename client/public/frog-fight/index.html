@@ -1458,6 +1458,31 @@ async function lcdFetch(path){ let last = null;
   throw last || new Error('chain unreachable'); }
 async function smartQuery(q, contract){ const r = await lcdFetch('/cosmwasm/wasm/v1/contract/' + (contract || AMPH_CONTRACT) + '/smart/' + b64q(q));
   const j = await r.json(); return j.data; }
+/* Metadata fallback (Nov 28, 2026): the re-issued collections
+   (cw721-base code 10217, Nov 25) keep NO metadata in the nft_info
+   extension — it reads back {} and the real name / image / traits
+   live behind token_uri (NFROG: the router's ffmeta action; the
+   boost collections: hosted JSON files). The loader used to read
+   the extension only, so a re-issued fighter loaded as a nameless
+   generic frog — Goliath's fighters "not loading" while his boosts
+   (which at least render a card) appeared. The Miata originals
+   carry a full extension, so only an empty-extension token ever
+   pays this extra fetch; a failed fetch keeps the generic card and
+   never blocks the token from loading. */
+async function ffMetaResolve(info){
+  const ext = (info && info.extension) || {};
+  if (ext.name || ext.image || (ext.attributes && ext.attributes.length)) return info;
+  const uri = info && info.token_uri;
+  if (!uri) return info;
+  try {
+    const r = await fetch(uri);
+    if (!r.ok) return info;
+    const j = await r.json();
+    if (j && (j.name || j.image || (j.attributes && j.attributes.length)))
+      return { token_uri: uri, extension: j };
+  } catch (e) {}
+  return info;
+}
 async function fetchOwned(addr){
   if (!/^terra1[0-9a-z]{38}$/.test(addr)){ wStat('That does not look like a Terra Classic address.'); return; }
   wStat('Looking up frogs for ' + addr.slice(0, 12) + '…');
@@ -1501,7 +1526,7 @@ async function fetchCollection(addr, contract, add){
     for (const id of batch){ if (!seen.has(id)){ seen.add(id); ids.push(id); } }
     if (batch.length < 50) break; start = batch[batch.length - 1]; pages++; }
   for (let i = 0; i < ids.length; i += 8){ const chunk = ids.slice(i, i + 8);
-    const infos = await Promise.all(chunk.map(id => smartQuery({ nft_info: { token_id: id } }, contract).catch(() => null)));
+    const infos = await Promise.all(chunk.map(async id => { const info = await smartQuery({ nft_info: { token_id: id } }, contract).catch(() => null); return info ? ffMetaResolve(info) : null; }));
     infos.forEach((info, k) => { if (info) add(chunk[k], info); });
     wStat('Found ' + ownedTokens.length + ' frogs so far…'); }
 }

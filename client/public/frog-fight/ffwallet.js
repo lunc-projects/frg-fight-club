@@ -48,6 +48,28 @@ function fa2Trait(ext, key) {
   for (const a of attrs) if (a && a.trait_type === key) return String(a.value == null ? '' : a.value);
   return '';
 }
+/* Metadata fallback for tokens whose nft_info carries NO on-chain
+   extension: the re-issued collections (cw721-base, Nov 25) keep the
+   metadata behind token_uri instead — the Miata originals carried it
+   in the extension. Without this fallback such a token renders as a
+   nameless "Boost <id>" card with a broken image and ATK/DEF/AGI all
+   +0 (Goliath report, Nov 27, 2026: ffb-003). Order: the token's own
+   token_uri first, then the canonical metadata file this site serves
+   for every boost token id. */
+async function ffbMetaFallback(contract, tag, id, tokenUri) {
+  const urls = [];
+  if (tokenUri) urls.push(tokenUri);
+  urls.push((tag === 'ffbp' ? 'premium-nft/' : 'boost-nft/') + id + '.json');
+  for (const u of urls) {
+    try {
+      const r = await fetch(u);
+      if (!r.ok) continue;
+      const j = await r.json();
+      if (j && (j.name || j.image || (j.attributes && j.attributes.length))) return j;
+    } catch (e) { /* try the next source */ }
+  }
+  return null;
+}
 async function ffbLoadBoosts(owner) {
   const out = [];
   const colls = [['ffb', FFB_NFT_CONTRACT], ['ffbp', FFBP_NFT_CONTRACT]];
@@ -66,7 +88,11 @@ async function ffbLoadBoosts(owner) {
     for (const id of ids.slice(0, 200)) {
       try {
         const info = await gdSmartC(contract, { nft_info: { token_id: id } });
-        const ext = (info && info.extension) || {};
+        let ext = (info && info.extension) || {};
+        if (!ext.name && !ext.image && !(ext.attributes && ext.attributes.length)) {
+          const meta = await ffbMetaFallback(contract, tag, id, info && info.token_uri);
+          if (meta) ext = meta;
+        }
         out.push({
           key: contract + '|' + id, contract, coll: tag, tokenId: id,
           name: ext.name || ('Boost ' + id),
