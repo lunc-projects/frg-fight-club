@@ -211,8 +211,14 @@ function assetKeyFromInfo(info){
   return "?";
 }
 function assetKeyFromEventJson(s){
-  try { var o = JSON.parse(s); if(o.native) return "n:" + o.native; if(o.cw20) return "c:" + o.cw20; } catch(e){}
-  return "?";
+  if(!s) return "?";
+  if(s.charAt(0) === "{"){
+    try { var o = JSON.parse(s); if(o.native) return "n:" + o.native; if(o.cw20) return "c:" + o.cw20; } catch(e){}
+    return "?";
+  }
+  /* Terraport / TerraSwap dialect: plain denom or contract address */
+  if(s.indexOf("terra1") === 0) return "c:" + s;
+  return "n:" + s;
 }
 var NATIVE_SYM = {uluna:"LUNC", uusd:"USTC"};
 function nativeSymbol(denom){
@@ -357,7 +363,7 @@ function parseTrades(txs){
         (ev.attributes || []).forEach(function(a){ at[a.key] = a.value; });
         if(at._contract_address !== PAIR || at.action !== "swap") return;
         var offerKey = assetKeyFromEventJson(at.offer_asset || "");
-        var retKey = assetKeyFromEventJson(at.return_asset || "");
+        var retKey = assetKeyFromEventJson(at.return_asset || at.ask_asset || "");
         if(!(offerKey in sideByKey) || !(retKey in sideByKey)) return;
         var oi = sideByKey[offerKey], ri = sideByKey[retKey];
         var os = pairInfo.sides[oi], rs = pairInfo.sides[ri];
