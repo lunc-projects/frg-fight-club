@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Is It Safe? — Pet Checker &amp; Food Analyzer</title>
+<meta name="description" content="Quick plain-word checkers: can my dog or cat eat this? And what is really in this food label?">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; background: #f4f7f4; color: #1c2b1e; line-height: 1.45; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 16px 14px 48px; }
+  header.top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 10px 0 4px; }
+  h1 { font-size: 2rem; letter-spacing: -0.5px; }
+  .sub { color: #4c5f4e; font-size: 1rem; margin-top: 2px; }
+  .langbox { text-align: right; }
+  .langbox label { display: block; font-size: .78rem; font-weight: 700; color: #4c5f4e; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .5px; }
+  select#lang { font-size: 1rem; padding: 10px 12px; border-radius: 10px; border: 2px solid #2e7d32; background: #fff; min-height: 48px; }
+  .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 18px 0 12px; }
+  @media (max-width: 520px) { .choices { grid-template-columns: 1fr; } }
+  a.choice { display: block; text-decoration: none; color: inherit; background: #fff; border: 2px solid #d8e4d8; border-radius: 16px; padding: 18px; box-shadow: 0 2px 8px rgba(30,60,30,.06); }
+  a.choice:active { border-color: #2e7d32; }
+  a.choice .big { font-size: 2rem; }
+  a.choice h2 { font-size: 1.25rem; margin: 6px 0 4px; }
+  a.choice p { color: #4c5f4e; font-size: .95rem; }
+  .dairy { background: #fff8e1; border: 2px solid #ffe082; border-radius: 14px; padding: 14px 16px; margin: 6px 0 22px; font-size: .98rem; }
+  .dairy a { color: #1565c0; font-weight: 700; }
+  section.card { background: #fff; border: 2px solid #d8e4d8; border-radius: 16px; padding: 18px; margin-bottom: 22px; box-shadow: 0 2px 8px rgba(30,60,30,.05); }
+  section.card h2 { font-size: 1.4rem; margin-bottom: 4px; }
+  section.card .desc { color: #4c5f4e; margin-bottom: 14px; }
+  .toggle { display: flex; gap: 10px; margin-bottom: 12px; }
+  .toggle button { flex: 1; font-size: 1.1rem; font-weight: 700; padding: 14px; border-radius: 12px; border: 2px solid #c9d8c9; background: #f4f7f4; cursor: pointer; min-height: 54px; }
+  .toggle button.on { background: #2e7d32; border-color: #2e7d32; color: #fff; }
+  input[type="search"], textarea { width: 100%; font-size: 1rem; padding: 13px; border-radius: 12px; border: 2px solid #c9d8c9; background: #fff; }
+  textarea { min-height: 110px; resize: vertical; }
+  .grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .grid button { font-size: .95rem; padding: 10px 12px; border-radius: 999px; border: 2px solid #c9d8c9; background: #f9fbf9; cursor: pointer; min-height: 44px; }
+  .grid button:active { border-color: #2e7d32; background: #e8f5e9; }
+  .verdict { border-radius: 14px; padding: 16px; margin-top: 16px; display: none; }
+  .verdict.show { display: block; }
+  .verdict .vlabel { font-size: 1.5rem; font-weight: 800; }
+  .verdict .vitem { font-size: 1.05rem; font-weight: 700; margin-bottom: 4px; }
+  .verdict p { margin-top: 4px; }
+  .verdict.safe { background: #e8f5e9; border: 2px solid #43a047; }
+  .verdict.safe .vlabel { color: #1b5e20; }
+  .verdict.careful { background: #fff8e1; border: 2px solid #f9a825; }
+  .verdict.careful .vlabel { color: #8d6e00; }
+  .verdict.danger { background: #fdecea; border: 2px solid #d32f2f; }
+  .verdict.danger .vlabel { color: #b71c1c; }
+  .verdict .vet { font-weight: 700; margin-top: 8px; }
+  .samples { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+  .samples button { font-size: .95rem; font-weight: 600; padding: 11px 14px; border-radius: 999px; border: 2px solid #c9d8c9; background: #f9fbf9; cursor: pointer; min-height: 46px; }
+  button.analyze { width: 100%; font-size: 1.1rem; font-weight: 800; padding: 15px; border: none; border-radius: 12px; background: #2e7d32; color: #fff; cursor: pointer; min-height: 54px; }
+  .fresult { margin-top: 16px; display: none; }
+  .fresult.show { display: block; }
+  .fbanner { border-radius: 14px; padding: 14px 16px; font-size: 1.3rem; font-weight: 800; text-align: center; }
+  .fbanner.clean { background: #e8f5e9; border: 2px solid #43a047; color: #1b5e20; }
+  .fbanner.some { background: #fff8e1; border: 2px solid #f9a825; color: #8d6e00; }
+  .fbanner.many { background: #fdecea; border: 2px solid #d32f2f; color: #b71c1c; }
+  .fresult h3 { margin: 16px 0 8px; font-size: 1.05rem; }
+  .flagrow { border: 1px solid #e0e7e0; border-left: 6px solid #f9a825; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; background: #fffdf5; }
+  .flagrow.hard { border-left-color: #d32f2f; background: #fff8f8; }
+  .flagrow b { display: block; }
+  .flagrow span { color: #4c5f4e; font-size: .93rem; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { background: #fdecea; border: 1.5px solid #d32f2f; color: #b71c1c; font-weight: 700; border-radius: 999px; padding: 7px 13px; font-size: .93rem; }
+  .none { color: #4c5f4e; }
+  .foot { font-size: .88rem; color: #66766a; margin-top: 16px; border-top: 1px dashed #c9d8c9; padding-top: 10px; }
+  .testtag { text-align: center; font-size: .82rem; color: #8a9a8d; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div>
+      <h1 data-i18n="title">Is It Safe?</h1>
+      <p class="sub" data-i18n="subtitle">Quick plain-word checkers for your pets and your food.</p>
+    </div>
+    <div class="langbox">
+      <label for="lang" data-i18n="language">Language</label>
+      <select id="lang" aria-label="Language">
+        <option value="en">English</option>
+        <option value="es">Español</option>
+        <option value="fr">Français</option>
+        <option value="de">Deutsch</option>
+        <option value="pt">Português</option>
+        <option value="it">Italiano</option>
+        <option value="nl">Nederlands</option>
+        <option value="pl">Polski</option>
+        <option value="tr">Türkçe</option>
+        <option value="ru">Русский</option>
+        <option value="uk">Українська</option>
+        <option value="ar">العربية</option>
+        <option value="hi">हिन्दी</option>
+        <option value="zh">中文</option>
+        <option value="ja">日本語</option>
+        <option value="ko">한국어</option>
+        <option value="id">Bahasa Indonesia</option>
+        <option value="vi">Tiếng Việt</option>
+      </select>
+    </div>
+  </header>
+
+  <div class="choices">
+    <a class="choice" href="#pet">
+      <div class="big">🐾</div>
+      <h2 data-i18n="petTitle">Pet Checker</h2>
+      <p data-i18n="petDesc">Can my dog or cat eat this?</p>
+    </a>
+    <a class="choice" href="#food">
+      <div class="big">🧪</div>
+      <h2 data-i18n="foodTitle">Food Analyzer</h2>
+      <p data-i18n="foodDesc">What is really in this food label?</p>
+    </a>
+  </div>
+
+  <div class="dairy">
+    <span data-i18n="dairyNote">Checking for dairy or allergens in your own food?</span>
+    <a href="/dairy-check/" data-i18n="dairyLink">Open the Dairy Checker →</a>
+  </div>
+
+  <section class="card" id="pet">
+    <h2>🐾 <span data-i18n="petTitle">Pet Checker</span></h2>
+    <p class="desc" data-i18n="petDesc">Can my dog or cat eat this?</p>
+    <div class="toggle">
+      <button id="btnDog" class="on" type="button">🐶 <span data-i18n="dog">Dog</span></button>
+      <button id="btnCat" type="button">🐱 <span data-i18n="cat">Cat</span></button>
+    </div>
+    <input type="search" id="petSearch" data-i18n-ph="petSearchPh" placeholder="Search a food or plant…">
+    <div class="grid" id="petGrid"></div>
+    <div class="verdict" id="petVerdict"></div>
+    <p class="foot" data-i18n="petFooter">Starter list for testing — not veterinary advice. If your pet ate something dangerous, call your vet now.</p>
+  </section>
+
+  <section class="card" id="food">
+    <h2>🧪 <span data-i18n="foodTitle">Food Analyzer</span></h2>
+    <p class="desc" data-i18n="foodDesc">What is really in this food label?</p>
+    <textarea id="foodText" data-i18n-ph="foodPh" placeholder="Paste the ingredient list from any food label…"></textarea>
+    <div class="samples">
+      <button type="button" data-sample="candy">🍬 <span data-i18n="sampleCandy">Try: Candy</span></button>
+      <button type="button" data-sample="soda">🥤 <span data-i18n="sampleSoda">Try: Soda</span></button>
+      <button type="button" data-sample="yogurt">🥣 <span data-i18n="sampleYogurt">Try: Plain Yogurt</span></button>
+    </div>
+    <button class="analyze" id="btnAnalyze" type="button" data-i18n="analyze">Analyze</button>
+    <div class="fresult" id="foodResult"></div>
+    <p class="foot" data-i18n="foodFooter">Starter list for testing — not medical advice.</p>
+  </section>
+
+  <p class="testtag">Is It Safe? — test version</p>
+</div>
+
+<script>
+"use strict";
+/* ============ i18n (EN complete, ES complete for main labels, others fall back to EN) ============ */
+var I18N = {
+  en: { title:"Is It Safe?", subtitle:"Quick plain-word checkers for your pets and your food.", language:"Language",
+    petTitle:"Pet Checker", petDesc:"Can my dog or cat eat this?", foodTitle:"Food Analyzer", foodDesc:"What is really in this food label?",
+    dairyNote:"Checking for dairy or allergens in your own food?", dairyLink:"Open the Dairy Checker →",
+    dog:"Dog", cat:"Cat", petSearchPh:"Search a food or plant…",
+    safe:"SAFE", careful:"BE CAREFUL", danger:"DANGER",
+    vetLine:"If your pet already ate this, call your vet now.",
+    petFooter:"Starter list for testing — not veterinary advice. If your pet ate something dangerous, call your vet now.",
+    foodPh:"Paste the ingredient list from any food label…",
+    sampleCandy:"Try: Candy", sampleSoda:"Try: Soda", sampleYogurt:"Try: Plain Yogurt", analyze:"Analyze",
+    clean:"CLEAN", some:"SOME FLAGS", many:"MANY FLAGS",
+    flagsTitle:"Flagged ingredients", allergensTitle:"Allergens found", sugarsLine:"Added-sugar names found",
+    noFlags:"Nothing on our flag list was found in this label.", noAllergens:"None of the big-9 allergens were found.",
+    foodFooter:"Starter list for testing — not medical advice." },
+  es: { title:"¿Es seguro?", subtitle:"Comprobaciones rápidas y claras para tus mascotas y tu comida.", language:"Idioma",
+    petTitle:"Revisor de Mascotas", petDesc:"¿Mi perro o mi gato puede comer esto?", foodTitle:"Analizador de Alimentos", foodDesc:"¿Qué hay realmente en esta etiqueta?",
+    dairyNote:"¿Buscas lácteos o alérgenos en tu propia comida?", dairyLink:"Abrir el Revisor de Lácteos →",
+    dog:"Perro", cat:"Gato", petSearchPh:"Busca un alimento o planta…",
+    safe:"SEGURO", careful:"CON CUIDADO", danger:"PELIGRO",
+    vetLine:"Si tu mascota ya comió esto, llama a tu veterinario ahora.",
+    petFooter:"Lista inicial para pruebas — no es consejo veterinario. Si tu mascota comió algo peligroso, llama a tu veterinario ahora.",
+    foodPh:"Pega la lista de ingredientes de cualquier etiqueta…",
+    sampleCandy:"Probar: Dulce", sampleSoda:"Probar: Refresco", sampleYogurt:"Probar: Yogur natural", analyze:"Analizar",
+    clean:"LIMPIO", some:"ALGUNAS ALERTAS", many:"MUCHAS ALERTAS",
+    flagsTitle:"Ingredientes marcados", allergensTitle:"Alérgenos encontrados", sugarsLine:"Nombres de azúcar añadido encontrados",
+    noFlags:"No se encontró nada de nuestra lista de alertas en esta etiqueta.", noAllergens:"No se encontró ninguno de los 9 alérgenos principales.",
+    foodFooter:"Lista inicial para pruebas — no es consejo médico." }
+};
+var LANG = "en";
+function t(k){ var d = I18N[LANG] || I18N.en; return d[k] || I18N.en[k] || k; }
+
+/* ============ PET DATA (starter list, ASPCA-style published toxicity knowledge) ============
+   v: [level, plain reason]  level: safe | careful | danger.  "both" applies to dog+cat unless overridden. */
+var PET_ITEMS = [
+ { n:"Chocolate", e:"🍫", aka:"cocoa cacao candy", both:["danger","Contains theobromine and caffeine — toxic to pets. Dark chocolate and cocoa powder are the most dangerous."] },
+ { n:"Grapes & Raisins", e:"🍇", aka:"grape raisin currant", both:["danger","Can cause sudden kidney failure, even in small amounts."] },
+ { n:"Xylitol (Birch Sugar)", e:"🍬", aka:"xylitol birch sugar gum", dog:["danger","Can cause a dangerous blood-sugar crash and liver failure in dogs — even one pack of gum."], cat:["careful","Not proven safe for cats — keep it away from them too."] },
+ { n:"Onion", e:"🧅", aka:"onion powder", both:["danger","Damages red blood cells and can cause anemia — raw, cooked or powdered."] },
+ { n:"Garlic", e:"🧄", aka:"garlic powder", both:["danger","Same family as onion — damages red blood cells, even in small amounts."] },
+ { n:"Chives", e:"🌿", aka:"chive scallion", both:["danger","Allium family, like onion and garlic — toxic to red blood cells."] },
+ { n:"Macadamia Nuts", e:"🥜", aka:"macadamia nut", dog:["danger","Can cause weakness, shaking, vomiting and overheating in dogs."], cat:["careful","Not well studied in cats — safest to avoid."] },
+ { n:"Avocado", e:"🥑", aka:"avocado guacamole", both:["careful","The flesh can upset stomachs, and the pit is a choking and blockage risk."] },
+ { n:"Coffee & Caffeine", e:"☕", aka:"coffee caffeine espresso energy drink", both:["danger","Caffeine is toxic to pets — can cause a racing heart, tremors and seizures."] },
+ { n:"Alcohol", e:"🍺", aka:"alcohol beer wine liquor", both:["danger","Even small amounts can cause dangerous drops in blood sugar, temperature and breathing."] },
+ { n:"Cooked Bones", e:"🦴", aka:"bone bones chicken bone rib", both:["danger","Cooked bones splinter — they can choke a pet or tear the stomach and intestines."] },
+ { n:"Raw Yeast Dough", e:"🍞", aka:"dough yeast bread dough pizza dough", both:["danger","Yeast dough expands in the stomach and produces alcohol as it rises."] },
+ { n:"Lilies", e:"🌸", aka:"lily lilies easter lily tiger lily", dog:["careful","True lilies are much less dangerous to dogs, but can still upset the stomach."], cat:["danger","Extremely toxic to cats — even licking pollen or drinking the vase water can cause kidney failure."] },
+ { n:"Tulips", e:"🌷", aka:"tulip bulb", both:["careful","The bulb is the most toxic part — can cause drooling, vomiting and diarrhea."] },
+ { n:"Aloe Vera", e:"🪴", aka:"aloe plant", both:["careful","Can cause vomiting, diarrhea and shaking."] },
+ { n:"Tomato", e:"🍅", aka:"tomato plant", both:["careful","Green parts, stems and leaves contain solanine. Ripe red tomato in small bits is fine."] },
+ { n:"Apple", e:"🍎", aka:"apple seeds core", both:["careful","The flesh is a fine treat — but the seeds contain a cyanide compound and the core can choke."] },
+ { n:"Banana", e:"🍌", aka:"banana", both:["safe","Safe treat — high in natural sugar, so keep the pieces small."] },
+ { n:"Carrot", e:"🥕", aka:"carrot", both:["safe","Safe, crunchy and good for teeth."] },
+ { n:"Peanut Butter", e:"🥜", aka:"peanut butter", both:["careful","Fine ONLY if it is xylitol-free — always check the label first. High in fat, so small amounts."] },
+ { n:"Milk", e:"🥛", aka:"milk lactose dairy", both:["careful","Most adult dogs and cats cannot digest lactose well — it often causes diarrhea."] },
+ { n:"Cheese", e:"🧀", aka:"cheese", both:["careful","Small amounts are usually OK — it is high in fat and lactose."] },
+ { n:"Cooked Chicken", e:"🍗", aka:"chicken cooked plain", both:["safe","Plain, cooked, boneless and skinless is a great treat. No seasoning, no bones."] },
+ { n:"Raw Chicken", e:"🍗", aka:"chicken raw", both:["careful","Raw meat can carry salmonella and other bacteria — risky for pets and for people."] },
+ { n:"Cooked Salmon", e:"🐟", aka:"salmon fish cooked", both:["safe","Cooked, plain and boneless is fine. Never feed raw salmon — it can carry a dangerous parasite."] },
+ { n:"Cooked Eggs", e:"🥚", aka:"egg eggs cooked", both:["safe","Cooked eggs are a healthy protein treat. Avoid raw eggs — salmonella risk."] },
+ { n:"Blueberries", e:"🫐", aka:"blueberry berries", both:["safe","Safe, healthy little treats full of antioxidants."] },
+ { n:"Watermelon", e:"🍉", aka:"watermelon melon", both:["safe","Safe and hydrating — remove the seeds and rind first."] },
+ { n:"Cucumber", e:"🥒", aka:"cucumber", both:["safe","Safe, low-calorie crunchy treat."] },
+ { n:"Popcorn", e:"🍿", aka:"popcorn", both:["careful","Plain air-popped only. Unpopped kernels can choke, and butter and salt are unhealthy."] },
+ { n:"Plain Bread", e:"🍞", aka:"bread toast", both:["careful","Small amounts will not hurt, but it is empty calories. Never feed raw dough."] },
+ { n:"Corn", e:"🌽", aka:"corn cob", both:["careful","Kernels off the cob are fine — the cob itself can block the intestines."] },
+ { n:"Wild Mushrooms", e:"🍄", aka:"mushroom wild toadstool", both:["danger","Some wild mushrooms are deadly. Never let a pet eat mushrooms found outside."] },
+ { n:"Nutmeg", e:"🌰", aka:"nutmeg spice", both:["danger","Contains myristicin — can cause hallucinations, a racing heart and seizures."] },
+ { n:"Salt", e:"🧂", aka:"salt salty sodium", both:["careful","A little in food is fine — too much salt can cause dangerous sodium poisoning."] },
+ { n:"Ice Cream", e:"🍦", aka:"ice cream", both:["careful","Sugar and lactose upset stomachs — and chocolate or xylitol flavors are dangerous."] },
+ { n:"Hot Dogs", e:"🌭", aka:"hot dog sausage frankfurter", both:["careful","Very high in salt and fat, and often contain onion and garlic powder."] },
+ { n:"Green Beans", e:"🫛", aka:"green beans beans", both:["safe","Safe, filling and low in calories."] },
+ { n:"Pumpkin (plain)", e:"🎃", aka:"pumpkin", both:["safe","Plain cooked pumpkin is good for digestion. Never use spiced pie filling."] },
+ { n:"Sweet Potato", e:"🍠", aka:"sweet potato yam", both:["safe","Cooked, plain sweet potato is a healthy treat."] },
+ { n:"Spinach", e:"🥬", aka:"spinach", both:["careful","Fine in small amounts — high in oxalic acid, so not an everyday food."] },
+ { n:"Cinnamon", e:"🫚", aka:"cinnamon", both:["careful","A tiny sprinkle is OK — large amounts or cinnamon oil can irritate the mouth and stomach."] },
+ { n:"Honey", e:"🍯", aka:"honey", both:["careful","Safe in tiny amounts — it is pure sugar, so keep it rare."] },
+ { n:"Cooked Shrimp", e:"🍤", aka:"shrimp prawn cooked", both:["safe","Cooked, peeled and plain shrimp is fine in small amounts."] },
+ { n:"Tuna", e:"🐠", aka:"tuna fish canned", both:["careful","Occasional small amounts are OK — too much can mean too much mercury, and tuna alone is not complete nutrition."] }
+];
+function getPetVerdict(item, pet){ var v = item[pet] || item.both; return { level: v[0], reason: v[1] }; }
+
+/* ============ FOOD ANALYZER DATA ============
+   level: "flag" = widely-recognized concern, "careful" = worth knowing. Tone stays factual. */
+var FOOD_FLAGS = [
+ { label:"High Fructose Corn Syrup", rx:/high fructose corn syrup/i, level:"flag", reason:"Heavily processed added sugar — linked to obesity and type 2 diabetes." },
+ { label:"Partially Hydrogenated Oil (trans fat)", rx:/partially hydrogenated/i, level:"flag", reason:"The main source of artificial trans fat — banned in many places." },
+ { label:"Trans Fat", rx:/trans (fat|fatty)/i, level:"flag", reason:"Artificial trans fat — strongly linked to heart disease." },
+ { label:"Sodium Nitrite", rx:/sodium nitrite/i, level:"flag", reason:"Cured-meat preservative — linked to health concerns." },
+ { label:"Sodium Nitrate", rx:/sodium nitrate/i, level:"flag", reason:"Cured-meat preservative — linked to health concerns." },
+ { label:"BHA", rx:/butylated hydroxyanisole|\bbha\b/i, level:"flag", reason:"Artificial preservative linked to health concerns — restricted in some countries." },
+ { label:"BHT", rx:/butylated hydroxytoluene|\bbht\b/i, level:"flag", reason:"Artificial preservative." },
+ { label:"TBHQ", rx:/\btbhq\b|tert-butylhydroquinone/i, level:"flag", reason:"Artificial preservative." },
+ { label:"Propyl Gallate", rx:/propyl gallate/i, level:"flag", reason:"Artificial preservative." },
+ { label:"Titanium Dioxide", rx:/titanium dioxide/i, level:"flag", reason:"White color additive — banned as a food additive in the EU over safety concerns." },
+ { label:"Potassium Bromate", rx:/potassium bromate/i, level:"flag", reason:"Flour additive banned in many countries." },
+ { label:"Aspartame", rx:/aspartame/i, level:"careful", reason:"Artificial sweetener." },
+ { label:"Sucralose", rx:/sucralose/i, level:"careful", reason:"Artificial sweetener." },
+ { label:"Acesulfame Potassium", rx:/acesulfame/i, level:"careful", reason:"Artificial sweetener." },
+ { label:"Saccharin", rx:/saccharin/i, level:"careful", reason:"Artificial sweetener." },
+ { label:"Red 40", rx:/red 40|allura red/i, level:"careful", reason:"Artificial color." },
+ { label:"Yellow 5", rx:/yellow 5|tartrazine/i, level:"careful", reason:"Artificial color — some people are sensitive to it." },
+ { label:"Yellow 6", rx:/yellow 6|sunset yellow/i, level:"careful", reason:"Artificial color." },
+ { label:"Blue 1", rx:/blue 1|brilliant blue/i, level:"careful", reason:"Artificial color." },
+ { label:"Blue 2", rx:/blue 2|indigo carmine/i, level:"careful", reason:"Artificial color." },
+ { label:"Caramel Color", rx:/caramel colou?r/i, level:"careful", reason:"Artificial color." },
+ { label:"MSG (monosodium glutamate)", rx:/monosodium glutamate|\bmsg\b/i, level:"careful", reason:"Flavor enhancer — some people are sensitive to it." },
+ { label:"Sodium Benzoate", rx:/sodium benzoate/i, level:"careful", reason:"Common preservative." },
+ { label:"Potassium Sorbate", rx:/potassium sorbate/i, level:"careful", reason:"Common preservative." },
+ { label:"Calcium Propionate", rx:/calcium propionate/i, level:"careful", reason:"Common preservative (mold inhibitor)." },
+ { label:"Carrageenan", rx:/carrageenan/i, level:"careful", reason:"Thickener — some people report digestive sensitivity." },
+ { label:"Propylene Glycol", rx:/propylene glycol/i, level:"careful", reason:"Synthetic additive used to keep food moist." },
+ { label:"Phosphoric Acid / Phosphates", rx:/phosphoric acid|sodium phosphate|dicalcium phosphate/i, level:"careful", reason:"Phosphate additive — frequent added-phosphate intake is a concern for kidneys." },
+ { label:"Polysorbate", rx:/polysorbate/i, level:"careful", reason:"Synthetic emulsifier." },
+ { label:"Artificial Flavor", rx:/artificial flavou?r/i, level:"careful", reason:"Lab-made flavoring." },
+ { label:"Sugar Alcohols", rx:/erythritol|sorbitol|maltitol|\bxylitol\b/i, level:"careful", reason:"Sugar alcohol sweeteners — can cause digestive upset in larger amounts." },
+ { label:"Caffeine", rx:/caffeine/i, level:"careful", reason:"Stimulant — worth watching, especially for kids." },
+ { label:"Palm Oil", rx:/palm (kernel )?oil/i, level:"careful", reason:"High in saturated fat." }
+];
+var SUGAR_NAMES = ["high fructose corn syrup","fruit juice concentrate","brown rice syrup","cane sugar","brown sugar","invert sugar","barley malt","malt syrup","rice syrup","maple syrup","cane juice","corn syrup","dextrose","maltodextrin","fructose","glucose","sucrose","molasses","agave","honey","turbinado","demerara","sorghum","sugar"];
+var ALLERGENS = [
+ { name:"Milk", rx:/\bmilk\b|whey|casein|lactose|\bbutter\b|\bcream\b|cheese|yogurt|yoghurt|\bghee\b/i },
+ { name:"Egg", rx:/\beggs?\b|albumin|mayonnaise|lysozyme/i },
+ { name:"Peanut", rx:/peanut/i },
+ { name:"Tree Nuts", rx:/almond|walnut|cashew|hazelnut|pecan|pistachio|macadamia|brazil nut|coconut|chestnut|pine nut/i },
+ { name:"Soy", rx:/\bsoy\b|soya|soybean|tofu|edamame/i },
+ { name:"Wheat / Gluten", rx:/wheat|gluten|barley|\brye\b|semolina|spelt/i },
+ { name:"Fish", rx:/\bfish\b|anchov|salmon|\btuna\b|\bcod\b|sardine|mackerel/i },
+ { name:"Shellfish", rx:/shellfish|shrimp|crab|lobster|\bclam|oyster|scallop|mussel/i },
+ { name:"Sesame", rx:/sesame|tahini/i }
+];
+var SAMPLES = {
+  candy: "Sugar, Corn Syrup, High Fructose Corn Syrup, Modified Corn Starch, Citric Acid, Natural and Artificial Flavors, Red 40, Yellow 5, Yellow 6, Blue 1, Carnauba Wax.",
+  soda: "Carbonated Water, High Fructose Corn Syrup, Caramel Color, Phosphoric Acid, Natural Flavors, Caffeine.",
+  yogurt: "Cultured Grade A Milk, Live Active Cultures (L. Bulgaricus, S. Thermophilus, B. Lactis)."
+};
+function analyzeFood(text){
+  var raw = " " + String(text || "") + " ";
+  var flags = [], i, m;
+  for (i = 0; i < FOOD_FLAGS.length; i++){ if (FOOD_FLAGS[i].rx.test(raw)) flags.push(FOOD_FLAGS[i]); }
+  /* Count distinct added-sugar names; mask each found name so substrings don't double-count. */
+  var work = raw.toLowerCase(), sugars = [];
+  for (i = 0; i < SUGAR_NAMES.length; i++){
+    var nm = SUGAR_NAMES[i];
+    if (work.indexOf(nm) !== -1){ sugars.push(nm); work = work.split(nm).join(" "); }
+  }
+  /* HFCS is already reported as its own flag — don't count it again as a sugar name. */
+  sugars = sugars.filter(function(s){ return s !== "high fructose corn syrup"; });
+  var allergens = [];
+  for (i = 0; i < ALLERGENS.length; i++){ if (ALLERGENS[i].rx.test(raw)) allergens.push(ALLERGENS[i].name); }
+  var score = 0;
+  flags.forEach(function(f){ score += (f.level === "flag" ? 2 : 1); });
+  score += Math.min(sugars.length, 3);
+  var verdict = score === 0 ? "clean" : (score <= 4 ? "some" : "many");
+  return { verdict: verdict, score: score, flags: flags, sugars: sugars, allergens: allergens };
+}
+
+/* ============ PAGE WIRING ============ */
+if (typeof document !== "undefined") {
+  var pet = "dog", currentItem = null;
+  function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;"); }
+  function applyLang(){
+    document.querySelectorAll("[data-i18n]").forEach(function(el){ el.textContent = t(el.getAttribute("data-i18n")); });
+    document.querySelectorAll("[data-i18n-ph]").forEach(function(el){ el.setAttribute("placeholder", t(el.getAttribute("data-i18n-ph"))); });
+    if (currentItem) showVerdict(currentItem);
+  }
+  function renderGrid(filter){
+    var grid = document.getElementById("petGrid"); grid.innerHTML = "";
+    PET_ITEMS.forEach(function(item){
+      if (filter){ var hay = (item.n + " " + (item.aka || "")).toLowerCase(); if (hay.indexOf(filter.toLowerCase()) === -1) return; }
+      var b = document.createElement("button"); b.type = "button";
+      b.textContent = item.e + " " + item.n;
+      b.addEventListener("click", function(){ showVerdict(item); });
+      grid.appendChild(b);
+    });
+  }
+  function showVerdict(item){
+    currentItem = item;
+    var v = getPetVerdict(item, pet), box = document.getElementById("petVerdict");
+    box.className = "verdict show " + v.level;
+    var label = v.level === "safe" ? t("safe") : (v.level === "careful" ? t("careful") : t("danger"));
+    var html = '<div class="vitem">' + esc(item.e + " " + item.n) + " — " + (pet === "dog" ? t("dog") : t("cat")) + '</div>' +
+               '<div class="vlabel">' + label + '</div><p>' + esc(v.reason) + '</p>';
+    if (v.level === "danger") html += '<p class="vet">🚨 ' + esc(t("vetLine")) + '</p>';
+    box.innerHTML = html;
+    box.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+  function setPet(p){
+    pet = p;
+    document.getElementById("btnDog").className = p === "dog" ? "on" : "";
+    document.getElementById("btnCat").className = p === "cat" ? "on" : "";
+    if (currentItem) showVerdict(currentItem);
+  }
+  document.getElementById("btnDog").addEventListener("click", function(){ setPet("dog"); });
+  document.getElementById("btnCat").addEventListener("click", function(){ setPet("cat"); });
+  document.getElementById("petSearch").addEventListener("input", function(ev){ renderGrid(ev.target.value.trim()); });
+  document.getElementById("lang").addEventListener("change", function(ev){ LANG = ev.target.value; applyLang(); });
+  document.querySelectorAll("[data-sample]").forEach(function(b){
+    b.addEventListener("click", function(){ document.getElementById("foodText").value = SAMPLES[b.getAttribute("data-sample")]; runFood(); });
+  });
+  document.getElementById("btnAnalyze").addEventListener("click", runFood);
+  function runFood(){
+    var r = analyzeFood(document.getElementById("foodText").value), box = document.getElementById("foodResult");
+    var vlabel = r.verdict === "clean" ? t("clean") : (r.verdict === "some" ? t("some") : t("many"));
+    var html = '<div class="fbanner ' + r.verdict + '">' + vlabel + '</div>';
+    html += '<h3>' + esc(t("flagsTitle")) + '</h3>';
+    if (r.flags.length === 0 && r.sugars.length === 0) html += '<p class="none">' + esc(t("noFlags")) + '</p>';
+    r.flags.forEach(function(f){ html += '<div class="flagrow' + (f.level === "flag" ? " hard" : "") + '"><b>' + esc(f.label) + '</b><span>' + esc(f.reason) + '</span></div>'; });
+    if (r.sugars.length) html += '<div class="flagrow"><b>' + esc(t("sugarsLine")) + ': ' + r.sugars.length + '</b><span>' + esc(r.sugars.join(", ")) + '</span></div>';
+    html += '<h3>' + esc(t("allergensTitle")) + '</h3>';
+    if (r.allergens.length === 0) html += '<p class="none">' + esc(t("noAllergens")) + '</p>';
+    else { html += '<div class="chips">'; r.allergens.forEach(function(a){ html += '<span class="chip">' + esc(a) + '</span>'; }); html += '</div>'; }
+    box.innerHTML = html; box.className = "fresult show";
+  }
+  renderGrid("");
+}
+</script>
+</body>
+</html>
